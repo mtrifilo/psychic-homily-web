@@ -11,3 +11,8 @@ theme = 'ananke'
   venue = "venues"
   band = "bands"
   category = "categories"
+
+[sitemap]
+  changefreq = "weekly"
+  priority = 0.5
+  filename = "sitemap.xml"
