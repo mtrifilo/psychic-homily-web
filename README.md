@@ -49,6 +49,8 @@ There are two ways to add new shows:
 
 The project includes a custom script that uses Claude AI to parse natural language show announcements into structured data.
 
+https://github.com/user-attachments/assets/0612af17-5d4a-4594-92c3-d8712ccba77f
+
 1. Run the parser:
 
 ```bash

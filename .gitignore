@@ -25,3 +25,6 @@ Thumbs.db
 *.swo 
 
 .env
+
+# Node.js
+node_modules/
