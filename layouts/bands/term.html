@@ -1,0 +1,39 @@
+{{ define "main" }}
+<article class="pa3 pa4-ns nested-copy-line-height nested-img">
+  {{ $band_id := .Data.Term }} {{ $band_data := index site.Data.bands $band_id
+  }}
+
+  <div class="w-100 w-70-ns center">
+    <h1 class="f2 lh-title mb3">
+      {{ with $band_data }}{{ .name }}{{ else }}{{ $band_id | humanize }}{{ end
+      }}
+    </h1>
+
+    {{ with $band_data }} {{ with .url }}
+    <p class="f4"><a href="{{ . }}" class="link dim black">Website</a></p>
+    {{ end }} {{ with .social }}
+    <div class="f5 gray mb4">
+      {{ with .instagram }}<a
+        href="https://instagram.com/{{ . }}"
+        class="link dim black mr3"
+        >Instagram</a
+      >{{ end }} {{ with .bandcamp }}<a
+        href="https://{{ . }}.bandcamp.com"
+        class="link dim black mr3"
+        >Bandcamp</a
+      >{{ end }}
+    </div>
+    {{ end }} {{ end }}
+
+    <h2 class="f3 mt4">Upcoming Shows</h2>
+    {{ $shows := where .Pages "Params.event_date" "ge" now }} {{ $sortedShows :=
+    sort $shows "Params.event_date" "asc" }} {{ range $sortedShows }} {{ .Render
+    "summary" }} {{ end }}
+
+    <h2 class="f3 mt4">Past Shows</h2>
+    {{ $shows := where .Pages "Params.event_date" "lt" now }} {{ $sortedShows :=
+    sort $shows "Params.event_date" "desc" }} {{ range $sortedShows }} {{
+    .Render "summary" }} {{ end }}
+  </div>
+</article>
+{{ end }}

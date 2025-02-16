@@ -1,0 +1,14 @@
+{
+  "name": "psychic-homily-web",
+  "version": "1.0.0",
+  "scripts": {
+    "new-show": "node scripts/parse-show.js",
+    "parse-bandcamp": "node scripts/parse-bandcamp.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.17.1",
+    "dotenv": "^16.4.5",
+    "js-yaml": "^4.1.0",
+    "prompts": "^2.4.2"
+  }
+}

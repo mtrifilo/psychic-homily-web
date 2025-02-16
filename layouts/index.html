@@ -1,0 +1,16 @@
+{{ define "main" }} {{ if .Content }}
+<article class="cf ph3 ph5-l pv3 pv4-l f4 center measure-wide lh-copy mid-gray">
+  {{ .Content }}
+</article>
+{{ end }}
+
+<div class="pa3 pa4-ns w-100 w-70-ns center">
+  <h1 class="flex justify-center f2 mb3">Upcoming Shows</h1>
+
+  {{ $currentTime := time.Now }} {{ $shows := where .Site.RegularPages "Section"
+  "shows" }} {{ $upcomingShows := where $shows "Params.event_date" "gt"
+  ($currentTime.Format "2006-01-02") }} {{ $sortedShows := sort $upcomingShows
+  "Params.event_date" "asc" }} {{ partial "show-list.html" (dict "shows"
+  $sortedShows) }}
+</div>
+{{ end }}

@@ -1,0 +1,234 @@
+{{ $featured_image := partial "func/GetFeaturedImage.html" . }}
+{{ if $featured_image }}
+  {{/* Trimming the slash and adding absURL make sure the image works no matter where our site lives */}}
+  {{ $featured_image_class := site.Params.featured_image_class | default "cover bg-top" }}
+  <header class="{{ $featured_image_class }}" style="background-image: url('{{ $featured_image }}');">
+    {{ $cover_dimming_class := site.Params.cover_dimming_class | default "bg-black-60" }}
+    <div class="{{ $cover_dimming_class }}">
+      {{ partial "site-navigation.html" .}}
+      <div class="tc-l pv4 pv6-l ph3 ph4-ns">
+        <div class="w5 center mb4">
+          <svg width="0" height="0">
+            <defs>
+              <filter id="glitch">
+                <!-- Base turbulence for subtle movement -->
+                <feTurbulence type="fractalNoise" baseFrequency="0.003 0.002" numOctaves="1" seed="1" result="noise1">
+                  <animate attributeName="seed" dur="2s" values="1;2;3;4;5;6;7;8;1" repeatCount="indefinite"/>
+                </feTurbulence>
+                <feDisplacementMap in="SourceGraphic" in2="noise1" scale="3" result="base"/>
+                
+                <!-- Glitch layer -->
+                <feTurbulence type="fractalNoise" baseFrequency="0.09" numOctaves="1" seed="1" result="noise2">
+                  <animate attributeName="seed" dur="0.3s" values="1;5;1" repeatCount="indefinite" 
+                    calcMode="discrete"/>
+                </feTurbulence>
+                <feDisplacementMap in="base" in2="noise2" scale="1"/>
+              </filter>
+            </defs>
+          </svg>
+          <img src="/PsychicHomilyLogov2.svg" alt="Psychic Homily Logo" class="w-100 glitch-logo">
+        </div>
+        <h1 class="f2 f-subheadline-l fw2 white-90 mb0 lh-title">
+          {{ .Title | default .Site.Title }}
+        </h1>
+        {{ with .Params.description }}
+          <h2 class="fw1 f5 f3-l white-80 measure-wide-l center mt3">
+            {{ . }}
+          </h2>
+        {{ end }}
+      </div>
+    </div>
+  </header>
+{{ else }}
+  <header>
+    <div class="pb2-m pb0-l {{ .Site.Params.background_color_class | default "bg-black" }}">
+      {{ partial "site-navigation.html" . }}
+      <div class="tc-l ph3 ph4-ns crt-container">
+        <div class="star-1"></div>
+        <div class="star-2"></div>
+        <div class="star-3"></div>
+        <div class="star-4"></div>
+        <div class="star-5"></div>
+        <div class="star-6"></div>
+        <div class="w5 center" style="margin-top: -60px;">
+          <svg width="0" height="0">
+            <defs>
+              <filter id="glitch">
+                <!-- Base turbulence for subtle movement -->
+                <feTurbulence type="fractalNoise" baseFrequency="0.0003 0.02" numOctaves="3" seed="1" result="noise1">
+                  <animate attributeName="seed" dur="3s" values="1;2;3;4;5;6;7;8;1" repeatCount="indefinite"/>
+                </feTurbulence>
+                <feDisplacementMap in="SourceGraphic" in2="noise2" scale="5" result="base"/>
+                
+                <!-- Glitch layer -->
+                <feTurbulence type="fractalNoise" baseFrequency="0.09" numOctaves="1" seed="1" result="noise2">
+                  <animate attributeName="seed" dur="0.3s" values="1;5" repeatCount="indefinite" 
+                    calcMode="discrete"/>
+                </feTurbulence>
+                <feDisplacementMap in="base" in2="noise2" scale="1"/>
+              </filter>
+            </defs>
+          </svg>
+          <img src="/PsychicHomilyLogov2.svg" alt="Psychic Homily Logo" class="w-100 glitch-logo">
+        </div>
+        {{ with .Params.description }}
+          <h2 class="fw1 f5 f3-l white-80 measure-wide-l center lh-copy mt3 mb4">
+            {{ . }}
+          </h2>
+        {{ end }}
+      </div>
+    </div>
+  </header>
+{{ end }}
+
+<style>
+.glitch-logo {
+  filter: url(#glitch);
+  mix-blend-mode: normal;
+  position: relative;
+  z-index: 2;
+}
+
+.crt-container {
+  position: relative;
+  overflow: hidden;
+  perspective: 1000px;
+  height: 200px;
+}
+
+@keyframes shootingStar {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(215deg) scale(0);
+    opacity: 0;
+  }
+  5% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(100vw, -100vh, 100px) rotate(215deg) scale(1);
+    opacity: 0;
+  }
+}
+
+.crt-container::before,
+.crt-container::after {
+  content: "";
+  position: absolute;
+  width: 150px;
+  height: 3px;
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 50%, rgba(255,255,255,0) 100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.crt-container::before {
+  top: 30%;
+  left: -10%;
+  animation: shootingStar 3s linear infinite;
+  animation-delay: 1s;
+  transform-origin: left center;
+}
+
+.crt-container::after {
+  top: 60%;
+  left: 60%;
+  animation: shootingStar 2.5s linear infinite;
+  animation-delay: 0.5s;
+  transform-origin: left center;
+}
+
+/* Additional stars */
+.crt-container .star-1,
+.crt-container .star-2,
+.crt-container .star-3 {
+  position: absolute;
+  width: 80px;
+  height: 5px;
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 50%, rgba(255,255,255,0) 100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.crt-container .star-1 {
+  top: 45%;
+  left: 30%;
+  animation: shootingStar 4s linear infinite;
+  animation-delay: 2s;
+  transform-origin: left center;
+}
+
+.crt-container .star-2 {
+  top: 15%;
+  left: 50%;
+  animation: shootingStar 3.5s linear infinite;
+  animation-delay: 1.5s;
+  transform-origin: left center;
+}
+
+.crt-container .star-3 {
+  top: 75%;
+  left: -20%;
+  animation: shootingStar 3s linear infinite;
+  animation-delay: 0.2s;
+  transform-origin: left center;
+}
+
+/* Additional stars for right side */
+.crt-container .star-4,
+.crt-container .star-5,
+.crt-container .star-6 {
+  position: absolute;
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 50%, rgba(255,255,255,0) 100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.crt-container .star-4 {
+  width: 150px;
+  height: 7px;
+  top: 35%;
+  left: 60%;
+  animation: shootingStar 3.2s linear infinite;
+  animation-delay: 0.7s;
+  transform-origin: left center;
+}
+
+.crt-container .star-5 {
+  width: 180px;
+  height: 9px;
+  top: 15%;
+  left: 40%;
+  animation: shootingStar 3.8s linear infinite;
+  animation-delay: 1.8s;
+  transform-origin: left center;
+}
+
+.crt-container .star-6 {
+  width: 120px;
+  height: 8px;
+  top: 70%;
+  left: 50%;
+  animation: shootingStar 2.8s linear infinite;
+  animation-delay: 1.2s;
+  transform-origin: left center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glitch-logo {
+    filter: none;
+  }
+  .crt-container::before,
+  .crt-container::after,
+  .crt-container .star-1,
+  .crt-container .star-2,
+  .crt-container .star-3,
+  .crt-container .star-4,
+  .crt-container .star-5,
+  .crt-container .star-6 {
+    display: none;
+  }
+}
+</style>

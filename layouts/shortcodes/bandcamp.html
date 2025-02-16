@@ -1,0 +1,19 @@
+{{- $album := .Get "album" -}} {{- $artist := .Get "artist" -}} {{- $track :=
+.Get "track" -}} {{- $title := .Get "title" -}} {{- $size := default "large"
+(.Get "size") -}} {{- $artwork := default "small" (.Get "artwork") -}} {{-
+$bgcol := default "ffffff" (.Get "bgcol") -}} {{- $linkcol := default "0687f5"
+(.Get "linkcol") -}} {{- $tracklist := default "false" (.Get "tracklist") -}}
+{{- $height := default "120" (.Get "height") -}}
+
+<iframe
+  title="bandcamp"
+  style="border: 0; width: 100%; height: {{ $height }}px;"
+  src="https://bandcamp.com/EmbeddedPlayer/{{ with $album }}album={{ . }}/{{ end }}{{ with $track }}track={{ . }}/{{ end }}size={{ $size }}/bgcol={{ $bgcol }}/linkcol={{ $linkcol }}/tracklist={{ $tracklist }}/artwork={{ $artwork }}/transparent=true/"
+  seamless
+>
+  <a
+    href="https://{{ $artist }}.bandcamp.com/{{ with $album }}album/{{ $title }}{{ end }}{{ with $track }}track/{{ $title }}{{ end }}"
+  >
+    {{ $title }} by {{ $artist | humanize }}
+  </a>
+</iframe>

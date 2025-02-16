@@ -1,0 +1,27 @@
+{{ define "main" }}
+<article class="pa3 pa4-ns nested-copy-line-height nested-img">
+  <div class="w-100 w-70-ns center">
+    <h1 class="flex justify-center f2 mb3">Categories</h1>
+
+    <!-- Debug information -->
+    <div class="bg-light-gray pa3 mb4">
+      <p>Kind: {{ .Kind }}</p>
+      {{ range $key, $value := .Data.Terms }}
+      <p>Term: {{ $key }} ({{ len $value }} posts)</p>
+      {{ end }}
+    </div>
+
+    <section class="w-100 mw8">
+      {{ range .Data.Terms.Alphabetical }}
+      <article class="bb b--black-10 pb4 mt4">
+        <h2 class="f3 mt0 lh-title">
+          <a href="{{ .Page.RelPermalink }}" class="link dim black">
+            {{ .Page.Title }} ({{ .Count }})
+          </a>
+        </h2>
+      </article>
+      {{ end }}
+    </section>
+  </div>
+</article>
+{{ end }}

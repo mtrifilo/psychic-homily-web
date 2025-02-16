@@ -1,0 +1,66 @@
+{
+  "name": "@thenewdynamic/gohugo-theme-ananke",
+  "description": "Ananke: A theme for Hugo Sites",
+  "version": "2.11.2",
+  "license": "MIT",
+  "repository": "thenewdynamic/gohugo-theme-ananke",
+  "author": "Bud Parr (https://github.com/budparr)",
+  "maintainers": [
+    {
+      "name": "Patrick Kollitsch",
+      "url": "https://github.com/davidsneighbour"
+    }
+  ],
+  "contributors": [
+    {
+      "name": "Regis Philibert",
+      "url": "https://github.com/regisphilibert"
+    },
+    {
+      "name": "Patrick Kollitsch",
+      "url": "https://github.com/davidsneighbour"
+    }
+  ],
+  "bugs": "https://github.com/theNewDynamic/gohugo-theme-ananke/issues",
+  "homepage": "https://github.com/theNewDynamic/gohugo-theme-ananke#readme",
+  "keywords": [
+    "hugo",
+    "gohugo",
+    "hugo-theme",
+    "gohugo-theme",
+    "hugo-module",
+    "gohugo-module"
+  ],
+  "dependencies": {
+    "cssnano": "7.0.6",
+    "postcss": "8.5.1",
+    "postcss-preset-env": "10.1.3",
+    "tachyons": "4.12.0"
+  },
+  "devDependencies": {
+    "@davidsneighbour/markdownlint-config": "2025.0.1",
+    "@davidsneighbour/release-config": "2025.0.1",
+    "@davidsneighbour/tools": "2025.0.1",
+    "dotenv": "16.4.7"
+  },
+  "scripts": {
+    "deploy": "cd exampleSite; hugo;",
+    "release": "wireit",
+    "release:pre": "wireit",
+    "server": "wireit"
+  },
+  "wireit": {
+    "release": {
+      "command": "commit-and-tag-version --sign -a -t \"v\" --releaseCommitMessageFormat \"chore(release): v{{currentTag}}\" -- --no-verify"
+    },
+    "release:pre": {
+      "command": "commit-and-tag-version --sign -a -t \"v\" --releaseCommitMessageFormat \"chore(release): v{{currentTag}}\" --prerelease prerelease -- --no-verify"
+    },
+    "server": {
+      "command": "cd exampleSite; rm -rf public; hugo server -D -E -F --environment gargulus --navigateToChanged --disableFastRender --forceSyncStatic --verbose --logLevel debug --debug --tlsAuto --printI18nWarnings --printMemoryUsage --printPathWarnings --printUnusedTemplates --templateMetrics --templateMetricsHints"
+    },
+    "server:fail": {
+      "command": "cd exampleSite; rm -rf public; hugo server -D -E -F --environment gargulus --navigateToChanged --disableFastRender --forceSyncStatic --verbose --logLevel debug --debug --tlsAuto --panicOnWarning --printI18nWarnings --printMemoryUsage --printPathWarnings --printUnusedTemplates --templateMetrics --templateMetricsHints"
+    }
+  }
+}

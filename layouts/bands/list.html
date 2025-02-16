@@ -1,0 +1,25 @@
+{{ define "main" }}
+<article class="pa3 pa4-ns nested-copy-line-height nested-img">
+  <div class="w-100 w-70-ns center">
+    <h1 class="f2 lh-title mb3">Bands</h1>
+
+    <div class="flex flex-wrap">
+      {{ range .Pages }} {{ $band_id := .Data.Term }} {{ $band_data := index
+      site.Data.bands $band_id }}
+      <div class="w-100 w-third-ns pa2">
+        <a
+          href="{{ .RelPermalink }}"
+          class="link dim black db pa3 br2 bg-white"
+        >
+          <h2 class="f4 mb2">
+            {{ with $band_data }}{{ .name }}{{ else }}{{ $band_id | humanize
+            }}{{ end }}
+          </h2>
+          <p class="f6 gray mb0">{{ len .Pages }} shows</p>
+        </a>
+      </div>
+      {{ end }}
+    </div>
+  </div>
+</article>
+{{ end }}
