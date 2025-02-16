@@ -1,8 +1,11 @@
 # Psychic Homily Web
+### [https://psychichomily.com](https://psychichomily.com)
 
 A Hugo-based website to document and amplify some of the most exciting and memorable new music releases, shows, and cultural events from Arizona musicians and beyond, focusing on artists truly putting their hearts and souls into their work bravely.
 
 This website features a show list and blog, along with helper scripts for parsing data. An Anthropic API key is required for the show parser, which uses Claude's Sonnet 3.5 model for an agentic AI workflow to parse natural language show descriptions into structured data for new show listings.
+
+<img width="640" alt="Screenshot 2025-02-16 at 3 11 09 AM" src="https://github.com/user-attachments/assets/072b7211-05a4-45e4-9243-0187d37b2aef" />
 
 ## Prerequisites
 
