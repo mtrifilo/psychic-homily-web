@@ -33,9 +33,10 @@
         <div class="f5 f4-l lh-copy">
           {{ if .Params.venue }}
           <span class="b">{{ .Params.venue }}</span>
-          {{ end }} {{ if .Params.price }} • ${{ .Params.price }} {{ end }} {{
-          if .Params.age_requirement }} • {{ .Params.age_requirement }} {{ end
-          }} • {{ dateFormat "3:04 PM" .Params.event_date }} {{ if .Summary }}
+          {{ end }} {{ if .Params.price }} • ${{ lang.FormatNumber 2
+          .Params.price }} {{ end }} {{ if .Params.age_requirement }} • {{
+          .Params.age_requirement }} {{ end }} • {{ dateFormat "3:04 PM"
+          .Params.event_date }} {{ if .Summary }}
           <p>{{ .Summary }}</p>
           {{ end }}
         </div>

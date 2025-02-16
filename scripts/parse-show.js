@@ -32,7 +32,8 @@ Key parsing rules:
 7. For missing fields:
    - Default venue to "Phoenix, AZ" if no venue is specified
    - Default city to "Phoenix" and state to "AZ" if no location is specified
-   - Default age requirement to "21+" for Linger Longer Lounge shows
+   - Default age requirement to "21+" shows with no age requirement specified
+   - Default year to 2025 for dates without a specified year. The current year is 2025.
 
 Example inputs and expected parsing:
 
@@ -43,7 +44,7 @@ Friday March 15th at Linger Longer Lounge
 
 Should parse to:
 {
-  "date": "2024-03-15",
+  "date": "2025-03-15",
   "time": "20:00",
   "bands": ["Psychic Homily DJ", "The Mourning"],
   "venue": "Linger Longer Lounge",
@@ -60,7 +61,7 @@ Tuesday April 15 @ Valley Bar
 
 Should parse to:
 {
-  "date": "2024-04-15",
+  "date": "2025-04-15",
   "time": "20:00",
   "bands": ["BOJACKS", "Psychic Homily DJ"],
   "venue": "Valley Bar",
@@ -198,7 +199,7 @@ async function main() {
 
     // Create show markdown file
     const showContent = `---
-title: "${showDetails.date} Show"
+title: "${showDetails.date} ${showDetails.bands.join(" ")}"
 date: ${new Date().toISOString()}
 event_date: ${showDetails.date}T${showDetails.time}:00-07:00
 draft: false
