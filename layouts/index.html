@@ -13,4 +13,35 @@
   "Params.event_date" "asc" }} {{ partial "show-list.html" (dict "shows"
   $sortedShows) }}
 </div>
+
+<div class="pa3 pa4-ns w-100 w-70-ns center">
+  <div class="flex justify-center items-center mb3">
+    <h1 class="f2 mr3">Latest Blog Feature</h1>
+    <a
+      href="/blog/"
+      class="f5 no-underline black dim inline-flex items-center pa2 ba border-box"
+    >
+      All blog posts →
+    </a>
+  </div>
+  {{ $blogPosts := where .Site.RegularPages "Section" "blog" }} {{ with index
+  (sort $blogPosts "Date" "desc") 0 }}
+  <article class="bb b--black-10 pb4">
+    <div class="flex flex-column flex-row-ns">
+      <div class="w-100">
+        <h2 class="f3 mt0 lh-title">
+          <a href="{{ .RelPermalink }}" class="link dim black">{{ .Title }}</a>
+        </h2>
+        <div class="f6 gray mv1">{{ .Date.Format "January 2, 2006" }}</div>
+        <div class="f5 lh-copy nested-copy-line-height">{{ .Summary }}</div>
+        <a
+          href="{{ .RelPermalink }}"
+          class="ba b--moon-gray bg-light-gray br2 color-inherit dib f7 hover-bg-moon-gray link mt2 ph2 pv1"
+          >read more</a
+        >
+      </div>
+    </div>
+  </article>
+  {{ end }}
+</div>
 {{ end }}
