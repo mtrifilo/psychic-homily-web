@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "new-show": "node scripts/parse-show.js",
-    "parse-bandcamp": "node scripts/parse-bandcamp.js"
+    "parse-bandcamp": "node scripts/parse-bandcamp.js",
+    "new-blog": "node scripts/create-blog-post.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.17.1",

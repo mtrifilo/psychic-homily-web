@@ -86,8 +86,7 @@ async function main() {
     const shortcode = `{{< bandcamp 
     ${parsed.type}="${parsed.id}"
     artist="${parsed.artist}"
-    title="${parsed.title}"
->}}`;
+    title="${parsed.title}">}}`;
 
     // Preview the parsed data
     console.log("\nParsed Bandcamp details:");
