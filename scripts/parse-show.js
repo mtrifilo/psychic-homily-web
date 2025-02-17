@@ -205,8 +205,12 @@ event_date: ${showDetails.date}T${showDetails.time}:00-07:00
 draft: false
 venue: "${showDetails.venue}"
 city: "${showDetails.city}"
-state: "${showDetails.state}"
-price: "${showDetails.price}"
+state: "${showDetails.state}"${
+      showDetails.price
+        ? `
+price: "${showDetails.price}"`
+        : ""
+    }
 age_requirement: "${showDetails.age_requirement}"
 bands:
 ${bandIds.map((id) => `  - "${id}"`).join("\n")}
