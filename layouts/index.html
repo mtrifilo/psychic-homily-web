@@ -32,8 +32,8 @@
         <h2 class="f3 mt0 lh-title">
           <a href="{{ .RelPermalink }}" class="link dim black">{{ .Title }}</a>
         </h2>
-        <div class="f6 gray mv1">{{ .Date.Format "January 2, 2006" }}</div>
-        <div class="f5 lh-copy nested-copy-line-height">{{ .Summary }}</div>
+        <div class="f6 gray mv1 fw5">{{ .Date.Format "January 2, 2006" }}</div>
+        <div class="f5 lh-copy nested-copy-line-height pt3">{{ .Summary }}</div>
         {{ if and .Truncated (ne (.Content | plainify) (.Summary | plainify)) }}
         <a
           href="{{ .RelPermalink }}"
