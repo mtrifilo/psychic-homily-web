@@ -6,6 +6,20 @@ theme = 'ananke'
 [params]
   mainSections = ["shows"]
   body_classes = "avenir bg-near-white"
+  description = "Documenting and amplifying the most exciting new music releases, shows, and cultural events from Arizona musicians and beyond."
+  author = "Psychic Homily"
+  images = ["/images/ph-social-card.jpg"]  # Default social sharing image
+  
+  # Social media handles (optional)
+  twitter = "psychichomily"    # Twitter username without @
+  instagram = "psychichomily"  # Instagram handle
+  
+  # Open Graph settings
+  locale = "en_US"
+  site_name = "Psychic Homily"
+  
+  # Additional metadata
+  keywords = ["Arizona music", "Arizona shows", "Arizona concerts", "Phoenix music", "Phoenix shows", "Phoenix concerts", "music blog", "show listings", "concert calendar", "show calendar", "DIY music", "Arizona DIY", "Phoenix DIY", "indie music"]
 
 [taxonomies]
   venue = "venues"
