@@ -1,0 +1,26 @@
+<script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Event",
+    "name": "{{ .Title }}",
+    "startDate": "{{ .Params.event_date }}",
+    "location": {
+      "@type": "Place",
+      "name": "{{ .Params.venue }}",
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "{{ .Params.city }}",
+        "addressRegion": "{{ .Params.state }}"
+      }
+    },
+    "performer": [
+      {{ range $index, $band := .Params.bands }}
+      {{ if $index }},{{ end }}
+      {
+        "@type": "MusicGroup",
+        "name": "{{ . }}"
+      }
+      {{ end }}
+    ]
+  }
+</script>

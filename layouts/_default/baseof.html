@@ -53,6 +53,10 @@
     {{ block "head" . }}{{ partial "head-additions.html" . }}{{ end }}
 
     {{ partial "head-seo.html" . }}
+
+    {{ if eq .Section "shows" }}
+      {{ partial "event-schema.html" . }}
+    {{ end }}
   </head>
 
   {{- $environment := hugo.Environment | default "production" -}}
