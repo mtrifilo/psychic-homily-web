@@ -2,9 +2,9 @@
 <div class="pa3 pa4-ns w-100 w-70-ns center">
   <h1 class="flex justify-center f2 mb3">Upcoming Shows</h1>
 
-  {{ $currentTime := now }} {{ $shows := where .Pages "Section" "shows" }} {{
-  $upcomingShows := where $shows "Params.event_date" "ge" ($currentTime.Format
-  "2006-01-02T15:04:05-07:00") }} {{ $sortedShows := sort $upcomingShows
+  {{ $currentTime := time.Now }} {{ $shows := where .Site.RegularPages "Section"
+  "shows" }} {{ $upcomingShows := where $shows "Params.event_date" "gt"
+  ($currentTime.Format "2006-01-02") }} {{ $sortedShows := sort $upcomingShows
   "Params.event_date" "asc" }} {{ partial "show-list.html" (dict "shows"
   $sortedShows) }}
 </div>
