@@ -7,11 +7,12 @@
 <div class="pa3 pa4-ns w-100 w-70-ns center">
   <h1 class="flex justify-center f2 mb3">Upcoming Shows</h1>
 
-  {{ $currentTime := time.Now }} {{ $shows := where .Site.RegularPages "Section"
-  "shows" }} {{ $upcomingShows := where $shows "Params.event_date" "gt"
-  ($currentTime.Format "2006-01-02") }} {{ $sortedShows := sort $upcomingShows
-  "Params.event_date" "asc" }} {{ partial "show-list.html" (dict "shows"
-  $sortedShows) }}
+  {{ $currentTime := now }} {{ $yesterdayStart := $currentTime.AddDate 0 0 -1 }}
+  {{ $yesterdayStart := $yesterdayStart.Format "2006-01-02" }} {{ $shows :=
+  where .Site.RegularPages "Section" "shows" }} {{ $recentAndUpcomingShows :=
+  where $shows "Params.event_date" "ge" $yesterdayStart }} {{ $sortedShows :=
+  sort $recentAndUpcomingShows "Params.event_date" "asc" }} {{ partial
+  "show-list.html" (dict "shows" $sortedShows) }}
 </div>
 
 <div class="pa3 pa4-ns w-100 w-70-ns center">
