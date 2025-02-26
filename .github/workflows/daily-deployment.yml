@@ -2,7 +2,8 @@ name: Daily Netlify Build
 
 on:
   schedule:
-    - cron: "0 0 * * *"  # Runs every day at midnight UTC
+    - cron: "0 0 * * *" # Runs every day at midnight UTC
+  workflow_dispatch: # Allows manual triggering
 
 jobs:
   build:
