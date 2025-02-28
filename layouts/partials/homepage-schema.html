@@ -4,7 +4,7 @@
     "@type": "WebSite",
     "name": "{{ .Site.Title }}",
     "url": "{{ .Site.BaseURL }}",
-    "description": "{{ .Site.Params.description }}",
+    "description": "{{ with .Site.Params.description }}{{ . }}{{ end }}",
     "potentialAction": {
       "@type": "SearchAction",
       "target": "{{ .Site.BaseURL }}search?q={search_term_string}",
@@ -21,21 +21,22 @@
       {{ $shows := where .Site.RegularPages "Section" "shows" }}
       {{ $futureShows := where $shows "Params.event_date" "ge" now }}
       {{ $sortedShows := sort $futureShows "Params.event_date" "asc" }}
+      {{ $showCount := len (first 10 $sortedShows) }}
       {{ range $index, $show := first 10 $sortedShows }}
       {
         "@type": "ListItem",
         "position": {{ add $index 1 }},
         "item": {
           "@type": "MusicEvent",
-          "name": "{{ $show.Title }}",
-          "startDate": "{{ $show.Params.event_date }}",
+          "name": "{{ $show.Title | safeJS }}",
+          "startDate": "{{ $show.Params.event_date }}T19:00:00-07:00",
           "location": {
             "@type": "Place",
-            "name": "{{ with $show.Params.venue }}{{ $venue_data := index $.Site.Data.venues . }}{{ $venue_data.name }}{{ end }}"
+            "name": "{{ with $show.Params.venue }}{{ $venue_data := index $.Site.Data.venues . }}{{ $venue_data.name | safeJS }}{{ end }}"
           },
           "url": "{{ $show.Permalink }}"
         }
-      }{{ if ne (add $index 1) (len (first 10 $sortedShows)) }},{{ end }}
+      }{{ if lt (add $index 1) $showCount }},{{ end }}
       {{ end }}
     ]
   }
