@@ -18,16 +18,14 @@
     "@context": "https://schema.org",
     "@type": "ItemList",
     "itemListElement": [
-      {{ $now := now }}
       {{ $shows := where .Site.RegularPages "Section" "shows" }}
-      {{ $upcomingShows := where $shows "Params.event_date" "ge" $now }}
-      {{ $sortedShows := sort $upcomingShows "Params.event_date" }}
-      {{ $showCount := len $sortedShows }}
+      {{ $sortedShows := sort $shows "Params.event_date" }}
+      {{ $count := 0 }}
       {{ range $index, $show := $sortedShows }}
-        {{ if lt $index 10 }}
+        {{ if and (lt $count 10) (isset $show.Params "event_date") }}
           {
             "@type": "ListItem",
-            "position": {{ add $index 1 }},
+            "position": {{ add $count 1 }},
             "item": {
               "@type": "MusicEvent",
               "name": "{{ if $show.Params.bands }}{{ range $i, $band := $show.Params.bands }}{{ if $i }}, {{ end }}{{ $band | humanize }}{{ end }}{{ else }}{{ $show.Title }}{{ end }} @ {{ if $show.Params.venues }}{{ $venue_id := index $show.Params.venues 0 }}{{ $venue_data := index $.Site.Data.venues $venue_id }}{{ if $venue_data }}{{ $venue_data.name }}{{ else }}{{ $venue_id | humanize }}{{ end }}{{ else }}Unknown Venue{{ end }} {{ dateFormat "1/2/06" $show.Params.event_date }}",
@@ -60,7 +58,8 @@
               {{ end }},
               "url": "{{ $show.Permalink }}"
             }
-          }{{ if lt (add $index 1) $showCount }},{{ end }}
+          }{{ if lt (add $count 1) 10 }},{{ end }}
+          {{ $count = add $count 1 }}
         {{ end }}
       {{ end }}
     ]
