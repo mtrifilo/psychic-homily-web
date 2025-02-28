@@ -6,7 +6,11 @@
     "startDate": "{{ .Params.event_date }}",
     "location": {
       "@type": "Place",
-      "name": "{{ .Params.venue }}",
+      {{ if .Params.venue }}
+      "name": "{{ $venue_data := index site.Data.venues .Params.venue }}{{ if $venue_data }}{{ $venue_data.name }}{{ else }}{{ .Params.venue }}{{ end }}",
+      {{ else if .Params.venues }}
+      "name": "{{ $venue_id := index .Params.venues 0 }}{{ $venue_data := index site.Data.venues $venue_id }}{{ if $venue_data }}{{ $venue_data.name }}{{ else }}{{ $venue_id }}{{ end }}",
+      {{ end }}
       "address": {
         "@type": "PostalAddress",
         "addressLocality": "{{ .Params.city }}",

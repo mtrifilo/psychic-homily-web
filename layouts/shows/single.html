@@ -14,8 +14,27 @@
       </p>
       {{ with .Params.venue }}
       <p class="dib mr3">
-        <span class="b">Venue:</span> {{ . }}
+        <span class="b">Venue:</span> 
+        {{ $venue_data := index site.Data.venues . }}
+        {{ if $venue_data }}
+          {{ $venue_data.name }}
+        {{ else }}
+          {{ . | humanize }}
+        {{ end }}
       </p>
+      {{ else }}
+      {{ with .Params.venues }}
+      <p class="dib mr3">
+        <span class="b">Venue:</span> 
+        {{ $venue_id := index . 0 }}
+        {{ $venue_data := index site.Data.venues $venue_id }}
+        {{ if $venue_data }}
+          {{ $venue_data.name }}
+        {{ else }}
+          {{ $venue_id | humanize }}
+        {{ end }}
+      </p>
+      {{ end }}
       {{ end }}
       {{ with .Params.price }}
       <p class="dib">

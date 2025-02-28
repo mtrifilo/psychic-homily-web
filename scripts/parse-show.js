@@ -153,6 +153,10 @@ async function main() {
     const bandsPath = path.join(process.cwd(), "data", "bands.yaml");
     const bandsData = yaml.load(fs.readFileSync(bandsPath, "utf8")) || {};
 
+    // Load existing venues data
+    const venuesPath = path.join(process.cwd(), "data", "venues.yaml");
+    const venuesData = yaml.load(fs.readFileSync(venuesPath, "utf8")) || {};
+
     // Parse the show details
     const showDetails = await getShowDetails(cleanedText);
 
@@ -197,13 +201,25 @@ async function main() {
       return bandId;
     });
 
+    // Convert venue name to slug and update venues.yaml if needed
+    const venueSlug = showDetails.venue.toLowerCase().replace(/\s+/g, "-");
+    if (!venuesData[venueSlug]) {
+      console.log(`Adding new venue: ${showDetails.venue}`);
+      venuesData[venueSlug] = {
+        name: showDetails.venue,
+        city: showDetails.city,
+        state: showDetails.state,
+      };
+    }
+
     // Create show markdown file
     const showContent = `---
 title: "${showDetails.date} ${showDetails.bands.join(" ")}"
 date: ${new Date().toISOString()}
 event_date: ${showDetails.date}T${showDetails.time}:00-07:00
 draft: false
-venue: "${showDetails.venue}"
+venues:
+  - "${venueSlug}"
 city: "${showDetails.city}"
 state: "${showDetails.state}"${
       showDetails.price
@@ -223,12 +239,18 @@ ${bandIds.map((id) => `  - "${id}"`).join("\n")}
 
     fs.writeFileSync(showPath, showContent);
     fs.writeFileSync(bandsPath, yaml.dump(bandsData));
+    fs.writeFileSync(venuesPath, yaml.dump(venuesData));
 
     console.log(`\nSuccess!`);
     console.log(`Created show file: ${showFileName}`);
     if (bandIds.some((id) => !bandsData[id])) {
       console.log(
         "\nNew bands added to bands.yaml. You may want to add social links."
+      );
+    }
+    if (!venuesData[venueSlug]) {
+      console.log(
+        "\nNew venue added to venues.yaml. You may want to add address and social links."
       );
     }
   } catch (error) {

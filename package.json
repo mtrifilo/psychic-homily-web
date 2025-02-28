@@ -4,11 +4,16 @@
   "scripts": {
     "new-show": "node scripts/parse-show.js",
     "parse-bandcamp": "node scripts/parse-bandcamp.js",
-    "new-blog": "node scripts/create-blog-post.js"
+    "new-blog": "node scripts/create-blog-post.js",
+    "migrate-venues": "node scripts/migrate-venues.js",
+    "migrate-to-venues-array": "node scripts/migrate-to-venues-array.js",
+    "populate-missing-venues": "node scripts/populate-missing-venues.js",
+    "populate-venue-data": "node scripts/populate-venue-data.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.17.1",
     "dotenv": "^16.4.5",
+    "glob": "^10.3.10",
     "js-yaml": "^4.1.0",
     "prompts": "^2.4.2"
   }

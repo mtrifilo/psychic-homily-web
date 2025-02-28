@@ -33,15 +33,27 @@
         <div class="f5 f4-l lh-copy">
           {{ if .Params.venue }}
           <span class="b">
-            {{- $venue_data := index site.Data.venues (.Params.venue | urlize)
-            -}} {{- if $venue_data -}}
+            {{ $venue_data := index site.Data.venues .Params.venue }} {{ if
+            $venue_data }}
             <a
-              href="/venues/{{ .Params.venue | urlize }}/"
-              class="link dim black"
+              href="/venues/{{ .Params.venue }}/"
+              class="link dim black bb b--black-20"
             >
               {{ $venue_data.name }}
             </a>
-            {{- else -}} {{ .Params.venue }} {{- end -}}
+            {{ else }} {{ .Params.venue | humanize }} {{ end }}
+          </span>
+          {{ else if .Params.venues }}
+          <span class="b">
+            {{ $venue_id := index .Params.venues 0 }} {{ $venue_data := index
+            site.Data.venues $venue_id }} {{ if $venue_data }}
+            <a
+              href="/venues/{{ $venue_id }}/"
+              class="link dim black bb b--black-20"
+            >
+              {{ $venue_data.name }}
+            </a>
+            {{ else }} {{ $venue_id | humanize }} {{ end }}
           </span>
           {{ end }} {{ if .Params.price }} • ${{ lang.FormatNumber 2
           .Params.price }} {{ end }} {{ if .Params.age_requirement }} • {{
