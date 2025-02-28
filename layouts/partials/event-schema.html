@@ -1,30 +1,31 @@
+{{ if .IsPage }}
 <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "Event",
+    "@type": "MusicEvent",
     "name": "{{ .Title }}",
     "startDate": "{{ .Params.event_date }}",
+    "description": "{{ with .Description }}{{ . }}{{ else }}{{ .Summary }}{{ end }}",
+    "image": "{{ with .Params.featured_image }}{{ . | absURL }}{{ else }}{{ with .Site.Params.images }}{{ index . 0 | absURL }}{{ end }}{{ end }}",
+    "performer": [
+      {{ range $index, $band := .Params.bands }}
+      {
+        "@type": "MusicGroup",
+        "name": "{{ $band }}"
+      }{{ if ne (add $index 1) (len $.Params.bands) }},{{ end }}
+      {{ end }}
+    ],
     "location": {
       "@type": "Place",
-      {{ if .Params.venue }}
-      "name": "{{ $venue_data := index site.Data.venues .Params.venue }}{{ if $venue_data }}{{ $venue_data.name }}{{ else }}{{ .Params.venue }}{{ end }}",
-      {{ else if .Params.venues }}
-      "name": "{{ $venue_id := index .Params.venues 0 }}{{ $venue_data := index site.Data.venues $venue_id }}{{ if $venue_data }}{{ $venue_data.name }}{{ else }}{{ $venue_id }}{{ end }}",
-      {{ end }}
+      "name": "{{ with .Params.venue }}{{ $venue_data := index $.Site.Data.venues . }}{{ $venue_data.name }}{{ end }}",
       "address": {
         "@type": "PostalAddress",
         "addressLocality": "{{ .Params.city }}",
         "addressRegion": "{{ .Params.state }}"
       }
-    },
-    "performer": [
-      {{ range $index, $band := .Params.bands }}
-      {{ if $index }},{{ end }}
-      {
-        "@type": "MusicGroup",
-        "name": "{{ . }}"
-      }
-      {{ end }}
-    ]
+    }
   }
 </script>
+{{ else }}
+<!-- Include shows list schema for section pages -->
+{{ partial "shows-schema.html" . }} {{ end }}

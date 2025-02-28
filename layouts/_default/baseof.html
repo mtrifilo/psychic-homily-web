@@ -6,7 +6,21 @@
     {{/* NOTE: the Site's title, and if there is a page title, that is set too */}}
     <title>{{ block "title" . }}{{ with .Params.Title }}{{ . }} | {{ end }}{{ .Site.Title }}{{ end }}</title>
     <meta name="viewport" content="width=device-width,minimum-scale=1">
-    <meta name="description" content="{{ with .Description }}{{ . }}{{ else }}{{if .IsPage}}{{ .Summary }}{{ else }}{{ with .Site.Params.description }}{{ . }}{{ end }}{{ end }}{{ end }}">
+    <meta name="description" content="
+      {{- if and (eq .Type "venues") (isset .Data "Term") -}}
+        {{- $venue_id := .Data.Term -}}
+        {{- $venue_data := index .Site.Data.venues $venue_id -}}
+        Upcoming featured shows and events at {{ with $venue_data }}{{ .name }} in {{ .city }}, {{ .state }}{{ else }}{{ $venue_id | humanize }}{{ end }}. Find tickets, lineup information, and more through the web and social links.
+      {{- else -}}
+        {{- with .Description -}}{{ . }}
+        {{- else -}}
+          {{- if .IsPage -}}{{ .Summary }}
+          {{- else -}}
+            {{- with .Site.Params.description -}}{{ . }}{{- end -}}
+          {{- end -}}
+        {{- end -}}
+      {{- end -}}
+    ">
     {{ hugo.Generator }}
     {{ $production := hugo.IsProduction }}
     {{ $public := not .Params.private }}
@@ -33,10 +47,8 @@
     {{ end }}
 
     {{ if .OutputFormats.Get "RSS" }}
-    {{ with .OutputFormats.Get "RSS" }}
-      <link href="{{ .RelPermalink }}" rel="alternate" type="application/rss+xml" title="{{ $.Site.Title }}" />
-      <link href="{{ .RelPermalink }}" rel="feed" type="application/rss+xml" title="{{ $.Site.Title }}" />
-      {{ end }}
+      <link href="{{ (.OutputFormats.Get "RSS").Permalink }}" rel="alternate" type="application/rss+xml" title="{{ $.Site.Title }}" />
+      <link href="{{ (.OutputFormats.Get "RSS").Permalink }}" rel="feed" type="application/rss+xml" title="{{ $.Site.Title }}" />
     {{ end }}
 
     {{ if .Params.canonicalUrl }}
@@ -56,6 +68,29 @@
 
     {{ if eq .Section "shows" }}
       {{ partial "event-schema.html" . }}
+    {{ end }}
+    
+    <!-- Add structured data for venues -->
+    {{ if eq .Type "venues" }}
+      {{ partial "venue-schema.html" . }}
+    {{ end }}
+    
+    <!-- Add structured data for homepage -->
+    {{ if .IsHome }}
+      <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "{{ .Site.Title }}",
+        "url": "{{ .Site.BaseURL }}",
+        "description": "{{ .Site.Params.description }}",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": "{{ .Site.BaseURL }}search?q={search_term_string}",
+          "query-input": "required name=search_term_string"
+        }
+      }
+      </script>
     {{ end }}
   </head>
 

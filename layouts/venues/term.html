@@ -1,4 +1,5 @@
-{{ define "main" }}
+{{ define "head" }} {{ partial "head-additions.html" . }} {{ partial
+"venue-meta.html" . }} {{ end }} {{ define "main" }}
 <article class="pa3 pa4-ns nested-copy-line-height nested-img">
   {{ $venue_id := .Data.Term }} {{ $venue_data := index .Site.Data.venues
   $venue_id }} {{ $shows := where .Site.RegularPages "Section" "shows" }}
