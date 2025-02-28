@@ -77,21 +77,10 @@
     
     <!-- Add structured data for homepage -->
     {{ if .IsHome }}
-      <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "WebSite",
-        "name": "{{ .Site.Title }}",
-        "url": "{{ .Site.BaseURL }}",
-        "description": "{{ .Site.Params.description }}",
-        "potentialAction": {
-          "@type": "SearchAction",
-          "target": "{{ .Site.BaseURL }}search?q={search_term_string}",
-          "query-input": "required name=search_term_string"
-        }
-      }
-      </script>
+      {{ partial "homepage-schema.html" . }}
     {{ end }}
+
+    {{ partial "breadcrumb-schema.html" . }}
   </head>
 
   {{- $environment := hugo.Environment | default "production" -}}
