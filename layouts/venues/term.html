@@ -1,0 +1,44 @@
+{{ define "main" }}
+<article class="pa3 pa4-ns nested-copy-line-height nested-img">
+  {{ $venue_id := .Data.Term }} {{ $venue_data := index site.Data.venues
+  $venue_id }}
+
+  <div class="w-100 w-70-ns center">
+    <h1 class="f2 lh-title mb3">
+      {{ with $venue_data }}{{ .name }}{{ else }}{{ $venue_id | humanize }}{{
+      end }}
+    </h1>
+
+    {{ with $venue_data }}
+    <div class="f4 mb4">
+      {{ with .address }}
+      <p>{{ . }}</p>
+      {{ end }} {{ with .city }}{{ . }}, {{ end }}{{ with .state }}{{ . }} {{
+      end }}{{ with .zip }}{{ . }}{{ end }}
+    </div>
+
+    {{ with .social }}
+    <div class="f5 gray mb4">
+      {{ with .website }}<a href="{{ . }}" class="link dim black mr3">Website</a
+      >{{ end }} {{ with .instagram }}<a
+        href="https://instagram.com/{{ . }}"
+        class="link dim black mr3"
+        >Instagram</a
+      >{{ end }}
+    </div>
+    {{ end }} {{ end }}
+
+    <h2 class="f3 mt4">Upcoming Shows</h2>
+    {{ $currentTime := now }} {{ $shows := where .Site.RegularPages
+    "Params.venue" ($venue_data.name) }} {{ $upcomingShows := where $shows
+    "Params.event_date" "ge" $currentTime }} {{ $sortedShows := sort
+    $upcomingShows "Params.event_date" "asc" }} {{ partial "show-list.html"
+    (dict "shows" $sortedShows) }}
+
+    <h2 class="f3 mt4">Past Shows</h2>
+    {{ $pastShows := where $shows "Params.event_date" "lt" $currentTime }} {{
+    $sortedPastShows := sort $pastShows "Params.event_date" "desc" }} {{ partial
+    "show-list.html" (dict "shows" $sortedPastShows) }}
+  </div>
+</article>
+{{ end }}

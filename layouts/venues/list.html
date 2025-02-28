@@ -1,0 +1,21 @@
+{{ define "main" }}
+<article class="pa3 pa4-ns nested-copy-line-height nested-img">
+  <div class="w-100 w-70-ns center">
+    <h1 class="f2 lh-title mb3">Venues</h1>
+
+    <div class="flex flex-wrap">
+      {{ range $venue_id, $venue := site.Data.venues }}
+      <div class="w-100 w-third-ns pa2">
+        <a
+          href="/venues/{{ $venue_id }}/"
+          class="link dim black db pa3 br2 bg-white"
+        >
+          <h2 class="f4 mb2">{{ $venue.name }}</h2>
+          <p class="f6 gray mb0">{{ $venue.city }}, {{ $venue.state }}</p>
+        </a>
+      </div>
+      {{ end }}
+    </div>
+  </div>
+</article>
+{{ end }}

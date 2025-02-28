@@ -1,0 +1,19 @@
+linger-longer-lounge:
+  name: "Linger Longer Lounge"
+  address: "6522 N 16th St"
+  city: "Phoenix"
+  state: "AZ"
+  zip: "85016"
+  social:
+    instagram: "lingerlongeraz"
+    website: "https://www.lingerlongeraz.com"
+
+the-van-buren:
+  name: "The Van Buren"
+  address: "401 W Van Buren St"
+  city: "Phoenix"
+  state: "AZ"
+  zip: "85003"
+  social:
+    instagram: "thevanburenphx"
+    website: "https://www.thevanburenphx.com"

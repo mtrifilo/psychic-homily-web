@@ -32,7 +32,17 @@
         </h1>
         <div class="f5 f4-l lh-copy">
           {{ if .Params.venue }}
-          <span class="b">{{ .Params.venue }}</span>
+          <span class="b">
+            {{- $venue_data := index site.Data.venues (.Params.venue | urlize)
+            -}} {{- if $venue_data -}}
+            <a
+              href="/venues/{{ .Params.venue | urlize }}/"
+              class="link dim black"
+            >
+              {{ $venue_data.name }}
+            </a>
+            {{- else -}} {{ .Params.venue }} {{- end -}}
+          </span>
           {{ end }} {{ if .Params.price }} • ${{ lang.FormatNumber 2
           .Params.price }} {{ end }} {{ if .Params.age_requirement }} • {{
           .Params.age_requirement }} {{ end }} • {{ dateFormat "3:04 PM"
