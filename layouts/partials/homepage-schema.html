@@ -31,7 +31,7 @@
               "startDate": "{{ $show.Date.Format "2006-01-02T15:04:05-07:00" }}T{{ if $show.Params.time }}{{ $show.Params.time }}{{ else }}19:00{{ end }}:00-07:00",
               "location": {
                 "@type": "Place",
-                "name": "{{ with $show.Params.venue }}{{ $venue_data := index $.Site.Data.venues . }}{{ if $venue_data }}{{ $venue_data.name }}{{ else }}{{ . | humanize }}{{ end }}{{ else }}Unknown Venue{{ end }}",
+                "name": "{{ if $show.Params.venues }}{{ $venue_id := index $show.Params.venues 0 }}{{ $venue_data := index $.Site.Data.venues $venue_id }}{{ if $venue_data }}{{ $venue_data.name }}{{ else }}{{ $venue_id | humanize }}{{ end }}{{ else }}Unknown Venue{{ end }}",
                 "address": {
                   "@type": "PostalAddress",
                   "addressLocality": "{{ if $show.Params.city }}{{ $show.Params.city }}{{ else }}Unknown City{{ end }}",
