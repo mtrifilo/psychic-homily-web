@@ -19,24 +19,26 @@
     "@type": "ItemList",
     "itemListElement": [
       {{ $shows := where .Site.RegularPages "Section" "shows" }}
-      {{ $futureShows := where $shows "Params.event_date" "ge" now }}
+      {{ $futureShows := where $shows "Params.event_date" "ge" (now.Format "2006-01-02") }}
       {{ $sortedShows := sort $futureShows "Params.event_date" "asc" }}
       {{ $showCount := len (first 10 $sortedShows) }}
-      {{ range $index, $show := first 10 $sortedShows }}
-      {
-        "@type": "ListItem",
-        "position": {{ add $index 1 }},
-        "item": {
-          "@type": "MusicEvent",
-          "name": "{{ $show.Title | safeJS }}",
-          "startDate": "{{ $show.Params.event_date }}T19:00:00-07:00",
-          "location": {
-            "@type": "Place",
-            "name": "{{ with $show.Params.venue }}{{ $venue_data := index $.Site.Data.venues . }}{{ $venue_data.name | safeJS }}{{ end }}"
-          },
-          "url": "{{ $show.Permalink }}"
-        }
-      }{{ if lt (add $index 1) $showCount }},{{ end }}
+      {{ if gt $showCount 0 }}
+        {{ range $index, $show := first 10 $sortedShows }}
+        {
+          "@type": "ListItem",
+          "position": {{ add $index 1 }},
+          "item": {
+            "@type": "MusicEvent",
+            "name": "{{ $show.Title | safeJS }}",
+            "startDate": "{{ $show.Params.event_date }}T{{ with $show.Params.event_time }}{{ . }}{{ else }}19:00:00{{ end }}-07:00",
+            "location": {
+              "@type": "Place",
+              "name": "{{ with $show.Params.venue }}{{ $venue_data := index $.Site.Data.venues . }}{{ $venue_data.name | safeJS }}{{ end }}"
+            },
+            "url": "{{ $show.Permalink }}"
+          }
+        }{{ if lt (add $index 1) $showCount }},{{ end }}
+        {{ end }}
       {{ end }}
     ]
   }
