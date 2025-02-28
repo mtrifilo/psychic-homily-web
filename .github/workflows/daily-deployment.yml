@@ -11,6 +11,6 @@ jobs:
     steps:
       - name: Trigger Netlify Build
         run: |
-          curl -X POST -d '{}' "$NETLIFY_DEPLOY_WEBHOOK"
+          curl -X POST -d '{}' "$NETLIFY_BUILD_HOOK"
         env:
           NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_DEPLOY_WEBHOOK }}
