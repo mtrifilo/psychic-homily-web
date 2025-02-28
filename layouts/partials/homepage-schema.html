@@ -29,12 +29,34 @@
           "position": {{ add $index 1 }},
           "item": {
             "@type": "MusicEvent",
-            "name": "{{ $show.Title | safeJS }}",
+            "name": "{{ with $show.Params.artists }}{{ delimit . ", " }}{{ else }}{{ $show.Title }}{{ end }}",
             "startDate": "{{ $show.Params.event_date }}T{{ with $show.Params.event_time }}{{ . }}{{ else }}19:00:00{{ end }}-07:00",
             "location": {
               "@type": "Place",
-              "name": "{{ with $show.Params.venue }}{{ $venue_data := index $.Site.Data.venues . }}{{ $venue_data.name | safeJS }}{{ end }}"
+              "name": "{{ if $show.Params.venue }}{{ with index $.Site.Data.venues $show.Params.venue }}{{ .name | safeJS }}{{ end }}{{ end }}",
+              "address": {
+                "@type": "PostalAddress",
+                "addressLocality": "{{ if $show.Params.city }}{{ $show.Params.city }}{{ else if $show.Params.venue }}{{ with index $.Site.Data.venues $show.Params.venue }}{{ .city | safeJS }}{{ end }}{{ end }}",
+                "addressRegion": "{{ if $show.Params.state }}{{ $show.Params.state }}{{ else if $show.Params.venue }}{{ with index $.Site.Data.venues $show.Params.venue }}{{ .state | safeJS }}{{ end }}{{ end }}"
+              }
             },
+            "offers": {
+              "@type": "Offer",
+              "price": "{{ with $show.Params.price }}{{ . }}{{ else }}0{{ end }}",
+              "priceCurrency": "USD",
+              "url": "{{ $show.Permalink }}",
+              "availability": "https://schema.org/InStock"
+            }
+            {{ if $show.Params.artists }},
+            "performer": [
+              {{ range $i, $artist := $show.Params.artists }}
+              {
+                "@type": "MusicGroup",
+                "name": "{{ $artist }}"
+              }{{ if lt $i (sub (len $show.Params.artists) 1) }},{{ end }}
+              {{ end }}
+            ]
+            {{ end }},
             "url": "{{ $show.Permalink }}"
           }
         }{{ if lt (add $index 1) $showCount }},{{ end }}
