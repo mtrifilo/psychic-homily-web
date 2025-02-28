@@ -29,7 +29,7 @@
           "position": {{ add $index 1 }},
           "item": {
             "@type": "MusicEvent",
-            "name": "{{ if $show.Params.artists }}{{ delimit $show.Params.artists ", " }}{{ else }}{{ $show.Title }}{{ end }}",
+            "name": "{{ if $show.Params.bands }}{{ delimit $show.Params.bands ", " }}{{ else }}{{ $show.Title }}{{ end }}",
             "startDate": "{{ $show.Params.event_date }}T{{ with $show.Params.event_time }}{{ . }}{{ else }}19:00:00{{ end }}-07:00",
             "location": {
               "@type": "Place",
@@ -47,13 +47,13 @@
               "url": "{{ $show.Permalink }}",
               "availability": "https://schema.org/InStock"
             }
-            {{ if $show.Params.artists }},
+            {{ if $show.Params.bands }},
             "performer": [
-              {{ range $i, $artist := $show.Params.artists }}
+              {{ range $i, $band := $show.Params.bands }}
               {
                 "@type": "MusicGroup",
-                "name": "{{ $artist }}"
-              }{{ if lt $i (sub (len $show.Params.artists) 1) }},{{ end }}
+                "name": "{{ $band }}"
+              }{{ if lt $i (sub (len $show.Params.bands) 1) }},{{ end }}
               {{ end }}
             ]
             {{ end }},
