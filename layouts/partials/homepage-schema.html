@@ -29,15 +29,15 @@
           "position": {{ add $index 1 }},
           "item": {
             "@type": "MusicEvent",
-            "name": "{{ with $show.Params.artists }}{{ delimit . ", " }}{{ else }}{{ $show.Title }}{{ end }}",
+            "name": "{{ if $show.Params.artists }}{{ delimit $show.Params.artists ", " }}{{ else }}{{ $show.Title }}{{ end }}",
             "startDate": "{{ $show.Params.event_date }}T{{ with $show.Params.event_time }}{{ . }}{{ else }}19:00:00{{ end }}-07:00",
             "location": {
               "@type": "Place",
-              "name": "{{ if $show.Params.venue }}{{ with index $.Site.Data.venues $show.Params.venue }}{{ .name | safeJS }}{{ end }}{{ end }}",
+              "name": "{{ if $show.Params.venue }}{{ with index $.Site.Data.venues $show.Params.venue }}{{ .name | safeJS }}{{ end }}{{ else }}Unknown Venue{{ end }}",
               "address": {
                 "@type": "PostalAddress",
-                "addressLocality": "{{ if $show.Params.city }}{{ $show.Params.city }}{{ else if $show.Params.venue }}{{ with index $.Site.Data.venues $show.Params.venue }}{{ .city | safeJS }}{{ end }}{{ end }}",
-                "addressRegion": "{{ if $show.Params.state }}{{ $show.Params.state }}{{ else if $show.Params.venue }}{{ with index $.Site.Data.venues $show.Params.venue }}{{ .state | safeJS }}{{ end }}{{ end }}"
+                "addressLocality": "{{ if $show.Params.city }}{{ $show.Params.city }}{{ else if $show.Params.venue }}{{ with index $.Site.Data.venues $show.Params.venue }}{{ .city | safeJS }}{{ end }}{{ else }}Unknown City{{ end }}",
+                "addressRegion": "{{ if $show.Params.state }}{{ $show.Params.state }}{{ else if $show.Params.venue }}{{ with index $.Site.Data.venues $show.Params.venue }}{{ .state | safeJS }}{{ end }}{{ else }}AZ{{ end }}"
               }
             },
             "offers": {
