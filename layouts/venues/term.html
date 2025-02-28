@@ -8,6 +8,16 @@
   "2006-01-02" }}
 
   <div class="w-100 w-70-ns center">
+    <!-- Back button using JavaScript history -->
+    <div class="mb3">
+      <a
+        href="javascript:history.back()"
+        class="f5 link dim black bb b--black-20"
+      >
+        &larr; Back
+      </a>
+    </div>
+
     <h1 class="f2 lh-title mb3">
       {{ with $venue_data }}{{ .name }}{{ else }}{{ $venue_id | humanize }}{{
       end }}
