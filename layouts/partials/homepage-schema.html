@@ -19,47 +19,45 @@
     "@type": "ItemList",
     "itemListElement": [
       {{ $shows := where .Site.RegularPages "Section" "shows" }}
-      {{ $futureShows := where $shows "Params.event_date" "ge" (now.Format "2006-01-02") }}
-      {{ $sortedShows := sort $futureShows "Params.event_date" "asc" }}
-      {{ $showCount := len (first 10 $sortedShows) }}
-      {{ if gt $showCount 0 }}
-        {{ range $index, $show := first 10 $sortedShows }}
-        {
-          "@type": "ListItem",
-          "position": {{ add $index 1 }},
-          "item": {
-            "@type": "MusicEvent",
-            "name": "{{ if $show.Params.bands }}{{ delimit $show.Params.bands ", " }}{{ else }}{{ $show.Title }}{{ end }}",
-            "startDate": "{{ $show.Params.event_date }}T{{ with $show.Params.event_time }}{{ . }}{{ else }}19:00:00{{ end }}-07:00",
-            "location": {
-              "@type": "Place",
-              "name": "{{ if $show.Params.venue }}{{ with index $.Site.Data.venues $show.Params.venue }}{{ .name | safeJS }}{{ end }}{{ else }}Unknown Venue{{ end }}",
-              "address": {
-                "@type": "PostalAddress",
-                "addressLocality": "{{ if $show.Params.city }}{{ $show.Params.city }}{{ else if $show.Params.venue }}{{ with index $.Site.Data.venues $show.Params.venue }}{{ .city | safeJS }}{{ end }}{{ else }}Unknown City{{ end }}",
-                "addressRegion": "{{ if $show.Params.state }}{{ $show.Params.state }}{{ else if $show.Params.venue }}{{ with index $.Site.Data.venues $show.Params.venue }}{{ .state | safeJS }}{{ end }}{{ else }}AZ{{ end }}"
+      {{ $showCount := len $shows }}
+      {{ range $index, $show := $shows }}
+        {{ if lt $index 10 }}
+          {
+            "@type": "ListItem",
+            "position": {{ add $index 1 }},
+            "item": {
+              "@type": "MusicEvent",
+              "name": "{{ if $show.Params.bands }}{{ range $i, $band := $show.Params.bands }}{{ if $i }}, {{ end }}{{ $band | humanize }}{{ end }}{{ if $show.Params.venue }} @ {{ with index $.Site.Data.venues $show.Params.venue }}{{ .name | safeJS }}{{ else }}{{ $show.Params.venue | humanize }}{{ end }}{{ end }}{{ else }}{{ $show.Title }}{{ end }}",
+              "startDate": "{{ $show.Date.Format "2006-01-02T15:04:05-07:00" }}T{{ if $show.Params.time }}{{ $show.Params.time }}{{ else }}19:00{{ end }}:00-07:00",
+              "location": {
+                "@type": "Place",
+                "name": "{{ if $show.Params.venue }}{{ with index $.Site.Data.venues $show.Params.venue }}{{ .name | safeJS }}{{ end }}{{ else }}Unknown Venue{{ end }}",
+                "address": {
+                  "@type": "PostalAddress",
+                  "addressLocality": "{{ if $show.Params.city }}{{ $show.Params.city }}{{ else if $show.Params.venue }}{{ with index $.Site.Data.venues $show.Params.venue }}{{ .city | safeJS }}{{ end }}{{ else }}Unknown City{{ end }}",
+                  "addressRegion": "{{ if $show.Params.state }}{{ $show.Params.state }}{{ else if $show.Params.venue }}{{ with index $.Site.Data.venues $show.Params.venue }}{{ .state | safeJS }}{{ end }}{{ else }}AZ{{ end }}"
+                }
+              },
+              "offers": {
+                "@type": "Offer",
+                "price": "{{ if $show.Params.price }}{{ $show.Params.price }}{{ else }}0{{ end }}",
+                "priceCurrency": "USD",
+                "url": "{{ $show.Permalink }}",
+                "availability": "https://schema.org/InStock"
               }
-            },
-            "offers": {
-              "@type": "Offer",
-              "price": "{{ with $show.Params.price }}{{ . }}{{ else }}0{{ end }}",
-              "priceCurrency": "USD",
-              "url": "{{ $show.Permalink }}",
-              "availability": "https://schema.org/InStock"
+              {{ if $show.Params.bands }},
+              "performer": [
+                {{ range $i, $band := $show.Params.bands }}
+                {
+                  "@type": "MusicGroup",
+                  "name": "{{ $band }}"
+                }{{ if lt $i (sub (len $show.Params.bands) 1) }},{{ end }}
+                {{ end }}
+              ]
+              {{ end }},
+              "url": "{{ $show.Permalink }}"
             }
-            {{ if $show.Params.bands }},
-            "performer": [
-              {{ range $i, $band := $show.Params.bands }}
-              {
-                "@type": "MusicGroup",
-                "name": "{{ $band }}"
-              }{{ if lt $i (sub (len $show.Params.bands) 1) }},{{ end }}
-              {{ end }}
-            ]
-            {{ end }},
-            "url": "{{ $show.Permalink }}"
-          }
-        }{{ if lt (add $index 1) $showCount }},{{ end }}
+          }{{ if lt (add $index 1) $showCount }},{{ end }}
         {{ end }}
       {{ end }}
     ]
