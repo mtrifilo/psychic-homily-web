@@ -19,10 +19,21 @@
     "@type": "ItemList",
     "itemListElement": [
       {{ $shows := where .Site.RegularPages "Section" "shows" }}
-      {{ $sortedShows := sort $shows "Params.event_date" }}
+      {{ $now := now }}
+      {{ $futureShows := slice }}
+      {{ range $shows }}
+        {{ if isset .Params "event_date" }}
+          {{ $eventDate := time .Params.event_date }}
+          {{ if gt $eventDate $now }}
+            {{ $futureShows = $futureShows | append . }}
+          {{ end }}
+        {{ end }}
+      {{ end }}
+      {{ $sortedShows := sort $futureShows "Params.event_date" }}
       {{ $count := 0 }}
+      {{ $maxCount := 10 }}
       {{ range $index, $show := $sortedShows }}
-        {{ if and (lt $count 10) (isset $show.Params "event_date") }}
+        {{ if lt $count $maxCount }}
           {
             "@type": "ListItem",
             "position": {{ add $count 1 }},
@@ -58,7 +69,7 @@
               {{ end }},
               "url": "{{ $show.Permalink }}"
             }
-          }{{ if lt (add $count 1) 10 }},{{ end }}
+          }{{ if lt (add $count 1) (len $sortedShows) }}{{ if lt (add $count 1) $maxCount }},{{ end }}{{ end }}
           {{ $count = add $count 1 }}
         {{ end }}
       {{ end }}
