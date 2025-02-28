@@ -27,7 +27,7 @@
             "position": {{ add $index 1 }},
             "item": {
               "@type": "MusicEvent",
-              "name": "{{ if $show.Params.bands }}{{ range $i, $band := $show.Params.bands }}{{ if $i }}, {{ end }}{{ $band | humanize }}{{ end }}{{ else }}{{ $show.Title }}{{ end }}",
+              "name": "{{ if $show.Params.bands }}{{ range $i, $band := $show.Params.bands }}{{ if $i }}, {{ end }}{{ $band | humanize }}{{ end }}{{ else }}{{ $show.Title }}{{ end }} @ {{ if $show.Params.venues }}{{ $venue_id := index $show.Params.venues 0 }}{{ $venue_data := index $.Site.Data.venues $venue_id }}{{ if $venue_data }}{{ $venue_data.name }}{{ else }}{{ $venue_id | humanize }}{{ end }}{{ else }}Unknown Venue{{ end }} {{ $show.Date.Format "1/2/06" }}",
               "startDate": "{{ $show.Date.Format "2006-01-02T15:04:05-07:00" }}T{{ if $show.Params.time }}{{ $show.Params.time }}{{ else }}19:00{{ end }}:00-07:00",
               "location": {
                 "@type": "Place",
