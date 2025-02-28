@@ -27,11 +27,11 @@
             "position": {{ add $index 1 }},
             "item": {
               "@type": "MusicEvent",
-              "name": "{{ if $show.Params.bands }}{{ range $i, $band := $show.Params.bands }}{{ if $i }}, {{ end }}{{ $band | humanize }}{{ end }}{{ if $show.Params.venue }} @ {{ $show.Params.venue | humanize }}{{ end }}{{ else }}{{ $show.Title }}{{ end }}",
+              "name": "{{ if $show.Params.bands }}{{ range $i, $band := $show.Params.bands }}{{ if $i }}, {{ end }}{{ $band | humanize }}{{ end }}{{ else }}{{ $show.Title }}{{ end }}",
               "startDate": "{{ $show.Date.Format "2006-01-02T15:04:05-07:00" }}T{{ if $show.Params.time }}{{ $show.Params.time }}{{ else }}19:00{{ end }}:00-07:00",
               "location": {
                 "@type": "Place",
-                "name": "{{ if $show.Params.venue }}{{ $show.Params.venue | humanize }}{{ else }}Unknown Venue{{ end }}",
+                "name": "{{ with $show.Params.venue }}{{ $venue_data := index $.Site.Data.venues . }}{{ if $venue_data }}{{ $venue_data.name }}{{ else }}{{ . | humanize }}{{ end }}{{ else }}Unknown Venue{{ end }}",
                 "address": {
                   "@type": "PostalAddress",
                   "addressLocality": "{{ if $show.Params.city }}{{ $show.Params.city }}{{ else }}Unknown City{{ end }}",
