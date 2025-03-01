@@ -4,7 +4,7 @@ date: 2025-02-17T20:59:44.823Z
 event_date: 2025-02-20T19:30:00-07:00
 draft: false
 venues:
-  - "the-nile-theater"
+  - "nile-theater"
 city: "Mesa"
 state: "AZ"
 price: "25"
