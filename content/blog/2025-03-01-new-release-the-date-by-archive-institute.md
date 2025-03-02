@@ -1,7 +1,7 @@
 ---
 title: "New Release: The Date by Archive Institute"
 date: 2025-02-28T23:08:11.935Z
-categories: ["Phoenix"]
+categories: ["Arizona Artists"]
 description: "The Date by Archive Institute on cassette"
 ---
 
