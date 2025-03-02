@@ -173,12 +173,16 @@ urin:
   name: URIN
 yellowcake:
   name: Yellowcake
+  social:
+    instagram: yellowcakephx
 repression:
   name: Repression
 cobarde:
   name: Cobarde
 kraftwerk:
   name: Kraftwerk
+  social:
+    instagram: kraftwerkofficial
 palomino:
   name: Palomino
   social:
@@ -275,3 +279,27 @@ rose-city-band:
     instagram: rosecityband
 jpw:
   name: JPW
+zzzahara:
+  name: Zzzahara
+  social:
+    instagram: zzzahara.wav
+michah-preite:
+  name: Michah Preite
+  social:
+    instagram: mnpreite
+secret-attraction:
+  name: Secret Attraction
+  social:
+    instagram: secretattractionmusic
+black-mountain:
+  name: Black Mountain
+  social:
+    instagram: blackmountainarmy
+l.a.-witch:
+  name: L.A. Witch
+  social:
+    instagram: la_witch
+daiistar:
+  name: Daiistar
+  social:
+    instagram: daiistarr
