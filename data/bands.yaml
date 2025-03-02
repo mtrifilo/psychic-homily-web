@@ -25,6 +25,7 @@ playboy-manbaby:
   name: Playboy Manbaby
   social:
     instagram: playboymanbaby
+  arizona-band: true
 dune-rats:
   name: Dune Rats
   social:
@@ -33,6 +34,7 @@ glixen:
   name: Glixen
   social:
     instagram: glixen
+  arizona-band: true
 the-linda-lindas:
   name: The Linda Lindas
   social:
@@ -56,6 +58,7 @@ dummy:
 the-sheaves:
   name: The Sheaves
   url: https://sheaves.bandcamp.com/music
+  arizona-band: true
 mogwai:
   name: Mogwai
   social:
@@ -133,10 +136,12 @@ sewerbitch!:
   name: Sewerbitch!
   social:
     instagram: sewerbitchband
+  arizona-band: true
 standing-at-the-back:
   name: Standing at the Back
   social:
     instagram: standingatthebackaz
+  arizona-band: true
 chat-pile:
   name: Chat Pile
   social:
@@ -175,10 +180,13 @@ yellowcake:
   name: Yellowcake
   social:
     instagram: yellowcakephx
+  arizona-band: true
 repression:
   name: Repression
+  arizona-band: true
 cobarde:
   name: Cobarde
+  arizona-band: true
 kraftwerk:
   name: Kraftwerk
   social:
@@ -211,6 +219,7 @@ jade-helm:
   name: Jade Helm
   social:
     instagram: jade_helm_
+  arizona-band: true
 bad-nerves:
   name: Bad Nerves
   social:
@@ -229,6 +238,7 @@ rotting-yellow:
   name: Rotting Yellow
   social:
     instagram: rottingyellow
+  arizona-band: true
 lcd-soundsystem:
   name: LCD Soundsystem
   social:
@@ -261,10 +271,12 @@ corbeau-hangs:
   name: Corbeau Hangs
   social:
     instagram: corbeauhangs
+  arizona-band: true
 le-mal:
   name: Le Mal
   social:
     instagram: le_mal_band
+  arizona-band: true
 post-crucifixion:
   name: Post Crucifixion
   social:
@@ -291,6 +303,7 @@ secret-attraction:
   name: Secret Attraction
   social:
     instagram: secretattractionmusic
+  arizona-band: true
 black-mountain:
   name: Black Mountain
   social:
