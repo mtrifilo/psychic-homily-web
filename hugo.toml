@@ -30,3 +30,25 @@ theme = 'ananke'
   changefreq = "weekly"
   priority = 0.5
   filename = "sitemap.xml"
+
+[menu]
+  [[menu.main]]
+    name = "Home"
+    url = "/"
+    weight = 1
+  [[menu.main]]
+    name = "Shows"
+    url = "/shows/"
+    weight = 2
+  [[menu.main]]
+    name = "Venues"
+    url = "/venues/"
+    weight = 3
+  [[menu.main]]
+    name = "Blog"
+    url = "/blog/"
+    weight = 4
+  [[menu.main]]
+    name = "About"
+    url = "/about/"
+    weight = 5

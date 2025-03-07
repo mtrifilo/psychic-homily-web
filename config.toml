@@ -6,28 +6,6 @@
 [permalinks]
   shows = "/shows/:year/:month/:slug/" 
 
-[menu]
-  [[menu.main]]
-    name = "Home"
-    url = "/"
-    weight = 1
-  [[menu.main]]
-    name = "Shows"
-    url = "/shows/"
-    weight = 2
-  [[menu.main]]
-    name = "Blog"
-    url = "/blog/"
-    weight = 3
-  [[menu.main]]
-    name = "About"
-    url = "/about/"
-    weight = 4
-  [[menu.main]]
-    name = "Substack"
-    url = "https://psychichomily.substack.com/"
-    weight = 5
-
 
 baseURL = 'https://www.psychichomily.com/'
 languageCode = 'en-us'
@@ -35,5 +13,4 @@ title = 'Psychic Homily'
 theme = 'ananke'
 
 [params]
-  mainSections = ["shows", "blog"]
-
+  mainSections = ["shows", "blog", "venues"]
