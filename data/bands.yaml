@@ -291,6 +291,9 @@ rose-city-band:
     instagram: rosecityband
 jpw:
   name: JPW
+  social:
+    instagram: jasonpwoodbury
+  arizona-band: true
 zzzahara:
   name: Zzzahara
   social:
@@ -316,3 +319,39 @@ daiistar:
   name: Daiistar
   social:
     instagram: daiistarr
+neu-bloom:
+  name: Neu Bloom
+  social:
+    instagram: neubloomband
+morphia-slow:
+  name: Morphia Slow
+  social:
+    instagram: morphia.slow
+  arizona-band: true
+lonna-kelley:
+  name: Lonna Kelley
+  social:
+    instagram: mslonnabee
+  arizona-band: true
+bleach:
+  name: Bleach
+simian:
+  name: Simian
+law-abiding-citizen:
+  name: Law Abiding Citizen
+  arizona-band: true
+burn-victim:
+  name: Burn Victim
+dumpster-abortion:
+  name: Dumpster Abortion
+baller:
+  name: Baller
+abronia:
+  name: Abronia
+  social:
+    instagram: abroniaband
+flower-festival:
+  name: Flower Festival
+  arizona-band: true
+  social:
+    instagram: fflowerfestival
