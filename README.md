@@ -1,4 +1,5 @@
 # Psychic Homily Web
+
 ### [https://psychichomily.com](https://psychichomily.com)
 
 A Hugo-based website to document and amplify some of the most exciting and memorable new music releases, shows, and cultural events from Arizona musicians and beyond, focusing on artists truly putting their hearts and souls into their work bravely.
@@ -240,6 +241,14 @@ Before deploying:
 - Show data is stored in markdown files with YAML front matter
 - Band information is centralized in `data/bands.yaml`
 - The show parser script (`scripts/parse-show.js`) uses Claude AI to parse natural language show announcements
+
+## Roadmap
+
+- Store the bands and venue data in a database, and re-generate the yaml data based on persisted data
+- Allow users to submit shows, "favorite" shows, and create a profile
+- Create a mobile app for iPhone to allow for viewing show and band data, along with submitting shows on the go
+- Create a flyer image parser to extract show details from flyers, to update the show list
+- Social features?
 
 ## License
 
