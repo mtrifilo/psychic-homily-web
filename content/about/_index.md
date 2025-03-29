@@ -2,9 +2,6 @@
 title: "About"
 description: "Learn more about Psychic Homily"
 layout: "about"
-menu:
-  main:
-    weight: 4
 ---
 
 The goal of this website is to document and amplify some of the most exciting and memorable new music releases, shows, and cultural events from Arizona musicians and beyond, focusing on artists truly putting their hearts and souls into their work bravely. While Arizona artists will take precedence, any notable releases and events beyond Arizona will be featured as well. We're all in this together.

@@ -245,7 +245,7 @@ Before deploying:
 ## Roadmap
 
 - Store the bands and venue data in a database, and re-generate the yaml data based on persisted data
-- Allow users to submit shows, "favorite" shows, and create a profile
+- Allow users to submit shows, tag "favorite" shows, and create a profile
 - Create a mobile app for iPhone to allow for viewing show and band data, along with submitting shows on the go
 - Create a flyer image parser to extract show details from flyers, to update the show list
 - Social features?
