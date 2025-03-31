@@ -45,10 +45,14 @@ theme = 'ananke'
     url = "/venues/"
     weight = 3
   [[menu.main]]
+    name = "DJ Mixes"
+    url = "/mixes/"
+    weight = 4
+  [[menu.main]]
     name = "Blog"
     url = "/blog/"
-    weight = 4
+    weight = 5
   [[menu.main]]
     name = "About"
     url = "/about/"
-    weight = 5
+    weight = 6

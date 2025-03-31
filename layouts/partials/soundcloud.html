@@ -1,0 +1,45 @@
+{{ $url := .url }} {{ $title := .title }} {{ $artist := .artist }} {{
+$artist_url := .artist_url }} {{ $track_url := .track_url }}
+
+<div class="soundcloud-container mb4">
+  <iframe
+    width="100%"
+    height="166"
+    scrolling="no"
+    frameborder="no"
+    allow="autoplay"
+    src="{{ $url }}"
+    style="border-radius: 3px"
+  >
+  </iframe>
+  <div
+    style="
+      font-size: 10px;
+      color: #cccccc;
+      line-break: anywhere;
+      word-break: normal;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      font-family: Interstate, Lucida Grande, Lucida Sans Unicode, Lucida Sans,
+        Garuda, Verdana, Tahoma, sans-serif;
+      font-weight: 100;
+    "
+  >
+    <a
+      href="{{ $artist_url }}"
+      title="{{ $artist }}"
+      target="_blank"
+      style="color: #cccccc; text-decoration: none"
+      >{{ $artist }}</a
+    >
+    ·
+    <a
+      href="{{ $track_url }}"
+      title="{{ $title }}"
+      target="_blank"
+      style="color: #cccccc; text-decoration: none"
+      >{{ $title }}</a
+    >
+  </div>
+</div>

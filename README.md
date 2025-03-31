@@ -11,7 +11,7 @@ This website features a show list and blog, along with helper scripts for parsin
 ## Prerequisites
 
 - [Hugo](https://gohugo.io/installation/)
-- Node.js and npm
+- Node.js and pnpm
 - An Anthropic API key (for the show parser)
 
 ## Setup
@@ -26,7 +26,7 @@ cd psychic-homily-web
 2. Install Node.js dependencies:
 
 ```bash
-npm install
+pnpm install
 ```
 
 3. Create a `.env` file in the root directory with your Anthropic API key:
@@ -40,10 +40,18 @@ ANTHROPIC_API_KEY=your_api_key_here
 To start the Hugo development server:
 
 ```bash
-hugo server -D
+pnpm dev
 ```
 
 This will start the server at `http://localhost:1313` with live reload enabled.
+
+## Running the component server for the React components
+
+```bash
+pnpm dev:components
+```
+
+This will run a development server at `http://localhost:5173` to view the react components under development with fast hot-reloading.
 
 ## Adding New Shows
 
@@ -58,7 +66,7 @@ https://github.com/user-attachments/assets/0612af17-5d4a-4594-92c3-d8712ccba77f
 1. Run the parser:
 
 ```bash
-npm run new-show
+pnpm new-show
 ```
 
 2. Enter the show announcement in the following format:
@@ -112,7 +120,7 @@ The site includes a custom Bandcamp embed parser and shortcode for easily adding
 2. Run the parser:
 
 ```bash
-npm run parse-bandcamp
+pnpm parse-bandcamp
 ```
 
 3. Paste the embed code when prompted

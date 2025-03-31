@@ -5,10 +5,10 @@
     "new-show": "node scripts/parse-show.js",
     "parse-bandcamp": "node scripts/parse-bandcamp.js",
     "new-blog": "node scripts/create-blog-post.js",
-    "migrate-venues": "node scripts/migrate-venues.js",
-    "migrate-to-venues-array": "node scripts/migrate-to-venues-array.js",
-    "populate-missing-venues": "node scripts/populate-missing-venues.js",
-    "populate-venue-data": "node scripts/populate-venue-data.js"
+    "new-mix": "node scripts/create-mix-post.js",
+    "build:prod": "cd psychic-homily-components && npm run build:components && cd ../psychic-homily-web && hugo",
+    "dev": "cd psychic-homily-components && npm run dev && cd ../psychic-homily-web && hugo server",
+    "dev:components": "cd psychic-homily-components && npm run dev"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.17.1",
