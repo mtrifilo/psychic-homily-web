@@ -1,0 +1,548 @@
+{
+  "cursive": {
+    "name": "Cursive",
+    "social": {
+      "instagram": "cursivetheband"
+    }
+  },
+  "pile": {
+    "name": "Pile",
+    "social": {
+      "instagram": "pilemusic"
+    }
+  },
+  "mount-eerie": {
+    "name": "Mount Eerie",
+    "url": "https://pwelverumandsun.bandcamp.com/"
+  },
+  "soccer-mommy": {
+    "name": "Soccer Mommy",
+    "social": {
+      "instagram": "soccermommyband"
+    }
+  },
+  "baths": {
+    "name": "Baths",
+    "social": {
+      "instagram": "bathsmusic"
+    }
+  },
+  "fashion-club": {
+    "name": "Fashion Club (LA)",
+    "social": {
+      "instagram": "fashion.club.la"
+    }
+  },
+  "playboy-manbaby": {
+    "name": "Playboy Manbaby",
+    "social": {
+      "instagram": "playboymanbaby"
+    },
+    "arizona-band": true
+  },
+  "dune-rats": {
+    "name": "Dune Rats",
+    "social": {
+      "instagram": "dunerats"
+    }
+  },
+  "glixen": {
+    "name": "Glixen",
+    "social": {
+      "instagram": "glixen"
+    },
+    "arizona-band": true
+  },
+  "the-linda-lindas": {
+    "name": "The Linda Lindas",
+    "social": {
+      "instagram": "thelindalindas"
+    }
+  },
+  "she's-green": {
+    "name": "She's Green",
+    "social": {
+      "instagram": "shes__green"
+    }
+  },
+  "amyl-and-the-sniffers": {
+    "name": "Amyl and The Sniffers",
+    "social": {
+      "instagram": "amylandthesniffers"
+    }
+  },
+  "youth-lagoon": {
+    "name": "Youth Lagoon",
+    "social": {
+      "instagram": "trevorpowers"
+    }
+  },
+  "dummy": {
+    "name": "Dummy",
+    "social": {
+      "instagram": "notdummy"
+    }
+  },
+  "the-sheaves": {
+    "name": "The Sheaves",
+    "url": "https://sheaves.bandcamp.com/music",
+    "arizona-band": true
+  },
+  "mogwai": {
+    "name": "Mogwai",
+    "social": {
+      "instagram": "mogwaiband"
+    }
+  },
+  "korine": {
+    "name": "Korine",
+    "social": {
+      "instagram": "korineband"
+    }
+  },
+  "johnny-dynamite-and-the-bloodsuckers": {
+    "name": "Johnny Dynamite and the Bloodsuckers",
+    "social": {
+      "instagram": "johnny.dynamite"
+    }
+  },
+  "spellxcaster": {
+    "name": "Spellxcaster",
+    "social": {
+      "instagram": "spellxcasterxoxo"
+    }
+  },
+  "la-luz": {
+    "name": "La Luz",
+    "social": {
+      "instagram": "laluzband"
+    }
+  },
+  "pixies": {
+    "name": "Pixies",
+    "social": {
+      "instagram": "pixiesofficial"
+    }
+  },
+  "viagra-boys": {
+    "name": "Viagra Boys",
+    "social": {
+      "instagram": "viagraboys"
+    }
+  },
+  "osees": {
+    "name": "OSEES",
+    "social": {
+      "instagram": "deathgodrecords"
+    }
+  },
+  "chalcogen": {
+    "name": "Chalcogen",
+    "social": {
+      "instagram": "chalcogentheband"
+    }
+  },
+  "kochany": {
+    "name": "Kochany"
+  },
+  "isaac-daze": {
+    "name": "Isaac Daze",
+    "url": "https://isaacdaze.bandcamp.com/"
+  },
+  "sasami": {
+    "name": "Sasami",
+    "social": {
+      "instagram": "sasamiashworth"
+    }
+  },
+  "jia-pet": {
+    "name": "Jia Pet",
+    "social": {
+      "instagram": "jia._.pet"
+    }
+  },
+  "of-montreal": {
+    "name": "Of Montreal",
+    "social": {
+      "instagram": "of_montreal"
+    }
+  },
+  "bijoux-cone": {
+    "name": "Bijoux Cone",
+    "social": {
+      "instagram": "bijouxcone"
+    }
+  },
+  "winter": {
+    "name": "Winter",
+    "social": {
+      "instagram": "daydreamingwinter"
+    }
+  },
+  "hooky": {
+    "name": "Hooky",
+    "social": {
+      "instagram": "h0o0ky"
+    }
+  },
+  "pinstock": {
+    "name": "Pinstock",
+    "social": {
+      "instagram": "pinstockband"
+    }
+  },
+  "where's-lucy?": {
+    "name": "Where's Lucy?",
+    "social": {
+      "instagram": "whereslucyband"
+    }
+  },
+  "sewerbitch!": {
+    "name": "Sewerbitch!",
+    "social": {
+      "instagram": "sewerbitchband"
+    },
+    "arizona-band": true
+  },
+  "standing-at-the-back": {
+    "name": "Standing at the Back",
+    "social": {
+      "instagram": "standingatthebackaz"
+    },
+    "arizona-band": true
+  },
+  "chat-pile": {
+    "name": "Chat Pile",
+    "social": {
+      "instagram": "chatpileband"
+    }
+  },
+  "gouge-away": {
+    "name": "Gouge Away",
+    "social": {
+      "instagram": "gougeawayfl"
+    }
+  },
+  "nightosphere": {
+    "name": "Nightosphere",
+    "social": {
+      "instagram": "nightospherekc"
+    }
+  },
+  "high-vis": {
+    "name": "High Vis",
+    "social": {
+      "instagram": "highvis"
+    }
+  },
+  "militarie-gun": {
+    "name": "Militarie Gun",
+    "social": {
+      "instagram": "militariegun"
+    }
+  },
+  "cold-gawd": {
+    "name": "Cold Gawd",
+    "social": {
+      "instagram": "cldgwd"
+    }
+  },
+  "blood-club": {
+    "name": "Blood Club",
+    "social": {
+      "instagram": "bl00dclub"
+    }
+  },
+  "obskuros": {
+    "name": "Obskuros",
+    "social": {
+      "instagram": "obskuros"
+    }
+  },
+  "urin": {
+    "name": "URIN"
+  },
+  "yellowcake": {
+    "name": "Yellowcake",
+    "social": {
+      "instagram": "yellowcakephx"
+    },
+    "arizona-band": true
+  },
+  "repression": {
+    "name": "Repression",
+    "arizona-band": true
+  },
+  "cobarde": {
+    "name": "Cobarde",
+    "arizona-band": true
+  },
+  "kraftwerk": {
+    "name": "Kraftwerk",
+    "social": {
+      "instagram": "kraftwerkofficial"
+    }
+  },
+  "palomino": {
+    "name": "Palomino",
+    "social": {
+      "instagram": "palomino_blond"
+    }
+  },
+  "high.": {
+    "name": "high.",
+    "social": {
+      "instagram": "high.asfuckband"
+    }
+  },
+  "droll": {
+    "name": "Droll",
+    "social": {
+      "instagram": "drollmusic"
+    }
+  },
+  "tropical-fuck-storm": {
+    "name": "Tropical Fuck Storm",
+    "social": {
+      "instagram": "tropical_fuck_storm"
+    }
+  },
+  "bill-orcutt": {
+    "name": "Bill Orcutt",
+    "social": {
+      "instagram": "palilaliarecords"
+    }
+  },
+  "prison-affair": {
+    "name": "Prison Affair",
+    "social": {
+      "instagram": "prison_affair"
+    }
+  },
+  "jade-helm": {
+    "name": "Jade Helm",
+    "social": {
+      "instagram": "jade_helm_"
+    },
+    "arizona-band": true
+  },
+  "bad-nerves": {
+    "name": "Bad Nerves",
+    "social": {
+      "instagram": "badbadnerves"
+    }
+  },
+  "spiritual-cramp": {
+    "name": "Spiritual Cramp"
+  },
+  "faetooth": {
+    "name": "Faetooth",
+    "social": {
+      "instagram": "faetooth"
+    }
+  },
+  "iress": {
+    "name": "Iress",
+    "social": {
+      "instagram": "weareiress"
+    }
+  },
+  "rotting-yellow": {
+    "name": "Rotting Yellow",
+    "social": {
+      "instagram": "rottingyellow"
+    },
+    "arizona-band": true
+  },
+  "lcd-soundsystem": {
+    "name": "LCD Soundsystem",
+    "social": {
+      "instagram": "lcdsoundsystem"
+    }
+  },
+  "justice": {
+    "name": "Justice",
+    "social": {
+      "instagram": "etjusticepourtous"
+    }
+  },
+  "alvvays": {
+    "name": "Alvvays",
+    "social": {
+      "instagram": "alvvaysband"
+    }
+  },
+  "eggy": {
+    "name": "Eggy",
+    "social": {
+      "instagram": "eggymusic"
+    }
+  },
+  "slow-pulp": {
+    "name": "Slow Pulp",
+    "social": {
+      "instagram": "slowpulpband"
+    }
+  },
+  "sylvan-esso": {
+    "name": "Sylvan Esso",
+    "social": {
+      "instagram": "sylvanesso"
+    }
+  },
+  "vision-video": {
+    "name": "Vision Video",
+    "social": {
+      "instagram": "visionvideoband"
+    }
+  },
+  "corbeau-hangs": {
+    "name": "Corbeau Hangs",
+    "social": {
+      "instagram": "corbeauhangs"
+    },
+    "arizona-band": true
+  },
+  "le-mal": {
+    "name": "Le Mal",
+    "social": {
+      "instagram": "le_mal_band"
+    },
+    "arizona-band": true
+  },
+  "post-crucifixion": {
+    "name": "Post Crucifixion",
+    "social": {
+      "instagram": "postcrucifixion"
+    }
+  },
+  "alex-okami": {
+    "name": "Alex Okami",
+    "social": {
+      "instagram": "alex.okami"
+    }
+  },
+  "rose-city-band": {
+    "name": "Rose City Band",
+    "social": {
+      "instagram": "rosecityband"
+    }
+  },
+  "jpw": {
+    "name": "JPW",
+    "social": {
+      "instagram": "jasonpwoodbury"
+    },
+    "arizona-band": true
+  },
+  "zzzahara": {
+    "name": "Zzzahara",
+    "social": {
+      "instagram": "zzzahara.wav"
+    }
+  },
+  "michah-preite": {
+    "name": "Michah Preite",
+    "social": {
+      "instagram": "mnpreite"
+    }
+  },
+  "secret-attraction": {
+    "name": "Secret Attraction",
+    "social": {
+      "instagram": "secretattractionmusic"
+    },
+    "arizona-band": true
+  },
+  "black-mountain": {
+    "name": "Black Mountain",
+    "social": {
+      "instagram": "blackmountainarmy"
+    }
+  },
+  "l.a.-witch": {
+    "name": "L.A. Witch",
+    "social": {
+      "instagram": "la_witch"
+    }
+  },
+  "daiistar": {
+    "name": "Daiistar",
+    "social": {
+      "instagram": "daiistarr"
+    }
+  },
+  "neu-bloom": {
+    "name": "Neu Bloom",
+    "social": {
+      "instagram": "neublumeband"
+    }
+  },
+  "morphia-slow": {
+    "name": "Morphia Slow",
+    "social": {
+      "instagram": "morphia.slow"
+    },
+    "arizona-band": true
+  },
+  "lonna-kelley": {
+    "name": "Lonna Kelley",
+    "social": {
+      "instagram": "mslonnabee"
+    },
+    "arizona-band": true
+  },
+  "bleach": {
+    "name": "Bleach"
+  },
+  "simian": {
+    "name": "Simian"
+  },
+  "law-abiding-citizen": {
+    "name": "Law Abiding Citizen",
+    "arizona-band": true
+  },
+  "burn-victim": {
+    "name": "Burn Victim"
+  },
+  "dumpster-abortion": {
+    "name": "Dumpster Abortion"
+  },
+  "baller": {
+    "name": "Baller"
+  },
+  "abronia": {
+    "name": "Abronia",
+    "social": {
+      "instagram": "abroniaband"
+    }
+  },
+  "flower-festival": {
+    "name": "Flower Festival",
+    "arizona-band": true,
+    "social": {
+      "instagram": "fflowerfestival"
+    }
+  },
+  "artificial-go": {
+    "name": "Artificial Go",
+    "social": {
+      "instagram": "artificial.go"
+    }
+  },
+  "treasure-mammal": {
+    "name": "Treasure Mammal"
+  },
+  "spicy-mayo": {
+    "name": "Spicy Mayo"
+  },
+  "realm": {
+    "name": "REALM"
+  },
+  "sativan": {
+    "name": "Sativan"
+  },
+  "cheekbone": {
+    "name": "Cheekbone"
+  }
+}
