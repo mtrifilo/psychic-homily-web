@@ -7,6 +7,7 @@
     "new-blog": "node scripts/create-blog-post.js",
     "new-mix": "node scripts/create-mix-post.js",
     "build:prod": "cd psychic-homily-components && npm run build:components && cd ../psychic-homily-web && hugo",
+    "convert-yaml": "node convert-yaml.js",
     "dev": "cd psychic-homily-components && npm run dev && cd ../psychic-homily-web && hugo server",
     "dev:components": "cd psychic-homily-components && npm run dev"
   },
