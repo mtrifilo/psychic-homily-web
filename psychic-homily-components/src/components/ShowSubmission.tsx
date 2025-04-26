@@ -13,10 +13,16 @@ interface Band {
 // Sub-components
 function BandChip({ band, onRemove }: Readonly<{ band: Band; onRemove: () => void }>) {
     return (
-        <div className={`flex items-center gap-1 px-2 py-1 rounded ${band.isCustom ? 'bg-blue-50' : 'bg-gray-100'}`}>
+        <div
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-sm rounded ${band.isCustom ? 'bg-blue-50' : 'bg-gray-100'}`}
+        >
             <span>{band.name}</span>
             {band.isCustom && <span className="text-xs text-blue-500">(new)</span>}
-            <button type="button" onClick={onRemove} className="ml-2 text-gray-500 hover:text-gray-700">
+            <button
+                type="button"
+                onClick={onRemove}
+                className="ml-1 text-gray-400 hover:text-gray-700 text-lg leading-none"
+            >
                 ×
             </button>
         </div>
@@ -29,10 +35,14 @@ function VenueChip({
     onRemove,
 }: Readonly<{ venueName: string; isNew: boolean; onRemove: () => void }>) {
     return (
-        <div className="flex items-center gap-1 px-2 py-1 rounded bg-gray-100">
+        <div className="inline-flex items-center gap-1 px-1.5 py-0.5 text-sm rounded bg-gray-100">
             <span>{venueName}</span>
             {isNew && <span className="text-xs text-blue-500">(new)</span>}
-            <button type="button" onClick={onRemove} className="ml-2 text-gray-500 hover:text-gray-700">
+            <button
+                type="button"
+                onClick={onRemove}
+                className="ml-1 text-gray-400 hover:text-gray-700 text-lg leading-none"
+            >
                 ×
             </button>
         </div>
