@@ -1,7 +1,10 @@
 import { Button, Flex, Text, TextArea, TextField } from '@radix-ui/themes'
 import { useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { bands, venues } from '../lib/show-data'
 import { Combobox } from './ui/combobox'
+import { showSchema, type ShowFormData } from '../lib/schemas/show-schema'
 
 // Types
 interface Band {
@@ -132,42 +135,70 @@ function VenueSelector({
 }
 
 export function ShowSubmission() {
-    // State
-    const [selectedBands, setSelectedBands] = useState<Band[]>([])
+    const {
+        register,
+        handleSubmit,
+        formState: { errors },
+        setValue,
+        watch,
+    } = useForm<ShowFormData>({
+        resolver: zodResolver(showSchema),
+        defaultValues: {
+            bands: [],
+            state: 'AZ', // Default state
+            notes: '',
+        },
+    })
+
+    const selectedBands = watch('bands')
     const [selectedVenue, setSelectedVenue] = useState<string>('')
 
-    // Event handlers
     const handleBandSelect = (value: string) => {
         const existingBand = bands[value as keyof typeof bands]
-        if (existingBand) {
-            if (!selectedBands.find((b) => b.id === value)) {
-                setSelectedBands([
-                    ...selectedBands,
-                    {
-                        id: value,
-                        name: existingBand.name,
-                    },
-                ])
-            }
-        } else {
-            const newBandId = `new-${Date.now()}`
-            setSelectedBands([
-                ...selectedBands,
-                {
-                    id: newBandId,
-                    name: value,
-                    isCustom: true,
-                },
-            ])
+        const newBand = {
+            id: existingBand ? value : `new-${Date.now()}`,
+            name: existingBand ? existingBand.name : value.trim(),
+            isCustom: !existingBand,
+        }
+
+        if (!selectedBands.find((b) => b.id === newBand.id)) {
+            setValue('bands', [...selectedBands, newBand], {
+                shouldValidate: true,
+            })
         }
     }
 
     const handleBandRemove = (id: string) => {
-        setSelectedBands(selectedBands.filter((b) => b.id !== id))
+        setValue(
+            'bands',
+            selectedBands.filter((b) => b.id !== id),
+            { shouldValidate: true }
+        )
     }
 
     const handleVenueSelect = (value: string) => {
         setSelectedVenue(value)
+        const venue = venues[value as keyof typeof venues]
+        if (venue) {
+            setValue('venue', venue.name, { shouldValidate: true })
+            setValue('city', venue.city, { shouldValidate: true })
+            setValue('state', venue.state, { shouldValidate: true })
+        } else {
+            setValue('venue', value.trim(), { shouldValidate: true })
+        }
+    }
+
+    const onSubmit = async (data: ShowFormData) => {
+        try {
+            // Validate and sanitize with Zod
+            const validatedData = showSchema.parse(data)
+            console.log('Sanitized form data:', validatedData)
+
+            // TODO: Submit to your API
+            // await submitShow(validatedData)
+        } catch (error) {
+            console.error('Validation error:', error)
+        }
     }
 
     return (
@@ -175,29 +206,71 @@ export function ShowSubmission() {
             <Text size="5" weight="bold">
                 Submit a Show
             </Text>
-            <form className="flex flex-col gap-4">
-                {/* Bands Selection */}
+            <form className="flex flex-col gap-4" onSubmit={handleSubmit(onSubmit)}>
                 <BandSelector
                     selectedBands={selectedBands}
                     onBandSelect={handleBandSelect}
                     onBandRemove={handleBandRemove}
                 />
+                {errors.bands && (
+                    <Text color="red" size="2">
+                        {errors.bands.message}
+                    </Text>
+                )}
 
-                {/* Venue Selection */}
                 <VenueSelector
                     selectedVenue={selectedVenue}
                     onVenueSelect={handleVenueSelect}
                     onVenueRemove={() => setSelectedVenue('')}
                 />
+                {errors.venue && (
+                    <Text color="red" size="2">
+                        {errors.venue.message}
+                    </Text>
+                )}
 
-                {/* Form Fields */}
-                <TextField.Root placeholder="Date" type="date" />
-                <TextField.Root placeholder="Time" />
-                <TextField.Root placeholder="Price" />
-                <TextField.Root placeholder="City" />
-                <TextField.Root placeholder="State" />
-                <TextField.Root placeholder="Show Country" readOnly defaultValue="United States" />
-                <TextArea placeholder="Notes" />
+                <TextField.Root size="2" type="date" placeholder="Date" {...register('date')} />
+                {errors.date && (
+                    <Text color="red" size="2">
+                        {errors.date.message}
+                    </Text>
+                )}
+
+                <TextField.Root size="2" type="time" placeholder="Time" {...register('time')} />
+                {errors.time && (
+                    <Text color="red" size="2">
+                        {errors.time.message}
+                    </Text>
+                )}
+
+                <TextField.Root size="2" type="text" placeholder="Price" {...register('price')} />
+                {errors.price && (
+                    <Text color="red" size="2">
+                        {errors.price.message}
+                    </Text>
+                )}
+
+                <TextField.Root size="2" type="text" placeholder="City" {...register('city')} />
+                {errors.city && (
+                    <Text color="red" size="2">
+                        {errors.city.message}
+                    </Text>
+                )}
+
+                <TextField.Root size="2" type="text" placeholder="State" maxLength={2} {...register('state')} />
+                {errors.state && (
+                    <Text color="red" size="2">
+                        {errors.state.message}
+                    </Text>
+                )}
+
+                <TextArea placeholder="Notes" {...register('notes')} />
+                {errors.notes && (
+                    <Text color="red" size="2">
+                        {errors.notes.message}
+                    </Text>
+                )}
+
                 <Button type="submit" variant="classic" color="gray" highContrast>
                     Submit
                 </Button>
