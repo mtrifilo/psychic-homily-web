@@ -1,102 +1,29 @@
-# React + TypeScript + Vite
+# Psychic Homily Components
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Available Scripts
 
-Currently, two official plugins are available:
+This project uses `pnpm` as its package manager.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+First, install the necessary dependencies:
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default tseslint.config({
-    extends: [
-        // Remove ...tseslint.configs.recommended and replace with this
-        ...tseslint.configs.recommendedTypeChecked,
-        // Alternatively, use this for stricter rules
-        ...tseslint.configs.strictTypeChecked,
-        // Optionally, add this for stylistic rules
-        ...tseslint.configs.stylisticTypeChecked,
-    ],
-    languageOptions: {
-        // other options...
-        parserOptions: {
-            project: ['./tsconfig.node.json', './tsconfig.app.json'],
-            tsconfigRootDir: import.meta.dirname,
-        },
-    },
-})
+```bash
+pnpm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Once the installation is complete, you can use the following scripts:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### `pnpm run dev`
 
-export default tseslint.config({
-    plugins: {
-        // Add the react-x and react-dom plugins
-        'react-x': reactX,
-        'react-dom': reactDom,
-    },
-    rules: {
-        // other rules...
-        // Enable its recommended typescript rules
-        ...reactX.configs['recommended-typescript'].rules,
-        ...reactDom.configs.recommended.rules,
-    },
-})
-```
+Starts the development server using Vite. This command is ideal for local development, as it provides features like Hot Module Replacement (HMR) for instant feedback.
 
-Proposed file structure:
+### `pnpm run build`
 
-src/
-├── components/
-│ ├── show-form/
-│ │ ├── ShowForm.tsx
-│ │ ├── ShowFormSchema.ts
-│ │ └── types.ts
-│ └── ui/
-│ ├── Button.tsx
-│ └── Input.tsx
-├── lib/
-│ ├── api.ts
-│ └── utils.ts
-├── routes/
-│ ├── submit-show.tsx
-│ └── index.tsx
-├── hooks/
-│ └── useShowSubmission.ts
-└── types/
-└── show.ts
+Builds the application for production. This script first runs the TypeScript compiler (`tsc -b`) to ensure there are no type errors, then uses Vite to create an optimized, production-ready build in the `dist` directory.
 
-## Integrating components with Hugo
+### `pnpm run lint`
 
-Add these to your Hugo templates where you want the React components to appear:
+Analyzes the codebase with ESLint to identify and report on patterns, potential errors, and style guide violations.
 
-`single.html`
+### `pnpm run preview`
 
-```html
-{{ define "main" }}
-<div class="container mx-auto px-4 py-8">
-    <h1>Submit a Show</h1>
-    <!-- React mount point -->
-    <div id="show-submission"></div>
-</div>
-
-<!-- Include the React bundle -->
-<script type="module" src="/js/components.js"></script>
-{{ end }}
-```
-
-When adding new components, be sure to update index.html to include the mount points for the new components, like:
-
-```html
-<div id="show-submission"></div>
-<div id="new-component"></div>
-```
+Starts a local server to preview the production build from the `dist` folder. This is a useful way to test the final application before deploying it.
