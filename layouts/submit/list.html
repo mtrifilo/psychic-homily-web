@@ -1,0 +1,24 @@
+{{ define "main" }}
+<article class="pa3 pa4-ns nested-copy-line-height">
+  <section class="cf ph3 ph3-l pv3 pv4-l f4 lh-copy mid-gray">
+    <div class="mw7">
+      <h1 class="f2 lh-title mb3">{{ .Title }}</h1>
+      {{ with .Content }}
+      <div class="mb4">{{ . | safeHTML }}</div>
+      {{ end }}
+
+      <!-- React mounting point -->
+      <div id="root">
+        <!-- Fallback content while React loads -->
+        <div class="bg-light-gray pa3 br2">
+          <p>Loading submission form...</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</article>
+
+<!-- Load React bundle -->
+<script type="module" src="/js/submit-form.js"></script>
+<link rel="stylesheet" href="/js/submit-form.css" />
+{{ end }}

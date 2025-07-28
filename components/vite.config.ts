@@ -11,4 +11,14 @@ export default defineConfig({
             '@': path.resolve(__dirname, './src'),
         },
     },
+    build: {
+        outDir: '../static/js',
+        rollupOptions: {
+            output: {
+                entryFileNames: 'submit-form.js',
+                chunkFileNames: 'submit-form-[hash].js',
+                assetFileNames: 'submit-form-[hash].[ext]',
+            },
+        },
+    },
 })

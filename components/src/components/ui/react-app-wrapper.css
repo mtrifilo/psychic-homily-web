@@ -1,0 +1,97 @@
+/* react-app-wrapper.css - Isolates React app from Hugo global styles */
+.react-app-isolated {
+    /* Reset common conflicting properties */
+    all: initial;
+
+    /* Restore essential display properties */
+    display: block;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    line-height: 1.5;
+    color: #000;
+    background: transparent;
+
+    /* Ensure the container takes full width */
+    width: 100% !important;
+    box-sizing: border-box;
+}
+
+/* Reset all elements within the React app to prevent Hugo inheritance */
+.react-app-isolated *,
+.react-app-isolated *::before,
+.react-app-isolated *::after {
+    box-sizing: border-box;
+}
+
+/* Prevent Hugo's global styles from affecting React components */
+.react-app-isolated input,
+.react-app-isolated textarea,
+.react-app-isolated button,
+.react-app-isolated select,
+.react-app-isolated label,
+.react-app-isolated form,
+.react-app-isolated div,
+.react-app-isolated span,
+.react-app-isolated p,
+.react-app-isolated h1,
+.react-app-isolated h2,
+.react-app-isolated h3,
+.react-app-isolated h4,
+.react-app-isolated h5,
+.react-app-isolated h6 {
+    /* Reset inherited styles */
+    margin: 0;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    font-size: 100%;
+    vertical-align: baseline;
+    background: transparent;
+    font-family: inherit;
+    line-height: inherit;
+    color: inherit;
+    text-decoration: none;
+
+    /* Allow components to set their own styles */
+    all: revert-layer;
+}
+
+/* Ensure React components can style themselves */
+.react-app-isolated [data-radix-collection-item],
+.react-app-isolated [data-state],
+.react-app-isolated [data-orientation],
+.react-app-isolated [class*='ui-'],
+.react-app-isolated [class*='shadcn-'] {
+    all: revert-layer !important;
+}
+
+/* Higher specificity for common Hugo overrides */
+.react-app-isolated .w-full {
+    width: 100% !important;
+}
+.react-app-isolated .space-y-4 > * + * {
+    margin-top: 1rem !important;
+}
+.react-app-isolated .flex {
+    display: flex !important;
+}
+.react-app-isolated .flex-col {
+    flex-direction: column !important;
+}
+.react-app-isolated .items-center {
+    align-items: center !important;
+}
+.react-app-isolated .justify-center {
+    justify-content: center !important;
+}
+.react-app-isolated .mb-4 {
+    margin-bottom: 1rem !important;
+}
+.react-app-isolated .mt-4 {
+    margin-top: 1rem !important;
+}
+.react-app-isolated .mr-4 {
+    margin-right: 1rem !important;
+}
+.react-app-isolated .ml-4 {
+    margin-left: 1rem !important;
+}

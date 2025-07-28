@@ -6,10 +6,10 @@
     "parse-bandcamp": "node scripts/parse-bandcamp.js",
     "new-blog": "node scripts/create-blog-post.js",
     "new-mix": "node scripts/create-mix-post.js",
-    "build:prod": "cd psychic-homily-components && npm run build:components && cd ../psychic-homily-web && hugo",
+    "build:prod": "cd components && npm run build:components && cd ../psychic-homily-web && hugo",
     "convert-yaml": "node convert-yaml.js",
-    "dev": "cd psychic-homily-components && npm run dev && cd ../psychic-homily-web && hugo server",
-    "dev:components": "cd psychic-homily-components && npm run dev"
+    "dev": "cd components && npm run dev && cd ../psychic-homily-web && hugo server",
+    "dev:components": "cd components && npm run dev"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.17.1",

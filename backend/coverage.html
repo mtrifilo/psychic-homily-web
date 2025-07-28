@@ -1,0 +1,568 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>services: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">psychic-homily-backend/internal/services/auth.go (70.4%)</option>
+				
+				<option value="file1">psychic-homily-backend/internal/services/jwt.go (90.9%)</option>
+				
+				<option value="file2">psychic-homily-backend/internal/services/user.go (79.2%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package services
+
+import (
+        "fmt"
+        "log"
+        "net/http"
+
+        "github.com/markbates/goth/gothic"
+        "gorm.io/gorm"
+
+        "psychic-homily-backend/db"
+        "psychic-homily-backend/internal/config"
+        "psychic-homily-backend/internal/models"
+)
+
+// AuthService handles authentication business logic
+type AuthService struct {
+        db          *gorm.DB
+        userService *UserService
+        jwtService  *JWTService
+}
+
+// NewAuthService creates a new authentication service
+func NewAuthService(cfg *config.Config) *AuthService <span class="cov8" title="1">{
+        return &amp;AuthService{
+                db:          db.GetDB(),
+                userService: NewUserService(), // Call directly, no package prefix
+                jwtService:  NewJWTService(cfg),
+        }
+}</span>
+
+// OAuthLogin initiates OAuth login flow
+func (s *AuthService) OAuthLogin(w http.ResponseWriter, r *http.Request, provider string) error <span class="cov8" title="1">{
+        // Check for nil request
+        if r == nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("request cannot be nil")
+        }</span>
+
+        // Use Goth's recommended way to set the provider in context
+        <span class="cov8" title="1">r = gothic.GetContextWithProvider(r, provider)
+        
+        // Begin OAuth flow - this will redirect to the OAuth provider
+        log.Printf("DEBUG: About to call gothic.BeginAuthHandler with provider: %s", provider)
+        gothic.BeginAuthHandler(w, r)
+        log.Printf("DEBUG: After gothic.BeginAuthHandler call")
+        return nil</span>
+}
+
+// OAuthCallback handles OAuth callback and user creation/linking
+func (s *AuthService) OAuthCallback(w http.ResponseWriter, r *http.Request, provider string) (*models.User, string, error) <span class="cov8" title="1">{
+    // Check for nil request
+    if r == nil </span><span class="cov8" title="1">{
+        return nil, "", fmt.Errorf("request cannot be nil")
+    }</span>
+
+    <span class="cov8" title="1">log.Printf("DEBUG: Request URL: %s", r.URL.String())
+    log.Printf("DEBUG: Using provider: '%s'", provider)
+    
+    // Use Goth's built-in CompleteUserAuth function directly
+    // (provider should already be in query params from handler)
+    log.Printf("DEBUG: About to call gothic.CompleteUserAuth")
+    gothUser, err := gothic.CompleteUserAuth(w, r)
+    if err != nil </span><span class="cov8" title="1">{
+        return nil, "", fmt.Errorf("OAuth completion failed: %w", err)
+    }</span>
+    
+    <span class="cov0" title="0">log.Printf("DEBUG: Successfully completed OAuth! gothUser: %+v", gothUser)
+
+    // Find or create user using user service
+    user, err := s.userService.FindOrCreateUser(gothUser, provider)
+    if err != nil </span><span class="cov0" title="0">{
+        return nil, "", fmt.Errorf("failed to find or create user: %w", err)
+    }</span>
+
+    // Generate JWT token
+    <span class="cov0" title="0">token, err := s.jwtService.CreateToken(user)
+    if err != nil </span><span class="cov0" title="0">{
+        return nil, "", fmt.Errorf("failed to create token: %w", err)
+    }</span>
+
+    <span class="cov0" title="0">return user, token, nil</span>
+}
+
+// Add this to backend/internal/services/auth.go
+// GetUserProfile retrieves user profile using the user service
+func (s *AuthService) GetUserProfile(userID uint) (*models.User, error) <span class="cov8" title="1">{
+        return s.userService.GetUserByID(userID)
+}</span>
+
+// RefreshUserToken generates a new JWT token for the user
+func (s *AuthService) RefreshUserToken(user *models.User) (string, error) <span class="cov8" title="1">{
+        return s.jwtService.CreateToken(user)
+}</span>
+
+// Logout handles user logout (JWT tokens are stateless, so just return success)
+func (s *AuthService) Logout(w http.ResponseWriter, r *http.Request) error <span class="cov8" title="1">{
+        // JWT tokens are stateless, so logout is handled client-side
+        // The client should remove the token from storage
+        return nil
+}</span>
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package services
+
+import (
+        "fmt"
+        "time"
+
+        "psychic-homily-backend/internal/config"
+        "psychic-homily-backend/internal/models"
+
+        "github.com/golang-jwt/jwt/v5"
+)
+
+type JWTService struct {
+        config *config.Config
+}
+
+func NewJWTService(cfg *config.Config) *JWTService <span class="cov8" title="1">{
+        return &amp;JWTService{config: cfg}
+}</span>
+
+// CreateToken generates a JWT for a user
+func (s *JWTService) CreateToken(user *models.User) (string, error) <span class="cov8" title="1">{
+        claims := jwt.MapClaims{
+                "user_id": user.ID,
+                "email":   user.Email,
+                "exp":     time.Now().Add(time.Duration(s.config.JWT.Expiry) * time.Hour).Unix(),
+                "iat":     time.Now().Unix(),
+                "iss":     "psychic-homily-backend",
+                "aud":     "psychic-homily-users",
+        }
+
+        token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+        return token.SignedString([]byte(s.config.JWT.SecretKey))
+}</span>
+
+// ValidateToken validates and extracts user info from JWT
+func (s *JWTService) ValidateToken(tokenString string) (*models.User, error) <span class="cov8" title="1">{
+        token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) </span><span class="cov8" title="1">{
+                if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+                }</span>
+                <span class="cov8" title="1">return []byte(s.config.JWT.SecretKey), nil</span>
+        })
+
+        <span class="cov8" title="1">if err != nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("invalid token: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">if claims, ok := token.Claims.(jwt.MapClaims); ok &amp;&amp; token.Valid </span><span class="cov8" title="1">{
+                userID := uint(claims["user_id"].(float64))
+                
+                // Handle nil email case
+                var email *string
+                if claims["email"] != nil </span><span class="cov8" title="1">{
+                        emailStr := claims["email"].(string)
+                        email = &amp;emailStr
+                }</span>
+
+                <span class="cov8" title="1">return &amp;models.User{
+                        ID:    userID,
+                        Email: email,
+                }, nil</span>
+        }
+
+        <span class="cov0" title="0">return nil, fmt.Errorf("invalid token claims")</span>
+}
+
+// RefreshToken creates a new token with extended expiry
+func (s *JWTService) RefreshToken(tokenString string) (string, error) <span class="cov8" title="1">{
+        user, err := s.ValidateToken(tokenString)
+        if err != nil </span><span class="cov8" title="1">{
+                return "", err
+        }</span>
+
+        <span class="cov8" title="1">return s.CreateToken(user)</span>
+}
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package services
+
+import (
+        "fmt"
+
+        "github.com/markbates/goth"
+        "gorm.io/gorm"
+
+        "psychic-homily-backend/db"
+        "psychic-homily-backend/internal/models"
+)
+
+// UserService handles user-related business logic
+type UserService struct {
+        db *gorm.DB
+}
+
+// NewUserService creates a new user service
+func NewUserService() *UserService <span class="cov8" title="1">{
+        return &amp;UserService{
+                db: db.GetDB(),
+        }
+}</span>
+
+// FindOrCreateUser finds existing user or creates new one from OAuth data
+func (s *UserService) FindOrCreateUser(gothUser goth.User, provider string) (*models.User, error) <span class="cov8" title="1">{
+        if s.db == nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("database not initialized")
+        }</span>
+
+        // First, try to find existing OAuth account
+        <span class="cov8" title="1">var oauthAccount models.OAuthAccount
+
+        result := s.db.
+                Where("provider = ? AND provider_user_id = ?", provider, gothUser.UserID).
+                First(&amp;oauthAccount)
+
+        if result.Error == nil </span><span class="cov8" title="1">{
+                // OAuth account exists, get the user
+                var user models.User
+                if err := s.db.Preload("OAuthAccounts").Preload("Preferences").First(&amp;user, oauthAccount.UserID).Error; err != nil </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("failed to get user: %w", err)
+                }</span>
+                <span class="cov8" title="1">return &amp;user, nil</span>
+        }
+
+        <span class="cov8" title="1">if result.Error != gorm.ErrRecordNotFound </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("database error: %w", result.Error)
+        }</span>
+
+        // OAuth account doesn't exist, check if user exists by email
+        <span class="cov8" title="1">var existingUser models.User
+        if gothUser.Email != "" </span><span class="cov8" title="1">{
+                result.Error = s.db.Where("email = ?", gothUser.Email).First(&amp;existingUser).Error
+                if result.Error == nil </span><span class="cov0" title="0">{
+                        // User exists, link OAuth account
+                        return s.linkOAuthAccount(&amp;existingUser, gothUser, provider)
+                }</span>
+                <span class="cov8" title="1">if result.Error != gorm.ErrRecordNotFound </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("database error: %w", result.Error)
+                }</span>
+        }
+
+        // Create new user
+        <span class="cov8" title="1">return s.createNewUser(gothUser, provider)</span>
+}
+
+// createNewUser creates a new user with OAuth account
+func (s *UserService) createNewUser(gothUser goth.User, provider string) (*models.User, error) <span class="cov8" title="1">{
+        if s.db == nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("database not initialized")
+        }</span>
+
+        // Start transaction
+        <span class="cov8" title="1">tx := s.db.Begin()
+        defer func() </span><span class="cov8" title="1">{
+                if r := recover(); r != nil </span><span class="cov0" title="0">{
+                        tx.Rollback()
+                }</span>
+        }()
+
+        // Create user
+        <span class="cov8" title="1">user := &amp;models.User{
+                Email:         &amp;gothUser.Email,
+                FirstName:     &amp;gothUser.FirstName,
+                LastName:      &amp;gothUser.LastName,
+                AvatarURL:     &amp;gothUser.AvatarURL,
+                IsActive:      true,
+                EmailVerified: true, // OAuth users are email verified
+        }
+
+        if err := tx.Create(user).Error; err != nil </span><span class="cov0" title="0">{
+                tx.Rollback()
+                return nil, fmt.Errorf("failed to create user: %w", err)
+        }</span>
+
+        // Create OAuth account
+        <span class="cov8" title="1">oauthAccount := &amp;models.OAuthAccount{
+                UserID:            user.ID,
+                Provider:          provider,
+                ProviderUserID:    gothUser.UserID,
+                ProviderEmail:     &amp;gothUser.Email,
+                ProviderName:      &amp;gothUser.Name,
+                ProviderAvatarURL: &amp;gothUser.AvatarURL,
+                AccessToken:       &amp;gothUser.AccessToken,
+                RefreshToken:      &amp;gothUser.RefreshToken,
+        }
+
+        // Check if ExpiresAt is not zero time (which indicates it's set)
+        if !gothUser.ExpiresAt.IsZero() </span><span class="cov8" title="1">{
+                oauthAccount.ExpiresAt = &amp;gothUser.ExpiresAt
+        }</span>
+
+        <span class="cov8" title="1">if err := tx.Create(oauthAccount).Error; err != nil </span><span class="cov0" title="0">{
+                tx.Rollback()
+                return nil, fmt.Errorf("failed to create OAuth account: %w", err)
+        }</span>
+
+        // Create default preferences
+        <span class="cov8" title="1">preferences := &amp;models.UserPreferences{
+                UserID: user.ID,
+        }
+
+        if err := tx.Create(preferences).Error; err != nil </span><span class="cov0" title="0">{
+                tx.Rollback()
+                return nil, fmt.Errorf("failed to create user preferences: %w", err)
+        }</span>
+
+        // Commit transaction
+        <span class="cov8" title="1">if err := tx.Commit().Error; err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to commit transaction: %w", err)
+        }</span>
+
+        // Load relationships
+        <span class="cov8" title="1">if err := s.db.Preload("OAuthAccounts").Preload("Preferences").First(user, user.ID).Error; err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to load user relationships: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return user, nil</span>
+}
+
+// linkOAuthAccount links OAuth account to existing user
+func (s *UserService) linkOAuthAccount(user *models.User, gothUser goth.User, provider string) (*models.User, error) <span class="cov8" title="1">{
+        if s.db == nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("database not initialized")
+        }</span>
+
+        // Check if OAuth account already exists for this provider
+        <span class="cov8" title="1">var existingOAuth models.OAuthAccount
+        err := s.db.Where("user_id = ? AND provider = ?", user.ID, provider).First(&amp;existingOAuth).Error
+
+        if err == nil </span><span class="cov8" title="1">{
+                // Update existing OAuth account
+                existingOAuth.ProviderEmail = &amp;gothUser.Email
+                existingOAuth.ProviderName = &amp;gothUser.Name
+                existingOAuth.ProviderAvatarURL = &amp;gothUser.AvatarURL
+                existingOAuth.AccessToken = &amp;gothUser.AccessToken
+                existingOAuth.RefreshToken = &amp;gothUser.RefreshToken
+                // Check if ExpiresAt is not zero time (which indicates it's set)
+                if !gothUser.ExpiresAt.IsZero() </span><span class="cov8" title="1">{
+                        existingOAuth.ExpiresAt = &amp;gothUser.ExpiresAt
+                }</span>
+
+                <span class="cov8" title="1">if err := s.db.Save(&amp;existingOAuth).Error; err != nil </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("failed to update OAuth account: %w", err)
+                }</span>
+        } else<span class="cov8" title="1"> if err == gorm.ErrRecordNotFound </span><span class="cov8" title="1">{
+                // Create new OAuth account
+                oauthAccount := &amp;models.OAuthAccount{
+                        UserID:            user.ID,
+                        Provider:          provider,
+                        ProviderUserID:    gothUser.UserID,
+                        ProviderEmail:     &amp;gothUser.Email,
+                        ProviderName:      &amp;gothUser.Name,
+                        ProviderAvatarURL: &amp;gothUser.AvatarURL,
+                        AccessToken:       &amp;gothUser.AccessToken,
+                        RefreshToken:      &amp;gothUser.RefreshToken,
+                }
+
+                // Check if ExpiresAt is not zero time (which indicates it's set)
+                if !gothUser.ExpiresAt.IsZero() </span><span class="cov8" title="1">{
+                        oauthAccount.ExpiresAt = &amp;gothUser.ExpiresAt
+                }</span>
+
+                <span class="cov8" title="1">if err := s.db.Create(oauthAccount).Error; err != nil </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("failed to create OAuth account: %w", err)
+                }</span>
+        } else<span class="cov0" title="0"> {
+                return nil, fmt.Errorf("database error: %w", err)
+        }</span>
+
+        // Load updated user with relationships
+        <span class="cov8" title="1">if err := s.db.Preload("OAuthAccounts").Preload("Preferences").First(user, user.ID).Error; err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to load user: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return user, nil</span>
+}
+
+// GetUserByID retrieves a user by ID
+func (s *UserService) GetUserByID(userID uint) (*models.User, error) <span class="cov8" title="1">{
+        if s.db == nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("database not initialized")
+        }</span>
+
+        <span class="cov8" title="1">var user models.User
+
+        result := s.db.Preload("OAuthAccounts").
+                Preload("Preferences").
+                First(&amp;user, userID)
+
+        if result.Error != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to get user: %w", result.Error)
+        }</span>
+
+        <span class="cov8" title="1">return &amp;user, nil</span>
+}
+
+// GetUserByEmail retrieves a user by email
+func (s *UserService) GetUserByEmail(email string) (*models.User, error) <span class="cov8" title="1">{
+        if s.db == nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("database not initialized")
+        }</span>
+
+        <span class="cov8" title="1">var user models.User
+
+        result := s.db.Where("email = ?", email).
+                Preload("OAuthAccounts").
+                Preload("Preferences").
+                First(&amp;user)
+
+        if result.Error != nil </span><span class="cov8" title="1">{
+                if result.Error == gorm.ErrRecordNotFound </span><span class="cov8" title="1">{
+                        return nil, nil
+                }</span>
+                <span class="cov0" title="0">return nil, fmt.Errorf("failed to get user: %w", result.Error)</span>
+        }
+
+        <span class="cov8" title="1">return &amp;user, nil</span>
+}
+
+func (s *UserService) GetUserByUsername(username string) (*models.User, error) <span class="cov8" title="1">{
+        if s.db == nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("database not initialized")
+        }</span>
+
+        <span class="cov8" title="1">var user models.User
+
+        result := s.db.Where("username = ?", username).
+                Preload("OAuthAccounts").
+                Preload("Preferences").
+                First(&amp;user)
+
+        if result.Error != nil </span><span class="cov8" title="1">{
+                if result.Error == gorm.ErrRecordNotFound </span><span class="cov8" title="1">{
+                        return nil, nil
+                }</span>
+                <span class="cov0" title="0">return nil, fmt.Errorf("failed to get user: %w", result.Error)</span>
+        }
+
+        <span class="cov8" title="1">return &amp;user, nil</span>
+}
+
+// UpdateUser updates user information
+func (s *UserService) UpdateUser(userID uint, updates map[string]any) (*models.User, error) <span class="cov8" title="1">{
+        if s.db == nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("database not initialized")
+        }</span>
+
+        <span class="cov8" title="1">var user models.User
+
+        result := s.db.Model(&amp;user).
+                Where("id = ?", userID).
+                Updates(updates)
+
+        if result.Error != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to update user: %w", result.Error)
+        }</span>
+
+        <span class="cov8" title="1">return s.GetUserByID(userID)</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>

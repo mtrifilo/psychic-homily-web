@@ -24,7 +24,57 @@ Thumbs.db
 *.swp
 *.swo 
 
+# Environment files (CRITICAL - contains secrets)
 .env
+.env.local
+.env.production
+.env.staging
+.env.*.local
+
+# Keep example files
+!.env.example
+.env.development
 
 # Node.js
 node_modules/
+
+# Backend specific
+backend/backups/
+backend/logs/
+backend/*.log
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker volumes
+docker-volumes/
+postgres-data/
+
+# SSL certificates
+*.pem
+*.key
+*.crt
+*.csr
+
+# Google Cloud credentials
+*.json
+!package.json
+!package-lock.json
+!pnpm-lock.yaml
+!go.sum
+
+# Backup files
+*.backup
+*.bak
+*.tmp
+
+# IDE specific
+.vscode/settings.json
+.vscode/launch.json
+.vscode/tasks.json
+
+# OS specific
+.DS_Store
+Thumbs.db
