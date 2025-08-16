@@ -1,8 +1,8 @@
 import { useForm } from '@tanstack/react-form'
-import { Input } from '@/components/ui/input'
 import { z } from 'zod'
 import { Button } from './components/ui/button'
 import { FormField, FieldInfo } from '@/components/ui/form-field'
+import { Input } from './components/ui/input'
 
 interface Artist {
     name: string
@@ -90,59 +90,66 @@ export const ShowForm = () => {
                         children={(artistsField) => (
                             <div>
                                 {artistsField.state.value.map((_, i) => (
-                                    <div key={i}>
+                                    <div key={i} className={i > 0 ? 'mt-4' : ''}>
                                         <form.Field
                                             name={`artists[${i}].name`}
                                             children={(field) => {
                                                 return (
-                                                    <div
-                                                        className={`flex items-center ${
-                                                            artistsField.state.value.length > 1 ? 'mt-4' : ''
-                                                        }`}
-                                                    >
-                                                        <label htmlFor={field.name}>Artist:</label>
-                                                        <Input
-                                                            className="mr-4 ml-4"
-                                                            id={field.name}
-                                                            name={field.name}
-                                                            value={field.state.value}
-                                                            onBlur={field.handleBlur}
-                                                            onChange={(e) => {
-                                                                field.handleChange(e.target.value)
-                                                            }}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter') {
-                                                                    e.preventDefault()
-                                                                    handleAddArtist(artistsField)
-                                                                }
-                                                            }}
-                                                        />
-                                                        <FieldInfo field={field} />
-                                                        {artistsField.state.value.length > 1 && (
-                                                            <Button
-                                                                type="button"
-                                                                variant="outline"
-                                                                onClick={() => {
-                                                                    artistsField.removeValue(i)
+                                                    <div className="flex flex-col space-y-2">
+                                                        <label
+                                                            htmlFor={field.name}
+                                                            className="text-sm font-medium text-gray-700 dark:text-gray-300"
+                                                        >
+                                                            Artist
+                                                        </label>
+                                                        <div className="flex items-center gap-2">
+                                                            <Input
+                                                                type="text"
+                                                                className="flex-1"
+                                                                id={field.name}
+                                                                name={field.name}
+                                                                value={field.state.value}
+                                                                onBlur={field.handleBlur}
+                                                                onChange={(e) => {
+                                                                    field.handleChange(e.target.value)
                                                                 }}
-                                                            >
-                                                                X
-                                                            </Button>
-                                                        )}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') {
+                                                                        e.preventDefault()
+                                                                        handleAddArtist(artistsField)
+                                                                    }
+                                                                }}
+                                                            />
+                                                            {artistsField.state.value.length > 1 && (
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() => {
+                                                                        artistsField.removeValue(i)
+                                                                    }}
+                                                                >
+                                                                    X
+                                                                </Button>
+                                                            )}
+                                                        </div>
+                                                        <FieldInfo field={field} />
                                                     </div>
                                                 )
                                             }}
                                         />
                                     </div>
                                 ))}
-                                <Button type="button" className="mt-4" onClick={() => handleAddArtist(artistsField)}>
-                                    Add another artist
-                                </Button>
+                                <div className="mt-6">
+                                    <Button type="button" onClick={() => handleAddArtist(artistsField)}>
+                                        Add another artist
+                                    </Button>
+                                </div>
                             </div>
                         )}
                     />
                 </div>
-                <form.Field name="venue">
+                <form.Field name="venue.name">
                     {(field) => <FormField field={field} label="Venue" onEnterPress={form.handleSubmit} />}
                 </form.Field>
                 <form.Field name="date">

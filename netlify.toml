@@ -5,4 +5,19 @@ TZ = "America/Arizona"
 
 [build]
 publish = "public"
-command = "hugo --gc --minify" 
+command = "pnpm run build:prod"
+
+# Stage-specific build configuration
+[context.stage]
+command = "pnpm run build:stage"
+environment = { ENVIRONMENT = "stage" }
+
+# Production-specific build configuration  
+[context.production]
+command = "pnpm run build:prod"
+environment = { ENVIRONMENT = "production" }
+
+# Deploy preview (for pull requests)
+[context.deploy-preview]
+command = "pnpm run build:stage"
+environment = { ENVIRONMENT = "stage" } 

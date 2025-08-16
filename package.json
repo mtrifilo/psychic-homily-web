@@ -6,9 +6,11 @@
     "parse-bandcamp": "node scripts/parse-bandcamp.js",
     "new-blog": "node scripts/create-blog-post.js",
     "new-mix": "node scripts/create-mix-post.js",
-    "build:prod": "cd components && npm run build:components && cd ../psychic-homily-web && hugo",
+    "build:prod": "ENVIRONMENT=production cd components && pnpm build:production && cd .. && hugo --config hugo.production.toml --gc --minify",
+    "build:stage": "ENVIRONMENT=stage cd components && pnpm build:stage && cd .. && hugo --config hugo.staging.toml --gc --minify",
+    "build:components": "cd components && pnpm build",
     "convert-yaml": "node convert-yaml.js",
-    "dev": "cd components && npm run dev && cd ../psychic-homily-web && hugo server",
+    "dev": "hugo server",
     "dev:components": "cd components && npm run dev"
   },
   "dependencies": {

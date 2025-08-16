@@ -1,24 +1,37 @@
-import path from 'path'
-import tailwindcss from '@tailwindcss/vite'
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vite.dev/config/
-export default defineConfig({
-    plugins: [react(), tailwindcss()],
-    resolve: {
-        alias: {
-            '@': path.resolve(__dirname, './src'),
+export default defineConfig(({ mode }) => {
+    // Load env file based on `mode` in the current working directory.
+    const env = loadEnv(mode, process.cwd(), '')
+
+    // Determine environment from mode or fallback to production
+    const environment = mode === 'stage' ? 'stage' : 'production'
+
+    return {
+        plugins: [react()],
+        define: {
+            'process.env.ENVIRONMENT': `"${environment}"`,
+            'process.env.NODE_ENV': `"${environment}"`,
+            'process.env.REACT_APP_ENV': `"${environment}"`,
+            'process.env.REACT_APP_API_URL':
+                environment === 'stage' ? '"https://stage.api.psychichomily.com"' : '"https://api.psychichomily.com"',
         },
-    },
-    build: {
-        outDir: '../static/js',
-        rollupOptions: {
-            output: {
-                entryFileNames: 'submit-form.js',
-                chunkFileNames: 'submit-form-[hash].js',
-                assetFileNames: 'submit-form-[hash].[ext]',
+        build: {
+            outDir: environment === 'stage' ? 'dist-stage' : 'dist',
+            sourcemap: environment === 'stage',
+            rollupOptions: {
+                output: {
+                    manualChunks: {
+                        vendor: ['react', 'react-dom'],
+                        form: ['@tanstack/react-form', 'zod'],
+                    },
+                },
             },
         },
-    },
+        server: {
+            port: environment === 'stage' ? 3001 : 3000,
+            host: true,
+        },
+    }
 })

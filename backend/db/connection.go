@@ -3,6 +3,7 @@ package db
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -27,6 +28,9 @@ func Connect(cfg *config.Config) error {
 	// Connect to database
 	DB, err = gorm.Open(postgres.Open(cfg.Database.URL), &gorm.Config{
 		Logger: gormLogger,
+		NowFunc: func() time.Time {
+			return time.Now().UTC()
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)

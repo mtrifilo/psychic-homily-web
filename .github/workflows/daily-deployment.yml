@@ -11,6 +11,7 @@ jobs:
     steps:
       - name: Trigger Netlify Build
         run: |
+          echo "🚀 Triggering daily frontend build on Netlify..."
           curl -X POST -d '{}' "$NETLIFY_BUILD_HOOK"
         env:
           NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_DEPLOY_WEBHOOK }}

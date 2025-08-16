@@ -6,6 +6,7 @@ require (
 	github.com/danielgtaylor/huma/v2 v2.34.1
 	github.com/go-chi/chi/v5 v5.2.2
 	github.com/go-chi/cors v1.2.2
+	github.com/goccy/go-yaml v1.18.0
 	github.com/golang-jwt/jwt/v5 v5.2.3
 	github.com/gorilla/sessions v1.4.0
 	github.com/joho/godotenv v1.5.1

@@ -61,6 +61,10 @@ A Go-based REST API for the Psychic Homily music website, built with Huma framew
 
 ### Local Development
 
+#### Option 1: Database in Docker, App Locally (Recommended)
+
+This approach provides the fastest development cycle with hot reloading and better debugging.
+
 1. **Start only the database and run migrations:**
 
    ```bash
@@ -68,28 +72,67 @@ A Go-based REST API for the Psychic Homily music website, built with Huma framew
    ```
 
 2. **Run the API locally:**
+
    ```bash
-   go run main.go
+   go run cmd/server/main.go
    ```
 
-#### Testing changes with Docker running
-
-1. Make your Go code changes
-2. Quick restart
-   docker compose restart api
-
-3. Test your changes
+3. **Test the API:**
+   ```bash
    curl http://localhost:8080/health
+   ```
+
+#### Option 2: Everything in Docker
+
+Use this for testing the full containerized environment.
+
+```bash
+docker compose up -d
+```
+
+#### Hot Reload Development (Optional)
+
+For automatic restarts when you make code changes:
+
+1. **Install air for hot reload:**
+
+   ```bash
+   go install github.com/cosmtrek/air@latest
+   ```
+
+2. **Run with hot reload:**
+   ```bash
+   air
+   ```
+
+#### Development Workflow
+
+1. **Make code changes** - Edit your Go files
+2. **Auto-restart** - If using `air`, the app restarts automatically
+3. **Manual restart** - If using `go run`, restart the process (Ctrl+C, then `go run cmd/server/main.go`)
+4. **Test changes** - `curl http://localhost:8080/health`
+
+#### Environment Configuration
+
+The app automatically loads the correct environment file:
+
+- **Development**: `.env.development` (loaded when `NODE_ENV=development`)
+- **Production**: `.env.production` (loaded when `NODE_ENV=production`)
+
+The database connection is configured for Docker networking (`db:5432`) when running in containers.
 
 ## Deployment commands to run
 
 ### Development
+
 docker-compose up -d
 
-### Production  
+### Production
+
 docker-compose -f docker-compose.prod.yml up -d
 
 ### Production with explicit env
+
 NODE_ENV=production docker-compose -f docker-compose.prod.yml up -d
 
 ## Management Scripts

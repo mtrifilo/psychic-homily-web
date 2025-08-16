@@ -1,41 +1,33 @@
-# DigitalOcean Deployment Checklist
+# Backend Deployment Guide (Staged Zero-Downtime)
 
-This checklist covers everything you need to deploy your Go backend to DigitalOcean with `api.psychichomily.com`.
+This guide explains how to deploy the Psychic Homily backend using staged zero-downtime deployment with Go binaries and Docker infrastructure services.
 
-## **🌐 Domain Configuration**
+## 🚀 Staged Deployment Architecture
 
-### **1. DNS Setup**
+### Deployment Strategy:
 
-- [ ] Add A record for `api.psychichomily.com` pointing to your DigitalOcean droplet IP
-- [ ] Verify DNS propagation: `dig api.psychichomily.com`
-- [ ] Test subdomain resolves: `ping api.psychichomily.com`
+1. **Backend First**: API changes deploy before frontend
+2. **Health Validation**: New binary must pass health checks
+3. **Stabilization Period**: Backend runs for 60+ seconds before frontend deploys
+4. **Frontend Second**: Frontend deploys only after backend is confirmed stable
+5. **Rollback Safety**: If either stage fails, previous versions remain active
 
-### **2. SSL Certificate**
+### What Runs as Binary:
 
-- [ ] Install Certbot on DigitalOcean droplet
-- [ ] Obtain SSL certificate: `certbot certonly --nginx -d api.psychichomily.com`
-- [ ] Set up auto-renewal: `crontab -e` (add certbot renewal)
-- [ ] Test SSL: `curl -I https://api.psychichomily.com/health`
+- **Go API Application**: Fast, native performance, zero-downtime deployments
 
-## **🖥️ DigitalOcean Droplet Setup**
+### What Runs in Docker:
 
-### **1. Create Droplet**
+- **PostgreSQL Database**: Easy management, backups, scaling
+- **Redis Cache**: Future-ready for caching and sessions
+- **Migration Service**: Database schema management
 
-- [ ] Create Ubuntu 22.04 LTS droplet
-- [ ] Choose appropriate size (2GB RAM minimum recommended)
-- [ ] Add SSH key for secure access
-- [ ] Note the droplet IP address
+## 🏗️ VPS Setup Requirements
 
-### **2. Initial Server Setup**
+### 1. Install Required Software
 
 ```bash
-# Update system
-sudo apt update && sudo apt upgrade -y
-
-# Install essential packages
-sudo apt install -y curl wget git unzip software-properties-common
-
-# Install Docker
+# Install Docker and Docker Compose
 curl -fsSL https://get.docker.com -o get-docker.sh
 sudo sh get-docker.sh
 sudo usermod -aG docker $USER
@@ -44,297 +36,220 @@ sudo usermod -aG docker $USER
 sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 sudo chmod +x /usr/local/bin/docker-compose
 
-# Install Nginx
-sudo apt install -y nginx
-
-# Install Certbot
-sudo apt install -y certbot python3-certbot-nginx
+# Install Go (for building if needed)
+sudo apt update
+sudo apt install -y golang-go curl
 ```
 
-### **3. Database Setup**
-
-- [ ] **Option A**: Use DigitalOcean Managed Database (recommended)
-  - [ ] Create PostgreSQL database cluster
-  - [ ] Note connection string and credentials
-  - [ ] Configure firewall rules to allow droplet access
-- [ ] **Option B**: Install PostgreSQL locally
-  - [ ] `sudo apt install -y postgresql postgresql-contrib`
-  - [ ] Configure PostgreSQL for external connections
-  - [ ] Create database and user
-
-## **🔧 Application Deployment**
-
-### **1. Clone and Setup Application**
+### 2. Create Application Directory
 
 ```bash
-# Clone your repository
-git clone https://github.com/yourusername/psychic-homily-web.git
-cd psychic-homily-web/backend
-
-# Create production environment file
-cp env.production.example .env.production
-nano .env.production  # Edit with your actual values
+sudo mkdir -p /opt/psychic-homily-backend
+sudo chown $USER:$USER /opt/psychic-homily-backend
+cd /opt/psychic-homily-backend
 ```
 
-### **2. Configure Environment Variables**
+### 3. Set Up Systemd Service
 
 ```bash
-# Generate secure keys
-openssl rand -base64 32  # For OAUTH_SECRET_KEY
-openssl rand -base64 32  # For JWT_SECRET_KEY
+# Copy the service file
+sudo cp systemd/psychic-homily-backend.service /etc/systemd/system/
 
-# Edit .env.production with:
-# - Database connection string
-# - OAuth provider credentials
-# - Generated secret keys
-# - Correct redirect URLs
+# Create the service user
+sudo useradd -r -s /bin/false psychic-homily
+
+# Reload systemd
+sudo systemctl daemon-reload
+sudo systemctl enable psychic-homily-backend
+
+# Start the service
+sudo systemctl start psychic-homily-backend
+
+# Check status
+sudo systemctl status psychic-homily-backend
 ```
 
-### **3. Deploy Application**
+### 4. Configure Environment Variables
+
+Create `.env.production` with your production settings:
 
 ```bash
-# Make deployment script executable
-chmod +x deploy.sh
+# Database
+POSTGRES_USER=your_db_user
+POSTGRES_PASSWORD=your_secure_password
+POSTGRES_DB=psychic_homily_prod
 
-# Run deployment
-./deploy.sh
+# API
+API_ADDR=0.0.0.0:8080
+JWT_SECRET_KEY=your_jwt_secret
 
-# Check application status
+# OAuth (if using)
+GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_SECRET=your_github_client_secret
+```
+
+## Deployment Process
+
+### Automated Staged Deployment (GitHub Actions)
+
+1. **Push to main branch** with changes
+2. **GitHub Actions** automatically:
+   - **Stage 1**: Deploys backend if backend files changed
+   - **Wait Period**: 60+ seconds for backend stabilization
+   - **Stage 2**: Deploys frontend if frontend files changed
+
+### Manual Staged Deployment
+
+```bash
+# Deploy only backend
+# Go to GitHub Actions → Deploy Staged → Run workflow → Select 'backend'
+
+# Deploy only frontend
+# Go to GitHub Actions → Deploy Staged → Run workflow → Select 'frontend'
+
+# Deploy both (backend first, then frontend)
+# Go to GitHub Actions → Deploy Staged → Run workflow → Select 'both'
+```
+
+### Manual VPS Deployment
+
+```bash
+# On your VPS
+cd /opt/psychic-homily-backend
+./scripts/deploy-zero-downtime.sh <commit-sha>
+```
+
+## 📊 Staged Deployment Benefits
+
+### Expected Downtime:
+
+- **Previous setup**: 2-5 seconds (service restart gap)
+- **Staged setup**: < 100ms (just port switch time) + coordination delays
+
+### How It Works:
+
+1. **Backend deploys first** with zero-downtime
+2. **60+ second stabilization** ensures backend is fully ready
+3. **Frontend deploys second** only after backend is confirmed stable
+4. **No breaking changes** - frontend always has working backend
+
+### Deployment Timeline:
+
+```
+0s    - Backend deployment starts
+30s   - Backend deployment completes
+60s   - Backend stabilization period ends
+90s   - Frontend deployment starts
+210s  - Frontend deployment completes
+```
+
+## 📊 Monitoring and Management
+
+### Service Management
+
+```bash
+# Check Go application status
+sudo systemctl status psychic-homily-backend
+
+# View Go application logs
+sudo journalctl -u psychic-homily-backend -f
+
+# Check Docker services
 docker-compose -f docker-compose.prod.yml ps
-docker-compose -f docker-compose.prod.yml logs app
+
+# View Docker service logs
+docker-compose -f docker-compose.prod.yml logs -f db
+docker-compose -f docker-compose.prod.yml logs -f redis
 ```
 
-## **🌐 Nginx Configuration**
-
-### **1. Configure Nginx**
+### Health Checks
 
 ```bash
-# Copy nginx configuration
-sudo cp nginx.conf /etc/nginx/sites-available/api.psychichomily.com
+# Application health
+curl http://localhost:8080/health
 
-# Enable site
-sudo ln -s /etc/nginx/sites-available/api.psychichomily.com /etc/nginx/sites-enabled/
+# Database health
+docker-compose -f docker-compose.prod.yml exec db pg_isready -U your_user -d your_db
 
-# Test configuration
-sudo nginx -t
-
-# Reload nginx
-sudo systemctl reload nginx
+# Redis health
+docker-compose -f docker-compose.prod.yml exec redis redis-cli ping
 ```
 
-### **2. SSL Configuration**
+## 🔒 Security Features
+
+- **Non-root user**: Go application runs as `psychic-homily` user
+- **Systemd security**: Restricted file system access
+- **Container isolation**: Database and Redis in isolated containers
+- **No build tools**: Production environment has no compilation tools
+- **Graceful shutdown**: Proper signal handling for clean restarts
+
+## 📈 Performance Benefits
+
+- **Native Go binary**: Maximum performance, no container overhead
+- **Static linking**: Single executable with no external dependencies
+- **Optimized compilation**: Stripped binary with performance flags
+- **Efficient resource usage**: Lower memory and CPU overhead
+- **Zero-downtime**: Continuous service availability
+- **Coordinated releases**: Frontend and backend stay in sync
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+1. **Permission denied**: Ensure binary is executable and owned by correct user
+2. **Port already in use**: Check if another service is using port 8080
+3. **Database connection failed**: Verify Docker services are running and healthy
+4. **Service won't start**: Check systemd logs with `journalctl -u psychic-homily-backend`
+5. **Frontend deployment fails**: Check if backend is healthy first
+
+### Debug Commands
 
 ```bash
-# Obtain SSL certificate
-sudo certbot --nginx -d api.psychichomily.com
+# Check service configuration
+sudo systemctl cat psychic-homily-backend
 
-# Test auto-renewal
-sudo certbot renew --dry-run
+# Test service configuration
+sudo systemctl status psychic-homily-backend
+
+# View recent logs
+sudo journalctl -u psychic-homily-backend --no-pager -n 50
+
+# Check file permissions
+ls -la /opt/psychic-homily-backend/
+
+# Check temporary app logs
+tail -f /tmp/new-app.log
 ```
 
-## **🔐 OAuth Provider Configuration**
-
-### **1. Google OAuth**
-
-- [ ] Go to Google Cloud Console
-- [ ] Add `https://api.psychichomily.com/auth/callback` to authorized redirect URIs
-- [ ] Update client ID and secret in `.env.production`
-
-### **2. GitHub OAuth**
-
-- [ ] Go to GitHub Developer Settings
-- [ ] Add `https://api.psychichomily.com/auth/callback` to callback URL
-- [ ] Update client ID and secret in `.env.production`
-
-### **3. Instagram OAuth**
-
-- [ ] Go to Facebook Developer Console
-- [ ] Add `https://api.psychichomily.com/auth/callback` to valid OAuth redirect URIs
-- [ ] Update client ID and secret in `.env.production`
-
-## **🧪 Testing**
-
-### **1. Health Check**
+## Rollback Process
 
 ```bash
-# Test health endpoint
-curl https://api.psychichomily.com/health
+# Stop current service
+sudo systemctl stop psychic-homily-backend
 
-# Expected response: {"status":"ok"}
+# Restore previous binary
+cp backups/psychic-homily-backend.backup.YYYYMMDD_HHMMSS psychic-homily-backend
+
+# Start service
+sudo systemctl start psychic-homily-backend
+
+# Verify health
+curl http://localhost:8080/health
 ```
 
-### **2. OAuth Flow Test**
+## Next Steps
 
-```bash
-# Test OAuth login redirect
-curl -I https://api.psychichomily.com/auth/login/google
+1. Set up GitHub secrets for automated deployment
+2. Configure your VPS with the required software
+3. Test the staged deployment with a small change
+4. Monitor logs and performance
+5. Set up monitoring and alerting (optional)
 
-# Should return 302 redirect to Google OAuth
-```
+## 🏆 Why This Approach is Industry Standard
 
-### **3. CORS Test**
-
-```bash
-# Test CORS headers
-curl -H "Origin: https://psychichomily.com" \
-     -H "Access-Control-Request-Method: POST" \
-     -H "Access-Control-Request-Headers: Content-Type" \
-     -X OPTIONS \
-     https://api.psychichomily.com/auth/profile
-```
-
-## **📊 Monitoring and Logs**
-
-### **1. Application Logs**
-
-```bash
-# View application logs
-docker-compose -f docker-compose.prod.yml logs -f app
-
-# View nginx logs
-sudo tail -f /var/log/nginx/api.psychichomily.com.access.log
-sudo tail -f /var/log/nginx/api.psychichomily.com.error.log
-```
-
-### **2. System Monitoring**
-
-```bash
-# Check system resources
-htop
-df -h
-docker system df
-
-# Check application health
-curl https://api.psychichomily.com/health
-```
-
-## **🔄 Continuous Deployment**
-
-### **1. Setup Git Hooks (Optional)**
-
-```bash
-# Create deployment script
-cat > /root/deploy.sh << 'EOF'
-#!/bin/bash
-cd /root/psychic-homily-web/backend
-git pull origin main
-./deploy.sh
-EOF
-
-chmod +x /root/deploy.sh
-```
-
-### **2. GitHub Actions (Optional)**
-
-Create `.github/workflows/deploy.yml`:
-
-```yaml
-name: Deploy to DigitalOcean
-on:
-  push:
-    branches: [main]
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Deploy to server
-        uses: appleboy/ssh-action@v0.1.4
-        with:
-          host: ${{ secrets.DROPLET_IP }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          script: |
-            cd /root/psychic-homily-web/backend
-            git pull origin main
-            ./deploy.sh
-```
-
-## **🛡️ Security Checklist**
-
-### **1. Firewall Configuration**
-
-```bash
-# Configure UFW firewall
-sudo ufw allow ssh
-sudo ufw allow 80
-sudo ufw allow 443
-sudo ufw enable
-```
-
-### **2. Security Headers**
-
-- [ ] Verify Nginx security headers are set
-- [ ] Test HTTPS redirects work
-- [ ] Confirm CORS is properly configured
-
-### **3. Environment Security**
-
-- [ ] All secrets are in `.env.production` (not in code)
-- [ ] `.env.production` has restricted permissions: `chmod 600 .env.production`
-- [ ] Database connection uses SSL
-- [ ] JWT secret is cryptographically secure
-
-## **📈 Performance Optimization**
-
-### **1. Nginx Optimization**
-
-- [ ] Enable gzip compression
-- [ ] Configure caching headers
-- [ ] Optimize worker processes
-
-### **2. Application Optimization**
-
-- [ ] Monitor memory usage
-- [ ] Configure appropriate JWT expiry
-- [ ] Set up database connection pooling
-
-## **🚨 Troubleshooting**
-
-### **Common Issues**
-
-1. **CORS Errors**
-
-   - Check CORS configuration in `config.go`
-   - Verify frontend origin is in allowed origins
-
-2. **OAuth Redirect Errors**
-
-   - Verify redirect URL in OAuth provider settings
-   - Check SSL certificate is valid
-
-3. **Database Connection Issues**
-
-   - Verify database connection string
-   - Check firewall rules for database access
-
-4. **JWT Token Issues**
-   - Verify JWT secret is set correctly
-   - Check token expiration settings
-
-### **Useful Commands**
-
-```bash
-# Restart application
-docker-compose -f docker-compose.prod.yml restart
-
-# View logs
-docker-compose -f docker-compose.prod.yml logs app
-
-# Check nginx status
-sudo systemctl status nginx
-
-# Test SSL certificate
-openssl s_client -connect api.psychichomily.com:443 -servername api.psychichomily.com
-```
-
-## **✅ Final Verification**
-
-- [ ] `https://api.psychichomily.com/health` returns 200 OK
-- [ ] OAuth login flow works from frontend
-- [ ] JWT tokens are generated and validated
-- [ ] Protected endpoints require authentication
-- [ ] CORS allows frontend requests
-- [ ] SSL certificate is valid and auto-renewing
-- [ ] Application logs show no errors
-- [ ] Database migrations completed successfully
+- **Netflix, Google, Uber**: All use similar staged deployment strategies
+- **Go Community**: Prefers binary deployment for production
+- **Small Projects**: Can achieve enterprise-grade deployment quality
+- **Cost Effective**: No additional infrastructure needed
+- **Professional**: Same reliability as large-scale deployments
+- **Coordinated**: Frontend and backend deployments are properly sequenced

@@ -1,0 +1,476 @@
+package services
+
+import (
+	"fmt"
+	"time"
+
+	"gorm.io/gorm"
+
+	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/models"
+)
+
+// ShowService handles show-related business logic
+type ShowService struct {
+	db *gorm.DB
+}
+
+// NewShowService creates a new show service
+func NewShowService() *ShowService {
+	return &ShowService{
+		db: db.GetDB(),
+	}
+}
+
+// CreateShowVenue represents a venue in a show creation request
+type CreateShowVenue struct {
+	ID   *uint  `json:"id"`
+	Name string `json:"name"`
+}
+
+// CreateShowArtist represents an artist in a show creation request
+type CreateShowArtist struct {
+	ID          *uint  `json:"id"`
+	Name        string `json:"name"`
+	IsHeadliner *bool  `json:"is_headliner"`
+}
+
+// CreateShowRequest represents the data needed to create a new show
+type CreateShowRequest struct {
+	Title          string             `json:"title" validate:"required"`
+	EventDate      time.Time          `json:"event_date" validate:"required"`
+	City           string             `json:"city"`
+	State          string             `json:"state"`
+	Price          *float64           `json:"price"`
+	AgeRequirement string             `json:"age_requirement"`
+	Description    string             `json:"description"`
+	Venues         []CreateShowVenue  `json:"venues" validate:"required,min=1"`
+	Artists        []CreateShowArtist `json:"artists" validate:"required,min=1"`
+}
+
+// ShowResponse represents the show data returned to clients
+type ShowResponse struct {
+	ID             uint             `json:"id"`
+	Title          string           `json:"title"`
+	EventDate      time.Time        `json:"event_date"`
+	City           *string          `json:"city"`
+	State          *string          `json:"state"`
+	Price          *float64         `json:"price"`
+	AgeRequirement *string          `json:"age_requirement"`
+	Description    *string          `json:"description"`
+	Venues         []VenueResponse  `json:"venues"`
+	Artists        []ArtistResponse `json:"artists"`
+	CreatedAt      time.Time        `json:"created_at"`
+	UpdatedAt      time.Time        `json:"updated_at"`
+}
+
+// VenueResponse represents venue data in show responses
+type VenueResponse struct {
+	ID      uint    `json:"id"`
+	Name    string  `json:"name"`
+	Address *string `json:"address"`
+	City    *string `json:"city"`
+	State   *string `json:"state"`
+}
+
+// ShowArtistSocials represents social media links for artists in show responses
+type ShowArtistSocials struct {
+	Instagram  *string `json:"instagram"`
+	Facebook   *string `json:"facebook"`
+	Twitter    *string `json:"twitter"`
+	YouTube    *string `json:"youtube"`
+	Spotify    *string `json:"spotify"`
+	SoundCloud *string `json:"soundcloud"`
+	Bandcamp   *string `json:"bandcamp"`
+	Website    *string `json:"website"`
+}
+
+// ArtistResponse represents artist data in show responses
+type ArtistResponse struct {
+	ID          uint              `json:"id"`
+	Name        string            `json:"name"`
+	State       *string           `json:"state"`
+	City        *string           `json:"city"`
+	IsHeadliner *bool             `json:"is_headliner"`
+	IsNewArtist *bool             `json:"is_new_artist"`
+	Socials     ShowArtistSocials `json:"socials"`
+}
+
+// CreateShow creates a new show with associated venues and artists
+func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Use transaction for data consistency
+	var response *ShowResponse
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Create the show
+		show := &models.Show{
+			Title:          req.Title,
+			EventDate:      req.EventDate.UTC(), // Ensure UTC storage
+			City:           &req.City,
+			State:          &req.State,
+			Price:          req.Price,
+			AgeRequirement: &req.AgeRequirement,
+			Description:    &req.Description,
+		}
+
+		if err := tx.Create(show).Error; err != nil {
+			return fmt.Errorf("failed to create show: %w", err)
+		}
+
+		// Associate venues
+		venues, err := s.associateVenues(tx, show.ID, req.Venues)
+		if err != nil {
+			return fmt.Errorf("failed to associate venues: %w", err)
+		}
+
+		// Associate artists
+		artists, err := s.associateArtists(tx, show.ID, req.Artists)
+		if err != nil {
+			return fmt.Errorf("failed to associate artists: %w", err)
+		}
+
+		// Build response
+		response = &ShowResponse{
+			ID:             show.ID,
+			Title:          show.Title,
+			EventDate:      show.EventDate,
+			City:           show.City,
+			State:          show.State,
+			Price:          show.Price,
+			AgeRequirement: show.AgeRequirement,
+			Description:    show.Description,
+			Venues:         venues,
+			Artists:        artists,
+			CreatedAt:      show.CreatedAt,
+			UpdatedAt:      show.UpdatedAt,
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+// GetShow retrieves a show by ID with all associations
+func (s *ShowService) GetShow(showID uint) (*ShowResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var show models.Show
+	err := s.db.Preload("Venues").Preload("Artists").First(&show, showID).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("show not found")
+		}
+		return nil, fmt.Errorf("failed to get show: %w", err)
+	}
+
+	return s.buildShowResponse(&show), nil
+}
+
+// GetShows retrieves shows with optional filtering
+func (s *ShowService) GetShows(filters map[string]interface{}) ([]*ShowResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	query := s.db.Preload("Venues").Preload("Artists")
+
+	// Apply filters
+	if city, ok := filters["city"].(string); ok && city != "" {
+		query = query.Where("city = ?", city)
+	}
+	if state, ok := filters["state"].(string); ok && state != "" {
+		query = query.Where("state = ?", state)
+	}
+	if fromDate, ok := filters["from_date"].(time.Time); ok {
+		query = query.Where("event_date >= ?", fromDate.UTC())
+	}
+	if toDate, ok := filters["to_date"].(time.Time); ok {
+		query = query.Where("event_date <= ?", toDate.UTC())
+	}
+
+	// Default ordering by event date
+	query = query.Order("event_date ASC")
+
+	var shows []models.Show
+	err := query.Find(&shows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get shows: %w", err)
+	}
+
+	// Build responses
+	responses := make([]*ShowResponse, len(shows))
+	for i, show := range shows {
+		responses[i] = s.buildShowResponse(&show)
+	}
+
+	return responses, nil
+}
+
+// UpdateShow updates an existing show
+func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*ShowResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Handle event_date conversion to UTC if present
+	if eventDate, ok := updates["event_date"].(time.Time); ok {
+		updates["event_date"] = eventDate.UTC()
+	}
+
+	err := s.db.Model(&models.Show{}).Where("id = ?", showID).Updates(updates).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to update show: %w", err)
+	}
+
+	return s.GetShow(showID)
+}
+
+// DeleteShow deletes a show and its associations
+func (s *ShowService) DeleteShow(showID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// Delete show associations first (cascade will handle this, but being explicit)
+		if err := tx.Where("show_id = ?", showID).Delete(&models.ShowVenue{}).Error; err != nil {
+			return fmt.Errorf("failed to delete show venues: %w", err)
+		}
+		if err := tx.Where("show_id = ?", showID).Delete(&models.ShowArtist{}).Error; err != nil {
+			return fmt.Errorf("failed to delete show artists: %w", err)
+		}
+
+		// Delete the show
+		if err := tx.Delete(&models.Show{}, showID).Error; err != nil {
+			return fmt.Errorf("failed to delete show: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// associateVenues associates venues with a show, creating new venues if needed
+func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []CreateShowVenue) ([]VenueResponse, error) {
+	var venues []VenueResponse
+
+	for _, requestVenue := range requestVenues {
+		var venue models.Venue
+		var err error
+
+		// If ID is provided, try to find existing venue by ID
+		if requestVenue.ID != nil {
+			err = tx.First(&venue, *requestVenue.ID).Error
+			if err == gorm.ErrRecordNotFound {
+				return nil, fmt.Errorf("venue with ID %d not found", *requestVenue.ID)
+			} else if err != nil {
+				return nil, fmt.Errorf("failed to find venue with ID %d: %w", *requestVenue.ID, err)
+			}
+		} else {
+			// No ID provided, use name to find or create venue
+			if requestVenue.Name == "" {
+				return nil, fmt.Errorf("either ID or Name must be provided for venue")
+			}
+
+			err = tx.Where("LOWER(name) = LOWER(?)", requestVenue.Name).First(&venue).Error
+			if err == gorm.ErrRecordNotFound {
+				// Create new venue
+				venue = models.Venue{
+					Name: requestVenue.Name,
+				}
+				if err := tx.Create(&venue).Error; err != nil {
+					return nil, fmt.Errorf("failed to create venue %s: %w", requestVenue.Name, err)
+				}
+			} else if err != nil {
+				return nil, fmt.Errorf("failed to find venue %s: %w", requestVenue.Name, err)
+			}
+		}
+
+		// Create show-venue association
+		showVenue := models.ShowVenue{
+			ShowID:  showID,
+			VenueID: venue.ID,
+		}
+		if err := tx.Create(&showVenue).Error; err != nil {
+			return nil, fmt.Errorf("failed to create show-venue association: %w", err)
+		}
+
+		venues = append(venues, VenueResponse{
+			ID:      venue.ID,
+			Name:    venue.Name,
+			Address: venue.Address,
+			City:    venue.City,
+			State:   venue.State,
+		})
+	}
+
+	return venues, nil
+}
+
+// associateArtists associates artists with a show, creating new artists if needed
+func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists []CreateShowArtist) ([]ArtistResponse, error) {
+	var artists []ArtistResponse
+
+	for position, requestArtist := range requestArtists {
+		var artist models.Artist
+		var err error
+		isNewArtist := false
+
+		// If ID is provided, try to find existing artist by ID
+		if requestArtist.ID != nil {
+			err = tx.First(&artist, *requestArtist.ID).Error
+			if err == gorm.ErrRecordNotFound {
+				return nil, fmt.Errorf("artist with ID %d not found", *requestArtist.ID)
+			} else if err != nil {
+				return nil, fmt.Errorf("failed to find artist with ID %d: %w", *requestArtist.ID, err)
+			}
+		} else {
+			// No ID provided, use name to find or create artist
+			if requestArtist.Name == "" {
+				return nil, fmt.Errorf("either ID or Name must be provided for artist")
+			}
+
+			err = tx.Where("LOWER(name) = LOWER(?)", requestArtist.Name).First(&artist).Error
+			if err == gorm.ErrRecordNotFound {
+				// Create new artist
+				artist = models.Artist{
+					Name: requestArtist.Name,
+				}
+				if err := tx.Create(&artist).Error; err != nil {
+					return nil, fmt.Errorf("failed to create artist %s: %w", requestArtist.Name, err)
+				}
+				isNewArtist = true
+			} else if err != nil {
+				return nil, fmt.Errorf("failed to find artist %s: %w", requestArtist.Name, err)
+			}
+		}
+
+		// Determine set type and IsHeadliner flag
+		setType := "opener"
+		isHeadliner := false
+		if requestArtist.IsHeadliner != nil && *requestArtist.IsHeadliner {
+			setType = "headliner"
+			isHeadliner = true
+		} else if requestArtist.IsHeadliner == nil && position == 0 {
+			// Fallback: first artist is headliner if not explicitly specified
+			setType = "headliner"
+			isHeadliner = true
+		}
+
+		// Create show-artist association with position
+		showArtist := models.ShowArtist{
+			ShowID:   showID,
+			ArtistID: artist.ID,
+			Position: position,
+			SetType:  setType,
+		}
+		if err := tx.Create(&showArtist).Error; err != nil {
+			return nil, fmt.Errorf("failed to create show-artist association: %w", err)
+		}
+
+		// Convert artist socials to response format
+		socials := ShowArtistSocials{
+			Instagram:  artist.Social.Instagram,
+			Facebook:   artist.Social.Facebook,
+			Twitter:    artist.Social.Twitter,
+			YouTube:    artist.Social.YouTube,
+			Spotify:    artist.Social.Spotify,
+			SoundCloud: artist.Social.SoundCloud,
+			Bandcamp:   artist.Social.Bandcamp,
+			Website:    artist.Social.Website,
+		}
+
+		artists = append(artists, ArtistResponse{
+			ID:          artist.ID,
+			Name:        artist.Name,
+			State:       artist.State,
+			City:        artist.City,
+			IsHeadliner: &isHeadliner,
+			IsNewArtist: &isNewArtist,
+			Socials:     socials,
+		})
+	}
+
+	return artists, nil
+}
+
+// buildShowResponse converts a Show model to ShowResponse
+func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
+	// Build venue responses
+	venues := make([]VenueResponse, len(show.Venues))
+	for i, venue := range show.Venues {
+		venues[i] = VenueResponse{
+			ID:      venue.ID,
+			Name:    venue.Name,
+			Address: venue.Address,
+			City:    venue.City,
+			State:   venue.State,
+		}
+	}
+
+	// Build artist responses (need to get ordered artists)
+	artists := make([]ArtistResponse, 0, len(show.Artists))
+
+	// Get ordered artists from show_artists table
+	var showArtists []models.ShowArtist
+	s.db.Where("show_id = ?", show.ID).Order("position ASC").Find(&showArtists)
+
+	for _, sa := range showArtists {
+		// Find the artist
+		var artist models.Artist
+		if err := s.db.First(&artist, sa.ArtistID).Error; err == nil {
+			// Convert artist socials to response format
+			socials := ShowArtistSocials{
+				Instagram:  artist.Social.Instagram,
+				Facebook:   artist.Social.Facebook,
+				Twitter:    artist.Social.Twitter,
+				YouTube:    artist.Social.YouTube,
+				Spotify:    artist.Social.Spotify,
+				SoundCloud: artist.Social.SoundCloud,
+				Bandcamp:   artist.Social.Bandcamp,
+				Website:    artist.Social.Website,
+			}
+
+			// Determine if this artist is a headliner
+			isHeadliner := sa.SetType == "headliner"
+
+			// For existing shows, we can't determine if the artist was "new" at creation time
+			// So we'll set this to false for all existing artists
+			isNewArtist := false
+
+			artists = append(artists, ArtistResponse{
+				ID:          artist.ID,
+				Name:        artist.Name,
+				State:       artist.State,
+				City:        artist.City,
+				IsHeadliner: &isHeadliner,
+				IsNewArtist: &isNewArtist,
+				Socials:     socials,
+			})
+		}
+	}
+
+	return &ShowResponse{
+		ID:             show.ID,
+		Title:          show.Title,
+		EventDate:      show.EventDate,
+		City:           show.City,
+		State:          show.State,
+		Price:          show.Price,
+		AgeRequirement: show.AgeRequirement,
+		Description:    show.Description,
+		Venues:         venues,
+		Artists:        artists,
+		CreatedAt:      show.CreatedAt,
+		UpdatedAt:      show.UpdatedAt,
+	}
+}

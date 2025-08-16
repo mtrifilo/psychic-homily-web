@@ -1,0 +1,68 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: ph_staging_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: psychic_homily_staging
+      POSTGRES_USER: ph_staging_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_staging_password}
+    ports:
+      - "5433:5432" # Different port from production
+    volumes:
+      - ph_staging_data:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-ph_staging_user} -d ${POSTGRES_DB:-psychic_homily_staging}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: ph_staging_redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379" # Different port from production
+    volumes:
+      - ph_staging_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: postgres:15-alpine
+    container_name: ph_staging_migrate
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: psychic_homily_staging
+      POSTGRES_USER: ph_staging_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_staging_password}
+      POSTGRES_HOST: db
+    volumes:
+      - ./db/migrations:/migrations
+    command: >
+      sh -c "
+        echo 'Waiting for database...'
+        while ! pg_isready -h db -U ph_staging_user -d psychic_homily_staging; do
+          sleep 2
+        done
+        echo 'Running migrations...'
+        migrate -path=/migrations -database=postgres://ph_staging_user:secure_staging_password@db:5432/psychic_homily_staging?sslmode=disable up
+      "
+
+volumes:
+  ph_staging_data:
+    driver: local
+  ph_staging_redis:
+    driver: local

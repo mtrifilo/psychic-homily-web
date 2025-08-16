@@ -2,10 +2,16 @@
 CREATE TABLE artists (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL UNIQUE,
-    website VARCHAR(255),
+    state VARCHAR(10),
+    city VARCHAR(255),
     instagram VARCHAR(255),
+    facebook VARCHAR(255),
+    twitter VARCHAR(255),
+    youtube VARCHAR(255),
+    spotify VARCHAR(255),
+    soundcloud VARCHAR(255),
     bandcamp VARCHAR(255),
-    arizona_band BOOLEAN NOT NULL DEFAULT FALSE,
+    website VARCHAR(255),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -17,9 +23,15 @@ CREATE TABLE venues (
     address VARCHAR(500),
     city VARCHAR(255),
     state VARCHAR(10),
-    zip VARCHAR(20),
-    website VARCHAR(255),
+    zipcode VARCHAR(20),
     instagram VARCHAR(255),
+    facebook VARCHAR(255),
+    twitter VARCHAR(255),
+    youtube VARCHAR(255),
+    spotify VARCHAR(255),
+    soundcloud VARCHAR(255),
+    bandcamp VARCHAR(255),
+    website VARCHAR(255),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -28,23 +40,29 @@ CREATE TABLE venues (
 CREATE TABLE shows (
     id SERIAL PRIMARY KEY,
     title VARCHAR(500),
-    venue_id INT NOT NULL REFERENCES venues(id),
-    date DATE NOT NULL,
-    time TIME,
-    cost DECIMAL(10, 2),
-    ages VARCHAR(255),
+    event_date TIMESTAMP NOT NULL,
     city VARCHAR(255),
-    state VARCHAR(255),
+    state VARCHAR(10),
+    price DECIMAL(10, 2),
+    age_requirement VARCHAR(255),
     description TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Junction table for many-to-many relationship
+-- Junction table for many-to-many relationship: Shows ↔ Venues
+CREATE TABLE show_venues (
+    show_id INT NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
+    venue_id INT NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+    PRIMARY KEY (show_id, venue_id)
+);
+
+-- Junction table for many-to-many relationship: Shows ↔ Artists (with ordering)
 CREATE TABLE show_artists (
     show_id INT NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
     artist_id INT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
-    position INT NOT NULL DEFAULT 0, -- For ordering artists on the bill
+    position INT NOT NULL DEFAULT 0, -- 0 = headliner, 1+ = openers in order
+    set_type VARCHAR(50) DEFAULT 'performer', -- 'headliner', 'opener', 'special guest'
     PRIMARY KEY (show_id, artist_id)
 );
 
@@ -99,12 +117,13 @@ CREATE TABLE user_preferences (
 -- Indexes for performance
 CREATE INDEX idx_artists_name ON artists(name);
 CREATE INDEX idx_venues_name ON venues(name);
-CREATE INDEX idx_shows_date ON shows(date);
+CREATE INDEX idx_shows_event_date ON shows(event_date);
 CREATE INDEX idx_shows_city ON shows(city);
-CREATE INDEX idx_shows_venue_id ON shows(venue_id);
+CREATE INDEX idx_show_venues_show_id ON show_venues(show_id);
+CREATE INDEX idx_show_venues_venue_id ON show_venues(venue_id);
 CREATE INDEX idx_show_artists_show_id ON show_artists(show_id);
 CREATE INDEX idx_show_artists_artist_id ON show_artists(artist_id);
-CREATE INDEX idx_show_artists_position ON show_artists(position);
+CREATE INDEX idx_show_artists_position ON show_artists(show_id, position);
 
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_username ON users(username);

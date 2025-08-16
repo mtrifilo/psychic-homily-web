@@ -1,0 +1,16 @@
+baseURL = "https://psychichomily.com"
+environment = "production"
+
+# Inherit all other settings from main config
+# This file will be merged with the main hugo.toml
+# Only production-specific overrides are defined here
+
+[params]
+environment = "production"
+api_url = "https://api.psychichomily.com"
+
+# Production-specific parameters
+[params.production]
+debug = false
+show_draft = false
+show_future = false

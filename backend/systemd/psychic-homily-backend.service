@@ -1,0 +1,28 @@
+[Unit]
+Description=Psychic Homily Backend
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=psychic-homily
+WorkingDirectory=/opt/psychic-homily-backend
+ExecStart=/opt/psychic-homily-backend/psychic-homily-backend
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/psychic-homily-backend/.env.production
+
+# Graceful shutdown
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGTERM
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/psychic-homily-backend
+
+[Install]
+WantedBy=multi-user.target

@@ -73,6 +73,9 @@ func setupApplicationRoutes(router *chi.Mux, api huma.API, jwtService *services.
 	// Public application endpoints
 	huma.Post(api, "/show", handlers.ShowSubmissionHandler)
 
+	// Setup show routes
+	SetupShowRoutes(router, api, jwtService)
+
 	// Protected application routes
 	router.Group(func(r chi.Router) {
 		r.Use(middleware.JWTMiddleware(jwtService))
@@ -88,7 +91,7 @@ func setupApplicationRoutes(router *chi.Mux, api huma.API, jwtService *services.
 func setupSystemRoutes(router *chi.Mux, api huma.API) {
 	// Health check endpoint
 	huma.Get(api, "/health", handlers.HealthHandler)
-	
+
 	// OpenAPI specification endpoint
 	router.Get("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

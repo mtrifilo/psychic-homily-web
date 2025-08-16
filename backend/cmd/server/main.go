@@ -34,14 +34,14 @@ func main() {
 	// Load configuration
 	cfg := config.Load()
 
-	// Setup Goth authentication
-	if err := auth.SetupGoth(cfg); err != nil {
-		log.Fatalf("Failed to setup Goth: %v", err)
-	}
-
 	// Connect to database
 	if err := db.Connect(cfg); err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
+	}
+
+	// Setup Goth authentication
+	if err := auth.SetupGoth(cfg); err != nil {
+		log.Fatalf("Failed to setup Goth: %v", err)
 	}
 
 	// Create router
