@@ -8,6 +8,10 @@ services:
       - .env.stage
     environment:
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      # Create custom user and database
+      POSTGRES_DB: ${POSTGRES_DB:-psychic_homily_stage}
+      POSTGRES_USER: ${POSTGRES_USER:-ph_stage_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_stage_password}
     ports:
       - "5433:5432" # Different port from production for external access
     volumes:

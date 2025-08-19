@@ -20,15 +20,17 @@ if [ -f "$SERVICE_NAME" ]; then
     cp "$SERVICE_NAME" "$BACKUP_DIR/${SERVICE_NAME}.backup.$(date +%Y%m%d_%H%M%S)"
 fi
 
-# Clean up any orphaned containers and volumes from previous deployments
-echo "🧹 Cleaning up orphaned containers and volumes..."
+# Clean up any orphaned containers (PRESERVE VOLUMES FOR DATA SAFETY)
+echo "🧹 Cleaning up orphaned containers (preserving data volumes)..."
 docker compose -f "$COMPOSE_FILE" down --remove-orphans 2>/dev/null || true
 
-# Remove any containers with old naming conventions
+# Remove any containers with old naming conventions (NOT VOLUMES)
 docker container rm -f ph_staging_redis ph_staging_migrate 2>/dev/null || true
 
-# Remove any volumes with old naming conventions  
-docker volume rm -f psychic-homily-stage_ph_staging_data psychic-homily-stage_ph_staging_redis 2>/dev/null || true
+# Only remove Redis cache volume (safe to delete), but preserve database volume
+docker volume rm -f psychic-homily-stage_ph_staging_redis 2>/dev/null || true
+
+# NOTE: We deliberately DO NOT remove ph_staging_data to preserve database data
 
 # Ensure database services are running
 echo "🐳 Ensuring stage database services are healthy..."
