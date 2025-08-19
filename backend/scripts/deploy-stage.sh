@@ -84,10 +84,25 @@ for i in {1..30}; do
         echo "✅ New stage binary is healthy!"
         break
     fi
+    
+    # Debug: Show what's happening
+    if [ $i -eq 5 ] || [ $i -eq 15 ] || [ $i -eq 25 ]; then
+        echo "🔍 Debug attempt $i: Checking if process is running..."
+        ps aux | grep "$SERVICE_NAME" | grep -v grep || echo "Process not found"
+        echo "🔍 Checking application logs..."
+        tail -10 /tmp/new-stage-app.log 2>/dev/null || echo "No log file found"
+        echo "🔍 Testing port $TEMP_PORT..."
+        netstat -tlnp | grep ":$TEMP_PORT " || echo "Port $TEMP_PORT not listening"
+    fi
+    
     sleep 2
     
     if [ $i -eq 30 ]; then
         echo "❌ New stage binary failed health check"
+        echo "🔍 Final debug info:"
+        ps aux | grep "$SERVICE_NAME" | grep -v grep || echo "Process not found"
+        echo "📋 Application logs:"
+        cat /tmp/new-stage-app.log 2>/dev/null || echo "No log file found"
         kill $NEW_APP_PID 2>/dev/null || true
         exit 1
     fi
