@@ -1,5 +1,5 @@
 [Unit]
-Description=Psychic Homily Backend Staging
+Description=Psychic Homily Backend Stage
 After=network.target docker.service
 Requires=docker.service
 Wants=network.target
@@ -8,24 +8,24 @@ Wants=network.target
 Type=simple
 User=psychic-homily
 Group=psychic-homily
-WorkingDirectory=/opt/psychic-homily-staging
-ExecStart=/opt/psychic-homily-staging/psychic-homily-staging
+WorkingDirectory=/opt/psychic-homily-stage
+ExecStart=/opt/psychic-homily-stage/psychic-homily-stage
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=psychic-homily-staging
+SyslogIdentifier=psychic-homily-stage
 
 # Environment variables
 Environment=API_ADDR=0.0.0.0:8081
-EnvironmentFile=/opt/psychic-homily-staging/env.staging
+EnvironmentFile=/opt/psychic-homily-stage/.env.stage
 
 # Security settings
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/psychic-homily-staging
+ReadWritePaths=/opt/psychic-homily-stage
 
 # Graceful shutdown
 TimeoutStopSec=30

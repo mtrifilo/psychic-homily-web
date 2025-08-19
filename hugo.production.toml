@@ -1,5 +1,6 @@
 baseURL = "https://psychichomily.com"
 environment = "production"
+theme = "ananke"
 
 # Inherit all other settings from main config
 # This file will be merged with the main hugo.toml

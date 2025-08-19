@@ -22,7 +22,8 @@ import (
 
 func main() {
 	// Load environment-specific .env file
-	envFile := fmt.Sprintf(".env.%s", getEnv("NODE_ENV", "development"))
+	envFile := fmt.Sprintf(".env.%s", getEnv("ENVIRONMENT", config.EnvDevelopment))
+	log.Printf("Loading environment file for environment: %s", config.EnvDevelopment)
 	if err := godotenv.Load(envFile); err != nil {
 		log.Printf("Warning: %s file not found, trying .env: %v", envFile, err)
 		// Fallback to .env if environment-specific file doesn't exist

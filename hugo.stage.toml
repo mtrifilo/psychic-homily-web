@@ -1,16 +1,17 @@
 baseURL = "https://stage.psychichomily.com"
 environment = "stage"
+theme = "ananke"
 
 # Inherit all other settings from main config
 # This file will be merged with the main hugo.toml
-# Only staging-specific overrides are defined here
+# Only stage-specific overrides are defined here
 
 [params]
 environment = "stage"
 api_url = "https://stage.api.psychichomily.com"
 
-# Staging-specific parameters
-[params.staging]
+# Stage-specific parameters
+[params.stage]
 debug = true
 show_draft = true
 show_future = true

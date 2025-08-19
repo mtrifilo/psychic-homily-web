@@ -28,7 +28,7 @@ Thumbs.db
 .env
 .env.local
 .env.production
-.env.staging
+.env.stage
 .env.*.local
 
 # Keep example files

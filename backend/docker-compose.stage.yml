@@ -1,0 +1,87 @@
+services:
+  # Database services (Docker)
+  db:
+    image: postgres:17.5
+    container_name: ph_stage_db
+    restart: unless-stopped
+    env_file:
+      - .env.stage
+    environment:
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5433:5432" # Different port from production for external access
+    volumes:
+      - ph_staging_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - stage-network
+
+  # Redis (for future use)
+  redis:
+    image: redis:7-alpine
+    container_name: ph_staging_redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379" # Different port from production for external access
+    volumes:
+      - ph_staging_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - stage-network
+
+  # Migration service (Docker)
+  migrate:
+    image: migrate/migrate:latest
+    container_name: ph_staging_migrate
+    command:
+      [
+        "-path",
+        "/migrations",
+        "-database",
+        "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-}@db:5432/${POSTGRES_DB:-postgres}?sslmode=disable",
+        "up",
+      ]
+    env_file:
+      - .env.stage
+    volumes:
+      - ./db/migrations:/migrations
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - stage-network
+
+networks:
+  stage-network:
+    driver: bridge
+
+volumes:
+  ph_staging_data:
+    driver: local
+  ph_staging_redis:
+    driver: local

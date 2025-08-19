@@ -1,15 +1,19 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+import path from 'path'
 
 export default defineConfig(({ mode }) => {
-    // Load env file based on `mode` in the current working directory.
-    const env = loadEnv(mode, process.cwd(), '')
-
     // Determine environment from mode or fallback to production
     const environment = mode === 'stage' ? 'stage' : 'production'
 
     return {
-        plugins: [react()],
+        plugins: [react(), tailwindcss()],
+        resolve: {
+            alias: {
+                '@': path.resolve(__dirname, './src'),
+            },
+        },
         define: {
             'process.env.ENVIRONMENT': `"${environment}"`,
             'process.env.NODE_ENV': `"${environment}"`,
@@ -18,14 +22,14 @@ export default defineConfig(({ mode }) => {
                 environment === 'stage' ? '"https://stage.api.psychichomily.com"' : '"https://api.psychichomily.com"',
         },
         build: {
-            outDir: environment === 'stage' ? 'dist-stage' : 'dist',
+            outDir: '../assets/js',
             sourcemap: environment === 'stage',
+            emptyOutDir: true,
             rollupOptions: {
                 output: {
-                    manualChunks: {
-                        vendor: ['react', 'react-dom'],
-                        form: ['@tanstack/react-form', 'zod'],
-                    },
+                    entryFileNames: 'index.js',
+                    chunkFileNames: '[name].js',
+                    assetFileNames: '[name].[ext]',
                 },
             },
         },

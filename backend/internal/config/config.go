@@ -8,6 +8,48 @@ import (
 	"strings"
 )
 
+const (
+	EnvProduction  = "production"
+	EnvStage       = "stage"
+	EnvDevelopment = "development"
+)
+
+// Environment variable constants
+const (
+	// Core
+	EnvEnvironment = "ENVIRONMENT"
+
+	// Server
+	EnvAPIAddr = "API_ADDR"
+
+	// Database
+	EnvDatabaseURL = "DATABASE_URL"
+
+	// OAuth
+	EnvGoogleClientID     = "GOOGLE_CLIENT_ID"
+	EnvGoogleClientSecret = "GOOGLE_CLIENT_SECRET"
+	EnvGoogleCallbackURL  = "GOOGLE_CALLBACK_URL"
+	EnvGitHubClientID     = "GITHUB_CLIENT_ID"
+	EnvGitHubClientSecret = "GITHUB_CLIENT_SECRET"
+	EnvGitHubCallbackURL  = "GITHUB_CALLBACK_URL"
+	EnvOAuthSecretKey     = "OAUTH_SECRET_KEY"
+
+	// JWT
+	EnvJWTSecretKey   = "JWT_SECRET_KEY"
+	EnvJWTExpiryHours = "JWT_EXPIRY_HOURS"
+
+	// Session
+	EnvSessionPath     = "SESSION_PATH"
+	EnvSessionDomain   = "SESSION_DOMAIN"
+	EnvSessionMaxAge   = "SESSION_MAX_AGE"
+	EnvSessionHTTPOnly = "SESSION_HTTP_ONLY"
+	EnvSessionSecure   = "SESSION_SECURE"
+	EnvSessionSameSite = "SESSION_SAME_SITE"
+
+	// CORS
+	EnvCORSAllowedOrigins = "CORS_ALLOWED_ORIGINS"
+)
+
 // Config holds all configuration for the application
 type Config struct {
 	Server   ServerConfig
@@ -79,16 +121,14 @@ func (s SessionConfig) GetSameSite() http.SameSite {
 // Update your Load() function to make CORS configurable
 func Load() *Config {
 	// Debug: Check if OAUTH_SECRET_KEY is being loaded
-	oauthSecretKey := GetEnv("OAUTH_SECRET_KEY", "your-secret-key-here")
-	log.Printf("DEBUG: OAUTH_SECRET_KEY loaded: %s (length: %d)",
-		oauthSecretKey, len(oauthSecretKey))
+	oauthSecretKey := GetEnv(EnvOAuthSecretKey, "your-secret-key-here")
 
 	// Get CORS origins from environment or use defaults
 	corsOrigins := getCORSOrigins()
 
 	return &Config{
 		Server: ServerConfig{
-			Addr: GetEnv("API_ADDR", "localhost:8080"),
+			Addr: GetEnv(EnvAPIAddr, "localhost:8080"),
 		},
 		CORS: CORSConfig{
 			AllowedOrigins:   corsOrigins,
@@ -97,43 +137,57 @@ func Load() *Config {
 			AllowCredentials: true,
 		},
 		OAuth: OAuthConfig{
-			GoogleClientID:     GetEnv("GOOGLE_CLIENT_ID", ""),
-			GoogleClientSecret: GetEnv("GOOGLE_CLIENT_SECRET", ""),
-			GoogleCallbackURL:  GetEnv("GOOGLE_CALLBACK_URL", "http://localhost:8080/auth/callback/google"),
-			GitHubClientID:     GetEnv("GITHUB_CLIENT_ID", ""),
-			GitHubClientSecret: GetEnv("GITHUB_CLIENT_SECRET", ""),
-			GitHubCallbackURL:  GetEnv("GITHUB_CALLBACK_URL", "http://localhost:8080/auth/callback/github"),
+			GoogleClientID:     GetEnv(EnvGoogleClientID, ""),
+			GoogleClientSecret: GetEnv(EnvGoogleClientSecret, ""),
+			GoogleCallbackURL:  GetEnv(EnvGoogleCallbackURL, "http://localhost:8080/auth/callback/google"),
+			GitHubClientID:     GetEnv(EnvGitHubClientID, ""),
+			GitHubClientSecret: GetEnv(EnvGitHubClientSecret, ""),
+			GitHubCallbackURL:  GetEnv(EnvGitHubCallbackURL, "http://localhost:8080/auth/callback/github"),
 			SecretKey:          oauthSecretKey,
 		},
 		Database: DatabaseConfig{
-			URL: GetEnv("DATABASE_URL", "postgres://psychicadmin:secretpassword@localhost:5432/psychicdb?sslmode=disable"),
+			URL: GetEnv(EnvDatabaseURL, "postgres://psychicadmin:secretpassword@localhost:5432/psychicdb?sslmode=disable"),
 		},
 		JWT: JWTConfig{
-			SecretKey: GetEnv("JWT_SECRET_KEY", "your-super-secret-jwt-key-32-chars-minimum"),
-			Expiry:    int64(getEnvAsInt("JWT_EXPIRY_HOURS", 24)),
+			SecretKey: GetEnv(EnvJWTSecretKey, "your-super-secret-jwt-key-32-chars-minimum"),
+			Expiry:    int64(getEnvAsInt(EnvJWTExpiryHours, 24)),
 		},
 		Session: SessionConfig{
-			Path:     GetEnv("SESSION_PATH", "/"),
-			Domain:   GetEnv("SESSION_DOMAIN", ""),
-			MaxAge:   getEnvAsInt("SESSION_MAX_AGE", 86400),
-			HttpOnly: getEnvAsBool("SESSION_HTTP_ONLY", true),
-			Secure:   getEnvAsBool("SESSION_SECURE", false),
-			SameSite: GetEnv("SESSION_SAME_SITE", "lax"),
+			Path:     GetEnv(EnvSessionPath, "/"),
+			Domain:   GetEnv(EnvSessionDomain, ""),
+			MaxAge:   getEnvAsInt(EnvSessionMaxAge, 86400),
+			HttpOnly: getEnvAsBool(EnvSessionHTTPOnly, true),
+			Secure:   getEnvAsBool(EnvSessionSecure, false),
+			SameSite: GetEnv(EnvSessionSameSite, "lax"),
 		},
 	}
 }
 
 // Add this helper function
 func getCORSOrigins() []string {
-	if corsEnv := os.Getenv("CORS_ALLOWED_ORIGINS"); corsEnv != "" {
+	if corsEnv := os.Getenv(EnvCORSAllowedOrigins); corsEnv != "" {
 		return strings.Split(corsEnv, ",")
 	}
 
 	// Default origins based on environment
-	if os.Getenv("NODE_ENV") == "production" {
+	if os.Getenv(EnvEnvironment) == EnvProduction {
 		return []string{
 			"https://psychichomily.com",
 			"https://www.psychichomily.com",
+		}
+	}
+
+	if os.Getenv(EnvEnvironment) == EnvStage {
+		return []string{
+			"https://stage.psychichomily.com",
+			"https://www.stage.psychichomily.com",
+		}
+	}
+
+	if os.Getenv(EnvEnvironment) == EnvDevelopment {
+		return []string{
+			"http://localhost:3000",
+			"http://localhost:5173",
 		}
 	}
 

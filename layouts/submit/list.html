@@ -1,4 +1,12 @@
-{{ define "main" }}
+{{ define "head" }}
+<!-- Load React CSS through Hugo asset pipeline -->
+{{ $css := resources.Get "js/index.css" | resources.Fingerprint }}
+<link
+  rel="stylesheet"
+  href="{{ $css.RelPermalink }}"
+  integrity="{{ $css.Data.Integrity }}"
+/>
+{{ end }} {{ define "main" }}
 <div class="react-page pa3 pa4-ns w-100 w-70-ns center">
   <h1 class="flex justify-center f2 mb3">{{ .Title }}</h1>
 
@@ -15,6 +23,11 @@
   </div>
 </div>
 
-<!-- Load React bundle -->
-<script type="module" src="/js/submit-form.js"></script>
+<!-- Load React bundle through Hugo asset pipeline -->
+{{ $js := resources.Get "js/index.js" | resources.Fingerprint }}
+<script
+  type="module"
+  src="{{ $js.RelPermalink }}"
+  integrity="{{ $js.Data.Integrity }}"
+></script>
 {{ end }}
