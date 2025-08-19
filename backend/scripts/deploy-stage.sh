@@ -55,6 +55,15 @@ fi
 
 # Deploy new binary alongside old one
 echo "📦 Deploying new stage binary..."
+
+# Check if binary exists before trying to chmod it
+if [ ! -f "$SERVICE_NAME" ]; then
+    echo "❌ Binary $SERVICE_NAME not found in $(pwd)"
+    echo "📁 Files in current directory:"
+    ls -la
+    exit 1
+fi
+
 chmod +x "$SERVICE_NAME"
 
 # Start new binary on temporary port
