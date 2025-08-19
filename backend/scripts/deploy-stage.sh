@@ -74,17 +74,16 @@ chmod +x "$SERVICE_NAME"
 # Start new binary on temporary port
 echo "🚀 Starting new stage binary on port $TEMP_PORT..."
 
-# Load environment variables from .env.stage
-echo "🔧 Loading environment variables from .env.stage..."
-export $(cat .env.stage | grep -v '^#' | xargs)
+# Set ENVIRONMENT first so the Go app loads the right .env file
+export ENVIRONMENT=stage
 
 # Override API_ADDR for temporary port
 export API_ADDR="0.0.0.0:$TEMP_PORT"
 
-echo "🔍 Database config being used:"
-echo "  POSTGRES_USER=$POSTGRES_USER"
-echo "  POSTGRES_DB=$POSTGRES_DB"
-echo "  DATABASE_URL=$DATABASE_URL"
+echo "🔍 Environment config:"
+echo "  ENVIRONMENT=$ENVIRONMENT"
+echo "  API_ADDR=$API_ADDR"
+echo "  Will load: .env.$ENVIRONMENT"
 
 nohup ./"$SERVICE_NAME" > /tmp/new-stage-app.log 2>&1 &
 NEW_APP_PID=$!
