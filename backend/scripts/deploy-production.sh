@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Zero-downtime deployment script
+# Zero-downtime deployment script for production environment
 set -e
 
 COMMIT_SHA=$1
@@ -10,7 +10,7 @@ SERVICE_NAME="psychic-homily-backend"
 APP_PORT=8080
 TEMP_PORT=8081
 
-echo "🚀 Zero-downtime deployment for commit: $COMMIT_SHA"
+echo "🚀 Zero-downtime production deployment for commit: $COMMIT_SHA"
 
 # Create backup directory
 mkdir -p "$BACKUP_DIR"
@@ -22,12 +22,12 @@ fi
 
 # Ensure database services are running
 echo "🐳 Ensuring database services are healthy..."
-docker-compose -f "$COMPOSE_FILE" up -d db redis
+docker compose -f "$COMPOSE_FILE" up -d db redis
 
 # Wait for database health
 echo "⏳ Waiting for database..."
 for i in {1..20}; do
-    if docker-compose -f "$COMPOSE_FILE" exec db pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}" >/dev/null 2>&1; then
+    if docker compose -f "$COMPOSE_FILE" exec db pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}" >/dev/null 2>&1; then
         echo "✅ Database ready"
         break
     fi
@@ -36,7 +36,7 @@ done
 
 # Run migrations BEFORE deploying new binary
 echo "🔄 Running database migrations..."
-if ! docker-compose -f "$COMPOSE_FILE" run --rm migrate; then
+if ! docker compose -f "$COMPOSE_FILE" run --rm migrate; then
     echo "❌ Migration failed - aborting deployment"
     exit 1
 fi

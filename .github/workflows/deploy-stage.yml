@@ -25,7 +25,56 @@ jobs:
             -o psychic-homily-stage \
             ./cmd/server
 
-      - name: Deploy to VPS
+      - name: Setup Stage Infrastructure
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            # Check if directory exists and try to create without sudo first
+            if [ ! -d /opt/psychic-homily-stage ]; then
+              # Try without sudo first
+              mkdir -p /opt/psychic-homily-stage/{scripts,db/migrations,backups} 2>/dev/null || {
+                # If that fails, we need sudo - configure passwordless sudo for deploy user
+                echo "Need sudo access to create /opt/psychic-homily-stage"
+                echo "Please run on VPS: sudo usermod -aG sudo deploy"
+                echo "And add to /etc/sudoers: deploy ALL=(ALL) NOPASSWD: /bin/mkdir, /bin/chown"
+                exit 1
+              }
+            else
+              # Directory exists, just ensure subdirectories exist
+              mkdir -p /opt/psychic-homily-stage/{scripts,db/migrations,backups}
+            fi
+
+      - name: Upload Configuration Files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "backend/docker-compose.stage.yml,backend/.env.stage,backend/scripts/deploy-stage.sh,backend/systemd/psychic-homily-stage.service,backend/db/migrations"
+          target: "/opt/psychic-homily-stage"
+          strip_components: 1
+
+      - name: Setup Stage Services
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            # Make scripts executable
+            chmod +x /opt/psychic-homily-stage/scripts/deploy-stage.sh
+            
+            # Install systemd service if not exists
+            if [ ! -f /etc/systemd/system/psychic-homily-stage.service ]; then
+              sudo cp /opt/psychic-homily-stage/psychic-homily-stage.service /etc/systemd/system/
+              sudo systemctl daemon-reload
+              echo "Stage systemd service installed"
+            fi
+
+      - name: Clean Previous Binary
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}

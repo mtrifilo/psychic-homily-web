@@ -67,7 +67,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             cd /opt/psychic-homily-backend
-            ./scripts/deploy-zero-downtime.sh ${{ github.sha }}
+            ./scripts/deploy-production.sh ${{ github.sha }}
 
       - name: Wait for Backend Health
         run: |
