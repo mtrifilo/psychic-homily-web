@@ -56,11 +56,16 @@ fi
 # Deploy new binary alongside old one
 echo "📦 Deploying new stage binary..."
 
-# Check if binary exists before trying to chmod it
-if [ ! -f "$SERVICE_NAME" ]; then
-    echo "❌ Binary $SERVICE_NAME not found in $(pwd)"
+# Check if binary exists in backend subdirectory and move it
+if [ -f "backend/$SERVICE_NAME" ]; then
+    echo "📦 Moving binary from backend/ to root directory"
+    mv "backend/$SERVICE_NAME" "$SERVICE_NAME"
+elif [ ! -f "$SERVICE_NAME" ]; then
+    echo "❌ Binary $SERVICE_NAME not found in $(pwd) or backend/"
     echo "📁 Files in current directory:"
     ls -la
+    echo "📁 Files in backend directory:"
+    ls -la backend/ 2>/dev/null || echo "backend/ directory not found"
     exit 1
 fi
 
