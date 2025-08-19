@@ -27,7 +27,7 @@ docker compose -f "$COMPOSE_FILE" up -d db redis
 # Wait for database health
 echo "⏳ Waiting for stage database..."
 for i in {1..20}; do
-    if docker compose -f "$COMPOSE_FILE" exec db pg_isready -U "${POSTGRES_USER:-ph_staging_user}" -d "${POSTGRES_DB:-psychic_homily_staging}" >/dev/null 2>&1; then
+    if docker compose -f "$COMPOSE_FILE" exec db pg_isready -U "${POSTGRES_USER:-ph_stage_user}" -d "${POSTGRES_DB:-psychic_homily_stage}" >/dev/null 2>&1; then
         echo "✅ Stage database ready"
         break
     fi

@@ -11,7 +11,7 @@ services:
     ports:
       - "5433:5432" # Different port from production for external access
     volumes:
-      - ph_staging_data:/var/lib/postgresql/data
+      - ph_stage_data:/var/lib/postgresql/data
       - ./backups:/backups
     healthcheck:
       test:
@@ -34,12 +34,12 @@ services:
   # Redis (for future use)
   redis:
     image: redis:7-alpine
-    container_name: ph_staging_redis
+    container_name: ph_stage_redis
     restart: unless-stopped
     ports:
       - "6380:6379" # Different port from production for external access
     volumes:
-      - ph_staging_redis:/data
+      - ph_stage_redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s
@@ -56,13 +56,13 @@ services:
   # Migration service (Docker)
   migrate:
     image: migrate/migrate:latest
-    container_name: ph_staging_migrate
+    container_name: ph_stage_migrate
     command:
       [
         "-path",
         "/migrations",
         "-database",
-        "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-}@db:5432/${POSTGRES_DB:-postgres}?sslmode=disable",
+        "postgres://${POSTGRES_USER:-ph_stage_user}:${POSTGRES_PASSWORD:-secure_stage_password}@db:5432/${POSTGRES_DB:-psychic_homily_stage}?sslmode=disable",
         "up",
       ]
     env_file:
@@ -81,7 +81,7 @@ networks:
     driver: bridge
 
 volumes:
-  ph_staging_data:
+  ph_stage_data:
     driver: local
-  ph_staging_redis:
+  ph_stage_redis:
     driver: local
