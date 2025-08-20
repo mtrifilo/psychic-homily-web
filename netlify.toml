@@ -6,14 +6,25 @@ TZ = "America/Arizona"
 [build]
 publish = "public"
 command = """
-if [ "$NETLIFY_CONTEXT" = "stage" ] || [ "$ENVIRONMENT" = "stage" ]; then
+echo "🔍 Netlify Build Environment Debug:"
+echo "  NETLIFY_CONTEXT: $NETLIFY_CONTEXT"
+echo "  ENVIRONMENT: $ENVIRONMENT"
+echo "  CONTEXT: $CONTEXT"
+echo "  NODE_ENV: $NODE_ENV"
+echo "  HUGO_ENV: $HUGO_ENV"
+echo "  NETLIFY_SITE_NAME: $NETLIFY_SITE_NAME"
+echo "  NETLIFY_SITE_ID: $NETLIFY_SITE_ID"
+echo "  All Netlify environment variables:"
+env | grep -i netlify | sort
+echo ""
+if [ "$ENVIRONMENT" = "stage" ]; then
+  echo "🎯 Running stage build command..."
   pnpm run build:stage
 else
+  echo "🎯 Running production build command..."
   pnpm run build:prod
 fi
 """
-
-# Dynamic build command based on environment
 
 # Stage-specific build configuration
 [context.stage]
