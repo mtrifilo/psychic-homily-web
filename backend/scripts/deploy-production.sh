@@ -20,6 +20,10 @@ if [ -f "$SERVICE_NAME" ]; then
     cp "$SERVICE_NAME" "$BACKUP_DIR/${SERVICE_NAME}.backup.$(date +%Y%m%d_%H%M%S)"
 fi
 
+# Clean up any orphaned containers (PRESERVE VOLUMES FOR DATA SAFETY)
+echo "🧹 Cleaning up orphaned containers (preserving data volumes)..."
+docker compose -f "$COMPOSE_FILE" down --remove-orphans 2>/dev/null || true
+
 # Ensure database services are running
 echo "🐳 Ensuring database services are healthy..."
 docker compose -f "$COMPOSE_FILE" up -d db redis
@@ -43,25 +47,64 @@ fi
 
 # Deploy new binary alongside old one
 echo "📦 Deploying new binary..."
+
+# Check if binary exists in backend subdirectory and move it
+if [ -f "backend/$SERVICE_NAME" ]; then
+    echo "📦 Moving binary from backend/ to root directory"
+    mv "backend/$SERVICE_NAME" "$SERVICE_NAME"
+elif [ ! -f "$SERVICE_NAME" ]; then
+    echo "❌ Binary $SERVICE_NAME not found in $(pwd) or backend/"
+    echo "📁 Files in current directory:"
+    ls -la
+    echo "📁 Files in backend directory:"
+    ls -la backend/ 2>/dev/null || echo "backend/ directory not found"
+    exit 1
+fi
+
 chmod +x "$SERVICE_NAME"
 
 # Start new binary on temporary port
 echo "🚀 Starting new binary on port $TEMP_PORT..."
+
+# Set ENVIRONMENT first so the Go app loads the right .env file
+export ENVIRONMENT=production
+
+# Override API_ADDR for temporary port
 export API_ADDR="0.0.0.0:$TEMP_PORT"
+
+echo "🔍 Environment config:"
+echo "  ENVIRONMENT=$ENVIRONMENT"
+echo "  API_ADDR=$API_ADDR"
+echo "  Will load: .env.$ENVIRONMENT"
 nohup ./"$SERVICE_NAME" > /tmp/new-app.log 2>&1 &
 NEW_APP_PID=$!
 
 # Wait for new app to be healthy
-echo "🏥 Health checking new binary..."
+echo "🏥 Health checking new production binary..."
 for i in {1..30}; do
     if curl -f "http://localhost:$TEMP_PORT/health" > /dev/null 2>&1; then
-        echo "✅ New binary is healthy!"
+        echo "✅ New production binary is healthy!"
         break
     fi
+    
+    # Debug: Show what's happening
+    if [ $i -eq 5 ] || [ $i -eq 15 ] || [ $i -eq 25 ]; then
+        echo "🔍 Debug attempt $i: Checking if process is running..."
+        ps aux | grep "$SERVICE_NAME" | grep -v grep || echo "Process not found"
+        echo "🔍 Checking application logs..."
+        tail -10 /tmp/new-app.log 2>/dev/null || echo "No log file found"
+        echo "🔍 Testing port $TEMP_PORT..."
+        ss -tlnp | grep ":$TEMP_PORT " || echo "Port $TEMP_PORT not listening"
+    fi
+    
     sleep 2
     
     if [ $i -eq 30 ]; then
-        echo "❌ New binary failed health check"
+        echo "❌ New production binary failed health check"
+        echo "🔍 Final debug info:"
+        ps aux | grep "$SERVICE_NAME" | grep -v grep || echo "Process not found"
+        echo "📋 Application logs:"
+        cat /tmp/new-app.log 2>/dev/null || echo "No log file found"
         kill $NEW_APP_PID 2>/dev/null || true
         exit 1
     fi

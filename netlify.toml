@@ -7,6 +7,8 @@ TZ = "America/Arizona"
 publish = "public"
 command = "pnpm run build:prod"
 
+# Default to production behavior, staging site will override via environment variables
+
 # Stage-specific build configuration
 [context.stage]
 command = "pnpm run build:stage"

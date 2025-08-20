@@ -192,10 +192,10 @@ POSTGRES_DB=psychic_homily_prod
 POSTGRES_USER=ph_prod_user
 POSTGRES_PASSWORD=secure_prod_password
 
-# Staging
-POSTGRES_DB=psychic_homily_staging
-POSTGRES_USER=ph_staging_user
-POSTGRES_PASSWORD=secure_staging_password
+# Stage
+POSTGRES_DB=psychic_homily_stage
+POSTGRES_USER=ph_stage_user
+POSTGRES_PASSWORD=secure_stage_password
 ```
 
 #### **6.2 Redis Setup**
@@ -221,11 +221,12 @@ REDIS_PORT=6380
 #### **7.1 Backend Environment Files**
 
 ```bash
-# .env.staging
+# .env.stage
 API_ADDR=0.0.0.0:8081
-POSTGRES_DB=psychic_homily_staging
-POSTGRES_USER=ph_staging_user
-POSTGRES_PASSWORD=secure_staging_password
+POSTGRES_DB=psychic_homily_stage
+POSTGRES_USER=ph_stage_user
+POSTGRES_PASSWORD=secure_stage_password
+DATABASE_URL=postgres://ph_stage_user:secure_stage_password@localhost:5433/psychic_homily_stage?sslmode=disable
 REDIS_DB=1
 REDIS_PORT=6380
 
@@ -234,6 +235,7 @@ API_ADDR=0.0.0.0:8080
 POSTGRES_DB=psychic_homily_prod
 POSTGRES_USER=ph_prod_user
 POSTGRES_PASSWORD=secure_prod_password
+DATABASE_URL=postgres://ph_prod_user:secure_prod_password@localhost:5432/psychic_homily_prod?sslmode=disable
 REDIS_DB=0
 REDIS_PORT=6379
 ```
@@ -517,42 +519,146 @@ NETLIFY_PRODUCTION_WEBHOOK=your_production_webhook   # Netlify production site b
 
 ## 🎉 **What's Been Implemented:**
 
-### **✅ Frontend Staging (Netlify):**
+### **✅ Frontend Stage (Netlify):**
 
-- Hugo staging configuration (`hugo.staging.toml`)
-- Vite staging build configuration
-- Staging build scripts in package.json
-- Netlify staging context configuration
+- Hugo stage configuration (`hugo.staging.toml`)
+- Vite stage build configuration  
+- Stage build scripts in package.json
+- Netlify stage context configuration
 
-### **✅ Backend Staging (VPS):**
+### **✅ Backend Stage (VPS):**
 
-- Staging Docker Compose (`docker-compose.staging.yml`)
-- Staging environment configuration (`env.staging`)
-- Staging deployment script (`deploy-staging.sh`)
-- Staging systemd service
+- Stage Docker Compose (`docker-compose.stage.yml`)
+- Stage environment configuration (`.env.stage`)
+- Stage deployment script (`deploy-stage.sh`)
+- Stage systemd service (`psychic-homily-stage.service`)
 
 ### **✅ CI/CD Pipeline:**
 
-- Staging deployment workflow (automatic on main)
+- Stage deployment workflow (automatic on main push)
 - Production deployment workflow (manual trigger)
 - Environment-specific builds and configurations
+- Zero-downtime deployment scripts
 
 ### **✅ Build Configuration:**
 
-- Staging and production build scripts
+- Stage and production build scripts
 - Environment-specific Vite configurations
 - Hugo environment configurations
 
-## 🚀 **Ready for Testing:**
+### **✅ Environment Loading:**
 
-Your staging environment is now fully configured and ready for testing! The next step is to:
+- Fixed Go application environment loading bug
+- Proper `.env.stage` vs `.env.production` file loading
+- Environment variable constants in config.go
 
-1. **Test the staging deployment** by pushing to main
-2. **Verify both environments** are working correctly
-3. **Test the complete workflow** end-to-end
+## 🔧 **Key Fixes Applied:**
+
+### **1. Environment Loading Bug Fix:**
+- **Issue**: Go app was loading `.env.development` instead of `.env.stage`
+- **Fix**: Fixed `main.go:26` to log actual environment variable instead of constant
+- **Result**: App now correctly loads `.env.stage` when `ENVIRONMENT=stage`
+
+### **2. Database Connection Fix:**
+- **Issue**: App trying to connect to Docker hostname `@db:5432` from standalone binary
+- **Fix**: Updated DATABASE_URL to use `@localhost:5433` for external binary access
+- **Result**: Standalone Go binary can now connect to Docker PostgreSQL
+
+### **3. Deployment Script Improvements:**
+- **Data-safe cleanup**: Preserves database volumes while removing orphaned containers
+- **Better debugging**: Shows process status, logs, and port info during health checks
+- **Binary location handling**: Checks both root and `backend/` directories
+- **Environment variable setting**: Properly sets `ENVIRONMENT=stage/production`
+
+### **4. Production Script Updates:**
+- Applied all stage environment improvements to production deployment
+- Consistent error handling and debugging across environments
+- Zero-downtime deployment with enhanced monitoring
+
+## 📁 **Files That Must Be Manually Copied to Server:**
+
+### **⚠️ CRITICAL - Environment Files (Never Commit to Git):**
+
+These files contain secrets and must be manually copied to the server using `scp`:
+
+```bash
+# Stage Environment File
+scp backend/.env.stage deploy@your-server:/opt/psychic-homily-stage/.env.stage
+
+# Production Environment File (if needed)
+scp backend/.env.production deploy@your-server:/opt/psychic-homily-backend/.env.production
+```
+
+### **📋 Required Manual File Updates:**
+
+When environment variables change, you must manually update these files on the server:
+
+1. **Stage Environment**: `/opt/psychic-homily-stage/.env.stage`
+2. **Production Environment**: `/opt/psychic-homily-backend/.env.production`
+
+### **🔐 Key Environment Variables in `.env.stage`:**
+
+```bash
+# CRITICAL: Database connection for standalone binary
+DATABASE_URL=postgres://ph_stage_user:secure_stage_password@localhost:5433/psychic_homily_stage?sslmode=disable
+
+# CRITICAL: Environment detection for Go app
+ENVIRONMENT=stage
+
+# CRITICAL: Stage-specific database credentials
+POSTGRES_DB=psychic_homily_stage
+POSTGRES_USER=ph_stage_user
+POSTGRES_PASSWORD=secure_stage_password
+
+# CRITICAL: Port mapping for external access
+POSTGRES_PORT=5433
+REDIS_PORT=6380
+```
+
+## 🚀 **Deployment Status:**
+
+### **✅ WORKING - Stage Environment:**
+- Stage backend deployment: **SUCCESSFUL** 
+- Environment loading: **FIXED**
+- Database connections: **WORKING**
+- Zero-downtime deployment: **TESTED**
+- GitHub Actions workflow: **AUTOMATED**
+
+### **✅ READY - Production Environment:**
+- Production deployment scripts: **UPDATED**
+- Environment loading: **FIXED**
+- Zero-downtime deployment: **ENHANCED**
+- Manual trigger workflow: **CONFIGURED**
+
+## 🎯 **Next Steps:**
+
+1. **✅ Stage environment is fully working**
+2. **🔄 Test production deployment** (when ready)
+3. **📝 Document any production-specific environment variables**
+4. **🔍 Monitor both environments** for performance and stability
 
 ---
 
-**Document Version**: 1.2  
-**Last Updated**: [Current Date]  
-**Next Review**: After testing and validation
+**Document Version**: 2.0  
+**Last Updated**: August 19, 2025  
+**Next Review**: After production deployment testing
+
+## 📚 **Related Files:**
+
+### **Configuration Files:**
+- `backend/.env.stage` - Stage environment variables (manual copy required)
+- `backend/.env.production` - Production environment variables (manual copy required)
+- `backend/docker-compose.stage.yml` - Stage Docker services
+- `backend/docker-compose.prod.yml` - Production Docker services
+
+### **Deployment Scripts:**
+- `backend/scripts/deploy-stage.sh` - Stage zero-downtime deployment
+- `backend/scripts/deploy-production.sh` - Production zero-downtime deployment
+
+### **GitHub Actions:**
+- `.github/workflows/deploy-stage.yml` - Automated stage deployment
+- `.github/workflows/deploy-production.yml` - Manual production deployment
+
+### **System Services:**
+- `backend/systemd/psychic-homily-stage.service` - Stage systemd service
+- `backend/systemd/psychic-homily-backend.service` - Production systemd service

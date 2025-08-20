@@ -127,6 +127,11 @@ jobs:
       - name: Trigger Netlify Stage Build
         run: |
           echo "🚀 Triggering frontend stage deployment on Netlify..."
+          if [ -z "$NETLIFY_STAGE_WEBHOOK" ]; then
+            echo "❌ NETLIFY_STAGE_WEBHOOK secret not set"
+            echo "Please add the Netlify build hook URL to GitHub repository secrets"
+            exit 1
+          fi
           curl -X POST -d '{}' "$NETLIFY_STAGE_WEBHOOK"
         env:
           NETLIFY_STAGE_WEBHOOK: ${{ secrets.NETLIFY_STAGE_WEBHOOK }}

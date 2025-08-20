@@ -39,7 +39,7 @@ jobs:
             -o psychic-homily-backend \
             ./cmd/server
 
-      - name: Deploy to VPS
+      - name: Clean Previous Binary
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
