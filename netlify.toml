@@ -5,9 +5,15 @@ TZ = "America/Arizona"
 
 [build]
 publish = "public"
-command = "pnpm run build:prod"
+command = """
+if [ "$NETLIFY_CONTEXT" = "stage" ] || [ "$ENVIRONMENT" = "stage" ]; then
+  pnpm run build:stage
+else
+  pnpm run build:prod
+fi
+"""
 
-# Default to production behavior, staging site will override via environment variables
+# Dynamic build command based on environment
 
 # Stage-specific build configuration
 [context.stage]
