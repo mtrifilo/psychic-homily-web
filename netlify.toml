@@ -6,7 +6,7 @@ TZ = "America/Arizona"
 [build]
 publish = "public"
 command = """
-echo "🔍 Netlify Build Environment Debug:"
+echo "🔍 Netlify Build Environment Debug: "
 echo "  NETLIFY_CONTEXT: $NETLIFY_CONTEXT"
 echo "  ENVIRONMENT: $ENVIRONMENT"
 echo "  CONTEXT: $CONTEXT"
