@@ -112,7 +112,7 @@ jobs:
       - name: Verify Backend Health
         run: |
           echo "🏥 Verifying stage backend health..."
-          curl -f https://api.psychichomily.com/health || exit 1
+          curl -f https://stage.api.psychichomily.com/health || exit 1
           echo "✅ Stage backend deployment completed successfully"
 
   # Stage 2: Frontend Stage Deployment (only after backend is ready)
@@ -181,7 +181,9 @@ jobs:
               
               if [ $? -eq 0 ] && [ -n "$deploy_info" ]; then
                 status=$(echo "$deploy_info" | jq -r '.state // "unknown"')
+                context=$(echo "$deploy_info" | jq -r '.context // "unknown"')
                 echo "  Status: $status"
+                echo "  Context: $context"
                 
                 case $status in
                   "ready")
@@ -196,6 +198,23 @@ jobs:
                     ;;
                   "building"|"enqueued"|"preparing"|"processing")
                     echo "  ⏳ Deployment in progress..."
+                    ;;
+                  "new")
+                    echo "  📋 Deploy built successfully but not yet published"
+                    echo "  🚀 Force publishing deploy for stage environment..."
+                    
+                    # Force publish the deploy using the restore endpoint
+                    publish_result=$(curl -s -X POST \
+                      -H "Authorization: Bearer $NETLIFY_TOKEN" \
+                      "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/deploys/$deploy_id/restore" 2>/dev/null)
+                    
+                    if [ $? -eq 0 ]; then
+                      echo "  ✅ Deploy force-published successfully!"
+                      echo "  ⏳ Waiting for publish to complete..."
+                      sleep 10  # Give it time to propagate
+                    else
+                      echo "  ⚠️ Failed to force-publish, will retry..."
+                    fi
                     ;;
                   *)
                     echo "  ⚠️ Unknown status: $status"
@@ -228,8 +247,8 @@ jobs:
               if [ $? -eq 0 ] && [ -n "$site_deploys" ]; then
                 latest_deploy=$(echo "$site_deploys" | jq -r '.[0]')
                 status=$(echo "$latest_deploy" | jq -r '.state // "unknown"')
+                deploy_id=$(echo "$latest_deploy" | jq -r '.id // ""')
                 commit_sha=$(echo "$latest_deploy" | jq -r '.commit_sha // ""')
-                created_at=$(echo "$latest_deploy" | jq -r '.created_at // ""')
                 
                 echo "  Status: $status"
                 echo "  Commit: ${commit_sha:0:8}"
@@ -245,6 +264,15 @@ jobs:
                     ;;
                   "building"|"enqueued"|"preparing"|"processing")
                     echo "  ⏳ Deployment in progress..."
+                    ;;
+                  "new")
+                    if [ -n "$deploy_id" ]; then
+                      echo "  📋 Deploy built but not published, force publishing..."
+                      curl -s -X POST -H "Authorization: Bearer $NETLIFY_TOKEN" \
+                        "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/deploys/$deploy_id/restore" >/dev/null 2>&1
+                      echo "  🚀 Force publish requested"
+                      sleep 10
+                    fi
                     ;;
                 esac
               else
@@ -268,8 +296,8 @@ jobs:
               echo "🔍 Health check (attempt $((attempt + 1))/$max_attempts)..."
               
               if curl -f -s -H "Cache-Control: no-cache" \
-                 -H "User-Agent: GitHub-Actions-Deploy-Check" \
-                 "https://stage.psychichomily.com/" > /dev/null 2>&1; then
+                -H "User-Agent: GitHub-Actions-Deploy-Check" \
+                "https://stage.psychichomily.com/" > /dev/null 2>&1; then
                 echo "  ✅ Frontend is responding!"
                 
                 # Wait a reasonable amount before declaring success
