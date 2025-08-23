@@ -219,8 +219,11 @@ jobs:
           echo "🔍 Monitoring Netlify production deployment status..."
 
           deploy_id="${{ steps.trigger_netlify_prod.outputs.deploy_id }}"
-          max_attempts=50  # Give production more time - ~16 minutes with 20s intervals
+          max_attempts=60  # ~20 minutes with 20s intervals (increased from 50)
           attempt=0
+          last_status=""
+          consecutive_failures=0
+          max_consecutive_failures=3
 
           if [ -n "$deploy_id" ] && [ -n "$NETLIFY_PROD_TOKEN" ]; then
             echo "🎯 Tracking specific production deploy: $deploy_id"
@@ -235,8 +238,26 @@ jobs:
               if [ $? -eq 0 ] && [ -n "$deploy_info" ]; then
                 status=$(echo "$deploy_info" | jq -r '.state // "unknown"')
                 context=$(echo "$deploy_info" | jq -r '.context // "unknown"')
+                error_message=$(echo "$deploy_info" | jq -r '.error_message // ""')
+                
                 echo "  Status: $status"
                 echo "  Context: $context"
+                
+                # Check for consecutive failures (only count actual error states)
+                if [ "$status" = "$last_status" ] && [ "$status" = "error" ]; then
+                  ((consecutive_failures++))
+                  echo "  ⚠️ Consecutive failures: $consecutive_failures/$max_consecutive_failures"
+                else
+                  consecutive_failures=0
+                fi
+                
+                # Exit if too many consecutive failures
+                if [ $consecutive_failures -ge $max_consecutive_failures ]; then
+                  echo "❌ Too many consecutive failures, aborting production deployment"
+                  exit 1
+                fi
+                
+                last_status="$status"
                 
                 case $status in
                   "ready")
@@ -245,26 +266,77 @@ jobs:
                     ;;
                   "error"|"failed")
                     echo "❌ Netlify production deployment failed!"
-                    error_msg=$(echo "$deploy_info" | jq -r '.error_message // "No error message available"')
-                    echo "Error: $error_msg"
+                    if [ -n "$error_message" ]; then
+                      echo "Error: $error_message"
+                    else
+                      echo "No detailed error message available"
+                    fi
                     exit 1
                     ;;
-                  "building"|"enqueued"|"preparing"|"processing")
+                  "building"|"enqueued"|"preparing"|"processing"|"starting up")
                     echo "  ⏳ Production deployment in progress..."
+                    echo "  📝 Note: 'enqueued' can last several minutes due to infrastructure capacity"
+                    
+                    # Check if we've been stuck in this state too long (increased to 45 attempts)
+                    # This accounts for Netlify's real-world infrastructure conditions where builds can queue
+                    if [ $attempt -gt 45 ] && [ "$status" = "$last_status" ]; then
+                      echo "  ⚠️ Production deployment seems stuck in $status state for a while"
+                      echo "  🔍 Checking for potential issues..."
+                      
+                      # Try to get more details about the deploy
+                      deploy_details=$(curl -s -H "Authorization: Bearer $NETLIFY_PROD_TOKEN" \
+                        "https://api.netlify.com/api/v1/sites/$NETLIFY_PROD_SITE_ID/deploys/$deploy_id" 2>/dev/null)
+                      
+                      if [ $? -eq 0 ] && [ -n "$deploy_details" ]; then
+                        deploy_ready=$(echo "$deploy_details" | jq -r '.ready // false')
+                        deploy_error=$(echo "$deploy_details" | jq -r '.error_message // "none"')
+                        deploy_created=$(echo "$deploy_details" | jq -r '.created_at // "unknown"')
+                        
+                        echo "  🔍 Production deploy details:"
+                        echo "    - Ready: $deploy_ready"
+                        echo "    - Error: $deploy_error"
+                        echo "    - Created: $deploy_created"
+                        
+                        # Only exit if there's an actual error message
+                        if [ "$deploy_error" != "none" ] && [ "$deploy_error" != "" ]; then
+                          echo "❌ Production deploy has error: $deploy_error"
+                          exit 1
+                        fi
+                        
+                        # If no error and still building, give it more time
+                        echo "  ⏳ No errors detected, continuing to wait for production build completion..."
+                        echo "  📊 This is normal for Netlify builds that may queue due to infrastructure capacity"
+                      fi
+                    fi
                     ;;
                   "new")
-                    echo "  📋 Production deploy built successfully"
+                    echo "  📋 Production deploy built successfully but not yet published"
                     echo "  ℹ️  Production builds may require manual approval - this is normal"
                     echo "  🔍 Checking if deploy should auto-publish..."
                     
-                    # For production, we might want to require manual publish
-                    # But let's check if it's ready first
+                    # Check if deploy is actually ready for publishing
                     deploy_details=$(curl -s -H "Authorization: Bearer $NETLIFY_PROD_TOKEN" \
                       "https://api.netlify.com/api/v1/sites/$NETLIFY_PROD_SITE_ID/deploys/$deploy_id" 2>/dev/null)
                     
                     if [ $? -eq 0 ] && [ -n "$deploy_details" ]; then
+                      deploy_state=$(echo "$deploy_details" | jq -r '.state // "unknown"')
                       deploy_ready=$(echo "$deploy_details" | jq -r '.ready // false')
-                      if [ "$deploy_ready" = "true" ]; then
+                      deploy_error=$(echo "$deploy_details" | jq -r '.error_message // "none"')
+                      
+                      echo "  🔍 Production deploy details:"
+                      echo "    - State: $deploy_state"
+                      echo "    - Ready: $deploy_ready"
+                      echo "    - Error: $deploy_error"
+                      
+                      # Only exit if there's an actual error message
+                      if [ "$deploy_error" != "none" ] && [ "$deploy_error" != "" ]; then
+                        echo "❌ Production deploy has error: $deploy_error"
+                        exit 1
+                      fi
+                      
+                      # For production, we might want to require manual publish
+                      # But let's check if it's ready first
+                      if [ "$deploy_ready" = "true" ] || [ "$deploy_state" = "ready" ]; then
                         echo "  ✅ Production deploy is ready and should auto-publish"
                         echo "  ⏳ Waiting for auto-publish..."
                         sleep 30
@@ -272,6 +344,10 @@ jobs:
                         echo "  ⏳ Production deploy not quite ready yet..."
                         sleep 20
                       fi
+                    else
+                      echo "  ⚠️ Could not fetch production deploy details, waiting..."
+                      sleep 20
+                      continue
                     fi
                     ;;
                   *)
@@ -279,7 +355,8 @@ jobs:
                     ;;
                 esac
               else
-                echo "  ⚠️ Failed to fetch production deploy status"
+                echo "  ⚠️ Failed to fetch production deploy status, trying site-level check..."
+                break
               fi
               
               if [ $attempt -eq $((max_attempts - 1)) ]; then
@@ -305,10 +382,18 @@ jobs:
               if [ $? -eq 0 ] && [ -n "$site_deploys" ]; then
                 latest_deploy=$(echo "$site_deploys" | jq -r '.[0]')
                 status=$(echo "$latest_deploy" | jq -r '.state // "unknown"')
+                deploy_id=$(echo "$latest_deploy" | jq -r '.id // ""')
                 commit_sha=$(echo "$latest_deploy" | jq -r '.commit_sha // ""')
+                error_message=$(echo "$latest_deploy" | jq -r '.error_message // ""')
                 
                 echo "  Status: $status"
                 echo "  Commit: ${commit_sha:0:8}"
+                
+                # Only exit if there's an actual error message
+                if [ -n "$error_message" ] && [ "$error_message" != "" ]; then
+                  echo "❌ Latest production deployment has error: $error_message"
+                  exit 1
+                fi
                 
                 case $status in
                   "ready")
@@ -324,8 +409,9 @@ jobs:
                     echo "❌ Latest production deployment failed!"
                     exit 1
                     ;;
-                  "building"|"enqueued"|"preparing"|"processing")
+                  "building"|"enqueued"|"preparing"|"processing"|"starting up")
                     echo "  ⏳ Production deployment in progress..."
+                    echo "  📝 Note: 'enqueued' can last several minutes due to infrastructure capacity"
                     ;;
                 esac
               else
