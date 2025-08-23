@@ -204,16 +204,60 @@ jobs:
                     echo "  🚀 Force publishing deploy for stage environment..."
                     
                     # Force publish the deploy using the restore endpoint
-                    publish_result=$(curl -s -X POST \
-                      -H "Authorization: Bearer $NETLIFY_TOKEN" \
-                      "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/deploys/$deploy_id/restore" 2>/dev/null)
+                    echo "  🔍 Attempting to force publish deploy $deploy_id..."
+                    echo "  📍 Site ID: $NETLIFY_SITE_ID"
+                    echo "  🔑 Token: ${NETLIFY_TOKEN:0:10}..."
                     
-                    if [ $? -eq 0 ]; then
+                    # Make the API call with detailed error handling
+                    publish_result=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST \
+                      -H "Authorization: Bearer $NETLIFY_TOKEN" \
+                      -H "Content-Type: application/json" \
+                      "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/deploys/$deploy_id/restore" 2>&1)
+                    
+                    # Extract HTTP status and response body
+                    http_status=$(echo "$publish_result" | grep "HTTP_STATUS:" | cut -d: -f2)
+                    response_body=$(echo "$publish_result" | grep -v "HTTP_STATUS:")
+                    
+                    echo "  📊 HTTP Status: $http_status"
+                    echo "  📄 Response: $response_body"
+                    
+                    if [ "$http_status" = "200" ] || [ "$http_status" = "201" ]; then
                       echo "  ✅ Deploy force-published successfully!"
                       echo "  ⏳ Waiting for publish to complete..."
                       sleep 10  # Give it time to propagate
+                      
+                      # Verify the publish actually worked
+                      echo "  🔍 Verifying publish status..."
+                      verify_result=$(curl -s -H "Authorization: Bearer $NETLIFY_TOKEN" \
+                        "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/deploys/$deploy_id" 2>/dev/null)
+                      
+                      if [ $? -eq 0 ]; then
+                        published_status=$(echo "$verify_result" | jq -r '.published_at // "null"')
+                        if [ "$published_status" != "null" ]; then
+                          echo "  ✅ Publish verified - deploy is now live!"
+                        else
+                          echo "  ⚠️ Publish may not have completed - published_at is null"
+                        fi
+                      else
+                        echo "  ⚠️ Could not verify publish status"
+                      fi
                     else
-                      echo "  ⚠️ Failed to force-publish, will retry..."
+                      echo "  ❌ Failed to force-publish deploy!"
+                      echo "  🔍 Debug info:"
+                      echo "    - HTTP Status: $http_status"
+                      echo "    - Response: $response_body"
+                      echo "    - Deploy ID: $deploy_id"
+                      echo "    - Site ID: $NETLIFY_SITE_ID"
+                      
+                      # Try alternative approach with more verbose curl
+                      echo "  🔄 Attempting alternative publish method..."
+                      alt_result=$(curl -v -X POST \
+                        -H "Authorization: Bearer $NETLIFY_TOKEN" \
+                        -H "Content-Type: application/json" \
+                        "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/deploys/$deploy_id/restore" 2>&1)
+                      
+                      echo "  📋 Alternative method result:"
+                      echo "$alt_result"
                     fi
                     ;;
                   *)
@@ -268,8 +312,29 @@ jobs:
                   "new")
                     if [ -n "$deploy_id" ]; then
                       echo "  📋 Deploy built but not published, force publishing..."
-                      curl -s -X POST -H "Authorization: Bearer $NETLIFY_TOKEN" \
-                        "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/deploys/$deploy_id/restore" >/dev/null 2>&1
+                      echo "  🔍 Publishing deploy $deploy_id via site-level check..."
+                      
+                      site_publish_result=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST \
+                        -H "Authorization: Bearer $NETLIFY_TOKEN" \
+                        -H "Content-Type: application/json" \
+                        "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/deploys/$deploy_id/restore" 2>&1)
+                      
+                      site_http_status=$(echo "$site_publish_result" | grep "HTTP_STATUS:" | cut -d: -f2)
+                      site_response_body=$(echo "$site_publish_result" | grep -v "HTTP_STATUS:")
+                      
+                      echo "  📊 Site-level publish HTTP Status: $site_http_status"
+                      echo "  📄 Site-level publish Response: $site_response_body"
+                      
+                      if [ "$site_http_status" = "200" ] || [ "$site_http_status" = "201" ]; then
+                        echo "  ✅ Site-level force publish successful!"
+                      else
+                        echo "  ❌ Site-level force publish failed!"
+                        echo "  🔍 Debug info:"
+                        echo "    - HTTP Status: $site_http_status"
+                        echo "    - Response: $site_response_body"
+                        echo "    - Deploy ID: $deploy_id"
+                      fi
+                      
                       echo "  🚀 Force publish requested"
                       sleep 10
                     fi
