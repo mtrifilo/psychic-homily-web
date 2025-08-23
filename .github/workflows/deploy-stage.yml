@@ -297,7 +297,7 @@ jobs:
               
               if curl -f -s -H "Cache-Control: no-cache" \
                 -H "User-Agent: GitHub-Actions-Deploy-Check" \
-                "https://stage.psychichomily.com/" > /dev/null 2>&1; then
+                "https://stage-psychic-homily.netlify.app/" > /dev/null 2>&1; then
                 echo "  ✅ Frontend is responding!"
                 
                 # Wait a reasonable amount before declaring success
@@ -327,11 +327,11 @@ jobs:
           echo "🌐 Final frontend verification..."
 
           # Test the actual frontend URL
-          if curl -f -s -H "Cache-Control: no-cache" "https://stage.psychichomily.com/" > /dev/null; then
+          if curl -f -s -H "Cache-Control: no-cache" "https://stage-psychic-homily.netlify.app/" > /dev/null; then
             echo "✅ Frontend is accessible and responding!"
             
             # Optional: Check for specific content to verify it's updated
-            response=$(curl -s "https://stage.psychichomily.com/" | head -20)
+            response=$(curl -s "https://stage-psychic-homily.netlify.app/" | head -20)
             if echo "$response" | grep -q "html\|HTML" 2>/dev/null; then
               echo "✅ Frontend content looks valid!"
             else
@@ -350,12 +350,12 @@ jobs:
           if [ "${{ job.status }}" == "success" ]; then
             echo "🎉 Stage deployment completed successfully!"
             echo "📱 Backend: https://api.psychichomily.com/health"
-            echo "🌐 Frontend: https://stage.psychichomily.com"
+            echo "🌐 Frontend: https://stage-psychic-homily.netlify.app"
             
             # Optional: Send to Slack if webhook is configured
             if [ -n "$SLACK_WEBHOOK" ]; then
               curl -X POST -H 'Content-type: application/json' \
-                --data '{"text":"🎉 Stage deployment completed successfully!\n• Backend: https://api.psychichomily.com/health\n• Frontend: https://stage.psychichomily.com\n• Commit: ${{ github.sha }}"}' \
+                --data '{"text":"🎉 Stage deployment completed successfully!\n• Backend: https://api.psychichomily.com/health\n• Frontend: https://stage-psychic-homily.netlify.app\n• Commit: ${{ github.sha }}"}' \
                 "$SLACK_WEBHOOK" 2>/dev/null || echo "Slack notification failed"
             fi
           else
