@@ -1,11 +1,10 @@
-name: Production Deployment
+name: Deploy to Production
 
 on:
-  # Only manual deployment allowed - no automatic triggers
   workflow_dispatch:
     inputs:
-      stage:
-        description: "Deployment Stage"
+      deployment_target:
+        description: "What to deploy"
         required: true
         default: "both"
         type: choice
@@ -13,15 +12,32 @@ on:
           - backend
           - frontend
           - both
-      confirm:
-        description: "Type 'PRODUCTION' to confirm deployment"
+      confirm_production:
+        description: 'Type "PRODUCTION" to confirm deployment to live site'
         required: true
+        type: string
 
 jobs:
-  # Stage 1: Backend Deployment
-  deploy-backend:
+  # Validation job to ensure proper confirmation
+  validate-production-deployment:
     runs-on: ubuntu-latest
-    if: github.event.inputs.stage == 'backend' || github.event.inputs.stage == 'both' || (github.event_name == 'push' && contains(github.event.head_commit.modified, 'backend/'))
+    steps:
+      - name: Validate Production Deployment
+        run: |
+          if [ "${{ github.event.inputs.confirm_production }}" != "PRODUCTION" ]; then
+            echo "❌ Production deployment cancelled."
+            echo "   You must type 'PRODUCTION' (all caps) to confirm deployment to the live site."
+            echo "   This is a safety measure to prevent accidental production deployments."
+            exit 1
+          fi
+          echo "✅ Production deployment confirmed"
+          echo "🚀 Proceeding with production deployment..."
+
+  # Stage 1: Backend Production Deployment
+  deploy-backend-production:
+    runs-on: ubuntu-latest
+    needs: validate-production-deployment
+    if: github.event.inputs.deployment_target == 'backend' || github.event.inputs.deployment_target == 'both'
     steps:
       - uses: actions/checkout@v4
 
@@ -30,79 +46,379 @@ jobs:
         with:
           go-version: "1.24"
 
-      - name: Build Binary
+      - name: Build Production Binary
         working-directory: ./backend
         run: |
+          echo "🏗️ Building production binary..."
           go mod download
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
             -ldflags="-w -s" \
-            -o psychic-homily-backend \
+            -o psychic-homily-production \
             ./cmd/server
+
+      - name: Setup Production Infrastructure
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_VPS_HOST }}
+          username: ${{ secrets.PROD_VPS_USERNAME }}
+          key: ${{ secrets.PROD_VPS_SSH_KEY }}
+          script: |
+            # Check if directory exists and try to create without sudo first
+            if [ ! -d /opt/psychic-homily-production ]; then
+              # Try without sudo first
+              mkdir -p /opt/psychic-homily-production/{scripts,db/migrations,backups} 2>/dev/null || {
+                echo "Need sudo access to create /opt/psychic-homily-production"
+                echo "Please run on VPS: sudo usermod -aG sudo deploy"
+                echo "And add to /etc/sudoers: deploy ALL=(ALL) NOPASSWD: /bin/mkdir, /bin/chown"
+                exit 1
+              }
+            else
+              # Directory exists, just ensure subdirectories exist
+              mkdir -p /opt/psychic-homily-production/{scripts,db/migrations,backups}
+            fi
+
+      - name: Upload Production Configuration Files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PROD_VPS_HOST }}
+          username: ${{ secrets.PROD_VPS_USERNAME }}
+          key: ${{ secrets.PROD_VPS_SSH_KEY }}
+          source: "backend/docker-compose.production.yml,backend/.env.production,backend/scripts/deploy-production.sh,backend/systemd/psychic-homily-production.service,backend/db/migrations"
+          target: "/opt/psychic-homily-production"
+          strip_components: 1
+
+      - name: Setup Production Services
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_VPS_HOST }}
+          username: ${{ secrets.PROD_VPS_USERNAME }}
+          key: ${{ secrets.PROD_VPS_SSH_KEY }}
+          script: |
+            # Make scripts executable
+            chmod +x /opt/psychic-homily-production/scripts/deploy-production.sh
+
+            # Install systemd service if not exists
+            if [ ! -f /etc/systemd/system/psychic-homily-production.service ]; then
+              sudo cp /opt/psychic-homily-production/psychic-homily-production.service /etc/systemd/system/
+              sudo systemctl daemon-reload
+              echo "Production systemd service installed"
+            fi
 
       - name: Clean Previous Binary
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USERNAME }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          host: ${{ secrets.PROD_VPS_HOST }}
+          username: ${{ secrets.PROD_VPS_USERNAME }}
+          key: ${{ secrets.PROD_VPS_SSH_KEY }}
           script: |
-            cd /opt/psychic-homily-backend
-            rm -f psychic-homily-backend
+            cd /opt/psychic-homily-production
+            rm -f psychic-homily-production
             exit 0
 
-      - name: Upload Binary
+      - name: Upload Production Binary
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USERNAME }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          source: "backend/psychic-homily-backend"
-          target: "/opt/psychic-homily-backend"
+          host: ${{ secrets.PROD_VPS_HOST }}
+          username: ${{ secrets.PROD_VPS_USERNAME }}
+          key: ${{ secrets.PROD_VPS_SSH_KEY }}
+          source: "backend/psychic-homily-production"
+          target: "/opt/psychic-homily-production"
 
-      - name: Deploy with Zero-Downtime
+      - name: Deploy Production with Zero-Downtime
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USERNAME }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          host: ${{ secrets.PROD_VPS_HOST }}
+          username: ${{ secrets.PROD_VPS_USERNAME }}
+          key: ${{ secrets.PROD_VPS_SSH_KEY }}
           script: |
-            cd /opt/psychic-homily-backend
+            cd /opt/psychic-homily-production
             ./scripts/deploy-production.sh ${{ github.sha }}
 
-      - name: Wait for Backend Health
+      - name: Wait for Production Backend Health
         run: |
-          echo "⏳ Waiting for backend to be healthy..."
-          sleep 30  # Give backend time to fully stabilize
+          echo "⏳ Waiting for production backend to be healthy..."
+          sleep 45  # Give production more time to stabilize
 
-      - name: Verify Backend Health
+      - name: Verify Production Backend Health
         run: |
-          echo "🏥 Verifying backend health..."
-          # You could add a health check here if you have backend health endpoint
-          echo "✅ Backend deployment completed successfully"
+          echo "🏥 Verifying production backend health..."
 
-  # Stage 2: Frontend Deployment (only after backend is ready)
-  deploy-frontend:
+          # Retry logic for production health check
+          max_attempts=10
+          attempt=0
+
+          while [ $attempt -lt $max_attempts ]; do
+            if curl -f --connect-timeout 10 --max-time 30 "https://api.psychichomily.com/health" > /dev/null 2>&1; then
+              echo "✅ Production backend is healthy!"
+              break
+            else
+              echo "⏳ Backend health check attempt $((attempt + 1))/$max_attempts failed, retrying..."
+              sleep 10
+              ((attempt++))
+            fi
+          done
+
+          if [ $attempt -eq $max_attempts ]; then
+            echo "❌ Production backend health check failed after $max_attempts attempts"
+            echo "🚨 Production backend may not be responding correctly"
+            exit 1
+          fi
+
+          echo "✅ Production backend deployment completed successfully"
+
+  # Stage 2: Frontend Production Deployment
+  deploy-frontend-production:
     runs-on: ubuntu-latest
-    needs: deploy-backend
-    if: github.event.inputs.stage == 'frontend' || github.event.inputs.stage == 'both' || (github.event_name == 'push' && (contains(github.event.head_commit.modified, 'components/') || contains(github.event.head_commit.modified, 'content/') || contains(github.event.head_commit.modified, 'layouts/')))
+    needs: [validate-production-deployment, deploy-backend-production]
+    if: always() && needs.validate-production-deployment.result == 'success' && (github.event.inputs.deployment_target == 'frontend' || github.event.inputs.deployment_target == 'both') && (needs.deploy-backend-production.result == 'success' || needs.deploy-backend-production.result == 'skipped')
     steps:
       - name: Wait for Backend Stabilization
+        if: needs.deploy-backend-production.result == 'success'
         run: |
-          echo "⏳ Waiting for backend to fully stabilize..."
-          sleep 60  # Additional wait to ensure backend is fully ready
+          echo "⏳ Waiting for production backend to fully stabilize..."
+          sleep 60  # Give production backend time to fully stabilize
 
-      - name: Trigger Netlify Build
+      - name: Trigger Netlify Production Build
+        id: trigger_netlify_prod
         run: |
-          echo "🚀 Triggering frontend deployment on Netlify..."
-          curl -X POST -d '{}' "$NETLIFY_BUILD_HOOK"
+          echo "🚀 Triggering frontend production deployment on Netlify..."
+          if [ -z "$NETLIFY_PRODUCTION_WEBHOOK" ]; then
+            echo "❌ NETLIFY_PRODUCTION_WEBHOOK secret not set"
+            echo "Please add the Netlify production build hook URL to GitHub repository secrets"
+            exit 1
+          fi
+
+          # Trigger build and capture response
+          response=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"trigger_title\":\"Production Deploy - Commit ${{ github.sha }}\", \"trigger_branch\":\"production\"}" \
+            "$NETLIFY_PRODUCTION_WEBHOOK")
+
+          # Check if webhook succeeded
+          if [ $? -eq 0 ]; then
+            echo "✅ Netlify production build triggered successfully"
+            echo "Response: $response"
+            
+            # Try to extract deploy ID if available
+            deploy_id=$(echo "$response" | jq -r '.id // empty' 2>/dev/null || echo "")
+            if [ -n "$deploy_id" ]; then
+              echo "📝 Deploy ID: $deploy_id"
+              echo "deploy_id=$deploy_id" >> $GITHUB_OUTPUT
+            else
+              echo "deploy_id=" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "❌ Netlify production webhook request failed"
+            exit 1
+          fi
         env:
-          NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_DEPLOY_WEBHOOK }}
+          NETLIFY_PRODUCTION_WEBHOOK: ${{ secrets.NETLIFY_PRODUCTION_WEBHOOK }}
 
-      - name: Wait for Frontend Deployment
+      - name: Monitor Netlify Production Deploy Status
         run: |
-          echo "⏳ Waiting for frontend deployment to complete..."
-          sleep 120  # Netlify typically takes 1-2 minutes
+          echo "🔍 Monitoring Netlify production deployment status..."
 
-      - name: Verify Frontend Deployment
+          deploy_id="${{ steps.trigger_netlify_prod.outputs.deploy_id }}"
+          max_attempts=50  # Give production more time - ~16 minutes with 20s intervals
+          attempt=0
+
+          if [ -n "$deploy_id" ] && [ -n "$NETLIFY_PROD_TOKEN" ]; then
+            echo "🎯 Tracking specific production deploy: $deploy_id"
+            
+            # Track specific deploy by ID
+            while [ $attempt -lt $max_attempts ]; do
+              echo "📊 Checking production deploy status (attempt $((attempt + 1))/$max_attempts)..."
+              
+              deploy_info=$(curl -s -H "Authorization: Bearer $NETLIFY_PROD_TOKEN" \
+                "https://api.netlify.com/api/v1/deploys/$deploy_id" 2>/dev/null)
+              
+              if [ $? -eq 0 ] && [ -n "$deploy_info" ]; then
+                status=$(echo "$deploy_info" | jq -r '.state // "unknown"')
+                context=$(echo "$deploy_info" | jq -r '.context // "unknown"')
+                echo "  Status: $status"
+                echo "  Context: $context"
+                
+                case $status in
+                  "ready")
+                    echo "✅ Netlify production deployment completed successfully!"
+                    break
+                    ;;
+                  "error"|"failed")
+                    echo "❌ Netlify production deployment failed!"
+                    error_msg=$(echo "$deploy_info" | jq -r '.error_message // "No error message available"')
+                    echo "Error: $error_msg"
+                    exit 1
+                    ;;
+                  "building"|"enqueued"|"preparing"|"processing")
+                    echo "  ⏳ Production deployment in progress..."
+                    ;;
+                  "new")
+                    echo "  📋 Production deploy built successfully"
+                    echo "  ℹ️  Production builds may require manual approval - this is normal"
+                    echo "  🔍 Checking if deploy should auto-publish..."
+                    
+                    # For production, we might want to require manual publish
+                    # But let's check if it's ready first
+                    deploy_details=$(curl -s -H "Authorization: Bearer $NETLIFY_PROD_TOKEN" \
+                      "https://api.netlify.com/api/v1/sites/$NETLIFY_PROD_SITE_ID/deploys/$deploy_id" 2>/dev/null)
+                    
+                    if [ $? -eq 0 ] && [ -n "$deploy_details" ]; then
+                      deploy_ready=$(echo "$deploy_details" | jq -r '.ready // false')
+                      if [ "$deploy_ready" = "true" ]; then
+                        echo "  ✅ Production deploy is ready and should auto-publish"
+                        echo "  ⏳ Waiting for auto-publish..."
+                        sleep 30
+                      else
+                        echo "  ⏳ Production deploy not quite ready yet..."
+                        sleep 20
+                      fi
+                    fi
+                    ;;
+                  *)
+                    echo "  ⚠️ Unknown production deploy status: $status"
+                    ;;
+                esac
+              else
+                echo "  ⚠️ Failed to fetch production deploy status"
+              fi
+              
+              if [ $attempt -eq $((max_attempts - 1)) ]; then
+                echo "⚠️ Production deployment monitoring timed out"
+                echo "   The build may still be in progress. Check Netlify dashboard for status."
+                # Don't exit 1 for production - let it continue and do final verification
+              fi
+              
+              sleep 20
+              ((attempt++))
+            done
+            
+          elif [ -n "$NETLIFY_PROD_TOKEN" ] && [ -n "$NETLIFY_PROD_SITE_ID" ]; then
+            echo "🔍 Checking production site-level deployment status..."
+            
+            # Fallback: Check latest deploy for the site
+            while [ $attempt -lt $max_attempts ]; do
+              echo "📊 Checking latest production deploy (attempt $((attempt + 1))/$max_attempts)..."
+              
+              site_deploys=$(curl -s -H "Authorization: Bearer $NETLIFY_PROD_TOKEN" \
+                "https://api.netlify.com/api/v1/sites/$NETLIFY_PROD_SITE_ID/deploys?per_page=1" 2>/dev/null)
+              
+              if [ $? -eq 0 ] && [ -n "$site_deploys" ]; then
+                latest_deploy=$(echo "$site_deploys" | jq -r '.[0]')
+                status=$(echo "$latest_deploy" | jq -r '.state // "unknown"')
+                commit_sha=$(echo "$latest_deploy" | jq -r '.commit_sha // ""')
+                
+                echo "  Status: $status"
+                echo "  Commit: ${commit_sha:0:8}"
+                
+                case $status in
+                  "ready")
+                    echo "✅ Latest production deployment is ready!"
+                    break
+                    ;;
+                  "new")
+                    echo "  📋 Production deploy built and ready"
+                    echo "  ℹ️  Production may require manual publish - this is expected"
+                    break
+                    ;;
+                  "error"|"failed")
+                    echo "❌ Latest production deployment failed!"
+                    exit 1
+                    ;;
+                  "building"|"enqueued"|"preparing"|"processing")
+                    echo "  ⏳ Production deployment in progress..."
+                    ;;
+                esac
+              else
+                echo "  ⚠️ Failed to fetch production site deploys"
+              fi
+              
+              if [ $attempt -eq $((max_attempts - 1)) ]; then
+                echo "⚠️ Production deployment monitoring timed out"
+                break
+              fi
+              
+              sleep 20
+              ((attempt++))
+            done
+          else
+            echo "⚠️ No Netlify production API access - using health check method..."
+            
+            # Fallback: Direct health check
+            sleep 180  # Give production build more time
+            
+            if curl -f -s -H "Cache-Control: no-cache" \
+               -H "User-Agent: GitHub-Actions-Deploy-Check" \
+               "https://www.psychichomily.com/" > /dev/null 2>&1; then
+              echo "✅ Production frontend is responding!"
+            else
+              echo "⚠️ Production frontend health check failed"
+              echo "   This may be normal if the deploy requires manual approval"
+            fi
+          fi
+        env:
+          NETLIFY_PROD_TOKEN: ${{ secrets.NETLIFY_PROD_TOKEN }}
+          NETLIFY_PROD_SITE_ID: ${{ secrets.NETLIFY_PROD_SITE_ID }}
+
+      - name: Verify Production Frontend Deployment
         run: |
-          echo "✅ Frontend deployment completed successfully"
+          echo "🌐 Final production frontend verification..."
+
+          # Test the actual production frontend URL
+          max_attempts=5
+          attempt=0
+
+          while [ $attempt -lt $max_attempts ]; do
+            if curl -f -s -H "Cache-Control: no-cache" "https://www.psychichomily.com/" > /dev/null; then
+              echo "✅ Production frontend is accessible and responding!"
+              
+              # Optional: Check for specific content to verify it's updated
+              response=$(curl -s "https://www.psychichomily.com/" | head -20)
+              if echo "$response" | grep -q "html\|HTML" 2>/dev/null; then
+                echo "✅ Production frontend content looks valid!"
+              else
+                echo "⚠️ Production frontend responding but content may be incomplete"
+              fi
+              break
+            else
+              echo "⏳ Production frontend verification attempt $((attempt + 1))/$max_attempts..."
+              sleep 30
+              ((attempt++))
+            fi
+          done
+
+          if [ $attempt -eq $max_attempts ]; then
+            echo "⚠️ Production frontend verification inconclusive"
+            echo "   This may be normal if the deployment requires manual approval in Netlify"
+            echo "   Please check the Netlify dashboard to complete deployment if needed"
+          else
+            echo "✅ Production frontend deployment completed successfully"
+          fi
+
+      - name: Send Production Deployment Notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "🎉 Production deployment completed successfully!"
+            echo "📱 Backend: https://api.psychichomily.com/health"
+            echo "🌐 Frontend: https://www.psychichomily.com"
+            echo "📊 Deployment target: ${{ github.event.inputs.deployment_target }}"
+            
+            # Optional: Send to Slack if webhook is configured
+            if [ -n "$SLACK_WEBHOOK" ]; then
+              curl -X POST -H 'Content-type: application/json' \
+                --data '{"text":"🚀 PRODUCTION DEPLOYMENT SUCCESSFUL! 🚀\n• Backend: https://api.psychichomily.com/health\n• Frontend: https://www.psychichomily.com\n• Target: ${{ github.event.inputs.deployment_target }}\n• Commit: ${{ github.sha }}\n• Deployed by: ${{ github.actor }}"}' \
+                "$SLACK_WEBHOOK" 2>/dev/null || echo "Slack notification failed"
+            fi
+          else
+            echo "❌ Production deployment failed"
+            echo "🚨 PRODUCTION DEPLOYMENT FAILURE - IMMEDIATE ATTENTION REQUIRED"
+            
+            # Optional: Send failure notification to Slack
+            if [ -n "$SLACK_WEBHOOK" ]; then
+              curl -X POST -H 'Content-type: application/json' \
+                --data '{"text":"🚨 PRODUCTION DEPLOYMENT FAILED! 🚨\n• Target: ${{ github.event.inputs.deployment_target }}\n• Commit: ${{ github.sha }}\n• Deployed by: ${{ github.actor }}\n• Check GitHub Actions immediately for details"}' \
+                "$SLACK_WEBHOOK" 2>/dev/null || echo "Slack notification failed"
+            fi
+          fi
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
