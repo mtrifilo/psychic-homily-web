@@ -14,29 +14,55 @@ echo "  NODE_ENV: $NODE_ENV"
 echo "  HUGO_ENV: $HUGO_ENV"
 echo "  NETLIFY_SITE_NAME: $NETLIFY_SITE_NAME"
 echo "  NETLIFY_SITE_ID: $NETLIFY_SITE_ID"
-echo "  All Netlify environment variables:"
-env | grep -i netlify | sort
+echo "  BRANCH: $BRANCH"
+echo "  HEAD: $HEAD"
 echo ""
-if [ "$ENVIRONMENT" = "stage" ]; then
-  echo "🎯 Running stage build command..."
+
+# Determine environment based on context and branch
+if [ "$NETLIFY_CONTEXT" = "production" ] && [ "$BRANCH" = "production" ]; then
+  echo "🎯 Running production build (production branch)..."
+  pnpm run build:prod
+elif [ "$NETLIFY_CONTEXT" = "branch-deploy" ] && [ "$BRANCH" = "main" ]; then
+  echo "🎯 Running stage build (main branch deploy)..."
+  pnpm run build:stage
+elif [ "$NETLIFY_CONTEXT" = "branch-deploy" ] && [ "$BRANCH" = "stage" ]; then
+  echo "🎯 Running stage build (stage branch)..."
   pnpm run build:stage
 else
-  echo "🎯 Running production build command..."
-  pnpm run build:prod
+  echo "🎯 Running stage build (default for context: $NETLIFY_CONTEXT, branch: $BRANCH)..."
+  pnpm run build:stage
 fi
 """
 
-# Stage-specific build configuration
-[context.stage]
-command = "pnpm run build:stage"
-environment = { ENVIRONMENT = "stage" }
-
-# Production-specific build configuration  
+# Production deploys only from production branch
 [context.production]
-command = "pnpm run build:prod"
+command = """
+echo "🎯 Production context triggered..."
+pnpm run build:prod
+"""
 environment = { ENVIRONMENT = "production" }
 
-# Deploy preview (for pull requests)
+# Branch deploys - main and other branches use stage
+[context.branch-deploy]
+command = """
+echo "🎯 Branch deploy context for branch: $BRANCH"
+if [ "$BRANCH" = "main" ]; then
+  echo "🎯 Main branch deploy - using stage build..."
+  pnpm run build:stage
+elif [ "$BRANCH" = "stage" ]; then
+  echo "🎯 Stage branch deploy..."
+  pnpm run build:stage
+else
+  echo "🎯 Other branch ($BRANCH) - using stage build..."
+  pnpm run build:stage
+fi
+"""
+environment = { ENVIRONMENT = "stage" }
+
+# Deploy previews use stage
 [context.deploy-preview]
-command = "pnpm run build:stage"
-environment = { ENVIRONMENT = "stage" } 
+command = """
+echo "🎯 Deploy preview context..."
+pnpm run build:stage
+"""
+environment = { ENVIRONMENT = "stage" }

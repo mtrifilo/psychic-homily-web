@@ -66,7 +66,7 @@ jobs:
           script: |
             # Make scripts executable
             chmod +x /opt/psychic-homily-stage/scripts/deploy-stage.sh
-            
+
             # Install systemd service if not exists
             if [ ! -f /etc/systemd/system/psychic-homily-stage.service ]; then
               sudo cp /opt/psychic-homily-stage/psychic-homily-stage.service /etc/systemd/system/
@@ -107,11 +107,13 @@ jobs:
       - name: Wait for Backend Health
         run: |
           echo "⏳ Waiting for stage backend to be healthy..."
-          sleep 30  # Give backend time to fully stabilize
+          sleep 30
 
       - name: Verify Backend Health
         run: |
           echo "🏥 Verifying stage backend health..."
+          # Optional: Add actual health check here
+          curl -f https://api.psychichomily.com/health || exit 1
           echo "✅ Stage backend deployment completed successfully"
 
   # Stage 2: Frontend Stage Deployment (only after backend is ready)
@@ -122,7 +124,7 @@ jobs:
       - name: Wait for Backend Stabilization
         run: |
           echo "⏳ Waiting for stage backend to fully stabilize..."
-          sleep 60  # Additional wait to ensure backend is fully ready
+          sleep 30  # Reduced from 60s since backend already had 30s + deploy time
 
       - name: Trigger Netlify Stage Build
         run: |
@@ -132,15 +134,46 @@ jobs:
             echo "Please add the Netlify build hook URL to GitHub repository secrets"
             exit 1
           fi
-          curl -X POST -d '{}' "$NETLIFY_STAGE_WEBHOOK"
+
+          # Trigger build with commit info for better tracking
+          response=$(curl -s -w "\n%{http_code}" -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"trigger_title\":\"Stage Deploy - Commit ${{ github.sha }}\", \"trigger_branch\":\"main\"}" \
+            "$NETLIFY_STAGE_WEBHOOK")
+
+          http_code=$(echo "$response" | tail -1)
+          if [ "$http_code" != "200" ] && [ "$http_code" != "201" ]; then
+            echo "❌ Netlify webhook failed with HTTP $http_code"
+            echo "Response: $response"
+            exit 1
+          else
+            echo "✅ Netlify build triggered successfully"
+          fi
         env:
           NETLIFY_STAGE_WEBHOOK: ${{ secrets.NETLIFY_STAGE_WEBHOOK }}
 
       - name: Wait for Frontend Deployment
         run: |
           echo "⏳ Waiting for frontend stage deployment to complete..."
-          sleep 120  # Netlify typically takes 1-2 minutes
+          sleep 90  # Reduced from 120s, adjust based on your build times
 
       - name: Verify Frontend Deployment
         run: |
+          echo "🌐 Verifying frontend stage deployment..."
+          # Optional: Add actual health check here
+          # curl -f https://stage-psychic-homily.netlify.app || exit 1
           echo "✅ Frontend stage deployment completed successfully"
+
+      # Optional: Send notification
+      - name: Send Deployment Notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "🎉 Stage deployment completed successfully!"
+            echo "📱 Backend: http://your-stage-backend.com"
+            echo "🌐 Frontend: https://your-stage-frontend.netlify.app"
+            # Optional: Send to Slack/Discord/etc
+          else
+            echo "❌ Stage deployment failed"
+            # Optional: Send failure notification
+          fi
