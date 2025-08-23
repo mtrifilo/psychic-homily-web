@@ -1,0 +1,140 @@
+name: Sync Environment Configurations
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/docker-compose.*.yml"
+      - "backend/.env.*"
+      - "backend/systemd/*.service"
+      - "backend/scripts/*.sh"
+      - "backend/db/migrations/**"
+  workflow_dispatch:
+    inputs:
+      force_sync:
+        description: "Force sync all environments"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  sync-environments:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Sync Stage Environment
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            echo "🔄 Syncing stage environment with latest configs..."
+            cd /opt/psychic-homily-stage
+
+            # Update stage environment from main branch
+            if [ -d .git ]; then
+              echo "📁 Stage git repository found, pulling latest changes..."
+              git fetch origin
+              git reset --hard origin/main
+              echo "✅ Stage environment updated to latest main"
+            else
+              echo "📁 Stage git repository not found, initializing..."
+              git init
+              git remote add origin https://github.com/${{ github.repository }}.git
+              git fetch origin
+              git checkout -b main origin/main
+              echo "✅ Stage git repository initialized and synced"
+            fi
+
+            # Make scripts executable
+            chmod +x scripts/*.sh 2>/dev/null || true
+
+      - name: Sync Production Environment
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_VPS_HOST }}
+          username: ${{ secrets.PROD_VPS_USERNAME }}
+          key: ${{ secrets.PROD_VPS_SSH_KEY }}
+          script: |
+            echo "🔄 Syncing production environment with latest configs..."
+            cd /opt/psychic-homily-production
+
+            # Update production environment from main branch
+            if [ -d .git ]; then
+              echo "📁 Production git repository found, pulling latest changes..."
+              git fetch origin
+              git reset --hard origin/main
+              echo "✅ Production environment updated to latest main"
+            else
+              echo "📁 Production git repository not found, initializing..."
+              git init
+              git remote add origin https://github.com/${{ github.repository }}.git
+              git fetch origin
+              git checkout -b main origin/main
+              echo "✅ Production git repository initialized and synced"
+            fi
+
+            # Make scripts executable
+            chmod +x scripts/*.sh 2>/dev/null || true
+
+      - name: Verify Sync Results
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            echo "🔍 Verifying sync results..."
+            echo ""
+            echo "📁 Stage environment status:"
+            cd /opt/psychic-homily-stage
+            if [ -d .git ]; then
+              echo "  Git repository: ✅"
+              echo "  Current commit: $(git rev-parse --short HEAD)"
+              echo "  Commit message: $(git log -1 --pretty=format:'%s')"
+              echo "  Branch: $(git branch --show-current)"
+            else
+              echo "  Git repository: ❌"
+            fi
+            echo ""
+            echo "📁 Production environment status:"
+            cd /opt/psychic-homily-production
+            if [ -d .git ]; then
+              echo "  Git repository: ✅"
+              echo "  Current commit: $(git rev-parse --short HEAD)"
+              echo "  Commit message: $(git log -1 --pretty=format:'%s')"
+              echo "  Branch: $(git branch --show-current)"
+            else
+              echo "  Git repository: ❌"
+            fi
+            echo ""
+            echo "✅ Environment sync verification completed"
+
+      - name: Send Sync Notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "🎉 Environment configuration sync completed successfully!"
+            echo "📱 Both staging and production environments are now in sync"
+            
+            # Optional: Send to Slack if webhook is configured
+            if [ -n "$SLACK_WEBHOOK" ]; then
+              curl -X POST -H 'Content-type: application/json' \
+                --data '{"text":"🔄 Environment configurations synced successfully!\n• Staging and production environments updated\n• Commit: ${{ github.sha }}\n• Triggered by: ${{ github.actor }}"}' \
+                "$SLACK_WEBHOOK" 2>/dev/null || echo "Slack notification failed"
+            fi
+          else
+            echo "❌ Environment configuration sync failed"
+            
+            # Optional: Send failure notification to Slack
+            if [ -n "$SLACK_WEBHOOK" ]; then
+              curl -X POST -H 'Content-type: application/json' \
+                --data '{"text":"❌ Environment configuration sync failed!\n• Commit: ${{ github.sha }}\n• Check GitHub Actions for details"}' \
+                "$SLACK_WEBHOOK" 2>/dev/null || echo "Slack notification failed"
+            fi
+          fi
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}

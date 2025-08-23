@@ -66,26 +66,37 @@ jobs:
             # Check if directory exists and try to create without sudo first
             if [ ! -d /opt/psychic-homily-production ]; then
               # Try without sudo first
-              mkdir -p /opt/psychic-homily-production/{scripts,db/migrations,backups} 2>/dev/null || {
+              mkdir -p /opt/psychic-homily-production 2>/dev/null || {
                 echo "Need sudo access to create /opt/psychic-homily-production"
                 echo "Please run on VPS: sudo usermod -aG sudo deploy"
                 echo "And add to /etc/sudoers: deploy ALL=(ALL) NOPASSWD: /bin/mkdir, /bin/chown"
                 exit 1
               }
-            else
-              # Directory exists, just ensure subdirectories exist
-              mkdir -p /opt/psychic-homily-production/{scripts,db/migrations,backups}
             fi
 
-      - name: Upload Production Configuration Files
-        uses: appleboy/scp-action@v0.1.7
+      - name: Setup Production Git Repository
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.PROD_VPS_HOST }}
           username: ${{ secrets.PROD_VPS_USERNAME }}
           key: ${{ secrets.PROD_VPS_SSH_KEY }}
-          source: "backend/docker-compose.production.yml,backend/.env.production,backend/scripts/deploy-production.sh,backend/systemd/psychic-homily-production.service,backend/db/migrations"
-          target: "/opt/psychic-homily-production"
-          strip_components: 1
+          script: |
+            cd /opt/psychic-homily-production
+
+            # Initialize git repository if it doesn't exist
+            if [ ! -d .git ]; then
+              echo "🔧 Initializing production git repository..."
+              git init
+              git remote add origin https://github.com/${{ github.repository }}.git
+              git fetch origin
+              git checkout -b main origin/main
+              echo "✅ Production git repository initialized"
+            else
+              echo "🔄 Updating production environment from main branch..."
+              git fetch origin
+              git reset --hard origin/main
+              echo "✅ Production environment updated to latest main"
+            fi
 
       - name: Setup Production Services
         uses: appleboy/ssh-action@v1.0.3
@@ -94,12 +105,14 @@ jobs:
           username: ${{ secrets.PROD_VPS_USERNAME }}
           key: ${{ secrets.PROD_VPS_SSH_KEY }}
           script: |
+            cd /opt/psychic-homily-production
+
             # Make scripts executable
-            chmod +x /opt/psychic-homily-production/scripts/deploy-production.sh
+            chmod +x scripts/*.sh
 
             # Install systemd service if not exists
             if [ ! -f /etc/systemd/system/psychic-homily-production.service ]; then
-              sudo cp /opt/psychic-homily-production/psychic-homily-production.service /etc/systemd/system/
+              sudo cp systemd/psychic-homily-production.service /etc/systemd/system/
               sudo systemctl daemon-reload
               echo "Production systemd service installed"
             fi
