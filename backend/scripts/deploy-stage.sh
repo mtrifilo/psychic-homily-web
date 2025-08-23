@@ -187,6 +187,7 @@ sleep 2
 
 # Start new service on correct port via systemd
 echo "🔄 Starting new stage service on port $APP_PORT via systemd..."
+sudo systemctl daemon-reload
 sudo systemctl start "$SERVICE_NAME"
 
 # Verify new service is healthy
