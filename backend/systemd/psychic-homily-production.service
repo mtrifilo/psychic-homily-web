@@ -1,0 +1,36 @@
+[Unit]
+Description=Psychic Homily Backend Production
+After=network.target docker.service
+Requires=docker.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=psychic-homily
+Group=psychic-homily
+WorkingDirectory=/opt/psychic-homily-production
+ExecStart=/opt/psychic-homily-production/psychic-homily-production
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=psychic-homily-production
+
+# Environment variables
+Environment=API_ADDR=0.0.0.0:8080
+EnvironmentFile=/opt/psychic-homily-production/.env.production
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/psychic-homily-production
+
+# Graceful shutdown
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target
