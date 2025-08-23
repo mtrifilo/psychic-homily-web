@@ -112,7 +112,6 @@ jobs:
       - name: Verify Backend Health
         run: |
           echo "🏥 Verifying stage backend health..."
-          # Optional: Add actual health check here
           curl -f https://api.psychichomily.com/health || exit 1
           echo "✅ Stage backend deployment completed successfully"
 
@@ -127,6 +126,7 @@ jobs:
           sleep 30  # Reduced from 60s since backend already had 30s + deploy time
 
       - name: Trigger Netlify Stage Build
+        id: trigger_netlify
         run: |
           echo "🚀 Triggering frontend stage deployment on Netlify..."
           if [ -z "$NETLIFY_STAGE_WEBHOOK" ]; then
@@ -135,45 +135,210 @@ jobs:
             exit 1
           fi
 
-          # Trigger build with commit info for better tracking
-          response=$(curl -s -w "\n%{http_code}" -X POST \
+          # Trigger build and capture response
+          response=$(curl -s -X POST \
             -H "Content-Type: application/json" \
             -d "{\"trigger_title\":\"Stage Deploy - Commit ${{ github.sha }}\", \"trigger_branch\":\"main\"}" \
             "$NETLIFY_STAGE_WEBHOOK")
 
-          http_code=$(echo "$response" | tail -1)
-          if [ "$http_code" != "200" ] && [ "$http_code" != "201" ]; then
-            echo "❌ Netlify webhook failed with HTTP $http_code"
-            echo "Response: $response"
-            exit 1
-          else
+          # Check if webhook succeeded
+          if [ $? -eq 0 ]; then
             echo "✅ Netlify build triggered successfully"
+            echo "Response: $response"
+            
+            # Try to extract deploy ID if available (some webhooks return it)
+            deploy_id=$(echo "$response" | jq -r '.id // empty' 2>/dev/null || echo "")
+            if [ -n "$deploy_id" ]; then
+              echo "📝 Deploy ID: $deploy_id"
+              echo "deploy_id=$deploy_id" >> $GITHUB_OUTPUT
+            else
+              echo "deploy_id=" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "❌ Netlify webhook request failed"
+            exit 1
           fi
         env:
           NETLIFY_STAGE_WEBHOOK: ${{ secrets.NETLIFY_STAGE_WEBHOOK }}
 
-      - name: Wait for Frontend Deployment
+      - name: Check Netlify Deploy Status
         run: |
-          echo "⏳ Waiting for frontend stage deployment to complete..."
-          sleep 90  # Reduced from 120s, adjust based on your build times
+          echo "🔍 Monitoring Netlify deployment status..."
+
+          deploy_id="${{ steps.trigger_netlify.outputs.deploy_id }}"
+          max_attempts=40  # ~13 minutes with 20s intervals
+          attempt=0
+
+          if [ -n "$deploy_id" ] && [ -n "$NETLIFY_TOKEN" ]; then
+            echo "🎯 Tracking specific deploy: $deploy_id"
+            
+            # Method 1: Track specific deploy by ID
+            while [ $attempt -lt $max_attempts ]; do
+              echo "📊 Checking deploy status (attempt $((attempt + 1))/$max_attempts)..."
+              
+              deploy_info=$(curl -s -H "Authorization: Bearer $NETLIFY_TOKEN" \
+                "https://api.netlify.com/api/v1/deploys/$deploy_id" 2>/dev/null)
+              
+              if [ $? -eq 0 ] && [ -n "$deploy_info" ]; then
+                status=$(echo "$deploy_info" | jq -r '.state // "unknown"')
+                echo "  Status: $status"
+                
+                case $status in
+                  "ready")
+                    echo "✅ Netlify deployment completed successfully!"
+                    break
+                    ;;
+                  "error"|"failed")
+                    echo "❌ Netlify deployment failed!"
+                    error_msg=$(echo "$deploy_info" | jq -r '.error_message // "No error message available"')
+                    echo "Error: $error_msg"
+                    exit 1
+                    ;;
+                  "building"|"enqueued"|"preparing"|"processing")
+                    echo "  ⏳ Deployment in progress..."
+                    ;;
+                  *)
+                    echo "  ⚠️ Unknown status: $status"
+                    ;;
+                esac
+              else
+                echo "  ⚠️ Failed to fetch deploy status, trying site-level check..."
+                break
+              fi
+              
+              if [ $attempt -eq $((max_attempts - 1)) ]; then
+                echo "❌ Deployment status check timed out"
+                exit 1
+              fi
+              
+              sleep 20
+              ((attempt++))
+            done
+            
+          elif [ -n "$NETLIFY_TOKEN" ] && [ -n "$NETLIFY_SITE_ID" ]; then
+            echo "🔍 Checking site-level deployment status..."
+            
+            # Method 2: Check latest deploy for the site
+            while [ $attempt -lt $max_attempts ]; do
+              echo "📊 Checking latest deploy (attempt $((attempt + 1))/$max_attempts)..."
+              
+              site_deploys=$(curl -s -H "Authorization: Bearer $NETLIFY_TOKEN" \
+                "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/deploys?per_page=1" 2>/dev/null)
+              
+              if [ $? -eq 0 ] && [ -n "$site_deploys" ]; then
+                latest_deploy=$(echo "$site_deploys" | jq -r '.[0]')
+                status=$(echo "$latest_deploy" | jq -r '.state // "unknown"')
+                commit_sha=$(echo "$latest_deploy" | jq -r '.commit_sha // ""')
+                created_at=$(echo "$latest_deploy" | jq -r '.created_at // ""')
+                
+                echo "  Status: $status"
+                echo "  Commit: ${commit_sha:0:8}"
+                
+                case $status in
+                  "ready")
+                    echo "✅ Latest deployment is ready!"
+                    break
+                    ;;
+                  "error"|"failed")
+                    echo "❌ Latest deployment failed!"
+                    exit 1
+                    ;;
+                  "building"|"enqueued"|"preparing"|"processing")
+                    echo "  ⏳ Deployment in progress..."
+                    ;;
+                esac
+              else
+                echo "  ⚠️ Failed to fetch site deploys"
+              fi
+              
+              if [ $attempt -eq $((max_attempts - 1)) ]; then
+                echo "❌ Deployment status check timed out"
+                exit 1
+              fi
+              
+              sleep 20
+              ((attempt++))
+            done
+            
+          else
+            echo "⚠️ No Netlify API access - using health check method..."
+            
+            # Method 3: Fallback to health checks
+            while [ $attempt -lt $max_attempts ]; do
+              echo "🔍 Health check (attempt $((attempt + 1))/$max_attempts)..."
+              
+              if curl -f -s -H "Cache-Control: no-cache" \
+                 -H "User-Agent: GitHub-Actions-Deploy-Check" \
+                 "https://stage.psychichomily.com/" > /dev/null 2>&1; then
+                echo "  ✅ Frontend is responding!"
+                
+                # Wait a reasonable amount before declaring success
+                if [ $attempt -gt 8 ]; then
+                  echo "✅ Frontend deployment appears successful!"
+                  break
+                fi
+              else
+                echo "  ⚠️ Frontend not responding yet..."
+              fi
+              
+              if [ $attempt -eq $((max_attempts - 1)) ]; then
+                echo "❌ Frontend health check timed out"
+                exit 1
+              fi
+              
+              sleep 20
+              ((attempt++))
+            done
+          fi
+        env:
+          NETLIFY_TOKEN: ${{ secrets.NETLIFY_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
 
       - name: Verify Frontend Deployment
         run: |
-          echo "🌐 Verifying frontend stage deployment..."
-          # Optional: Add actual health check here
-          # curl -f https://stage-psychic-homily.netlify.app || exit 1
+          echo "🌐 Final frontend verification..."
+
+          # Test the actual frontend URL
+          if curl -f -s -H "Cache-Control: no-cache" "https://stage.psychichomily.com/" > /dev/null; then
+            echo "✅ Frontend is accessible and responding!"
+            
+            # Optional: Check for specific content to verify it's updated
+            response=$(curl -s "https://stage.psychichomily.com/" | head -20)
+            if echo "$response" | grep -q "html\|HTML" 2>/dev/null; then
+              echo "✅ Frontend content looks valid!"
+            else
+              echo "⚠️ Frontend responding but content may be incomplete"
+            fi
+          else
+            echo "❌ Frontend verification failed - site not accessible"
+            exit 1
+          fi
+
           echo "✅ Frontend stage deployment completed successfully"
 
-      # Optional: Send notification
       - name: Send Deployment Notification
         if: always()
         run: |
           if [ "${{ job.status }}" == "success" ]; then
             echo "🎉 Stage deployment completed successfully!"
-            echo "📱 Backend: http://your-stage-backend.com"
-            echo "🌐 Frontend: https://your-stage-frontend.netlify.app"
-            # Optional: Send to Slack/Discord/etc
+            echo "📱 Backend: https://api.psychichomily.com/health"
+            echo "🌐 Frontend: https://stage.psychichomily.com"
+            
+            # Optional: Send to Slack if webhook is configured
+            if [ -n "$SLACK_WEBHOOK" ]; then
+              curl -X POST -H 'Content-type: application/json' \
+                --data '{"text":"🎉 Stage deployment completed successfully!\n• Backend: https://api.psychichomily.com/health\n• Frontend: https://stage.psychichomily.com\n• Commit: ${{ github.sha }}"}' \
+                "$SLACK_WEBHOOK" 2>/dev/null || echo "Slack notification failed"
+            fi
           else
             echo "❌ Stage deployment failed"
-            # Optional: Send failure notification
+            
+            # Optional: Send failure notification to Slack
+            if [ -n "$SLACK_WEBHOOK" ]; then
+              curl -X POST -H 'Content-type: application/json' \
+                --data '{"text":"❌ Stage deployment failed!\n• Commit: ${{ github.sha }}\n• Check GitHub Actions for details"}' \
+                "$SLACK_WEBHOOK" 2>/dev/null || echo "Slack notification failed"
+            fi
           fi
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}

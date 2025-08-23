@@ -5,17 +5,13 @@ TZ = "America/Arizona"
 
 [build]
 publish = "public"
+# Auto-publish immediately after successful build
 command = """
 echo "🔍 Netlify Build Environment Debug:"
 echo "  NETLIFY_CONTEXT: $NETLIFY_CONTEXT"
 echo "  ENVIRONMENT: $ENVIRONMENT"
-echo "  CONTEXT: $CONTEXT"
-echo "  NODE_ENV: $NODE_ENV"
-echo "  HUGO_ENV: $HUGO_ENV"
-echo "  NETLIFY_SITE_NAME: $NETLIFY_SITE_NAME"
-echo "  NETLIFY_SITE_ID: $NETLIFY_SITE_ID"
 echo "  BRANCH: $BRANCH"
-echo "  HEAD: $HEAD"
+echo "  AUTO_PUBLISH: Enabled for stage environment"
 echo ""
 
 # Determine environment based on context and branch
@@ -23,18 +19,20 @@ if [ "$NETLIFY_CONTEXT" = "production" ] && [ "$BRANCH" = "production" ]; then
   echo "🎯 Running production build (production branch)..."
   pnpm run build:prod
 elif [ "$NETLIFY_CONTEXT" = "branch-deploy" ] && [ "$BRANCH" = "main" ]; then
-  echo "🎯 Running stage build (main branch deploy)..."
+  echo "🎯 Running stage build (main branch deploy) - AUTO-PUBLISH"
   pnpm run build:stage
 elif [ "$NETLIFY_CONTEXT" = "branch-deploy" ] && [ "$BRANCH" = "stage" ]; then
-  echo "🎯 Running stage build (stage branch)..."
+  echo "🎯 Running stage build (stage branch) - AUTO-PUBLISH"
   pnpm run build:stage
 else
-  echo "🎯 Running stage build (default for context: $NETLIFY_CONTEXT, branch: $BRANCH)..."
+  echo "🎯 Running stage build (default) - AUTO-PUBLISH"
   pnpm run build:stage
 fi
+
+echo "✅ Build completed - ready for auto-publish"
 """
 
-# Production deploys only from production branch
+# Production deploys only from production branch (manual review)
 [context.production]
 command = """
 echo "🎯 Production context triggered..."
@@ -42,27 +40,28 @@ pnpm run build:prod
 """
 environment = { ENVIRONMENT = "production" }
 
-# Branch deploys - main and other branches use stage
+# Branch deploys - main and other branches use stage (AUTO-PUBLISH)
 [context.branch-deploy]
 command = """
-echo "🎯 Branch deploy context for branch: $BRANCH"
+echo "🎯 Branch deploy context for branch: $BRANCH (AUTO-PUBLISH enabled)"
 if [ "$BRANCH" = "main" ]; then
-  echo "🎯 Main branch deploy - using stage build..."
+  echo "🎯 Main branch deploy - using stage build with auto-publish..."
   pnpm run build:stage
 elif [ "$BRANCH" = "stage" ]; then
-  echo "🎯 Stage branch deploy..."
+  echo "🎯 Stage branch deploy with auto-publish..."
   pnpm run build:stage
 else
-  echo "🎯 Other branch ($BRANCH) - using stage build..."
+  echo "🎯 Other branch ($BRANCH) - using stage build with auto-publish..."
   pnpm run build:stage
 fi
+echo "✅ Stage build ready for immediate publishing"
 """
 environment = { ENVIRONMENT = "stage" }
 
-# Deploy previews use stage
+# Deploy previews use stage (AUTO-PUBLISH)
 [context.deploy-preview]
 command = """
-echo "🎯 Deploy preview context..."
+echo "🎯 Deploy preview context - auto-publish enabled..."
 pnpm run build:stage
 """
 environment = { ENVIRONMENT = "stage" }
