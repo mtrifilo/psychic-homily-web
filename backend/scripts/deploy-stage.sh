@@ -4,8 +4,8 @@
 set -e
 
 COMMIT_SHA=$1
-COMPOSE_FILE="docker-compose.stage.yml"
-BACKUP_DIR="/opt/psychic-homily-stage/backups"
+COMPOSE_FILE="backend/docker-compose.stage.yml"
+BACKUP_DIR="/opt/psychic-homily-stage/backend/backups"
 SERVICE_NAME="psychic-homily-stage"
 APP_PORT=8081
 TEMP_PORT=8083

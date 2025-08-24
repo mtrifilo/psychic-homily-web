@@ -4,9 +4,9 @@
 set -e
 
 COMMIT_SHA=$1
-COMPOSE_FILE="docker-compose.prod.yml"
-BACKUP_DIR="/opt/psychic-homily-backend/backups"
-SERVICE_NAME="psychic-homily-backend"
+COMPOSE_FILE="backend/docker-compose.prod.yml"
+BACKUP_DIR="/opt/psychic-homily-production/backend/backups"
+SERVICE_NAME="psychic-homily-production"
 APP_PORT=8080
 TEMP_PORT=8081
 MAX_RETRIES=30
