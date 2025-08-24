@@ -8,7 +8,7 @@ services:
     ports:
       - "${API_PORT:-8080}:8080"
     env_file:
-      - .env.${NODE_ENV:-development}
+      - .env.development
     environment:
       - API_ADDR=0.0.0.0:8080 # Override for Docker
     depends_on:
@@ -37,7 +37,7 @@ services:
     image: postgres:17.5
     restart: always
     env_file:
-      - .env.${NODE_ENV:-development}
+      - .env.development
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -66,7 +66,7 @@ services:
         "up",
       ]
     env_file:
-      - .env.${NODE_ENV:-development}
+      - .env.development
     volumes:
       - ./db/migrations:/migrations
     depends_on:
@@ -80,7 +80,7 @@ services:
     image: dpage/pgadmin4:latest
     restart: always
     env_file:
-      - .env.${NODE_ENV:-development}
+      - .env.development
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}

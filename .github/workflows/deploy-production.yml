@@ -45,11 +45,15 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: "1.24"
+          cache: true
+          cache-dependency-path: backend/go.sum
 
       - name: Build Production Binary
         working-directory: ./backend
         run: |
           echo "🏗️ Building production binary..."
+          echo "📁 Working directory: $(pwd)"
+          echo "📄 Go modules: $(ls -la go.*)"
           go mod download
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
             -ldflags="-w -s" \
@@ -83,19 +87,20 @@ jobs:
           script: |
             cd /opt/psychic-homily-production
 
-            # Initialize git repository if it doesn't exist
+            # Always ensure we have the latest code from our repository
             if [ ! -d .git ]; then
-              echo "🔧 Initializing production git repository..."
-              git init
-              git remote add origin https://github.com/${{ github.repository }}.git
-              git fetch origin
-              git checkout -b main origin/main
-              echo "✅ Production git repository initialized"
+              echo "🔧 First time setup: cloning production repository..."
+              # Remove any existing files to ensure clean state
+              rm -rf * .[^.]* 2>/dev/null || true
+              git clone https://github.com/${{ github.repository }}.git .
+              echo "✅ Production repository cloned successfully"
             else
-              echo "🔄 Updating production environment from main branch..."
+              echo "🔄 Syncing production environment with latest changes..."
+              # Fetch latest changes and reset to match origin/main exactly
               git fetch origin
               git reset --hard origin/main
-              echo "✅ Production environment updated to latest main"
+              git clean -fd  # Remove any untracked files
+              echo "✅ Production environment synced with latest main branch"
             fi
 
       - name: Setup Production Services
