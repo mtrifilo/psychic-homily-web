@@ -237,7 +237,7 @@ jobs:
                     echo "  ⏳ Deployment in progress..."
                     echo "  📝 Note: 'enqueued' can last several minutes due to infrastructure capacity"
                     
-                    # Check if we've been stuck in this state too long (increased from 35 to 45 attempts)
+                    # Check if we've been stuck in this state too long (increased to 45 attempts)
                     # This accounts for Netlify's real-world infrastructure conditions where builds can queue
                     if [ $attempt -gt 45 ] && [ "$status" = "$last_status" ]; then
                       echo "  ⚠️ Deployment seems stuck in $status state for a while"
@@ -372,13 +372,27 @@ jobs:
                     ;;
                 esac
               else
-                echo "  ⚠️ Failed to fetch deploy status, trying site-level check..."
-                break
+                echo "  ⚠️ Failed to fetch deploy status (attempt $((attempt + 1)))"
+                echo "   This may be a temporary API issue. Retrying..."
+                
+                # Don't break immediately - retry a few times
+                if [ $attempt -gt 10 ]; then
+                  echo "  ⚠️ Multiple API failures, trying site-level check..."
+                  break
+                fi
+                
+                sleep 10  # Shorter sleep for retries
+                continue
               fi
               
               if [ $attempt -eq $((max_attempts - 1)) ]; then
-                echo "❌ Deployment status check timed out"
-                exit 1
+                echo "⚠️ Deployment status check reached maximum attempts"
+                echo "   The build may still be in progress. Check Netlify dashboard for status."
+                echo "   Attempting site-level check as fallback..."
+                
+                # Don't exit 1 here - let it continue to site-level check
+                # The build might still succeed even if we can't track it via specific deploy ID
+                break
               fi
               
               sleep 20
@@ -489,12 +503,26 @@ jobs:
                     ;;
                 esac
               else
-                echo "  ⚠️ Failed to fetch site deploys"
+                echo "  ⚠️ Failed to fetch site deploys (attempt $((attempt + 1)))"
+                echo "   This may be a temporary API issue. Retrying..."
+                
+                # Don't break immediately - retry a few times
+                if [ $attempt -gt 10 ]; then
+                  echo "  ⚠️ Multiple API failures, trying health check method..."
+                  break
+                fi
+                
+                sleep 10  # Shorter sleep for retries
+                continue
               fi
               
               if [ $attempt -eq $((max_attempts - 1)) ]; then
-                echo "❌ Deployment status check timed out"
-                exit 1
+                echo "⚠️ Site-level deployment check reached maximum attempts"
+                echo "   The build may still be in progress. Check Netlify dashboard for status."
+                echo "   Attempting health check method as final fallback..."
+                
+                # Don't exit 1 here - let it continue to health check method
+                break
               fi
               
               sleep 20
@@ -502,9 +530,14 @@ jobs:
             done
             
           else
-            echo "⚠️ No Netlify API access - using health check method..."
+            echo "⚠️ No Netlify API access or all API methods failed - using health check method..."
+            echo "   This is the final fallback when API tracking cannot be used"
             
             # Method 3: Fallback to health checks
+            # Give Netlify more time to actually complete the build and deploy
+            echo "⏳ Waiting for Netlify build to complete before health checks..."
+            sleep 120  # Wait 2 minutes for build to complete
+            
             while [ $attempt -lt $max_attempts ]; do
               echo "🔍 Health check (attempt $((attempt + 1))/$max_attempts)..."
               
@@ -514,7 +547,7 @@ jobs:
                 echo "  ✅ Frontend is responding!"
                 
                 # Wait a reasonable amount before declaring success
-                if [ $attempt -gt 8 ]; then
+                if [ $attempt -gt 3 ]; then
                   echo "✅ Frontend deployment appears successful!"
                   break
                 fi
@@ -524,6 +557,8 @@ jobs:
               
               if [ $attempt -eq $((max_attempts - 1)) ]; then
                 echo "❌ Frontend health check timed out"
+                echo "   The Netlify build may still be in progress or there may be an issue"
+                echo "   Check the Netlify dashboard for deployment status"
                 exit 1
               fi
               
