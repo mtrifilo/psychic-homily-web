@@ -289,38 +289,44 @@ jobs:
                   "building"|"enqueued"|"preparing"|"processing"|"starting up")
                     echo "  ⏳ Production deployment in progress..."
                     echo "  📝 Note: 'enqueued' can last several minutes due to infrastructure capacity"
+                    echo "  🔄 Continuing to poll for status changes..."
                     
-                    # Check if we've been stuck in this state too long (increased to 45 attempts)
-                    # This accounts for Netlify's real-world infrastructure conditions where builds can queue
+                    # Check if we've been stuck in this state too long
                     if [ $attempt -gt 45 ] && [ "$status" = "$last_status" ]; then
                       echo "  ⚠️ Production deployment seems stuck in $status state for a while"
                       echo "  🔍 Checking for potential issues..."
                       
                       # Try to get more details about the deploy
-                      deploy_details=$(curl -s -H "Authorization: Bearer $NETLIFY_PROD_TOKEN" \
-                        "https://api.netlify.com/api/v1/sites/$NETLIFY_PROD_SITE_ID/deploys/$deploy_id" 2>/dev/null)
-                      
-                      if [ $? -eq 0 ] && [ -n "$deploy_details" ]; then
-                        deploy_ready=$(echo "$deploy_details" | jq -r '.ready // false')
-                        deploy_error=$(echo "$deploy_details" | jq -r '.error_message // "none"')
-                        deploy_created=$(echo "$deploy_details" | jq -r '.created_at // "unknown"')
+                      if [ -n "$deploy_id" ]; then
+                        deploy_details=$(curl -s -H "Authorization: Bearer $NETLIFY_PROD_TOKEN" \
+                          "https://api.netlify.com/api/v1/sites/$NETLIFY_PROD_SITE_ID/deploys/$deploy_id" 2>/dev/null)
                         
-                        echo "  🔍 Production deploy details:"
-                        echo "    - Ready: $deploy_ready"
-                        echo "    - Error: $deploy_error"
-                        echo "    - Created: $deploy_created"
-                        
-                        # Only exit if there's an actual error message
-                        if [ "$deploy_error" != "none" ] && [ "$deploy_error" != "" ]; then
-                          echo "❌ Production deploy has error: $deploy_error"
-                          exit 1
+                        if [ $? -eq 0 ] && [ -n "$deploy_details" ]; then
+                          deploy_ready=$(echo "$deploy_details" | jq -r '.ready // false')
+                          deploy_error=$(echo "$deploy_details" | jq -r '.error_message // "none"')
+                          deploy_created=$(echo "$deploy_details" | jq -r '.created_at // "unknown"')
+                          
+                          echo "  🔍 Production deploy details:"
+                          echo "    - Ready: $deploy_ready"
+                          echo "    - Error: $deploy_error"
+                          echo "    - Created: $deploy_created"
+                          
+                          # Only exit if there's an actual error message
+                          if [ "$deploy_error" != "none" ] && [ "$deploy_error" != "" ]; then
+                            echo "❌ Production deploy has error: $deploy_error"
+                            exit 1
+                          fi
+                          
+                          # If no error and still building, give it more time
+                          echo "  ⏳ No errors detected, continuing to wait for production build completion..."
+                          echo "  📊 This is normal for Netlify builds that may queue due to infrastructure capacity"
                         fi
-                        
-                        # If no error and still building, give it more time
-                        echo "  ⏳ No errors detected, continuing to wait for production build completion..."
-                        echo "  📊 This is normal for Netlify builds that may queue due to infrastructure capacity"
                       fi
                     fi
+                    
+                    # CRITICAL: Wait and continue polling for these states
+                    sleep 20
+                    continue
                     ;;
                   "new")
                     echo "  📋 Production deploy built successfully but not yet published"
@@ -368,14 +374,27 @@ jobs:
                     ;;
                 esac
               else
-                echo "  ⚠️ Failed to fetch production deploy status, trying site-level check..."
-                break
+                echo "  ⚠️ Failed to fetch production deploy status (attempt $((attempt + 1)))"
+                echo "   This may be a temporary API issue. Retrying..."
+                
+                # Don't break immediately - retry a few times
+                if [ $attempt -gt 10 ]; then
+                  echo "  ⚠️ Multiple API failures, trying site-level check..."
+                  break
+                fi
+                
+                sleep 10  # Shorter sleep for retries
+                continue
               fi
               
               if [ $attempt -eq $((max_attempts - 1)) ]; then
-                echo "⚠️ Production deployment monitoring timed out"
+                echo "⚠️ Production deployment status check reached maximum attempts"
                 echo "   The build may still be in progress. Check Netlify dashboard for status."
-                # Don't exit 1 for production - let it continue and do final verification
+                echo "   Attempting site-level check as fallback..."
+                
+                # Don't exit 1 here - let it continue to site-level check
+                # The build might still succeed even if we can't track it via specific deploy ID
+                break
               fi
               
               sleep 20
@@ -385,7 +404,10 @@ jobs:
           elif [ -n "$NETLIFY_PROD_TOKEN" ] && [ -n "$NETLIFY_PROD_SITE_ID" ]; then
             echo "🔍 Checking production site-level deployment status..."
             
-            # Fallback: Check latest deploy for the site
+            # Initialize last_status for production site-level tracking
+            last_status=""
+            
+            # Method 2: Check latest deploy for the production site
             while [ $attempt -lt $max_attempts ]; do
               echo "📊 Checking latest production deploy (attempt $((attempt + 1))/$max_attempts)..."
               
@@ -401,6 +423,14 @@ jobs:
                 
                 echo "  Status: $status"
                 echo "  Commit: ${commit_sha:0:8}"
+                
+                # Track status changes for stuck detection
+                if [ "$status" = "$last_status" ]; then
+                  echo "  📊 Status unchanged: $status (attempt $attempt)"
+                else
+                  echo "  🔄 Status changed: $last_status → $status"
+                  last_status="$status"
+                fi
                 
                 # Only exit if there's an actual error message
                 if [ -n "$error_message" ] && [ "$error_message" != "" ]; then
@@ -428,11 +458,25 @@ jobs:
                     ;;
                 esac
               else
-                echo "  ⚠️ Failed to fetch production site deploys"
+                echo "  ⚠️ Failed to fetch production site deploys (attempt $((attempt + 1)))"
+                echo "   This may be a temporary API issue. Retrying..."
+                
+                # Don't break immediately - retry a few times
+                if [ $attempt -gt 10 ]; then
+                  echo "  ⚠️ Multiple API failures, trying health check method..."
+                  break
+                fi
+                
+                sleep 10  # Shorter sleep for retries
+                continue
               fi
               
               if [ $attempt -eq $((max_attempts - 1)) ]; then
-                echo "⚠️ Production deployment monitoring timed out"
+                echo "⚠️ Production site-level deployment check reached maximum attempts"
+                echo "   The build may still be in progress. Check Netlify dashboard for status."
+                echo "   Attempting health check method as final fallback..."
+                
+                # Don't exit 1 here - let it continue to health check method
                 break
               fi
               
@@ -440,19 +484,41 @@ jobs:
               ((attempt++))
             done
           else
-            echo "⚠️ No Netlify production API access - using health check method..."
+            echo "⚠️ No Netlify production API access or all API methods failed - using health check method..."
+            echo "   This is the final fallback when API tracking cannot be used"
             
-            # Fallback: Direct health check
-            sleep 180  # Give production build more time
+            # Method 3: Fallback to health checks
+            # Give Netlify more time to actually complete the build and deploy
+            echo "⏳ Waiting for Netlify production build to complete before health checks..."
+            sleep 180  # Wait 3 minutes for production build to complete (longer than stage)
             
-            if curl -f -s -H "Cache-Control: no-cache" \
-               -H "User-Agent: GitHub-Actions-Deploy-Check" \
-               "https://www.psychichomily.com/" > /dev/null 2>&1; then
-              echo "✅ Production frontend is responding!"
-            else
-              echo "⚠️ Production frontend health check failed"
-              echo "   This may be normal if the deploy requires manual approval"
-            fi
+            while [ $attempt -lt $max_attempts ]; do
+              echo "🔍 Production health check (attempt $((attempt + 1))/$max_attempts)..."
+              
+              if curl -f -s -H "Cache-Control: no-cache" \
+                -H "User-Agent: GitHub-Actions-Deploy-Check" \
+                "https://www.psychichomily.com/" > /dev/null 2>&1; then
+                echo "  ✅ Production frontend is responding!"
+                
+                # Wait a reasonable amount before declaring success
+                if [ $attempt -gt 3 ]; then
+                  echo "✅ Production frontend deployment appears successful!"
+                  break
+                fi
+              else
+                echo "  ⚠️ Production frontend not responding yet..."
+              fi
+              
+              if [ $attempt -eq $((max_attempts - 1)) ]; then
+                echo "❌ Production frontend health check timed out"
+                echo "   The Netlify build may still be in progress or there may be an issue"
+                echo "   Check the Netlify dashboard for deployment status"
+                exit 1
+              fi
+              
+              sleep 20
+              ((attempt++))
+            done
           fi
         env:
           NETLIFY_PROD_TOKEN: ${{ secrets.NETLIFY_PROD_TOKEN }}
