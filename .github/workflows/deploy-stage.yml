@@ -84,11 +84,11 @@ jobs:
             cd /opt/psychic-homily-stage
 
             # Make scripts executable
-            chmod +x scripts/*.sh
+            chmod +x backend/scripts/*.sh
 
             # Install systemd service if not exists
             if [ ! -f /etc/systemd/system/psychic-homily-stage.service ]; then
-              sudo cp systemd/psychic-homily-stage.service /etc/systemd/system/
+              sudo cp backend/systemd/psychic-homily-stage.service /etc/systemd/system/
               sudo systemctl daemon-reload
               echo "Stage systemd service installed"
             fi

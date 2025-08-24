@@ -33,7 +33,7 @@ fi
 
 # Clean up any orphaned containers (PRESERVE VOLUMES FOR DATA SAFETY)
 echo "🧹 Cleaning up orphaned containers (preserving data volumes)..."
-docker compose -f "$COMPOSE_FILE" down --remove-orphans 2>/dev/null || true
+cd backend && docker compose -f "docker-compose.prod.yml" down --remove-orphans 2>/dev/null && cd .. || true
 
 # Remove any containers with old naming conventions (NOT VOLUMES)
 docker container rm -f ph_production_redis ph_production_migrate 2>/dev/null || true
@@ -45,13 +45,13 @@ docker volume rm -f psychic-homily-backend_ph_production_redis 2>/dev/null || tr
 
 # Ensure database services are running
 echo "🐳 Ensuring production database services are healthy..."
-docker compose -f "$COMPOSE_FILE" up -d db redis
+cd backend && docker compose -f "docker-compose.prod.yml" up -d db redis && cd ..
 
 # Wait for database health with better error handling
 echo "⏳ Waiting for production database..."
 DB_READY=false
 for i in {1..20}; do
-    if docker compose -f "$COMPOSE_FILE" exec -T db pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}" >/dev/null 2>&1; then
+    if cd backend && docker compose -f "docker-compose.prod.yml" exec -T db pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}" >/dev/null 2>&1 && cd ..; then
         echo "✅ Production database ready"
         DB_READY=true
         break
@@ -68,9 +68,9 @@ fi
 
 # Run migrations BEFORE deploying new binary
 echo "🔄 Running production database migrations..."
-if ! docker compose -f "$COMPOSE_FILE" run --rm migrate; then
+if ! (cd backend && docker compose -f "docker-compose.prod.yml" run --rm migrate); then
     echo "❌ Production migration failed - aborting deployment"
-    docker compose -f "$COMPOSE_FILE" logs migrate
+    cd backend && docker compose -f "docker-compose.prod.yml" logs migrate && cd ..
     exit 1
 fi
 
