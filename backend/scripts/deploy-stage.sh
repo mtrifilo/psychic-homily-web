@@ -33,7 +33,7 @@ fi
 
 # Clean up any orphaned containers (PRESERVE VOLUMES FOR DATA SAFETY)
 echo "🧹 Cleaning up orphaned containers (preserving data volumes)..."
-cd backend && docker compose -f "docker-compose.stage.yml" down --remove-orphans 2>/dev/null && cd .. || true
+docker compose -f "backend/docker-compose.stage.yml" down --remove-orphans 2>/dev/null || true
 
 # Remove any containers with old naming conventions (NOT VOLUMES)
 docker container rm -f ph_staging_redis ph_staging_migrate 2>/dev/null || true
@@ -45,13 +45,13 @@ docker volume rm -f psychic-homily-stage_ph_staging_redis 2>/dev/null || true
 
 # Ensure database services are running
 echo "🐳 Ensuring stage database services are healthy..."
-cd backend && docker compose -f "docker-compose.stage.yml" up -d db redis && cd ..
+docker compose -f "backend/docker-compose.stage.yml" up -d db redis
 
 # Wait for database health with better error handling
 echo "⏳ Waiting for stage database..."
 DB_READY=false
 for i in {1..20}; do
-    if cd backend && docker compose -f "docker-compose.stage.yml" exec -T db pg_isready -U "${POSTGRES_USER:-ph_stage_user}" -d "${POSTGRES_DB:-psychic_homily_stage}" >/dev/null 2>&1 && cd ..; then
+    if docker compose -f "backend/docker-compose.stage.yml" exec -T db pg_isready -U "${POSTGRES_USER:-ph_stage_user}" -d "${POSTGRES_DB:-psychic_homily_stage}" >/dev/null 2>&1; then
         echo "✅ Stage database ready"
         DB_READY=true
         break
@@ -68,9 +68,9 @@ fi
 
 # Run migrations BEFORE deploying new binary
 echo "🔄 Running stage database migrations..."
-if ! (cd backend && docker compose -f "docker-compose.stage.yml" run --rm migrate); then
+if ! docker compose -f "backend/docker-compose.stage.yml" run --rm migrate; then
     echo "❌ Stage migration failed - aborting deployment"
-    cd backend && docker compose -f "docker-compose.stage.yml" logs migrate && cd ..
+    docker compose -f "backend/docker-compose.stage.yml" logs migrate
     exit 1
 fi
 

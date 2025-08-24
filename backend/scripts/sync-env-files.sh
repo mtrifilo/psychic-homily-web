@@ -54,6 +54,8 @@ sync_env_file() {
     fi
     
     print_status "Syncing $env_name environment file..."
+    echo "  📁 Local file: $env_file"
+    echo "  📁 Remote dir: $remote_dir"
     
     # Create remote directory if it doesn't exist
     ssh "$VPS_USER@$VPS_HOST" "mkdir -p $remote_dir" 2>/dev/null || true
@@ -65,8 +67,14 @@ sync_env_file() {
         # Verify the file was copied
         if ssh "$VPS_USER@$VPS_HOST" "test -f $remote_dir/$(basename $env_file)"; then
             print_success "File verified on VPS: $remote_dir/$(basename $env_file)"
+            
+            # Additional debugging: show file details on VPS
+            echo "  📋 File details on VPS:"
+            ssh "$VPS_USER@$VPS_HOST" "ls -la $remote_dir/$(basename $env_file) 2>/dev/null || echo 'File not found'"
         else
             print_warning "File copy verification failed"
+            echo "  🔍 Debug: Checking what's in remote directory:"
+            ssh "$VPS_USER@$VPS_HOST" "ls -la $remote_dir/ 2>/dev/null || echo 'Directory not accessible'"
         fi
     else
         print_error "Failed to sync $env_name environment file"
