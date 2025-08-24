@@ -1,6 +1,6 @@
-# Backend Deployment Guide (Staged Zero-Downtime)
+# Psychic Homily Deployment Guide (Staged Zero-Downtime)
 
-This guide explains how to deploy the Psychic Homily backend using staged zero-downtime deployment with Go binaries and Docker infrastructure services.
+This guide explains how to deploy the Psychic Homily application using staged zero-downtime deployment with Go binaries for backend and Docker infrastructure services, plus automated frontend deployment via Netlify.
 
 ## 🚀 Staged Deployment Architecture
 
@@ -22,6 +22,12 @@ This guide explains how to deploy the Psychic Homily backend using staged zero-d
 - **Redis Cache**: Future-ready for caching and sessions
 - **Migration Service**: Database schema management
 
+### What Deploys via Netlify:
+
+- **Hugo Frontend**: Static site generation with multi-environment support
+- **Automated Builds**: Triggered via webhooks from GitHub Actions
+- **Environment-Specific Configs**: Stage and production configurations
+
 ## 🏗️ VPS Setup Requirements
 
 ### 1. Install Required Software
@@ -41,52 +47,71 @@ sudo apt update
 sudo apt install -y golang-go curl
 ```
 
-### 2. Create Application Directory
+### 2. Create Application Directories
 
 ```bash
-sudo mkdir -p /opt/psychic-homily-backend
-sudo chown $USER:$USER /opt/psychic-homily-backend
-cd /opt/psychic-homily-backend
+# Stage environment
+sudo mkdir -p /opt/psychic-homily-stage
+sudo chown $USER:$USER /opt/psychic-homily-stage
+
+# Production environment
+sudo mkdir -p /opt/psychic-homily-production
+sudo chown $USER:$USER /opt/psychic-homily-production
+
+cd /opt/psychic-homily-stage  # or production
 ```
 
-### 3. Set Up Systemd Service
+### 3. Set Up Systemd Services
 
 ```bash
-# Copy the service file
-sudo cp systemd/psychic-homily-backend.service /etc/systemd/system/
-
-# Create the service user
-sudo useradd -r -s /bin/false psychic-homily
-
-# Reload systemd
+# Stage environment
+sudo cp systemd/psychic-homily-stage.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable psychic-homily-backend
+sudo systemctl enable psychic-homily-stage
 
-# Start the service
-sudo systemctl start psychic-homily-backend
+# Production environment
+sudo cp systemd/psychic-homily-production.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable psychic-homily-production
 
 # Check status
-sudo systemctl status psychic-homily-backend
+sudo systemctl status psychic-homily-stage
+sudo systemctl status psychic-homily-production
 ```
 
 ### 4. Configure Environment Variables
 
-Create `.env.production` with your production settings:
+Create environment files for each environment:
+
+**Stage Environment** (`backend/.env.stage`):
 
 ```bash
 # Database
-POSTGRES_USER=your_db_user
+POSTGRES_USER=stage_user
+POSTGRES_PASSWORD=secure_stage_password
+POSTGRES_DB=psychic_homily_stage
+DATABASE_URL=postgres://stage_user:secure_stage_password@localhost:5433/stage_db?sslmode=disable
+
+# API
+API_ADDR=0.0.0.0:8081
+ENVIRONMENT=stage
+```
+
+**Production Environment** (`backend/.env.production`):
+
+```bash
+# Database
+POSTGRES_USER=prodpsychicadmin
 POSTGRES_PASSWORD=your_secure_password
-POSTGRES_DB=psychic_homily_prod
+POSTGRES_DB=prodpsychicdb
+DATABASE_URL=postgres://prodpsychicadmin:your_password@localhost:5432/prodpsychicdb?sslmode=disable
 
 # API
 API_ADDR=0.0.0.0:8080
-JWT_SECRET_KEY=your_jwt_secret
-
-# OAuth (if using)
-GITHUB_CLIENT_ID=your_github_client_id
-GITHUB_CLIENT_SECRET=your_github_client_secret
+ENVIRONMENT=production
 ```
+
+**Important**: Use `localhost` (not `db`) in DATABASE_URL since the binary runs on the host, not inside Docker.
 
 ## Deployment Process
 
@@ -97,6 +122,13 @@ GITHUB_CLIENT_SECRET=your_github_client_secret
    - **Stage 1**: Deploys backend if backend files changed
    - **Wait Period**: 60+ seconds for backend stabilization
    - **Stage 2**: Deploys frontend if frontend files changed
+
+### Production Deployment (Manual Trigger)
+
+1. **Go to GitHub Actions** → **Deploy to Production**
+2. **Select deployment target**: backend, frontend, or both
+3. **Type "PRODUCTION"** to confirm (safety measure)
+4. **Workflow runs** with production-specific configurations
 
 ### Manual Staged Deployment
 
@@ -114,9 +146,22 @@ GITHUB_CLIENT_SECRET=your_github_client_secret
 ### Manual VPS Deployment
 
 ```bash
-# On your VPS
-cd /opt/psychic-homily-backend
-./scripts/deploy-zero-downtime.sh <commit-sha>
+# Stage environment
+cd /opt/psychic-homily-stage
+./backend/scripts/deploy-stage.sh <commit-sha>
+
+# Production environment
+cd /opt/psychic-homily-production
+./backend/scripts/deploy-production.sh <commit-sha>
+```
+
+### Environment File Synchronization
+
+```bash
+# From your local machine
+./backend/scripts/sync-env-files.sh stage      # Sync only stage
+./backend/scripts/sync-env-files.sh production # Sync only production
+./backend/scripts/sync-env-files.sh both       # Sync both (default)
 ```
 
 ## 📊 Staged Deployment Benefits
@@ -125,6 +170,7 @@ cd /opt/psychic-homily-backend
 
 - **Previous setup**: 2-5 seconds (service restart gap)
 - **Staged setup**: < 100ms (just port switch time) + coordination delays
+- **Container cleanup**: 15-42 seconds for graceful container replacement
 
 ### How It Works:
 
@@ -137,51 +183,65 @@ cd /opt/psychic-homily-backend
 
 ```
 0s    - Backend deployment starts
-30s   - Backend deployment completes
+30s   - Backend deployment completes (including container cleanup)
 60s   - Backend stabilization period ends
 90s   - Frontend deployment starts
-210s  - Frontend deployment completes
+210s  - Frontend deployment completes (Netlify build + publish)
 ```
+
+### Container Management:
+
+- **Graceful cleanup**: Existing containers are stopped gracefully before removal
+- **Volume preservation**: Database volumes are preserved, only Redis cache is cleared
+- **Health checks**: New containers must pass health checks before proceeding
 
 ## 📊 Monitoring and Management
 
 ### Service Management
 
 ```bash
-# Check Go application status
-sudo systemctl status psychic-homily-backend
+# Stage environment
+sudo systemctl status psychic-homily-stage
+sudo journalctl -u psychic-homily-stage -f
 
-# View Go application logs
-sudo journalctl -u psychic-homily-backend -f
+# Production environment
+sudo systemctl status psychic-homily-production
+sudo journalctl -u psychic-homily-production -f
 
 # Check Docker services
-docker-compose -f docker-compose.prod.yml ps
+docker compose -f backend/docker-compose.stage.yml --env-file backend/.env.stage ps
+docker compose -f backend/docker-compose.prod.yml --env-file backend/.env.production ps
 
 # View Docker service logs
-docker-compose -f docker-compose.prod.yml logs -f db
-docker-compose -f docker-compose.prod.yml logs -f redis
+docker compose -f backend/docker-compose.stage.yml --env-file backend/.env.stage logs -f db
+docker compose -f backend/docker-compose.prod.yml --env-file backend/.env.production logs -f redis
 ```
 
 ### Health Checks
 
 ```bash
-# Application health
-curl http://localhost:8080/health
+# Stage environment
+curl http://localhost:8081/health
+docker compose -f backend/docker-compose.stage.yml --env-file backend/.env.stage exec -T db pg_isready -U stage_user -d stage_db
 
-# Database health
-docker-compose -f docker-compose.prod.yml exec db pg_isready -U your_user -d your_db
+# Production environment
+curl http://localhost:8080/health
+docker compose -f backend/docker-compose.prod.yml --env-file backend/.env.production exec -T db pg_isready -U prodpsychicadmin -d prodpsychicdb
 
 # Redis health
-docker-compose -f docker-compose.prod.yml exec redis redis-cli ping
+docker compose -f backend/docker-compose.stage.yml --env-file backend/.env.stage exec redis redis-cli ping
+docker compose -f backend/docker-compose.prod.yml --env-file backend/.env.production exec redis redis-cli ping
 ```
 
 ## 🔒 Security Features
 
-- **Non-root user**: Go application runs as `psychic-homily` user
+- **Non-root user**: Go applications run as `deploy` user
 - **Systemd security**: Restricted file system access
 - **Container isolation**: Database and Redis in isolated containers
 - **No build tools**: Production environment has no compilation tools
 - **Graceful shutdown**: Proper signal handling for clean restarts
+- **Environment isolation**: Separate stage and production environments
+- **Manual production triggers**: Production deployments require explicit confirmation
 
 ## 📈 Performance Benefits
 
@@ -197,53 +257,75 @@ docker-compose -f docker-compose.prod.yml exec redis redis-cli ping
 ### Common Issues
 
 1. **Permission denied**: Ensure binary is executable and owned by correct user
-2. **Port already in use**: Check if another service is using port 8080
+2. **Port already in use**: Check if another service is using the required port
 3. **Database connection failed**: Verify Docker services are running and healthy
-4. **Service won't start**: Check systemd logs with `journalctl -u psychic-homily-backend`
+4. **Service won't start**: Check systemd logs with `journalctl -u psychic-homily-stage` or `psychic-homily-production`
 5. **Frontend deployment fails**: Check if backend is healthy first
+6. **Container naming conflicts**: Scripts now handle graceful container cleanup
+7. **Environment variables not loading**: Use `--env-file` flag with Docker Compose commands
+8. **Hostname resolution errors**: Ensure DATABASE_URL uses `localhost`, not `db`
 
 ### Debug Commands
 
 ```bash
 # Check service configuration
-sudo systemctl cat psychic-homily-backend
+sudo systemctl cat psychic-homily-stage
+sudo systemctl cat psychic-homily-production
 
 # Test service configuration
-sudo systemctl status psychic-homily-backend
+sudo systemctl status psychic-homily-stage
+sudo systemctl status psychic-homily-production
 
 # View recent logs
-sudo journalctl -u psychic-homily-backend --no-pager -n 50
+sudo journalctl -u psychic-homily-stage --no-pager -n 50
+sudo journalctl -u psychic-homily-production --no-pager -n 50
 
 # Check file permissions
-ls -la /opt/psychic-homily-backend/
+ls -la /opt/psychic-homily-stage/
+ls -la /opt/psychic-homily-production/
 
 # Check temporary app logs
-tail -f /tmp/new-app.log
+tail -f /tmp/new-stage-app.log
+tail -f /tmp/new-production-app.log
+
+# Check Docker container status
+docker compose -f backend/docker-compose.stage.yml --env-file backend/.env.stage ps
+docker compose -f backend/docker-compose.prod.yml --env-file backend/.env.production ps
 ```
 
 ## Rollback Process
 
 ```bash
-# Stop current service
-sudo systemctl stop psychic-homily-backend
+# Stage environment rollback
+sudo systemctl stop psychic-homily-stage
+cp backend/backups/psychic-homily-stage.backup.YYYYMMDD_HHMMSS psychic-homily-stage
+sudo systemctl start psychic-homily-stage
+curl http://localhost:8081/health
 
-# Restore previous binary
-cp backups/psychic-homily-backend.backup.YYYYMMDD_HHMMSS psychic-homily-backend
-
-# Start service
-sudo systemctl start psychic-homily-backend
-
-# Verify health
+# Production environment rollback
+sudo systemctl stop psychic-homily-production
+cp backend/backups/psychic-homily-production.backup.YYYYMMDD_HHMMSS psychic-homily-production
+sudo systemctl start psychic-homily-production
 curl http://localhost:8080/health
 ```
 
+**Note**: Rollback is automatic if health checks fail during deployment.
+
 ## Next Steps
 
-1. Set up GitHub secrets for automated deployment
-2. Configure your VPS with the required software
-3. Test the staged deployment with a small change
-4. Monitor logs and performance
-5. Set up monitoring and alerting (optional)
+1. **Set up GitHub secrets** for automated deployment:
+
+   - `VPS_HOST`, `VPS_USERNAME`, `VPS_SSH_KEY` (stage)
+   - `PROD_VPS_HOST`, `PROD_VPS_USERNAME`, `PROD_VPS_SSH_KEY` (production)
+   - `NETLIFY_TOKEN`, `NETLIFY_SITE_ID` (stage frontend)
+   - `NETLIFY_PROD_TOKEN`, `NETLIFY_PROD_SITE_ID` (production frontend)
+   - `NETLIFY_STAGE_WEBHOOK`, `NETLIFY_PRODUCTION_WEBHOOK`
+
+2. **Configure your VPS** with the required software
+3. **Test stage deployment** with a small change (automatic on push to main)
+4. **Test production deployment** manually via GitHub Actions
+5. **Monitor logs and performance** for both environments
+6. **Set up monitoring and alerting** (optional)
 
 ## 🏆 Why This Approach is Industry Standard
 
@@ -253,3 +335,6 @@ curl http://localhost:8080/health
 - **Cost Effective**: No additional infrastructure needed
 - **Professional**: Same reliability as large-scale deployments
 - **Coordinated**: Frontend and backend deployments are properly sequenced
+- **Multi-Environment**: Stage and production environments with proper isolation
+- **Zero-Downtime**: Graceful container management and health-checked deployments
+- **Automated Rollback**: Built-in safety mechanisms for failed deployments
