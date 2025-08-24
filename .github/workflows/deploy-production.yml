@@ -325,7 +325,7 @@ jobs:
                     fi
                     
                     # CRITICAL: Wait and continue polling for these states
-                    sleep 20
+                    sleep 10
                     continue
                     ;;
                   "new")
@@ -361,11 +361,11 @@ jobs:
                         sleep 30
                       else
                         echo "  ⏳ Production deploy not quite ready yet..."
-                        sleep 20
+                        sleep 10
                       fi
                     else
                       echo "  ⚠️ Could not fetch production deploy details, waiting..."
-                      sleep 20
+                      sleep 10
                       continue
                     fi
                     ;;
@@ -397,7 +397,7 @@ jobs:
                 break
               fi
               
-              sleep 20
+              sleep 10
               ((attempt++))
             done
             
@@ -516,7 +516,7 @@ jobs:
                 exit 1
               fi
               
-              sleep 20
+              sleep 10
               ((attempt++))
             done
           fi
