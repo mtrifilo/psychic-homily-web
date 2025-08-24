@@ -18,6 +18,12 @@ PROD_ENV_FILE="$PROJECT_ROOT/backend/.env.production"
 STAGE_REMOTE_DIR="/opt/psychic-homily-stage/backend"
 PROD_REMOTE_DIR="/opt/psychic-homily-production/backend"
 
+# Systemd service files
+STAGE_SERVICE_FILE="$PROJECT_ROOT/backend/systemd/psychic-homily-stage.service"
+PROD_SERVICE_FILE="$PROJECT_ROOT/backend/systemd/psychic-homily-production.service"
+STAGE_SERVICE_REMOTE="/etc/systemd/system/psychic-homily-stage.service"
+PROD_SERVICE_REMOTE="/etc/systemd/system/psychic-homily-production.service"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -82,16 +88,63 @@ sync_env_file() {
     fi
 }
 
+# Function to sync a single systemd service file
+sync_service_file() {
+    local service_file=$1
+    local remote_path=$2
+    local service_name=$3
+    
+    if [ ! -f "$service_file" ]; then
+        print_error "Local service file not found: $service_file"
+        return 1
+    fi
+    
+    print_status "Syncing $service_name systemd service file..."
+    echo "  📁 Local file: $service_file"
+    echo "  📁 Remote path: $remote_path"
+    
+    # Copy the service file using scp, then move to systemd directory
+    if scp "$service_file" "$VPS_USER@$VPS_HOST:/tmp/$(basename $service_file)"; then
+        # Copy the file to the systemd directory with sudo
+        if ssh "$VPS_USER@$VPS_HOST" "sudo /bin/cp /tmp/$(basename $service_file) $remote_path"; then
+        print_success "$service_name service file synced successfully"
+        
+        # Verify the file was copied
+        if ssh "$VPS_USER@$VPS_HOST" "sudo /bin/cp $remote_path /tmp/verify_test >/dev/null 2>&1"; then
+            print_success "Service file verified on VPS: $remote_path"
+            
+            # Reload systemd daemon
+            print_status "Reloading systemd daemon..."
+            if ssh "$VPS_USER@$VPS_HOST" "sudo systemctl daemon-reload"; then
+                print_success "Systemd daemon reloaded successfully"
+            else
+                print_warning "Failed to reload systemd daemon"
+            fi
+        else
+            print_warning "Service file copy verification failed"
+        fi
+    else
+        print_error "Failed to move service file to systemd directory"
+        return 1
+    fi
+else
+    print_error "Failed to copy service file to VPS"
+    return 1
+fi
+}
+
 # Function to sync stage environment
 sync_stage() {
     print_status "Syncing STAGE environment..."
     sync_env_file "$STAGE_ENV_FILE" "$STAGE_REMOTE_DIR" "stage"
+    sync_service_file "$STAGE_SERVICE_FILE" "$STAGE_SERVICE_REMOTE" "stage"
 }
 
 # Function to sync production environment
 sync_production() {
     print_status "Syncing PRODUCTION environment..."
     sync_env_file "$PROD_ENV_FILE" "$PROD_REMOTE_DIR" "production"
+    sync_service_file "$PROD_SERVICE_FILE" "$PROD_SERVICE_REMOTE" "production"
 }
 
 # Function to sync both environments
@@ -137,13 +190,13 @@ main() {
     esac
     
     echo ""
-    print_success "Environment sync completed!"
+    print_success "Environment and service sync completed!"
     echo ""
     echo "📋 Summary:"
-    echo "  - Stage: $STAGE_REMOTE_DIR/.env.stage"
-    echo "  - Production: $PROD_REMOTE_DIR/.env.production"
+    echo "  - Stage: $STAGE_REMOTE_DIR/.env.stage + systemd service"
+    echo "  - Production: $PROD_REMOTE_DIR/.env.production + systemd service"
     echo ""
-    echo "💡 Tip: You can now run this script whenever you update environment files:"
+    echo "💡 Tip: You can now run this script whenever you update environment files or systemd services:"
     echo "  ./backend/scripts/sync-env-files.sh stage      # Sync only stage"
     echo "  ./backend/scripts/sync-env-files.sh production # Sync only production"
     echo "  ./backend/scripts/sync-env-files.sh both       # Sync both (default)"
