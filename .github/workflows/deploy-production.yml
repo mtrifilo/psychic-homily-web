@@ -150,7 +150,7 @@ jobs:
           key: ${{ secrets.PROD_VPS_SSH_KEY }}
           script: |
             cd /opt/psychic-homily-production
-            ./scripts/deploy-production.sh ${{ github.sha }}
+            ./backend/scripts/deploy-production.sh ${{ github.sha }}
 
       - name: Wait for Production Backend Health
         run: |

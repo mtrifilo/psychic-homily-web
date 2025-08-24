@@ -121,7 +121,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             cd /opt/psychic-homily-stage
-            ./scripts/deploy-stage.sh ${{ github.sha }}
+            ./backend/scripts/deploy-stage.sh ${{ github.sha }}
 
       - name: Wait for Backend Health
         run: |
