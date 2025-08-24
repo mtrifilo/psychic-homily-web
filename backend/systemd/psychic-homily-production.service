@@ -6,8 +6,8 @@ Wants=network.target
 
 [Service]
 Type=simple
-User=psychic-homily
-Group=psychic-homily
+User=deploy
+Group=deploy
 WorkingDirectory=/opt/psychic-homily-production
 ExecStart=/opt/psychic-homily-production/psychic-homily-production
 Restart=always
@@ -18,7 +18,7 @@ SyslogIdentifier=psychic-homily-production
 
 # Environment variables
 Environment=API_ADDR=0.0.0.0:8080
-EnvironmentFile=/opt/psychic-homily-production/.env.production
+EnvironmentFile=/opt/psychic-homily-production/backend/.env.production
 
 # Security settings
 NoNewPrivileges=true
