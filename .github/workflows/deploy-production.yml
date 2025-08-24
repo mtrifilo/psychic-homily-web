@@ -364,9 +364,11 @@ jobs:
                         echo "  ✅ Production deploy is ready and should auto-publish"
                         echo "  ⏳ Waiting for auto-publish..."
                         sleep 30
+                        continue  # Continue waiting for publish to complete
                       else
                         echo "  ⏳ Production deploy not quite ready yet..."
                         sleep 10
+                        continue  # Continue waiting for deploy to become ready
                       fi
                     else
                       echo "  ⚠️ Could not fetch production deploy details, waiting..."
@@ -451,7 +453,9 @@ jobs:
                   "new")
                     echo "  📋 Production deploy built and ready"
                     echo "  ℹ️  Production may require manual publish - this is expected"
-                    break
+                    echo "  ⏳ Waiting for publish to complete..."
+                    sleep 30
+                    continue  # Continue waiting for publish to complete
                     ;;
                   "error"|"failed")
                     echo "❌ Latest production deployment failed!"
@@ -460,7 +464,9 @@ jobs:
                   "building"|"enqueued"|"preparing"|"processing"|"starting up")
                     echo "  ⏳ Production deployment in progress..."
                     echo "  📝 Note: 'enqueued' can last several minutes due to infrastructure capacity"
-                    ;;
+                    echo "  🔄 Continuing to poll for status changes..."
+                    sleep 10
+                    continue  # Continue polling for these states
                 esac
               else
                 echo "  ⚠️ Failed to fetch production site deploys (attempt $((attempt + 1)))"
