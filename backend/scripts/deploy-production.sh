@@ -8,7 +8,7 @@ COMPOSE_FILE="backend/docker-compose.prod.yml"
 BACKUP_DIR="/opt/psychic-homily-production/backend/backups"
 SERVICE_NAME="psychic-homily-production"
 APP_PORT=8080
-TEMP_PORT=8081
+TEMP_PORT=8082
 MAX_RETRIES=30
 HEALTH_ENDPOINT="/health"
 
