@@ -35,8 +35,16 @@ fi
 echo "🧹 Cleaning up orphaned containers (preserving data volumes)..."
 docker compose -f "backend/docker-compose.prod.yml" --env-file "backend/.env.production" down --remove-orphans 2>/dev/null || true
 
-# Remove any containers with old naming conventions (NOT VOLUMES)
+# Force remove any existing containers with the exact names we'll use
+echo "🧹 Force removing existing containers..."
+# Only remove if they're not running (safer for production)
 docker container rm -f ph_production_redis ph_production_migrate 2>/dev/null || true
+# For database, check if it's running and stop gracefully first
+if docker container inspect ph_production_db >/dev/null 2>&1; then
+    echo "🔄 Stopping existing database container gracefully..."
+    docker container stop ph_production_db 2>/dev/null || true
+    docker container rm ph_production_db 2>/dev/null || true
+fi
 
 # Only remove Redis cache volume (safe to delete), but preserve database volume
 docker volume rm -f psychic-homily-backend_ph_production_redis 2>/dev/null || true
