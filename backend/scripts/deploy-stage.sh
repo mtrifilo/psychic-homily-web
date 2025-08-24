@@ -85,6 +85,10 @@ fi
 # Deploy new binary alongside old one
 echo "📦 Deploying new stage binary..."
 
+# Copy environment file to root directory for the binary to find
+echo "📁 Copying environment file to root directory..."
+cp backend/.env.stage .env.stage
+
 # Check if binary exists in backend subdirectory and move it
 if [ -f "backend/$SERVICE_NAME" ]; then
     echo "📦 Moving binary from backend/ to root directory"
