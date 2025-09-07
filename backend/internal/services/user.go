@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/markbates/goth"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
@@ -62,11 +63,104 @@ func (s *UserService) FindOrCreateUser(gothUser goth.User, provider string) (*mo
 	}
 
 	// Create new user
-	return s.createNewUser(gothUser, provider)
+	return s.createNewUserOauth(gothUser, provider)
 }
 
-// createNewUser creates a new user with OAuth account
-func (s *UserService) createNewUser(gothUser goth.User, provider string) (*models.User, error) {
+// creates a new user with email and password
+func (s *UserService) CreateUserWithPassword(email, password, firstName, lastName string) (
+	*models.User, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	existingUser, err := s.GetUserByEmail(email)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if existingUser != nil {
+		return nil, fmt.Errorf("user already exists")
+	}
+
+	hashedPassword, err := s.HashPassword(password)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	tx := s.db.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+	// Create user
+	user := &models.User{
+		Email:         &email,
+		PasswordHash:  &hashedPassword,
+		FirstName:     &firstName,
+		LastName:      &lastName,
+		IsActive:      true,
+		EmailVerified: false, // Email verification required for password users
+	}
+
+	if err := tx.Create(user).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("failed to create user: %w", err)
+	}
+
+	// Create default preferences
+	preferences := &models.UserPreferences{
+		UserID: user.ID,
+	}
+
+	if err := tx.Create(preferences).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("failed to create user preferences: %w", err)
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Load relationships
+	if err := s.db.Preload("Preferences").First(user, user.ID).Error; err != nil {
+		return nil, fmt.Errorf("failed to load user relationships: %w", err)
+	}
+
+	return user, nil
+}
+
+func (s *UserService) AuthenticateUserWithPassword(email, password string) (*models.User, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	user, err := s.GetUserByEmail(email)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if user == nil {
+		return nil, fmt.Errorf("user not found, or invalid credentials")
+	}
+
+	if user.PasswordHash == nil {
+		return nil, fmt.Errorf("user account is OAuth only. Please use social login.")
+	}
+
+	if err := s.VerifyPassword(*user.PasswordHash, password); err != nil {
+		return nil, fmt.Errorf("invalid credentials")
+	}
+
+	if !user.IsActive {
+		return nil, fmt.Errorf("user account is not active")
+	}
+
+	return user, nil
+}
+
+// createNewUserOauth creates a new user with OAuth account
+func (s *UserService) createNewUserOauth(gothUser goth.User, provider string) (*models.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -278,4 +372,16 @@ func (s *UserService) UpdateUser(userID uint, updates map[string]any) (*models.U
 	}
 
 	return s.GetUserByID(userID)
+}
+
+func (s *UserService) HashPassword(password string) (string, error) {
+	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("failed to hash password: %w", err)
+	}
+	return string(hashedBytes), nil
+}
+
+func (s *UserService) VerifyPassword(hashedPassword, password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 }

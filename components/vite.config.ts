@@ -16,11 +16,10 @@ export default defineConfig(({ mode }) => {
         },
         define: {
             'process.env.ENVIRONMENT': `"${environment}"`,
-            'process.env.NODE_ENV': `"${environment}"`,
-            'process.env.REACT_APP_ENV': `"${environment}"`,
             'process.env.REACT_APP_API_URL':
                 environment === 'stage' ? '"https://stage.api.psychichomily.com"' : '"https://api.psychichomily.com"',
         },
+        envPrefix: ['VITE_', 'REACT_APP_'],
         build: {
             outDir: '../assets/js',
             sourcemap: environment === 'stage',

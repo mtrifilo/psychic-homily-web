@@ -24,15 +24,17 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 
 	// Setup domain-specific routes
 	setupSystemRoutes(router, api)
-	setupAuthRoutes(router, api, authService, jwtService)
+	setupAuthRoutes(router, api, authService, jwtService, cfg)
 	setupApplicationRoutes(router, api, jwtService)
 
 	return api
 }
 
 // setupAuthRoutes configures all authentication-related endpoints
-func setupAuthRoutes(router *chi.Mux, api huma.API, authService *services.AuthService, jwtService *services.JWTService) {
-	authHandler := handlers.NewAuthHandler(authService)
+func setupAuthRoutes(router *chi.Mux, api huma.API, authService *services.AuthService,
+	jwtService *services.JWTService, cfg *config.Config) {
+	userService := services.NewUserService()
+	authHandler := handlers.NewAuthHandler(authService, jwtService, userService, cfg)
 	oauthHTTPHandler := handlers.NewOAuthHTTPHandler(authService)
 
 	// Public OAuth routes
@@ -40,31 +42,16 @@ func setupAuthRoutes(router *chi.Mux, api huma.API, authService *services.AuthSe
 	router.Get("/auth/callback/{provider}", oauthHTTPHandler.OAuthCallbackHTTPHandler)
 
 	// Public auth endpoints
+	huma.Post(api, "/auth/login", authHandler.LoginHandler)
 	huma.Post(api, "/auth/logout", authHandler.LogoutHandler)
+	huma.Post(api, "/auth/register", authHandler.RegisterHandler)
 
 	// Protected auth routes
 	router.Group(func(r chi.Router) {
 		r.Use(middleware.JWTMiddleware(jwtService))
 
-		r.Get("/auth/profile", func(w http.ResponseWriter, req *http.Request) {
-			resp, err := authHandler.GetProfileHandler(req.Context(), &struct{}{})
-			if err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp.Body)
-		})
-
-		r.Post("/auth/refresh", func(w http.ResponseWriter, req *http.Request) {
-			resp, err := authHandler.RefreshTokenHandler(req.Context(), &struct{}{})
-			if err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp.Body)
-		})
+		huma.Get(api, "/auth/profile", authHandler.GetProfileHandler)
+		huma.Post(api, "/auth/refresh", authHandler.RefreshTokenHandler)
 	})
 }
 

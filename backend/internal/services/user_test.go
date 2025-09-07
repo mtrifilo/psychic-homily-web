@@ -82,17 +82,17 @@ func TestUserService_NilDatabase(t *testing.T) {
 			UserID: "12345",
 			Email:  "test@example.com",
 		}
-		user, err := userService.createNewUser(gothUser, "google")
+		user, err := userService.createNewUserOauth(gothUser, "google")
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, user)
 	})
 
-			t.Run("linkOAuthAccount", func(t *testing.T) {
-			existingUser := &models.User{
-				ID:    1,
-				Email: &[]string{"test@example.com"}[0],
-			}
+	t.Run("linkOAuthAccount", func(t *testing.T) {
+		existingUser := &models.User{
+			ID:    1,
+			Email: &[]string{"test@example.com"}[0],
+		}
 		gothUser := goth.User{
 			UserID: "12345",
 			Email:  "test@example.com",
@@ -152,7 +152,7 @@ type UserServiceIntegrationTestSuite struct {
 
 func (suite *UserServiceIntegrationTestSuite) SetupSuite() {
 	suite.ctx = context.Background()
-	
+
 	// Start PostgreSQL container
 	container, err := testcontainers.GenericContainer(suite.ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
@@ -167,7 +167,7 @@ func (suite *UserServiceIntegrationTestSuite) SetupSuite() {
 		},
 		Started: true,
 	})
-	
+
 	if err != nil {
 		suite.T().Fatalf("failed to start postgres container: %v", err)
 	}
@@ -187,7 +187,7 @@ func (suite *UserServiceIntegrationTestSuite) SetupSuite() {
 	// Connect to database
 	dsn := fmt.Sprintf("host=%s port=%s user=test_user password=test_password dbname=test_db sslmode=disable",
 		host, port.Port())
-	
+
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		suite.T().Fatalf("failed to connect to test database: %v", err)
@@ -240,7 +240,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByID_Success() {
 
 	// Test GetUserByID
 	retrievedUser, err := suite.userService.GetUserByID(user.ID)
-	
+
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), retrievedUser)
 	assert.Equal(suite.T(), user.ID, retrievedUser.ID)
@@ -267,7 +267,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmail_Success() {
 
 	// Test GetUserByEmail
 	retrievedUser, err := suite.userService.GetUserByEmail(*user.Email)
-	
+
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), retrievedUser)
 	assert.Equal(suite.T(), user.ID, retrievedUser.ID)
@@ -278,7 +278,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmail_Success() {
 func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmail_NotFound() {
 	// Test GetUserByEmail with non-existent email
 	retrievedUser, err := suite.userService.GetUserByEmail("nonexistent@example.com")
-	
+
 	assert.NoError(suite.T(), err) // Should not return error for not found
 	assert.Nil(suite.T(), retrievedUser)
 }
@@ -306,7 +306,7 @@ func (suite *UserServiceIntegrationTestSuite) TestUpdateUser_Success() {
 	}
 
 	updatedUser, err := suite.userService.UpdateUser(user.ID, updates)
-	
+
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), updatedUser)
 	assert.Equal(suite.T(), user.ID, updatedUser.ID)
@@ -328,7 +328,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_NewUser() {
 
 	// Test FindOrCreateUser with new user
 	user, err := suite.userService.FindOrCreateUser(gothUser, "google")
-	
+
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), user)
 	assert.NotZero(suite.T(), user.ID)
@@ -389,7 +389,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_ExistingOAuth
 	}
 
 	retrievedUser, err := suite.userService.FindOrCreateUser(gothUser, "github")
-	
+
 	assert.NoError(suite.T(), err)
 	assert.NotNil(suite.T(), retrievedUser)
 	assert.Equal(suite.T(), user.ID, retrievedUser.ID)
@@ -407,7 +407,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_NewAccount() 
 	user := &models.User{
 		Email: stringPtr("linktest@example.com"),
 	}
-	
+
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
 	suite.Require().NotZero(user.ID)
@@ -448,7 +448,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_UpdateExistin
 	user := &models.User{
 		Email: stringPtr("updatetest@example.com"),
 	}
-	
+
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
 	suite.Require().NotZero(user.ID)
@@ -463,7 +463,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_UpdateExistin
 		AccessToken:    stringPtr("old_access_token"),
 		RefreshToken:   stringPtr("old_refresh_token"),
 	}
-	
+
 	err = suite.db.Create(existingOAuth).Error
 	suite.Require().NoError(err)
 
@@ -494,7 +494,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_UpdateExistin
 	suite.Equal("new_access_token", *oauthAccount.AccessToken)
 	suite.Equal("new_refresh_token", *oauthAccount.RefreshToken)
 	suite.NotNil(oauthAccount.ExpiresAt)
-	
+
 	// Verify the record was updated (not created new)
 	suite.Equal(existingOAuth.ID, oauthAccount.ID)
 }
@@ -504,7 +504,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_WithoutExpire
 	user := &models.User{
 		Email: stringPtr("noexpiry@example.com"),
 	}
-	
+
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
 	suite.Require().NotZero(user.ID)
@@ -543,7 +543,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_MultipleProvi
 	user := &models.User{
 		Email: stringPtr("multiprovider@example.com"),
 	}
-	
+
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
 	suite.Require().NotZero(user.ID)
@@ -591,7 +591,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_EmptyFields()
 	user := &models.User{
 		Email: stringPtr("emptyfields@example.com"),
 	}
-	
+
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
 	suite.Require().NotZero(user.ID)
@@ -631,7 +631,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_Success() {
 		Email:    stringPtr("username@example.com"),
 		Username: &username,
 	}
-	
+
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
 	suite.Require().NotZero(user.ID)
@@ -663,7 +663,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAcc
 		Email:    stringPtr("oauthuser@example.com"),
 		Username: &username,
 	}
-	
+
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
 	suite.Require().NotZero(user.ID)
@@ -678,7 +678,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAcc
 		AccessToken:    stringPtr("test_access_token"),
 		RefreshToken:   stringPtr("test_refresh_token"),
 	}
-	
+
 	err = suite.db.Create(oauthAccount).Error
 	suite.Require().NoError(err)
 
@@ -691,7 +691,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAcc
 	suite.Equal(*user.Email, *retrievedUser.Email)
 	suite.Equal(*user.Username, *retrievedUser.Username)
 	suite.Require().Len(retrievedUser.OAuthAccounts, 1)
-	
+
 	// Verify OAuth account details
 	oauth := retrievedUser.OAuthAccounts[0]
 	suite.Equal("google", oauth.Provider)
@@ -707,7 +707,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithPreferen
 		Email:    stringPtr("prefuser@example.com"),
 		Username: &username,
 	}
-	
+
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
 	suite.Require().NotZero(user.ID)
@@ -721,7 +721,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithPreferen
 		Timezone:          "America/New_York",
 		Language:          "en",
 	}
-	
+
 	err = suite.db.Create(preferences).Error
 	suite.Require().NoError(err)
 
@@ -734,7 +734,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithPreferen
 	suite.Equal(*user.Email, *retrievedUser.Email)
 	suite.Equal(*user.Username, *retrievedUser.Username)
 	suite.Require().NotNil(retrievedUser.Preferences)
-	
+
 	// Verify preferences details
 	prefs := retrievedUser.Preferences
 	suite.Equal(user.ID, prefs.UserID)
@@ -752,7 +752,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAnd
 		Email:    stringPtr("fulluser@example.com"),
 		Username: &username,
 	}
-	
+
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
 	suite.Require().NotZero(user.ID)
@@ -767,7 +767,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAnd
 		AccessToken:    stringPtr("github_access_token"),
 		RefreshToken:   stringPtr("github_refresh_token"),
 	}
-	
+
 	err = suite.db.Create(oauthAccount).Error
 	suite.Require().NoError(err)
 
@@ -788,12 +788,12 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAnd
 	suite.Equal(*user.Username, *retrievedUser.Username)
 	suite.Require().Len(retrievedUser.OAuthAccounts, 1)
 	suite.Require().NotNil(retrievedUser.Preferences)
-	
+
 	// Verify OAuth account
 	oauth := retrievedUser.OAuthAccounts[0]
 	suite.Equal("github", oauth.Provider)
 	suite.Equal("github_full_test_456", oauth.ProviderUserID)
-	
+
 	// Verify preferences
 	prefs := retrievedUser.Preferences
 	suite.Equal(user.ID, prefs.UserID)
@@ -819,7 +819,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_SpecialChara
 		Email:    stringPtr("special@example.com"),
 		Username: &username,
 	}
-	
+
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
 	suite.Require().NotZero(user.ID)
@@ -841,7 +841,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_VeryLongUser
 		Email:    stringPtr("longuser@example.com"),
 		Username: &username,
 	}
-	
+
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
 	suite.Require().NotZero(user.ID)

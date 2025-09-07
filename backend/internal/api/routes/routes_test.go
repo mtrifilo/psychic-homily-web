@@ -73,12 +73,12 @@ func TestSetupAuthRoutes(t *testing.T) {
 
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
-	
+
 	// Use real services with test config
 	authService := services.NewAuthService(cfg)
 	jwtService := services.NewJWTService(cfg)
 
-	setupAuthRoutes(router, api, authService, jwtService)
+	setupAuthRoutes(router, api, authService, jwtService, cfg)
 
 	// Test OAuth login route
 	t.Run("OAuth Login Route", func(t *testing.T) {
@@ -244,11 +244,11 @@ func TestProtectedRoutes(t *testing.T) {
 
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
-	
+
 	authService := services.NewAuthService(cfg)
 	jwtService := services.NewJWTService(cfg)
 
-	setupAuthRoutes(router, api, authService, jwtService)
+	setupAuthRoutes(router, api, authService, jwtService, cfg)
 
 	// Test protected profile route without token
 	t.Run("Protected Profile Route Without Token", func(t *testing.T) {
@@ -306,11 +306,11 @@ func TestRouteMiddleware(t *testing.T) {
 
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
-	
+
 	authService := services.NewAuthService(cfg)
 	jwtService := services.NewJWTService(cfg)
 
-	setupAuthRoutes(router, api, authService, jwtService)
+	setupAuthRoutes(router, api, authService, jwtService, cfg)
 
 	// Test that CORS headers are set (if middleware is configured)
 	t.Run("CORS Headers", func(t *testing.T) {
@@ -341,11 +341,11 @@ func TestRouteErrorHandling(t *testing.T) {
 
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
-	
+
 	authService := services.NewAuthService(cfg)
 	jwtService := services.NewJWTService(cfg)
 
-	setupAuthRoutes(router, api, authService, jwtService)
+	setupAuthRoutes(router, api, authService, jwtService, cfg)
 
 	// Test OAuth callback with error (this will fail due to missing OAuth setup)
 	t.Run("OAuth Callback With Error", func(t *testing.T) {
@@ -381,11 +381,11 @@ func TestRouteParameterExtraction(t *testing.T) {
 
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
-	
+
 	authService := services.NewAuthService(cfg)
 	jwtService := services.NewJWTService(cfg)
 
-	setupAuthRoutes(router, api, authService, jwtService)
+	setupAuthRoutes(router, api, authService, jwtService, cfg)
 
 	// Test different provider parameters
 	providers := []string{"google", "github"}
@@ -425,15 +425,15 @@ func TestRouteRegistration(t *testing.T) {
 
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
-	
+
 	authService := services.NewAuthService(cfg)
 	jwtService := services.NewJWTService(cfg)
 
-	setupAuthRoutes(router, api, authService, jwtService)
+	setupAuthRoutes(router, api, authService, jwtService, cfg)
 
 	// Test that routes are registered by checking if they respond
 	// (even if they fail due to missing OAuth configuration)
-	
+
 	t.Run("OAuth Login Route Registered", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/auth/login/google", nil)
 		w := httptest.NewRecorder()
@@ -492,5 +492,3 @@ func TestRouteRegistration(t *testing.T) {
 		}
 	})
 }
-
- 

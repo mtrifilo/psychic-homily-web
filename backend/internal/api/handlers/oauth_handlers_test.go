@@ -212,6 +212,7 @@ func TestOAuthLoginHTTPHandler_NoProvider(t *testing.T) {
 }
 
 func TestOAuthCallbackHTTPHandler_Success(t *testing.T) {
+	email := "user@example.com"
 	tests := []struct {
 		name           string
 		provider       string
@@ -225,7 +226,7 @@ func TestOAuthCallbackHTTPHandler_Success(t *testing.T) {
 			provider: "google",
 			user: &models.User{
 				ID:    1,
-				Email: stringPtr("user@example.com"),
+				Email: &email,
 			},
 			token:          "jwt-token-123",
 			expectedStatus: http.StatusOK,
@@ -247,7 +248,7 @@ func TestOAuthCallbackHTTPHandler_Success(t *testing.T) {
 			provider: "google",
 			user: &models.User{
 				ID:    3,
-				Email: stringPtr(""),
+				Email: &email,
 			},
 			token:          "jwt-token-789",
 			expectedStatus: http.StatusOK,
@@ -379,10 +380,11 @@ func TestOAuthCallbackHTTPHandler_Error(t *testing.T) {
 }
 
 func TestOAuthCallbackHTTPHandler_NoProvider(t *testing.T) {
+	email := "user@example.com"
 	mockAuth := &MockAuthService{
 		callbackUser: &models.User{
 			ID:    1,
-			Email: stringPtr("user@example.com"),
+			Email: &email,
 		},
 		callbackToken: "jwt-token-123",
 		callbackError: nil,
@@ -406,6 +408,3 @@ func TestOAuthCallbackHTTPHandler_NoProvider(t *testing.T) {
 		t.Errorf("Expected Content-Type application/json, got %s", contentType)
 	}
 }
-
-
-

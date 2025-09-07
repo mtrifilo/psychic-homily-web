@@ -49,6 +49,14 @@ func main() {
 	// Create router
 	router := chi.NewMux()
 
+	// Add request logging middleware
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			log.Printf("Request: %s %s from %s", r.Method, r.URL.Path, r.Header.Get("Origin"))
+			next.ServeHTTP(w, r)
+		})
+	})
+
 	// Setup CORS middleware
 	router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   cfg.CORS.AllowedOrigins,
