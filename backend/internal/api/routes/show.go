@@ -55,13 +55,13 @@ func initializeArtist(a *Artist) {
 
 // CreateShowRequestBody represents the request body with preprocessing
 type CreateShowRequestBody struct {
-	Title          string    `json:"title" doc:"Show title (optional)"`
+	Title          string    `json:"title,omitempty" doc:"Show title (optional)"`
 	EventDate      time.Time `json:"event_date" validate:"required" doc:"Event date and time"`
 	City           string    `json:"city" doc:"City where the show takes place"`
 	State          string    `json:"state" doc:"State where the show takes place"`
-	Price          *float64  `json:"price" doc:"Ticket price"`
+	Price          *float64  `json:"price,omitempty" doc:"Ticket price"`
 	AgeRequirement string    `json:"age_requirement" doc:"Age requirement (e.g., '21+', 'All Ages')"`
-	Description    string    `json:"description" doc:"Show description"`
+	Description    string    `json:"description,omitempty" doc:"Show description"`
 	Venues         []Venue   `json:"venues" validate:"required,min=1" doc:"List of venues for the show"`
 	Artists        []Artist  `json:"artists" validate:"required,min=1" doc:"List of artists in the show"`
 }

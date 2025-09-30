@@ -55,8 +55,6 @@ func setupAuthRoutes(router *chi.Mux, api huma.API, authService *services.AuthSe
 
 // setupApplicationRoutes configures all business logic endpoints
 func setupApplicationRoutes(router *chi.Mux, api huma.API, jwtService *services.JWTService) {
-	// Public application endpoints
-	huma.Post(api, "/show", handlers.ShowSubmissionHandler)
 
 	// Setup show routes - protected routes will use the API middleware
 	SetupShowRoutes(router, api, jwtService)

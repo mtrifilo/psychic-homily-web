@@ -16,7 +16,7 @@ interface Venue {
 }
 
 interface ShowSubmission {
-    title?: string // Title is now optional
+    title?: string
     event_date: string // UTC timestamp in ISO 8601 format
     city: string
     state: string
