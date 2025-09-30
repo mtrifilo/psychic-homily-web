@@ -9,7 +9,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 
-	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/services"
 )
 
@@ -34,8 +33,11 @@ type Artist struct {
 
 // Venue represents a venue in a show request
 type Venue struct {
-	ID   *uint   `json:"id,omitempty"`
-	Name *string `json:"name,omitempty"`
+	ID      *uint   `json:"id,omitempty"`
+	Name    *string `json:"name,omitempty"`
+	City    *string `json:"city,omitempty"`
+	State   *string `json:"state,omitempty"`
+	Address *string `json:"address,omitempty"`
 }
 
 // initializeArtist provides sensible defaults for Artist fields
@@ -53,7 +55,7 @@ func initializeArtist(a *Artist) {
 
 // CreateShowRequestBody represents the request body with preprocessing
 type CreateShowRequestBody struct {
-	Title          string    `json:"title" validate:"required" doc:"Show title"`
+	Title          string    `json:"title" doc:"Show title (optional)"`
 	EventDate      time.Time `json:"event_date" validate:"required" doc:"Event date and time"`
 	City           string    `json:"city" doc:"City where the show takes place"`
 	State          string    `json:"state" doc:"State where the show takes place"`
@@ -180,13 +182,25 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	// Convert Venues to service format
 	serviceVenues := make([]services.CreateShowVenue, len(req.Body.Venues))
 	for i, venue := range req.Body.Venues {
-		var name string
+		var name, city, state, address string
 		if venue.Name != nil {
 			name = *venue.Name
 		}
+		if venue.City != nil {
+			city = *venue.City
+		}
+		if venue.State != nil {
+			state = *venue.State
+		}
+		if venue.Address != nil {
+			address = *venue.Address
+		}
 		serviceVenues[i] = services.CreateShowVenue{
-			ID:   venue.ID,
-			Name: name,
+			ID:      venue.ID,
+			Name:    name,
+			City:    city,
+			State:   state,
+			Address: address,
 		}
 	}
 
@@ -351,20 +365,9 @@ func SetupShowRoutes(router *chi.Mux, api huma.API, jwtService *services.JWTServ
 	huma.Get(api, "/shows", showHandler.GetShowsHandler)
 	huma.Get(api, "/shows/{show_id}", showHandler.GetShowHandler)
 
-	// Protected show endpoints (require authentication)
-	router.Group(func(r chi.Router) {
-		r.Use(middleware.JWTMiddleware(jwtService))
-
-		// Create show
-		huma.Post(api, "/shows", showHandler.CreateShowHandler)
-
-		// Update show
-		huma.Put(api, "/shows/{show_id}", showHandler.UpdateShowHandler)
-
-		// Delete show
-		huma.Delete(api, "/shows/{show_id}", showHandler.DeleteShowHandler)
-
-		// AI processing endpoint (future)
-		huma.Post(api, "/shows/ai-process", showHandler.AIProcessShowHandler)
-	})
+	// Protected show endpoints - these will use the middleware already applied to the API
+	huma.Post(api, "/shows", showHandler.CreateShowHandler)
+	huma.Put(api, "/shows/{show_id}", showHandler.UpdateShowHandler)
+	huma.Delete(api, "/shows/{show_id}", showHandler.DeleteShowHandler)
+	huma.Post(api, "/shows/ai-process", showHandler.AIProcessShowHandler)
 }

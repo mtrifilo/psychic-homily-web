@@ -4,13 +4,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import { AuthProvider, useAuth } from '@/lib/context/AuthContext'
+import { AuthProvider, useAuthContext } from '@/lib/context/AuthContext'
 import Login from '@/login/Login.tsx'
 import Signup from '@/login/Signup.tsx'
 import Logout from '@/login/Logout.tsx'
 
 function AppContent() {
-    const { isAuthenticated, user, isLoading } = useAuth()
+    const { isAuthenticated, user, isLoading } = useAuthContext()
 
     if (isLoading) {
         return (

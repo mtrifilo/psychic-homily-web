@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input'
 import { DialogClose } from '@/components/ui/dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useLogin } from '@/lib/hooks/useAuth'
-import { useAuth } from '@/lib/context/AuthContext'
+import { useAuthContext } from '@/lib/context/AuthContext'
 import { XCircle } from 'lucide-react'
 
 // Zod schema for validation
@@ -32,7 +32,7 @@ interface LoginFormData {
 
 function Login() {
     const loginMutation = useLogin()
-    const { setUser, setLoading, clearError } = useAuth()
+    const { user, clearError } = useAuthContext()
 
     const form = useForm({
         defaultValues: {
@@ -42,21 +42,11 @@ function Login() {
         onSubmit: async ({ value }) => {
             loginMutation.mutate(value, {
                 onSuccess: (data) => {
-                    if (data.success && data.user) {
-                        // Convert the API user format to AuthContext User format
-                        const user = {
-                            id: data.user.id,
-                            email: data.user.email,
-                            first_name: data.user.first_name,
-                            last_name: data.user.last_name,
-                            email_verified: false, // Default value, update when profile endpoint is available
-                        }
-                        setUser(user)
-                    }
-                    setLoading(false)
+                    console.log('Data from login mutation:', data)
+                    console.log('User from auth context:', user)
                 },
-                onError: () => {
-                    setLoading(false)
+                onError: (error) => {
+                    // Error handling is done by the mutation
                 },
             })
         },

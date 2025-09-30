@@ -58,12 +58,20 @@ func main() {
 	})
 
 	// Setup CORS middleware
-	router.Use(cors.Handler(cors.Options{
+	log.Printf("CORS Configuration: Origins=%v, Methods=%v, Headers=%v, Credentials=%v",
+		cfg.CORS.AllowedOrigins, cfg.CORS.AllowedMethods, cfg.CORS.AllowedHeaders, cfg.CORS.AllowCredentials)
+
+	// CORS middleware with more explicit configuration
+	corsMiddleware := cors.New(cors.Options{
 		AllowedOrigins:   cfg.CORS.AllowedOrigins,
 		AllowedMethods:   cfg.CORS.AllowedMethods,
 		AllowedHeaders:   cfg.CORS.AllowedHeaders,
 		AllowCredentials: cfg.CORS.AllowCredentials,
-	}))
+		MaxAge:           300,  // Cache preflight for 5 minutes
+		Debug:            true, // Enable debug logging
+	})
+
+	router.Use(corsMiddleware.Handler)
 
 	// Setup routes
 	_ = routes.SetupRoutes(router, cfg)

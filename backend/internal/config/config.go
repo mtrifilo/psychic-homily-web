@@ -133,7 +133,7 @@ func Load() *Config {
 		CORS: CORSConfig{
 			AllowedOrigins:   corsOrigins,
 			AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-			AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Requested-With"},
+			AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Requested-With", "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"},
 			AllowCredentials: true,
 		},
 		OAuth: OAuthConfig{
@@ -170,24 +170,26 @@ func getCORSOrigins() []string {
 	}
 
 	// Default origins based on environment
-	if os.Getenv(EnvEnvironment) == EnvProduction {
+	env := os.Getenv(EnvEnvironment)
+	if env == EnvProduction {
 		return []string{
 			"https://psychichomily.com",
 			"https://www.psychichomily.com",
 		}
 	}
 
-	if os.Getenv(EnvEnvironment) == EnvStage {
+	if env == EnvStage {
 		return []string{
 			"https://stage.psychichomily.com",
 			"https://www.stage.psychichomily.com",
 		}
 	}
 
-	if os.Getenv(EnvEnvironment) == EnvDevelopment {
+	if env == EnvDevelopment {
 		return []string{
 			"http://localhost:3000",
 			"http://localhost:5173",
+			"http://localhost:1313", // Hugo dev server
 		}
 	}
 
@@ -197,6 +199,7 @@ func getCORSOrigins() []string {
 		"https://www.psychichomily.com",
 		"http://localhost:3000",
 		"http://localhost:5173",
+		"http://localhost:1313", // Hugo dev server
 	}
 }
 

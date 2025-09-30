@@ -22,20 +22,27 @@ func NewShowService() *ShowService {
 	}
 }
 
-// CreateShowVenue represents a venue in a show creation request
+// CreateShowVenue represents a venue in a show creation request.
+// City and State are required for duplicate prevention (same name in same city).
 type CreateShowVenue struct {
-	ID   *uint  `json:"id"`
-	Name string `json:"name"`
+	ID      *uint  `json:"id"`
+	Name    string `json:"name"`
+	City    string `json:"city"`
+	State   string `json:"state"`
+	Address string `json:"address,omitempty"`
 }
 
-// CreateShowArtist represents an artist in a show creation request
+// CreateShowArtist represents an artist in a show creation request.
+// IsHeadliner is used for duplicate prevention (headliners can't perform at same venue on same date).
 type CreateShowArtist struct {
 	ID          *uint  `json:"id"`
 	Name        string `json:"name"`
 	IsHeadliner *bool  `json:"is_headliner"`
 }
 
-// CreateShowRequest represents the data needed to create a new show
+// CreateShowRequest represents the data needed to create a new show.
+// The service will prevent duplicate headliners at the same venue on the same date/time
+// and prevent duplicate venues with the same name in the same city.
 type CreateShowRequest struct {
 	Title          string             `json:"title" validate:"required"`
 	EventDate      time.Time          `json:"event_date" validate:"required"`
@@ -96,7 +103,9 @@ type ArtistResponse struct {
 	Socials     ShowArtistSocials `json:"socials"`
 }
 
-// CreateShow creates a new show with associated venues and artists
+// CreateShow creates a new show with associated venues and artists.
+// Prevents duplicate headliners at the same venue on the same date/time.
+// Prevents duplicate venues with the same name in the same city.
 func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -105,6 +114,11 @@ func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) 
 	// Use transaction for data consistency
 	var response *ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Check for duplicate headliner-venue-date conflicts
+		if err := s.checkDuplicateHeadlinerConflicts(tx, req); err != nil {
+			return err
+		}
+
 		// Create the show
 		show := &models.Show{
 			Title:          req.Title,
@@ -156,6 +170,57 @@ func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) 
 	}
 
 	return response, nil
+}
+
+// checkDuplicateHeadlinerConflicts checks if any headliners are already performing
+// at the same venue on the same date/time
+func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *CreateShowRequest) error {
+	// Get all headliners from the request
+	var headlinerNames []string
+	for _, artist := range req.Artists {
+		if artist.IsHeadliner != nil && *artist.IsHeadliner {
+			headlinerNames = append(headlinerNames, artist.Name)
+		}
+	}
+
+	// If no headliners, no conflicts possible
+	if len(headlinerNames) == 0 {
+		return nil
+	}
+
+	// Get all venue names from the request
+	var venueNames []string
+	for _, venue := range req.Venues {
+		venueNames = append(venueNames, venue.Name)
+	}
+
+	// Check for conflicts: same headliner + same venue + same date
+	for _, headlinerName := range headlinerNames {
+		for _, venueName := range venueNames {
+			var existingShows []models.Show
+
+			// Query for shows on the same date with the same headliner and venue
+			err := tx.Table("shows").
+				Joins("JOIN show_artists ON shows.id = show_artists.show_id").
+				Joins("JOIN artists ON show_artists.artist_id = artists.id").
+				Joins("JOIN show_venues ON shows.id = show_venues.show_id").
+				Joins("JOIN venues ON show_venues.venue_id = venues.id").
+				Where("artists.name = ? AND venues.name = ? AND shows.event_date = ? AND show_artists.set_type = ?",
+					headlinerName, venueName, req.EventDate.UTC(), "headliner").
+				Find(&existingShows).Error
+
+			if err != nil {
+				return fmt.Errorf("failed to check for duplicate headliner conflicts: %w", err)
+			}
+
+			if len(existingShows) > 0 {
+				return fmt.Errorf("headliner '%s' is already performing at venue '%s' on %s",
+					headlinerName, venueName, req.EventDate.Format("2006-01-02 15:04:05 UTC"))
+			}
+		}
+	}
+
+	return nil
 }
 
 // GetShow retrieves a show by ID with all associations
@@ -259,7 +324,8 @@ func (s *ShowService) DeleteShow(showID uint) error {
 	})
 }
 
-// associateVenues associates venues with a show, creating new venues if needed
+// associateVenues associates venues with a show, creating new venues if needed.
+// Prevents duplicate venues by reusing existing venues with the same name in the same city.
 func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []CreateShowVenue) ([]VenueResponse, error) {
 	var venues []VenueResponse
 
@@ -281,11 +347,16 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 				return nil, fmt.Errorf("either ID or Name must be provided for venue")
 			}
 
-			err = tx.Where("LOWER(name) = LOWER(?)", requestVenue.Name).First(&venue).Error
+			// Check for existing venue with same name in same city
+			err = tx.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)",
+				requestVenue.Name, requestVenue.City).First(&venue).Error
 			if err == gorm.ErrRecordNotFound {
-				// Create new venue
+				// No venue with same name in same city, create new venue
 				venue = models.Venue{
-					Name: requestVenue.Name,
+					Name:    requestVenue.Name,
+					City:    &requestVenue.City,
+					State:   &requestVenue.State,
+					Address: &requestVenue.Address,
 				}
 				if err := tx.Create(&venue).Error; err != nil {
 					return nil, fmt.Errorf("failed to create venue %s: %w", requestVenue.Name, err)
@@ -293,6 +364,7 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 			} else if err != nil {
 				return nil, fmt.Errorf("failed to find venue %s: %w", requestVenue.Name, err)
 			}
+			// If err == nil, venue exists in same city, reuse it (no error)
 		}
 
 		// Create show-venue association

@@ -1,8 +1,8 @@
 import { Button } from '@/components/ui/button'
-import { useAuth } from '@/lib/context/AuthContext'
+import { useAuthContext } from '@/lib/context/AuthContext'
 
 function Logout() {
-    const { logout, isLoading } = useAuth()
+    const { logout, isLoading } = useAuthContext()
 
     const handleLogout = () => {
         logout()

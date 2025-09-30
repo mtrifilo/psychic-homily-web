@@ -46,13 +46,11 @@ func setupAuthRoutes(router *chi.Mux, api huma.API, authService *services.AuthSe
 	huma.Post(api, "/auth/logout", authHandler.LogoutHandler)
 	huma.Post(api, "/auth/register", authHandler.RegisterHandler)
 
-	// Protected auth routes
-	router.Group(func(r chi.Router) {
-		r.Use(middleware.JWTMiddleware(jwtService))
+	api.UseMiddleware(middleware.HumaJWTMiddleware(jwtService))
 
-		huma.Get(api, "/auth/profile", authHandler.GetProfileHandler)
-		huma.Post(api, "/auth/refresh", authHandler.RefreshTokenHandler)
-	})
+	// Protected auth routes - these will use the middleware
+	huma.Get(api, "/auth/profile", authHandler.GetProfileHandler)
+	huma.Post(api, "/auth/refresh", authHandler.RefreshTokenHandler)
 }
 
 // setupApplicationRoutes configures all business logic endpoints
@@ -60,18 +58,13 @@ func setupApplicationRoutes(router *chi.Mux, api huma.API, jwtService *services.
 	// Public application endpoints
 	huma.Post(api, "/show", handlers.ShowSubmissionHandler)
 
-	// Setup show routes
+	// Setup show routes - protected routes will use the API middleware
 	SetupShowRoutes(router, api, jwtService)
 
-	// Protected application routes
-	router.Group(func(r chi.Router) {
-		r.Use(middleware.JWTMiddleware(jwtService))
-
-		// Future protected endpoints:
-		// huma.Get(api, "/user/shows", handlers.GetUserShowsHandler)
-		// huma.Post(api, "/venues", handlers.CreateVenueHandler)
-		// huma.Get(api, "/user/favorites", handlers.GetFavoritesHandler)
-	})
+	// Future protected endpoints - these will automatically use the middleware
+	// huma.Get(api, "/user/shows", handlers.GetUserShowsHandler)
+	// huma.Post(api, "/venues", handlers.CreateVenueHandler)
+	// huma.Get(api, "/user/favorites", handlers.GetFavoritesHandler)
 }
 
 // setupSystemRoutes configures system/infrastructure endpoints

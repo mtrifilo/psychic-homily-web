@@ -45,7 +45,7 @@ export const API_ENDPOINTS = {
 
     // Application endpoints
     SHOWS: {
-        SUBMIT: `${API_BASE_URL}/show`,
+        SUBMIT: `${API_BASE_URL}/shows`,
         // Add more show-related endpoints as needed
     },
 
@@ -84,6 +84,8 @@ export const apiRequest = async <T = any>(endpoint: string, options: RequestInit
             statusText: response.statusText,
             details: error.details || error.errors || error, // Capture validation errors
         }
+
+        console.error('Error - apiRequest detailed error:', JSON.stringify(detailedError))
 
         throw new Error(JSON.stringify(detailedError))
     }

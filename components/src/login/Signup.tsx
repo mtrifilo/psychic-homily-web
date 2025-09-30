@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input'
 import { DialogClose } from '@/components/ui/dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useRegister } from '@/lib/hooks/useAuth'
-import { useAuth } from '@/lib/context/AuthContext'
+import { useAuthContext } from '@/lib/context/AuthContext'
 import { useState } from 'react'
 
 interface SignupForm {
@@ -64,7 +64,7 @@ function Signup() {
     const [serverError, setServerError] = useState<ServerError | null>(null)
 
     const registerMutation = useRegister()
-    const { setUser, setLoading, clearError } = useAuth()
+    const { setUser, clearError } = useAuthContext()
 
     const handleSignup = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault()
@@ -111,10 +111,8 @@ function Signup() {
                         }
                         setUser(user)
                     }
-                    setLoading(false)
                 },
                 onError: (error) => {
-                    setLoading(false)
                     // Try to parse the detailed error from the API
                     let errorDetails = {
                         is_error: true,

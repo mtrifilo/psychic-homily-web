@@ -329,7 +329,7 @@ func setCookie(token string, config *config.Config) *http.Cookie {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   config.Session.Secure, // Set to true in production (HTTPS only)
-		SameSite: http.SameSiteStrictMode,
+		SameSite: config.Session.GetSameSite(),
 		Expires:  time.Now().Add(24 * time.Hour),
 	}
 }

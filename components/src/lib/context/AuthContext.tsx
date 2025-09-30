@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { useProfile } from '@/lib/hooks/useAuth'
 
 interface User {
     id: string
@@ -19,7 +19,6 @@ interface AuthState {
 interface AuthContextType extends AuthState {
     setUser: (user: User | null) => void
     setError: (error: string | null) => void
-    setLoading: (loading: boolean) => void
     clearError: () => void
     logout: () => void
 }
@@ -32,41 +31,46 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children }: AuthProviderProps) {
     const [user, setUser] = useState<User | null>(null)
-    const [isLoading, setIsLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
-    // Check if user is already logged in on mount
-    useEffect(() => {
-        checkAuthStatus()
-    }, [])
+    // Use the useProfile hook to get authentication status
+    const { data: profileData, isLoading, error: profileError } = useProfile()
+    console.log('profileData', profileData)
 
-    const checkAuthStatus = async () => {
-        try {
-            setIsLoading(true)
-            const userData = await apiRequest<User>(API_ENDPOINTS.AUTH.PROFILE)
-            setUser(userData)
-        } catch (err) {
-            console.error('Auth check failed:', err)
+    // Update user state when profile data changes
+    useEffect(() => {
+        if (profileData?.success && profileData?.user) {
+            // Convert the API user format to AuthContext User format
+            const user = {
+                id: profileData.user.id,
+                email: profileData.user.email,
+                first_name: profileData.user.first_name,
+                last_name: profileData.user.last_name,
+                email_verified: false, // Default value, update when profile endpoint is available
+            }
+            setUser(user)
+        } else {
             setUser(null)
-        } finally {
-            setIsLoading(false)
         }
-    }
+    }, [profileData])
+
+    // Update error state when profile error changes
+    useEffect(() => {
+        if (profileError) {
+            setError(profileError.message || 'Authentication failed')
+        } else {
+            setError(null)
+        }
+    }, [profileError])
 
     const logout = async () => {
         try {
             setError(null)
-            setIsLoading(true)
-
-            await apiRequest(API_ENDPOINTS.AUTH.LOGOUT, {
-                method: 'POST',
-            })
-
             setUser(null)
+            // The useProfile hook will automatically handle the logout state
+            // when the server clears the HTTP-only cookie
         } catch (err) {
             console.error('Logout failed:', err)
-        } finally {
-            setIsLoading(false)
         }
     }
 
@@ -76,12 +80,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     const value: AuthContextType = {
         user,
-        isAuthenticated: !!user,
+        isAuthenticated: Boolean(user),
         isLoading,
         error,
         setUser,
         setError,
-        setLoading: setIsLoading,
         clearError,
         logout,
     }
@@ -89,7 +92,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
-export function useAuth() {
+export function useAuthContext() {
     const context = useContext(AuthContext)
     if (context === undefined) {
         throw new Error('useAuth must be used within an AuthProvider')

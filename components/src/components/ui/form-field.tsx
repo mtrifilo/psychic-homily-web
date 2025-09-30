@@ -7,6 +7,7 @@ interface FormFieldProps {
     type?: 'text' | 'date' | 'time' | 'textarea'
     placeholder?: string
     onEnterPress?: () => void
+    onChange?: (value: string) => void
 }
 
 export function FieldInfo({ field }: Readonly<{ field: AnyFieldApi }>) {
@@ -20,7 +21,14 @@ export function FieldInfo({ field }: Readonly<{ field: AnyFieldApi }>) {
     )
 }
 
-export function FormField({ field, label, type = 'text', placeholder, onEnterPress }: Readonly<FormFieldProps>) {
+export function FormField({
+    field,
+    label,
+    type = 'text',
+    placeholder,
+    onEnterPress,
+    onChange,
+}: Readonly<FormFieldProps>) {
     return (
         <div className="flex flex-col space-y-2">
             <label htmlFor={field.name} className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -35,6 +43,7 @@ export function FormField({ field, label, type = 'text', placeholder, onEnterPre
                     onBlur={field.handleBlur}
                     onChange={(e) => {
                         field.handleChange(e.target.value)
+                        onChange?.(e.target.value)
                     }}
                     placeholder={placeholder}
                 />
@@ -48,6 +57,7 @@ export function FormField({ field, label, type = 'text', placeholder, onEnterPre
                     onBlur={field.handleBlur}
                     onChange={(e) => {
                         field.handleChange(e.target.value)
+                        onChange?.(e.target.value)
                     }}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {

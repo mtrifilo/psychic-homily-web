@@ -173,7 +173,8 @@ export const useRefreshToken = () => {
                 invalidateQueries.auth()
             }
         },
-        onError: () => {
+        onError: (error) => {
+            console.error('Error refreshing token:', error)
             // Clear all cached data on refresh failure
             queryClient.clear()
         },
@@ -184,8 +185,14 @@ export const useRefreshToken = () => {
 export const useIsAuthenticated = () => {
     const { data: profile, isLoading, error } = useProfile()
 
+    console.log('profile', profile)
+
+    if (error) {
+        console.error('Error checking authentication:', error)
+    }
+
     return {
-        isAuthenticated: !!profile?.success && !!profile?.user && !error,
+        isAuthenticated: Boolean(profile?.success) && Boolean(profile?.user) && !error,
         isLoading,
         user: profile?.user,
         error,
