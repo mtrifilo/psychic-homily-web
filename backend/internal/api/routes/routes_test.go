@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -21,6 +20,13 @@ func TestSetupRoutes(t *testing.T) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Addr: "localhost:8080",
+		},
+		JWT: config.JWTConfig{
+			SecretKey: "test-secret-key-32-chars-minimum",
+			Expiry:    24,
+		},
+		OAuth: config.OAuthConfig{
+			SecretKey: "test-oauth-secret-key-32-chars",
 		},
 	}
 
@@ -127,44 +133,6 @@ func TestSetupAuthRoutes(t *testing.T) {
 
 		if w.Code != http.StatusOK {
 			t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
-		}
-	})
-}
-
-// TestSetupApplicationRoutes tests application route setup
-func TestSetupApplicationRoutes(t *testing.T) {
-	// Create a minimal config for testing
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			SecretKey: "test-secret-key-32-chars-minimum",
-			Expiry:    24,
-		},
-	}
-
-	router := chi.NewRouter()
-	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
-	jwtService := services.NewJWTService(cfg)
-
-	setupApplicationRoutes(router, api, jwtService)
-
-	// Test show submission route (public)
-	t.Run("Show Submission Route", func(t *testing.T) {
-		showData := `{
-			"title": "Test Show",
-			"date": "2024-01-15",
-			"venue": "Test Venue",
-			"description": "Test Description"
-		}`
-
-		req := httptest.NewRequest("POST", "/show", strings.NewReader(showData))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-
-		router.ServeHTTP(w, req)
-
-		// Show submission should be accessible
-		if w.Code != http.StatusOK && w.Code != http.StatusBadRequest {
-			t.Errorf("Expected status 200 or 400, got %d", w.Code)
 		}
 	})
 }

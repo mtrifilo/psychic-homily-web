@@ -1,40 +1,8 @@
 version: '3.9'
 
 services:
-  # app:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   ports:
-  #     - "${API_PORT:-8080}:8080"
-  #   env_file:
-  #     - .env.development
-  #   environment:
-  #     - API_ADDR=0.0.0.0:8080 # Override for Docker
-  #   depends_on:
-  #     db:
-  #       condition: service_healthy
-  #     migrate:
-  #       condition: service_completed_successfully
-  #   healthcheck:
-  #     test:
-  #       [
-  #         "CMD",
-  #         "wget",
-  #         "--no-verbose",
-  #         "--tries=1",
-  #         "--spider",
-  #         "http://localhost:8080/health",
-  #       ]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
-  #     start_period: 40s
-  #   networks:
-  #     - app-network
-
   db:
-    image: postgres:17.5
+    image: postgres:18
     restart: always
     env_file:
       - .env.development

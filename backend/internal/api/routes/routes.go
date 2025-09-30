@@ -25,7 +25,7 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	// Setup domain-specific routes
 	setupSystemRoutes(router, api)
 	setupAuthRoutes(router, api, authService, jwtService, cfg)
-	setupApplicationRoutes(router, api, jwtService)
+	setupShowRoutes(router, api, jwtService)
 
 	return api
 }
@@ -53,18 +53,6 @@ func setupAuthRoutes(router *chi.Mux, api huma.API, authService *services.AuthSe
 	huma.Post(api, "/auth/refresh", authHandler.RefreshTokenHandler)
 }
 
-// setupApplicationRoutes configures all business logic endpoints
-func setupApplicationRoutes(router *chi.Mux, api huma.API, jwtService *services.JWTService) {
-
-	// Setup show routes - protected routes will use the API middleware
-	SetupShowRoutes(router, api, jwtService)
-
-	// Future protected endpoints - these will automatically use the middleware
-	// huma.Get(api, "/user/shows", handlers.GetUserShowsHandler)
-	// huma.Post(api, "/venues", handlers.CreateVenueHandler)
-	// huma.Get(api, "/user/favorites", handlers.GetFavoritesHandler)
-}
-
 // setupSystemRoutes configures system/infrastructure endpoints
 func setupSystemRoutes(router *chi.Mux, api huma.API) {
 	// Health check endpoint
@@ -75,4 +63,19 @@ func setupSystemRoutes(router *chi.Mux, api huma.API) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(api.OpenAPI())
 	})
+}
+
+// SetupShowRoutes configures all show-related endpoints
+func setupShowRoutes(router *chi.Mux, api huma.API, jwtService *services.JWTService) {
+	showHandler := handlers.NewShowHandler()
+
+	// Public show endpoints
+	huma.Get(api, "/shows", showHandler.GetShowsHandler)
+	huma.Get(api, "/shows/{show_id}", showHandler.GetShowHandler)
+
+	// Protected show endpoints - these will use the middleware already applied to the API
+	huma.Post(api, "/shows", showHandler.CreateShowHandler)
+	huma.Put(api, "/shows/{show_id}", showHandler.UpdateShowHandler)
+	huma.Delete(api, "/shows/{show_id}", showHandler.DeleteShowHandler)
+	huma.Post(api, "/shows/ai-process", showHandler.AIProcessShowHandler)
 }

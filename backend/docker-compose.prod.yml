@@ -1,28 +1,28 @@
 services:
   # Database services (Docker)
   db:
-    image: postgres:17.5
+    image: postgres:18
     restart: unless-stopped
     env_file:
       - .env.production
     environment:
-      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      POSTGRES_INITDB_ARGS: '--encoding=UTF-8 --lc-collate=C --lc-ctype=C'
     ports:
-      - "5432:5432" # Map container port 5432 to host port 5432
+      - '5432:5432' # Map container port 5432 to host port 5432
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backups:/backups
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 60s
     logging:
-      driver: "json-file"
+      driver: 'json-file'
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: '10m'
+        max-file: '3'
     networks:
       - app-network
 
@@ -33,15 +33,15 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 30s
       timeout: 3s
       retries: 3
     logging:
-      driver: "json-file"
+      driver: 'json-file'
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: '10m'
+        max-file: '3'
     networks:
       - app-network
 
@@ -50,11 +50,11 @@ services:
     image: migrate/migrate:latest
     command:
       [
-        "-path",
-        "/migrations",
-        "-database",
-        "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable",
-        "up",
+        '-path',
+        '/migrations',
+        '-database',
+        'postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable',
+        'up',
       ]
     env_file:
       - .env.production
@@ -63,7 +63,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    restart: "no"
+    restart: 'no'
     networks:
       - app-network
 
