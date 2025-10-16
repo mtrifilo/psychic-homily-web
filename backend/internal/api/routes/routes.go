@@ -25,7 +25,8 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	// Setup domain-specific routes
 	setupSystemRoutes(router, api)
 	setupAuthRoutes(router, api, authService, jwtService, cfg)
-	setupShowRoutes(router, api, jwtService)
+	setupShowRoutes(api)
+	setupArtistRoutes(api)
 
 	return api
 }
@@ -66,7 +67,7 @@ func setupSystemRoutes(router *chi.Mux, api huma.API) {
 }
 
 // SetupShowRoutes configures all show-related endpoints
-func setupShowRoutes(router *chi.Mux, api huma.API, jwtService *services.JWTService) {
+func setupShowRoutes(api huma.API) {
 	showHandler := handlers.NewShowHandler()
 
 	// Public show endpoints
@@ -78,4 +79,11 @@ func setupShowRoutes(router *chi.Mux, api huma.API, jwtService *services.JWTServ
 	huma.Put(api, "/shows/{show_id}", showHandler.UpdateShowHandler)
 	huma.Delete(api, "/shows/{show_id}", showHandler.DeleteShowHandler)
 	huma.Post(api, "/shows/ai-process", showHandler.AIProcessShowHandler)
+}
+
+func setupArtistRoutes(api huma.API) {
+	artistHandler := handlers.NewArtistHandler()
+
+	// Public artist endpoints
+	huma.Get(api, "/artists/search", artistHandler.SearchArtistsHandler)
 }

@@ -233,6 +233,59 @@ func (s *ArtistService) DeleteArtist(artistID uint) error {
 	return nil
 }
 
+// SearchArtists performs autocomplete search on artist names
+// Uses pg_trgm extension for performant fuzzy matching with intelligent query strategy:
+// - Short queries (1-2 chars): Fast case-insensitive prefix search
+// - Longer queries (3+ chars): Similarity-based fuzzy matching with ranking
+func (s *ArtistService) SearchArtists(query string) ([]*ArtistDetailResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Return empty results for empty query
+	if query == "" {
+		return []*ArtistDetailResponse{}, nil
+	}
+
+	var artists []models.Artist
+	var err error
+
+	// Strategy depends on query length for optimal performance
+	if len(query) <= 2 {
+		// For short queries: use fast case-insensitive prefix search
+		// Example: "ra" → "Radiohead", "Rage Against the Machine"
+		// Uses idx_artists_name_lower_prefix for blazing fast results
+		err = s.db.
+			Where("LOWER(name) LIKE LOWER(?)", query+"%").
+			Order("name ASC").
+			Limit(10).
+			Find(&artists).Error
+	} else {
+		// For longer queries: use similarity scoring for better fuzzy matching
+		// Example: "radio mos" → "Radio Moscow" ranked higher than "Radio Dept"
+		// Handles typos and partial matches: "beatls" → "The Beatles"
+		// Uses idx_artists_name_trgm for efficient pattern matching
+		err = s.db.
+			Select("artists.*, similarity(name, ?) as sim_score", query).
+			Where("name ILIKE ?", "%"+query+"%").
+			Order("sim_score DESC, name ASC").
+			Limit(10).
+			Find(&artists).Error
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to search artists: %w", err)
+	}
+
+	// Build response
+	responses := make([]*ArtistDetailResponse, len(artists))
+	for i, artist := range artists {
+		responses[i] = s.buildArtistResponse(&artist)
+	}
+
+	return responses, nil
+}
+
 // buildArtistResponse converts an Artist model to ArtistDetailResponse
 func (s *ArtistService) buildArtistResponse(artist *models.Artist) *ArtistDetailResponse {
 	return &ArtistDetailResponse{
