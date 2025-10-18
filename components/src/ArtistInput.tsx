@@ -1,13 +1,10 @@
 import { useState } from 'react'
+import { useDebounce } from 'use-debounce'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FieldInfo } from '@/components/ui/form-field'
-
-interface Artist {
-    id: number
-    name: string
-    location: string
-}
+import { Artist, getArtistLocation } from '@/lib/types/artist'
+import { useArtistSearch } from '@/lib/hooks/useArtist'
 
 interface ArtistInputProps {
     field: any
@@ -15,24 +12,9 @@ interface ArtistInputProps {
     showRemoveButton?: boolean
 }
 
-// Mock artist data - replace with API call later
-const mockArtists: Artist[] = [
-    { id: 1, name: 'Radiohead', location: 'Oxford, UK' },
-    { id: 2, name: 'The Beatles', location: 'Liverpool, UK' },
-    { id: 3, name: 'Kendrick Lamar', location: 'Compton, CA' },
-    { id: 4, name: 'Billie Eilish', location: 'Los Angeles, CA' },
-    { id: 5, name: 'Arctic Monkeys', location: 'Sheffield, UK' },
-    { id: 6, name: 'Taylor Swift', location: 'Nashville, TN' },
-    { id: 7, name: 'The Strokes', location: 'New York, NY' },
-    { id: 8, name: 'Glixen', location: 'Phoenix, AZ' },
-    { id: 9, name: 'Desert Sounds', location: 'Tucson, AZ' },
-]
-
 export const ArtistInput = ({ field, onRemove, showRemoveButton }: ArtistInputProps) => {
-    // Field-specific search state
     const [fieldSearchStates, setFieldSearchStates] = useState<Record<string, { open: boolean; value: string }>>({})
 
-    // Helper functions for field-specific search state
     const getFieldSearchState = (fieldName: string) => {
         return fieldSearchStates[fieldName] || { open: false, value: '' }
     }
@@ -47,11 +29,16 @@ export const ArtistInput = ({ field, onRemove, showRemoveButton }: ArtistInputPr
         })
     }
 
-    // Filter artists based on field-specific search
+    const searchValue = getFieldSearchState(field.name).value
+
+    const [debouncedSearchValue] = useDebounce(searchValue, 300)
+
+    const { data: searchResults, isLoading } = useArtistSearch({
+        query: debouncedSearchValue,
+    })
+
     const getFilteredArtists = (fieldName: string) => {
-        const searchValue = getFieldSearchState(fieldName).value
-        if (!searchValue) return []
-        return mockArtists.filter((artist) => artist.name.toLowerCase().includes(searchValue.toLowerCase()))
+        return searchResults?.artists || []
     }
 
     // Handle artist selection/confirmation - auto-corrects casing and closes dropdown
@@ -63,7 +50,9 @@ export const ArtistInput = ({ field, onRemove, showRemoveButton }: ArtistInputPr
             field.handleChange(finalName)
 
             // If there's an exact match, update with proper casing
-            const exactMatch = mockArtists.find((artist) => artist.name.toLowerCase() === finalName.toLowerCase())
+            const exactMatch = searchResults?.artists?.find(
+                (artist) => artist.name.toLowerCase() === finalName.toLowerCase()
+            )
             if (exactMatch && exactMatch.name !== finalName) {
                 field.handleChange(exactMatch.name)
             }
@@ -154,7 +143,7 @@ export const ArtistInput = ({ field, onRemove, showRemoveButton }: ArtistInputPr
                                                         <div className="flex items-center justify-between w-full">
                                                             <span>{artist.name}</span>
                                                             <span className="ml-auto text-xs tracking-widest text-muted-foreground">
-                                                                {artist.location}
+                                                                {getArtistLocation(artist)}
                                                             </span>
                                                         </div>
                                                     </button>

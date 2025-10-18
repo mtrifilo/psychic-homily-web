@@ -48,6 +48,9 @@ export const API_ENDPOINTS = {
         SUBMIT: `${API_BASE_URL}/shows`,
         // Add more show-related endpoints as needed
     },
+    ARTISTS: {
+        SEARCH: `${API_BASE_URL}/search`,
+    },
 
     // System endpoints
     HEALTH: `${API_BASE_URL}/health`,

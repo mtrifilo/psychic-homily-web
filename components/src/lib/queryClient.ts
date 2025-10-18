@@ -6,6 +6,7 @@
  */
 
 import { QueryClient, DefaultOptions } from '@tanstack/react-query'
+import { ArtistSearchParams } from './types/artist'
 
 // Default query options for all queries
 const defaultQueryOptions: DefaultOptions = {
@@ -62,6 +63,10 @@ export const queryKeys = {
         detail: (id: string) => ['venues', 'detail', id] as const,
     },
 
+    artists: {
+        search: (params: ArtistSearchParams) => ['artists', 'search', params.query.toLowerCase()],
+    },
+
     // System queries
     system: {
         health: ['system', 'health'] as const,
@@ -78,6 +83,8 @@ export const invalidateQueries = {
 
     // Invalidate specific show queries
     show: (id: string) => queryClient.invalidateQueries({ queryKey: ['shows', 'detail', id] }),
+
+    artists: () => queryClient.invalidateQueries({ queryKey: ['artists'] }),
 
     // Invalidate all venue-related queries
     venues: () => queryClient.invalidateQueries({ queryKey: ['venues'] }),

@@ -1,5 +1,6 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { API_ENDPOINTS, apiRequest } from '../api'
+import { useMutation } from '@tanstack/react-query'
+import { API_ENDPOINTS, apiRequest } from '@/lib/api'
+import { invalidateQueries } from '@/lib/queryClient'
 
 interface Artist {
     name: string
@@ -28,8 +29,6 @@ interface ShowSubmission {
 }
 
 export const useShow = () => {
-    const queryClient = useQueryClient()
-
     return useMutation({
         mutationFn: async (showSubmission: ShowSubmission) => {
             return apiRequest(API_ENDPOINTS.SHOWS.SUBMIT, {
@@ -38,11 +37,13 @@ export const useShow = () => {
             })
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['shows'] })
+            invalidateQueries.shows()
+            invalidateQueries.artists()
         },
         onError: (error) => {
             console.error('Error creating show', error)
-            queryClient.invalidateQueries({ queryKey: ['shows'] })
+            invalidateQueries.shows()
+            invalidateQueries.artists()
         },
     })
 }

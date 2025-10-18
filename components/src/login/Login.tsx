@@ -46,7 +46,7 @@ function Login() {
                     console.log('User from auth context:', user)
                 },
                 onError: (error) => {
-                    console.error('useForm error:', error)
+                    console.error('error detected:', error.message)
                     // Error handling is done by the mutation
                 },
             })
