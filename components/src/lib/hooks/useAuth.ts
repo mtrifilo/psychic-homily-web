@@ -54,11 +54,21 @@ export const useLogin = () => {
 
     return useMutation({
         mutationFn: async (credentials: LoginCredentials): Promise<AuthResponse> => {
-            return apiRequest(API_ENDPOINTS.AUTH.LOGIN, {
+            const response = await apiRequest<AuthResponse>(API_ENDPOINTS.AUTH.LOGIN, {
                 method: 'POST',
                 body: JSON.stringify(credentials),
                 credentials: 'include', // Include cookies in request
             })
+            
+            // Throw an error if login was unsuccessful
+            if (!response.success) {
+                const error: any = new Error(response.message || 'Login failed')
+                error.status = 401
+                error.details = response
+                throw error
+            }
+            
+            return response
         },
         onSuccess: (data) => {
             if (data.success && data.user) {
@@ -86,11 +96,21 @@ export const useRegister = () => {
 
     return useMutation({
         mutationFn: async (credentials: RegisterCredentials): Promise<AuthResponse> => {
-            return apiRequest(API_ENDPOINTS.AUTH.REGISTER, {
+            const response = await apiRequest<AuthResponse>(API_ENDPOINTS.AUTH.REGISTER, {
                 method: 'POST',
                 body: JSON.stringify(credentials),
                 credentials: 'include', // Include cookies in request
             })
+            
+            // Throw an error if registration was unsuccessful
+            if (!response.success) {
+                const error: any = new Error(response.message || 'Registration failed')
+                error.status = 400
+                error.details = response
+                throw error
+            }
+            
+            return response
         },
         onSuccess: (data) => {
             if (data.success && data.user) {
@@ -147,6 +167,7 @@ export const useProfile = () => {
         staleTime: 5 * 60 * 1000, // 5 minutes
         retry: (failureCount, error: any) => {
             // Don't retry on 401/403 errors (authentication issues)
+            console.log('useProfile - status::', error?.status)
             if (error?.status === 401 || error?.status === 403) {
                 return false
             }

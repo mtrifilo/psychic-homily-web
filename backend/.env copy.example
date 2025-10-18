@@ -1,0 +1,47 @@
+# Node Environment
+NODE_ENV=development
+
+# Server Configuration
+API_ADDR=localhost:8080
+API_PORT=8080
+POSTGRES_PORT=5432
+
+# Database Configuration
+POSTGRES_DB=psychicdb
+POSTGRES_USER=psychicadmin
+POSTGRES_PASSWORD=secretpassword
+DATABASE_URL=postgres://psychicadmin:secretpassword@localhost:5432/psychicdb?sslmode=disable&timezone=UTC
+
+# OAuth Configuration
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+GOOGLE_CALLBACK_URL=http://localhost:8080/auth/callback/google
+GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_SECRET=your_github_client_secret
+GITHUB_CALLBACK_URL=http://localhost:8080/auth/callback/github
+
+# Security Keys
+OAUTH_SECRET_KEY=development-oauth-secret-key-32-chars-long
+JWT_SECRET_KEY=development-jwt-secret-key-32-chars-long
+SESSION_SECRET=development-oauth-secret-key-32-chars-long
+
+# JWT Configuration
+JWT_EXPIRY_HOURS=24
+
+# Session Configuration
+SESSION_PATH=/
+SESSION_DOMAIN=localhost  # ← Could be empty for development
+SESSION_MAX_AGE=86400
+SESSION_HTTP_ONLY=true
+SESSION_SECURE=false
+SESSION_SAME_SITE=lax
+
+# CORS Configuration (NEW - if you make it configurable)
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,https://psychichomily.com,https://www.psychichomily.com
+
+# Logging Configuration (NEW)
+LOG_LEVEL=debug  # ← MISSING: More verbose for development
+
+# PgAdmin for development
+PGADMIN_DEFAULT_EMAIL=admin@psychichomily.local
+PGADMIN_DEFAULT_PASSWORD=admin123

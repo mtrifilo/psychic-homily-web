@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
@@ -31,8 +32,9 @@ interface LoginFormData {
 }
 
 function Login() {
+    const [isOpen, setIsOpen] = useState(false)
     const loginMutation = useLogin()
-    const { user, clearError } = useAuthContext()
+    const { clearError } = useAuthContext()
 
     const form = useForm({
         defaultValues: {
@@ -42,12 +44,16 @@ function Login() {
         onSubmit: async ({ value }) => {
             loginMutation.mutate(value, {
                 onSuccess: (data) => {
-                    console.log('Data from login mutation:', data)
-                    console.log('User from auth context:', user)
+                    console.log('Login successful:', data)
+                    // Close the dialog on success
+                    setIsOpen(false)
+                    // Clear form and errors
+                    form.reset()
+                    loginMutation.reset()
                 },
                 onError: (error) => {
-                    console.error('error detected:', error.message)
-                    // Error handling is done by the mutation
+                    console.error('Login failed:', error)
+                    // Error will be displayed via loginMutation.error
                 },
             })
         },
@@ -59,11 +65,14 @@ function Login() {
     return (
         <div className="mb-4">
             <Dialog
+                open={isOpen}
                 onOpenChange={(open) => {
+                    setIsOpen(open)
                     if (!open) {
                         // Clear form and errors when dialog closes
                         form.reset()
                         clearError()
+                        loginMutation.reset()
                     }
                 }}
             >

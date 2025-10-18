@@ -140,12 +140,21 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*mod
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
+	// To prevent timing attacks that reveal whether an email exists,
+	// always perform a bcrypt comparison even if user doesn't exist
 	if user == nil {
-		return nil, fmt.Errorf("user not found, or invalid credentials")
+		// Use a dummy hash to maintain constant time
+		// This will always fail but takes the same time as a real verification
+		dummyHash := "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy" // bcrypt hash of "dummy"
+		bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte(password))
+		return nil, fmt.Errorf("invalid credentials")
 	}
 
 	if user.PasswordHash == nil {
-		return nil, fmt.Errorf("user account is OAuth only. Please use social login.")
+		// Also do dummy verification for OAuth-only accounts
+		dummyHash := "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+		bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte(password))
+		return nil, fmt.Errorf("invalid credentials")
 	}
 
 	if err := s.VerifyPassword(*user.PasswordHash, password); err != nil {

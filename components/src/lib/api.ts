@@ -80,17 +80,22 @@ export const apiRequest = async <T = any>(endpoint: string, options: RequestInit
             message: `HTTP ${response.status}: ${response.statusText}`,
         }))
 
-        // Create a more detailed error object
-        const detailedError = {
-            message: error.message || `HTTP ${response.status}: ${response.statusText}`,
-            status: response.status,
-            statusText: response.statusText,
-            details: error.details || error.errors || error, // Capture validation errors
-        }
+        // Create a custom error object that can be checked by retry logic
+        const apiError: any = new Error(
+            error.message || `HTTP ${response.status}: ${response.statusText}`
+        )
+        apiError.status = response.status
+        apiError.statusText = response.statusText
+        apiError.details = error.details || error.errors || error
 
-        console.error('Error - apiRequest detailed error:', JSON.stringify(detailedError))
+        console.error('Error - apiRequest detailed error:', JSON.stringify({
+            message: apiError.message,
+            status: apiError.status,
+            statusText: apiError.statusText,
+            details: apiError.details,
+        }))
 
-        throw new Error(JSON.stringify(detailedError))
+        throw apiError
     }
 
     return response.json()

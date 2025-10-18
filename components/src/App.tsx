@@ -29,7 +29,7 @@ function AppContent() {
 
     if (!isAuthenticated) {
         return (
-            <div className="flex flex-col items-center justify-center min-h-screen w-full px-4 md:px-16 lg:px-16">
+            <div className="flex flex-col items-center justify-center w-full px-4 md:px-16 lg:px-16 lg:pl-16">
                 <Card className="w-full max-w-md">
                     <CardHeader className="text-center">
                         <CardTitle className="text-3xl font-bold">Psychic Homily</CardTitle>
