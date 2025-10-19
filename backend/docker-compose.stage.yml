@@ -1,7 +1,7 @@
 services:
   # Database services (Docker)
   db:
-    image: postgres:17
+    image: postgres:18
     container_name: ph_stage_db
     restart: unless-stopped
     env_file:
