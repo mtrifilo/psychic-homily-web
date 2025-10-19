@@ -3,7 +3,7 @@ import { useDebounce } from 'use-debounce'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FieldInfo } from '@/components/ui/form-field'
-import { Artist, getArtistLocation } from '@/lib/types/artist'
+import { getArtistLocation } from '@/lib/types/artist'
 import { useArtistSearch } from '@/lib/hooks/useArtist'
 
 interface ArtistInputProps {
@@ -33,11 +33,11 @@ export const ArtistInput = ({ field, onRemove, showRemoveButton }: ArtistInputPr
 
     const [debouncedSearchValue] = useDebounce(searchValue, 300)
 
-    const { data: searchResults, isLoading } = useArtistSearch({
+    const { data: searchResults } = useArtistSearch({
         query: debouncedSearchValue,
     })
 
-    const getFilteredArtists = (fieldName: string) => {
+    const getFilteredArtists = () => {
         return searchResults?.artists || []
     }
 
@@ -123,7 +123,7 @@ export const ArtistInput = ({ field, onRemove, showRemoveButton }: ArtistInputPr
                         <div className="absolute top-full left-0 right-0 z-50 mt-1 rounded-md border bg-popover p-0 text-popover-foreground shadow-md outline-none">
                             <div className="max-h-[300px] overflow-y-auto">
                                 {(() => {
-                                    const filteredArtists = getFilteredArtists(field.name)
+                                    const filteredArtists = getFilteredArtists()
                                     return (
                                         filteredArtists.length > 0 && (
                                             <div className="overflow-hidden p-1 text-foreground">
@@ -155,7 +155,7 @@ export const ArtistInput = ({ field, onRemove, showRemoveButton }: ArtistInputPr
 
                                 {(() => {
                                     const fieldState = getFieldSearchState(field.name)
-                                    const filteredArtists = getFilteredArtists(field.name)
+                                    const filteredArtists = getFilteredArtists()
                                     return fieldState.value &&
                                         !filteredArtists.some(
                                             (artist) => artist.name.toLowerCase() === fieldState.value.toLowerCase()
