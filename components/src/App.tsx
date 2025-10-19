@@ -49,18 +49,18 @@ function AppContent() {
     }
 
     return (
-        <div className="flex flex-col items-start justify-center w-full px-4 md:px-16 lg:px-16 lg:pl-16">
-            <Alert className="mb-6">
-                <AlertDescription className="flex justify-between items-center">
+        <div className="flex flex-col items-start justify-center w-full max-w-full px-4 md:px-16 lg:px-16 lg:pl-16">
+            <Alert className="mb-6 w-full max-w-full">
+                <AlertDescription className="flex justify-between items-center flex-wrap gap-2">
                     <div className="flex items-center gap-2">
                         <Badge variant="secondary">Authenticated</Badge>
-                        <span>Welcome back, {user?.first_name || user?.email}!</span>
+                        <span className="truncate">Welcome back, {user?.first_name || user?.email}!</span>
                     </div>
                     <Logout />
                 </AlertDescription>
             </Alert>
 
-            <Card className="w-full">
+            <Card className="w-full min-w-0">
                 <CardHeader>
                     <CardTitle>Show Management</CardTitle>
                     <CardDescription>Submit and manage your music show information</CardDescription>

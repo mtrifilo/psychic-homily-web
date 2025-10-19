@@ -75,25 +75,15 @@ export const apiRequest = async <T = any>(endpoint: string, options: RequestInit
     const response = await fetch(endpoint, config)
 
     if (!response.ok) {
-        console.log('response', response)
         const error = await response.json().catch(() => ({
             message: `HTTP ${response.status}: ${response.statusText}`,
         }))
 
         // Create a custom error object that can be checked by retry logic
-        const apiError: any = new Error(
-            error.message || `HTTP ${response.status}: ${response.statusText}`
-        )
+        const apiError: any = new Error(error.message || `HTTP ${response.status}: ${response.statusText}`)
         apiError.status = response.status
         apiError.statusText = response.statusText
         apiError.details = error.details || error.errors || error
-
-        console.error('Error - apiRequest detailed error:', JSON.stringify({
-            message: apiError.message,
-            status: apiError.status,
-            statusText: apiError.statusText,
-            details: apiError.details,
-        }))
 
         throw apiError
     }

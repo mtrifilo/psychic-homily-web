@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
-import { useProfile } from '@/lib/hooks/useAuth'
+import { useProfile, useLogout } from '@/lib/hooks/useAuth'
 
 interface User {
     id: string
@@ -35,7 +35,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     // Use the useProfile hook to get authentication status
     const { data: profileData, isLoading, error: profileError } = useProfile()
-    console.log('profileData', profileData)
+    const logoutMutation = useLogout()
 
     // Update user state when profile data changes
     useEffect(() => {
@@ -69,6 +69,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             setUser(null)
             // The useProfile hook will automatically handle the logout state
             // when the server clears the HTTP-only cookie
+            await logoutMutation.mutateAsync()
         } catch (err) {
             console.error('Logout failed:', err)
         }
@@ -81,7 +82,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const value: AuthContextType = {
         user,
         isAuthenticated: Boolean(user),
-        isLoading,
+        isLoading: isLoading || logoutMutation.isPending,
         error,
         setUser,
         setError,

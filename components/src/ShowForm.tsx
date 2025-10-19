@@ -120,7 +120,7 @@ export const ShowForm = () => {
     }
 
     return (
-        <div className="flex flex-col items-start justify-center w-md">
+        <div className="flex flex-col items-start justify-center w-full">
             <form
                 className="w-full space-y-4"
                 onSubmit={(e) => {
@@ -129,7 +129,7 @@ export const ShowForm = () => {
                     form.handleSubmit()
                 }}
             >
-                <div className="w-full">
+                <div className="w-full min-w-0">
                     <form.Field
                         name="artists"
                         mode="array"

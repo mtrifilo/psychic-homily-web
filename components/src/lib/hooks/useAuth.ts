@@ -59,7 +59,7 @@ export const useLogin = () => {
                 body: JSON.stringify(credentials),
                 credentials: 'include', // Include cookies in request
             })
-            
+
             // Throw an error if login was unsuccessful
             if (!response.success) {
                 const error: any = new Error(response.message || 'Login failed')
@@ -67,7 +67,7 @@ export const useLogin = () => {
                 error.details = response
                 throw error
             }
-            
+
             return response
         },
         onSuccess: (data) => {
@@ -79,14 +79,11 @@ export const useLogin = () => {
                     user: data.user,
                 })
 
-                // Invalidate and refetch auth queries
                 invalidateQueries.auth()
             }
         },
-        onError: () => {
-            // Clear user data from cache on error
-            queryClient.removeQueries({ queryKey: ['auth'] })
-        },
+        // No need to modify cache on login error - just display the error in the UI
+        // The mutation error state will be shown via loginMutation.error
     })
 }
 
@@ -101,7 +98,7 @@ export const useRegister = () => {
                 body: JSON.stringify(credentials),
                 credentials: 'include', // Include cookies in request
             })
-            
+
             // Throw an error if registration was unsuccessful
             if (!response.success) {
                 const error: any = new Error(response.message || 'Registration failed')
@@ -109,7 +106,7 @@ export const useRegister = () => {
                 error.details = response
                 throw error
             }
-            
+
             return response
         },
         onSuccess: (data) => {
@@ -125,10 +122,8 @@ export const useRegister = () => {
                 invalidateQueries.auth()
             }
         },
-        onError: () => {
-            // Clear user data from cache on error
-            queryClient.removeQueries({ queryKey: ['auth'] })
-        },
+        // No need to modify cache on registration error - just display the error in the UI
+        // The mutation error state will be shown via registerMutation.error
     })
 }
 
@@ -167,7 +162,6 @@ export const useProfile = () => {
         staleTime: 5 * 60 * 1000, // 5 minutes
         retry: (failureCount, error: any) => {
             // Don't retry on 401/403 errors (authentication issues)
-            console.log('useProfile - status::', error?.status)
             if (error?.status === 401 || error?.status === 403) {
                 return false
             }
@@ -205,8 +199,6 @@ export const useRefreshToken = () => {
 // Check if user is authenticated
 export const useIsAuthenticated = () => {
     const { data: profile, isLoading, error } = useProfile()
-
-    console.log('profile', profile)
 
     if (error) {
         console.error('Error checking authentication:', error)
