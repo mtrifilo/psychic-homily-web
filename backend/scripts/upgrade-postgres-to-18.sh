@@ -14,6 +14,11 @@ COMPOSE_FILE="backend/docker-compose.${ENVIRONMENT}.yml"
 ENV_FILE="backend/.env.${ENVIRONMENT}"
 PROJECT_NAME="backend"  # Use "backend" as project name to match existing volumes
 
+# Load environment variables
+set -a
+source "$ENV_FILE"
+set +a
+
 echo "🔄 PostgreSQL 17 → 18 Upgrade Script"
 echo "Environment: $ENVIRONMENT"
 echo "Timestamp: $TIMESTAMP"
