@@ -20,7 +20,7 @@ export const AiForm = () => {
     })
 
     return (
-        <div className="flex flex-col items-start justify-center w-md">
+        <div className="flex flex-col items-start justify-center w-full">
             <form
                 className="w-full space-y-4"
                 onSubmit={(e) => {

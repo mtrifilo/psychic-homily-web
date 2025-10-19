@@ -63,12 +63,12 @@ export const ArtistInput = ({ field, onRemove, showRemoveButton }: ArtistInputPr
     }
 
     return (
-        <div className="flex flex-col space-y-2">
+        <div className="flex flex-col space-y-2 min-w-0">
             <label htmlFor={field.name} className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 Artist
             </label>
-            <div className="flex items-center gap-2">
-                <div className="relative flex-1">
+            <div className="flex items-center gap-2 min-w-0">
+                <div className="relative flex-1 min-w-0">
                     <Input
                         type="text"
                         className="w-full"
@@ -120,7 +120,7 @@ export const ArtistInput = ({ field, onRemove, showRemoveButton }: ArtistInputPr
                         autoComplete="off"
                     />
                     {getFieldSearchState(field.name).open && (
-                        <div className="absolute top-full left-0 right-0 z-50 mt-1 rounded-md border bg-popover p-0 text-popover-foreground shadow-md outline-none">
+                        <div className="absolute top-full left-0 w-full z-50 mt-1 rounded-md border bg-popover p-0 text-popover-foreground shadow-md outline-none">
                             <div className="max-h-[300px] overflow-y-auto">
                                 {(() => {
                                     const filteredArtists = getFilteredArtists()
@@ -140,9 +140,9 @@ export const ArtistInput = ({ field, onRemove, showRemoveButton }: ArtistInputPr
                                                             handleArtistConfirm(field.name, field, artist.name)
                                                         }}
                                                     >
-                                                        <div className="flex items-center justify-between w-full">
-                                                            <span>{artist.name}</span>
-                                                            <span className="ml-auto text-xs tracking-widest text-muted-foreground">
+                                                        <div className="flex items-center justify-between w-full min-w-0 gap-2">
+                                                            <span className="truncate">{artist.name}</span>
+                                                            <span className="flex-shrink-0 text-xs tracking-widest text-muted-foreground">
                                                                 {getArtistLocation(artist)}
                                                             </span>
                                                         </div>
@@ -172,7 +172,7 @@ export const ArtistInput = ({ field, onRemove, showRemoveButton }: ArtistInputPr
                                                     handleArtistConfirm(field.name, field)
                                                 }}
                                             >
-                                                "{field.state.value}"
+                                                <span className="truncate">"{field.state.value}"</span>
                                             </button>
                                         </>
                                     ) : null
