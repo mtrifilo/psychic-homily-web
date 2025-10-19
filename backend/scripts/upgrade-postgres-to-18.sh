@@ -102,6 +102,11 @@ fi
 docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" stop db
 echo "✅ Database stopped"
 
+# Remove the container so volume can be deleted
+echo "🗑️  Removing database container..."
+docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" rm -f db
+echo "✅ Container removed"
+
 echo ""
 echo "💾 Step 6: Creating Filesystem Backup (safety net)"
 echo "=================================================="
