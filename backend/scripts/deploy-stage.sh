@@ -4,6 +4,7 @@
 set -e
 
 COMMIT_SHA=$1
+PROJECT_NAME="backend"  # Use "backend" as project name to match existing volumes
 COMPOSE_FILE="backend/docker-compose.stage.yml"
 BACKUP_DIR="/opt/psychic-homily-stage/backend/backups"
 SERVICE_NAME="psychic-homily-stage"
@@ -33,7 +34,7 @@ fi
 
 # Clean up any orphaned containers (PRESERVE VOLUMES FOR DATA SAFETY)
 echo "🧹 Cleaning up orphaned containers (preserving data volumes)..."
-docker compose -f "backend/docker-compose.stage.yml" --env-file "backend/.env.stage" down --remove-orphans 2>/dev/null || true
+docker compose -p "$PROJECT_NAME" -f "backend/docker-compose.stage.yml" --env-file "backend/.env.stage" down --remove-orphans 2>/dev/null || true
 
 # Force remove any existing containers with the exact names we'll use
 echo "🧹 Force removing existing containers..."
@@ -47,19 +48,19 @@ if docker container inspect ph_stage_db >/dev/null 2>&1; then
 fi
 
 # Only remove Redis cache volume (safe to delete), but preserve database volume
-docker volume rm -f psychic-homily-stage_ph_staging_redis 2>/dev/null || true
+docker volume rm -f backend_ph_stage_redis 2>/dev/null || true
 
-# NOTE: We deliberately DO NOT remove ph_staging_data to preserve database data
+# NOTE: We deliberately DO NOT remove backend_ph_stage_data to preserve database data
 
 # Ensure database services are running
 echo "🐳 Ensuring stage database services are healthy..."
-docker compose -f "backend/docker-compose.stage.yml" --env-file "backend/.env.stage" up -d db redis
+docker compose -p "$PROJECT_NAME" -f "backend/docker-compose.stage.yml" --env-file "backend/.env.stage" up -d db redis
 
 # Wait for database health with better error handling
 echo "⏳ Waiting for stage database..."
 DB_READY=false
 for i in {1..20}; do
-    if docker compose -f "backend/docker-compose.stage.yml" --env-file "backend/.env.stage" exec -T db pg_isready -U "${POSTGRES_USER:-ph_stage_user}" -d "${POSTGRES_DB:-psychic_homily_stage}" >/dev/null 2>&1; then
+    if docker compose -p "$PROJECT_NAME" -f "backend/docker-compose.stage.yml" --env-file "backend/.env.stage" exec -T db pg_isready -U "${POSTGRES_USER:-ph_stage_user}" -d "${POSTGRES_DB:-psychic_homily_stage}" >/dev/null 2>&1; then
         echo "✅ Stage database ready"
         DB_READY=true
         break
@@ -70,15 +71,15 @@ done
 
 if [ "$DB_READY" = false ]; then
     echo "❌ Database failed to become ready - aborting deployment"
-    docker compose -f "$COMPOSE_FILE" logs db
+    docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" --env-file "backend/.env.stage" logs db
     exit 1
 fi
 
 # Run migrations BEFORE deploying new binary
 echo "🔄 Running stage database migrations..."
-if ! docker compose -f "backend/docker-compose.stage.yml" --env-file "backend/.env.stage" run --rm migrate; then
+if ! docker compose -p "$PROJECT_NAME" -f "backend/docker-compose.stage.yml" --env-file "backend/.env.stage" run --rm migrate; then
     echo "❌ Stage migration failed - aborting deployment"
-    docker compose -f "backend/docker-compose.stage.yml" --env-file "backend/.env.stage" logs migrate
+    docker compose -p "$PROJECT_NAME" -f "backend/docker-compose.stage.yml" --env-file "backend/.env.stage" logs migrate
     exit 1
 fi
 

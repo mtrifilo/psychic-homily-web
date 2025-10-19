@@ -12,6 +12,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_DIR="/opt/psychic-homily-${ENVIRONMENT}/backend/backups"
 COMPOSE_FILE="backend/docker-compose.${ENVIRONMENT}.yml"
 ENV_FILE="backend/.env.${ENVIRONMENT}"
+PROJECT_NAME="backend"  # Use "backend" as project name to match existing volumes
 
 echo "🔄 PostgreSQL 17 → 18 Upgrade Script"
 echo "Environment: $ENVIRONMENT"
@@ -46,7 +47,7 @@ mkdir -p "$BACKUP_DIR"
 echo ""
 echo "📊 Step 1: Pre-upgrade Database Statistics"
 echo "==========================================="
-docker-compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T db psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c "
+docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T db psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c "
 SELECT 'users' as table_name, COUNT(*) as count FROM users
 UNION ALL SELECT 'artists', COUNT(*) FROM artists
 UNION ALL SELECT 'shows', COUNT(*) FROM shows
@@ -61,7 +62,7 @@ echo ""
 echo "💾 Step 2: Creating SQL Backup"
 echo "==============================="
 BACKUP_FILE="$BACKUP_DIR/pg17_to_pg18_${TIMESTAMP}.sql"
-docker-compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T db \
+docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T db \
     pg_dump -U ${POSTGRES_USER} ${POSTGRES_DB} > "$BACKUP_FILE"
 
 if [[ ! -s "$BACKUP_FILE" ]]; then
@@ -93,13 +94,15 @@ if [[ "$ENVIRONMENT" == "production" ]]; then
     sudo systemctl stop psychic-homily-production || echo "⚠️  Service not running via systemd"
 fi
 
-docker-compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" stop db
+docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" stop db
 echo "✅ Database stopped"
 
 echo ""
 echo "💾 Step 6: Creating Filesystem Backup (safety net)"
 echo "=================================================="
-VOLUME_NAME="${ENVIRONMENT}_postgres_data"
+# Volume name matches docker-compose with backend project name
+VOLUME_NAME="${PROJECT_NAME}_ph_${ENVIRONMENT}_data"
+echo "Using volume name: $VOLUME_NAME"
 docker run --rm \
     -v ${VOLUME_NAME}:/data \
     -v "$BACKUP_DIR":/backup \
@@ -115,21 +118,21 @@ echo "✅ Old volume removed"
 echo ""
 echo "🔧 Step 8: Starting PostgreSQL 18"
 echo "=================================="
-docker-compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d db
+docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d db
 sleep 10  # Wait for database to initialize
 echo "✅ PostgreSQL 18 started"
 
 echo ""
 echo "🔄 Step 9: Running Migrations"
 echo "============================="
-docker-compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" run --rm migrate
+docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" run --rm migrate
 echo "✅ Migrations applied (including new autocomplete indexes)"
 
 echo ""
 echo "📥 Step 10: Restoring Data"
 echo "=========================="
 gunzip -c "$BACKUP_FILE.gz" | \
-    docker-compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T db \
+    docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T db \
     psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} 2>&1 | \
     grep -v "ERROR.*already exists" | \
     grep -E "(ERROR|FATAL)" || true
@@ -139,7 +142,7 @@ echo "✅ Data restored (index/constraint warnings are expected)"
 echo ""
 echo "🔍 Step 11: Verifying Data After Restore"
 echo "========================================="
-docker-compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T db psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c "
+docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T db psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c "
 SELECT 'PostgreSQL Version' as info, version() as value
 UNION ALL
 SELECT 'pg_trgm Extension', extversion FROM pg_extension WHERE extname = 'pg_trgm'
@@ -156,7 +159,7 @@ SELECT 'venues', COUNT(*)::text FROM venues;
 echo ""
 echo "🔍 Step 12: Verifying Autocomplete Indexes"
 echo "==========================================="
-docker-compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T db psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c "\d+ artists" | grep idx_artists
+docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T db psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c "\d+ artists" | grep idx_artists
 
 echo ""
 if [[ "$ENVIRONMENT" == "production" ]]; then
