@@ -47,6 +47,7 @@ type VenueDetailResponse struct {
 	City      string         `json:"city"`
 	State     string         `json:"state"`
 	Zipcode   *string        `json:"zipcode"`
+	Verified  bool           `json:"verified"` // Admin-verified as legitimate venue
 	Social    SocialResponse `json:"social"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
@@ -67,13 +68,14 @@ func (s *VenueService) CreateVenue(req *CreateVenueRequest) (*VenueDetailRespons
 		return nil, fmt.Errorf("failed to check existing venue: %w", err)
 	}
 
-	// Create the venue
+	// Create the venue (unverified by default for safety)
 	venue := &models.Venue{
-		Name:    req.Name,
-		Address: req.Address,
-		City:    req.City,
-		State:   req.State,
-		Zipcode: req.Zipcode,
+		Name:     req.Name,
+		Address:  req.Address,
+		City:     req.City,
+		State:    req.State,
+		Zipcode:  req.Zipcode,
+		Verified: false, // Always false for new venues - requires admin approval
 		Social: models.Social{
 			Instagram:  req.Instagram,
 			Facebook:   req.Facebook,
@@ -313,14 +315,15 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 		return nil, fmt.Errorf("failed to check existing venue: %w", err)
 	}
 
-	// Venue doesn't exist, create it
+	// Venue doesn't exist, create it (unverified by default for safety)
 	venue = models.Venue{
-		Name:    name,
-		Address: address,
-		City:    city,
-		State:   state,
-		Zipcode: zipcode,
-		Social:  models.Social{}, // Empty social fields
+		Name:     name,
+		Address:  address,
+		City:     city,
+		State:    state,
+		Zipcode:  zipcode,
+		Verified: false,           // Always false for new venues - requires admin approval
+		Social:   models.Social{}, // Empty social fields
 	}
 
 	if err := query.Create(&venue).Error; err != nil {
@@ -333,12 +336,13 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 // buildVenueResponse converts a Venue model to VenueDetailResponse
 func (s *VenueService) buildVenueResponse(venue *models.Venue) *VenueDetailResponse {
 	return &VenueDetailResponse{
-		ID:      venue.ID,
-		Name:    venue.Name,
-		Address: venue.Address,
-		City:    venue.City,
-		State:   venue.State,
-		Zipcode: venue.Zipcode,
+		ID:       venue.ID,
+		Name:     venue.Name,
+		Address:  venue.Address,
+		City:     venue.City,
+		State:    venue.State,
+		Zipcode:  venue.Zipcode,
+		Verified: venue.Verified,
 		Social: SocialResponse{
 			Instagram:  venue.Social.Instagram,
 			Facebook:   venue.Social.Facebook,

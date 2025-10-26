@@ -11,3 +11,6 @@ ALTER TABLE venues ADD CONSTRAINT venues_name_key UNIQUE (name);
 ALTER TABLE venues ALTER COLUMN city DROP NOT NULL;
 ALTER TABLE venues ALTER COLUMN state DROP NOT NULL;
 
+-- Remove verified column
+ALTER TABLE venues DROP COLUMN IF EXISTS verified;
+
