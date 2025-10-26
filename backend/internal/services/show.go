@@ -26,7 +26,6 @@ func NewShowService() *ShowService {
 }
 
 // CreateShowVenue represents a venue in a show creation request.
-// City and State are required for duplicate prevention (same name in same city).
 type CreateShowVenue struct {
 	ID      *uint  `json:"id"`
 	Name    string `json:"name"`
@@ -45,7 +44,7 @@ type CreateShowArtist struct {
 
 // CreateShowRequest represents the data needed to create a new show.
 // The service will prevent duplicate headliners at the same venue on the same date/time
-// and prevent duplicate venues with the same name in the same city.
+// and reuse existing venues by name and city (venues are unique by name within a city).
 type CreateShowRequest struct {
 	Title          string             `json:"title" validate:"required"`
 	EventDate      time.Time          `json:"event_date" validate:"required"`
@@ -79,8 +78,8 @@ type VenueResponse struct {
 	ID      uint    `json:"id"`
 	Name    string  `json:"name"`
 	Address *string `json:"address"`
-	City    *string `json:"city"`
-	State   *string `json:"state"`
+	City    string  `json:"city"`
+	State   string  `json:"state"`
 }
 
 // ShowArtistSocials represents social media links for artists in show responses
@@ -427,46 +426,46 @@ func (s *ShowService) DeleteShow(showID uint) error {
 }
 
 // associateVenues associates venues with a show, creating new venues if needed.
-// Prevents duplicate venues by reusing existing venues with the same name in the same city.
+// Uses VenueService to ensure consistent venue creation logic.
 func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []CreateShowVenue) ([]VenueResponse, error) {
 	var venues []VenueResponse
 
+	// Create venue service for venue operations
+	venueService := NewVenueService()
+
 	for _, requestVenue := range requestVenues {
-		var venue models.Venue
+		var venue *models.Venue
 		var err error
 
 		// If ID is provided, try to find existing venue by ID
 		if requestVenue.ID != nil {
-			err = tx.First(&venue, *requestVenue.ID).Error
+			var venueModel models.Venue
+			err = tx.First(&venueModel, *requestVenue.ID).Error
 			if err == gorm.ErrRecordNotFound {
 				return nil, fmt.Errorf("venue with ID %d not found", *requestVenue.ID)
 			} else if err != nil {
 				return nil, fmt.Errorf("failed to find venue with ID %d: %w", *requestVenue.ID, err)
 			}
+			venue = &venueModel
 		} else {
-			// No ID provided, use name to find or create venue
-			if requestVenue.Name == "" {
-				return nil, fmt.Errorf("either ID or Name must be provided for venue")
+			// No ID provided, use VenueService to find or create venue (name unique per city)
+			// VenueService will validate required fields
+			var addressPtr *string
+			if requestVenue.Address != "" {
+				addressPtr = &requestVenue.Address
 			}
 
-			// Check for existing venue with same name in same city
-			err = tx.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)",
-				requestVenue.Name, requestVenue.City).First(&venue).Error
-			if err == gorm.ErrRecordNotFound {
-				// No venue with same name in same city, create new venue
-				venue = models.Venue{
-					Name:    requestVenue.Name,
-					City:    &requestVenue.City,
-					State:   &requestVenue.State,
-					Address: &requestVenue.Address,
-				}
-				if err := tx.Create(&venue).Error; err != nil {
-					return nil, fmt.Errorf("failed to create venue %s: %w", requestVenue.Name, err)
-				}
-			} else if err != nil {
-				return nil, fmt.Errorf("failed to find venue %s: %w", requestVenue.Name, err)
+			venue, err = venueService.FindOrCreateVenue(
+				requestVenue.Name,
+				requestVenue.City,
+				requestVenue.State,
+				addressPtr,
+				nil, // zipcode
+				tx,  // use transaction
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to find or create venue: %w", err)
 			}
-			// If err == nil, venue exists in same city, reuse it (no error)
 		}
 
 		// Create show-venue association

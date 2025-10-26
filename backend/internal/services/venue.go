@@ -26,8 +26,8 @@ func NewVenueService() *VenueService {
 type CreateVenueRequest struct {
 	Name       string  `json:"name" validate:"required"`
 	Address    *string `json:"address"`
-	City       *string `json:"city"`
-	State      *string `json:"state"`
+	City       string  `json:"city" validate:"required"`
+	State      string  `json:"state" validate:"required"`
 	Zipcode    *string `json:"zipcode"`
 	Instagram  *string `json:"instagram"`
 	Facebook   *string `json:"facebook"`
@@ -44,8 +44,8 @@ type VenueDetailResponse struct {
 	ID        uint           `json:"id"`
 	Name      string         `json:"name"`
 	Address   *string        `json:"address"`
-	City      *string        `json:"city"`
-	State     *string        `json:"state"`
+	City      string         `json:"city"`
+	State     string         `json:"state"`
 	Zipcode   *string        `json:"zipcode"`
 	Social    SocialResponse `json:"social"`
 	CreatedAt time.Time      `json:"created_at"`
@@ -58,11 +58,11 @@ func (s *VenueService) CreateVenue(req *CreateVenueRequest) (*VenueDetailRespons
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// Check if venue already exists
+	// Check if venue already exists (same name in same city)
 	var existingVenue models.Venue
-	err := s.db.Where("LOWER(name) = LOWER(?)", req.Name).First(&existingVenue).Error
+	err := s.db.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", req.Name, req.City).First(&existingVenue).Error
 	if err == nil {
-		return nil, fmt.Errorf("venue with name '%s' already exists", req.Name)
+		return nil, fmt.Errorf("venue with name '%s' already exists in %s", req.Name, req.City)
 	} else if err != gorm.ErrRecordNotFound {
 		return nil, fmt.Errorf("failed to check existing venue: %w", err)
 	}
@@ -101,24 +101,6 @@ func (s *VenueService) GetVenue(venueID uint) (*VenueDetailResponse, error) {
 
 	var venue models.Venue
 	err := s.db.First(&venue, venueID).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("venue not found")
-		}
-		return nil, fmt.Errorf("failed to get venue: %w", err)
-	}
-
-	return s.buildVenueResponse(&venue), nil
-}
-
-// GetVenueByName retrieves a venue by name (case-insensitive)
-func (s *VenueService) GetVenueByName(name string) (*VenueDetailResponse, error) {
-	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
-
-	var venue models.Venue
-	err := s.db.Where("LOWER(name) = LOWER(?)", name).First(&venue).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("venue not found")
@@ -172,18 +154,46 @@ func (s *VenueService) UpdateVenue(venueID uint, updates map[string]interface{})
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// Check if name is being updated and if it conflicts with existing venue
-	if name, ok := updates["name"].(string); ok {
-		var existingVenue models.Venue
-		err := s.db.Where("LOWER(name) = LOWER(?) AND id != ?", name, venueID).First(&existingVenue).Error
-		if err == nil {
-			return nil, fmt.Errorf("venue with name '%s' already exists", name)
-		} else if err != gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("failed to check existing venue: %w", err)
+	// Check if name/city is being updated and if it conflicts with existing venue
+	// Get current venue to check its city
+	var currentVenue models.Venue
+	err := s.db.First(&currentVenue, venueID).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("venue not found")
 		}
+		return nil, fmt.Errorf("failed to get venue: %w", err)
 	}
 
-	err := s.db.Model(&models.Venue{}).Where("id = ?", venueID).Updates(updates).Error
+	// Determine what values to check
+	var checkName string
+	var checkCity string
+
+	// If name is being updated, use new name, otherwise use current
+	if name, ok := updates["name"].(string); ok && name != "" {
+		checkName = name
+	} else {
+		checkName = currentVenue.Name
+	}
+
+	// If city is being updated, use new city, otherwise use current
+	if city, ok := updates["city"].(string); ok && city != "" {
+		checkCity = city
+	} else {
+		checkCity = currentVenue.City
+	}
+
+	// Check for duplicate venue with same name and city (excluding current venue)
+	var existingVenue models.Venue
+	err = s.db.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?) AND id != ?", checkName, checkCity, venueID).First(&existingVenue).Error
+	if err == nil {
+		return nil, fmt.Errorf("venue with name '%s' already exists in %s", checkName, checkCity)
+	} else if err != gorm.ErrRecordNotFound {
+		return nil, fmt.Errorf("failed to check existing venue: %w", err)
+	}
+
+	// Update the venue
+	err = s.db.Model(&models.Venue{}).Where("id = ?", venueID).Updates(updates).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to update venue: %w", err)
 	}
@@ -225,6 +235,99 @@ func (s *VenueService) DeleteVenue(venueID uint) error {
 	}
 
 	return nil
+}
+
+func (venueService *VenueService) SearchVenues(query string) ([]*VenueDetailResponse, error) {
+	if venueService.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	if query == "" {
+		return []*VenueDetailResponse{}, nil
+	}
+
+	var venues []models.Venue
+	var err error
+
+	if len(query) <= 2 {
+		err = venueService.db.
+			Where("LOWER(name) LIKE LOWER(?)", query+"%").
+			Order("name ASC").
+			Limit(10).
+			Find(&venues).Error
+	} else {
+		err = venueService.db.
+			Select("venues.*, similarity(name, ?) as sim_score", query).
+			Where("name ILIKE ?", "%"+query+"%").
+			Order("sim_score DESC, name ASC").
+			Limit(10).
+			Find(&venues).Error
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to search venues: %w", err)
+	}
+
+	responses := make([]*VenueDetailResponse, len(venues))
+	for i, venue := range venues {
+		responses[i] = venueService.buildVenueResponse(&venue)
+	}
+
+	return responses, nil
+}
+
+// FindOrCreateVenue finds an existing venue by name and city or creates a new one.
+// This method can be used within a transaction context by passing a *gorm.DB.
+// If tx is nil, it uses the service's default database connection.
+// City and state are required - this function will return an error if they're empty.
+func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB) (*models.Venue, error) {
+	// Use provided db or fall back to service's db
+	query := db
+	if query == nil {
+		query = s.db
+	}
+
+	if query == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Validate required fields
+	if name == "" {
+		return nil, fmt.Errorf("venue name is required")
+	}
+	if city == "" {
+		return nil, fmt.Errorf("venue city is required")
+	}
+	if state == "" {
+		return nil, fmt.Errorf("venue state is required")
+	}
+
+	// Check if venue already exists by name and city
+	var venue models.Venue
+	err := query.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", name, city).First(&venue).Error
+
+	if err == nil {
+		// Venue exists, return it
+		return &venue, nil
+	} else if err != gorm.ErrRecordNotFound {
+		return nil, fmt.Errorf("failed to check existing venue: %w", err)
+	}
+
+	// Venue doesn't exist, create it
+	venue = models.Venue{
+		Name:    name,
+		Address: address,
+		City:    city,
+		State:   state,
+		Zipcode: zipcode,
+		Social:  models.Social{}, // Empty social fields
+	}
+
+	if err := query.Create(&venue).Error; err != nil {
+		return nil, fmt.Errorf("failed to create venue: %w", err)
+	}
+
+	return &venue, nil
 }
 
 // buildVenueResponse converts a Venue model to VenueDetailResponse

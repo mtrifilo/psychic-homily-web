@@ -25,8 +25,19 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	// Setup domain-specific routes
 	setupSystemRoutes(router, api)
 	setupAuthRoutes(router, api, authService, jwtService, cfg)
-	setupShowRoutes(api)
-	setupArtistRoutes(api)
+
+	// Create a protected group that will require authentication
+	protectedGroup := huma.NewGroup(api, "/")
+	protectedGroup.UseMiddleware(middleware.HumaJWTMiddleware(jwtService))
+
+	// Add protected auth routes
+	authHandler := handlers.NewAuthHandler(authService, jwtService, services.NewUserService(), cfg)
+	huma.Get(protectedGroup, "/auth/profile", authHandler.GetProfileHandler)
+	huma.Post(protectedGroup, "/auth/refresh", authHandler.RefreshTokenHandler)
+
+	setupShowRoutes(api, protectedGroup)
+	setupArtistRoutes(api, protectedGroup)
+	setupVenueRoutes(api, protectedGroup)
 
 	return api
 }
@@ -46,12 +57,6 @@ func setupAuthRoutes(router *chi.Mux, api huma.API, authService *services.AuthSe
 	huma.Post(api, "/auth/login", authHandler.LoginHandler)
 	huma.Post(api, "/auth/logout", authHandler.LogoutHandler)
 	huma.Post(api, "/auth/register", authHandler.RegisterHandler)
-
-	api.UseMiddleware(middleware.HumaJWTMiddleware(jwtService))
-
-	// Protected auth routes - these will use the middleware
-	huma.Get(api, "/auth/profile", authHandler.GetProfileHandler)
-	huma.Post(api, "/auth/refresh", authHandler.RefreshTokenHandler)
 }
 
 // setupSystemRoutes configures system/infrastructure endpoints
@@ -67,24 +72,35 @@ func setupSystemRoutes(router *chi.Mux, api huma.API) {
 }
 
 // SetupShowRoutes configures all show-related endpoints
-func setupShowRoutes(api huma.API) {
+func setupShowRoutes(api huma.API, protected *huma.Group) {
 	showHandler := handlers.NewShowHandler()
 
-	// Public show endpoints
+	// Public show endpoints - registered on main API without middleware
 	huma.Get(api, "/shows", showHandler.GetShowsHandler)
 	huma.Get(api, "/shows/upcoming", showHandler.GetUpcomingShowsHandler)
 	huma.Get(api, "/shows/{show_id}", showHandler.GetShowHandler)
 
-	// Protected show endpoints - these will use the middleware already applied to the API
-	huma.Post(api, "/shows", showHandler.CreateShowHandler)
-	huma.Put(api, "/shows/{show_id}", showHandler.UpdateShowHandler)
-	huma.Delete(api, "/shows/{show_id}", showHandler.DeleteShowHandler)
-	huma.Post(api, "/shows/ai-process", showHandler.AIProcessShowHandler)
+	// Protected show endpoints - registered on protected group with middleware
+	huma.Post(protected, "/shows", showHandler.CreateShowHandler)
+	huma.Put(protected, "/shows/{show_id}", showHandler.UpdateShowHandler)
+	huma.Delete(protected, "/shows/{show_id}", showHandler.DeleteShowHandler)
+	huma.Post(protected, "/shows/ai-process", showHandler.AIProcessShowHandler)
 }
 
-func setupArtistRoutes(api huma.API) {
+func setupArtistRoutes(api huma.API, protected *huma.Group) {
 	artistHandler := handlers.NewArtistHandler()
 
-	// Public artist endpoints
+	// Public artist endpoints - registered on main API without middleware
 	huma.Get(api, "/artists/search", artistHandler.SearchArtistsHandler)
+
+	// Note: Add protected artist endpoints here if needed in the future
+}
+
+func setupVenueRoutes(api huma.API, protected *huma.Group) {
+	venueHandler := handlers.NewVenueHandler()
+
+	// Public venue endpoints - registered on main API without middleware
+	huma.Get(api, "/venues/search", venueHandler.SearchVenuesHandler)
+
+	// Note: Add protected venue endpoints here if needed in the future
 }

@@ -6,10 +6,10 @@ import (
 
 type Venue struct {
 	ID        uint   `gorm:"primaryKey"`
-	Name      string `gorm:"uniqueIndex"`
+	Name      string `gorm:"not null"` // Unique with city via composite index
 	Address   *string
-	City      *string
-	State     *string
+	City      string `gorm:"not null"` // Required
+	State     string `gorm:"not null"` // Required
 	Zipcode   *string
 	Social    Social    `gorm:"embedded"`
 	CreatedAt time.Time `gorm:"not null"`
