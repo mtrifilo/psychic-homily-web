@@ -69,8 +69,8 @@ func main() {
 		venueModel := &models.Venue{
 			Name:    venue.Name,
 			Address: &venue.Address,
-			City:    &venue.City,
-			State:   &venue.State,
+			City:    venue.City,
+			State:   venue.State,
 			Zipcode: &venue.Zip,
 			Social: models.Social{
 				Instagram: &venue.Social.Instagram,
