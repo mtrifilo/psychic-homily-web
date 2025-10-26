@@ -62,7 +62,7 @@ function AppContent() {
 
             <Card className="w-full min-w-0">
                 <CardHeader>
-                    <CardTitle>Show Management</CardTitle>
+                    <CardTitle>New show</CardTitle>
                     <CardDescription>Submit and manage your music show information</CardDescription>
                 </CardHeader>
                 <CardContent>
