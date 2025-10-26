@@ -11,7 +11,8 @@ type Venue struct {
 	City      string `gorm:"not null"` // Required
 	State     string `gorm:"not null"` // Required
 	Zipcode   *string
-	Social    Social    `gorm:"embedded"`
+	Social    Social `gorm:"embedded"`
+	Verified  bool
 	CreatedAt time.Time `gorm:"not null"`
 	UpdatedAt time.Time `gorm:"not null"`
 

@@ -75,11 +75,12 @@ type ShowResponse struct {
 
 // VenueResponse represents venue data in show responses
 type VenueResponse struct {
-	ID      uint    `json:"id"`
-	Name    string  `json:"name"`
-	Address *string `json:"address"`
-	City    string  `json:"city"`
-	State   string  `json:"state"`
+	ID       uint    `json:"id"`
+	Name     string  `json:"name"`
+	Address  *string `json:"address"`
+	City     string  `json:"city"`
+	State    string  `json:"state"`
+	Verified bool    `json:"verified"` // Admin-verified as legitimate venue
 }
 
 // ShowArtistSocials represents social media links for artists in show responses
@@ -478,11 +479,12 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 		}
 
 		venues = append(venues, VenueResponse{
-			ID:      venue.ID,
-			Name:    venue.Name,
-			Address: venue.Address,
-			City:    venue.City,
-			State:   venue.State,
+			ID:       venue.ID,
+			Name:     venue.Name,
+			Address:  venue.Address,
+			City:     venue.City,
+			State:    venue.State,
+			Verified: venue.Verified,
 		})
 	}
 
@@ -582,11 +584,12 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 	venues := make([]VenueResponse, len(show.Venues))
 	for i, venue := range show.Venues {
 		venues[i] = VenueResponse{
-			ID:      venue.ID,
-			Name:    venue.Name,
-			Address: venue.Address,
-			City:    venue.City,
-			State:   venue.State,
+			ID:       venue.ID,
+			Name:     venue.Name,
+			Address:  venue.Address,
+			City:     venue.City,
+			State:    venue.State,
+			Verified: venue.Verified,
 		}
 	}
 
