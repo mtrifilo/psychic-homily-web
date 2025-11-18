@@ -80,7 +80,7 @@ async function getShowDetails(text) {
   try {
     console.log("\nSending API request with configuration:");
     const config = {
-      model: "claude-3-sonnet-20240229",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 1024,
       system: SYSTEM_PROMPT,
       messages: [
