@@ -171,7 +171,7 @@ async function main() {
     console.log(`Age: ${showDetails.age_requirement}`);
     console.log("\nBands:");
     showDetails.bands.forEach((band) => {
-      const bandId = band.toLowerCase().replace(/\s+/g, "-");
+      const bandId = band.toLowerCase().replace(/\s+/g, "-").replace(/\//g, "-");
       const isNew = !bandsData[bandId];
       console.log(`- ${band}${isNew ? " (NEW)" : ""}`);
     });
@@ -191,7 +191,7 @@ async function main() {
 
     // Convert band names to IDs and update bands.yaml
     const bandIds = showDetails.bands.map((bandName) => {
-      const bandId = bandName.toLowerCase().replace(/\s+/g, "-");
+      const bandId = bandName.toLowerCase().replace(/\s+/g, "-").replace(/\//g, "-");
       if (!bandsData[bandId]) {
         console.log(`Adding new band: ${bandName}`);
         bandsData[bandId] = {
@@ -202,7 +202,7 @@ async function main() {
     });
 
     // Convert venue name to slug and update venues.yaml if needed
-    const venueSlug = showDetails.venue.toLowerCase().replace(/\s+/g, "-");
+    const venueSlug = showDetails.venue.toLowerCase().replace(/\s+/g, "-").replace(/\//g, "-");
     if (!venuesData[venueSlug]) {
       console.log(`Adding new venue: ${showDetails.venue}`);
       venuesData[venueSlug] = {
