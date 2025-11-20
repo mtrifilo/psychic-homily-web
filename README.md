@@ -75,6 +75,23 @@ The script will:
 - Add any new bands to `data/bands.yaml`
 - Create a new show markdown file in `content/shows/`
 
+Here is a prompt template if formatting needs to be smoothed out, and a command generated:
+
+```
+I have a Hugo-based show listing website with a script at psychic-homily-web/scripts/parse-show.js that parses show announcements using Claude AI.
+
+The script is run via: pnpm new-show
+
+It accepts multiline input (terminated with two enters), parses the details, then asks for confirmation before creating files.
+
+I need a command that:
+1. Pipes the show details to the script
+2. Keeps stdin open so I can manually review and confirm with Y/n
+
+Show details:
+[paste show info or attach screenshot]
+```
+
 ### 2. Manual Creation
 
 You can also manually create show files:
