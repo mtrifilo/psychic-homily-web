@@ -1,0 +1,113 @@
+'use client'
+
+/**
+ * TanStack Query Configuration
+ *
+ * This module configures TanStack Query with environment-aware settings
+ * and provides query client utilities for the application.
+ */
+
+import { QueryClient, DefaultOptions } from '@tanstack/react-query'
+
+// Default query options for all queries
+const defaultQueryOptions: DefaultOptions = {
+  queries: {
+    // Stale time: how long data is considered fresh
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    // Cache time: how long data stays in cache after last use
+    gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
+    // Retry configuration
+    retry: (failureCount, error: Error & { status?: number }) => {
+      // Don't retry on 4xx errors (client errors)
+      if (error?.status && error.status >= 400 && error.status < 500) {
+        return false
+      }
+      // Retry up to 3 times for other errors
+      return failureCount < 3
+    },
+    // Refetch on window focus (useful for development)
+    refetchOnWindowFocus: process.env.NODE_ENV === 'development',
+    // Refetch on reconnect
+    refetchOnReconnect: true,
+  },
+  mutations: {
+    // Retry mutations once on failure
+    retry: 1,
+  },
+}
+
+// Function to create query client (for use in provider)
+function makeQueryClient() {
+  return new QueryClient({
+    defaultOptions: defaultQueryOptions,
+  })
+}
+
+let browserQueryClient: QueryClient | undefined = undefined
+
+export function getQueryClient() {
+  if (typeof window === 'undefined') {
+    // Server: always make a new query client
+    return makeQueryClient()
+  } else {
+    // Browser: make a new query client if we don't already have one
+    if (!browserQueryClient) browserQueryClient = makeQueryClient()
+    return browserQueryClient
+  }
+}
+
+// Query key factory for consistent key generation
+export const queryKeys = {
+  // Authentication queries
+  auth: {
+    profile: ['auth', 'profile'] as const,
+    user: (id: string) => ['auth', 'user', id] as const,
+  },
+
+  // Show queries
+  shows: {
+    all: ['shows'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      ['shows', 'list', filters] as const,
+    detail: (id: string) => ['shows', 'detail', id] as const,
+    userShows: (userId: string) => ['shows', 'user', userId] as const,
+  },
+
+  // Venue queries
+  venues: {
+    all: ['venues'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      ['venues', 'list', filters] as const,
+    detail: (id: string) => ['venues', 'detail', id] as const,
+  },
+
+  // Artist queries
+  artists: {
+    search: (query: string) =>
+      ['artists', 'search', query.toLowerCase()] as const,
+  },
+
+  // System queries
+  system: {
+    health: ['system', 'health'] as const,
+  },
+} as const
+
+// Utility function to invalidate related queries
+export const createInvalidateQueries = (queryClient: QueryClient) => ({
+  // Invalidate all auth-related queries
+  auth: () => queryClient.invalidateQueries({ queryKey: ['auth'] }),
+
+  // Invalidate all show-related queries
+  shows: () => queryClient.invalidateQueries({ queryKey: ['shows'] }),
+
+  // Invalidate specific show queries
+  show: (id: string) =>
+    queryClient.invalidateQueries({ queryKey: ['shows', 'detail', id] }),
+
+  // Invalidate artist queries
+  artists: () => queryClient.invalidateQueries({ queryKey: ['artists'] }),
+
+  // Invalidate all venue-related queries
+  venues: () => queryClient.invalidateQueries({ queryKey: ['venues'] }),
+})

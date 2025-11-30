@@ -72,6 +72,7 @@ func setupShowRoutes(api huma.API) {
 
 	// Public show endpoints
 	huma.Get(api, "/shows", showHandler.GetShowsHandler)
+	huma.Get(api, "/shows/upcoming", showHandler.GetUpcomingShowsHandler)
 	huma.Get(api, "/shows/{show_id}", showHandler.GetShowHandler)
 
 	// Protected show endpoints - these will use the middleware already applied to the API

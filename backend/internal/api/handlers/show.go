@@ -133,6 +133,29 @@ type GetShowsResponse struct {
 	Body []*services.ShowResponse `json:"body"`
 }
 
+// GetUpcomingShowsRequest represents the HTTP request for listing upcoming shows
+type GetUpcomingShowsRequest struct {
+	Timezone string `query:"timezone" default:"UTC" doc:"IANA timezone (e.g., 'America/Phoenix', 'America/New_York'). Defaults to UTC."`
+	Cursor   string `query:"cursor" doc:"Pagination cursor from previous response. Omit for first page."`
+	Limit    int    `query:"limit" default:"50" doc:"Number of shows per page (max 200). Defaults to 50."`
+}
+
+// CursorPaginationMeta contains cursor-based pagination metadata
+type CursorPaginationMeta struct {
+	NextCursor *string `json:"next_cursor" doc:"Cursor for the next page (null if no more results)"`
+	HasMore    bool    `json:"has_more" doc:"Whether there are more results"`
+	Limit      int     `json:"limit" doc:"Number of items per page"`
+}
+
+// GetUpcomingShowsResponse represents the HTTP response for listing upcoming shows
+type GetUpcomingShowsResponse struct {
+	Body struct {
+		Shows      []*services.ShowResponse `json:"shows"`
+		Timezone   string                   `json:"timezone" doc:"The timezone used for filtering"`
+		Pagination CursorPaginationMeta     `json:"pagination"`
+	}
+}
+
 // UpdateShowRequest represents the HTTP request for updating a show
 type UpdateShowRequest struct {
 	ShowID string `path:"show_id" validate:"required" doc:"Show ID"`
@@ -290,6 +313,46 @@ func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest)
 	}
 
 	return &GetShowsResponse{Body: shows}, nil
+}
+
+// GetUpcomingShowsHandler handles GET /shows/upcoming
+func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcomingShowsRequest) (*GetUpcomingShowsResponse, error) {
+	// Default timezone to UTC if not provided
+	timezone := req.Timezone
+	if timezone == "" {
+		timezone = "UTC"
+	}
+
+	// Validate limit
+	limit := req.Limit
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200 // Cap at 200 to prevent excessive queries
+	}
+
+	// Get upcoming shows using service
+	shows, nextCursor, err := h.showService.GetUpcomingShows(timezone, req.Cursor, limit)
+	if err != nil {
+		return nil, huma.Error500InternalServerError(fmt.Sprintf("Failed to get upcoming shows: %v", err))
+	}
+
+	return &GetUpcomingShowsResponse{
+		Body: struct {
+			Shows      []*services.ShowResponse `json:"shows"`
+			Timezone   string                   `json:"timezone" doc:"The timezone used for filtering"`
+			Pagination CursorPaginationMeta     `json:"pagination"`
+		}{
+			Shows:    shows,
+			Timezone: timezone,
+			Pagination: CursorPaginationMeta{
+				NextCursor: nextCursor,
+				HasMore:    nextCursor != nil,
+				Limit:      limit,
+			},
+		},
+	}, nil
 }
 
 // UpdateShowHandler handles PUT /shows/{show_id}

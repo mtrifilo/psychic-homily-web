@@ -80,17 +80,26 @@ func main() {
 		venueModels = append(venueModels, venueModel)
 	}
 
-	// Use Upsert to handle duplicates gracefully
-	result := db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "name"}}, // Conflict on name field
-		DoNothing: true,                            // Skip if venue already exists
-	}).Create(venueModels)
-
-	if result.Error != nil {
-		log.Fatalf("Failed to create venues: %v", result.Error)
+	// Insert venues one by one, skipping duplicates
+	// Venue uniqueness is on LOWER(name), LOWER(city) per migration 000004
+	var venuesCreated int64
+	for _, venueModel := range venueModels {
+		// Check if venue already exists (case-insensitive)
+		var existing models.Venue
+		result := db.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", venueModel.Name, venueModel.City).First(&existing)
+		if result.Error == nil {
+			// Venue exists, skip
+			continue
+		}
+		// Create new venue
+		if err := db.Create(venueModel).Error; err != nil {
+			log.Printf("Warning: Failed to create venue %s: %v", venueModel.Name, err)
+			continue
+		}
+		venuesCreated++
 	}
 
-	fmt.Printf("✅ Successfully processed %d venues (%d created)\n", len(venues), result.RowsAffected)
+	fmt.Printf("✅ Successfully processed %d venues (%d created)\n", len(venues), venuesCreated)
 
 	// Seed artists
 	fmt.Println("Seeding artists...")
@@ -117,16 +126,16 @@ func main() {
 	}
 
 	// Use Upsert to handle duplicates gracefully
-	result = db.Clauses(clause.OnConflict{
+	artistResult := db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "name"}}, // Conflict on name field
 		DoNothing: true,                            // Skip if artist already exists
 	}).Create(artistModels)
 
-	if result.Error != nil {
-		log.Fatalf("Failed to create artists: %v", result.Error)
+	if artistResult.Error != nil {
+		log.Fatalf("Failed to create artists: %v", artistResult.Error)
 	}
 
-	fmt.Printf("✅ Successfully processed %d artists (%d created)\n", len(artists), result.RowsAffected)
+	fmt.Printf("✅ Successfully processed %d artists (%d created)\n", len(artists), artistResult.RowsAffected)
 
 	// Seed shows
 	fmt.Println("Seeding shows...")

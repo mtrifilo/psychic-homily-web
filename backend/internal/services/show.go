@@ -1,7 +1,10 @@
 package services
 
 import (
+	"encoding/base64"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -298,6 +301,105 @@ func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*
 	}
 
 	return s.GetShow(showID)
+}
+
+// encodeCursor creates a cursor from event_date and show ID
+func encodeCursor(eventDate time.Time, id uint) string {
+	// Format: base64(timestamp_unix_nano:id)
+	cursor := fmt.Sprintf("%d:%d", eventDate.UnixNano(), id)
+	return base64.URLEncoding.EncodeToString([]byte(cursor))
+}
+
+// decodeCursor parses a cursor into event_date and show ID
+func decodeCursor(cursor string) (time.Time, uint, error) {
+	decoded, err := base64.URLEncoding.DecodeString(cursor)
+	if err != nil {
+		return time.Time{}, 0, fmt.Errorf("invalid cursor encoding: %w", err)
+	}
+
+	parts := strings.Split(string(decoded), ":")
+	if len(parts) != 2 {
+		return time.Time{}, 0, fmt.Errorf("invalid cursor format")
+	}
+
+	unixNano, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return time.Time{}, 0, fmt.Errorf("invalid cursor timestamp: %w", err)
+	}
+
+	id, err := strconv.ParseUint(parts[1], 10, 32)
+	if err != nil {
+		return time.Time{}, 0, fmt.Errorf("invalid cursor id: %w", err)
+	}
+
+	return time.Unix(0, unixNano), uint(id), nil
+}
+
+// GetUpcomingShows retrieves shows from today onwards in the specified timezone with cursor pagination.
+// Includes tonight's shows by filtering from the start of today in the user's timezone.
+// Returns shows, next cursor (nil if no more), and error.
+func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int) ([]*ShowResponse, *string, error) {
+	if s.db == nil {
+		return nil, nil, fmt.Errorf("database not initialized")
+	}
+
+	// Load timezone, default to UTC
+	loc, err := time.LoadLocation(timezone)
+	if err != nil {
+		// Invalid timezone, fall back to UTC
+		loc = time.UTC
+	}
+
+	// Get start of today in the user's timezone, then convert to UTC for query
+	now := time.Now().In(loc)
+	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	startOfTodayUTC := startOfToday.UTC()
+
+	// Build query
+	query := s.db.Preload("Venues").Preload("Artists")
+
+	// Apply cursor filter if provided
+	if cursor != "" {
+		cursorDate, cursorID, err := decodeCursor(cursor)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid cursor: %w", err)
+		}
+		// Get shows after the cursor position (same date but higher ID, or later date)
+		query = query.Where(
+			"(event_date = ? AND id > ?) OR (event_date > ?)",
+			cursorDate, cursorID, cursorDate,
+		)
+	} else {
+		// No cursor, start from today
+		query = query.Where("event_date >= ?", startOfTodayUTC)
+	}
+
+	// Order by event_date ASC, then by ID ASC for stable ordering
+	// Fetch one extra to check if there are more results
+	query = query.Order("event_date ASC, id ASC").Limit(limit + 1)
+
+	var shows []models.Show
+	if err := query.Find(&shows).Error; err != nil {
+		return nil, nil, fmt.Errorf("failed to get upcoming shows: %w", err)
+	}
+
+	// Check if there are more results
+	var nextCursor *string
+	if len(shows) > limit {
+		// There are more results, create cursor from the last item we'll return
+		shows = shows[:limit] // Trim to requested limit
+		lastShow := shows[len(shows)-1]
+		encoded := encodeCursor(lastShow.EventDate, lastShow.ID)
+		nextCursor = &encoded
+	}
+
+	// Build responses
+	responses := make([]*ShowResponse, len(shows))
+	for i, show := range shows {
+		responses[i] = s.buildShowResponse(&show)
+	}
+
+	return responses, nextCursor, nil
 }
 
 // DeleteShow deletes a show and its associations
