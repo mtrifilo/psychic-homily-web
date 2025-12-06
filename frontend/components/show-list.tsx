@@ -44,14 +44,14 @@ function ShowCard({ show }: ShowCardProps) {
   const artists = show.artists
 
   return (
-    <article className="border-b border-border py-6">
+    <article className="border-b border-border/50 py-5 -mx-3 px-3 rounded-lg hover:bg-muted/30 transition-colors duration-200">
       <div className="flex flex-col md:flex-row">
         {/* Left column: Date and Location */}
         <div className="w-full md:w-1/5 md:pr-4 mb-2 md:mb-0">
-          <h2 className="text-sm font-semibold">
+          <h2 className="text-sm font-bold tracking-wide text-primary">
             {formatDate(show.event_date)}
           </h2>
-          <h3 className="text-xs text-muted-foreground mt-1">
+          <h3 className="text-xs text-muted-foreground mt-0.5">
             {show.city}, {show.state}
           </h3>
         </div>
@@ -59,16 +59,18 @@ function ShowCard({ show }: ShowCardProps) {
         {/* Right column: Artists, Venue, Details */}
         <div className="w-full md:w-4/5 md:pl-4">
           {/* Artists */}
-          <h1 className="text-xl font-semibold leading-tight">
+          <h1 className="text-lg font-semibold leading-tight tracking-tight">
             {artists.map((artist, index) => (
               <span key={artist.id}>
                 {index > 0 && (
-                  <span className="text-muted-foreground">&nbsp;•&nbsp;</span>
+                  <span className="text-muted-foreground/60 font-normal">
+                    &nbsp;•&nbsp;
+                  </span>
                 )}
                 {artist.socials?.instagram ? (
                   <a
                     href={`https://instagram.com/${artist.socials.instagram}`}
-                    className="hover:text-muted-foreground underline underline-offset-4 decoration-border transition-colors"
+                    className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -82,28 +84,22 @@ function ShowCard({ show }: ShowCardProps) {
           </h1>
 
           {/* Venue and Details */}
-          <div className="text-base mt-2">
+          <div className="text-sm mt-1.5 text-muted-foreground">
             {venue && (
               <Link
                 href={`/venues/${venue.id}`}
-                className="font-semibold underline underline-offset-4 decoration-border hover:text-muted-foreground transition-colors"
+                className="text-primary/80 hover:text-primary font-medium transition-colors"
               >
                 {venue.name}
               </Link>
             )}
             {show.price != null && (
-              <span className="text-muted-foreground">
-                &nbsp;•&nbsp;{formatPrice(show.price)}
-              </span>
+              <span>&nbsp;•&nbsp;{formatPrice(show.price)}</span>
             )}
             {show.age_requirement && (
-              <span className="text-muted-foreground">
-                &nbsp;•&nbsp;{show.age_requirement}
-              </span>
+              <span>&nbsp;•&nbsp;{show.age_requirement}</span>
             )}
-            <span className="text-muted-foreground">
-              &nbsp;•&nbsp;{formatTime(show.event_date)}
-            </span>
+            <span>&nbsp;•&nbsp;{formatTime(show.event_date)}</span>
           </div>
         </div>
       </div>

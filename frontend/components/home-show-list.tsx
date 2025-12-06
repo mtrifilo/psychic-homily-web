@@ -43,11 +43,11 @@ function ShowCard({ show }: ShowCardProps) {
   const artists = show.artists
 
   return (
-    <article className="border-b border-border py-4">
+    <article className="border-b border-border/50 py-4 -mx-2 px-2 rounded-md hover:bg-muted/30 transition-colors duration-200">
       <div className="flex flex-col md:flex-row">
         {/* Left column: Date and Location */}
         <div className="w-full md:w-1/5 md:pr-4 mb-1 md:mb-0">
-          <h3 className="text-sm font-semibold">
+          <h3 className="text-sm font-bold tracking-wide text-primary">
             {formatDate(show.event_date)}
           </h3>
           <p className="text-xs text-muted-foreground">
@@ -58,11 +58,13 @@ function ShowCard({ show }: ShowCardProps) {
         {/* Right column: Artists, Venue, Details */}
         <div className="w-full md:w-4/5 md:pl-4">
           {/* Artists */}
-          <h2 className="text-base font-semibold leading-tight">
+          <h2 className="text-base font-semibold leading-tight tracking-tight">
             {artists.map((artist, index) => (
               <span key={artist.id}>
                 {index > 0 && (
-                  <span className="text-muted-foreground">&nbsp;•&nbsp;</span>
+                  <span className="text-muted-foreground/60 font-normal">
+                    &nbsp;•&nbsp;
+                  </span>
                 )}
                 <span>{artist.name}</span>
               </span>
@@ -71,7 +73,9 @@ function ShowCard({ show }: ShowCardProps) {
 
           {/* Venue and Details */}
           <div className="text-sm mt-1 text-muted-foreground">
-            {venue && <span className="font-medium">{venue.name}</span>}
+            {venue && (
+              <span className="text-primary/80 font-medium">{venue.name}</span>
+            )}
             {show.price != null && (
               <span>&nbsp;•&nbsp;{formatPrice(show.price)}</span>
             )}

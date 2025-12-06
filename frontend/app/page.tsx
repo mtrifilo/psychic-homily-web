@@ -64,12 +64,14 @@ export default function Home() {
     <div className="flex min-h-screen items-start justify-center bg-background">
       <main className="w-full max-w-4xl px-4 py-8 md:px-8">
         {/* Upcoming Shows Section */}
-        <section className="mb-12">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold">Upcoming Shows</h2>
+        <section className="mb-14">
+          <div className="flex justify-between items-center mb-5">
+            <h2 className="text-2xl font-bold tracking-tight">
+              Upcoming Shows
+            </h2>
             <Link
               href="/shows"
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              className="text-sm text-muted-foreground hover:text-primary transition-colors hover:underline underline-offset-4"
             >
               View all →
             </Link>
@@ -79,26 +81,28 @@ export default function Home() {
 
         {/* Latest Blog Post Section */}
         {latestPost && (
-          <section className="mb-12">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-bold">Latest from the Blog</h2>
+          <section className="mb-14">
+            <div className="flex justify-between items-center mb-5">
+              <h2 className="text-2xl font-bold tracking-tight">
+                Latest from the Blog
+              </h2>
               <Link
                 href="/blog"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                className="text-sm text-muted-foreground hover:text-primary transition-colors hover:underline underline-offset-4"
               >
                 View all →
               </Link>
             </div>
-            <article className="border border-border rounded-lg p-6">
-              <h3 className="text-xl font-semibold leading-tight">
+            <article className="bg-card/50 border border-border/50 rounded-xl p-6 hover:border-border transition-colors">
+              <h3 className="text-xl font-semibold leading-tight tracking-tight">
                 <Link
                   href={`/blog/${latestPost.slug}`}
-                  className="hover:text-muted-foreground transition-colors"
+                  className="hover:text-primary transition-colors"
                 >
                   {latestPost.frontmatter.title}
                 </Link>
               </h3>
-              <div className="text-sm text-muted-foreground mt-1">
+              <div className="text-sm text-muted-foreground mt-1.5">
                 {formatDate(latestPost.frontmatter.date)}
               </div>
 
@@ -108,13 +112,13 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="mt-3 leading-relaxed text-foreground/90">
+              <div className="mt-3 leading-relaxed text-foreground/85">
                 {getTextExcerpt(latestPost.content)}
               </div>
 
               <Link
                 href={`/blog/${latestPost.slug}`}
-                className="inline-block mt-4 px-4 py-2 text-sm border border-border rounded hover:bg-muted transition-colors"
+                className="inline-block mt-4 px-4 py-2 text-sm bg-muted/50 border border-border/50 rounded-lg hover:bg-muted hover:border-border transition-colors"
               >
                 Read more
               </Link>
@@ -124,31 +128,33 @@ export default function Home() {
 
         {/* Latest DJ Set Section */}
         {latestMix && (
-          <section className="mb-12">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-bold">Latest DJ Set</h2>
+          <section className="mb-14">
+            <div className="flex justify-between items-center mb-5">
+              <h2 className="text-2xl font-bold tracking-tight">
+                Latest DJ Set
+              </h2>
               <Link
                 href="/dj-sets"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                className="text-sm text-muted-foreground hover:text-primary transition-colors hover:underline underline-offset-4"
               >
                 View all →
               </Link>
             </div>
-            <article className="border border-border rounded-lg p-6">
-              <h3 className="text-xl font-semibold leading-tight">
+            <article className="bg-card/50 border border-border/50 rounded-xl p-6 hover:border-border transition-colors">
+              <h3 className="text-xl font-semibold leading-tight tracking-tight">
                 <Link
                   href={`/dj-sets/${latestMix.slug}`}
-                  className="hover:text-muted-foreground transition-colors"
+                  className="hover:text-primary transition-colors"
                 >
                   {latestMix.title}
                 </Link>
               </h3>
-              <div className="text-sm text-muted-foreground mt-1">
+              <div className="text-sm text-muted-foreground mt-1.5">
                 {formatDate(latestMix.date)} by {latestMix.artist}
               </div>
 
               {latestMix.description && (
-                <div className="mt-3 leading-relaxed text-foreground/90">
+                <div className="mt-3 leading-relaxed text-foreground/85">
                   {latestMix.description}
                 </div>
               )}

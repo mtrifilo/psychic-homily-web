@@ -81,9 +81,12 @@ export default function Nav() {
         </defs>
       </svg>
 
-      <nav className="flex w-full items-center justify-between px-4 py-2">
-        <div className="flex items-center gap-4">
-          <Link href="/" className="flex-shrink-0">
+      <nav className="flex w-full items-center justify-between px-4 py-3 border-b border-border/30">
+        <div className="flex items-center gap-5">
+          <Link
+            href="/"
+            className="flex-shrink-0 hover:opacity-80 transition-opacity"
+          >
             <div className="relative w-[40px] h-[40px] rounded-full overflow-hidden">
               <Image
                 src="/PsychicHomilyLogov2.svg"
@@ -97,14 +100,14 @@ export default function Nav() {
           </Link>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center gap-4">
+          <div className="hidden md:flex items-center gap-1">
             {navLinks.map(link => (
               <Link
                 key={link.href}
                 href={link.href}
                 target={isExternal(link) ? '_blank' : undefined}
                 rel={isExternal(link) ? 'noopener noreferrer' : undefined}
-                className="hover:text-muted-foreground transition-colors"
+                className="px-3 py-1.5 text-sm font-medium rounded-md hover:bg-muted/50 hover:text-primary transition-colors"
               >
                 {link.label}
               </Link>
@@ -115,7 +118,7 @@ export default function Nav() {
         <div className="flex items-center gap-2">
           <Link
             href="/auth"
-            className="hidden sm:inline hover:text-muted-foreground transition-colors"
+            className="hidden sm:inline text-sm text-muted-foreground hover:text-primary transition-colors"
           >
             login / sign-up
           </Link>
@@ -128,11 +131,14 @@ export default function Nav() {
                 <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-[300px] sm:w-[400px]">
+            <SheetContent
+              side="right"
+              className="w-[300px] sm:w-[400px] border-l-border/50"
+            >
               <SheetHeader>
-                <SheetTitle>Menu</SheetTitle>
+                <SheetTitle className="text-left">Menu</SheetTitle>
               </SheetHeader>
-              <nav className="flex flex-col gap-2 mt-8">
+              <nav className="flex flex-col gap-1 mt-8">
                 {navLinks.map(link => (
                   <Link
                     key={link.href}
@@ -140,7 +146,7 @@ export default function Nav() {
                     target={isExternal(link) ? '_blank' : undefined}
                     rel={isExternal(link) ? 'noopener noreferrer' : undefined}
                     onClick={() => setOpen(false)}
-                    className="text-lg px-4 py-3 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors"
+                    className="text-lg font-medium px-4 py-3 rounded-lg hover:bg-muted/50 hover:text-primary transition-colors"
                   >
                     {link.label}
                   </Link>
@@ -148,7 +154,7 @@ export default function Nav() {
                 <Link
                   href="/auth"
                   onClick={() => setOpen(false)}
-                  className="text-lg px-4 py-3 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors sm:hidden"
+                  className="text-lg font-medium px-4 py-3 rounded-lg hover:bg-muted/50 hover:text-primary transition-colors sm:hidden"
                 >
                   login / sign-up
                 </Link>
