@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { Menu } from 'lucide-react'
+import { Menu, LogOut, Loader2 } from 'lucide-react'
 import { ModeToggle } from '@/components/mode-toggle'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,6 +13,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
+import { useAuthContext } from '@/lib/context/AuthContext'
 
 const navLinks = [
   { href: '/shows', label: 'Shows' },
@@ -32,6 +33,7 @@ function isExternal(link: (typeof navLinks)[number]): boolean {
 
 export default function Nav() {
   const [open, setOpen] = useState(false)
+  const { user, isAuthenticated, isLoading, logout } = useAuthContext()
 
   return (
     <>
@@ -116,12 +118,31 @@ export default function Nav() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Link
-            href="/auth"
-            className="hidden sm:inline text-sm text-muted-foreground hover:text-primary transition-colors"
-          >
-            login / sign-up
-          </Link>
+          {isLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground hidden sm:block" />
+          ) : isAuthenticated && user ? (
+            <div className="hidden sm:flex items-center gap-3">
+              <span className="text-sm text-muted-foreground truncate max-w-[150px]">
+                {user.email}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={logout}
+                className="text-muted-foreground hover:text-primary"
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="sr-only">Sign out</span>
+              </Button>
+            </div>
+          ) : (
+            <Link
+              href="/auth"
+              className="hidden sm:inline text-sm text-muted-foreground hover:text-primary transition-colors"
+            >
+              login / sign-up
+            </Link>
+          )}
           <ModeToggle />
 
           {/* Mobile Menu */}
@@ -151,13 +172,38 @@ export default function Nav() {
                     {link.label}
                   </Link>
                 ))}
-                <Link
-                  href="/auth"
-                  onClick={() => setOpen(false)}
-                  className="text-lg font-medium px-4 py-3 rounded-lg hover:bg-muted/50 hover:text-primary transition-colors sm:hidden"
-                >
-                  login / sign-up
-                </Link>
+
+                {/* Mobile auth section */}
+                {isLoading ? (
+                  <div className="flex items-center justify-center py-3 sm:hidden">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : isAuthenticated && user ? (
+                  <div className="px-4 py-3 space-y-3 sm:hidden">
+                    <div className="text-sm text-muted-foreground truncate">
+                      Signed in as {user.email}
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start"
+                      onClick={() => {
+                        logout()
+                        setOpen(false)
+                      }}
+                    >
+                      <LogOut className="h-4 w-4 mr-2" />
+                      Sign out
+                    </Button>
+                  </div>
+                ) : (
+                  <Link
+                    href="/auth"
+                    onClick={() => setOpen(false)}
+                    className="text-lg font-medium px-4 py-3 rounded-lg hover:bg-muted/50 hover:text-primary transition-colors sm:hidden"
+                  >
+                    login / sign-up
+                  </Link>
+                )}
               </nav>
             </SheetContent>
           </Sheet>

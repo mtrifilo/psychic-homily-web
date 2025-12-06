@@ -3,16 +3,25 @@
  *
  * This module provides centralized API configuration that automatically
  * selects the correct backend URL based on the environment.
+ *
+ * In development, requests go through a Next.js API proxy (/api/*)
+ * to handle cookie same-origin requirements.
  */
 
-// Get the API base URL from environment variables
+// Get the API base URL
 const getApiBaseUrl = (): string => {
   // Check for environment-specific API URL first
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL
   }
 
-  // Development fallback
+  // In browser during development, use Next.js API proxy
+  // This handles same-origin cookie requirements
+  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+    return '/api'
+  }
+
+  // Server-side in development
   if (process.env.NODE_ENV === 'development') {
     return 'http://localhost:8080'
   }
@@ -46,7 +55,10 @@ export const API_ENDPOINTS = {
     GET: (showId: string | number) => `${API_BASE_URL}/shows/${showId}`,
   },
   ARTISTS: {
-    SEARCH: `${API_BASE_URL}/search`,
+    SEARCH: `${API_BASE_URL}/artists/search`,
+  },
+  VENUES: {
+    SEARCH: `${API_BASE_URL}/venues/search`,
   },
 
   // System endpoints

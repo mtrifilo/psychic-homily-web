@@ -79,6 +79,8 @@ export const queryKeys = {
     list: (filters?: Record<string, unknown>) =>
       ['venues', 'list', filters] as const,
     detail: (id: string) => ['venues', 'detail', id] as const,
+    search: (query: string) =>
+      ['venues', 'search', query.toLowerCase()] as const,
   },
 
   // Artist queries
