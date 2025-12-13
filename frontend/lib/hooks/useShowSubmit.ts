@@ -3,6 +3,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../api'
 import { createInvalidateQueries } from '../queryClient'
+import { showLogger } from '../utils/showLogger'
+import { ShowError, ShowErrorCode } from '../errors'
 import type { ShowResponse } from '../types/show'
 
 /**
@@ -42,6 +44,14 @@ export interface ShowSubmission {
 }
 
 /**
+ * Extended show response with optional error fields
+ */
+interface ShowSubmitResponse extends ShowResponse {
+  error_code?: string
+  request_id?: string
+}
+
+/**
  * Hook for submitting a new show
  * Requires authentication (JWT cookie handled by API proxy)
  */
@@ -51,20 +61,38 @@ export function useShowSubmit() {
 
   return useMutation({
     mutationFn: async (submission: ShowSubmission): Promise<ShowResponse> => {
-      return apiRequest<ShowResponse>(API_ENDPOINTS.SHOWS.SUBMIT, {
-        method: 'POST',
-        body: JSON.stringify(submission),
+      showLogger.submitAttempt({
+        venueCount: submission.venues.length,
+        artistCount: submission.artists.length,
+        city: submission.city,
+        state: submission.state,
       })
+
+      const response = await apiRequest<ShowSubmitResponse>(
+        API_ENDPOINTS.SHOWS.SUBMIT,
+        {
+          method: 'POST',
+          body: JSON.stringify(submission),
+        }
+      )
+
+      return response
     },
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
+      showLogger.submitSuccess(data.id, (data as ShowSubmitResponse).request_id)
+
       // Invalidate show queries to refetch with new data
       invalidateQueries.shows()
       // Also invalidate artists in case new artists were created
       invalidateQueries.artists()
     },
-    onError: error => {
-      console.error('Error submitting show:', error)
+    onError: (error, variables) => {
+      const showError = ShowError.fromUnknown(error)
+      showLogger.submitFailed(
+        showError.code,
+        showError.message,
+        showError.requestId
+      )
     },
   })
 }
-

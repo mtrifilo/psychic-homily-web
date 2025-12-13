@@ -39,6 +39,19 @@ const signupSchema = z
 type LoginFormData = z.infer<typeof loginSchema>
 type SignupFormData = z.infer<typeof signupSchema>
 
+/**
+ * Safely extract error message from TanStack Form validation errors
+ */
+function getErrorMessage(err: unknown): string {
+  if (typeof err === 'string') {
+    return err
+  }
+  if (err && typeof err === 'object' && 'message' in err) {
+    return String((err as { message: unknown }).message)
+  }
+  return String(err)
+}
+
 function LoginForm() {
   const router = useRouter()
   const loginMutation = useLogin()
@@ -96,11 +109,7 @@ function LoginForm() {
             </div>
             {field.state.meta.errors.length > 0 && (
               <p className="text-sm text-destructive">
-                {field.state.meta.errors
-                  .map(err =>
-                    typeof err === 'string' ? err : err?.message || String(err)
-                  )
-                  .join(', ')}
+                {field.state.meta.errors.map(getErrorMessage).join(', ')}
               </p>
             )}
           </div>
@@ -127,11 +136,7 @@ function LoginForm() {
             </div>
             {field.state.meta.errors.length > 0 && (
               <p className="text-sm text-destructive">
-                {field.state.meta.errors
-                  .map(err =>
-                    typeof err === 'string' ? err : err?.message || String(err)
-                  )
-                  .join(', ')}
+                {field.state.meta.errors.map(getErrorMessage).join(', ')}
               </p>
             )}
           </div>
@@ -231,11 +236,7 @@ function SignupForm() {
             </div>
             {field.state.meta.errors.length > 0 && (
               <p className="text-sm text-destructive">
-                {field.state.meta.errors
-                  .map(err =>
-                    typeof err === 'string' ? err : err?.message || String(err)
-                  )
-                  .join(', ')}
+                {field.state.meta.errors.map(getErrorMessage).join(', ')}
               </p>
             )}
           </div>
@@ -262,11 +263,7 @@ function SignupForm() {
             </div>
             {field.state.meta.errors.length > 0 && (
               <p className="text-sm text-destructive">
-                {field.state.meta.errors
-                  .map(err =>
-                    typeof err === 'string' ? err : err?.message || String(err)
-                  )
-                  .join(', ')}
+                {field.state.meta.errors.map(getErrorMessage).join(', ')}
               </p>
             )}
           </div>
@@ -293,11 +290,7 @@ function SignupForm() {
             </div>
             {field.state.meta.errors.length > 0 && (
               <p className="text-sm text-destructive">
-                {field.state.meta.errors
-                  .map(err =>
-                    typeof err === 'string' ? err : err?.message || String(err)
-                  )
-                  .join(', ')}
+                {field.state.meta.errors.map(getErrorMessage).join(', ')}
               </p>
             )}
           </div>

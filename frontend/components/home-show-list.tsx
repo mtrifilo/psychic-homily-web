@@ -1,30 +1,32 @@
 'use client'
 
+import { useState } from 'react'
 import { useUpcomingShows } from '@/lib/hooks/useShows'
+import { useAuthContext } from '@/lib/context/AuthContext'
 import type { ShowResponse } from '@/lib/types/show'
+import { Pencil, X } from 'lucide-react'
+import {
+  formatDateInTimezone,
+  formatTimeInTimezone,
+  getTimezoneForState,
+} from '@/lib/utils/timeUtils'
+import { Button } from '@/components/ui/button'
+import { ShowForm } from '@/components/forms'
 
 /**
- * Format a date string to "Mon, Dec 1" format
+ * Format a date string to "Mon, Dec 1" format in venue timezone
  */
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  })
+function formatDate(dateString: string, state?: string | null): string {
+  const timezone = getTimezoneForState(state || 'AZ')
+  return formatDateInTimezone(dateString, timezone)
 }
 
 /**
- * Format a date string to "7:30 PM" format
+ * Format a date string to "7:30 PM" format in venue timezone
  */
-function formatTime(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
+function formatTime(dateString: string, state?: string | null): string {
+  const timezone = getTimezoneForState(state || 'AZ')
+  return formatTimeInTimezone(dateString, timezone)
 }
 
 /**
@@ -36,11 +38,21 @@ function formatPrice(price: number): string {
 
 interface ShowCardProps {
   show: ShowResponse
+  isAdmin: boolean
 }
 
-function ShowCard({ show }: ShowCardProps) {
+function ShowCard({ show, isAdmin }: ShowCardProps) {
+  const [isEditing, setIsEditing] = useState(false)
   const venue = show.venues[0]
   const artists = show.artists
+
+  const handleEditSuccess = () => {
+    setIsEditing(false)
+  }
+
+  const handleEditCancel = () => {
+    setIsEditing(false)
+  }
 
   return (
     <article className="border-b border-border/50 py-4 -mx-2 px-2 rounded-md hover:bg-muted/30 transition-colors duration-200">
@@ -48,7 +60,7 @@ function ShowCard({ show }: ShowCardProps) {
         {/* Left column: Date and Location */}
         <div className="w-full md:w-1/5 md:pr-4 mb-1 md:mb-0">
           <h3 className="text-sm font-bold tracking-wide text-primary">
-            {formatDate(show.event_date)}
+            {formatDate(show.event_date, show.state)}
           </h3>
           <p className="text-xs text-muted-foreground">
             {show.city}, {show.state}
@@ -57,19 +69,38 @@ function ShowCard({ show }: ShowCardProps) {
 
         {/* Right column: Artists, Venue, Details */}
         <div className="w-full md:w-4/5 md:pl-4">
-          {/* Artists */}
-          <h2 className="text-base font-semibold leading-tight tracking-tight">
-            {artists.map((artist, index) => (
-              <span key={artist.id}>
-                {index > 0 && (
-                  <span className="text-muted-foreground/60 font-normal">
-                    &nbsp;•&nbsp;
-                  </span>
+          <div className="flex items-start justify-between gap-2">
+            {/* Artists */}
+            <h2 className="text-base font-semibold leading-tight tracking-tight flex-1">
+              {artists.map((artist, index) => (
+                <span key={artist.id}>
+                  {index > 0 && (
+                    <span className="text-muted-foreground/60 font-normal">
+                      &nbsp;•&nbsp;
+                    </span>
+                  )}
+                  <span>{artist.name}</span>
+                </span>
+              ))}
+            </h2>
+
+            {/* Admin Edit Button */}
+            {isAdmin && (
+              <Button
+                variant={isEditing ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setIsEditing(!isEditing)}
+                className="shrink-0 h-7 w-7 p-0"
+                title={isEditing ? 'Cancel editing' : 'Edit show'}
+              >
+                {isEditing ? (
+                  <X className="h-4 w-4" />
+                ) : (
+                  <Pencil className="h-3.5 w-3.5" />
                 )}
-                <span>{artist.name}</span>
-              </span>
-            ))}
-          </h2>
+              </Button>
+            )}
+          </div>
 
           {/* Venue and Details */}
           <div className="text-sm mt-1 text-muted-foreground">
@@ -82,15 +113,30 @@ function ShowCard({ show }: ShowCardProps) {
             {show.age_requirement && (
               <span>&nbsp;•&nbsp;{show.age_requirement}</span>
             )}
-            <span>&nbsp;•&nbsp;{formatTime(show.event_date)}</span>
+            <span>&nbsp;•&nbsp;{formatTime(show.event_date, show.state)}</span>
           </div>
         </div>
       </div>
+
+      {/* Inline Edit Form */}
+      {isEditing && (
+        <div className="mt-4 pt-4 border-t border-border/50">
+          <ShowForm
+            mode="edit"
+            initialData={show}
+            onSuccess={handleEditSuccess}
+            onCancel={handleEditCancel}
+          />
+        </div>
+      )}
     </article>
   )
 }
 
 export function HomeShowList() {
+  const { user } = useAuthContext()
+  const isAdmin = user?.is_admin ?? false
+
   const { data, isLoading, error } = useUpcomingShows({
     timezone:
       typeof window !== 'undefined'
@@ -126,7 +172,7 @@ export function HomeShowList() {
   return (
     <div className="w-full">
       {data.shows.map(show => (
-        <ShowCard key={show.id} show={show} />
+        <ShowCard key={show.id} show={show} isAdmin={isAdmin} />
       ))}
     </div>
   )

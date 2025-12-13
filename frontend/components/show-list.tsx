@@ -1,31 +1,33 @@
 'use client'
 
+import { useState } from 'react'
 import { useUpcomingShows } from '@/lib/hooks/useShows'
+import { useAuthContext } from '@/lib/context/AuthContext'
 import type { ShowResponse } from '@/lib/types/show'
 import Link from 'next/link'
+import { Pencil, X } from 'lucide-react'
+import {
+  formatDateInTimezone,
+  formatTimeInTimezone,
+  getTimezoneForState,
+} from '@/lib/utils/timeUtils'
+import { Button } from '@/components/ui/button'
+import { ShowForm } from '@/components/forms'
 
 /**
- * Format a date string to "Mon, Dec 1" format
+ * Format a date string to "Mon, Dec 1" format in venue timezone
  */
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  })
+function formatDate(dateString: string, state?: string | null): string {
+  const timezone = getTimezoneForState(state || 'AZ')
+  return formatDateInTimezone(dateString, timezone)
 }
 
 /**
- * Format a date string to "7:30 PM" format
+ * Format a date string to "7:30 PM" format in venue timezone
  */
-function formatTime(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
+function formatTime(dateString: string, state?: string | null): string {
+  const timezone = getTimezoneForState(state || 'AZ')
+  return formatTimeInTimezone(dateString, timezone)
 }
 
 /**
@@ -37,11 +39,21 @@ function formatPrice(price: number): string {
 
 interface ShowCardProps {
   show: ShowResponse
+  isAdmin: boolean
 }
 
-function ShowCard({ show }: ShowCardProps) {
+function ShowCard({ show, isAdmin }: ShowCardProps) {
+  const [isEditing, setIsEditing] = useState(false)
   const venue = show.venues[0] // Primary venue
   const artists = show.artists
+
+  const handleEditSuccess = () => {
+    setIsEditing(false)
+  }
+
+  const handleEditCancel = () => {
+    setIsEditing(false)
+  }
 
   return (
     <article className="border-b border-border/50 py-5 -mx-3 px-3 rounded-lg hover:bg-muted/30 transition-colors duration-200">
@@ -49,7 +61,7 @@ function ShowCard({ show }: ShowCardProps) {
         {/* Left column: Date and Location */}
         <div className="w-full md:w-1/5 md:pr-4 mb-2 md:mb-0">
           <h2 className="text-sm font-bold tracking-wide text-primary">
-            {formatDate(show.event_date)}
+            {formatDate(show.event_date, show.state)}
           </h2>
           <h3 className="text-xs text-muted-foreground mt-0.5">
             {show.city}, {show.state}
@@ -58,30 +70,49 @@ function ShowCard({ show }: ShowCardProps) {
 
         {/* Right column: Artists, Venue, Details */}
         <div className="w-full md:w-4/5 md:pl-4">
-          {/* Artists */}
-          <h1 className="text-lg font-semibold leading-tight tracking-tight">
-            {artists.map((artist, index) => (
-              <span key={artist.id}>
-                {index > 0 && (
-                  <span className="text-muted-foreground/60 font-normal">
-                    &nbsp;•&nbsp;
-                  </span>
-                )}
-                {artist.socials?.instagram ? (
-                  <a
-                    href={`https://instagram.com/${artist.socials.instagram}`}
-                    className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {artist.name}
-                  </a>
+          <div className="flex items-start justify-between gap-2">
+            {/* Artists */}
+            <h1 className="text-lg font-semibold leading-tight tracking-tight flex-1">
+              {artists.map((artist, index) => (
+                <span key={artist.id}>
+                  {index > 0 && (
+                    <span className="text-muted-foreground/60 font-normal">
+                      &nbsp;•&nbsp;
+                    </span>
+                  )}
+                  {artist.socials?.instagram ? (
+                    <a
+                      href={`https://instagram.com/${artist.socials.instagram}`}
+                      className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {artist.name}
+                    </a>
+                  ) : (
+                    <span>{artist.name}</span>
+                  )}
+                </span>
+              ))}
+            </h1>
+
+            {/* Admin Edit Button */}
+            {isAdmin && (
+              <Button
+                variant={isEditing ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setIsEditing(!isEditing)}
+                className="shrink-0 h-7 w-7 p-0"
+                title={isEditing ? 'Cancel editing' : 'Edit show'}
+              >
+                {isEditing ? (
+                  <X className="h-4 w-4" />
                 ) : (
-                  <span>{artist.name}</span>
+                  <Pencil className="h-3.5 w-3.5" />
                 )}
-              </span>
-            ))}
-          </h1>
+              </Button>
+            )}
+          </div>
 
           {/* Venue and Details */}
           <div className="text-sm mt-1.5 text-muted-foreground">
@@ -99,15 +130,30 @@ function ShowCard({ show }: ShowCardProps) {
             {show.age_requirement && (
               <span>&nbsp;•&nbsp;{show.age_requirement}</span>
             )}
-            <span>&nbsp;•&nbsp;{formatTime(show.event_date)}</span>
+            <span>&nbsp;•&nbsp;{formatTime(show.event_date, show.state)}</span>
           </div>
         </div>
       </div>
+
+      {/* Inline Edit Form */}
+      {isEditing && (
+        <div className="mt-4 pt-4 border-t border-border/50">
+          <ShowForm
+            mode="edit"
+            initialData={show}
+            onSuccess={handleEditSuccess}
+            onCancel={handleEditCancel}
+          />
+        </div>
+      )}
     </article>
   )
 }
 
 export function ShowList() {
+  const { user } = useAuthContext()
+  const isAdmin = user?.is_admin ?? false
+
   const { data, isLoading, error } = useUpcomingShows({
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   })
@@ -139,7 +185,7 @@ export function ShowList() {
   return (
     <section className="w-full max-w-4xl">
       {data.shows.map(show => (
-        <ShowCard key={show.id} show={show} />
+        <ShowCard key={show.id} show={show} isAdmin={isAdmin} />
       ))}
 
       {data.pagination.has_more && (

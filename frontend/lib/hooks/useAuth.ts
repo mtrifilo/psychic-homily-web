@@ -4,12 +4,14 @@
  * Authentication Hooks
  *
  * TanStack Query hooks for authentication operations with HTTP-only cookies.
- * Uses proper caching, error handling, and optimistic updates.
+ * Uses proper caching, error handling, structured logging, and typed errors.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../api'
 import { queryKeys, createInvalidateQueries } from '../queryClient'
+import { authLogger } from '../utils/authLogger'
+import { AuthError, AuthErrorCode, type AuthErrorCodeType } from '../errors'
 
 // Types
 interface LoginCredentials {
@@ -27,6 +29,8 @@ interface RegisterCredentials {
 interface AuthResponse {
   success: boolean
   message: string
+  error_code?: AuthErrorCodeType
+  request_id?: string
   user?: {
     id: string
     email: string
@@ -39,15 +43,26 @@ interface AuthResponse {
 interface UserProfile {
   success: boolean
   message: string
+  error_code?: AuthErrorCodeType
+  request_id?: string
   user?: {
     id: string
     email: string
     name?: string
     first_name?: string
     last_name?: string
+    is_admin?: boolean
     created_at: string
     updated_at: string
   }
+}
+
+interface RefreshTokenResponse {
+  success: boolean
+  token?: string
+  message: string
+  error_code?: AuthErrorCodeType
+  request_id?: string
 }
 
 // Login mutation
@@ -59,29 +74,41 @@ export const useLogin = () => {
     mutationFn: async (
       credentials: LoginCredentials
     ): Promise<AuthResponse> => {
+      authLogger.loginAttempt(credentials.email)
+
       const response = await apiRequest<AuthResponse>(
         API_ENDPOINTS.AUTH.LOGIN,
         {
           method: 'POST',
           body: JSON.stringify(credentials),
-          credentials: 'include', // Include cookies in request
+          credentials: 'include',
         }
       )
 
-      // Throw an error if login was unsuccessful
+      // Throw a typed error if login was unsuccessful
       if (!response.success) {
-        const error: Error & { status?: number; details?: unknown } = new Error(
-          response.message || 'Login failed'
+        authLogger.loginFailed(
+          response.error_code || AuthErrorCode.UNKNOWN,
+          response.message,
+          response.request_id
         )
-        error.status = 401
-        error.details = response
-        throw error
+
+        throw new AuthError(
+          response.message || 'Login failed',
+          response.error_code || AuthErrorCode.INVALID_CREDENTIALS,
+          {
+            requestId: response.request_id,
+            status: 401,
+          }
+        )
       }
 
       return response
     },
     onSuccess: data => {
       if (data.success && data.user) {
+        authLogger.loginSuccess(data.user.id, data.request_id)
+
         // Set user data in cache (HTTP-only cookie is automatically set by server)
         queryClient.setQueryData(queryKeys.auth.profile, {
           success: true,
@@ -92,8 +119,6 @@ export const useLogin = () => {
         invalidateQueries.auth()
       }
     },
-    // No need to modify cache on login error - just display the error in the UI
-    // The mutation error state will be shown via loginMutation.error
   })
 }
 
@@ -106,42 +131,60 @@ export const useRegister = () => {
     mutationFn: async (
       credentials: RegisterCredentials
     ): Promise<AuthResponse> => {
+      authLogger.debug('Registration attempt', {
+        email: credentials.email.slice(0, 2) + '***',
+      })
+
       const response = await apiRequest<AuthResponse>(
         API_ENDPOINTS.AUTH.REGISTER,
         {
           method: 'POST',
           body: JSON.stringify(credentials),
-          credentials: 'include', // Include cookies in request
+          credentials: 'include',
         }
       )
 
-      // Throw an error if registration was unsuccessful
+      // Throw a typed error if registration was unsuccessful
       if (!response.success) {
-        const error: Error & { status?: number; details?: unknown } = new Error(
-          response.message || 'Registration failed'
+        authLogger.warn(
+          'Registration failed',
+          {
+            errorCode: response.error_code,
+            message: response.message,
+          },
+          response.request_id
         )
-        error.status = 400
-        error.details = response
-        throw error
+
+        throw new AuthError(
+          response.message || 'Registration failed',
+          response.error_code || AuthErrorCode.UNKNOWN,
+          {
+            requestId: response.request_id,
+            status: 400,
+          }
+        )
       }
 
       return response
     },
     onSuccess: data => {
       if (data.success && data.user) {
-        // Set user data in cache (HTTP-only cookie is automatically set by server)
+        authLogger.info(
+          'Registration successful',
+          { userId: data.user.id },
+          data.request_id
+        )
+
+        // Set user data in cache
         queryClient.setQueryData(queryKeys.auth.profile, {
           success: true,
           message: data.message,
           user: data.user,
         })
 
-        // Invalidate and refetch auth queries
         invalidateQueries.auth()
       }
     },
-    // No need to modify cache on registration error - just display the error in the UI
-    // The mutation error state will be shown via registerMutation.error
   })
 }
 
@@ -151,16 +194,20 @@ export const useLogout = () => {
 
   return useMutation({
     mutationFn: async (): Promise<{ success: boolean; message: string }> => {
+      authLogger.debug('Logout attempt')
+
       return apiRequest(API_ENDPOINTS.AUTH.LOGOUT, {
         method: 'POST',
-        credentials: 'include', // Include cookies in request
+        credentials: 'include',
       })
     },
     onSuccess: () => {
+      authLogger.logout()
       // Clear all cached data (HTTP-only cookie is cleared by server)
       queryClient.clear()
     },
-    onError: () => {
+    onError: error => {
+      authLogger.error('Logout failed', error)
       // Clear cached data even on error (in case of network issues)
       queryClient.clear()
     },
@@ -172,17 +219,38 @@ export const useProfile = () => {
   return useQuery({
     queryKey: queryKeys.auth.profile,
     queryFn: async (): Promise<UserProfile> => {
-      return apiRequest(API_ENDPOINTS.AUTH.PROFILE, {
-        method: 'GET',
-        credentials: 'include', // Include cookies in request
-      })
+      authLogger.debug('Fetching profile')
+
+      const response = await apiRequest<UserProfile>(
+        API_ENDPOINTS.AUTH.PROFILE,
+        {
+          method: 'GET',
+          credentials: 'include',
+        }
+      )
+
+      if (response.success && response.user) {
+        authLogger.profileFetch(true, response.user.id, response.request_id)
+      } else {
+        authLogger.profileFetch(false, undefined, response.request_id)
+      }
+
+      return response
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
-    retry: (failureCount, error: Error & { status?: number }) => {
-      // Don't retry on 401/403 errors (authentication issues)
-      if (error?.status === 401 || error?.status === 403) {
+    retry: (failureCount, error) => {
+      // Check if it's an AuthError or has status property
+      const authError =
+        error instanceof AuthError ? error : AuthError.fromUnknown(error)
+
+      // Don't retry on authentication errors
+      if (authError.shouldRedirectToLogin || authError.status === 403) {
+        authLogger.debug('Profile fetch auth error, not retrying', {
+          code: authError.code,
+        })
         return false
       }
+
       return failureCount < 2
     },
   })
@@ -194,25 +262,24 @@ export const useRefreshToken = () => {
   const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
-    mutationFn: async (): Promise<{
-      success: boolean
-      token?: string
-      message: string
-    }> => {
-      return apiRequest(API_ENDPOINTS.AUTH.REFRESH, {
+    mutationFn: async (): Promise<RefreshTokenResponse> => {
+      authLogger.debug('Token refresh attempt')
+
+      return apiRequest<RefreshTokenResponse>(API_ENDPOINTS.AUTH.REFRESH, {
         method: 'POST',
-        credentials: 'include', // Include cookies in request
+        credentials: 'include',
       })
     },
     onSuccess: data => {
+      authLogger.tokenRefresh(data.success, data.request_id)
+
       if (data.success) {
         // Invalidate auth queries to refetch with new token
-        // (HTTP-only cookie is automatically updated by server)
         invalidateQueries.auth()
       }
     },
     onError: error => {
-      console.error('Error refreshing token:', error)
+      authLogger.error('Token refresh failed', error)
       // Clear all cached data on refresh failure
       queryClient.clear()
     },
@@ -224,7 +291,7 @@ export const useIsAuthenticated = () => {
   const { data: profile, isLoading, error } = useProfile()
 
   if (error) {
-    console.error('Error checking authentication:', error)
+    authLogger.error('Error checking authentication', error)
   }
 
   return {
