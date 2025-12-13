@@ -15,9 +15,11 @@ import (
 	"github.com/joho/godotenv"
 
 	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/api/routes"
 	"psychic-homily-backend/internal/auth"
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/logger"
 )
 
 func main() {
@@ -36,6 +38,11 @@ func main() {
 	// Load configuration
 	cfg := config.Load()
 
+	// Initialize structured logger
+	// Use JSON format in production, text format with debug in development
+	isProduction := environment == config.EnvProduction
+	logger.Init(isProduction, !isProduction)
+
 	// Connect to database
 	if err := db.Connect(cfg); err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
@@ -49,10 +56,19 @@ func main() {
 	// Create router
 	router := chi.NewMux()
 
+	// Add request ID middleware (must be first to ensure all subsequent middleware has access)
+	router.Use(middleware.RequestIDMiddleware)
+
 	// Add request logging middleware
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			log.Printf("Request: %s %s from %s", r.Method, r.URL.Path, r.Header.Get("Origin"))
+			requestID := logger.GetRequestID(r.Context())
+			logger.Default().Info("request",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"origin", r.Header.Get("Origin"),
+				"request_id", requestID,
+			)
 			next.ServeHTTP(w, r)
 		})
 	})

@@ -284,7 +284,7 @@ func (s *ShowService) GetShows(filters map[string]interface{}) ([]*ShowResponse,
 	return responses, nil
 }
 
-// UpdateShow updates an existing show
+// UpdateShow updates an existing show (basic fields only)
 func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -301,6 +301,159 @@ func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*
 	}
 
 	return s.GetShow(showID)
+}
+
+// UpdateShowWithRelations updates a show including its artist and venue associations.
+// If venues or artists slices are provided (non-nil), they replace the existing associations.
+// If nil, the existing associations are preserved.
+func (s *ShowService) UpdateShowWithRelations(
+	showID uint,
+	updates map[string]interface{},
+	venues []CreateShowVenue,
+	artists []CreateShowArtist,
+) (*ShowResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Handle event_date conversion to UTC if present
+	if eventDate, ok := updates["event_date"].(time.Time); ok {
+		updates["event_date"] = eventDate.UTC()
+	}
+
+	var response *ShowResponse
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// First, verify the show exists
+		var show models.Show
+		if err := tx.First(&show, showID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("show not found")
+			}
+			return fmt.Errorf("failed to find show: %w", err)
+		}
+
+		// Update basic show fields if any updates provided
+		if len(updates) > 0 {
+			if err := tx.Model(&show).Updates(updates).Error; err != nil {
+				return fmt.Errorf("failed to update show: %w", err)
+			}
+			// Reload show to get updated values
+			if err := tx.First(&show, showID).Error; err != nil {
+				return fmt.Errorf("failed to reload show: %w", err)
+			}
+		}
+
+		// Update venue associations if venues are provided
+		var venueResponses []VenueResponse
+		if venues != nil {
+			// Delete existing show-venue associations
+			if err := tx.Where("show_id = ?", showID).Delete(&models.ShowVenue{}).Error; err != nil {
+				return fmt.Errorf("failed to delete existing show venues: %w", err)
+			}
+
+			// Create new associations
+			var err error
+			venueResponses, err = s.associateVenues(tx, showID, venues)
+			if err != nil {
+				return fmt.Errorf("failed to associate venues: %w", err)
+			}
+		}
+
+		// Update artist associations if artists are provided
+		var artistResponses []ArtistResponse
+		if artists != nil {
+			// Delete existing show-artist associations
+			if err := tx.Where("show_id = ?", showID).Delete(&models.ShowArtist{}).Error; err != nil {
+				return fmt.Errorf("failed to delete existing show artists: %w", err)
+			}
+
+			// Create new associations
+			var err error
+			artistResponses, err = s.associateArtists(tx, showID, artists)
+			if err != nil {
+				return fmt.Errorf("failed to associate artists: %w", err)
+			}
+		}
+
+		// Build response - need to fetch associations if not updated
+		if venues == nil {
+			// Fetch existing venues
+			var showVenues []models.ShowVenue
+			if err := tx.Where("show_id = ?", showID).Find(&showVenues).Error; err != nil {
+				return fmt.Errorf("failed to fetch show venues: %w", err)
+			}
+			for _, sv := range showVenues {
+				var venue models.Venue
+				if err := tx.First(&venue, sv.VenueID).Error; err == nil {
+					venueResponses = append(venueResponses, VenueResponse{
+						ID:       venue.ID,
+						Name:     venue.Name,
+						Address:  venue.Address,
+						City:     venue.City,
+						State:    venue.State,
+						Verified: venue.Verified,
+					})
+				}
+			}
+		}
+
+		if artists == nil {
+			// Fetch existing artists in order
+			var showArtists []models.ShowArtist
+			if err := tx.Where("show_id = ?", showID).Order("position ASC").Find(&showArtists).Error; err != nil {
+				return fmt.Errorf("failed to fetch show artists: %w", err)
+			}
+			for _, sa := range showArtists {
+				var artist models.Artist
+				if err := tx.First(&artist, sa.ArtistID).Error; err == nil {
+					isHeadliner := sa.SetType == "headliner"
+					isNewArtist := false
+					socials := ShowArtistSocials{
+						Instagram:  artist.Social.Instagram,
+						Facebook:   artist.Social.Facebook,
+						Twitter:    artist.Social.Twitter,
+						YouTube:    artist.Social.YouTube,
+						Spotify:    artist.Social.Spotify,
+						SoundCloud: artist.Social.SoundCloud,
+						Bandcamp:   artist.Social.Bandcamp,
+						Website:    artist.Social.Website,
+					}
+					artistResponses = append(artistResponses, ArtistResponse{
+						ID:          artist.ID,
+						Name:        artist.Name,
+						State:       artist.State,
+						City:        artist.City,
+						IsHeadliner: &isHeadliner,
+						IsNewArtist: &isNewArtist,
+						Socials:     socials,
+					})
+				}
+			}
+		}
+
+		response = &ShowResponse{
+			ID:             show.ID,
+			Title:          show.Title,
+			EventDate:      show.EventDate,
+			City:           show.City,
+			State:          show.State,
+			Price:          show.Price,
+			AgeRequirement: show.AgeRequirement,
+			Description:    show.Description,
+			Venues:         venueResponses,
+			Artists:        artistResponses,
+			CreatedAt:      show.CreatedAt,
+			UpdatedAt:      show.UpdatedAt,
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
 }
 
 // encodeCursor creates a cursor from event_date and show ID

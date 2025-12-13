@@ -2,12 +2,14 @@ package middleware
 
 import (
 	"context"
-	"log"
+	"encoding/json"
 	"net/http"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
+	autherrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
 )
@@ -16,24 +18,36 @@ type contextKey string
 
 const UserContextKey contextKey = "user"
 
-// JWTMiddleware validates JWT tokens
+// JWTErrorResponse represents the error response for JWT authentication failures
+type JWTErrorResponse struct {
+	Success   bool   `json:"success"`
+	Message   string `json:"message"`
+	ErrorCode string `json:"error_code"`
+	RequestID string `json:"request_id,omitempty"`
+}
+
+// JWTMiddleware validates JWT tokens (standard http.Handler version)
 func JWTMiddleware(jwtService *services.JWTService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			log.Printf("DEBUG: JWT Middleware - Processing request to %s", r.URL.Path)
+			ctx := r.Context()
+			requestID := logger.GetRequestID(ctx)
+
+			logger.AuthDebug(ctx, "jwt_middleware_start",
+				"path", r.URL.Path,
+			)
 
 			var token string
+			var tokenSource string
 
 			// First, try to get token from Authorization header
 			authHeader := r.Header.Get("Authorization")
-			log.Printf("DEBUG: JWT Middleware - Auth header: %s", authHeader)
-
 			if authHeader != "" {
 				// Extract token from "Bearer <token>"
 				tokenParts := strings.Split(authHeader, " ")
 				if len(tokenParts) == 2 && tokenParts[0] == "Bearer" {
 					token = tokenParts[1]
-					log.Printf("DEBUG: JWT Middleware - Token found in Authorization header")
+					tokenSource = "header"
 				}
 			}
 
@@ -42,51 +56,79 @@ func JWTMiddleware(jwtService *services.JWTService) func(http.Handler) http.Hand
 				cookie, err := r.Cookie("auth_token")
 				if err == nil && cookie.Value != "" {
 					token = cookie.Value
-					log.Printf("DEBUG: JWT Middleware - Token found in cookie")
+					tokenSource = "cookie"
 				}
 			}
 
 			if token == "" {
-				log.Printf("DEBUG: JWT Middleware - No token found in header or cookie")
-				http.Error(w, "Authentication required", http.StatusUnauthorized)
+				logger.AuthWarn(ctx, "jwt_token_missing",
+					"path", r.URL.Path,
+				)
+				writeJWTError(w, requestID, autherrors.CodeTokenMissing, "Authentication required", http.StatusUnauthorized)
 				return
 			}
+
+			logger.AuthDebug(ctx, "jwt_token_found",
+				"source", tokenSource,
+			)
 
 			// Validate token
 			user, err := jwtService.ValidateToken(token)
 			if err != nil {
-				log.Printf("DEBUG: JWT Middleware - Token validation failed: %v", err)
-				http.Error(w, "Invalid token", http.StatusUnauthorized)
+				errorCode := autherrors.CodeTokenInvalid
+				message := "Invalid token"
+
+				// Check if it's an expiration error
+				if strings.Contains(err.Error(), "expired") {
+					errorCode = autherrors.CodeTokenExpired
+					message = "Your session has expired. Please log in again."
+				}
+
+				logger.AuthWarn(ctx, "jwt_validation_failed",
+					"error", err.Error(),
+					"error_code", errorCode,
+				)
+				writeJWTError(w, requestID, errorCode, message, http.StatusUnauthorized)
 				return
 			}
 
-			log.Printf("DEBUG: JWT Middleware - Token validated successfully for user: %+v", user)
+			logger.AuthDebug(ctx, "jwt_validation_success",
+				"user_id", user.ID,
+			)
 
 			// Add user to context
-			ctx := context.WithValue(r.Context(), UserContextKey, user)
+			ctx = context.WithValue(ctx, UserContextKey, user)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
+// HumaJWTMiddleware validates JWT tokens (Huma middleware version)
 func HumaJWTMiddleware(jwtService *services.JWTService) func(ctx huma.Context, next func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
-		// Access request through context interface
 		url := ctx.URL()
-		log.Printf("DEBUG: Huma JWT Middleware - Processing request to %s", url.Path)
+
+		// Get request ID from context (set by HumaRequestIDMiddleware)
+		var requestID string
+		if id, ok := ctx.Context().Value(logger.RequestIDContextKey).(string); ok {
+			requestID = id
+		}
+
+		logger.AuthDebug(ctx.Context(), "huma_jwt_middleware_start",
+			"path", url.Path,
+		)
 
 		var token string
+		var tokenSource string
 
 		// First, try to get token from Authorization header
 		authHeader := ctx.Header("Authorization")
-		log.Printf("DEBUG: Huma JWT Middleware - Auth header: %s", authHeader)
-
 		if authHeader != "" {
 			// Extract token from "Bearer <token>"
 			tokenParts := strings.Split(authHeader, " ")
 			if len(tokenParts) == 2 && tokenParts[0] == "Bearer" {
 				token = tokenParts[1]
-				log.Printf("DEBUG: Huma JWT Middleware - Token found in Authorization header")
+				tokenSource = "header"
 			}
 		}
 
@@ -96,28 +138,46 @@ func HumaJWTMiddleware(jwtService *services.JWTService) func(ctx huma.Context, n
 				req := &http.Request{Header: http.Header{"Cookie": []string{cookie}}}
 				if c, err := req.Cookie("auth_token"); err == nil && c.Value != "" {
 					token = c.Value
-					log.Printf("DEBUG: Huma JWT Middleware - Token found in cookie")
+					tokenSource = "cookie"
 				}
 			}
 		}
 
 		if token == "" {
-			log.Printf("DEBUG: Huma JWT Middleware - No token found in header or cookie")
-			ctx.SetStatus(http.StatusUnauthorized)
-			ctx.BodyWriter().Write([]byte(`{"message":"Authentication required"}`))
+			logger.AuthWarn(ctx.Context(), "huma_jwt_token_missing",
+				"path", url.Path,
+			)
+			writeHumaJWTError(ctx, requestID, autherrors.CodeTokenMissing, "Authentication required")
 			return
 		}
+
+		logger.AuthDebug(ctx.Context(), "huma_jwt_token_found",
+			"source", tokenSource,
+		)
 
 		// Validate token
 		user, err := jwtService.ValidateToken(token)
 		if err != nil {
-			log.Printf("DEBUG: Huma JWT Middleware - Token validation failed: %v", err)
-			ctx.SetStatus(http.StatusUnauthorized)
-			ctx.BodyWriter().Write([]byte(`{"message":"Invalid token"}`))
+			errorCode := autherrors.CodeTokenInvalid
+			message := "Invalid token"
+
+			// Check if it's an expiration error
+			if strings.Contains(err.Error(), "expired") {
+				errorCode = autherrors.CodeTokenExpired
+				message = "Your session has expired. Please log in again."
+			}
+
+			logger.AuthWarn(ctx.Context(), "huma_jwt_validation_failed",
+				"error", err.Error(),
+				"error_code", errorCode,
+			)
+			writeHumaJWTError(ctx, requestID, errorCode, message)
 			return
 		}
 
-		log.Printf("DEBUG: Huma JWT Middleware - Token validated successfully for user: %+v", user)
+		logger.AuthInfo(ctx.Context(), "huma_jwt_validation_success",
+			"user_id", user.ID,
+		)
 
 		// Store user in context for handlers to access
 		ctxWithUser := huma.WithValue(ctx, UserContextKey, user)
@@ -132,4 +192,29 @@ func GetUserFromContext(ctx context.Context) *models.User {
 		return user
 	}
 	return nil
+}
+
+// writeJWTError writes a JSON error response for JWT authentication failures
+func writeJWTError(w http.ResponseWriter, requestID, errorCode, message string, statusCode int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(JWTErrorResponse{
+		Success:   false,
+		Message:   message,
+		ErrorCode: errorCode,
+		RequestID: requestID,
+	})
+}
+
+// writeHumaJWTError writes a JSON error response for Huma JWT authentication failures
+func writeHumaJWTError(ctx huma.Context, requestID, errorCode, message string) {
+	ctx.SetStatus(http.StatusUnauthorized)
+	resp := JWTErrorResponse{
+		Success:   false,
+		Message:   message,
+		ErrorCode: errorCode,
+		RequestID: requestID,
+	}
+	data, _ := json.Marshal(resp)
+	ctx.BodyWriter().Write(data)
 }

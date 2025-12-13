@@ -18,6 +18,9 @@ import (
 func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	api := humachi.New(router, huma.DefaultConfig("Psychic Homily", "1.0.0"))
 
+	// Add request ID middleware to all Huma routes
+	api.UseMiddleware(middleware.HumaRequestIDMiddleware)
+
 	// Create services
 	authService := services.NewAuthService(cfg)
 	jwtService := services.NewJWTService(cfg)
@@ -27,7 +30,7 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	setupAuthRoutes(router, api, authService, jwtService, cfg)
 
 	// Create a protected group that will require authentication
-	protectedGroup := huma.NewGroup(api, "/")
+	protectedGroup := huma.NewGroup(api, "")
 	protectedGroup.UseMiddleware(middleware.HumaJWTMiddleware(jwtService))
 
 	// Add protected auth routes

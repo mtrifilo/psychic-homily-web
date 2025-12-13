@@ -8,6 +8,8 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	showerrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
 )
 
@@ -157,18 +159,19 @@ type GetUpcomingShowsResponse struct {
 }
 
 // UpdateShowRequest represents the HTTP request for updating a show
+// All body fields are optional for partial updates
 type UpdateShowRequest struct {
 	ShowID string `path:"show_id" validate:"required" doc:"Show ID"`
 	Body   struct {
-		Title          *string    `json:"title" doc:"Show title"`
-		EventDate      *time.Time `json:"event_date" doc:"Event date and time"`
-		City           *string    `json:"city" doc:"City where the show takes place"`
-		State          *string    `json:"state" doc:"State where the show takes place"`
-		Price          *float64   `json:"price" doc:"Ticket price"`
-		AgeRequirement *string    `json:"age_requirement" doc:"Age requirement"`
-		Description    *string    `json:"description" doc:"Show description"`
-		Venues         []Venue    `json:"venues" doc:"List of venues for the show"`
-		Artists        []Artist   `json:"artists" doc:"List of artists in the show"`
+		Title          *string    `json:"title,omitempty" doc:"Show title"`
+		EventDate      *time.Time `json:"event_date,omitempty" doc:"Event date and time"`
+		City           *string    `json:"city,omitempty" doc:"City where the show takes place"`
+		State          *string    `json:"state,omitempty" doc:"State where the show takes place"`
+		Price          *float64   `json:"price,omitempty" doc:"Ticket price"`
+		AgeRequirement *string    `json:"age_requirement,omitempty" doc:"Age requirement"`
+		Description    *string    `json:"description,omitempty" doc:"Show description"`
+		Venues         []Venue    `json:"venues,omitempty" doc:"List of venues for the show"`
+		Artists        []Artist   `json:"artists,omitempty" doc:"List of artists for the show"`
 	}
 }
 
@@ -199,6 +202,16 @@ type AIProcessShowResponse struct {
 
 // CreateShowHandler handles POST /shows
 func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequest) (*CreateShowResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	logger.FromContext(ctx).Debug("show_create_attempt",
+		"venue_count", len(req.Body.Venues),
+		"artist_count", len(req.Body.Artists),
+		"event_date", req.Body.EventDate,
+		"city", req.Body.City,
+		"state", req.Body.State,
+	)
+
 	// Validation is now handled by Huma's custom resolvers
 
 	// Convert Venues to service format
@@ -266,31 +279,74 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	// Create show using service
 	show, err := h.showService.CreateShow(serviceReq)
 	if err != nil {
-		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("Failed to create show: %v", err))
+		showErr := showerrors.ErrShowCreateFailed(err)
+		logger.FromContext(ctx).Error("show_create_failed",
+			"error", err.Error(),
+			"error_code", showErr.Code,
+			"request_id", requestID,
+		)
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("%s [%s] (request_id: %s)", showErr.Message, showErr.Code, requestID),
+		)
 	}
+
+	logger.FromContext(ctx).Info("show_created",
+		"show_id", show.ID,
+		"title", show.Title,
+		"request_id", requestID,
+	)
 
 	return &CreateShowResponse{Body: *show}, nil
 }
 
 // GetShowHandler handles GET /shows/{show_id}
 func (h *ShowHandler) GetShowHandler(ctx context.Context, req *GetShowRequest) (*GetShowResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
 	// Parse show ID
 	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
 	if err != nil {
-		return nil, huma.Error400BadRequest("Invalid show ID")
+		showErr := showerrors.ErrShowInvalidID(req.ShowID)
+		logger.FromContext(ctx).Warn("show_get_invalid_id",
+			"show_id_str", req.ShowID,
+			"error_code", showErr.Code,
+			"request_id", requestID,
+		)
+		return nil, huma.Error400BadRequest(
+			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
+		)
 	}
+
+	logger.FromContext(ctx).Debug("show_get_attempt",
+		"show_id", showID,
+	)
 
 	// Get show using service
 	show, err := h.showService.GetShow(uint(showID))
 	if err != nil {
-		return nil, huma.Error404NotFound(fmt.Sprintf("Show not found: %v", err))
+		showErr := showerrors.ErrShowNotFound(uint(showID))
+		logger.FromContext(ctx).Warn("show_not_found",
+			"show_id", showID,
+			"error", err.Error(),
+			"error_code", showErr.Code,
+			"request_id", requestID,
+		)
+		return nil, huma.Error404NotFound(
+			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
+		)
 	}
+
+	logger.FromContext(ctx).Debug("show_get_success",
+		"show_id", showID,
+	)
 
 	return &GetShowResponse{Body: *show}, nil
 }
 
 // GetShowsHandler handles GET /shows
 func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest) (*GetShowsResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
 	// Build filters
 	filters := make(map[string]interface{})
 	if req.City != "" {
@@ -306,17 +362,33 @@ func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest)
 		filters["to_date"] = req.ToDate
 	}
 
+	logger.FromContext(ctx).Debug("shows_list_attempt",
+		"filter_count", len(filters),
+	)
+
 	// Get shows using service
 	shows, err := h.showService.GetShows(filters)
 	if err != nil {
-		return nil, huma.Error500InternalServerError(fmt.Sprintf("Failed to get shows: %v", err))
+		logger.FromContext(ctx).Error("shows_list_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get shows [SERVICE_UNAVAILABLE] (request_id: %s)", requestID),
+		)
 	}
+
+	logger.FromContext(ctx).Debug("shows_list_success",
+		"count", len(shows),
+	)
 
 	return &GetShowsResponse{Body: shows}, nil
 }
 
 // GetUpcomingShowsHandler handles GET /shows/upcoming
 func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcomingShowsRequest) (*GetUpcomingShowsResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
 	// Default timezone to UTC if not provided
 	timezone := req.Timezone
 	if timezone == "" {
@@ -332,11 +404,29 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 		limit = 200 // Cap at 200 to prevent excessive queries
 	}
 
+	logger.FromContext(ctx).Debug("shows_upcoming_attempt",
+		"timezone", timezone,
+		"limit", limit,
+		"has_cursor", req.Cursor != "",
+	)
+
 	// Get upcoming shows using service
 	shows, nextCursor, err := h.showService.GetUpcomingShows(timezone, req.Cursor, limit)
 	if err != nil {
-		return nil, huma.Error500InternalServerError(fmt.Sprintf("Failed to get upcoming shows: %v", err))
+		logger.FromContext(ctx).Error("shows_upcoming_failed",
+			"error", err.Error(),
+			"timezone", timezone,
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get upcoming shows [SERVICE_UNAVAILABLE] (request_id: %s)", requestID),
+		)
 	}
+
+	logger.FromContext(ctx).Debug("shows_upcoming_success",
+		"count", len(shows),
+		"has_more", nextCursor != nil,
+	)
 
 	return &GetUpcomingShowsResponse{
 		Body: struct {
@@ -357,13 +447,33 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 
 // UpdateShowHandler handles PUT /shows/{show_id}
 func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequest) (*UpdateShowResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Early debug log to confirm handler is called
+	logger.FromContext(ctx).Debug("show_update_handler_start",
+		"show_id_path", req.ShowID,
+		"has_venues", len(req.Body.Venues) > 0,
+		"venue_count", len(req.Body.Venues),
+		"has_artists", len(req.Body.Artists) > 0,
+		"artist_count", len(req.Body.Artists),
+		"request_id", requestID,
+	)
+
 	// Parse show ID
 	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
 	if err != nil {
-		return nil, huma.Error400BadRequest("Invalid show ID")
+		showErr := showerrors.ErrShowInvalidID(req.ShowID)
+		logger.FromContext(ctx).Warn("show_update_invalid_id",
+			"show_id_str", req.ShowID,
+			"error_code", showErr.Code,
+			"request_id", requestID,
+		)
+		return nil, huma.Error400BadRequest(
+			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
+		)
 	}
 
-	// Build updates map
+	// Build updates map for basic show fields
 	updates := make(map[string]interface{})
 	if req.Body.Title != nil {
 		updates["title"] = *req.Body.Title
@@ -387,28 +497,125 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		updates["description"] = *req.Body.Description
 	}
 
-	// Update show using service
-	show, err := h.showService.UpdateShow(uint(showID), updates)
-	if err != nil {
-		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("Failed to update show: %v", err))
+	// Convert venues to service format (nil if not provided)
+	var serviceVenues []services.CreateShowVenue
+	if len(req.Body.Venues) > 0 {
+		serviceVenues = make([]services.CreateShowVenue, len(req.Body.Venues))
+		for i, venue := range req.Body.Venues {
+			var name, city, state, address string
+			if venue.Name != nil {
+				name = *venue.Name
+			}
+			if venue.City != nil {
+				city = *venue.City
+			}
+			if venue.State != nil {
+				state = *venue.State
+			}
+			if venue.Address != nil {
+				address = *venue.Address
+			}
+			serviceVenues[i] = services.CreateShowVenue{
+				ID:      venue.ID,
+				Name:    name,
+				City:    city,
+				State:   state,
+				Address: address,
+			}
+		}
 	}
+
+	// Convert artists to service format (nil if not provided)
+	var serviceArtists []services.CreateShowArtist
+	if len(req.Body.Artists) > 0 {
+		serviceArtists = make([]services.CreateShowArtist, len(req.Body.Artists))
+		for i, artist := range req.Body.Artists {
+			var name string
+			if artist.Name != nil {
+				name = *artist.Name
+			}
+			serviceArtists[i] = services.CreateShowArtist{
+				ID:          artist.ID,
+				Name:        name,
+				IsHeadliner: artist.IsHeadliner,
+			}
+		}
+	}
+
+	logger.FromContext(ctx).Debug("show_update_attempt",
+		"show_id", showID,
+		"update_fields", len(updates),
+		"has_venues", serviceVenues != nil,
+		"has_artists", serviceArtists != nil,
+	)
+
+	// Update show using service with relations support
+	show, err := h.showService.UpdateShowWithRelations(uint(showID), updates, serviceVenues, serviceArtists)
+	if err != nil {
+		showErr := showerrors.ErrShowUpdateFailed(uint(showID), err)
+		logger.FromContext(ctx).Error("show_update_failed",
+			"show_id", showID,
+			"error", err.Error(),
+			"error_code", showErr.Code,
+			"request_id", requestID,
+		)
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("%s [%s] (request_id: %s)", showErr.Message, showErr.Code, requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Info("show_updated",
+		"show_id", showID,
+		"title", show.Title,
+		"venue_count", len(show.Venues),
+		"artist_count", len(show.Artists),
+		"request_id", requestID,
+	)
 
 	return &UpdateShowResponse{Body: *show}, nil
 }
 
 // DeleteShowHandler handles DELETE /shows/{show_id}
 func (h *ShowHandler) DeleteShowHandler(ctx context.Context, req *DeleteShowRequest) (*huma.Response, error) {
+	requestID := logger.GetRequestID(ctx)
+
 	// Parse show ID
 	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
 	if err != nil {
-		return nil, huma.Error400BadRequest("Invalid show ID")
+		showErr := showerrors.ErrShowInvalidID(req.ShowID)
+		logger.FromContext(ctx).Warn("show_delete_invalid_id",
+			"show_id_str", req.ShowID,
+			"error_code", showErr.Code,
+			"request_id", requestID,
+		)
+		return nil, huma.Error400BadRequest(
+			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
+		)
 	}
+
+	logger.FromContext(ctx).Debug("show_delete_attempt",
+		"show_id", showID,
+	)
 
 	// Delete show using service
 	err = h.showService.DeleteShow(uint(showID))
 	if err != nil {
-		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("Failed to delete show: %v", err))
+		showErr := showerrors.ErrShowDeleteFailed(uint(showID), err)
+		logger.FromContext(ctx).Error("show_delete_failed",
+			"show_id", showID,
+			"error", err.Error(),
+			"error_code", showErr.Code,
+			"request_id", requestID,
+		)
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("%s [%s] (request_id: %s)", showErr.Message, showErr.Code, requestID),
+		)
 	}
+
+	logger.FromContext(ctx).Info("show_deleted",
+		"show_id", showID,
+		"request_id", requestID,
+	)
 
 	// Return 204 No Content
 	return &huma.Response{}, nil
