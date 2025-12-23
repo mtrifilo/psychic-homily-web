@@ -55,22 +55,29 @@ type CreateShowRequest struct {
 	Description    string             `json:"description"`
 	Venues         []CreateShowVenue  `json:"venues" validate:"required,min=1"`
 	Artists        []CreateShowArtist `json:"artists" validate:"required,min=1"`
+
+	// User context for determining show status
+	SubmittedByUserID *uint `json:"-"` // User ID of submitter (set by handler)
+	SubmitterIsAdmin  bool  `json:"-"` // Whether submitter is admin (set by handler)
 }
 
 // ShowResponse represents the show data returned to clients
 type ShowResponse struct {
-	ID             uint             `json:"id"`
-	Title          string           `json:"title"`
-	EventDate      time.Time        `json:"event_date"`
-	City           *string          `json:"city"`
-	State          *string          `json:"state"`
-	Price          *float64         `json:"price"`
-	AgeRequirement *string          `json:"age_requirement"`
-	Description    *string          `json:"description"`
-	Venues         []VenueResponse  `json:"venues"`
-	Artists        []ArtistResponse `json:"artists"`
-	CreatedAt      time.Time        `json:"created_at"`
-	UpdatedAt      time.Time        `json:"updated_at"`
+	ID              uint             `json:"id"`
+	Title           string           `json:"title"`
+	EventDate       time.Time        `json:"event_date"`
+	City            *string          `json:"city"`
+	State           *string          `json:"state"`
+	Price           *float64         `json:"price"`
+	AgeRequirement  *string          `json:"age_requirement"`
+	Description     *string          `json:"description"`
+	Status          string           `json:"status"`
+	SubmittedBy     *uint            `json:"submitted_by,omitempty"`
+	RejectionReason *string          `json:"rejection_reason,omitempty"`
+	Venues          []VenueResponse  `json:"venues"`
+	Artists         []ArtistResponse `json:"artists"`
+	CreatedAt       time.Time        `json:"created_at"`
+	UpdatedAt       time.Time        `json:"updated_at"`
 }
 
 // VenueResponse represents venue data in show responses
@@ -109,6 +116,7 @@ type ArtistResponse struct {
 // CreateShow creates a new show with associated venues and artists.
 // Prevents duplicate headliners at the same venue on the same date/time.
 // Prevents duplicate venues with the same name in the same city.
+// Status is determined based on venue verification and submitter admin status.
 func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -122,6 +130,9 @@ func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) 
 			return err
 		}
 
+		// Determine show status based on venue verification
+		status := s.determineShowStatus(tx, req.Venues, req.SubmitterIsAdmin)
+
 		// Create the show
 		show := &models.Show{
 			Title:          req.Title,
@@ -131,14 +142,16 @@ func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) 
 			Price:          req.Price,
 			AgeRequirement: &req.AgeRequirement,
 			Description:    &req.Description,
+			Status:         status,
+			SubmittedBy:    req.SubmittedByUserID,
 		}
 
 		if err := tx.Create(show).Error; err != nil {
 			return fmt.Errorf("failed to create show: %w", err)
 		}
 
-		// Associate venues
-		venues, err := s.associateVenues(tx, show.ID, req.Venues)
+		// Associate venues (pass admin status for venue verification)
+		venues, err := s.associateVenues(tx, show.ID, req.Venues, req.SubmitterIsAdmin)
 		if err != nil {
 			return fmt.Errorf("failed to associate venues: %w", err)
 		}
@@ -151,18 +164,21 @@ func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) 
 
 		// Build response
 		response = &ShowResponse{
-			ID:             show.ID,
-			Title:          show.Title,
-			EventDate:      show.EventDate,
-			City:           show.City,
-			State:          show.State,
-			Price:          show.Price,
-			AgeRequirement: show.AgeRequirement,
-			Description:    show.Description,
-			Venues:         venues,
-			Artists:        artists,
-			CreatedAt:      show.CreatedAt,
-			UpdatedAt:      show.UpdatedAt,
+			ID:              show.ID,
+			Title:           show.Title,
+			EventDate:       show.EventDate,
+			City:            show.City,
+			State:           show.State,
+			Price:           show.Price,
+			AgeRequirement:  show.AgeRequirement,
+			Description:     show.Description,
+			Status:          string(show.Status),
+			SubmittedBy:     show.SubmittedBy,
+			RejectionReason: show.RejectionReason,
+			Venues:          venues,
+			Artists:         artists,
+			CreatedAt:       show.CreatedAt,
+			UpdatedAt:       show.UpdatedAt,
 		}
 
 		return nil
@@ -173,6 +189,34 @@ func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) 
 	}
 
 	return response, nil
+}
+
+// determineShowStatus determines whether a show should be pending or approved.
+// Admins always get approved status. Non-admins get pending if any venue is unverified.
+func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []CreateShowVenue, isAdmin bool) models.ShowStatus {
+	// Admins bypass the pending workflow
+	if isAdmin {
+		return models.ShowStatusApproved
+	}
+
+	// Check each venue
+	for _, v := range venues {
+		if v.ID == nil {
+			// New venue (no ID) = will be created as unverified = pending
+			return models.ShowStatusPending
+		}
+
+		// Check if existing venue is verified
+		var venue models.Venue
+		if err := tx.First(&venue, *v.ID).Error; err == nil {
+			if !venue.Verified {
+				return models.ShowStatusPending
+			}
+		}
+	}
+
+	// All venues are verified
+	return models.ShowStatusApproved
 }
 
 // checkDuplicateHeadlinerConflicts checks if any headliners are already performing
@@ -306,11 +350,13 @@ func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*
 // UpdateShowWithRelations updates a show including its artist and venue associations.
 // If venues or artists slices are provided (non-nil), they replace the existing associations.
 // If nil, the existing associations are preserved.
+// If isAdmin is true, new venues created during update are automatically verified.
 func (s *ShowService) UpdateShowWithRelations(
 	showID uint,
 	updates map[string]interface{},
 	venues []CreateShowVenue,
 	artists []CreateShowArtist,
+	isAdmin bool,
 ) (*ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -351,9 +397,9 @@ func (s *ShowService) UpdateShowWithRelations(
 				return fmt.Errorf("failed to delete existing show venues: %w", err)
 			}
 
-			// Create new associations
+			// Create new associations (pass admin status for venue verification)
 			var err error
-			venueResponses, err = s.associateVenues(tx, showID, venues)
+			venueResponses, err = s.associateVenues(tx, showID, venues, isAdmin)
 			if err != nil {
 				return fmt.Errorf("failed to associate venues: %w", err)
 			}
@@ -432,18 +478,21 @@ func (s *ShowService) UpdateShowWithRelations(
 		}
 
 		response = &ShowResponse{
-			ID:             show.ID,
-			Title:          show.Title,
-			EventDate:      show.EventDate,
-			City:           show.City,
-			State:          show.State,
-			Price:          show.Price,
-			AgeRequirement: show.AgeRequirement,
-			Description:    show.Description,
-			Venues:         venueResponses,
-			Artists:        artistResponses,
-			CreatedAt:      show.CreatedAt,
-			UpdatedAt:      show.UpdatedAt,
+			ID:              show.ID,
+			Title:           show.Title,
+			EventDate:       show.EventDate,
+			City:            show.City,
+			State:           show.State,
+			Price:           show.Price,
+			AgeRequirement:  show.AgeRequirement,
+			Description:     show.Description,
+			Status:          string(show.Status),
+			SubmittedBy:     show.SubmittedBy,
+			RejectionReason: show.RejectionReason,
+			Venues:          venueResponses,
+			Artists:         artistResponses,
+			CreatedAt:       show.CreatedAt,
+			UpdatedAt:       show.UpdatedAt,
 		}
 
 		return nil
@@ -490,8 +539,10 @@ func decodeCursor(cursor string) (time.Time, uint, error) {
 
 // GetUpcomingShows retrieves shows from today onwards in the specified timezone with cursor pagination.
 // Includes tonight's shows by filtering from the start of today in the user's timezone.
+// If includeNonApproved is false, only approved shows are returned (public view).
+// If includeNonApproved is true, all shows are returned including pending/rejected (admin view).
 // Returns shows, next cursor (nil if no more), and error.
-func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int) ([]*ShowResponse, *string, error) {
+func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool) ([]*ShowResponse, *string, error) {
 	if s.db == nil {
 		return nil, nil, fmt.Errorf("database not initialized")
 	}
@@ -510,6 +561,11 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 
 	// Build query
 	query := s.db.Preload("Venues").Preload("Artists")
+
+	// Filter by status for non-admin users (public view shows only approved)
+	if !includeNonApproved {
+		query = query.Where("status = ?", models.ShowStatusApproved)
+	}
 
 	// Apply cursor filter if provided
 	if cursor != "" {
@@ -579,9 +635,145 @@ func (s *ShowService) DeleteShow(showID uint) error {
 	})
 }
 
+// GetPendingShows retrieves shows with pending status for admin review.
+// Returns shows, total count, and error.
+func (s *ShowService) GetPendingShows(limit, offset int) ([]*ShowResponse, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	// Get total count
+	var total int64
+	if err := s.db.Model(&models.Show{}).Where("status = ?", models.ShowStatusPending).Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count pending shows: %w", err)
+	}
+
+	// Get pending shows with pagination
+	var shows []models.Show
+	err := s.db.Preload("Venues").Preload("Artists").
+		Where("status = ?", models.ShowStatusPending).
+		Order("created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&shows).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get pending shows: %w", err)
+	}
+
+	// Build responses
+	responses := make([]*ShowResponse, len(shows))
+	for i, show := range shows {
+		responses[i] = s.buildShowResponse(&show)
+	}
+
+	return responses, total, nil
+}
+
+// ApproveShow approves a pending show and optionally verifies its venues.
+func (s *ShowService) ApproveShow(showID uint, verifyVenues bool) (*ShowResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var response *ShowResponse
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Get the show
+		var show models.Show
+		if err := tx.Preload("Venues").First(&show, showID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("show not found")
+			}
+			return fmt.Errorf("failed to get show: %w", err)
+		}
+
+		// Verify the show is pending
+		if show.Status != models.ShowStatusPending {
+			return fmt.Errorf("show is not pending (current status: %s)", show.Status)
+		}
+
+		// Update show status to approved
+		if err := tx.Model(&show).Update("status", models.ShowStatusApproved).Error; err != nil {
+			return fmt.Errorf("failed to approve show: %w", err)
+		}
+
+		// Optionally verify the venues
+		if verifyVenues {
+			for _, venue := range show.Venues {
+				if !venue.Verified {
+					if err := tx.Model(&venue).Update("verified", true).Error; err != nil {
+						return fmt.Errorf("failed to verify venue %d: %w", venue.ID, err)
+					}
+				}
+			}
+		}
+
+		// Reload the show to get updated data
+		if err := tx.Preload("Venues").Preload("Artists").First(&show, showID).Error; err != nil {
+			return fmt.Errorf("failed to reload show: %w", err)
+		}
+
+		response = s.buildShowResponse(&show)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+// RejectShow rejects a pending show with a reason.
+func (s *ShowService) RejectShow(showID uint, reason string) (*ShowResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var response *ShowResponse
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Get the show
+		var show models.Show
+		if err := tx.First(&show, showID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("show not found")
+			}
+			return fmt.Errorf("failed to get show: %w", err)
+		}
+
+		// Verify the show is pending
+		if show.Status != models.ShowStatusPending {
+			return fmt.Errorf("show is not pending (current status: %s)", show.Status)
+		}
+
+		// Update show status to rejected with reason
+		updates := map[string]interface{}{
+			"status":           models.ShowStatusRejected,
+			"rejection_reason": reason,
+		}
+		if err := tx.Model(&show).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to reject show: %w", err)
+		}
+
+		// Reload the show to get updated data
+		if err := tx.Preload("Venues").Preload("Artists").First(&show, showID).Error; err != nil {
+			return fmt.Errorf("failed to reload show: %w", err)
+		}
+
+		response = s.buildShowResponse(&show)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
 // associateVenues associates venues with a show, creating new venues if needed.
 // Uses VenueService to ensure consistent venue creation logic.
-func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []CreateShowVenue) ([]VenueResponse, error) {
+// If isAdmin is true, new venues are automatically verified.
+func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []CreateShowVenue, isAdmin bool) ([]VenueResponse, error) {
 	var venues []VenueResponse
 
 	// Create venue service for venue operations
@@ -614,8 +806,9 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 				requestVenue.City,
 				requestVenue.State,
 				addressPtr,
-				nil, // zipcode
-				tx,  // use transaction
+				nil,    // zipcode
+				tx,     // use transaction
+				isAdmin, // pass admin status for venue verification
 			)
 			if err != nil {
 				return nil, fmt.Errorf("failed to find or create venue: %w", err)
@@ -789,17 +982,20 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 	}
 
 	return &ShowResponse{
-		ID:             show.ID,
-		Title:          show.Title,
-		EventDate:      show.EventDate,
-		City:           show.City,
-		State:          show.State,
-		Price:          show.Price,
-		AgeRequirement: show.AgeRequirement,
-		Description:    show.Description,
-		Venues:         venues,
-		Artists:        artists,
-		CreatedAt:      show.CreatedAt,
-		UpdatedAt:      show.UpdatedAt,
+		ID:              show.ID,
+		Title:           show.Title,
+		EventDate:       show.EventDate,
+		City:            show.City,
+		State:           show.State,
+		Price:           show.Price,
+		AgeRequirement:  show.AgeRequirement,
+		Description:     show.Description,
+		Status:          string(show.Status),
+		SubmittedBy:     show.SubmittedBy,
+		RejectionReason: show.RejectionReason,
+		Venues:          venues,
+		Artists:         artists,
+		CreatedAt:       show.CreatedAt,
+		UpdatedAt:       show.UpdatedAt,
 	}
 }

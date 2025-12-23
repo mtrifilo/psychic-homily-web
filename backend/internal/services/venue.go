@@ -54,7 +54,9 @@ type VenueDetailResponse struct {
 }
 
 // CreateVenue creates a new venue
-func (s *VenueService) CreateVenue(req *CreateVenueRequest) (*VenueDetailResponse, error) {
+// If isAdmin is true, the venue is automatically verified.
+// If isAdmin is false, the venue requires admin approval (verified = false).
+func (s *VenueService) CreateVenue(req *CreateVenueRequest, isAdmin bool) (*VenueDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -68,14 +70,14 @@ func (s *VenueService) CreateVenue(req *CreateVenueRequest) (*VenueDetailRespons
 		return nil, fmt.Errorf("failed to check existing venue: %w", err)
 	}
 
-	// Create the venue (unverified by default for safety)
+	// Create the venue - verified if created by admin, unverified otherwise
 	venue := &models.Venue{
 		Name:     req.Name,
 		Address:  req.Address,
 		City:     req.City,
 		State:    req.State,
 		Zipcode:  req.Zipcode,
-		Verified: false, // Always false for new venues - requires admin approval
+		Verified: isAdmin, // Admins create verified venues, non-admins require approval
 		Social: models.Social{
 			Instagram:  req.Instagram,
 			Facebook:   req.Facebook,
@@ -282,7 +284,9 @@ func (venueService *VenueService) SearchVenues(query string) ([]*VenueDetailResp
 // This method can be used within a transaction context by passing a *gorm.DB.
 // If tx is nil, it uses the service's default database connection.
 // City and state are required - this function will return an error if they're empty.
-func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB) (*models.Venue, error) {
+// If isAdmin is true, new venues are automatically verified.
+// If isAdmin is false, new venues require admin approval (verified = false).
+func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*models.Venue, error) {
 	// Use provided db or fall back to service's db
 	query := db
 	if query == nil {
@@ -315,14 +319,14 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 		return nil, fmt.Errorf("failed to check existing venue: %w", err)
 	}
 
-	// Venue doesn't exist, create it (unverified by default for safety)
+	// Venue doesn't exist, create it - verified if created by admin, unverified otherwise
 	venue = models.Venue{
 		Name:     name,
 		Address:  address,
 		City:     city,
 		State:    state,
 		Zipcode:  zipcode,
-		Verified: false,           // Always false for new venues - requires admin approval
+		Verified: isAdmin, // Admins create verified venues, non-admins require approval
 		Social:   models.Social{}, // Empty social fields
 	}
 
@@ -331,6 +335,40 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 	}
 
 	return &venue, nil
+}
+
+// VerifyVenue marks a venue as verified by an admin.
+func (s *VenueService) VerifyVenue(venueID uint) (*VenueDetailResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Get the venue
+	var venue models.Venue
+	err := s.db.First(&venue, venueID).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("venue not found")
+		}
+		return nil, fmt.Errorf("failed to get venue: %w", err)
+	}
+
+	// Check if already verified
+	if venue.Verified {
+		return s.buildVenueResponse(&venue), nil
+	}
+
+	// Update verified status
+	if err := s.db.Model(&venue).Update("verified", true).Error; err != nil {
+		return nil, fmt.Errorf("failed to verify venue: %w", err)
+	}
+
+	// Reload to get updated data
+	if err := s.db.First(&venue, venueID).Error; err != nil {
+		return nil, fmt.Errorf("failed to reload venue: %w", err)
+	}
+
+	return s.buildVenueResponse(&venue), nil
 }
 
 // buildVenueResponse converts a Venue model to VenueDetailResponse

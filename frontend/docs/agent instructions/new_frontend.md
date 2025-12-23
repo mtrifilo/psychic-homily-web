@@ -8,6 +8,7 @@
 - **Blog** - Music-related articles with Bandcamp and SoundCloud embeds
 - **DJ Sets** - Curated mixes with SoundCloud embeds
 - **Show Submissions** - Authenticated users can submit new show listings
+- **Admin Console** - Admin dashboard for reviewing and approving pending show submissions
 - **User Authentication** - Email/password and OAuth login
 
 **Website:** https://psychichomily.com
@@ -55,6 +56,9 @@ The project is undergoing a migration from a Hugo static site to a Next.js appli
 psychic-homily-web/
 ├── frontend/                    # NEW Next.js application
 │   ├── app/                     # Next.js App Router pages
+│   │   ├── admin/               # Admin console (protected)
+│   │   │   ├── layout.tsx       # Admin auth guard layout
+│   │   │   └── page.tsx         # Pending shows review page
 │   │   ├── api/[...path]/       # API proxy for development
 │   │   ├── auth/                # Login/signup page
 │   │   ├── blog/                # Blog listing and posts
@@ -63,9 +67,14 @@ psychic-homily-web/
 │   │   ├── shows/               # Shows listing page
 │   │   ├── submissions/         # Authenticated show submission
 │   │   ├── layout.tsx           # Root layout with providers
-│   │   ├── nav.tsx              # Navigation component
+│   │   ├── nav.tsx              # Navigation component (with admin link)
 │   │   └── page.tsx             # Homepage
 │   ├── components/              # React components
+│   │   ├── admin/               # Admin-specific components
+│   │   │   ├── PendingShowCard.tsx       # Show card with approve/reject
+│   │   │   ├── ApproveShowDialog.tsx     # Approval confirmation dialog
+│   │   │   ├── RejectShowDialog.tsx      # Rejection with reason dialog
+│   │   │   └── index.ts         # Component exports
 │   │   ├── blog/                # Blog-specific components
 │   │   ├── forms/               # Form components (ArtistInput, VenueInput, ShowForm)
 │   │   ├── ui/                  # shadcn/ui base components
@@ -78,7 +87,7 @@ psychic-homily-web/
 │   │   ├── mixes.ts             # DJ sets content utilities
 │   │   ├── context/             # React contexts (AuthContext with is_admin)
 │   │   ├── errors/              # Typed error classes (AuthError, ShowError)
-│   │   ├── hooks/               # Custom hooks (useShows, useShowUpdate, useAuth, etc.)
+│   │   ├── hooks/               # Custom hooks (useShows, useAuth, useAdminShows, etc.)
 │   │   ├── types/               # TypeScript type definitions
 │   │   └── utils/               # Utility functions (timeUtils, authLogger, showLogger)
 │   └── public/                  # Static assets
@@ -89,9 +98,9 @@ psychic-homily-web/
 │   │   └── seed/main.go         # Database seeding
 │   ├── internal/
 │   │   ├── api/
-│   │   │   ├── handlers/        # HTTP handlers (show, artist, venue, auth)
+│   │   │   ├── handlers/        # HTTP handlers (show, artist, venue, auth, admin)
 │   │   │   ├── middleware/      # JWT, RequestID middleware
-│   │   │   └── routes/          # Route definitions
+│   │   │   └── routes/          # Route definitions (includes setupAdminRoutes)
 │   │   ├── auth/                # OAuth (Goth) setup
 │   │   ├── config/              # Environment configuration
 │   │   ├── errors/              # Typed error codes (auth.go, show.go)
@@ -161,6 +170,15 @@ psychic-homily-web/
 | GET    | `/artists/search?query=` | Search artists by name |
 | GET    | `/venues/search?query=`  | Search venues by name  |
 
+#### Admin (Protected - Admin Only)
+
+| Method | Endpoint                               | Description                              |
+| ------ | -------------------------------------- | ---------------------------------------- |
+| GET    | `/admin/shows/pending`                 | List pending shows awaiting review       |
+| POST   | `/admin/shows/{show_id}/approve`       | Approve show (optionally verify venues)  |
+| POST   | `/admin/shows/{show_id}/reject`        | Reject show with reason                  |
+| POST   | `/admin/venues/{venue_id}/verify`      | Mark venue as verified                   |
+
 #### System
 
 | Method | Endpoint        | Description           |
@@ -174,9 +192,13 @@ psychic-homily-web/
 
 ### Core Tables
 
-- **shows** - Concert events (title, event_date, city, state, price, age_requirement, description)
+- **shows** - Concert events (title, event_date, city, state, price, age_requirement, description, status, submitted_by, rejection_reason)
+  - `status` - Show approval status: 'pending', 'approved', or 'rejected'
+  - `submitted_by` - User ID of submitter
+  - `rejection_reason` - Reason provided when rejected by admin
 - **artists** - Bands/performers (name, city, state, social links)
-- **venues** - Concert venues (name, address, city, state, social links)
+- **venues** - Concert venues (name, address, city, state, social links, verified)
+  - `verified` - Boolean indicating if venue has been verified by admin
 - **show_artists** - Junction table with position/headliner info
 - **show_venues** - Junction table for multi-venue events
 
@@ -217,9 +239,35 @@ export const useUpcomingShows = (options = {}) => {
 
 Admin users (`user.is_admin === true`) have additional capabilities:
 
-- **Edit shows** - Pencil icon appears on show cards in the show list
+#### Admin Console (`/app/admin/`)
+
+The admin console is a protected route accessible only to admin users. Features include:
+
+- **Admin Link** - Navigation includes an "Admin" link for authenticated admins
+- **Auth Guard** - `layout.tsx` redirects non-authenticated users to `/auth` and non-admins to homepage
+- **Pending Shows Review** - Dashboard displays all shows with `status: 'pending'`
+  - Shows count badge in tab header
+  - **PendingShowCard** - Shows event details, venue info (with unverified badge), artist lineup
+  - **Approve Dialog** - Option to approve show and optionally verify unverified venues
+  - **Reject Dialog** - Requires reason for rejection (saved as `rejection_reason`)
+- **Real-time Updates** - Uses TanStack Query with automatic cache invalidation
+
+#### Show Management
+
+- **Edit shows** - Pencil icon appears on show cards in the show list for admins
 - **Inline editing** - Clicking edit expands the ShowForm below the card, pre-filled with current data
-- **Future** - Admin dashboard for managing users, venues, artists
+- **Status tracking** - Shows have three states: pending, approved, rejected
+
+#### Admin Workflow
+
+1. **User submits show** → Show created with `status: 'pending'`
+2. **Admin views pending shows** → `/admin` page lists all pending submissions
+3. **Admin reviews show** → Can see venue verification status, artist lineup, all details
+4. **Admin takes action:**
+   - **Approve** → Show `status` changes to 'approved', appears in public listings
+     - Option to verify unverified venues at same time
+   - **Reject** → Show `status` changes to 'rejected', requires reason (saved to `rejection_reason`)
+5. **Cache invalidation** → TanStack Query automatically refreshes pending shows list and public shows list
 
 ### API Proxy (Development)
 
@@ -247,6 +295,8 @@ Hugo shortcodes are converted to MDX components:
 
 ```typescript
 // lib/types/show.ts
+type ShowStatus = 'pending' | 'approved' | 'rejected'
+
 interface ShowResponse {
   id: number
   title: string
@@ -256,10 +306,27 @@ interface ShowResponse {
   price?: number | null
   age_requirement?: string | null
   description?: string | null
+  status: ShowStatus
+  submitted_by?: number
+  rejection_reason?: string | null
   venues: VenueResponse[]
   artists: ArtistResponse[]
   created_at: string
   updated_at: string
+}
+
+// Admin-specific types
+interface PendingShowsResponse {
+  shows: ShowResponse[]
+  total: number
+}
+
+interface ApproveShowRequest {
+  verify_venues: boolean
+}
+
+interface RejectShowRequest {
+  reason: string
 }
 
 // lib/types/artist.ts
@@ -351,6 +418,25 @@ JWT_SECRET=your-secret-key
   - `onSuccess?: () => void` - Callback after successful submit
   - `onCancel?: () => void` - Callback for cancel (edit mode only)
 
+### Admin Components
+
+Admin-specific components are located in `/components/admin/`:
+
+- **PendingShowCard** - Card component for pending show display with approve/reject actions
+  - Props: `show: ShowResponse`
+  - Displays event details, venue info with verification badges, artist lineup
+  - Opens ApproveShowDialog and RejectShowDialog
+- **ApproveShowDialog** - Confirmation dialog for approving shows
+  - Props: `show: ShowResponse`, `open: boolean`, `onOpenChange: (open: boolean) => void`
+  - Shows checkbox to verify unverified venues
+  - Uses `useApproveShow()` hook
+- **RejectShowDialog** - Dialog for rejecting shows with reason
+  - Props: `show: ShowResponse`, `open: boolean`, `onOpenChange: (open: boolean) => void`
+  - Requires rejection reason via textarea
+  - Uses `useRejectShow()` hook
+
+UI components used: `Tabs`, `Dialog`, `Checkbox`, `Textarea`, `Badge`, `Button`, `Card`
+
 ### API Calls
 
 - Always use hooks from `/lib/hooks/`
@@ -359,11 +445,20 @@ JWT_SECRET=your-secret-key
 
 Key hooks:
 
+**Shows:**
 - `useUpcomingShows()` - Fetch upcoming shows with pagination
 - `useShowSubmit()` - Create new show (POST)
 - `useShowUpdate()` - Update existing show (PUT)
+
+**Auth:**
 - `useProfile()` - Get current user profile (includes `is_admin`)
 - `useLogin()`, `useRegister()`, `useLogout()` - Auth mutations
+
+**Admin (from `/lib/hooks/useAdminShows.ts` and `/lib/hooks/useAdminVenues.ts`):**
+- `usePendingShows()` - Fetch pending shows awaiting admin review
+- `useApproveShow()` - Approve a show (with optional venue verification)
+- `useRejectShow()` - Reject a show with reason
+- `useVerifyVenue()` - Mark a venue as verified
 
 ### Error Handling
 
@@ -466,9 +561,14 @@ The request ID flows through:
 - Categories taxonomy (`/categories/[category]`)
 - User authentication (login, register, logout)
 - Show submission form (`/submissions`)
+- Admin console (`/admin`)
+  - Pending shows review dashboard
+  - Approve/reject show workflows
+  - Venue verification option
+  - Show status tracking (pending/approved/rejected)
 - Admin show editing (inline edit form on show cards)
 - Reusable ShowForm component (create/edit modes)
-- Navigation with responsive mobile menu
+- Navigation with responsive mobile menu (with admin link)
 - Dark mode toggle
 - API proxy for development
 
@@ -477,7 +577,7 @@ The request ID flows through:
 - Venue detail pages (`/venues/[id]`)
 - Artist detail pages
 - Show detail pages (`/shows/[id]`)
-- Admin dashboard
+- Admin user management
 - Search functionality
 - SEO meta tags (currently using placeholder)
 - Production deployment configuration
@@ -507,6 +607,15 @@ The request ID flows through:
 
 1. Use shadcn/ui CLI or create in `/components/ui/`
 2. Follow Radix UI patterns for accessibility
+
+### Adding Admin Features
+
+1. Create handler in `/backend/internal/api/handlers/admin.go`
+2. Add route in `/backend/internal/api/routes/routes.go` under `setupAdminRoutes`
+3. Create frontend hook in `/lib/hooks/useAdminXxx.ts`
+4. Add endpoint to `API_ENDPOINTS.ADMIN` in `/lib/api.ts`
+5. Build UI components in `/components/admin/`
+6. Integrate into `/app/admin/page.tsx`
 
 ### Creating Database Migrations
 

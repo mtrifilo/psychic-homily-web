@@ -89,6 +89,14 @@ export const queryKeys = {
       ['artists', 'search', query.toLowerCase()] as const,
   },
 
+  // Saved shows queries (user's "My List")
+  savedShows: {
+    all: ['savedShows'] as const,
+    list: (userId?: string) => ['savedShows', 'list', userId] as const,
+    check: (showId: string | number) =>
+      ['savedShows', 'check', String(showId)] as const,
+  },
+
   // System queries
   system: {
     health: ['system', 'health'] as const,
@@ -112,4 +120,8 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
 
   // Invalidate all venue-related queries
   venues: () => queryClient.invalidateQueries({ queryKey: ['venues'] }),
+
+  // Invalidate saved shows queries
+  savedShows: () =>
+    queryClient.invalidateQueries({ queryKey: ['savedShows'] }),
 })

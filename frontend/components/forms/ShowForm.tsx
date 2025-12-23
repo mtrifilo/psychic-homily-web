@@ -12,6 +12,7 @@ import {
   Calendar,
   MapPin,
   CheckCircle2,
+  Clock,
   X,
 } from 'lucide-react'
 import { useShowSubmit, type ShowSubmission } from '@/lib/hooks/useShowSubmit'
@@ -133,6 +134,7 @@ export function ShowForm({
   const submitMutation = useShowSubmit()
   const updateMutation = useShowUpdate()
   const [showSuccess, setShowSuccess] = useState(false)
+  const [isPendingSubmission, setIsPendingSubmission] = useState(false)
 
   const isEditMode = mode === 'edit'
   const mutation = isEditMode ? updateMutation : submitMutation
@@ -212,10 +214,19 @@ export function ShowForm({
         }
 
         submitMutation.mutate(submission, {
-          onSuccess: () => {
+          onSuccess: data => {
+            const isPending = data.status === 'pending'
+            setIsPendingSubmission(isPending)
             setShowSuccess(true)
             form.reset()
-            if (redirectOnCreate) {
+
+            // Don't redirect for pending submissions - user should see the notice
+            if (isPending) {
+              // Call onSuccess after showing the pending notice
+              setTimeout(() => {
+                onSuccess?.()
+              }, 4000) // Longer delay for pending notice
+            } else if (redirectOnCreate) {
               setTimeout(() => {
                 router.push('/shows')
               }, 2000)
@@ -270,6 +281,23 @@ export function ShowForm({
   }
 
   if (showSuccess) {
+    // Show pending notice for submissions with unverified venues
+    if (isPendingSubmission) {
+      return (
+        <div className="flex flex-col items-center justify-center py-8 text-center">
+          <div className="rounded-full bg-amber-500/10 p-3 mb-3">
+            <Clock className="h-6 w-6 text-amber-500" />
+          </div>
+          <h2 className="text-lg font-semibold mb-1">Pending Review</h2>
+          <p className="text-sm text-muted-foreground mb-3 max-w-xs">
+            Your show includes a new venue that needs admin verification. It
+            will be visible once approved.
+          </p>
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
+      )
+    }
+
     return (
       <div className="flex flex-col items-center justify-center py-8 text-center">
         <div className="rounded-full bg-primary/10 p-3 mb-3">

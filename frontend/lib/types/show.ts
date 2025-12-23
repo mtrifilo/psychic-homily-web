@@ -31,6 +31,14 @@ export interface VenueResponse {
   verified: boolean
 }
 
+/**
+ * Show approval status
+ * - pending: awaiting admin review (contains unverified venue)
+ * - approved: visible to public
+ * - rejected: rejected by admin, not visible
+ */
+export type ShowStatus = 'pending' | 'approved' | 'rejected'
+
 export interface ShowResponse {
   id: number
   title: string
@@ -40,6 +48,9 @@ export interface ShowResponse {
   price?: number | null
   age_requirement?: string | null
   description?: string | null
+  status: ShowStatus
+  submitted_by?: number
+  rejection_reason?: string | null
   venues: VenueResponse[]
   artists: ArtistResponse[]
   created_at: string
@@ -56,4 +67,39 @@ export interface UpcomingShowsResponse {
   shows: ShowResponse[]
   timezone: string
   pagination: CursorPaginationMeta
+}
+
+// Admin response types
+export interface PendingShowsResponse {
+  shows: ShowResponse[]
+  total: number
+}
+
+export interface ApproveShowRequest {
+  verify_venues: boolean
+}
+
+export interface RejectShowRequest {
+  reason: string
+}
+
+// Saved shows (user's "My List") types
+export interface SavedShowResponse extends ShowResponse {
+  saved_at: string // ISO date string
+}
+
+export interface SavedShowsListResponse {
+  shows: SavedShowResponse[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface SaveShowResponse {
+  success: boolean
+  message: string
+}
+
+export interface CheckSavedResponse {
+  is_saved: boolean
 }

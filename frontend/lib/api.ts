@@ -68,6 +68,31 @@ export const API_ENDPOINTS = {
     SEARCH: `${API_BASE_URL}/venues/search`,
   },
 
+  // Saved shows (user's "My List") endpoints
+  SAVED_SHOWS: {
+    LIST: `${API_BASE_URL}/saved-shows`,
+    SAVE: (showId: string | number) => `${API_BASE_URL}/saved-shows/${showId}`,
+    UNSAVE: (showId: string | number) =>
+      `${API_BASE_URL}/saved-shows/${showId}`,
+    CHECK: (showId: string | number) =>
+      `${API_BASE_URL}/saved-shows/${showId}/check`,
+  },
+
+  // Admin endpoints
+  ADMIN: {
+    SHOWS: {
+      PENDING: `${API_BASE_URL}/admin/shows/pending`,
+      APPROVE: (showId: string | number) =>
+        `${API_BASE_URL}/admin/shows/${showId}/approve`,
+      REJECT: (showId: string | number) =>
+        `${API_BASE_URL}/admin/shows/${showId}/reject`,
+    },
+    VENUES: {
+      VERIFY: (venueId: string | number) =>
+        `${API_BASE_URL}/admin/venues/${venueId}/verify`,
+    },
+  },
+
   // System endpoints
   HEALTH: `${API_BASE_URL}/health`,
   OPENAPI: `${API_BASE_URL}/openapi.json`,

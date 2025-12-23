@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/middleware"
 	showerrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
@@ -204,12 +205,23 @@ type AIProcessShowResponse struct {
 func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequest) (*CreateShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
+	// Get authenticated user from context
+	user := middleware.GetUserFromContext(ctx)
+	var submittedByUserID *uint
+	var submitterIsAdmin bool
+	if user != nil {
+		submittedByUserID = &user.ID
+		submitterIsAdmin = user.IsAdmin
+	}
+
 	logger.FromContext(ctx).Debug("show_create_attempt",
 		"venue_count", len(req.Body.Venues),
 		"artist_count", len(req.Body.Artists),
 		"event_date", req.Body.EventDate,
 		"city", req.Body.City,
 		"state", req.Body.State,
+		"submitted_by", submittedByUserID,
+		"is_admin", submitterIsAdmin,
 	)
 
 	// Validation is now handled by Huma's custom resolvers
@@ -263,17 +275,19 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 		description = *req.Body.Description
 	}
 
-	// Convert request to service request
+	// Convert request to service request with user context
 	serviceReq := &services.CreateShowRequest{
-		Title:          title,
-		EventDate:      req.Body.EventDate,
-		City:           req.Body.City,
-		State:          req.Body.State,
-		Price:          req.Body.Price,
-		AgeRequirement: req.Body.AgeRequirement,
-		Description:    description,
-		Venues:         serviceVenues,
-		Artists:        serviceArtists,
+		Title:             title,
+		EventDate:         req.Body.EventDate,
+		City:              req.Body.City,
+		State:             req.Body.State,
+		Price:             req.Body.Price,
+		AgeRequirement:    req.Body.AgeRequirement,
+		Description:       description,
+		Venues:            serviceVenues,
+		Artists:           serviceArtists,
+		SubmittedByUserID: submittedByUserID,
+		SubmitterIsAdmin:  submitterIsAdmin,
 	}
 
 	// Create show using service
@@ -293,6 +307,7 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	logger.FromContext(ctx).Info("show_created",
 		"show_id", show.ID,
 		"title", show.Title,
+		"status", show.Status,
 		"request_id", requestID,
 	)
 
@@ -389,6 +404,10 @@ func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest)
 func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcomingShowsRequest) (*GetUpcomingShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
+	// Check if user is admin (for including non-approved shows)
+	user := middleware.GetUserFromContext(ctx)
+	includeNonApproved := user != nil && user.IsAdmin
+
 	// Default timezone to UTC if not provided
 	timezone := req.Timezone
 	if timezone == "" {
@@ -408,10 +427,11 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 		"timezone", timezone,
 		"limit", limit,
 		"has_cursor", req.Cursor != "",
+		"include_non_approved", includeNonApproved,
 	)
 
-	// Get upcoming shows using service
-	shows, nextCursor, err := h.showService.GetUpcomingShows(timezone, req.Cursor, limit)
+	// Get upcoming shows using service (admins see all, others see only approved)
+	shows, nextCursor, err := h.showService.GetUpcomingShows(timezone, req.Cursor, limit, includeNonApproved)
 	if err != nil {
 		logger.FromContext(ctx).Error("shows_upcoming_failed",
 			"error", err.Error(),
@@ -449,6 +469,10 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequest) (*UpdateShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
+	// Get authenticated user from context for admin status
+	user := middleware.GetUserFromContext(ctx)
+	isAdmin := user != nil && user.IsAdmin
+
 	// Early debug log to confirm handler is called
 	logger.FromContext(ctx).Debug("show_update_handler_start",
 		"show_id_path", req.ShowID,
@@ -456,6 +480,7 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		"venue_count", len(req.Body.Venues),
 		"has_artists", len(req.Body.Artists) > 0,
 		"artist_count", len(req.Body.Artists),
+		"is_admin", isAdmin,
 		"request_id", requestID,
 	)
 
@@ -549,8 +574,8 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		"has_artists", serviceArtists != nil,
 	)
 
-	// Update show using service with relations support
-	show, err := h.showService.UpdateShowWithRelations(uint(showID), updates, serviceVenues, serviceArtists)
+	// Update show using service with relations support (pass admin status for venue verification)
+	show, err := h.showService.UpdateShowWithRelations(uint(showID), updates, serviceVenues, serviceArtists, isAdmin)
 	if err != nil {
 		showErr := showerrors.ErrShowUpdateFailed(uint(showID), err)
 		logger.FromContext(ctx).Error("show_update_failed",

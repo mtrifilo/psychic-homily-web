@@ -2,6 +2,15 @@ package models
 
 import "time"
 
+// ShowStatus represents the approval status of a show submission
+type ShowStatus string
+
+const (
+	ShowStatusPending  ShowStatus = "pending"
+	ShowStatusApproved ShowStatus = "approved"
+	ShowStatusRejected ShowStatus = "rejected"
+)
+
 type Show struct {
 	ID             uint `gorm:"primaryKey"`
 	Title          string
@@ -14,9 +23,16 @@ type Show struct {
 	CreatedAt      time.Time `gorm:"not null"`
 	UpdatedAt      time.Time `gorm:"not null"`
 
+	// Approval workflow fields
+	Status          ShowStatus `gorm:"type:show_status;not null;default:'approved'"`
+	SubmittedBy     *uint      `gorm:"column:submitted_by"`
+	RejectionReason *string    `gorm:"column:rejection_reason"`
+
 	// Relationships
 	Venues  []Venue  `gorm:"many2many:show_venues;"`
 	Artists []Artist `gorm:"many2many:show_artists;"`
+	// Submitter relationship (optional, for eager loading)
+	Submitter *User `gorm:"foreignKey:SubmittedBy"`
 }
 
 // TableName specifies the table name for Show

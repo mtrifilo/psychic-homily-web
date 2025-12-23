@@ -11,11 +11,15 @@ import (
 )
 
 type JWTService struct {
-	config *config.Config
+	config      *config.Config
+	userService *UserService
 }
 
 func NewJWTService(cfg *config.Config) *JWTService {
-	return &JWTService{config: cfg}
+	return &JWTService{
+		config:      cfg,
+		userService: NewUserService(),
+	}
 }
 
 // CreateToken generates a JWT for a user
@@ -34,6 +38,7 @@ func (s *JWTService) CreateToken(user *models.User) (string, error) {
 }
 
 // ValidateToken validates and extracts user info from JWT
+// Fetches the full user from the database to ensure we have current admin status
 func (s *JWTService) ValidateToken(tokenString string) (*models.User, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -49,17 +54,14 @@ func (s *JWTService) ValidateToken(tokenString string) (*models.User, error) {
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 		userID := uint(claims["user_id"].(float64))
 		
-		// Handle nil email case
-		var email *string
-		if claims["email"] != nil {
-			emailStr := claims["email"].(string)
-			email = &emailStr
+		// Fetch full user from database to get current admin status and other fields
+		// This ensures we always have the most up-to-date user information
+		user, err := s.userService.GetUserByID(userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get user: %w", err)
 		}
 
-		return &models.User{
-			ID:    userID,
-			Email: email,
-		}, nil
+		return user, nil
 	}
 
 	return nil, fmt.Errorf("invalid token claims")

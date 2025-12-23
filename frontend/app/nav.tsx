@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { Menu, LogOut, Loader2 } from 'lucide-react'
+import { Menu, LogOut, Loader2, Shield, Heart } from 'lucide-react'
 import { ModeToggle } from '@/components/mode-toggle'
 import { Button } from '@/components/ui/button'
 import {
@@ -114,6 +114,26 @@ export default function Nav() {
                 {link.label}
               </Link>
             ))}
+            {/* My List link - only show to authenticated users */}
+            {isAuthenticated && (
+              <Link
+                href="/shows/saved"
+                className="px-3 py-1.5 text-sm font-medium rounded-md hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-1.5"
+              >
+                <Heart className="h-3.5 w-3.5" />
+                My List
+              </Link>
+            )}
+            {/* Admin link - only show to admins */}
+            {isAuthenticated && user?.is_admin && (
+              <Link
+                href="/admin"
+                className="px-3 py-1.5 text-sm font-medium rounded-md hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-1.5"
+              >
+                <Shield className="h-3.5 w-3.5" />
+                Admin
+              </Link>
+            )}
           </div>
         </div>
 
@@ -172,6 +192,28 @@ export default function Nav() {
                     {link.label}
                   </Link>
                 ))}
+                {/* My List link - only show to authenticated users */}
+                {isAuthenticated && (
+                  <Link
+                    href="/shows/saved"
+                    onClick={() => setOpen(false)}
+                    className="text-lg font-medium px-4 py-3 rounded-lg hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-2"
+                  >
+                    <Heart className="h-4 w-4" />
+                    My List
+                  </Link>
+                )}
+                {/* Admin link - only show to admins */}
+                {isAuthenticated && user?.is_admin && (
+                  <Link
+                    href="/admin"
+                    onClick={() => setOpen(false)}
+                    className="text-lg font-medium px-4 py-3 rounded-lg hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-2"
+                  >
+                    <Shield className="h-4 w-4" />
+                    Admin
+                  </Link>
+                )}
 
                 {/* Mobile auth section */}
                 {isLoading ? (

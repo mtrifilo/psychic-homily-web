@@ -12,6 +12,7 @@ import {
 } from '@/lib/utils/timeUtils'
 import { Button } from '@/components/ui/button'
 import { ShowForm } from '@/components/forms'
+import { SaveButton } from '@/components/SaveButton'
 
 /**
  * Format a date string to "Mon, Dec 1" format in venue timezone
@@ -84,22 +85,28 @@ function ShowCard({ show, isAdmin }: ShowCardProps) {
               ))}
             </h2>
 
-            {/* Admin Edit Button */}
-            {isAdmin && (
-              <Button
-                variant={isEditing ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setIsEditing(!isEditing)}
-                className="shrink-0 h-7 w-7 p-0"
-                title={isEditing ? 'Cancel editing' : 'Edit show'}
-              >
-                {isEditing ? (
-                  <X className="h-4 w-4" />
-                ) : (
-                  <Pencil className="h-3.5 w-3.5" />
-                )}
-              </Button>
-            )}
+            {/* Action Buttons */}
+            <div className="flex items-center gap-1 shrink-0">
+              {/* Save Button */}
+              <SaveButton showId={show.id} variant="ghost" size="sm" />
+
+              {/* Admin Edit Button */}
+              {isAdmin && (
+                <Button
+                  variant={isEditing ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setIsEditing(!isEditing)}
+                  className="h-7 w-7 p-0"
+                  title={isEditing ? 'Cancel editing' : 'Edit show'}
+                >
+                  {isEditing ? (
+                    <X className="h-4 w-4" />
+                  ) : (
+                    <Pencil className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Venue and Details */}
