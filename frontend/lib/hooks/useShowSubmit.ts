@@ -85,6 +85,8 @@ export function useShowSubmit() {
       invalidateQueries.shows()
       // Also invalidate artists in case new artists were created
       invalidateQueries.artists()
+      // Invalidate saved shows since backend auto-saves to user's list
+      invalidateQueries.savedShows()
     },
     onError: (error, variables) => {
       const showError = ShowError.fromUnknown(error)

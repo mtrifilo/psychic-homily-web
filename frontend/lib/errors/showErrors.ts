@@ -13,6 +13,7 @@ export const ShowErrorCode = {
   SHOW_CREATE_FAILED: 'SHOW_CREATE_FAILED',
   SHOW_UPDATE_FAILED: 'SHOW_UPDATE_FAILED',
   SHOW_DELETE_FAILED: 'SHOW_DELETE_FAILED',
+  SHOW_DELETE_UNAUTHORIZED: 'SHOW_DELETE_UNAUTHORIZED',
   SHOW_INVALID_ID: 'SHOW_INVALID_ID',
   SHOW_VALIDATION_FAILED: 'SHOW_VALIDATION_FAILED',
   VENUE_REQUIRED: 'VENUE_REQUIRED',
@@ -206,6 +207,8 @@ export function getShowErrorMessage(code: ShowErrorCodeType): string {
       return 'Failed to update show. Please try again.'
     case ShowErrorCode.SHOW_DELETE_FAILED:
       return 'Failed to delete show. Please try again.'
+    case ShowErrorCode.SHOW_DELETE_UNAUTHORIZED:
+      return 'You are not authorized to delete this show.'
     case ShowErrorCode.SHOW_INVALID_ID:
       return 'Invalid show ID'
     case ShowErrorCode.SHOW_VALIDATION_FAILED:

@@ -11,6 +11,7 @@ interface FormFieldProps {
   placeholder?: string
   onEnterPress?: () => void
   onChange?: (value: string) => void
+  disabled?: boolean
 }
 
 /**
@@ -48,6 +49,7 @@ export function FormField({
   placeholder,
   onEnterPress,
   onChange,
+  disabled,
 }: Readonly<FormFieldProps>) {
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -79,6 +81,7 @@ export function FormField({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
+          disabled={disabled}
         />
       ) : (
         <Input
@@ -91,6 +94,7 @@ export function FormField({
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           aria-invalid={field.state.meta.errors.length > 0}
+          disabled={disabled}
         />
       )}
       <FieldInfo field={field} />

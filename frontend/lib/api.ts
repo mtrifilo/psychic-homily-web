@@ -60,6 +60,9 @@ export const API_ENDPOINTS = {
     UPCOMING: `${API_BASE_URL}/shows/upcoming`,
     GET: (showId: string | number) => `${API_BASE_URL}/shows/${showId}`,
     UPDATE: (showId: string | number) => `${API_BASE_URL}/shows/${showId}`,
+    DELETE: (showId: string | number) => `${API_BASE_URL}/shows/${showId}`,
+    UNPUBLISH: (showId: string | number) =>
+      `${API_BASE_URL}/shows/${showId}/unpublish`,
   },
   ARTISTS: {
     SEARCH: `${API_BASE_URL}/artists/search`,
@@ -190,6 +193,19 @@ export const apiRequest = async <T = unknown>(
     apiError.details = errorBody.details || errorBody.errors || errorBody
 
     throw apiError
+  }
+
+  // Handle 204 No Content responses (e.g., DELETE operations)
+  if (response.status === 204) {
+    authLogger.debug(
+      'API response',
+      {
+        endpoint: endpoint.replace(API_BASE_URL, ''),
+        success: true,
+      },
+      requestId
+    )
+    return undefined as T
   }
 
   // Parse successful response

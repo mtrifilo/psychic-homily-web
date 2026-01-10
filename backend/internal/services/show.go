@@ -770,6 +770,57 @@ func (s *ShowService) RejectShow(showID uint, reason string) (*ShowResponse, err
 	return response, nil
 }
 
+// UnpublishShow changes an approved show's status back to pending.
+// Only the submitter or an admin can unpublish a show.
+func (s *ShowService) UnpublishShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var response *ShowResponse
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Get the show
+		var show models.Show
+		if err := tx.First(&show, showID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("show not found")
+			}
+			return fmt.Errorf("failed to get show: %w", err)
+		}
+
+		// Verify the show is approved (can only unpublish approved shows)
+		if show.Status != models.ShowStatusApproved {
+			return fmt.Errorf("can only unpublish approved shows (current status: %s)", show.Status)
+		}
+
+		// Check authorization: user must be the submitter or an admin
+		if !isAdmin {
+			if show.SubmittedBy == nil || *show.SubmittedBy != userID {
+				return fmt.Errorf("only the show submitter or an admin can unpublish this show")
+			}
+		}
+
+		// Update show status to pending
+		if err := tx.Model(&show).Update("status", models.ShowStatusPending).Error; err != nil {
+			return fmt.Errorf("failed to unpublish show: %w", err)
+		}
+
+		// Reload the show to get updated data
+		if err := tx.Preload("Venues").Preload("Artists").First(&show, showID).Error; err != nil {
+			return fmt.Errorf("failed to reload show: %w", err)
+		}
+
+		response = s.buildShowResponse(&show)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
 // associateVenues associates venues with a show, creating new venues if needed.
 // Uses VenueService to ensure consistent venue creation logic.
 // If isAdmin is true, new venues are automatically verified.

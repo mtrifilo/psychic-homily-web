@@ -37,6 +37,7 @@ interface AuthResponse {
     name?: string
     first_name?: string
     last_name?: string
+    is_admin?: boolean
   }
 }
 
@@ -68,7 +69,6 @@ interface RefreshTokenResponse {
 // Login mutation
 export const useLogin = () => {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (
@@ -105,18 +105,14 @@ export const useLogin = () => {
 
       return response
     },
-    onSuccess: data => {
+    onSuccess: async data => {
       if (data.success && data.user) {
         authLogger.loginSuccess(data.user.id, data.request_id)
 
-        // Set user data in cache (HTTP-only cookie is automatically set by server)
-        queryClient.setQueryData(queryKeys.auth.profile, {
-          success: true,
-          message: data.message,
-          user: data.user,
-        })
-
-        invalidateQueries.auth()
+        // Refetch profile to ensure we have complete user data including is_admin
+        // This is more reliable than caching the login response since the profile
+        // endpoint returns the full user object from the database
+        await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
       }
     },
   })
@@ -125,7 +121,6 @@ export const useLogin = () => {
 // Register mutation
 export const useRegister = () => {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (
@@ -167,7 +162,7 @@ export const useRegister = () => {
 
       return response
     },
-    onSuccess: data => {
+    onSuccess: async data => {
       if (data.success && data.user) {
         authLogger.info(
           'Registration successful',
@@ -175,14 +170,8 @@ export const useRegister = () => {
           data.request_id
         )
 
-        // Set user data in cache
-        queryClient.setQueryData(queryKeys.auth.profile, {
-          success: true,
-          message: data.message,
-          user: data.user,
-        })
-
-        invalidateQueries.auth()
+        // Refetch profile to ensure we have complete user data
+        await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
       }
     },
   })

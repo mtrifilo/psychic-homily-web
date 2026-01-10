@@ -15,6 +15,8 @@ const (
 	CodeShowUpdateFailed = "SHOW_UPDATE_FAILED"
 	// CodeShowDeleteFailed indicates show deletion failed
 	CodeShowDeleteFailed = "SHOW_DELETE_FAILED"
+	// CodeShowDeleteUnauthorized indicates user is not authorized to delete the show
+	CodeShowDeleteUnauthorized = "SHOW_DELETE_UNAUTHORIZED"
 	// CodeShowInvalidID indicates an invalid show ID
 	CodeShowInvalidID = "SHOW_INVALID_ID"
 	// CodeShowValidationFailed indicates validation failed
@@ -110,6 +112,15 @@ func ErrShowDeleteFailed(showID uint, internal error) *ShowError {
 	}
 }
 
+// ErrShowDeleteUnauthorized creates a show delete unauthorized error.
+func ErrShowDeleteUnauthorized(showID uint) *ShowError {
+	return &ShowError{
+		Code:    CodeShowDeleteUnauthorized,
+		Message: "You are not authorized to delete this show",
+		ShowID:  showID,
+	}
+}
+
 // ErrShowInvalidID creates an invalid show ID error.
 func ErrShowInvalidID(idStr string) *ShowError {
 	return NewShowError(CodeShowInvalidID, "Invalid show ID", fmt.Errorf("invalid ID: %s", idStr))
@@ -146,6 +157,8 @@ func GetShowErrorMessage(code string) string {
 		return "Failed to update show. Please try again."
 	case CodeShowDeleteFailed:
 		return "Failed to delete show. Please try again."
+	case CodeShowDeleteUnauthorized:
+		return "You are not authorized to delete this show."
 	case CodeShowInvalidID:
 		return "Invalid show ID"
 	case CodeShowValidationFailed:

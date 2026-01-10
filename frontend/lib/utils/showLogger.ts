@@ -197,6 +197,36 @@ export const showLogger = {
       requestId
     )
   },
+
+  /**
+   * Log a show unpublish attempt
+   */
+  unpublishAttempt: (showId: number | string): void => {
+    showLogger.debug('Show unpublish attempt', { showId })
+  },
+
+  /**
+   * Log a successful show unpublish
+   */
+  unpublishSuccess: (showId: number | string, requestId?: string): void => {
+    showLogger.info('Show unpublished successfully', { showId }, requestId)
+  },
+
+  /**
+   * Log a failed show unpublish
+   */
+  unpublishFailed: (
+    showId: number | string,
+    errorCode: string,
+    message: string,
+    requestId?: string
+  ): void => {
+    showLogger.warn(
+      'Show unpublish failed',
+      { showId, errorCode, message },
+      requestId
+    )
+  },
 }
 
 /**

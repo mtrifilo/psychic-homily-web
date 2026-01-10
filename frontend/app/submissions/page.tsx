@@ -4,13 +4,7 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2, Music } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { ShowForm } from '@/components/forms'
 
 export default function SubmissionsPage() {
@@ -59,14 +53,7 @@ export default function SubmissionsPage() {
 
         {/* Form Card */}
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg">Show Details</CardTitle>
-            <CardDescription>
-              Fill out the information below to add a show. Artists and venues
-              will be matched or created automatically.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+          <CardContent className="pt-6">
             <ShowForm mode="create" />
           </CardContent>
         </Card>

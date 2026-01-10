@@ -37,8 +37,9 @@ async function proxyRequest(request: NextRequest) {
         : undefined,
   })
 
-  // Read response
-  const responseData = await backendResponse.text()
+  // Read response - handle 204 No Content specially (no body allowed)
+  const isNoContent = backendResponse.status === 204
+  const responseData = isNoContent ? null : await backendResponse.text()
 
   // Create response
   const response = new NextResponse(responseData, {
@@ -57,7 +58,7 @@ async function proxyRequest(request: NextRequest) {
   for (const cookie of setCookies) {
     // Remove SameSite=None since we're now same-origin
     // The cookie will work with default Lax
-    let modifiedCookie = cookie
+    const modifiedCookie = cookie
       .replace(/;\s*SameSite=None/i, '; SameSite=Lax')
       .replace(/;\s*Domain=[^;]*/i, '') // Remove domain restriction
     response.headers.append('Set-Cookie', modifiedCookie)

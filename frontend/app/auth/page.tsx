@@ -55,6 +55,7 @@ function getErrorMessage(err: unknown): string {
 function LoginForm() {
   const router = useRouter()
   const loginMutation = useLogin()
+  const { setUser } = useAuthContext()
 
   const form = useForm({
     defaultValues: {
@@ -63,7 +64,16 @@ function LoginForm() {
     } as LoginFormData,
     onSubmit: async ({ value }) => {
       loginMutation.mutate(value, {
-        onSuccess: () => {
+        onSuccess: data => {
+          if (data.user) {
+            setUser({
+              id: data.user.id,
+              email: data.user.email,
+              first_name: data.user.first_name,
+              last_name: data.user.last_name,
+              email_verified: false,
+            })
+          }
           router.push('/')
         },
       })

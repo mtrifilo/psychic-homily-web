@@ -14,6 +14,8 @@ import {
   CheckCircle2,
   Clock,
   X,
+  ShieldCheck,
+  AlertTriangle,
 } from 'lucide-react'
 import { useShowSubmit, type ShowSubmission } from '@/lib/hooks/useShowSubmit'
 import { useShowUpdate, type ShowUpdate } from '@/lib/hooks/useShowUpdate'
@@ -22,10 +24,11 @@ import {
   parseISOToDateAndTime,
 } from '@/lib/utils/timeUtils'
 import type { Venue } from '@/lib/types/venue'
-import type { ShowResponse } from '@/lib/types/show'
+import type { ShowResponse, VenueResponse } from '@/lib/types/show'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { FormField, ArtistInput, VenueInput } from '@/components/forms'
+import { useAuthContext } from '@/lib/context/AuthContext'
 
 // Form validation schema
 const showFormSchema = z.object({
@@ -60,6 +63,7 @@ interface FormValues {
   title: string
   artists: FormArtist[]
   venue: {
+    id?: number
     name: string
     city: string
     state: string
@@ -75,7 +79,7 @@ interface FormValues {
 const defaultValues: FormValues = {
   title: '',
   artists: [{ name: '', is_headliner: true }],
-  venue: { name: '', city: '', state: '', address: '' },
+  venue: { id: undefined, name: '', city: '', state: '', address: '' },
   date: '',
   time: '20:00',
   cost: '',
@@ -131,13 +135,28 @@ export function ShowForm({
   redirectOnCreate = true,
 }: ShowFormProps) {
   const router = useRouter()
+  const { user } = useAuthContext()
   const submitMutation = useShowSubmit()
   const updateMutation = useShowUpdate()
   const [showSuccess, setShowSuccess] = useState(false)
   const [isPendingSubmission, setIsPendingSubmission] = useState(false)
 
+  // Track selected venue for editability checks
+  // Initialize from initialData for edit mode, or null for create mode
+  const [selectedVenue, setSelectedVenue] = useState<VenueResponse | null>(
+    () => initialData?.venues[0] ?? null
+  )
+
   const isEditMode = mode === 'edit'
+  const isAdmin = user?.is_admin ?? false
   const mutation = isEditMode ? updateMutation : submitMutation
+
+  // Venue location fields are editable if:
+  // 1. User is admin (always editable), OR
+  // 2. No venue selected (new venue scenario), OR
+  // 3. Selected venue is unverified
+  const isVenueLocationEditable =
+    isAdmin || !selectedVenue || !selectedVenue.verified
 
   // Compute initial values based on mode
   const initialFormValues =
@@ -166,6 +185,7 @@ export function ShowForm({
           description: value.description || undefined,
           venues: [
             {
+              id: value.venue.id,
               name: value.venue.name,
               city: value.venue.city,
               state: value.venue.state,
@@ -201,6 +221,7 @@ export function ShowForm({
           description: value.description || undefined,
           venues: [
             {
+              id: value.venue.id,
               name: value.venue.name,
               city: value.venue.city,
               state: value.venue.state,
@@ -228,7 +249,7 @@ export function ShowForm({
               }, 4000) // Longer delay for pending notice
             } else if (redirectOnCreate) {
               setTimeout(() => {
-                router.push('/shows')
+                router.push('/shows/saved')
               }, 2000)
             } else {
               setTimeout(() => {
@@ -244,14 +265,28 @@ export function ShowForm({
     },
   })
 
-  // Handle venue selection to auto-fill city/state
+  // Handle venue selection to auto-fill city/state and track selected venue
   const handleVenueSelect = (venue: Venue | null) => {
     if (venue) {
+      // Store the full venue object for editability checks
+      setSelectedVenue({
+        id: venue.id,
+        name: venue.name,
+        address: venue.address,
+        city: venue.city,
+        state: venue.state,
+        verified: venue.verified,
+      })
+      form.setFieldValue('venue.id', venue.id)
       form.setFieldValue('venue.city', venue.city)
       form.setFieldValue('venue.state', venue.state)
       if (venue.address) {
         form.setFieldValue('venue.address', venue.address)
       }
+    } else {
+      // Cleared venue selection (user is typing a new venue)
+      setSelectedVenue(null)
+      form.setFieldValue('venue.id', undefined)
     }
   }
 
@@ -280,6 +315,7 @@ export function ShowForm({
     form.setFieldValue('artists', newArtists)
   }
 
+  // Render success states
   if (showSuccess) {
     // Show pending notice for submissions with unverified venues
     if (isPendingSubmission) {
@@ -293,7 +329,6 @@ export function ShowForm({
             Your show includes a new venue that needs admin verification. It
             will be visible once approved.
           </p>
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
         </div>
       )
     }
@@ -325,12 +360,14 @@ export function ShowForm({
       }}
       className="space-y-6"
     >
-      {mutation.error && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{mutation.error.message}</AlertDescription>
-        </Alert>
-      )}
+      {/* Form Header */}
+      <div className="space-y-1.5 pb-2">
+        <h3 className="text-lg font-semibold">Show Details</h3>
+        <p className="text-sm text-muted-foreground">
+          Fill out the information below to add a show. Artists and venues will
+          be matched or created automatically.
+        </p>
+      </div>
 
       {/* Artists Section */}
       <div className="space-y-4">
@@ -395,13 +432,23 @@ export function ShowForm({
         <div className="grid grid-cols-2 gap-4">
           <form.Field name="venue.city">
             {field => (
-              <FormField field={field} label="City" placeholder="Phoenix" />
+              <FormField
+                field={field}
+                label="City"
+                placeholder="Phoenix"
+                disabled={!isVenueLocationEditable}
+              />
             )}
           </form.Field>
 
           <form.Field name="venue.state">
             {field => (
-              <FormField field={field} label="State" placeholder="AZ" />
+              <FormField
+                field={field}
+                label="State"
+                placeholder="AZ"
+                disabled={!isVenueLocationEditable}
+              />
             )}
           </form.Field>
         </div>
@@ -412,9 +459,44 @@ export function ShowForm({
               field={field}
               label="Address (Optional)"
               placeholder="123 Main St"
+              disabled={!isVenueLocationEditable}
             />
           )}
         </form.Field>
+
+        {/* Verified venue indicator (for non-admins with verified venue selected) */}
+        {selectedVenue?.verified && !isAdmin && (
+          <div className="flex items-start gap-2 rounded-md bg-emerald-500/10 border border-emerald-500/20 p-3">
+            <ShieldCheck className="h-4 w-4 text-emerald-500 mt-0.5 flex-shrink-0" />
+            <div className="text-sm">
+              <p className="font-medium text-emerald-600 dark:text-emerald-400">
+                Verified Venue
+              </p>
+              <p className="text-muted-foreground text-xs mt-0.5">
+                This venue has been verified by our team. Location details are
+                locked to ensure accuracy. Contact an admin if changes are
+                needed.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* New venue warning (for non-admins entering a new venue) */}
+        {!selectedVenue && !isAdmin && form.getFieldValue('venue.name') && (
+          <div className="flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 p-3">
+            <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
+            <div className="text-sm">
+              <p className="font-medium text-amber-600 dark:text-amber-400">
+                New Venue - Pending Review
+              </p>
+              <p className="text-muted-foreground text-xs mt-0.5">
+                Shows with new venues require admin verification before
+                appearing publicly. This helps ensure event safety and prevents
+                listings at fake or unauthorized locations.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Date & Time Section */}
@@ -472,6 +554,13 @@ export function ShowForm({
           )}
         </form.Field>
       </div>
+
+      {mutation.error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{mutation.error.message}</AlertDescription>
+        </Alert>
+      )}
 
       {/* Action Buttons */}
       <div className={isEditMode ? 'flex gap-3' : ''}>

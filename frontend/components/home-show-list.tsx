@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useUpcomingShows } from '@/lib/hooks/useShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { ShowResponse } from '@/lib/types/show'
-import { Pencil, X } from 'lucide-react'
+import { Pencil, Trash2, X } from 'lucide-react'
 import {
   formatDateInTimezone,
   formatTimeInTimezone,
@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { ShowForm } from '@/components/forms'
 import { SaveButton } from '@/components/SaveButton'
+import { DeleteShowDialog } from '@/components/DeleteShowDialog'
 
 /**
  * Format a date string to "Mon, Dec 1" format in venue timezone
@@ -43,9 +44,14 @@ interface ShowCardProps {
 }
 
 function ShowCard({ show, isAdmin }: ShowCardProps) {
+  const { user } = useAuthContext()
   const [isEditing, setIsEditing] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const venue = show.venues[0]
   const artists = show.artists
+
+  // Check if user can delete: admin or show owner
+  const canDelete = isAdmin || (user?.id === String(show.submitted_by))
 
   const handleEditSuccess = () => {
     setIsEditing(false)
@@ -106,6 +112,19 @@ function ShowCard({ show, isAdmin }: ShowCardProps) {
                   )}
                 </Button>
               )}
+
+              {/* Delete Button */}
+              {canDelete && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsDeleteDialogOpen(true)}
+                  className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10"
+                  title="Delete show"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
             </div>
           </div>
 
@@ -136,6 +155,13 @@ function ShowCard({ show, isAdmin }: ShowCardProps) {
           />
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteShowDialog
+        show={show}
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+      />
     </article>
   )
 }

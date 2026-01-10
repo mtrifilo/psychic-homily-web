@@ -52,8 +52,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Derive user from profile data or override
   const user = useMemo(() => {
-    // If there's an explicit override, use it
-    if (userOverride !== undefined) {
+    // If there's an explicit user override (truthy), use it
+    // Note: null means "no override" - logout clears via queryClient.clear()
+    if (userOverride) {
       return userOverride
     }
 

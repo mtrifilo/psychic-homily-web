@@ -16,13 +16,15 @@ import (
 
 // ShowHandler handles show-related HTTP requests
 type ShowHandler struct {
-	showService *services.ShowService
+	showService      *services.ShowService
+	savedShowService *services.SavedShowService
 }
 
 // NewShowHandler creates a new show handler
 func NewShowHandler() *ShowHandler {
 	return &ShowHandler{
-		showService: services.NewShowService(),
+		showService:      services.NewShowService(),
+		savedShowService: services.NewSavedShowService(),
 	}
 }
 
@@ -62,7 +64,7 @@ type CreateShowRequestBody struct {
 	City           string    `json:"city" doc:"City where the show takes place"`
 	State          string    `json:"state" doc:"State where the show takes place"`
 	Price          *float64  `json:"price,omitempty" doc:"Ticket price"`
-	AgeRequirement string    `json:"age_requirement" doc:"Age requirement (e.g., '21+', 'All Ages')"`
+	AgeRequirement *string   `json:"age_requirement,omitempty" doc:"Age requirement (e.g., '21+', 'All Ages')"`
 	Description    *string   `json:"description,omitempty" doc:"Show description"`
 	Venues         []Venue   `json:"venues" validate:"required,min=1" doc:"List of venues for the show"`
 	Artists        []Artist  `json:"artists" validate:"required,min=1" doc:"List of artists in the show"`
@@ -275,6 +277,11 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 		description = *req.Body.Description
 	}
 
+	ageRequirement := ""
+	if req.Body.AgeRequirement != nil {
+		ageRequirement = *req.Body.AgeRequirement
+	}
+
 	// Convert request to service request with user context
 	serviceReq := &services.CreateShowRequest{
 		Title:             title,
@@ -282,7 +289,7 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 		City:              req.Body.City,
 		State:             req.Body.State,
 		Price:             req.Body.Price,
-		AgeRequirement:    req.Body.AgeRequirement,
+		AgeRequirement:    ageRequirement,
 		Description:       description,
 		Venues:            serviceVenues,
 		Artists:           serviceArtists,
@@ -310,6 +317,24 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 		"status", show.Status,
 		"request_id", requestID,
 	)
+
+	// Auto-save the show to the submitter's personal list
+	if submittedByUserID != nil {
+		if err := h.savedShowService.SaveShow(*submittedByUserID, show.ID); err != nil {
+			// Log but don't fail the request - show was created successfully
+			logger.FromContext(ctx).Warn("show_auto_save_failed",
+				"show_id", show.ID,
+				"user_id", *submittedByUserID,
+				"error", err.Error(),
+				"request_id", requestID,
+			)
+		} else {
+			logger.FromContext(ctx).Debug("show_auto_saved",
+				"show_id", show.ID,
+				"user_id", *submittedByUserID,
+			)
+		}
+	}
 
 	return &CreateShowResponse{Body: *show}, nil
 }
@@ -604,6 +629,12 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 func (h *ShowHandler) DeleteShowHandler(ctx context.Context, req *DeleteShowRequest) (*huma.Response, error) {
 	requestID := logger.GetRequestID(ctx)
 
+	// Get authenticated user from context
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
 	// Parse show ID
 	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
 	if err != nil {
@@ -620,7 +651,40 @@ func (h *ShowHandler) DeleteShowHandler(ctx context.Context, req *DeleteShowRequ
 
 	logger.FromContext(ctx).Debug("show_delete_attempt",
 		"show_id", showID,
+		"user_id", user.ID,
+		"is_admin", user.IsAdmin,
 	)
+
+	// Fetch show to check ownership
+	show, err := h.showService.GetShow(uint(showID))
+	if err != nil {
+		showErr := showerrors.ErrShowNotFound(uint(showID))
+		logger.FromContext(ctx).Warn("show_delete_not_found",
+			"show_id", showID,
+			"error", err.Error(),
+			"error_code", showErr.Code,
+			"request_id", requestID,
+		)
+		return nil, huma.Error404NotFound(
+			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
+		)
+	}
+
+	// Check authorization: user must be admin OR the show submitter
+	isOwner := show.SubmittedBy != nil && *show.SubmittedBy == user.ID
+	if !user.IsAdmin && !isOwner {
+		showErr := showerrors.ErrShowDeleteUnauthorized(uint(showID))
+		logger.FromContext(ctx).Warn("show_delete_unauthorized",
+			"show_id", showID,
+			"user_id", user.ID,
+			"submitted_by", show.SubmittedBy,
+			"error_code", showErr.Code,
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden(
+			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
+		)
+	}
 
 	// Delete show using service
 	err = h.showService.DeleteShow(uint(showID))
@@ -639,11 +703,88 @@ func (h *ShowHandler) DeleteShowHandler(ctx context.Context, req *DeleteShowRequ
 
 	logger.FromContext(ctx).Info("show_deleted",
 		"show_id", showID,
+		"deleted_by_user_id", user.ID,
 		"request_id", requestID,
 	)
 
 	// Return 204 No Content
 	return &huma.Response{}, nil
+}
+
+// UnpublishShowRequest represents the HTTP request for unpublishing a show
+type UnpublishShowRequest struct {
+	ShowID string `path:"show_id" validate:"required" doc:"Show ID to unpublish"`
+}
+
+// UnpublishShowResponse represents the HTTP response for unpublishing a show
+type UnpublishShowResponse struct {
+	Body services.ShowResponse
+}
+
+// UnpublishShowHandler handles POST /shows/{show_id}/unpublish
+// Changes an approved show's status back to pending.
+// Only the submitter or an admin can unpublish a show.
+func (h *ShowHandler) UnpublishShowHandler(ctx context.Context, req *UnpublishShowRequest) (*UnpublishShowResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Require authentication
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	// Parse show ID
+	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
+	if err != nil {
+		showErr := showerrors.ErrShowInvalidID(req.ShowID)
+		logger.FromContext(ctx).Warn("show_unpublish_invalid_id",
+			"show_id_str", req.ShowID,
+			"error_code", showErr.Code,
+			"request_id", requestID,
+		)
+		return nil, huma.Error400BadRequest(
+			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("show_unpublish_attempt",
+		"show_id", showID,
+		"user_id", user.ID,
+		"is_admin", user.IsAdmin,
+	)
+
+	// Unpublish show using service (service handles authorization check)
+	show, err := h.showService.UnpublishShow(uint(showID), user.ID, user.IsAdmin)
+	if err != nil {
+		logger.FromContext(ctx).Warn("show_unpublish_failed",
+			"show_id", showID,
+			"user_id", user.ID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		// Check for specific error types
+		if err.Error() == "show not found" {
+			return nil, huma.Error404NotFound(
+				fmt.Sprintf("Show not found (request_id: %s)", requestID),
+			)
+		}
+		if err.Error() == "only the show submitter or an admin can unpublish this show" {
+			return nil, huma.Error403Forbidden(
+				fmt.Sprintf("Not authorized to unpublish this show (request_id: %s)", requestID),
+			)
+		}
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Failed to unpublish show: %s (request_id: %s)", err.Error(), requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Info("show_unpublished",
+		"show_id", showID,
+		"user_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &UnpublishShowResponse{Body: *show}, nil
 }
 
 // AIProcessShowHandler handles POST /shows/ai-process (future implementation)
