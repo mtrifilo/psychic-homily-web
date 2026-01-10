@@ -1,12 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useSavedShows } from '@/lib/hooks/useSavedShows'
-import { useShowUnpublish } from '@/lib/hooks/useShowUnpublish'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { Heart, Loader2, Clock, CheckCircle2, EyeOff, Pencil, X, Trash2 } from 'lucide-react'
+import { Heart, Loader2, Clock, CheckCircle2, EyeOff, Pencil, X, Trash2, Globe } from 'lucide-react'
 import {
   formatDateInTimezone,
   formatTimeInTimezone,
@@ -15,6 +15,10 @@ import {
 import type { SavedShowResponse } from '@/lib/types/show'
 import { SaveButton } from '@/components/SaveButton'
 import { DeleteShowDialog } from '@/components/DeleteShowDialog'
+import { UnpublishShowDialog } from '@/components/UnpublishShowDialog'
+import { MakePrivateDialog } from '@/components/MakePrivateDialog'
+import { PublishShowDialog } from '@/components/PublishShowDialog'
+import { SubmissionSuccessDialog } from '@/components/SubmissionSuccessDialog'
 import { ShowForm } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 
@@ -45,24 +49,29 @@ function SavedShowCard({
 }: SavedShowCardProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isUnpublishDialogOpen, setIsUnpublishDialogOpen] = useState(false)
+  const [isMakePrivateDialogOpen, setIsMakePrivateDialogOpen] = useState(false)
+  const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false)
   const venue = show.venues[0]
   const artists = show.artists
-  const unpublishMutation = useShowUnpublish()
 
-  // Check if user can unpublish this show
-  const canUnpublish =
-    show.status === 'approved' &&
-    (isAdmin || (currentUserId && show.submitted_by === currentUserId))
+  // Check if user owns this show
+  const isOwner = currentUserId && show.submitted_by === currentUserId
+
+  // Check if user can unpublish this show (approved -> private)
+  const canUnpublish = show.status === 'approved' && (isAdmin || isOwner)
+
+  // Check if user can make show private (pending -> private)
+  const canMakePrivate = show.status === 'pending' && (isAdmin || isOwner)
+
+  // Check if user can publish show (private -> approved/pending)
+  const canPublish = show.status === 'private' && (isAdmin || isOwner)
+
+  // Check if user can edit: admin or show owner
+  const canEdit = isAdmin || isOwner
 
   // Check if user can delete: admin or show owner
-  const canDelete =
-    isAdmin || (currentUserId && show.submitted_by === currentUserId)
-
-  const handleUnpublish = () => {
-    if (confirm('Are you sure you want to unpublish this show? It will be set to pending and removed from public view.')) {
-      unpublishMutation.mutate(show.id)
-    }
-  }
+  const canDelete = isAdmin || isOwner
 
   const handleEditSuccess = () => {
     setIsEditing(false)
@@ -99,6 +108,11 @@ function SavedShowCard({
             ) : show.status === 'rejected' ? (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-600 dark:text-red-400">
                 Rejected
+              </span>
+            ) : show.status === 'private' ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/10 text-slate-600 dark:text-slate-400">
+                <EyeOff className="h-3 w-3" />
+                Private
               </span>
             ) : null}
           </div>
@@ -137,26 +151,47 @@ function SavedShowCard({
               {/* Save Button */}
               <SaveButton showId={show.id} variant="ghost" size="sm" />
 
-              {/* Unpublish Button */}
+              {/* Unpublish Button (approved -> private) */}
               {canUnpublish && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={handleUnpublish}
-                  disabled={unpublishMutation.isPending}
+                  onClick={() => setIsUnpublishDialogOpen(true)}
                   className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                  title="Unpublish show"
+                  title="Make private"
                 >
-                  {unpublishMutation.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <EyeOff className="h-3.5 w-3.5" />
-                  )}
+                  <EyeOff className="h-3.5 w-3.5" />
                 </Button>
               )}
 
-              {/* Admin Edit Button */}
-              {isAdmin && (
+              {/* Make Private Button (pending -> private) */}
+              {canMakePrivate && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsMakePrivateDialogOpen(true)}
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  title="Make private"
+                >
+                  <EyeOff className="h-3.5 w-3.5" />
+                </Button>
+              )}
+
+              {/* Publish Button (private -> approved/pending) */}
+              {canPublish && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsPublishDialogOpen(true)}
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-emerald-500"
+                  title="Publish show"
+                >
+                  <Globe className="h-3.5 w-3.5" />
+                </Button>
+              )}
+
+              {/* Edit Button (admin or owner) */}
+              {canEdit && (
                 <Button
                   variant={isEditing ? 'secondary' : 'ghost'}
                   size="sm"
@@ -220,6 +255,27 @@ function SavedShowCard({
         </div>
       )}
 
+      {/* Unpublish Confirmation Dialog */}
+      <UnpublishShowDialog
+        show={show}
+        open={isUnpublishDialogOpen}
+        onOpenChange={setIsUnpublishDialogOpen}
+      />
+
+      {/* Make Private Dialog */}
+      <MakePrivateDialog
+        show={show}
+        open={isMakePrivateDialogOpen}
+        onOpenChange={setIsMakePrivateDialogOpen}
+      />
+
+      {/* Publish Show Dialog */}
+      <PublishShowDialog
+        show={show}
+        open={isPublishDialogOpen}
+        onOpenChange={setIsPublishDialogOpen}
+      />
+
       {/* Delete Confirmation Dialog */}
       <DeleteShowDialog
         show={show}
@@ -231,8 +287,37 @@ function SavedShowCard({
 }
 
 export default function SavedShowsPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const { isAuthenticated, isLoading: authLoading, user } = useAuthContext()
   const { data, isLoading, error } = useSavedShows()
+
+  // Handle submission success dialog from query param
+  const submittedStatus = searchParams.get('submitted') as
+    | 'pending'
+    | 'private'
+    | null
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
+  const [dialogStatus, setDialogStatus] = useState<
+    'pending' | 'private' | null
+  >(null)
+
+  // Show dialog when query param is present
+  useEffect(() => {
+    if (submittedStatus === 'pending' || submittedStatus === 'private') {
+      setDialogStatus(submittedStatus)
+      setShowSuccessDialog(true)
+    }
+  }, [submittedStatus])
+
+  // Clean up URL when dialog is closed
+  const handleDialogClose = (open: boolean) => {
+    setShowSuccessDialog(open)
+    if (!open) {
+      // Remove query param from URL without triggering a navigation
+      router.replace('/shows/saved', { scroll: false })
+    }
+  }
 
   // Redirect if not authenticated
   if (!authLoading && !isAuthenticated) {
@@ -262,6 +347,13 @@ export default function SavedShowsPage() {
 
   return (
     <div className="container max-w-4xl mx-auto px-4 py-12">
+      {/* Submission Success Dialog */}
+      <SubmissionSuccessDialog
+        status={dialogStatus}
+        open={showSuccessDialog}
+        onOpenChange={handleDialogClose}
+      />
+
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">

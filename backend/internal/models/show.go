@@ -9,6 +9,7 @@ const (
 	ShowStatusPending  ShowStatus = "pending"
 	ShowStatusApproved ShowStatus = "approved"
 	ShowStatusRejected ShowStatus = "rejected"
+	ShowStatusPrivate  ShowStatus = "private"
 )
 
 type Show struct {

@@ -41,6 +41,7 @@ export interface ShowSubmission {
   description?: string
   venues: SubmitVenue[]
   artists: SubmitArtist[]
+  is_private?: boolean // If true, show is private and only visible to submitter
 }
 
 /**

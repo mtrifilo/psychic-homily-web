@@ -90,6 +90,8 @@ func setupShowRoutes(api huma.API, protected *huma.Group) {
 	huma.Put(protected, "/shows/{show_id}", showHandler.UpdateShowHandler)
 	huma.Delete(protected, "/shows/{show_id}", showHandler.DeleteShowHandler)
 	huma.Post(protected, "/shows/{show_id}/unpublish", showHandler.UnpublishShowHandler)
+	huma.Post(protected, "/shows/{show_id}/make-private", showHandler.MakePrivateShowHandler)
+	huma.Post(protected, "/shows/{show_id}/publish", showHandler.PublishShowHandler)
 	huma.Post(protected, "/shows/ai-process", showHandler.AIProcessShowHandler)
 }
 

@@ -59,6 +59,7 @@ type CreateShowRequest struct {
 	// User context for determining show status
 	SubmittedByUserID *uint `json:"-"` // User ID of submitter (set by handler)
 	SubmitterIsAdmin  bool  `json:"-"` // Whether submitter is admin (set by handler)
+	IsPrivate         bool  `json:"-"` // Whether show should be private (user's list only)
 }
 
 // ShowResponse represents the show data returned to clients
@@ -130,8 +131,8 @@ func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) 
 			return err
 		}
 
-		// Determine show status based on venue verification
-		status := s.determineShowStatus(tx, req.Venues, req.SubmitterIsAdmin)
+		// Determine show status based on venue verification and privacy preference
+		status := s.determineShowStatus(tx, req.Venues, req.SubmitterIsAdmin, req.IsPrivate)
 
 		// Create the show
 		show := &models.Show{
@@ -191,31 +192,43 @@ func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) 
 	return response, nil
 }
 
-// determineShowStatus determines whether a show should be pending or approved.
-// Admins always get approved status. Non-admins get pending if any venue is unverified.
-func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []CreateShowVenue, isAdmin bool) models.ShowStatus {
-	// Admins bypass the pending workflow
+// determineShowStatus determines whether a show should be pending, approved, or private.
+// Admins always get approved status. Non-admins get pending/private if any venue is unverified.
+// If isPrivate is true and venue is unverified, the show is private (user's list only).
+func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []CreateShowVenue, isAdmin bool, isPrivate bool) models.ShowStatus {
+	// Admins bypass the pending workflow - their shows are always approved
 	if isAdmin {
 		return models.ShowStatusApproved
 	}
 
-	// Check each venue
+	// Check if any venue is unverified
+	hasUnverifiedVenue := false
 	for _, v := range venues {
 		if v.ID == nil {
-			// New venue (no ID) = will be created as unverified = pending
-			return models.ShowStatusPending
+			// New venue (no ID) = will be created as unverified
+			hasUnverifiedVenue = true
+			break
 		}
 
 		// Check if existing venue is verified
 		var venue models.Venue
 		if err := tx.First(&venue, *v.ID).Error; err == nil {
 			if !venue.Verified {
-				return models.ShowStatusPending
+				hasUnverifiedVenue = true
+				break
 			}
 		}
 	}
 
-	// All venues are verified
+	// If there's an unverified venue, determine if private or pending
+	if hasUnverifiedVenue {
+		if isPrivate {
+			return models.ShowStatusPrivate
+		}
+		return models.ShowStatusPending
+	}
+
+	// All venues are verified - show is approved
 	return models.ShowStatusApproved
 }
 
@@ -565,6 +578,9 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 	// Filter by status for non-admin users (public view shows only approved)
 	if !includeNonApproved {
 		query = query.Where("status = ?", models.ShowStatusApproved)
+	} else {
+		// For admin view, still exclude private shows (those are personal to the submitter)
+		query = query.Where("status != ?", models.ShowStatusPrivate)
 	}
 
 	// Apply cursor filter if provided
@@ -800,9 +816,123 @@ func (s *ShowService) UnpublishShow(showID uint, userID uint, isAdmin bool) (*Sh
 			}
 		}
 
-		// Update show status to pending
-		if err := tx.Model(&show).Update("status", models.ShowStatusPending).Error; err != nil {
+		// Update show status to private
+		if err := tx.Model(&show).Update("status", models.ShowStatusPrivate).Error; err != nil {
 			return fmt.Errorf("failed to unpublish show: %w", err)
+		}
+
+		// Reload the show to get updated data
+		if err := tx.Preload("Venues").Preload("Artists").First(&show, showID).Error; err != nil {
+			return fmt.Errorf("failed to reload show: %w", err)
+		}
+
+		response = s.buildShowResponse(&show)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+// MakePrivateShow changes a pending show's status to private.
+// Only the submitter or an admin can make a show private.
+func (s *ShowService) MakePrivateShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var response *ShowResponse
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Get the show
+		var show models.Show
+		if err := tx.First(&show, showID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("show not found")
+			}
+			return fmt.Errorf("failed to get show: %w", err)
+		}
+
+		// Verify the show is pending (can only make private from pending status)
+		if show.Status != models.ShowStatusPending {
+			return fmt.Errorf("can only make pending shows private (current status: %s)", show.Status)
+		}
+
+		// Check authorization: user must be the submitter or an admin
+		if !isAdmin {
+			if show.SubmittedBy == nil || *show.SubmittedBy != userID {
+				return fmt.Errorf("only the show submitter or an admin can make this show private")
+			}
+		}
+
+		// Update show status to private
+		if err := tx.Model(&show).Update("status", models.ShowStatusPrivate).Error; err != nil {
+			return fmt.Errorf("failed to make show private: %w", err)
+		}
+
+		// Reload the show to get updated data
+		if err := tx.Preload("Venues").Preload("Artists").First(&show, showID).Error; err != nil {
+			return fmt.Errorf("failed to reload show: %w", err)
+		}
+
+		response = s.buildShowResponse(&show)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+// PublishShow changes a private show's status to approved or pending.
+// If all venues are verified, status becomes approved.
+// If any venue is unverified, status becomes pending.
+// Only the submitter or an admin can publish a show.
+func (s *ShowService) PublishShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var response *ShowResponse
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Get the show with venues preloaded
+		var show models.Show
+		if err := tx.Preload("Venues").First(&show, showID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fmt.Errorf("show not found")
+			}
+			return fmt.Errorf("failed to get show: %w", err)
+		}
+
+		// Verify the show is private (can only publish from private status)
+		if show.Status != models.ShowStatusPrivate {
+			return fmt.Errorf("can only publish private shows (current status: %s)", show.Status)
+		}
+
+		// Check authorization: user must be the submitter or an admin
+		if !isAdmin {
+			if show.SubmittedBy == nil || *show.SubmittedBy != userID {
+				return fmt.Errorf("only the show submitter or an admin can publish this show")
+			}
+		}
+
+		// Determine the new status based on venue verification
+		// If all venues are verified, set to approved; otherwise set to pending
+		newStatus := models.ShowStatusApproved
+		for _, venue := range show.Venues {
+			if !venue.Verified {
+				newStatus = models.ShowStatusPending
+				break
+			}
+		}
+
+		// Update show status
+		if err := tx.Model(&show).Update("status", newStatus).Error; err != nil {
+			return fmt.Errorf("failed to publish show: %w", err)
 		}
 
 		// Reload the show to get updated data

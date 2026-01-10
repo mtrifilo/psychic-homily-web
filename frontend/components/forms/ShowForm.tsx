@@ -12,10 +12,10 @@ import {
   Calendar,
   MapPin,
   CheckCircle2,
-  Clock,
   X,
   ShieldCheck,
   AlertTriangle,
+  EyeOff,
 } from 'lucide-react'
 import { useShowSubmit, type ShowSubmission } from '@/lib/hooks/useShowSubmit'
 import { useShowUpdate, type ShowUpdate } from '@/lib/hooks/useShowUpdate'
@@ -27,6 +27,7 @@ import type { Venue } from '@/lib/types/venue'
 import type { ShowResponse, VenueResponse } from '@/lib/types/show'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Checkbox } from '@/components/ui/checkbox'
 import { FormField, ArtistInput, VenueInput } from '@/components/forms'
 import { useAuthContext } from '@/lib/context/AuthContext'
 
@@ -139,7 +140,7 @@ export function ShowForm({
   const submitMutation = useShowSubmit()
   const updateMutation = useShowUpdate()
   const [showSuccess, setShowSuccess] = useState(false)
-  const [isPendingSubmission, setIsPendingSubmission] = useState(false)
+  const [isPrivateShow, setIsPrivateShow] = useState(false)
 
   // Track selected venue for editability checks
   // Initialize from initialData for edit mode, or null for create mode
@@ -161,6 +162,9 @@ export function ShowForm({
   // Compute initial values based on mode
   const initialFormValues =
     isEditMode && initialData ? showToFormValues(initialData) : defaultValues
+
+  // Track venue name for showing/hiding the "new venue" warning
+  const [venueName, setVenueName] = useState('')
 
   const form = useForm({
     defaultValues: initialFormValues,
@@ -232,26 +236,30 @@ export function ShowForm({
             name: artist.name,
             is_headliner: artist.is_headliner,
           })),
+          // Only include is_private for new/unverified venue submissions
+          is_private: isPrivateShow || undefined,
         }
 
         submitMutation.mutate(submission, {
           onSuccess: data => {
             const isPending = data.status === 'pending'
-            setIsPendingSubmission(isPending)
-            setShowSuccess(true)
+            const isPrivate = data.status === 'private'
             form.reset()
+            setIsPrivateShow(false)
 
-            // Don't redirect for pending submissions - user should see the notice
+            // Redirect to My List with query param for pending/private submissions
             if (isPending) {
-              // Call onSuccess after showing the pending notice
-              setTimeout(() => {
-                onSuccess?.()
-              }, 4000) // Longer delay for pending notice
+              router.push('/shows/saved?submitted=pending')
+            } else if (isPrivate) {
+              router.push('/shows/saved?submitted=private')
             } else if (redirectOnCreate) {
+              // For approved submissions, show brief success then redirect
+              setShowSuccess(true)
               setTimeout(() => {
                 router.push('/shows/saved')
               }, 2000)
             } else {
+              setShowSuccess(true)
               setTimeout(() => {
                 onSuccess?.()
               }, 1500)
@@ -282,6 +290,10 @@ export function ShowForm({
       form.setFieldValue('venue.state', venue.state)
       if (venue.address) {
         form.setFieldValue('venue.address', venue.address)
+      }
+      // Reset private show option when selecting a verified venue
+      if (venue.verified) {
+        setIsPrivateShow(false)
       }
     } else {
       // Cleared venue selection (user is typing a new venue)
@@ -315,24 +327,8 @@ export function ShowForm({
     form.setFieldValue('artists', newArtists)
   }
 
-  // Render success states
+  // Render success state (only shown for approved/edit submissions, pending/private redirect immediately)
   if (showSuccess) {
-    // Show pending notice for submissions with unverified venues
-    if (isPendingSubmission) {
-      return (
-        <div className="flex flex-col items-center justify-center py-8 text-center">
-          <div className="rounded-full bg-amber-500/10 p-3 mb-3">
-            <Clock className="h-6 w-6 text-amber-500" />
-          </div>
-          <h2 className="text-lg font-semibold mb-1">Pending Review</h2>
-          <p className="text-sm text-muted-foreground mb-3 max-w-xs">
-            Your show includes a new venue that needs admin verification. It
-            will be visible once approved.
-          </p>
-        </div>
-      )
-    }
-
     return (
       <div className="flex flex-col items-center justify-center py-8 text-center">
         <div className="rounded-full bg-primary/10 p-3 mb-3">
@@ -425,7 +421,11 @@ export function ShowForm({
 
         <form.Field name="venue.name">
           {field => (
-            <VenueInput field={field} onVenueSelect={handleVenueSelect} />
+            <VenueInput
+              field={field}
+              onVenueSelect={handleVenueSelect}
+              onVenueNameChange={setVenueName}
+            />
           )}
         </form.Field>
 
@@ -482,19 +482,46 @@ export function ShowForm({
         )}
 
         {/* New venue warning (for non-admins entering a new venue) */}
-        {!selectedVenue && !isAdmin && form.getFieldValue('venue.name') && (
-          <div className="flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 p-3">
-            <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
-            <div className="text-sm">
-              <p className="font-medium text-amber-600 dark:text-amber-400">
-                New Venue - Pending Review
-              </p>
-              <p className="text-muted-foreground text-xs mt-0.5">
-                Shows with new venues require admin verification before
-                appearing publicly. This helps ensure event safety and prevents
-                listings at fake or unauthorized locations.
-              </p>
+        {!selectedVenue && !isAdmin && venueName && (
+          <div className="space-y-3">
+            <div className="flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 p-3">
+              <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
+              <div className="text-sm">
+                <p className="font-medium text-amber-600 dark:text-amber-400">
+                  New Venue - Pending Review
+                </p>
+                <p className="text-muted-foreground text-xs mt-0.5">
+                  Shows with new venues require admin verification before
+                  appearing publicly. This helps ensure event safety and
+                  prevents listings at fake or unauthorized locations.
+                </p>
+              </div>
             </div>
+
+            {/* Private show option - only shown for new venues in create mode */}
+            {!isEditMode && (
+              <div className="flex items-start gap-3 rounded-md bg-slate-500/10 border border-slate-500/20 p-3">
+                <Checkbox
+                  id="is-private-show"
+                  checked={isPrivateShow}
+                  onCheckedChange={checked => setIsPrivateShow(!!checked)}
+                  className="mt-0.5"
+                />
+                <label
+                  htmlFor="is-private-show"
+                  className="text-sm cursor-pointer"
+                >
+                  <span className="font-medium flex items-center gap-1.5">
+                    <EyeOff className="h-3.5 w-3.5" />
+                    Do not publish - this show is just for my list
+                  </span>
+                  <p className="text-muted-foreground text-xs mt-0.5">
+                    Private shows won&apos;t be submitted for review and will
+                    only appear in your personal list.
+                  </p>
+                </label>
+              </div>
+            )}
           </div>
         )}
       </div>

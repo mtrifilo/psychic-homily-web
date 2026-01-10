@@ -63,6 +63,10 @@ export const API_ENDPOINTS = {
     DELETE: (showId: string | number) => `${API_BASE_URL}/shows/${showId}`,
     UNPUBLISH: (showId: string | number) =>
       `${API_BASE_URL}/shows/${showId}/unpublish`,
+    MAKE_PRIVATE: (showId: string | number) =>
+      `${API_BASE_URL}/shows/${showId}/make-private`,
+    PUBLISH: (showId: string | number) =>
+      `${API_BASE_URL}/shows/${showId}/publish`,
   },
   ARTISTS: {
     SEARCH: `${API_BASE_URL}/artists/search`,

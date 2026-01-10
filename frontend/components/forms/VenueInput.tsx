@@ -12,6 +12,7 @@ import { FieldInfo } from './FormField'
 interface VenueInputProps {
   field: AnyFieldApi
   onVenueSelect?: (venue: Venue | null) => void
+  onVenueNameChange?: (name: string) => void
 }
 
 /**
@@ -19,7 +20,11 @@ interface VenueInputProps {
  * Searches existing venues as user types
  * Can auto-fill city/state when a known venue is selected
  */
-export function VenueInput({ field, onVenueSelect }: VenueInputProps) {
+export function VenueInput({
+  field,
+  onVenueSelect,
+  onVenueNameChange,
+}: VenueInputProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchValue, setSearchValue] = useState('')
 
@@ -64,6 +69,8 @@ export function VenueInput({ field, onVenueSelect }: VenueInputProps) {
     setIsOpen(value.length > 0)
     // Clear venue selection when typing
     onVenueSelect?.(null)
+    // Notify parent of venue name change
+    onVenueNameChange?.(value)
   }
 
   const handleBlur = () => {
@@ -169,4 +176,3 @@ export function VenueInput({ field, onVenueSelect }: VenueInputProps) {
     </div>
   )
 }
-

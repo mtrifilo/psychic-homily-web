@@ -68,6 +68,7 @@ type CreateShowRequestBody struct {
 	Description    *string   `json:"description,omitempty" doc:"Show description"`
 	Venues         []Venue   `json:"venues" validate:"required,min=1" doc:"List of venues for the show"`
 	Artists        []Artist  `json:"artists" validate:"required,min=1" doc:"List of artists in the show"`
+	IsPrivate      *bool     `json:"is_private,omitempty" doc:"If true, show is private and only visible to submitter"`
 }
 
 // Resolve implements preprocessing and validation for the request body
@@ -282,6 +283,12 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 		ageRequirement = *req.Body.AgeRequirement
 	}
 
+	// Check if show should be private
+	isPrivate := false
+	if req.Body.IsPrivate != nil && *req.Body.IsPrivate {
+		isPrivate = true
+	}
+
 	// Convert request to service request with user context
 	serviceReq := &services.CreateShowRequest{
 		Title:             title,
@@ -295,6 +302,7 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 		Artists:           serviceArtists,
 		SubmittedByUserID: submittedByUserID,
 		SubmitterIsAdmin:  submitterIsAdmin,
+		IsPrivate:         isPrivate,
 	}
 
 	// Create show using service
@@ -785,6 +793,161 @@ func (h *ShowHandler) UnpublishShowHandler(ctx context.Context, req *UnpublishSh
 	)
 
 	return &UnpublishShowResponse{Body: *show}, nil
+}
+
+// MakePrivateShowRequest represents the HTTP request for making a show private
+type MakePrivateShowRequest struct {
+	ShowID string `path:"show_id" validate:"required" doc:"Show ID to make private"`
+}
+
+// MakePrivateShowResponse represents the HTTP response for making a show private
+type MakePrivateShowResponse struct {
+	Body services.ShowResponse
+}
+
+// MakePrivateShowHandler handles POST /shows/{show_id}/make-private
+// Changes a pending show's status to private.
+// Only the submitter or an admin can make a show private.
+func (h *ShowHandler) MakePrivateShowHandler(ctx context.Context, req *MakePrivateShowRequest) (*MakePrivateShowResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Require authentication
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	// Parse show ID
+	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
+	if err != nil {
+		showErr := showerrors.ErrShowInvalidID(req.ShowID)
+		logger.FromContext(ctx).Warn("show_make_private_invalid_id",
+			"show_id_str", req.ShowID,
+			"error_code", showErr.Code,
+			"request_id", requestID,
+		)
+		return nil, huma.Error400BadRequest(
+			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("show_make_private_attempt",
+		"show_id", showID,
+		"user_id", user.ID,
+		"is_admin", user.IsAdmin,
+	)
+
+	// Make show private using service (service handles authorization check)
+	show, err := h.showService.MakePrivateShow(uint(showID), user.ID, user.IsAdmin)
+	if err != nil {
+		logger.FromContext(ctx).Warn("show_make_private_failed",
+			"show_id", showID,
+			"user_id", user.ID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		// Check for specific error types
+		if err.Error() == "show not found" {
+			return nil, huma.Error404NotFound(
+				fmt.Sprintf("Show not found (request_id: %s)", requestID),
+			)
+		}
+		if err.Error() == "only the show submitter or an admin can make this show private" {
+			return nil, huma.Error403Forbidden(
+				fmt.Sprintf("Not authorized to make this show private (request_id: %s)", requestID),
+			)
+		}
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Failed to make show private: %s (request_id: %s)", err.Error(), requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Info("show_made_private",
+		"show_id", showID,
+		"user_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &MakePrivateShowResponse{Body: *show}, nil
+}
+
+// PublishShowRequest represents the HTTP request for publishing a show
+type PublishShowRequest struct {
+	ShowID string `path:"show_id" validate:"required" doc:"Show ID to publish"`
+}
+
+// PublishShowResponse represents the HTTP response for publishing a show
+type PublishShowResponse struct {
+	Body services.ShowResponse
+}
+
+// PublishShowHandler handles POST /shows/{show_id}/publish
+// Changes a private show's status to approved or pending.
+// If all venues are verified, status becomes approved.
+// If any venue is unverified, status becomes pending.
+// Only the submitter or an admin can publish a show.
+func (h *ShowHandler) PublishShowHandler(ctx context.Context, req *PublishShowRequest) (*PublishShowResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Require authentication
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	// Parse show ID
+	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
+	if err != nil {
+		showErr := showerrors.ErrShowInvalidID(req.ShowID)
+		logger.FromContext(ctx).Warn("show_publish_invalid_id",
+			"show_id_str", req.ShowID,
+			"error_code", showErr.Code,
+			"request_id", requestID,
+		)
+		return nil, huma.Error400BadRequest(
+			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("show_publish_attempt",
+		"show_id", showID,
+		"user_id", user.ID,
+		"is_admin", user.IsAdmin,
+	)
+
+	// Publish show using service (service handles authorization check)
+	show, err := h.showService.PublishShow(uint(showID), user.ID, user.IsAdmin)
+	if err != nil {
+		logger.FromContext(ctx).Warn("show_publish_failed",
+			"show_id", showID,
+			"user_id", user.ID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		// Check for specific error types
+		if err.Error() == "show not found" {
+			return nil, huma.Error404NotFound(
+				fmt.Sprintf("Show not found (request_id: %s)", requestID),
+			)
+		}
+		if err.Error() == "only the show submitter or an admin can publish this show" {
+			return nil, huma.Error403Forbidden(
+				fmt.Sprintf("Not authorized to publish this show (request_id: %s)", requestID),
+			)
+		}
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Failed to publish show: %s (request_id: %s)", err.Error(), requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Info("show_published",
+		"show_id", showID,
+		"new_status", show.Status,
+		"user_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &PublishShowResponse{Body: *show}, nil
 }
 
 // AIProcessShowHandler handles POST /shows/ai-process (future implementation)

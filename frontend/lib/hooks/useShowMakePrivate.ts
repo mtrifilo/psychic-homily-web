@@ -1,0 +1,48 @@
+'use client'
+
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiRequest, API_ENDPOINTS } from '../api'
+import { createInvalidateQueries } from '../queryClient'
+import { showLogger } from '../utils/showLogger'
+import { ShowError } from '../errors'
+import type { ShowResponse } from '../types/show'
+
+/**
+ * Hook for making a pending show private
+ * Requires authentication (JWT cookie handled by API proxy)
+ * User must be admin or the show's submitter
+ */
+export function useShowMakePrivate() {
+  const queryClient = useQueryClient()
+  const invalidateQueries = createInvalidateQueries(queryClient)
+
+  return useMutation({
+    mutationFn: async (showId: number): Promise<ShowResponse> => {
+      showLogger.debug('Making show private', { showId })
+
+      return await apiRequest<ShowResponse>(
+        API_ENDPOINTS.SHOWS.MAKE_PRIVATE(showId),
+        {
+          method: 'POST',
+        }
+      )
+    },
+    onSuccess: (data, showId) => {
+      showLogger.debug('Show made private', { showId, status: data.status })
+
+      // Invalidate show queries to refetch with updated data
+      invalidateQueries.shows()
+      // Also invalidate saved shows to update status display
+      invalidateQueries.savedShows()
+    },
+    onError: (error, showId) => {
+      const showError = ShowError.fromUnknown(error, showId)
+      showLogger.error('Failed to make show private', {
+        showId,
+        code: showError.code,
+        message: showError.message,
+        requestId: showError.requestId,
+      })
+    },
+  })
+}

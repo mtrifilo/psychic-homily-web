@@ -36,8 +36,9 @@ export interface VenueResponse {
  * - pending: awaiting admin review (contains unverified venue)
  * - approved: visible to public
  * - rejected: rejected by admin, not visible
+ * - private: personal show, only visible to submitter
  */
-export type ShowStatus = 'pending' | 'approved' | 'rejected'
+export type ShowStatus = 'pending' | 'approved' | 'rejected' | 'private'
 
 export interface ShowResponse {
   id: number
