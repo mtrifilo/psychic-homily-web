@@ -964,3 +964,78 @@ func (h *ShowHandler) AIProcessShowHandler(ctx context.Context, req *AIProcessSh
 		},
 	}, nil
 }
+
+// GetMySubmissionsRequest represents the HTTP request for getting user's submitted shows
+type GetMySubmissionsRequest struct {
+	Limit  int `query:"limit" default:"50" doc:"Maximum number of shows to return"`
+	Offset int `query:"offset" default:"0" doc:"Offset for pagination"`
+}
+
+// GetMySubmissionsResponse represents the HTTP response for user's submitted shows
+type GetMySubmissionsResponse struct {
+	Body struct {
+		Shows []services.ShowResponse `json:"shows" doc:"List of user's submitted shows"`
+		Total int                     `json:"total" doc:"Total count of submissions"`
+	}
+}
+
+// GetMySubmissionsHandler handles GET /shows/my-submissions
+// Returns all shows submitted by the authenticated user
+func (h *ShowHandler) GetMySubmissionsHandler(ctx context.Context, req *GetMySubmissionsRequest) (*GetMySubmissionsResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Require authentication
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	// Validate pagination
+	limit := req.Limit
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	logger.FromContext(ctx).Debug("get_my_submissions_attempt",
+		"user_id", user.ID,
+		"limit", limit,
+		"offset", offset,
+	)
+
+	// Get user's submissions
+	shows, total, err := h.showService.GetUserSubmissions(user.ID, limit, offset)
+	if err != nil {
+		logger.FromContext(ctx).Error("get_my_submissions_failed",
+			"user_id", user.ID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get submissions (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("get_my_submissions_success",
+		"user_id", user.ID,
+		"count", len(shows),
+		"total", total,
+	)
+
+	return &GetMySubmissionsResponse{
+		Body: struct {
+			Shows []services.ShowResponse `json:"shows" doc:"List of user's submitted shows"`
+			Total int                     `json:"total" doc:"Total count of submissions"`
+		}{
+			Shows: shows,
+			Total: total,
+		},
+	}, nil
+}

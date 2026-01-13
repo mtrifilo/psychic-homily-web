@@ -67,6 +67,7 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/shows/${showId}/make-private`,
     PUBLISH: (showId: string | number) =>
       `${API_BASE_URL}/shows/${showId}/publish`,
+    MY_SUBMISSIONS: `${API_BASE_URL}/shows/my-submissions`,
   },
   ARTISTS: {
     SEARCH: `${API_BASE_URL}/artists/search`,

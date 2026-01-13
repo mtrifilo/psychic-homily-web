@@ -341,6 +341,39 @@ func (s *ShowService) GetShows(filters map[string]interface{}) ([]*ShowResponse,
 	return responses, nil
 }
 
+// GetUserSubmissions returns all shows submitted by a specific user
+func (s *ShowService) GetUserSubmissions(userID uint, limit, offset int) ([]ShowResponse, int, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	// Get total count first
+	var total int64
+	if err := s.db.Model(&models.Show{}).Where("submitted_by = ?", userID).Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count user submissions: %w", err)
+	}
+
+	// Query shows with pagination
+	var shows []models.Show
+	err := s.db.Preload("Venues").Preload("Artists").
+		Where("submitted_by = ?", userID).
+		Order("created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&shows).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get user submissions: %w", err)
+	}
+
+	// Build responses
+	responses := make([]ShowResponse, len(shows))
+	for i, show := range shows {
+		responses[i] = *s.buildShowResponse(&show)
+	}
+
+	return responses, int(total), nil
+}
+
 // UpdateShow updates an existing show (basic fields only)
 func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*ShowResponse, error) {
 	if s.db == nil {

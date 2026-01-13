@@ -247,16 +247,16 @@ export function ShowForm({
             form.reset()
             setIsPrivateShow(false)
 
-            // Redirect to My List with query param for pending/private submissions
+            // Redirect to My Collection with query param for pending/private submissions
             if (isPending) {
-              router.push('/shows/saved?submitted=pending')
+              router.push('/collection?submitted=pending')
             } else if (isPrivate) {
-              router.push('/shows/saved?submitted=private')
+              router.push('/collection?submitted=private')
             } else if (redirectOnCreate) {
               // For approved submissions, show brief success then redirect
               setShowSuccess(true)
               setTimeout(() => {
-                router.push('/shows/saved')
+                router.push('/collection')
               }, 2000)
             } else {
               setShowSuccess(true)

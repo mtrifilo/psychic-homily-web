@@ -97,6 +97,12 @@ export const queryKeys = {
       ['savedShows', 'check', String(showId)] as const,
   },
 
+  // User's submitted shows
+  mySubmissions: {
+    all: ['mySubmissions'] as const,
+    list: () => ['mySubmissions', 'list'] as const,
+  },
+
   // System queries
   system: {
     health: ['system', 'health'] as const,
@@ -124,4 +130,8 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate saved shows queries
   savedShows: () =>
     queryClient.invalidateQueries({ queryKey: ['savedShows'] }),
+
+  // Invalidate user's submissions queries
+  mySubmissions: () =>
+    queryClient.invalidateQueries({ queryKey: ['mySubmissions'] }),
 })

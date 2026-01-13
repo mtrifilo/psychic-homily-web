@@ -104,3 +104,9 @@ export interface SaveShowResponse {
 export interface CheckSavedResponse {
   is_saved: boolean
 }
+
+// User's submitted shows response
+export interface MySubmissionsResponse {
+  shows: ShowResponse[]
+  total: number
+}

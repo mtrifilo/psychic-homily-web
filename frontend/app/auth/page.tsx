@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
-import { AlertCircle, Loader2, Mail, Lock, User } from 'lucide-react'
+import { AlertCircle, Loader2, Mail, Lock, User, Eye, EyeOff } from 'lucide-react'
 import { useLogin, useRegister } from '@/lib/hooks/useAuth'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -56,6 +56,7 @@ function LoginForm() {
   const router = useRouter()
   const loginMutation = useLogin()
   const { setUser } = useAuthContext()
+  const [showPassword, setShowPassword] = useState(false)
 
   const form = useForm({
     defaultValues: {
@@ -135,14 +136,23 @@ function LoginForm() {
               <Input
                 id={field.name}
                 name={field.name}
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 placeholder="Enter your password"
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={e => field.handleChange(e.target.value)}
-                className="pl-10"
+                className="pl-10 pr-10"
                 aria-invalid={field.state.meta.errors.length > 0}
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
             </div>
             {field.state.meta.errors.length > 0 && (
               <p className="text-sm text-destructive">
@@ -179,6 +189,8 @@ function SignupForm() {
   const router = useRouter()
   const registerMutation = useRegister()
   const { setUser } = useAuthContext()
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   const form = useForm({
     defaultValues: {
@@ -262,14 +274,23 @@ function SignupForm() {
               <Input
                 id={`signup-${field.name}`}
                 name={field.name}
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 placeholder="At least 8 characters"
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={e => field.handleChange(e.target.value)}
-                className="pl-10"
+                className="pl-10 pr-10"
                 aria-invalid={field.state.meta.errors.length > 0}
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
             </div>
             {field.state.meta.errors.length > 0 && (
               <p className="text-sm text-destructive">
@@ -289,14 +310,23 @@ function SignupForm() {
               <Input
                 id={`signup-${field.name}`}
                 name={field.name}
-                type="password"
+                type={showConfirmPassword ? 'text' : 'password'}
                 placeholder="Confirm your password"
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={e => field.handleChange(e.target.value)}
-                className="pl-10"
+                className="pl-10 pr-10"
                 aria-invalid={field.state.meta.errors.length > 0}
               />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+                aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showConfirmPassword}
+              >
+                {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
             </div>
             {field.state.meta.errors.length > 0 && (
               <p className="text-sm text-destructive">

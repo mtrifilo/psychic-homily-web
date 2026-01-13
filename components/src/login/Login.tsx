@@ -17,7 +17,7 @@ import { DialogClose } from '@/components/ui/dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useLogin } from '@/lib/hooks/useAuth'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { XCircle } from 'lucide-react'
+import { XCircle, Eye, EyeOff } from 'lucide-react'
 
 // Zod schema for validation
 const loginSchema = z.object({
@@ -33,6 +33,7 @@ interface LoginFormData {
 
 function Login() {
     const [isOpen, setIsOpen] = useState(false)
+    const [showPassword, setShowPassword] = useState(false)
     const loginMutation = useLogin()
     const { clearError } = useAuthContext()
 
@@ -134,15 +135,27 @@ function Login() {
                                 children={(field) => (
                                     <div className="grid gap-3 mb-4">
                                         <Label htmlFor={field.name}>Password</Label>
-                                        <Input
-                                            id={field.name}
-                                            name={field.name}
-                                            type="password"
-                                            placeholder="Enter your password"
-                                            value={field.state.value}
-                                            onBlur={field.handleBlur}
-                                            onChange={(e) => field.handleChange(e.target.value)}
-                                        />
+                                        <div className="relative">
+                                            <Input
+                                                id={field.name}
+                                                name={field.name}
+                                                type={showPassword ? 'text' : 'password'}
+                                                placeholder="Enter your password"
+                                                value={field.state.value}
+                                                onBlur={field.handleBlur}
+                                                onChange={(e) => field.handleChange(e.target.value)}
+                                                className="pr-10"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowPassword(!showPassword)}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+                                                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                                aria-pressed={showPassword}
+                                            >
+                                                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                            </button>
+                                        </div>
                                         {field.state.meta.errors.length > 0 && (
                                             <Alert variant="destructive">
                                                 <XCircle className="h-4 w-4" />
