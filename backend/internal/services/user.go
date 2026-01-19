@@ -394,3 +394,24 @@ func (s *UserService) HashPassword(password string) (string, error) {
 func (s *UserService) VerifyPassword(hashedPassword, password string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 }
+
+// SetEmailVerified updates the email_verified status for a user
+func (s *UserService) SetEmailVerified(userID uint, verified bool) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	result := s.db.Model(&models.User{}).
+		Where("id = ?", userID).
+		Update("email_verified", verified)
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to update email verified status: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("user not found")
+	}
+
+	return nil
+}

@@ -37,12 +37,16 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	authHandler := handlers.NewAuthHandler(authService, jwtService, services.NewUserService(), cfg)
 	huma.Get(protectedGroup, "/auth/profile", authHandler.GetProfileHandler)
 	huma.Post(protectedGroup, "/auth/refresh", authHandler.RefreshTokenHandler)
+	huma.Post(protectedGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
 
-	setupShowRoutes(api, protectedGroup)
+	// Public email verification confirm endpoint (user clicks link from email)
+	huma.Post(api, "/auth/verify-email/confirm", authHandler.ConfirmVerificationHandler)
+
+	setupShowRoutes(api, protectedGroup, cfg)
 	setupArtistRoutes(api, protectedGroup)
 	setupVenueRoutes(api, protectedGroup)
 	setupSavedShowRoutes(protectedGroup)
-	setupAdminRoutes(protectedGroup)
+	setupAdminRoutes(protectedGroup, cfg)
 
 	return api
 }
@@ -77,8 +81,8 @@ func setupSystemRoutes(router *chi.Mux, api huma.API) {
 }
 
 // SetupShowRoutes configures all show-related endpoints
-func setupShowRoutes(api huma.API, protected *huma.Group) {
-	showHandler := handlers.NewShowHandler()
+func setupShowRoutes(api huma.API, protected *huma.Group, cfg *config.Config) {
+	showHandler := handlers.NewShowHandler(cfg)
 
 	// Public show endpoints - registered on main API without middleware
 	huma.Get(api, "/shows", showHandler.GetShowsHandler)
@@ -109,9 +113,16 @@ func setupVenueRoutes(api huma.API, protected *huma.Group) {
 	venueHandler := handlers.NewVenueHandler()
 
 	// Public venue endpoints - registered on main API without middleware
+	// Note: Static routes must come before parameterized routes
+	huma.Get(api, "/venues", venueHandler.ListVenuesHandler)
+	huma.Get(api, "/venues/cities", venueHandler.GetVenueCitiesHandler)
 	huma.Get(api, "/venues/search", venueHandler.SearchVenuesHandler)
+	huma.Get(api, "/venues/{venue_id}/shows", venueHandler.GetVenueShowsHandler)
 
-	// Note: Add protected venue endpoints here if needed in the future
+	// Protected venue endpoints - require authentication
+	huma.Put(protected, "/venues/{venue_id}", venueHandler.UpdateVenueHandler)
+	huma.Get(protected, "/venues/{venue_id}/my-pending-edit", venueHandler.GetMyPendingEditHandler)
+	huma.Delete(protected, "/venues/{venue_id}/my-pending-edit", venueHandler.CancelMyPendingEditHandler)
 }
 
 // setupSavedShowRoutes configures saved show endpoints (user's personal "My List")
@@ -128,8 +139,8 @@ func setupSavedShowRoutes(protected *huma.Group) {
 
 // setupAdminRoutes configures admin-only endpoints
 // Note: Admin check is performed inside handlers, JWT auth is required via protected group
-func setupAdminRoutes(protected *huma.Group) {
-	adminHandler := handlers.NewAdminHandler()
+func setupAdminRoutes(protected *huma.Group, cfg *config.Config) {
+	adminHandler := handlers.NewAdminHandler(cfg)
 
 	// Admin show management endpoints
 	huma.Get(protected, "/admin/shows/pending", adminHandler.GetPendingShowsHandler)
@@ -138,4 +149,9 @@ func setupAdminRoutes(protected *huma.Group) {
 
 	// Admin venue management endpoints
 	huma.Post(protected, "/admin/venues/{venue_id}/verify", adminHandler.VerifyVenueHandler)
+
+	// Admin pending venue edit endpoints
+	huma.Get(protected, "/admin/venues/pending-edits", adminHandler.GetPendingVenueEditsHandler)
+	huma.Post(protected, "/admin/venues/pending-edits/{edit_id}/approve", adminHandler.ApproveVenueEditHandler)
+	huma.Post(protected, "/admin/venues/pending-edits/{edit_id}/reject", adminHandler.RejectVenueEditHandler)
 }

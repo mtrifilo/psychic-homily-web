@@ -48,6 +48,18 @@ const (
 
 	// CORS
 	EnvCORSAllowedOrigins = "CORS_ALLOWED_ORIGINS"
+
+	// Email (Resend)
+	// RESEND_API_KEY: Your Resend API key (e.g., "re_123abc...")
+	// FROM_EMAIL: Sender email address (e.g., "noreply@psychichomily.com")
+	// FRONTEND_URL: Base URL for email links (e.g., "http://localhost:3000" or "https://psychichomily.com")
+	EnvResendAPIKey = "RESEND_API_KEY"
+	EnvFromEmail    = "FROM_EMAIL"
+	EnvFrontendURL  = "FRONTEND_URL"
+
+	// Discord
+	EnvDiscordWebhookURL = "DISCORD_WEBHOOK_URL"
+	EnvDiscordEnabled    = "DISCORD_NOTIFICATIONS_ENABLED"
 )
 
 // Config holds all configuration for the application
@@ -58,6 +70,21 @@ type Config struct {
 	Database DatabaseConfig
 	JWT      JWTConfig
 	Session  SessionConfig
+	Email    EmailConfig
+	Discord  DiscordConfig
+}
+
+// DiscordConfig holds Discord webhook configuration for admin notifications
+type DiscordConfig struct {
+	WebhookURL string
+	Enabled    bool
+}
+
+// EmailConfig holds email-related configuration (Resend)
+type EmailConfig struct {
+	ResendAPIKey string
+	FromEmail    string
+	FrontendURL  string
 }
 
 // ServerConfig holds server-related configuration
@@ -160,6 +187,32 @@ func Load() *Config {
 			Secure:   getEnvAsBool(EnvSessionSecure, false),
 			SameSite: GetEnv(EnvSessionSameSite, "lax"),
 		},
+		Email: EmailConfig{
+			ResendAPIKey: GetEnv(EnvResendAPIKey, ""),
+			FromEmail:    GetEnv(EnvFromEmail, "noreply@psychichomily.com"),
+			FrontendURL:  getFrontendURL(),
+		},
+		Discord: DiscordConfig{
+			WebhookURL: GetEnv(EnvDiscordWebhookURL, ""),
+			Enabled:    getEnvAsBool(EnvDiscordEnabled, false),
+		},
+	}
+}
+
+// getFrontendURL returns the frontend URL based on environment
+func getFrontendURL() string {
+	if url := os.Getenv(EnvFrontendURL); url != "" {
+		return url
+	}
+
+	env := os.Getenv(EnvEnvironment)
+	switch env {
+	case EnvProduction:
+		return "https://psychichomily.com"
+	case EnvStage:
+		return "https://stage.psychichomily.com"
+	default:
+		return "http://localhost:3000"
 	}
 }
 

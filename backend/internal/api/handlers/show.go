@@ -9,6 +9,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/middleware"
+	"psychic-homily-backend/internal/config"
 	showerrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
@@ -18,13 +19,15 @@ import (
 type ShowHandler struct {
 	showService      *services.ShowService
 	savedShowService *services.SavedShowService
+	discordService   *services.DiscordService
 }
 
 // NewShowHandler creates a new show handler
-func NewShowHandler() *ShowHandler {
+func NewShowHandler(cfg *config.Config) *ShowHandler {
 	return &ShowHandler{
 		showService:      services.NewShowService(),
 		savedShowService: services.NewSavedShowService(),
+		discordService:   services.NewDiscordService(cfg),
 	}
 }
 
@@ -217,6 +220,15 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 		submitterIsAdmin = user.IsAdmin
 	}
 
+	// Block non-admin users with unverified emails from submitting shows
+	if user != nil && !user.IsAdmin && !user.EmailVerified {
+		logger.FromContext(ctx).Warn("show_create_blocked_unverified_email",
+			"user_id", user.ID,
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Email verification required to submit shows. Please verify your email address in Settings.")
+	}
+
 	logger.FromContext(ctx).Debug("show_create_attempt",
 		"venue_count", len(req.Body.Venues),
 		"artist_count", len(req.Body.Artists),
@@ -325,6 +337,13 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 		"status", show.Status,
 		"request_id", requestID,
 	)
+
+	// Send Discord notification for new show submission
+	submitterEmail := ""
+	if user != nil && user.Email != nil {
+		submitterEmail = *user.Email
+	}
+	h.discordService.NotifyNewShow(show, submitterEmail)
 
 	// Auto-save the show to the submitter's personal list
 	if submittedByUserID != nil {
@@ -792,6 +811,13 @@ func (h *ShowHandler) UnpublishShowHandler(ctx context.Context, req *UnpublishSh
 		"request_id", requestID,
 	)
 
+	// Send Discord notification for status change
+	actorEmail := ""
+	if user.Email != nil {
+		actorEmail = *user.Email
+	}
+	h.discordService.NotifyShowStatusChange(show.Title, show.ID, "approved", "pending", actorEmail)
+
 	return &UnpublishShowResponse{Body: *show}, nil
 }
 
@@ -867,6 +893,13 @@ func (h *ShowHandler) MakePrivateShowHandler(ctx context.Context, req *MakePriva
 		"user_id", user.ID,
 		"request_id", requestID,
 	)
+
+	// Send Discord notification for status change
+	actorEmail := ""
+	if user.Email != nil {
+		actorEmail = *user.Email
+	}
+	h.discordService.NotifyShowStatusChange(show.Title, show.ID, "pending", "private", actorEmail)
 
 	return &MakePrivateShowResponse{Body: *show}, nil
 }
@@ -946,6 +979,13 @@ func (h *ShowHandler) PublishShowHandler(ctx context.Context, req *PublishShowRe
 		"user_id", user.ID,
 		"request_id", requestID,
 	)
+
+	// Send Discord notification for status change
+	actorEmail := ""
+	if user.Email != nil {
+		actorEmail = *user.Email
+	}
+	h.discordService.NotifyShowStatusChange(show.Title, show.ID, "private", show.Status, actorEmail)
 
 	return &PublishShowResponse{Body: *show}, nil
 }

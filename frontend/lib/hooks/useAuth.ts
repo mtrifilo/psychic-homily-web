@@ -53,6 +53,7 @@ interface UserProfile {
     first_name?: string
     last_name?: string
     is_admin?: boolean
+    email_verified?: boolean
     created_at: string
     updated_at: string
   }
@@ -290,4 +291,93 @@ export const useIsAuthenticated = () => {
     user: profile?.user,
     error,
   }
+}
+
+// Email verification types
+interface VerificationResponse {
+  success: boolean
+  message: string
+  error_code?: string
+  request_id?: string
+}
+
+// Send verification email mutation
+export const useSendVerificationEmail = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (): Promise<VerificationResponse> => {
+      authLogger.debug('Sending verification email')
+
+      const response = await apiRequest<VerificationResponse>(
+        API_ENDPOINTS.AUTH.VERIFY_EMAIL_SEND,
+        {
+          method: 'POST',
+          credentials: 'include',
+        }
+      )
+
+      if (!response.success) {
+        throw new AuthError(
+          response.message || 'Failed to send verification email',
+          (response.error_code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN,
+          {
+            requestId: response.request_id,
+            status: 400,
+          }
+        )
+      }
+
+      return response
+    },
+    onSuccess: data => {
+      authLogger.info(
+        'Verification email sent',
+        { message: data.message },
+        data.request_id
+      )
+    },
+  })
+}
+
+// Confirm email verification mutation
+export const useConfirmVerification = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (token: string): Promise<VerificationResponse> => {
+      authLogger.debug('Confirming email verification')
+
+      const response = await apiRequest<VerificationResponse>(
+        API_ENDPOINTS.AUTH.VERIFY_EMAIL_CONFIRM,
+        {
+          method: 'POST',
+          body: JSON.stringify({ token }),
+          credentials: 'include',
+        }
+      )
+
+      if (!response.success) {
+        throw new AuthError(
+          response.message || 'Failed to verify email',
+          (response.error_code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN,
+          {
+            requestId: response.request_id,
+            status: 400,
+          }
+        )
+      }
+
+      return response
+    },
+    onSuccess: async data => {
+      authLogger.info(
+        'Email verified successfully',
+        { message: data.message },
+        data.request_id
+      )
+      // Refetch profile to update email_verified status
+      await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
+    },
+  })
 }

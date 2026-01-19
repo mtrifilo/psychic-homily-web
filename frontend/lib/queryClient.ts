@@ -78,9 +78,19 @@ export const queryKeys = {
     all: ['venues'] as const,
     list: (filters?: Record<string, unknown>) =>
       ['venues', 'list', filters] as const,
+    cities: ['venues', 'cities'] as const,
     detail: (id: string) => ['venues', 'detail', id] as const,
     search: (query: string) =>
       ['venues', 'search', query.toLowerCase()] as const,
+    shows: (venueId: number) => ['venues', 'shows', venueId] as const,
+    myPendingEdit: (venueId: number) =>
+      ['venues', 'myPendingEdit', venueId] as const,
+  },
+
+  // Admin queries
+  admin: {
+    pendingVenueEdits: (limit: number, offset: number) =>
+      ['admin', 'venues', 'pendingEdits', { limit, offset }] as const,
   },
 
   // Artist queries

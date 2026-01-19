@@ -37,6 +37,7 @@ import { SubmissionSuccessDialog } from '@/components/SubmissionSuccessDialog'
 import { ShowForm } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { SettingsPanel } from '@/components/SettingsPanel'
 
 function formatDate(dateString: string, state?: string | null): string {
   const timezone = getTimezoneForState(state || 'AZ')
@@ -437,18 +438,6 @@ function MySubmissionsList({
   )
 }
 
-function SettingsPlaceholder() {
-  return (
-    <div className="text-center py-12 text-muted-foreground">
-      <Settings className="h-16 w-16 mx-auto mb-4 text-muted-foreground/30" />
-      <p className="text-lg mb-2">Settings coming soon</p>
-      <p className="text-sm">
-        Customize your default cities, notification preferences, and more
-      </p>
-    </div>
-  )
-}
-
 export default function CollectionPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -570,7 +559,7 @@ export default function CollectionPage() {
         </TabsContent>
 
         <TabsContent value="settings">
-          <SettingsPlaceholder />
+          <SettingsPanel />
         </TabsContent>
       </Tabs>
     </div>

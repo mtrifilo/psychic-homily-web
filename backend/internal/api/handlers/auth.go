@@ -16,20 +16,24 @@ import (
 
 // AuthHandler handles authentication requests
 type AuthHandler struct {
-	authService *services.AuthService
-	jwtService  *services.JWTService
-	userService *services.UserService
-	config      *config.Config
+	authService    *services.AuthService
+	jwtService     *services.JWTService
+	userService    *services.UserService
+	emailService   *services.EmailService
+	discordService *services.DiscordService
+	config         *config.Config
 }
 
 // NewAuthHandler creates a new authentication handler
 func NewAuthHandler(authService *services.AuthService, jwtService *services.JWTService,
 	userService *services.UserService, config *config.Config) *AuthHandler {
 	return &AuthHandler{
-		authService: authService,
-		jwtService:  jwtService,
-		userService: userService,
-		config:      config,
+		authService:    authService,
+		jwtService:     jwtService,
+		userService:    userService,
+		emailService:   services.NewEmailService(config),
+		discordService: services.NewDiscordService(config),
+		config:         config,
 	}
 }
 
@@ -430,6 +434,9 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		"email_hash", logger.HashEmail(input.Body.Email),
 	)
 
+	// Send Discord notification for new user signup
+	h.discordService.NotifyNewUser(user)
+
 	resp.Body.Success = true
 	resp.Body.User = user
 	resp.Body.Message = "Registration successful and you are now logged in"
@@ -447,4 +454,197 @@ func setCookie(token string, config *config.Config) *http.Cookie {
 		SameSite: config.Session.GetSameSite(),
 		Expires:  time.Now().Add(24 * time.Hour),
 	}
+}
+
+// SendVerificationEmailResponse represents the response for sending verification email
+type SendVerificationEmailResponse struct {
+	Body struct {
+		Success   bool   `json:"success" example:"true" doc:"Success status"`
+		Message   string `json:"message" example:"Verification email sent" doc:"Response message"`
+		ErrorCode string `json:"error_code,omitempty" example:"EMAIL_SERVICE_UNAVAILABLE" doc:"Error code for programmatic handling"`
+		RequestID string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+	}
+}
+
+// SendVerificationEmailHandler sends a verification email to the authenticated user
+func (h *AuthHandler) SendVerificationEmailHandler(ctx context.Context, input *struct{}) (*SendVerificationEmailResponse, error) {
+	resp := &SendVerificationEmailResponse{}
+	requestID := logger.GetRequestID(ctx)
+	resp.Body.RequestID = requestID
+
+	// Get authenticated user from context
+	contextUser := middleware.GetUserFromContext(ctx)
+	if contextUser == nil {
+		logger.AuthWarn(ctx, "send_verification_no_user")
+		resp.Body.Success = false
+		resp.Body.Message = "User not found in context"
+		resp.Body.ErrorCode = autherrors.CodeUnauthorized
+		return resp, nil
+	}
+
+	// Check if email is already verified
+	if contextUser.EmailVerified {
+		logger.AuthDebug(ctx, "send_verification_already_verified",
+			"user_id", contextUser.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Email is already verified"
+		resp.Body.ErrorCode = "ALREADY_VERIFIED"
+		return resp, nil
+	}
+
+	// Check if email service is configured
+	if !h.emailService.IsConfigured() {
+		logger.AuthError(ctx, "send_verification_email_not_configured", nil,
+			"user_id", contextUser.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Email service is not configured"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	// Get user email
+	if contextUser.Email == nil || *contextUser.Email == "" {
+		logger.AuthWarn(ctx, "send_verification_no_email",
+			"user_id", contextUser.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "User does not have an email address"
+		resp.Body.ErrorCode = "NO_EMAIL"
+		return resp, nil
+	}
+
+	email := *contextUser.Email
+
+	// Generate verification token
+	token, err := h.jwtService.CreateVerificationToken(contextUser.ID, email)
+	if err != nil {
+		logger.AuthError(ctx, "send_verification_token_failed", err,
+			"user_id", contextUser.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to generate verification token"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	// Send verification email
+	if err := h.emailService.SendVerificationEmail(email, token); err != nil {
+		logger.AuthError(ctx, "send_verification_email_failed", err,
+			"user_id", contextUser.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to send verification email"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	logger.AuthInfo(ctx, "send_verification_email_success",
+		"user_id", contextUser.ID,
+		"email_hash", logger.HashEmail(email),
+	)
+
+	resp.Body.Success = true
+	resp.Body.Message = "Verification email sent. Please check your inbox."
+	return resp, nil
+}
+
+// ConfirmVerificationRequest represents the request to confirm email verification
+type ConfirmVerificationRequest struct {
+	Body struct {
+		Token string `json:"token" example:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." doc:"Verification token from email link"`
+	}
+}
+
+// ConfirmVerificationResponse represents the response for confirming email verification
+type ConfirmVerificationResponse struct {
+	Body struct {
+		Success   bool   `json:"success" example:"true" doc:"Success status"`
+		Message   string `json:"message" example:"Email verified successfully" doc:"Response message"`
+		ErrorCode string `json:"error_code,omitempty" example:"INVALID_TOKEN" doc:"Error code for programmatic handling"`
+		RequestID string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+	}
+}
+
+// ConfirmVerificationHandler confirms email verification using a token
+func (h *AuthHandler) ConfirmVerificationHandler(ctx context.Context, input *ConfirmVerificationRequest) (*ConfirmVerificationResponse, error) {
+	resp := &ConfirmVerificationResponse{}
+	requestID := logger.GetRequestID(ctx)
+	resp.Body.RequestID = requestID
+
+	// Validate token presence
+	if input.Body.Token == "" {
+		logger.AuthWarn(ctx, "confirm_verification_no_token")
+		resp.Body.Success = false
+		resp.Body.Message = "Verification token is required"
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
+	// Validate the verification token
+	claims, err := h.jwtService.ValidateVerificationToken(input.Body.Token)
+	if err != nil {
+		logger.AuthWarn(ctx, "confirm_verification_invalid_token",
+			"error", err.Error(),
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Invalid or expired verification token"
+		resp.Body.ErrorCode = "INVALID_TOKEN"
+		return resp, nil
+	}
+
+	// Get the user
+	user, err := h.userService.GetUserByID(claims.UserID)
+	if err != nil {
+		logger.AuthError(ctx, "confirm_verification_user_not_found", err,
+			"user_id", claims.UserID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "User not found"
+		resp.Body.ErrorCode = autherrors.CodeUnauthorized
+		return resp, nil
+	}
+
+	// Check if already verified
+	if user.EmailVerified {
+		logger.AuthDebug(ctx, "confirm_verification_already_verified",
+			"user_id", user.ID,
+		)
+		resp.Body.Success = true
+		resp.Body.Message = "Email is already verified"
+		return resp, nil
+	}
+
+	// Verify the email matches
+	if user.Email == nil || *user.Email != claims.Email {
+		logger.AuthWarn(ctx, "confirm_verification_email_mismatch",
+			"user_id", user.ID,
+			"token_email_hash", logger.HashEmail(claims.Email),
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Verification token does not match current email"
+		resp.Body.ErrorCode = "EMAIL_MISMATCH"
+		return resp, nil
+	}
+
+	// Update user to mark email as verified
+	if err := h.userService.SetEmailVerified(user.ID, true); err != nil {
+		logger.AuthError(ctx, "confirm_verification_update_failed", err,
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to verify email"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	logger.AuthInfo(ctx, "confirm_verification_success",
+		"user_id", user.ID,
+		"email_hash", logger.HashEmail(claims.Email),
+	)
+
+	resp.Body.Success = true
+	resp.Body.Message = "Email verified successfully! You can now submit shows."
+	return resp, nil
 }

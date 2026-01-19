@@ -1,14 +1,21 @@
 'use client'
 
 import { useState } from 'react'
-import { Shield, Music, Loader2 } from 'lucide-react'
+import { Shield, Music, MapPin, Loader2 } from 'lucide-react'
 import { usePendingShows } from '@/lib/hooks/useAdminShows'
+import { usePendingVenueEdits } from '@/lib/hooks/useAdminVenueEdits'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PendingShowCard } from '@/components/admin/PendingShowCard'
+import VenueEditsPage from './venue-edits/page'
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('pending-shows')
   const { data, isLoading, error } = usePendingShows()
+  const {
+    data: venueEditsData,
+    isLoading: venueEditsLoading,
+    error: venueEditsError,
+  } = usePendingVenueEdits()
 
   return (
     <div className="min-h-[calc(100vh-64px)] bg-background px-4 py-8">
@@ -38,9 +45,16 @@ export default function AdminPage() {
                 </span>
               )}
             </TabsTrigger>
-            {/* Future tabs */}
-            {/* <TabsTrigger value="venues">Venues</TabsTrigger> */}
-            {/* <TabsTrigger value="users">Users</TabsTrigger> */}
+            <TabsTrigger value="pending-venue-edits" className="gap-2">
+              <MapPin className="h-4 w-4" />
+              Venue Edits
+              {venueEditsData?.total !== undefined &&
+                venueEditsData.total > 0 && (
+                  <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-medium text-white">
+                    {venueEditsData.total}
+                  </span>
+                )}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="pending-shows" className="space-y-4">
@@ -81,6 +95,10 @@ export default function AdminPage() {
                 ))}
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="pending-venue-edits" className="space-y-4">
+            <VenueEditsPage />
           </TabsContent>
         </Tabs>
       </div>

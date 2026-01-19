@@ -27,6 +27,7 @@ import type { Venue } from '@/lib/types/venue'
 import type { ShowResponse, VenueResponse } from '@/lib/types/show'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { FormField, ArtistInput, VenueInput } from '@/components/forms'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -115,11 +116,23 @@ function showToFormValues(show: ShowResponse): FormValues {
   }
 }
 
+/** Pre-filled venue data for locking venue selection */
+interface PrefilledVenue {
+  id: number
+  name: string
+  city: string
+  state: string
+  address?: string | null
+  verified: boolean
+}
+
 interface ShowFormProps {
   /** Mode for the form - 'create' for new shows, 'edit' for updating existing */
   mode: 'create' | 'edit'
   /** Initial show data for pre-filling the form (required for edit mode) */
   initialData?: ShowResponse
+  /** Pre-filled venue (locks venue selection) */
+  prefilledVenue?: PrefilledVenue
   /** Callback after successful submission */
   onSuccess?: () => void
   /** Callback when cancel button is clicked (only shown in edit mode) */
@@ -131,6 +144,7 @@ interface ShowFormProps {
 export function ShowForm({
   mode,
   initialData,
+  prefilledVenue,
   onSuccess,
   onCancel,
   redirectOnCreate = true,
@@ -143,9 +157,19 @@ export function ShowForm({
   const [isPrivateShow, setIsPrivateShow] = useState(false)
 
   // Track selected venue for editability checks
-  // Initialize from initialData for edit mode, or null for create mode
+  // Initialize from prefilledVenue, initialData (for edit mode), or null for create mode
   const [selectedVenue, setSelectedVenue] = useState<VenueResponse | null>(
-    () => initialData?.venues[0] ?? null
+    () =>
+      prefilledVenue
+        ? {
+            id: prefilledVenue.id,
+            name: prefilledVenue.name,
+            city: prefilledVenue.city,
+            state: prefilledVenue.state,
+            address: prefilledVenue.address ?? null,
+            verified: prefilledVenue.verified,
+          }
+        : (initialData?.venues[0] ?? null)
   )
 
   const isEditMode = mode === 'edit'
@@ -153,15 +177,32 @@ export function ShowForm({
   const mutation = isEditMode ? updateMutation : submitMutation
 
   // Venue location fields are editable if:
-  // 1. User is admin (always editable), OR
-  // 2. No venue selected (new venue scenario), OR
-  // 3. Selected venue is unverified
+  // 1. Prefilled venue is NOT used (it locks venue selection), AND
+  // 2. User is admin (always editable), OR
+  // 3. No venue selected (new venue scenario), OR
+  // 4. Selected venue is unverified
   const isVenueLocationEditable =
-    isAdmin || !selectedVenue || !selectedVenue.verified
+    !prefilledVenue && (isAdmin || !selectedVenue || !selectedVenue.verified)
 
   // Compute initial values based on mode
-  const initialFormValues =
-    isEditMode && initialData ? showToFormValues(initialData) : defaultValues
+  const initialFormValues = (() => {
+    if (isEditMode && initialData) {
+      return showToFormValues(initialData)
+    }
+    if (prefilledVenue) {
+      return {
+        ...defaultValues,
+        venue: {
+          id: prefilledVenue.id,
+          name: prefilledVenue.name,
+          city: prefilledVenue.city,
+          state: prefilledVenue.state,
+          address: prefilledVenue.address || '',
+        },
+      }
+    }
+    return defaultValues
+  })()
 
   // Track venue name for showing/hiding the "new venue" warning
   const [venueName, setVenueName] = useState('')
@@ -419,15 +460,28 @@ export function ShowForm({
           <h3 className="font-medium">Venue & Location</h3>
         </div>
 
-        <form.Field name="venue.name">
-          {field => (
-            <VenueInput
-              field={field}
-              onVenueSelect={handleVenueSelect}
-              onVenueNameChange={setVenueName}
-            />
-          )}
-        </form.Field>
+        {prefilledVenue ? (
+          <div className="space-y-2">
+            <Label>Venue</Label>
+            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted border">
+              <MapPin className="h-4 w-4 text-muted-foreground" />
+              <span className="font-medium">{prefilledVenue.name}</span>
+              <span className="text-muted-foreground">
+                — {prefilledVenue.city}, {prefilledVenue.state}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <form.Field name="venue.name">
+            {field => (
+              <VenueInput
+                field={field}
+                onVenueSelect={handleVenueSelect}
+                onVenueNameChange={setVenueName}
+              />
+            )}
+          </form.Field>
+        )}
 
         <div className="grid grid-cols-2 gap-4">
           <form.Field name="venue.city">
@@ -464,8 +518,8 @@ export function ShowForm({
           )}
         </form.Field>
 
-        {/* Verified venue indicator (for non-admins with verified venue selected) */}
-        {selectedVenue?.verified && !isAdmin && (
+        {/* Verified venue indicator (for non-admins with verified venue selected, but not for prefilled venues) */}
+        {selectedVenue?.verified && !isAdmin && !prefilledVenue && (
           <div className="flex items-start gap-2 rounded-md bg-emerald-500/10 border border-emerald-500/20 p-3">
             <ShieldCheck className="h-4 w-4 text-emerald-500 mt-0.5 flex-shrink-0" />
             <div className="text-sm">

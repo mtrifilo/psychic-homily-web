@@ -48,6 +48,9 @@ export const API_ENDPOINTS = {
     REGISTER: `${API_BASE_URL}/auth/register`,
     PROFILE: `${API_BASE_URL}/auth/profile`,
     REFRESH: `${API_BASE_URL}/auth/refresh`,
+    // Email verification endpoints
+    VERIFY_EMAIL_SEND: `${API_BASE_URL}/auth/verify-email/send`,
+    VERIFY_EMAIL_CONFIRM: `${API_BASE_URL}/auth/verify-email/confirm`,
     // OAuth endpoints
     OAUTH_LOGIN: (provider: string) => `${API_BASE_URL}/auth/login/${provider}`,
     OAUTH_CALLBACK: (provider: string) =>
@@ -73,7 +76,13 @@ export const API_ENDPOINTS = {
     SEARCH: `${API_BASE_URL}/artists/search`,
   },
   VENUES: {
+    LIST: `${API_BASE_URL}/venues`,
+    CITIES: `${API_BASE_URL}/venues/cities`,
     SEARCH: `${API_BASE_URL}/venues/search`,
+    SHOWS: (venueId: number) => `${API_BASE_URL}/venues/${venueId}/shows`,
+    UPDATE: (venueId: number) => `${API_BASE_URL}/venues/${venueId}`,
+    MY_PENDING_EDIT: (venueId: number) =>
+      `${API_BASE_URL}/venues/${venueId}/my-pending-edit`,
   },
 
   // Saved shows (user's "My List") endpoints
@@ -98,6 +107,11 @@ export const API_ENDPOINTS = {
     VENUES: {
       VERIFY: (venueId: string | number) =>
         `${API_BASE_URL}/admin/venues/${venueId}/verify`,
+      PENDING_EDITS: `${API_BASE_URL}/admin/venues/pending-edits`,
+      APPROVE_EDIT: (editId: string | number) =>
+        `${API_BASE_URL}/admin/venues/pending-edits/${editId}/approve`,
+      REJECT_EDIT: (editId: string | number) =>
+        `${API_BASE_URL}/admin/venues/pending-edits/${editId}/reject`,
     },
   },
 

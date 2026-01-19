@@ -8,7 +8,7 @@ import { useState } from 'react'
 
 interface SaveButtonProps {
   showId: number
-  variant?: 'default' | 'ghost' | 'icon'
+  variant?: 'default' | 'ghost' | 'outline'
   size?: 'sm' | 'md' | 'lg'
   showLabel?: boolean
 }

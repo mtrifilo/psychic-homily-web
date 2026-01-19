@@ -65,7 +65,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         email: profileData.user.email,
         first_name: profileData.user.first_name,
         last_name: profileData.user.last_name,
-        email_verified: false, // Default value, update when profile endpoint is available
+        email_verified: profileData.user.email_verified ?? false,
         is_admin: profileData.user.is_admin,
       }
     }

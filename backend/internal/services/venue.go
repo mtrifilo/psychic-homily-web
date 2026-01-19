@@ -41,16 +41,17 @@ type CreateVenueRequest struct {
 
 // VenueDetailResponse represents the venue data returned to clients
 type VenueDetailResponse struct {
-	ID        uint           `json:"id"`
-	Name      string         `json:"name"`
-	Address   *string        `json:"address"`
-	City      string         `json:"city"`
-	State     string         `json:"state"`
-	Zipcode   *string        `json:"zipcode"`
-	Verified  bool           `json:"verified"` // Admin-verified as legitimate venue
-	Social    SocialResponse `json:"social"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	ID          uint           `json:"id"`
+	Name        string         `json:"name"`
+	Address     *string        `json:"address"`
+	City        string         `json:"city"`
+	State       string         `json:"state"`
+	Zipcode     *string        `json:"zipcode"`
+	Verified    bool           `json:"verified"`    // Admin-verified as legitimate venue
+	SubmittedBy *uint          `json:"submitted_by"` // User ID who originally submitted this venue
+	Social      SocialResponse `json:"social"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
 // CreateVenue creates a new venue
@@ -374,13 +375,14 @@ func (s *VenueService) VerifyVenue(venueID uint) (*VenueDetailResponse, error) {
 // buildVenueResponse converts a Venue model to VenueDetailResponse
 func (s *VenueService) buildVenueResponse(venue *models.Venue) *VenueDetailResponse {
 	return &VenueDetailResponse{
-		ID:       venue.ID,
-		Name:     venue.Name,
-		Address:  venue.Address,
-		City:     venue.City,
-		State:    venue.State,
-		Zipcode:  venue.Zipcode,
-		Verified: venue.Verified,
+		ID:          venue.ID,
+		Name:        venue.Name,
+		Address:     venue.Address,
+		City:        venue.City,
+		State:       venue.State,
+		Zipcode:     venue.Zipcode,
+		Verified:    venue.Verified,
+		SubmittedBy: venue.SubmittedBy,
 		Social: SocialResponse{
 			Instagram:  venue.Social.Instagram,
 			Facebook:   venue.Social.Facebook,
@@ -394,4 +396,685 @@ func (s *VenueService) buildVenueResponse(venue *models.Venue) *VenueDetailRespo
 		CreatedAt: venue.CreatedAt,
 		UpdatedAt: venue.UpdatedAt,
 	}
+}
+
+// VenueWithShowCountResponse represents a venue with its upcoming show count
+type VenueWithShowCountResponse struct {
+	VenueDetailResponse
+	UpcomingShowCount int `json:"upcoming_show_count"`
+}
+
+// VenueListFilters contains filter options for listing venues
+type VenueListFilters struct {
+	State    string
+	City     string
+	Verified *bool
+}
+
+// VenueWithCount is used internally for querying venues with their show counts
+type VenueWithCount struct {
+	models.Venue
+	UpcomingShowCount int64 `gorm:"column:upcoming_show_count"`
+}
+
+// GetVenuesWithShowCounts retrieves verified venues with their upcoming show counts.
+// Results are sorted by upcoming show count (descending), then by name (ascending),
+// so venues with upcoming shows appear first.
+func (s *VenueService) GetVenuesWithShowCounts(filters VenueListFilters, limit, offset int) ([]*VenueWithShowCountResponse, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now().UTC()
+
+	// Build the base query with show count subquery
+	// This allows us to sort by show count while also paginating correctly
+	subquery := s.db.Table("show_venues").
+		Select("show_venues.venue_id, COUNT(*) as show_count").
+		Joins("JOIN shows ON show_venues.show_id = shows.id").
+		Where("shows.event_date >= ? AND shows.status = ?", now, models.ShowStatusApproved).
+		Group("show_venues.venue_id")
+
+	// Start with verified venues only for public display
+	query := s.db.Table("venues").
+		Select("venues.*, COALESCE(sc.show_count, 0) as upcoming_show_count").
+		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", subquery).
+		Where("venues.verified = ?", true)
+
+	// Apply optional filters
+	if filters.State != "" {
+		query = query.Where("venues.state = ?", filters.State)
+	}
+	if filters.City != "" {
+		query = query.Where("venues.city = ?", filters.City)
+	}
+
+	// Get total count of matching venues
+	var total int64
+	countQuery := s.db.Table("venues").Where("verified = ?", true)
+	if filters.State != "" {
+		countQuery = countQuery.Where("state = ?", filters.State)
+	}
+	if filters.City != "" {
+		countQuery = countQuery.Where("city = ?", filters.City)
+	}
+	if err := countQuery.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count venues: %w", err)
+	}
+
+	// Get venues with pagination, sorted by show count (desc) then name (asc)
+	var venuesWithCount []VenueWithCount
+	if err := query.Order("upcoming_show_count DESC, venues.name ASC").Limit(limit).Offset(offset).Find(&venuesWithCount).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to get venues: %w", err)
+	}
+
+	// Build responses
+	responses := make([]*VenueWithShowCountResponse, len(venuesWithCount))
+	for i, vc := range venuesWithCount {
+		responses[i] = &VenueWithShowCountResponse{
+			VenueDetailResponse: *s.buildVenueResponse(&vc.Venue),
+			UpcomingShowCount:   int(vc.UpcomingShowCount),
+		}
+	}
+
+	return responses, total, nil
+}
+
+// VenueShowResponse represents a show in the venue shows endpoint
+type VenueShowResponse struct {
+	ID             uint             `json:"id"`
+	Title          string           `json:"title"`
+	EventDate      time.Time        `json:"event_date"`
+	City           *string          `json:"city"`
+	State          *string          `json:"state"`
+	Price          *float64         `json:"price"`
+	AgeRequirement *string          `json:"age_requirement"`
+	Artists        []ArtistResponse `json:"artists"`
+}
+
+// GetUpcomingShowsForVenue retrieves upcoming shows at a specific venue.
+// Only returns approved shows with event_date >= today in the specified timezone.
+func (s *VenueService) GetUpcomingShowsForVenue(venueID uint, timezone string, limit int) ([]*VenueShowResponse, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	// Verify venue exists and is verified
+	var venue models.Venue
+	if err := s.db.First(&venue, venueID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, 0, fmt.Errorf("venue not found")
+		}
+		return nil, 0, fmt.Errorf("failed to get venue: %w", err)
+	}
+
+	// Load timezone, default to UTC
+	loc, err := time.LoadLocation(timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+
+	// Get start of today in the user's timezone, then convert to UTC for query
+	now := time.Now().In(loc)
+	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	startOfTodayUTC := startOfToday.UTC()
+
+	// Count total upcoming shows
+	var total int64
+	err = s.db.Table("show_venues").
+		Joins("JOIN shows ON show_venues.show_id = shows.id").
+		Where("show_venues.venue_id = ? AND shows.event_date >= ? AND shows.status = ?",
+			venueID, startOfTodayUTC, models.ShowStatusApproved).
+		Count(&total).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count shows: %w", err)
+	}
+
+	// Get shows with limit
+	var showIDs []uint
+	err = s.db.Table("show_venues").
+		Select("show_venues.show_id").
+		Joins("JOIN shows ON show_venues.show_id = shows.id").
+		Where("show_venues.venue_id = ? AND shows.event_date >= ? AND shows.status = ?",
+			venueID, startOfTodayUTC, models.ShowStatusApproved).
+		Order("shows.event_date ASC").
+		Limit(limit).
+		Pluck("show_venues.show_id", &showIDs).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get show IDs: %w", err)
+	}
+
+	// Fetch full show data
+	var shows []models.Show
+	if len(showIDs) > 0 {
+		if err := s.db.Preload("Artists").Where("id IN ?", showIDs).Order("event_date ASC").Find(&shows).Error; err != nil {
+			return nil, 0, fmt.Errorf("failed to get shows: %w", err)
+		}
+	}
+
+	// Build responses
+	responses := make([]*VenueShowResponse, len(shows))
+	for i, show := range shows {
+		// Get ordered artists
+		var showArtists []models.ShowArtist
+		s.db.Where("show_id = ?", show.ID).Order("position ASC").Find(&showArtists)
+
+		artists := make([]ArtistResponse, 0)
+		for _, sa := range showArtists {
+			var artist models.Artist
+			if err := s.db.First(&artist, sa.ArtistID).Error; err == nil {
+				isHeadliner := sa.SetType == "headliner"
+				isNewArtist := false
+				socials := ShowArtistSocials{
+					Instagram:  artist.Social.Instagram,
+					Facebook:   artist.Social.Facebook,
+					Twitter:    artist.Social.Twitter,
+					YouTube:    artist.Social.YouTube,
+					Spotify:    artist.Social.Spotify,
+					SoundCloud: artist.Social.SoundCloud,
+					Bandcamp:   artist.Social.Bandcamp,
+					Website:    artist.Social.Website,
+				}
+				artists = append(artists, ArtistResponse{
+					ID:          artist.ID,
+					Name:        artist.Name,
+					State:       artist.State,
+					City:        artist.City,
+					IsHeadliner: &isHeadliner,
+					IsNewArtist: &isNewArtist,
+					Socials:     socials,
+				})
+			}
+		}
+
+		responses[i] = &VenueShowResponse{
+			ID:             show.ID,
+			Title:          show.Title,
+			EventDate:      show.EventDate,
+			City:           show.City,
+			State:          show.State,
+			Price:          show.Price,
+			AgeRequirement: show.AgeRequirement,
+			Artists:        artists,
+		}
+	}
+
+	return responses, total, nil
+}
+
+// VenueCityResponse represents a city with venue count for filtering
+type VenueCityResponse struct {
+	City       string `json:"city"`
+	State      string `json:"state"`
+	VenueCount int    `json:"venue_count"`
+}
+
+// GetVenueCities returns distinct cities that have verified venues, with venue counts.
+// Results are sorted by venue count (descending) to show most active cities first.
+func (s *VenueService) GetVenueCities() ([]*VenueCityResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	type CityResult struct {
+		City       string
+		State      string
+		VenueCount int64
+	}
+
+	var results []CityResult
+	err := s.db.Table("venues").
+		Select("city, state, COUNT(*) as venue_count").
+		Where("verified = ?", true).
+		Group("city, state").
+		Order("venue_count DESC, city ASC").
+		Find(&results).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get venue cities: %w", err)
+	}
+
+	responses := make([]*VenueCityResponse, len(results))
+	for i, r := range results {
+		responses[i] = &VenueCityResponse{
+			City:       r.City,
+			State:      r.State,
+			VenueCount: int(r.VenueCount),
+		}
+	}
+
+	return responses, nil
+}
+
+// ============================================================================
+// Pending Venue Edit Types and Methods
+// ============================================================================
+
+// VenueEditRequest represents the data for updating a venue
+type VenueEditRequest struct {
+	Name       *string `json:"name"`
+	Address    *string `json:"address"`
+	City       *string `json:"city"`
+	State      *string `json:"state"`
+	Zipcode    *string `json:"zipcode"`
+	Instagram  *string `json:"instagram"`
+	Facebook   *string `json:"facebook"`
+	Twitter    *string `json:"twitter"`
+	YouTube    *string `json:"youtube"`
+	Spotify    *string `json:"spotify"`
+	SoundCloud *string `json:"soundcloud"`
+	Bandcamp   *string `json:"bandcamp"`
+	Website    *string `json:"website"`
+}
+
+// PendingVenueEditResponse represents a pending venue edit returned to clients
+type PendingVenueEditResponse struct {
+	ID          uint                    `json:"id"`
+	VenueID     uint                    `json:"venue_id"`
+	SubmittedBy uint                    `json:"submitted_by"`
+	Status      models.VenueEditStatus  `json:"status"`
+
+	// Proposed changes
+	Name       *string `json:"name,omitempty"`
+	Address    *string `json:"address,omitempty"`
+	City       *string `json:"city,omitempty"`
+	State      *string `json:"state,omitempty"`
+	Zipcode    *string `json:"zipcode,omitempty"`
+	Instagram  *string `json:"instagram,omitempty"`
+	Facebook   *string `json:"facebook,omitempty"`
+	Twitter    *string `json:"twitter,omitempty"`
+	YouTube    *string `json:"youtube,omitempty"`
+	Spotify    *string `json:"spotify,omitempty"`
+	SoundCloud *string `json:"soundcloud,omitempty"`
+	Bandcamp   *string `json:"bandcamp,omitempty"`
+	Website    *string `json:"website,omitempty"`
+
+	// Workflow fields
+	RejectionReason *string    `json:"rejection_reason,omitempty"`
+	ReviewedBy      *uint      `json:"reviewed_by,omitempty"`
+	ReviewedAt      *time.Time `json:"reviewed_at,omitempty"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Embedded venue info for context
+	Venue         *VenueDetailResponse `json:"venue,omitempty"`
+	SubmitterName *string              `json:"submitter_name,omitempty"`
+	ReviewerName  *string              `json:"reviewer_name,omitempty"`
+}
+
+// buildPendingVenueEditResponse converts a PendingVenueEdit model to response
+func (s *VenueService) buildPendingVenueEditResponse(edit *models.PendingVenueEdit, includeVenue bool) *PendingVenueEditResponse {
+	resp := &PendingVenueEditResponse{
+		ID:              edit.ID,
+		VenueID:         edit.VenueID,
+		SubmittedBy:     edit.SubmittedBy,
+		Status:          edit.Status,
+		Name:            edit.Name,
+		Address:         edit.Address,
+		City:            edit.City,
+		State:           edit.State,
+		Zipcode:         edit.Zipcode,
+		Instagram:       edit.Instagram,
+		Facebook:        edit.Facebook,
+		Twitter:         edit.Twitter,
+		YouTube:         edit.YouTube,
+		Spotify:         edit.Spotify,
+		SoundCloud:      edit.SoundCloud,
+		Bandcamp:        edit.Bandcamp,
+		Website:         edit.Website,
+		RejectionReason: edit.RejectionReason,
+		ReviewedBy:      edit.ReviewedBy,
+		ReviewedAt:      edit.ReviewedAt,
+		CreatedAt:       edit.CreatedAt,
+		UpdatedAt:       edit.UpdatedAt,
+	}
+
+	if includeVenue && edit.Venue.ID != 0 {
+		resp.Venue = s.buildVenueResponse(&edit.Venue)
+	}
+
+	if edit.SubmittedByUser.ID != 0 {
+		submitterName := buildUserDisplayName(&edit.SubmittedByUser)
+		resp.SubmitterName = &submitterName
+	}
+
+	if edit.ReviewedByUser != nil && edit.ReviewedByUser.ID != 0 {
+		reviewerName := buildUserDisplayName(edit.ReviewedByUser)
+		resp.ReviewerName = &reviewerName
+	}
+
+	return resp
+}
+
+// buildUserDisplayName creates a display name from user's first/last name or email
+func buildUserDisplayName(user *models.User) string {
+	if user.FirstName != nil && user.LastName != nil {
+		return *user.FirstName + " " + *user.LastName
+	}
+	if user.FirstName != nil {
+		return *user.FirstName
+	}
+	if user.Username != nil {
+		return *user.Username
+	}
+	if user.Email != nil {
+		return *user.Email
+	}
+	return "Unknown User"
+}
+
+// CreatePendingVenueEdit creates a new pending edit for a venue (for non-admin users)
+func (s *VenueService) CreatePendingVenueEdit(venueID uint, userID uint, req *VenueEditRequest) (*PendingVenueEditResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Check if venue exists
+	var venue models.Venue
+	if err := s.db.First(&venue, venueID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("venue not found")
+		}
+		return nil, fmt.Errorf("failed to get venue: %w", err)
+	}
+
+	// Check if user already has a pending edit for this venue
+	var existingEdit models.PendingVenueEdit
+	err := s.db.Where("venue_id = ? AND submitted_by = ? AND status = ?", venueID, userID, models.VenueEditStatusPending).First(&existingEdit).Error
+	if err == nil {
+		return nil, fmt.Errorf("you already have a pending edit for this venue")
+	} else if err != gorm.ErrRecordNotFound {
+		return nil, fmt.Errorf("failed to check existing edits: %w", err)
+	}
+
+	// Create the pending edit
+	pendingEdit := &models.PendingVenueEdit{
+		VenueID:     venueID,
+		SubmittedBy: userID,
+		Name:        req.Name,
+		Address:     req.Address,
+		City:        req.City,
+		State:       req.State,
+		Zipcode:     req.Zipcode,
+		Instagram:   req.Instagram,
+		Facebook:    req.Facebook,
+		Twitter:     req.Twitter,
+		YouTube:     req.YouTube,
+		Spotify:     req.Spotify,
+		SoundCloud:  req.SoundCloud,
+		Bandcamp:    req.Bandcamp,
+		Website:     req.Website,
+		Status:      models.VenueEditStatusPending,
+	}
+
+	if err := s.db.Create(pendingEdit).Error; err != nil {
+		return nil, fmt.Errorf("failed to create pending edit: %w", err)
+	}
+
+	// Load the edit with relationships
+	if err := s.db.Preload("Venue").Preload("SubmittedByUser").First(pendingEdit, pendingEdit.ID).Error; err != nil {
+		return nil, fmt.Errorf("failed to load pending edit: %w", err)
+	}
+
+	return s.buildPendingVenueEditResponse(pendingEdit, true), nil
+}
+
+// GetPendingEditForVenue retrieves a user's pending edit for a specific venue
+func (s *VenueService) GetPendingEditForVenue(venueID uint, userID uint) (*PendingVenueEditResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var edit models.PendingVenueEdit
+	err := s.db.Preload("Venue").Preload("SubmittedByUser").Preload("ReviewedByUser").
+		Where("venue_id = ? AND submitted_by = ? AND status = ?", venueID, userID, models.VenueEditStatusPending).
+		First(&edit).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil // No pending edit found
+		}
+		return nil, fmt.Errorf("failed to get pending edit: %w", err)
+	}
+
+	return s.buildPendingVenueEditResponse(&edit, true), nil
+}
+
+// GetPendingVenueEdits retrieves all pending venue edits for admin review
+func (s *VenueService) GetPendingVenueEdits(limit, offset int) ([]*PendingVenueEditResponse, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	var total int64
+	if err := s.db.Model(&models.PendingVenueEdit{}).Where("status = ?", models.VenueEditStatusPending).Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count pending edits: %w", err)
+	}
+
+	var edits []models.PendingVenueEdit
+	err := s.db.Preload("Venue").Preload("SubmittedByUser").
+		Where("status = ?", models.VenueEditStatusPending).
+		Order("created_at ASC").
+		Limit(limit).Offset(offset).
+		Find(&edits).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get pending edits: %w", err)
+	}
+
+	responses := make([]*PendingVenueEditResponse, len(edits))
+	for i, edit := range edits {
+		responses[i] = s.buildPendingVenueEditResponse(&edit, true)
+	}
+
+	return responses, total, nil
+}
+
+// GetPendingVenueEdit retrieves a single pending venue edit by ID
+func (s *VenueService) GetPendingVenueEdit(editID uint) (*PendingVenueEditResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var edit models.PendingVenueEdit
+	err := s.db.Preload("Venue").Preload("SubmittedByUser").Preload("ReviewedByUser").
+		First(&edit, editID).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("pending edit not found")
+		}
+		return nil, fmt.Errorf("failed to get pending edit: %w", err)
+	}
+
+	return s.buildPendingVenueEditResponse(&edit, true), nil
+}
+
+// ApproveVenueEdit approves a pending venue edit and applies changes to the venue
+func (s *VenueService) ApproveVenueEdit(editID uint, reviewerID uint) (*VenueDetailResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Get the pending edit
+	var edit models.PendingVenueEdit
+	if err := s.db.First(&edit, editID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("pending edit not found")
+		}
+		return nil, fmt.Errorf("failed to get pending edit: %w", err)
+	}
+
+	if edit.Status != models.VenueEditStatusPending {
+		return nil, fmt.Errorf("edit has already been %s", edit.Status)
+	}
+
+	// Get the venue
+	var venue models.Venue
+	if err := s.db.First(&venue, edit.VenueID).Error; err != nil {
+		return nil, fmt.Errorf("failed to get venue: %w", err)
+	}
+
+	// Start transaction
+	tx := s.db.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Apply changes to venue (only non-nil fields)
+	updates := make(map[string]interface{})
+	if edit.Name != nil {
+		updates["name"] = *edit.Name
+	}
+	if edit.Address != nil {
+		updates["address"] = *edit.Address
+	}
+	if edit.City != nil {
+		updates["city"] = *edit.City
+	}
+	if edit.State != nil {
+		updates["state"] = *edit.State
+	}
+	if edit.Zipcode != nil {
+		updates["zipcode"] = *edit.Zipcode
+	}
+	if edit.Instagram != nil {
+		updates["instagram"] = *edit.Instagram
+	}
+	if edit.Facebook != nil {
+		updates["facebook"] = *edit.Facebook
+	}
+	if edit.Twitter != nil {
+		updates["twitter"] = *edit.Twitter
+	}
+	if edit.YouTube != nil {
+		updates["youtube"] = *edit.YouTube
+	}
+	if edit.Spotify != nil {
+		updates["spotify"] = *edit.Spotify
+	}
+	if edit.SoundCloud != nil {
+		updates["soundcloud"] = *edit.SoundCloud
+	}
+	if edit.Bandcamp != nil {
+		updates["bandcamp"] = *edit.Bandcamp
+	}
+	if edit.Website != nil {
+		updates["website"] = *edit.Website
+	}
+
+	if len(updates) > 0 {
+		if err := tx.Model(&venue).Updates(updates).Error; err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("failed to update venue: %w", err)
+		}
+	}
+
+	// Update the pending edit status
+	now := time.Now()
+	if err := tx.Model(&edit).Updates(map[string]interface{}{
+		"status":      models.VenueEditStatusApproved,
+		"reviewed_by": reviewerID,
+		"reviewed_at": now,
+	}).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("failed to update pending edit: %w", err)
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Reload the venue
+	if err := s.db.First(&venue, edit.VenueID).Error; err != nil {
+		return nil, fmt.Errorf("failed to reload venue: %w", err)
+	}
+
+	return s.buildVenueResponse(&venue), nil
+}
+
+// RejectVenueEdit rejects a pending venue edit
+func (s *VenueService) RejectVenueEdit(editID uint, reviewerID uint, reason string) (*PendingVenueEditResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Get the pending edit
+	var edit models.PendingVenueEdit
+	if err := s.db.First(&edit, editID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("pending edit not found")
+		}
+		return nil, fmt.Errorf("failed to get pending edit: %w", err)
+	}
+
+	if edit.Status != models.VenueEditStatusPending {
+		return nil, fmt.Errorf("edit has already been %s", edit.Status)
+	}
+
+	// Update the pending edit status
+	now := time.Now()
+	if err := s.db.Model(&edit).Updates(map[string]interface{}{
+		"status":           models.VenueEditStatusRejected,
+		"rejection_reason": reason,
+		"reviewed_by":      reviewerID,
+		"reviewed_at":      now,
+	}).Error; err != nil {
+		return nil, fmt.Errorf("failed to reject pending edit: %w", err)
+	}
+
+	// Reload with relationships
+	if err := s.db.Preload("Venue").Preload("SubmittedByUser").Preload("ReviewedByUser").First(&edit, editID).Error; err != nil {
+		return nil, fmt.Errorf("failed to reload pending edit: %w", err)
+	}
+
+	return s.buildPendingVenueEditResponse(&edit, true), nil
+}
+
+// CancelPendingVenueEdit allows a user to cancel their own pending edit
+func (s *VenueService) CancelPendingVenueEdit(editID uint, userID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	// Get the pending edit
+	var edit models.PendingVenueEdit
+	if err := s.db.First(&edit, editID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return fmt.Errorf("pending edit not found")
+		}
+		return fmt.Errorf("failed to get pending edit: %w", err)
+	}
+
+	// Verify ownership
+	if edit.SubmittedBy != userID {
+		return fmt.Errorf("you can only cancel your own pending edits")
+	}
+
+	if edit.Status != models.VenueEditStatusPending {
+		return fmt.Errorf("edit has already been %s", edit.Status)
+	}
+
+	// Delete the pending edit
+	if err := s.db.Delete(&edit).Error; err != nil {
+		return fmt.Errorf("failed to cancel pending edit: %w", err)
+	}
+
+	return nil
+}
+
+// GetVenueModel retrieves a raw venue model (used by handlers to check ownership)
+func (s *VenueService) GetVenueModel(venueID uint) (*models.Venue, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var venue models.Venue
+	if err := s.db.First(&venue, venueID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("venue not found")
+		}
+		return nil, fmt.Errorf("failed to get venue: %w", err)
+	}
+
+	return &venue, nil
 }
