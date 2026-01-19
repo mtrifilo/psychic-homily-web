@@ -115,26 +115,6 @@ export default function Nav() {
                 {link.label}
               </Link>
             ))}
-            {/* My Collection link - only show to authenticated users */}
-            {isAuthenticated && (
-              <Link
-                href="/collection"
-                className="px-3 py-1.5 text-sm font-medium rounded-md hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-1.5"
-              >
-                <Library className="h-3.5 w-3.5" />
-                My Collection
-              </Link>
-            )}
-            {/* Admin link - only show to admins */}
-            {isAuthenticated && user?.is_admin && (
-              <Link
-                href="/admin"
-                className="px-3 py-1.5 text-sm font-medium rounded-md hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-1.5"
-              >
-                <Shield className="h-3.5 w-3.5" />
-                Admin
-              </Link>
-            )}
           </div>
         </div>
 
@@ -142,8 +122,26 @@ export default function Nav() {
           {isLoading ? (
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground hidden sm:block" />
           ) : isAuthenticated && user ? (
-            <div className="hidden sm:flex items-center gap-3">
-              <span className="text-sm text-muted-foreground truncate max-w-[150px]">
+            <div className="hidden sm:flex items-center gap-1">
+              {/* My Collection link */}
+              <Link
+                href="/collection"
+                className="px-3 py-1.5 text-sm font-medium rounded-md hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-1.5"
+              >
+                <Library className="h-3.5 w-3.5" />
+                My Collection
+              </Link>
+              {/* Admin link - only show to admins */}
+              {user.is_admin && (
+                <Link
+                  href="/admin"
+                  className="px-3 py-1.5 text-sm font-medium rounded-md hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-1.5"
+                >
+                  <Shield className="h-3.5 w-3.5" />
+                  Admin
+                </Link>
+              )}
+              <span className="text-sm text-muted-foreground truncate max-w-[150px] ml-2">
                 {user.email}
               </span>
               <Button

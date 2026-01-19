@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
@@ -90,11 +91,35 @@ func (h *VenueHandler) ListVenuesHandler(ctx context.Context, req *ListVenuesReq
 	return resp, nil
 }
 
+// GetVenueRequest represents the request parameters for getting a single venue
+type GetVenueRequest struct {
+	VenueID uint `path:"venue_id" doc:"Venue ID" example:"1"`
+}
+
+// GetVenueResponse represents the response for the get venue endpoint
+type GetVenueResponse struct {
+	Body *services.VenueDetailResponse
+}
+
+// GetVenueHandler handles GET /venues/{venue_id} - returns a single venue by ID
+func (h *VenueHandler) GetVenueHandler(ctx context.Context, req *GetVenueRequest) (*GetVenueResponse, error) {
+	venue, err := h.venueService.GetVenue(req.VenueID)
+	if err != nil {
+		if err.Error() == "venue not found" {
+			return nil, huma.Error404NotFound("Venue not found")
+		}
+		return nil, huma.Error500InternalServerError("Failed to fetch venue", err)
+	}
+
+	return &GetVenueResponse{Body: venue}, nil
+}
+
 // GetVenueShowsRequest represents the request parameters for getting shows at a venue
 type GetVenueShowsRequest struct {
-	VenueID  uint   `path:"venue_id" doc:"Venue ID" example:"1"`
-	Timezone string `query:"timezone" doc:"Timezone for date filtering" example:"America/Phoenix"`
-	Limit    int    `query:"limit" default:"20" minimum:"1" maximum:"50" doc:"Maximum number of shows to return"`
+	VenueID    uint   `path:"venue_id" doc:"Venue ID" example:"1"`
+	Timezone   string `query:"timezone" doc:"Timezone for date filtering" example:"America/Phoenix"`
+	Limit      int    `query:"limit" default:"20" minimum:"1" maximum:"50" doc:"Maximum number of shows to return"`
+	TimeFilter string `query:"time_filter" doc:"Filter shows by time: upcoming, past, or all" example:"upcoming" enum:"upcoming,past,all"`
 }
 
 // GetVenueShowsResponse represents the response for the venue shows endpoint
@@ -106,7 +131,7 @@ type GetVenueShowsResponse struct {
 	}
 }
 
-// GetVenueShowsHandler handles GET /venues/{venue_id}/shows - returns upcoming shows at a venue
+// GetVenueShowsHandler handles GET /venues/{venue_id}/shows - returns shows at a venue
 func (h *VenueHandler) GetVenueShowsHandler(ctx context.Context, req *GetVenueShowsRequest) (*GetVenueShowsResponse, error) {
 	limit := req.Limit
 	if limit == 0 {
@@ -118,7 +143,12 @@ func (h *VenueHandler) GetVenueShowsHandler(ctx context.Context, req *GetVenueSh
 		timezone = "UTC"
 	}
 
-	shows, total, err := h.venueService.GetUpcomingShowsForVenue(req.VenueID, timezone, limit)
+	timeFilter := req.TimeFilter
+	if timeFilter == "" {
+		timeFilter = "upcoming"
+	}
+
+	shows, total, err := h.venueService.GetShowsForVenue(req.VenueID, timezone, limit, timeFilter)
 	if err != nil {
 		if err.Error() == "venue not found" {
 			return nil, huma.Error404NotFound("Venue not found")
@@ -488,6 +518,107 @@ func (h *VenueHandler) CancelMyPendingEditHandler(ctx context.Context, req *Canc
 			Message string `json:"message" doc:"Success message"`
 		}{
 			Message: "Pending edit cancelled successfully",
+		},
+	}, nil
+}
+
+// ============================================================================
+// Venue Deletion Handlers
+// ============================================================================
+
+// DeleteVenueRequest represents the request for deleting a venue
+type DeleteVenueRequest struct {
+	VenueID string `path:"venue_id" validate:"required" doc:"Venue ID"`
+}
+
+// DeleteVenueResponse represents the response for deleting a venue
+type DeleteVenueResponse struct {
+	Body struct {
+		Message string `json:"message" doc:"Success message"`
+	}
+}
+
+// DeleteVenueHandler handles DELETE /venues/{venue_id}
+// Admin: Can delete any venue
+// Non-admin: Can delete venues they submitted (via submitted_by field)
+// Constraint: Venues with associated shows cannot be deleted
+func (h *VenueHandler) DeleteVenueHandler(ctx context.Context, req *DeleteVenueRequest) (*DeleteVenueResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Get authenticated user
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	// Parse venue ID
+	venueID, err := strconv.ParseUint(req.VenueID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid venue ID")
+	}
+
+	// Get the venue to check ownership
+	venue, err := h.venueService.GetVenueModel(uint(venueID))
+	if err != nil {
+		if err.Error() == "venue not found" {
+			return nil, huma.Error404NotFound("Venue not found")
+		}
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get venue (request_id: %s)", requestID),
+		)
+	}
+
+	// Check permissions: admin can delete any venue, non-admin can only delete their own
+	if !user.IsAdmin {
+		if venue.SubmittedBy == nil || *venue.SubmittedBy != user.ID {
+			logger.FromContext(ctx).Warn("venue_delete_forbidden",
+				"venue_id", venueID,
+				"user_id", user.ID,
+				"venue_submitted_by", venue.SubmittedBy,
+				"request_id", requestID,
+			)
+			return nil, huma.Error403Forbidden("You can only delete venues you submitted")
+		}
+	}
+
+	logger.FromContext(ctx).Info("venue_delete_attempt",
+		"venue_id", venueID,
+		"user_id", user.ID,
+		"is_admin", user.IsAdmin,
+		"request_id", requestID,
+	)
+
+	// Delete the venue (service checks for associated shows)
+	if err := h.venueService.DeleteVenue(uint(venueID)); err != nil {
+		logger.FromContext(ctx).Error("venue_delete_failed",
+			"venue_id", venueID,
+			"user_id", user.ID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+
+		// Check if the error is due to associated shows
+		if strings.HasPrefix(err.Error(), "cannot delete venue:") {
+			return nil, huma.Error422UnprocessableEntity(err.Error())
+		}
+
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to delete venue (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Info("venue_deleted",
+		"venue_id", venueID,
+		"user_id", user.ID,
+		"is_admin", user.IsAdmin,
+		"request_id", requestID,
+	)
+
+	return &DeleteVenueResponse{
+		Body: struct {
+			Message string `json:"message" doc:"Success message"`
+		}{
+			Message: "Venue deleted successfully",
 		},
 	}, nil
 }

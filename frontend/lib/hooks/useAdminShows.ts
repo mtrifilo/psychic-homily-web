@@ -6,6 +6,7 @@ import { createInvalidateQueries } from '../queryClient'
 import type {
   ShowResponse,
   PendingShowsResponse,
+  RejectedShowsResponse,
   ApproveShowRequest,
   RejectShowRequest,
 } from '../types/show'
@@ -16,6 +17,8 @@ import type {
 export const adminQueryKeys = {
   pendingShows: (limit: number, offset: number) =>
     ['admin', 'shows', 'pending', { limit, offset }] as const,
+  rejectedShows: (limit: number, offset: number, search?: string) =>
+    ['admin', 'shows', 'rejected', { limit, offset, search }] as const,
 }
 
 /**
@@ -34,6 +37,36 @@ export function usePendingShows(options?: { limit?: number; offset?: number }) {
       })
       return apiRequest<PendingShowsResponse>(
         `${API_ENDPOINTS.ADMIN.SHOWS.PENDING}?${params}`
+      )
+    },
+    staleTime: 30 * 1000, // 30 seconds - shorter for admin data
+  })
+}
+
+/**
+ * Hook for fetching rejected shows (admin only)
+ */
+export function useRejectedShows(options?: {
+  limit?: number
+  offset?: number
+  search?: string
+}) {
+  const limit = options?.limit ?? 50
+  const offset = options?.offset ?? 0
+  const search = options?.search
+
+  return useQuery({
+    queryKey: adminQueryKeys.rejectedShows(limit, offset, search),
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        limit: limit.toString(),
+        offset: offset.toString(),
+      })
+      if (search) {
+        params.set('search', search)
+      }
+      return apiRequest<RejectedShowsResponse>(
+        `${API_ENDPOINTS.ADMIN.SHOWS.REJECTED}?${params}`
       )
     },
     staleTime: 30 * 1000, // 30 seconds - shorter for admin data

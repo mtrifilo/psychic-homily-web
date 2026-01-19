@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../api'
 import { queryKeys } from '../queryClient'
 import type {
+  Venue,
   VenuesListResponse,
   VenueShowsResponse,
   VenueCitiesResponse,
@@ -51,23 +52,57 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
   })
 }
 
+interface UseVenueOptions {
+  venueId: number
+  enabled?: boolean
+}
+
+/**
+ * Hook to fetch a single venue by ID
+ */
+export const useVenue = (options: UseVenueOptions) => {
+  const { venueId, enabled = true } = options
+
+  return useQuery({
+    queryKey: queryKeys.venues.detail(String(venueId)),
+    queryFn: async (): Promise<Venue> => {
+      return apiRequest<Venue>(API_ENDPOINTS.VENUES.GET(venueId), {
+        method: 'GET',
+      })
+    },
+    enabled: enabled && venueId > 0,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+}
+
+export type TimeFilter = 'upcoming' | 'past' | 'all'
+
 interface UseVenueShowsOptions {
   venueId: number
   timezone?: string
   limit?: number
   enabled?: boolean
+  timeFilter?: TimeFilter
 }
 
 /**
- * Hook to fetch upcoming shows for a specific venue (lazy-loaded)
+ * Hook to fetch shows for a specific venue (lazy-loaded)
+ * @param timeFilter - Filter by time: 'upcoming' (default), 'past', or 'all'
  */
 export const useVenueShows = (options: UseVenueShowsOptions) => {
-  const { venueId, timezone, limit = 20, enabled = true } = options
+  const {
+    venueId,
+    timezone,
+    limit = 20,
+    enabled = true,
+    timeFilter = 'upcoming',
+  } = options
 
   // Build query params
   const params = new URLSearchParams()
   if (timezone) params.set('timezone', timezone)
   if (limit) params.set('limit', limit.toString())
+  if (timeFilter) params.set('time_filter', timeFilter)
 
   const queryString = params.toString()
   const endpoint = queryString
@@ -75,7 +110,7 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
     : API_ENDPOINTS.VENUES.SHOWS(venueId)
 
   return useQuery({
-    queryKey: queryKeys.venues.shows(venueId),
+    queryKey: [...queryKeys.venues.shows(venueId), timeFilter],
     queryFn: async (): Promise<VenueShowsResponse> => {
       return apiRequest<VenueShowsResponse>(endpoint, {
         method: 'GET',

@@ -76,6 +76,8 @@ If `DISCORD_NOTIFICATIONS_ENABLED` is `false` or `DISCORD_WEBHOOK_URL` is empty:
 
 ## Notification Content
 
+Each notification includes clickable action links that take admins directly to the relevant page in the web application.
+
 ### New User Registration
 
 ```
@@ -99,6 +101,7 @@ Fields:
   - Submitter: jo***@example.com
   - Venue(s): The Rebel Lounge
   - Artist(s): Band Name (headliner), Opening Act
+  - Actions: [Review Pending Shows](https://psychichomily.com/admin)  ← Clickable link!
 ```
 
 ### Show Status Change
@@ -110,6 +113,7 @@ Color: Orange
 Fields:
   - Show ID: 456
   - Changed By: us***@example.com
+  - Actions: [Review Pending Shows](https://psychichomily.com/admin)  ← When status becomes "pending"
 ```
 
 ### Show Approved
@@ -121,6 +125,7 @@ Fields:
   - Show ID: 456
   - Event Date: Jan 15, 2025
   - Venue(s): The Rebel Lounge
+  - Actions: [View on Calendar](https://psychichomily.com)  ← Clickable link!
 ```
 
 ### Show Rejected
@@ -133,7 +138,64 @@ Fields:
   - Show ID: 456
   - Event Date: Jan 15, 2025
   - Venue(s): The Rebel Lounge
+  - Actions: [View Admin Panel](https://psychichomily.com/admin)  ← Clickable link!
 ```
+
+## Action Links
+
+The notification system includes clickable links that allow admins to quickly navigate to the relevant page:
+
+| Notification Type | Link | Destination |
+|-------------------|------|-------------|
+| New Show (pending) | "Review Pending Shows" | `/admin` - Admin panel with pending shows |
+| Status → Pending | "Review Pending Shows" | `/admin` - Admin panel with pending shows |
+| Show Approved | "View on Calendar" | `/` - Main calendar page |
+| Show Rejected | "View Admin Panel" | `/admin` - Admin panel |
+
+These links use the `FRONTEND_URL` environment variable (shared with email configuration) to generate the correct URLs for your environment (localhost, staging, or production).
+
+## Admin API Endpoints
+
+The following admin endpoints are available for managing shows:
+
+### Pending Shows
+```
+GET /admin/shows/pending?limit=50&offset=0
+```
+Returns shows awaiting approval.
+
+### Rejected Shows
+```
+GET /admin/shows/rejected?limit=50&offset=0&search=keyword
+```
+Returns previously rejected shows. Supports searching by show title or rejection reason.
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | int | 50 | Number of shows to return (max 100) |
+| `offset` | int | 0 | Pagination offset |
+| `search` | string | - | Search by title or rejection reason (case-insensitive) |
+
+**Example Response:**
+```json
+{
+  "shows": [
+    {
+      "id": 123,
+      "title": "Band Name at Venue",
+      "event_date": "2025-02-15T20:00:00Z",
+      "status": "rejected",
+      "rejection_reason": "Duplicate entry - this show already exists",
+      "venues": [...],
+      "artists": [...]
+    }
+  ],
+  "total": 15
+}
+```
+
+**Use Case:** When a user asks about a rejected show, admins can search by the show title or artist name to find the rejection reason and explain it to the user.
 
 ## Testing
 

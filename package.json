@@ -7,13 +7,10 @@
     "new-blog": "node scripts/create-blog-post.js",
     "new-mix": "node scripts/create-mix-post.js",
     "clean": "rm -rf assets/js/* && rm -rf public/*",
-    "build:prod": "ENVIRONMENT=production rm -rf assets/js/* && cd components && pnpm install && pnpm build:production && cd .. && hugo --environment production --gc --minify",
-    "build:stage": "ENVIRONMENT=staging rm -rf assets/js/* && cd components && pnpm install && pnpm build:stage && cd .. && hugo --environment staging --gc --minify",
-    "build:components": "cd components && pnpm build",
-    "convert-yaml": "node convert-yaml.js",
-    "dev": "npm run build:components && hugo server",
-    "dev:components": "cd components && npm run dev",
+    "build:prod": "ENVIRONMENT=production hugo --environment production --gc --minify",
+    "build:stage": "ENVIRONMENT=staging hugo --environment staging --gc --minify",
     "kill-hugo": "pkill -f 'hugo server' || true",
+    "dev": "hugo server",
     "dev:clean": "npm run kill-hugo && npm run clean && npm run dev"
   },
   "dependencies": {
@@ -21,7 +18,6 @@
     "dotenv": "^16.4.5",
     "glob": "^10.3.10",
     "js-yaml": "^4.1.0",
-    "prompts": "^2.4.2",
-    "use-debounce": "^10.0.6"
+    "prompts": "^2.4.2"
   }
 }

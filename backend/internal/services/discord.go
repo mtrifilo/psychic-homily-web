@@ -44,16 +44,18 @@ type DiscordWebhookPayload struct {
 
 // DiscordService handles sending notifications to Discord via webhooks
 type DiscordService struct {
-	webhookURL string
-	enabled    bool
-	httpClient *http.Client
+	webhookURL  string
+	enabled     bool
+	frontendURL string
+	httpClient  *http.Client
 }
 
 // NewDiscordService creates a new Discord notification service
 func NewDiscordService(cfg *config.Config) *DiscordService {
 	return &DiscordService{
-		webhookURL: cfg.Discord.WebhookURL,
-		enabled:    cfg.Discord.Enabled,
+		webhookURL:  cfg.Discord.WebhookURL,
+		enabled:     cfg.Discord.Enabled,
+		frontendURL: cfg.Email.FrontendURL, // Reuse frontend URL from email config
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -101,18 +103,26 @@ func (s *DiscordService) NotifyNewShow(show *ShowResponse, submitterEmail string
 	venues := buildVenueList(show.Venues)
 	artists := buildArtistList(show.Artists)
 
+	fields := []DiscordEmbedField{
+		{Name: "Show ID", Value: fmt.Sprintf("%d", show.ID), Inline: true},
+		{Name: "Status", Value: show.Status, Inline: true},
+		{Name: "Submitter", Value: hashEmail(submitterEmail), Inline: true},
+		{Name: "Venue(s)", Value: venues, Inline: false},
+		{Name: "Artist(s)", Value: artists, Inline: false},
+	}
+
+	// Add action links for pending shows
+	if show.Status == "pending" {
+		actions := fmt.Sprintf("[Review Pending Shows](%s/admin)", s.frontendURL)
+		fields = append(fields, DiscordEmbedField{Name: "Actions", Value: actions, Inline: false})
+	}
+
 	embed := DiscordEmbed{
 		Title:       fmt.Sprintf("New Show: %s", show.Title),
 		Description: fmt.Sprintf("Event Date: %s", show.EventDate.Format("Jan 2, 2006 3:04 PM")),
 		Color:       ColorBlue,
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		Fields: []DiscordEmbedField{
-			{Name: "Show ID", Value: fmt.Sprintf("%d", show.ID), Inline: true},
-			{Name: "Status", Value: show.Status, Inline: true},
-			{Name: "Submitter", Value: hashEmail(submitterEmail), Inline: true},
-			{Name: "Venue(s)", Value: venues, Inline: false},
-			{Name: "Artist(s)", Value: artists, Inline: false},
-		},
+		Fields:      fields,
 	}
 
 	go s.sendWebhook(embed)
@@ -124,15 +134,23 @@ func (s *DiscordService) NotifyShowStatusChange(showTitle string, showID uint, o
 		return
 	}
 
+	fields := []DiscordEmbedField{
+		{Name: "Show ID", Value: fmt.Sprintf("%d", showID), Inline: true},
+		{Name: "Changed By", Value: hashEmail(actorEmail), Inline: true},
+	}
+
+	// Add action links based on new status
+	if newStatus == "pending" {
+		actions := fmt.Sprintf("[Review Pending Shows](%s/admin)", s.frontendURL)
+		fields = append(fields, DiscordEmbedField{Name: "Actions", Value: actions, Inline: false})
+	}
+
 	embed := DiscordEmbed{
 		Title:       fmt.Sprintf("Show Status Changed: %s", showTitle),
 		Description: fmt.Sprintf("%s → %s", oldStatus, newStatus),
 		Color:       ColorOrange,
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		Fields: []DiscordEmbedField{
-			{Name: "Show ID", Value: fmt.Sprintf("%d", showID), Inline: true},
-			{Name: "Changed By", Value: hashEmail(actorEmail), Inline: true},
-		},
+		Fields:      fields,
 	}
 
 	go s.sendWebhook(embed)
@@ -145,6 +163,7 @@ func (s *DiscordService) NotifyShowApproved(show *ShowResponse) {
 	}
 
 	venues := buildVenueList(show.Venues)
+	viewLink := fmt.Sprintf("[View on Calendar](%s)", s.frontendURL)
 
 	embed := DiscordEmbed{
 		Title:     fmt.Sprintf("Show Approved: %s", show.Title),
@@ -154,6 +173,7 @@ func (s *DiscordService) NotifyShowApproved(show *ShowResponse) {
 			{Name: "Show ID", Value: fmt.Sprintf("%d", show.ID), Inline: true},
 			{Name: "Event Date", Value: show.EventDate.Format("Jan 2, 2006"), Inline: true},
 			{Name: "Venue(s)", Value: venues, Inline: false},
+			{Name: "Actions", Value: viewLink, Inline: false},
 		},
 	}
 
@@ -167,6 +187,7 @@ func (s *DiscordService) NotifyShowRejected(show *ShowResponse, reason string) {
 	}
 
 	venues := buildVenueList(show.Venues)
+	adminLink := fmt.Sprintf("[View Admin Panel](%s/admin)", s.frontendURL)
 
 	embed := DiscordEmbed{
 		Title:       fmt.Sprintf("Show Rejected: %s", show.Title),
@@ -177,6 +198,7 @@ func (s *DiscordService) NotifyShowRejected(show *ShowResponse, reason string) {
 			{Name: "Show ID", Value: fmt.Sprintf("%d", show.ID), Inline: true},
 			{Name: "Event Date", Value: show.EventDate.Format("Jan 2, 2006"), Inline: true},
 			{Name: "Venue(s)", Value: venues, Inline: false},
+			{Name: "Actions", Value: adminLink, Inline: false},
 		},
 	}
 

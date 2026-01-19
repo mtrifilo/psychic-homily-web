@@ -101,3 +101,26 @@ export function useCancelPendingVenueEdit() {
     },
   })
 }
+
+/**
+ * Hook to delete a venue
+ * - Admin: Can delete any venue
+ * - Non-admin: Can delete venues they submitted
+ * - Constraint: Venues with associated shows cannot be deleted
+ */
+export function useVenueDelete() {
+  const queryClient = useQueryClient()
+  const invalidateQueries = createInvalidateQueries(queryClient)
+
+  return useMutation({
+    mutationFn: async (venueId: number): Promise<void> => {
+      await apiRequest(API_ENDPOINTS.VENUES.DELETE(venueId), {
+        method: 'DELETE',
+      })
+    },
+    onSuccess: () => {
+      // Invalidate venue queries to refetch with updated data
+      invalidateQueries.venues()
+    },
+  })
+}

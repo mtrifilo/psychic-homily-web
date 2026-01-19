@@ -718,6 +718,57 @@ func (s *ShowService) GetPendingShows(limit, offset int) ([]*ShowResponse, int64
 	return responses, total, nil
 }
 
+// GetRejectedShows retrieves shows with rejected status for admin reference.
+// Supports optional search by title or rejection reason.
+// Returns shows, total count, and error.
+func (s *ShowService) GetRejectedShows(limit, offset int, search string) ([]*ShowResponse, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	// Build base query
+	baseQuery := s.db.Model(&models.Show{}).Where("status = ?", models.ShowStatusRejected)
+
+	// Add search filter if provided
+	if search != "" {
+		searchPattern := "%" + search + "%"
+		baseQuery = baseQuery.Where("title ILIKE ? OR rejection_reason ILIKE ?", searchPattern, searchPattern)
+	}
+
+	// Get total count
+	var total int64
+	if err := baseQuery.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count rejected shows: %w", err)
+	}
+
+	// Get rejected shows with pagination
+	var shows []models.Show
+	err := s.db.Preload("Venues").Preload("Artists").
+		Where("status = ?", models.ShowStatusRejected).
+		Scopes(func(db *gorm.DB) *gorm.DB {
+			if search != "" {
+				searchPattern := "%" + search + "%"
+				return db.Where("title ILIKE ? OR rejection_reason ILIKE ?", searchPattern, searchPattern)
+			}
+			return db
+		}).
+		Order("updated_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&shows).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get rejected shows: %w", err)
+	}
+
+	// Build responses
+	responses := make([]*ShowResponse, len(shows))
+	for i, show := range shows {
+		responses[i] = s.buildShowResponse(&show)
+	}
+
+	return responses, total, nil
+}
+
 // ApproveShow approves a pending show and optionally verifies its venues.
 func (s *ShowService) ApproveShow(showID uint, verifyVenues bool) (*ShowResponse, error) {
 	if s.db == nil {

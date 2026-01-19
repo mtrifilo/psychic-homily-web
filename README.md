@@ -35,13 +35,17 @@ pnpm install
 ANTHROPIC_API_KEY=your_api_key_here
 ```
 
-## Running the Development Servers
+## Running the Development Server
 
-To work on the site locally, you can use one of the following commands. Note that this project uses `pnpm`.
+To work on the Hugo site locally:
 
-- **`pnpm dev`**: Starts development servers for both the React components and the Hugo site. The Hugo site is available at `http://localhost:1313` with live reload. This is the primary command to use for most development work.
+```bash
+pnpm dev
+```
 
-- **`pnpm dev:components`**: Runs a development server for only the React components at `http://localhost:5173`. This is useful for working on components in isolation with fast hot-reloading.
+The Hugo site is available at `http://localhost:1313` with live reload.
+
+**Note:** The main web application frontend is now a separate Next.js app located in `frontend/`. See `frontend/README.md` for frontend development instructions.
 
 ## Adding New Shows
 
@@ -220,68 +224,15 @@ The post content is written in Markdown below the front matter. You can:
 3. When ready to publish, set `draft: false`
 4. The post will appear on the blog page and in the RSS feed
 
-## Building React Components
-
-The project includes React components (located in the `components/` directory) that are integrated into Hugo pages. These components need to be built before the Hugo site can use them.
-
-### Development
-
-For development, you can work on React components with hot-reloading:
-
-```bash
-pnpm dev:components
-```
-
-This starts a development server for the React components at `http://localhost:5173`.
-
-### Building Components for Production
-
-To build the React components for integration with Hugo:
-
-```bash
-cd components
-pnpm build
-```
-
-This will:
-
-- Compile the React components using Vite
-- Output the built files to the `static/js/` directory where Hugo can serve them
-- Generate optimized bundles for production use
-
-The built components can then be loaded by Hugo pages (like the Submit page) using script tags that reference the generated bundle files.
-
-### Component Integration
-
-React components are integrated into Hugo pages through custom layouts. For example, the Submit page (`layouts/submit/list.html`) includes:
-
-```html
-<!-- React mounting point -->
-<div id="root"></div>
-
-<!-- Load React bundle -->
-<script type="module" src="/js/submit-form.js"></script>
-```
-
-The React component (defined in `components/src/main.tsx`) mounts to the `#root` element, allowing for interactive forms and functionality within the static Hugo site.
-
 ## Building for Production
 
-To build the complete site for production deployment:
+To build the Hugo site for production deployment:
 
 ```bash
 pnpm build:prod
 ```
 
-This command will:
-
-- Build the React components and place them in the correct location for Hugo
-- Generate a production-ready site in the `public/` directory
-- Minify HTML, CSS, JS, JSON, SVG and XML files
-- Remove drafts and future-dated content
-- Apply all production optimizations
-
-The generated `public/` directory can then be deployed to any static hosting service like Netlify, Vercel, or GitHub Pages.
+This generates a production-ready site in the `public/` directory with minified HTML, CSS, and assets.
 
 ### Deployment Checklist
 
@@ -297,7 +248,10 @@ Before deploying:
 
 ## Project Structure
 
-- `content/shows/` - Show markdown files
+- `frontend/` - Next.js web application (main frontend)
+- `backend/` - Go API server
+- `content/shows/` - Hugo show markdown files
+- `content/blog/` - Hugo blog markdown files
 - `data/bands.yaml` - Band information and metadata
 - `layouts/` - Hugo templates and layouts
 - `scripts/` - Utility scripts including the show parser

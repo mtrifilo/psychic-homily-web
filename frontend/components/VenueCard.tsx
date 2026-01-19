@@ -8,10 +8,13 @@ import {
   MapPin,
   Plus,
   Pencil,
+  Trash2,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useVenueShows } from '@/lib/hooks/useVenues'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useQueryClient } from '@tanstack/react-query'
+import { createInvalidateQueries } from '@/lib/queryClient'
 import type { VenueWithShowCount, VenueShow } from '@/lib/types/venue'
 import {
   formatDateInTimezone,
@@ -20,6 +23,7 @@ import {
 } from '@/lib/utils/timeUtils'
 import { ShowForm } from '@/components/forms/ShowForm'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
+import { DeleteVenueDialog } from '@/components/DeleteVenueDialog'
 import { Button } from '@/components/ui/button'
 
 interface VenueCardProps {
@@ -90,7 +94,10 @@ export function VenueCard({ venue }: VenueCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [isAddingShow, setIsAddingShow] = useState(false)
   const [isEditingVenue, setIsEditingVenue] = useState(false)
+  const [isDeleteVenueOpen, setIsDeleteVenueOpen] = useState(false)
   const { isAuthenticated, user } = useAuthContext()
+  const queryClient = useQueryClient()
+  const invalidateQueries = createInvalidateQueries(queryClient)
 
   // User can edit if they're an admin OR if they submitted the venue
   const canEdit =
@@ -135,16 +142,28 @@ export function VenueCard({ venue }: VenueCardProps) {
                 <BadgeCheck className="h-4 w-4 text-primary shrink-0" />
               )}
               {canEdit && (
-                <button
-                  onClick={e => {
-                    e.stopPropagation()
-                    setIsEditingVenue(true)
-                  }}
-                  className="p-1 rounded-md hover:bg-muted transition-colors"
-                  title="Edit venue"
-                >
-                  <Pencil className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
-                </button>
+                <>
+                  <button
+                    onClick={e => {
+                      e.stopPropagation()
+                      setIsEditingVenue(true)
+                    }}
+                    className="p-1 rounded-md hover:bg-muted transition-colors"
+                    title="Edit venue"
+                  >
+                    <Pencil className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+                  </button>
+                  <button
+                    onClick={e => {
+                      e.stopPropagation()
+                      setIsDeleteVenueOpen(true)
+                    }}
+                    className="p-1 rounded-md hover:bg-destructive/10 transition-colors"
+                    title="Delete venue"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+                  </button>
+                </>
               )}
             </div>
             <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
@@ -259,6 +278,14 @@ export function VenueCard({ venue }: VenueCardProps) {
         open={isEditingVenue}
         onOpenChange={setIsEditingVenue}
         onSuccess={() => refetch()}
+      />
+
+      {/* Delete Venue Dialog */}
+      <DeleteVenueDialog
+        venue={venue}
+        open={isDeleteVenueOpen}
+        onOpenChange={setIsDeleteVenueOpen}
+        onSuccess={() => invalidateQueries.venues()}
       />
     </article>
   )

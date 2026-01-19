@@ -76,6 +76,11 @@ export interface PendingShowsResponse {
   total: number
 }
 
+export interface RejectedShowsResponse {
+  shows: ShowResponse[]
+  total: number
+}
+
 export interface ApproveShowRequest {
   verify_venues: boolean
 }

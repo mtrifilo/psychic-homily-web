@@ -117,10 +117,12 @@ func setupVenueRoutes(api huma.API, protected *huma.Group) {
 	huma.Get(api, "/venues", venueHandler.ListVenuesHandler)
 	huma.Get(api, "/venues/cities", venueHandler.GetVenueCitiesHandler)
 	huma.Get(api, "/venues/search", venueHandler.SearchVenuesHandler)
+	huma.Get(api, "/venues/{venue_id}", venueHandler.GetVenueHandler)
 	huma.Get(api, "/venues/{venue_id}/shows", venueHandler.GetVenueShowsHandler)
 
 	// Protected venue endpoints - require authentication
 	huma.Put(protected, "/venues/{venue_id}", venueHandler.UpdateVenueHandler)
+	huma.Delete(protected, "/venues/{venue_id}", venueHandler.DeleteVenueHandler)
 	huma.Get(protected, "/venues/{venue_id}/my-pending-edit", venueHandler.GetMyPendingEditHandler)
 	huma.Delete(protected, "/venues/{venue_id}/my-pending-edit", venueHandler.CancelMyPendingEditHandler)
 }
@@ -144,6 +146,7 @@ func setupAdminRoutes(protected *huma.Group, cfg *config.Config) {
 
 	// Admin show management endpoints
 	huma.Get(protected, "/admin/shows/pending", adminHandler.GetPendingShowsHandler)
+	huma.Get(protected, "/admin/shows/rejected", adminHandler.GetRejectedShowsHandler)
 	huma.Post(protected, "/admin/shows/{show_id}/approve", adminHandler.ApproveShowHandler)
 	huma.Post(protected, "/admin/shows/{show_id}/reject", adminHandler.RejectShowHandler)
 

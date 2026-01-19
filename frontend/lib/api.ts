@@ -79,8 +79,10 @@ export const API_ENDPOINTS = {
     LIST: `${API_BASE_URL}/venues`,
     CITIES: `${API_BASE_URL}/venues/cities`,
     SEARCH: `${API_BASE_URL}/venues/search`,
+    GET: (venueId: number) => `${API_BASE_URL}/venues/${venueId}`,
     SHOWS: (venueId: number) => `${API_BASE_URL}/venues/${venueId}/shows`,
     UPDATE: (venueId: number) => `${API_BASE_URL}/venues/${venueId}`,
+    DELETE: (venueId: number) => `${API_BASE_URL}/venues/${venueId}`,
     MY_PENDING_EDIT: (venueId: number) =>
       `${API_BASE_URL}/venues/${venueId}/my-pending-edit`,
   },
@@ -99,6 +101,7 @@ export const API_ENDPOINTS = {
   ADMIN: {
     SHOWS: {
       PENDING: `${API_BASE_URL}/admin/shows/pending`,
+      REJECTED: `${API_BASE_URL}/admin/shows/rejected`,
       APPROVE: (showId: string | number) =>
         `${API_BASE_URL}/admin/shows/${showId}/approve`,
       REJECT: (showId: string | number) =>

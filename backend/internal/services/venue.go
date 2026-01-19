@@ -494,12 +494,20 @@ type VenueShowResponse struct {
 
 // GetUpcomingShowsForVenue retrieves upcoming shows at a specific venue.
 // Only returns approved shows with event_date >= today in the specified timezone.
+// Deprecated: Use GetShowsForVenue with timeFilter="upcoming" instead.
 func (s *VenueService) GetUpcomingShowsForVenue(venueID uint, timezone string, limit int) ([]*VenueShowResponse, int64, error) {
+	return s.GetShowsForVenue(venueID, timezone, limit, "upcoming")
+}
+
+// GetShowsForVenue retrieves shows at a specific venue with time filtering.
+// timeFilter can be: "upcoming" (event_date >= today), "past" (event_date < today), or "all"
+// Only returns approved shows.
+func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int, timeFilter string) ([]*VenueShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	// Verify venue exists and is verified
+	// Verify venue exists
 	var venue models.Venue
 	if err := s.db.First(&venue, venueID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -519,35 +527,57 @@ func (s *VenueService) GetUpcomingShowsForVenue(venueID uint, timezone string, l
 	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	startOfTodayUTC := startOfToday.UTC()
 
-	// Count total upcoming shows
-	var total int64
-	err = s.db.Table("show_venues").
+	// Build base query
+	baseQuery := s.db.Table("show_venues").
 		Joins("JOIN shows ON show_venues.show_id = shows.id").
-		Where("show_venues.venue_id = ? AND shows.event_date >= ? AND shows.status = ?",
-			venueID, startOfTodayUTC, models.ShowStatusApproved).
-		Count(&total).Error
-	if err != nil {
+		Where("show_venues.venue_id = ? AND shows.status = ?", venueID, models.ShowStatusApproved)
+
+	// Apply time filter
+	var dateCondition string
+	var orderDirection string
+	switch timeFilter {
+	case "past":
+		baseQuery = baseQuery.Where("shows.event_date < ?", startOfTodayUTC)
+		dateCondition = "shows.event_date < ?"
+		orderDirection = "shows.event_date DESC" // Most recent past shows first
+	case "all":
+		dateCondition = "" // No date filter
+		orderDirection = "shows.event_date ASC"
+	default: // "upcoming"
+		baseQuery = baseQuery.Where("shows.event_date >= ?", startOfTodayUTC)
+		dateCondition = "shows.event_date >= ?"
+		orderDirection = "shows.event_date ASC" // Soonest upcoming shows first
+	}
+
+	// Count total shows matching the filter
+	var total int64
+	countQuery := s.db.Table("show_venues").
+		Joins("JOIN shows ON show_venues.show_id = shows.id").
+		Where("show_venues.venue_id = ? AND shows.status = ?", venueID, models.ShowStatusApproved)
+	if dateCondition != "" {
+		countQuery = countQuery.Where(dateCondition, startOfTodayUTC)
+	}
+	if err := countQuery.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count shows: %w", err)
 	}
 
-	// Get shows with limit
+	// Get show IDs with limit
 	var showIDs []uint
-	err = s.db.Table("show_venues").
+	showQuery := s.db.Table("show_venues").
 		Select("show_venues.show_id").
 		Joins("JOIN shows ON show_venues.show_id = shows.id").
-		Where("show_venues.venue_id = ? AND shows.event_date >= ? AND shows.status = ?",
-			venueID, startOfTodayUTC, models.ShowStatusApproved).
-		Order("shows.event_date ASC").
-		Limit(limit).
-		Pluck("show_venues.show_id", &showIDs).Error
-	if err != nil {
+		Where("show_venues.venue_id = ? AND shows.status = ?", venueID, models.ShowStatusApproved)
+	if dateCondition != "" {
+		showQuery = showQuery.Where(dateCondition, startOfTodayUTC)
+	}
+	if err := showQuery.Order(orderDirection).Limit(limit).Pluck("show_venues.show_id", &showIDs).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to get show IDs: %w", err)
 	}
 
 	// Fetch full show data
 	var shows []models.Show
 	if len(showIDs) > 0 {
-		if err := s.db.Preload("Artists").Where("id IN ?", showIDs).Order("event_date ASC").Find(&shows).Error; err != nil {
+		if err := s.db.Preload("Artists").Where("id IN ?", showIDs).Order(orderDirection).Find(&shows).Error; err != nil {
 			return nil, 0, fmt.Errorf("failed to get shows: %w", err)
 		}
 	}

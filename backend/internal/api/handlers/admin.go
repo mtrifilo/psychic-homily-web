@@ -44,6 +44,21 @@ type GetPendingShowsResponse struct {
 	}
 }
 
+// GetRejectedShowsRequest represents the HTTP request for listing rejected shows
+type GetRejectedShowsRequest struct {
+	Limit  int    `query:"limit" default:"50" doc:"Number of shows to return (max 100)"`
+	Offset int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Search string `query:"search" doc:"Search by show title or rejection reason"`
+}
+
+// GetRejectedShowsResponse represents the HTTP response for listing rejected shows
+type GetRejectedShowsResponse struct {
+	Body struct {
+		Shows []*services.ShowResponse `json:"shows"`
+		Total int64                    `json:"total"`
+	}
+}
+
 // ApproveShowRequest represents the HTTP request for approving a show
 type ApproveShowRequest struct {
 	ShowID string `path:"show_id" validate:"required" doc:"Show ID"`
@@ -126,6 +141,63 @@ func (h *AdminHandler) GetPendingShowsHandler(ctx context.Context, req *GetPendi
 	)
 
 	return &GetPendingShowsResponse{
+		Body: struct {
+			Shows []*services.ShowResponse `json:"shows"`
+			Total int64                    `json:"total"`
+		}{
+			Shows: shows,
+			Total: total,
+		},
+	}, nil
+}
+
+// GetRejectedShowsHandler handles GET /admin/shows/rejected
+func (h *AdminHandler) GetRejectedShowsHandler(ctx context.Context, req *GetRejectedShowsRequest) (*GetRejectedShowsResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Validate limit
+	limit := req.Limit
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	logger.FromContext(ctx).Debug("admin_rejected_shows_attempt",
+		"limit", limit,
+		"offset", req.Offset,
+		"search", req.Search,
+	)
+
+	// Get rejected shows
+	shows, total, err := h.showService.GetRejectedShows(limit, req.Offset, req.Search)
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_rejected_shows_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get rejected shows (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("admin_rejected_shows_success",
+		"count", len(shows),
+		"total", total,
+	)
+
+	return &GetRejectedShowsResponse{
 		Body: struct {
 			Shows []*services.ShowResponse `json:"shows"`
 			Total int64                    `json:"total"`
