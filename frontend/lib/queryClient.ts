@@ -95,8 +95,11 @@ export const queryKeys = {
 
   // Artist queries
   artists: {
+    all: ['artists'] as const,
     search: (query: string) =>
       ['artists', 'search', query.toLowerCase()] as const,
+    detail: (id: number) => ['artists', 'detail', id] as const,
+    shows: (artistId: number) => ['artists', 'shows', artistId] as const,
   },
 
   // Saved shows queries (user's "My List")

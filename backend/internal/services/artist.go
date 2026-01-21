@@ -307,3 +307,158 @@ func (s *ArtistService) buildArtistResponse(artist *models.Artist) *ArtistDetail
 		UpdatedAt: artist.UpdatedAt,
 	}
 }
+
+// ArtistShowResponse represents a show in the artist shows endpoint
+type ArtistShowResponse struct {
+	ID             uint                     `json:"id"`
+	Title          string                   `json:"title"`
+	EventDate      time.Time                `json:"event_date"`
+	Price          *float64                 `json:"price"`
+	AgeRequirement *string                  `json:"age_requirement"`
+	Venue          *ArtistShowVenueResponse `json:"venue"`
+	Artists        []ArtistShowArtist       `json:"artists"`
+}
+
+// ArtistShowVenueResponse represents venue info in artist show response
+type ArtistShowVenueResponse struct {
+	ID    uint   `json:"id"`
+	Name  string `json:"name"`
+	City  string `json:"city"`
+	State string `json:"state"`
+}
+
+// ArtistShowArtist represents an artist on a show bill
+type ArtistShowArtist struct {
+	ID   uint   `json:"id"`
+	Name string `json:"name"`
+}
+
+// GetShowsForArtist retrieves shows for a specific artist with time filtering.
+// timeFilter can be: "upcoming" (event_date >= today), "past" (event_date < today), or "all"
+// Only returns approved shows.
+func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*ArtistShowResponse, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	// Verify artist exists
+	var artist models.Artist
+	if err := s.db.First(&artist, artistID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, 0, fmt.Errorf("artist not found")
+		}
+		return nil, 0, fmt.Errorf("failed to get artist: %w", err)
+	}
+
+	// Load timezone, default to UTC
+	loc, err := time.LoadLocation(timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+
+	// Get start of today in the user's timezone, then convert to UTC for query
+	now := time.Now().In(loc)
+	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	startOfTodayUTC := startOfToday.UTC()
+
+	// Build base query
+	baseQuery := s.db.Table("show_artists").
+		Joins("JOIN shows ON show_artists.show_id = shows.id").
+		Where("show_artists.artist_id = ? AND shows.status = ?", artistID, models.ShowStatusApproved)
+
+	// Apply time filter and determine ordering
+	var dateCondition string
+	var orderDirection string
+	switch timeFilter {
+	case "past":
+		baseQuery = baseQuery.Where("shows.event_date < ?", startOfTodayUTC)
+		dateCondition = "shows.event_date < ?"
+		orderDirection = "shows.event_date DESC" // Most recent past shows first
+	case "all":
+		dateCondition = "" // No date filter
+		orderDirection = "shows.event_date ASC"
+	default: // "upcoming"
+		baseQuery = baseQuery.Where("shows.event_date >= ?", startOfTodayUTC)
+		dateCondition = "shows.event_date >= ?"
+		orderDirection = "shows.event_date ASC" // Soonest upcoming shows first
+	}
+
+	// Count total shows matching the filter
+	var total int64
+	countQuery := s.db.Table("show_artists").
+		Joins("JOIN shows ON show_artists.show_id = shows.id").
+		Where("show_artists.artist_id = ? AND shows.status = ?", artistID, models.ShowStatusApproved)
+	if dateCondition != "" {
+		countQuery = countQuery.Where(dateCondition, startOfTodayUTC)
+	}
+	if err := countQuery.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count shows: %w", err)
+	}
+
+	// Get show IDs with limit
+	var showIDs []uint
+	showQuery := s.db.Table("show_artists").
+		Select("show_artists.show_id").
+		Joins("JOIN shows ON show_artists.show_id = shows.id").
+		Where("show_artists.artist_id = ? AND shows.status = ?", artistID, models.ShowStatusApproved)
+	if dateCondition != "" {
+		showQuery = showQuery.Where(dateCondition, startOfTodayUTC)
+	}
+	if err := showQuery.Order(orderDirection).Limit(limit).Pluck("show_artists.show_id", &showIDs).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to get show IDs: %w", err)
+	}
+
+	// Fetch full show data with artists
+	var shows []models.Show
+	if len(showIDs) > 0 {
+		if err := s.db.Preload("Artists").Where("id IN ?", showIDs).Order(orderDirection).Find(&shows).Error; err != nil {
+			return nil, 0, fmt.Errorf("failed to get shows: %w", err)
+		}
+	}
+
+	// Build responses
+	responses := make([]*ArtistShowResponse, len(shows))
+	for i, show := range shows {
+		// Get venue for this show
+		var showVenue models.ShowVenue
+		var venue *ArtistShowVenueResponse
+		if err := s.db.Where("show_id = ?", show.ID).First(&showVenue).Error; err == nil {
+			var venueModel models.Venue
+			if err := s.db.First(&venueModel, showVenue.VenueID).Error; err == nil {
+				venue = &ArtistShowVenueResponse{
+					ID:    venueModel.ID,
+					Name:  venueModel.Name,
+					City:  venueModel.City,
+					State: venueModel.State,
+				}
+			}
+		}
+
+		// Get ordered artists for this show
+		var showArtists []models.ShowArtist
+		s.db.Where("show_id = ?", show.ID).Order("position ASC").Find(&showArtists)
+
+		artists := make([]ArtistShowArtist, 0)
+		for _, sa := range showArtists {
+			var artistModel models.Artist
+			if err := s.db.First(&artistModel, sa.ArtistID).Error; err == nil {
+				artists = append(artists, ArtistShowArtist{
+					ID:   artistModel.ID,
+					Name: artistModel.Name,
+				})
+			}
+		}
+
+		responses[i] = &ArtistShowResponse{
+			ID:             show.ID,
+			Title:          show.Title,
+			EventDate:      show.EventDate,
+			Price:          show.Price,
+			AgeRequirement: show.AgeRequirement,
+			Venue:          venue,
+			Artists:        artists,
+		}
+	}
+
+	return responses, total, nil
+}

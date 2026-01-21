@@ -651,14 +651,225 @@ SQL dumps from `pg_dump` are forward-compatible. Restoring a PostgreSQL 17 backu
   - [x] Stage Redis created
   - [x] Production Redis created
 - [ ] Phase 3: Deploy Backend Applications
-  - [ ] Stage backend configured in Coolify
+  - [x] Stage backend configured in Coolify
   - [ ] Production backend configured in Coolify
 - [x] Phase 4: Configure Migrations
   - [x] Updated `backend/Dockerfile` with golang-migrate CLI (v4.19.1)
   - [x] Created `backend/docker-entrypoint.sh` for database wait + migrations
 - [ ] Phase 5: Cleanup Old Infrastructure
+  - [ ] Stop old stage systemd service and Docker containers
+  - [ ] Stop old production systemd service and Docker containers
+  - [ ] Remove old Nginx configuration
+  - [ ] Archive old deployment directories
+
+---
+
+## Detailed Next Steps
+
+### Stage Backend — Post-Deployment Cleanup
+
+The stage backend is now running on Coolify. Complete the following cleanup steps:
+
+#### 1. Verify Stage is Working on Coolify
+
+```bash
+# Test health endpoint
+curl https://stage.api.psychichomily.com/health
+
+# Test a few API endpoints to confirm functionality
+curl https://stage.api.psychichomily.com/api/venues
+```
+
+#### 2. Stop Old Stage Infrastructure
+
+```bash
+ssh mattcom
+
+# Stop and disable the old systemd service
+sudo systemctl stop psychic-homily-stage
+sudo systemctl disable psychic-homily-stage
+
+# Stop old Docker containers (database/redis - now managed by Coolify)
+docker compose -f /opt/psychic-homily-stage/backend/docker-compose.stage.yml down
+
+# Verify the old service is stopped
+sudo systemctl status psychic-homily-stage
+```
+
+#### 3. Remove Old Stage Nginx Config
+
+```bash
+# Remove Nginx site config for stage API
+sudo rm /etc/nginx/sites-enabled/stage-api-psychichomily
+sudo rm /etc/nginx/sites-available/stage-api-psychichomily
+
+# Reload Nginx (if still running for production)
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+#### 4. Archive Old Stage Directory (Optional)
+
+```bash
+# Move old deployment directory to archive
+sudo mv /opt/psychic-homily-stage /opt/archive-psychic-homily-stage
+```
+
+---
+
+### Production Backend — Deployment Steps
+
+#### 1. Create Production Backend Application in Coolify
+
+1. In Coolify dashboard → **Projects** → Select/create `psychic-homily-production`
+2. Click **+ Add** → **Application** → **GitHub**
+3. Select your repository and configure:
+
+| Setting | Value |
+|---------|-------|
+| Repository | `psychic-homily-web` |
+| Branch | `main` |
+| Build Pack | Dockerfile |
+| Dockerfile Location | `backend/Dockerfile` |
+| Docker Context | `backend` |
+
+#### 2. Configure Environment Variables
+
+Add these environment variables in Coolify (reference `.env.production` for secrets):
+
+```env
+ENVIRONMENT=production
+API_ADDR=0.0.0.0:8080
+
+# Database (Coolify-managed PostgreSQL)
+DB_HOST=nkg0wo808kcosog4004ow8cc
+DB_PORT=5432
+POSTGRES_USER=psychic-db
+POSTGRES_PASSWORD=<from .env.production>
+POSTGRES_DB=psychic-db-production
+DATABASE_URL=postgres://psychic-db:<password>@nkg0wo808kcosog4004ow8cc:5432/psychic-db-production?sslmode=disable
+
+# Redis (Coolify-managed)
+REDIS_ADDR=v00wooowo0c44sc0400ckg00:6379
+
+# Authentication
+JWT_SECRET=<from .env.production>
+JWT_EXPIRY_HOURS=24
+SESSION_SECURE=true
+SESSION_DOMAIN=psychichomily.com
+
+# Google OAuth
+GOOGLE_CLIENT_ID=<from .env.production>
+GOOGLE_CLIENT_SECRET=<from .env.production>
+OAUTH_REDIRECT_URL=https://api.psychichomily.com/auth/google/callback
+
+# CORS & Frontend
+FRONTEND_URL=https://www.psychichomily.com
+CORS_ALLOWED_ORIGINS=https://www.psychichomily.com,https://psychichomily.com
+
+# Logging
+LOG_LEVEL=info
+```
+
+#### 3. Configure Domain & Health Check
+
+In Coolify application settings:
+
+| Setting | Value |
+|---------|-------|
+| Domain | `api.psychichomily.com` |
+| SSL | Automatic (Let's Encrypt via Traefik) |
+| Health Check Path | `/health` |
+| Health Check Port | `8080` |
+
+#### 4. Deploy and Verify
+
+1. Click **Deploy** in Coolify
+2. Monitor the build logs for any errors
+3. Once deployed, verify:
+
+```bash
+# Test health endpoint
+curl https://api.psychichomily.com/health
+
+# Test API functionality
+curl https://api.psychichomily.com/api/venues
+
+# Test OAuth flow by logging in via the production frontend
+```
+
+#### 5. Stop Old Production Infrastructure
+
+**Only after verifying production is working on Coolify:**
+
+```bash
+ssh mattcom
+
+# Stop and disable the old systemd service
+sudo systemctl stop psychic-homily-production
+sudo systemctl disable psychic-homily-production
+
+# Stop old Docker containers
+docker compose -f /opt/psychic-homily-production/backend/docker-compose.prod.yml down
+
+# Verify the old service is stopped
+sudo systemctl status psychic-homily-production
+```
+
+#### 6. Remove Old Production Nginx Config
+
+```bash
+# Remove Nginx site config for production API
+sudo rm /etc/nginx/sites-enabled/psychic-homily-api
+sudo rm /etc/nginx/sites-available/psychic-homily-api
+
+# If no other sites use Nginx, stop it entirely
+sudo systemctl stop nginx
+sudo systemctl disable nginx
+```
+
+#### 7. Archive Old Production Directory (Optional)
+
+```bash
+sudo mv /opt/psychic-homily-production /opt/archive-psychic-homily-production
+```
+
+---
+
+### Final Cleanup
+
+After both stage and production are running on Coolify:
+
+#### 1. Clean Up Orphaned Docker Resources
+
+```bash
+ssh mattcom
+
+# Remove unused Docker volumes (CAREFUL - verify nothing important first)
+docker volume ls  # List all volumes
+docker volume prune  # Remove unused volumes
+
+# Remove unused Docker images
+docker image prune -a
+```
+
+#### 2. Update/Remove GitHub Workflows
+
+The following files can be removed or updated since Coolify handles deployments:
+
+- `.github/workflows/deploy-production.yml` — Remove or convert to Coolify webhook trigger
+- `.github/workflows/deploy-stage.yml` — Remove or convert to Coolify webhook trigger
+- `.github/workflows/daily-deployment.yml` — Keep if needed for frontend Netlify builds
+
+#### 3. Remove Old Deployment Scripts (Optional)
+
+These files are no longer needed but can be kept for reference:
+
+- `backend/scripts/deploy-production.sh`
+- `backend/scripts/deploy-stage.sh`
+- `backend/systemd/psychic-homily-production.service`
+- `backend/systemd/psychic-homily-stage.service`
 
 ---
 
 _Document created: January 12, 2026_
-_Last updated: January 18, 2026_
+_Last updated: January 19, 2026_

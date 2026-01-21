@@ -192,22 +192,23 @@ func (h *VenueHandler) GetVenueCitiesHandler(ctx context.Context, req *GetVenueC
 // ============================================================================
 
 // UpdateVenueRequest represents the HTTP request for updating a venue
+// All body fields are optional - only changed fields need to be sent
 type UpdateVenueRequest struct {
 	VenueID string `path:"venue_id" validate:"required" doc:"Venue ID"`
 	Body    struct {
-		Name       *string `json:"name" doc:"Venue name"`
-		Address    *string `json:"address" doc:"Venue address"`
-		City       *string `json:"city" doc:"Venue city"`
-		State      *string `json:"state" doc:"Venue state"`
-		Zipcode    *string `json:"zipcode" doc:"Venue zipcode"`
-		Instagram  *string `json:"instagram" doc:"Instagram URL"`
-		Facebook   *string `json:"facebook" doc:"Facebook URL"`
-		Twitter    *string `json:"twitter" doc:"Twitter URL"`
-		YouTube    *string `json:"youtube" doc:"YouTube URL"`
-		Spotify    *string `json:"spotify" doc:"Spotify URL"`
-		SoundCloud *string `json:"soundcloud" doc:"SoundCloud URL"`
-		Bandcamp   *string `json:"bandcamp" doc:"Bandcamp URL"`
-		Website    *string `json:"website" doc:"Website URL"`
+		Name       *string `json:"name,omitempty" required:"false" doc:"Venue name"`
+		Address    *string `json:"address,omitempty" required:"false" doc:"Venue address"`
+		City       *string `json:"city,omitempty" required:"false" doc:"Venue city"`
+		State      *string `json:"state,omitempty" required:"false" doc:"Venue state"`
+		Zipcode    *string `json:"zipcode,omitempty" required:"false" doc:"Venue zipcode"`
+		Instagram  *string `json:"instagram,omitempty" required:"false" doc:"Instagram handle or URL"`
+		Facebook   *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
+		Twitter    *string `json:"twitter,omitempty" required:"false" doc:"Twitter URL"`
+		YouTube    *string `json:"youtube,omitempty" required:"false" doc:"YouTube URL"`
+		Spotify    *string `json:"spotify,omitempty" required:"false" doc:"Spotify URL"`
+		SoundCloud *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`
+		Bandcamp   *string `json:"bandcamp,omitempty" required:"false" doc:"Bandcamp URL"`
+		Website    *string `json:"website,omitempty" required:"false" doc:"Website URL"`
 	}
 }
 
@@ -266,6 +267,17 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		SoundCloud: req.Body.SoundCloud,
 		Bandcamp:   req.Body.Bandcamp,
 		Website:    req.Body.Website,
+	}
+
+	// Validate required fields aren't being set to empty strings
+	if editReq.Name != nil && *editReq.Name == "" {
+		return nil, huma.Error422UnprocessableEntity("Venue name cannot be empty")
+	}
+	if editReq.City != nil && *editReq.City == "" {
+		return nil, huma.Error422UnprocessableEntity("City cannot be empty")
+	}
+	if editReq.State != nil && *editReq.State == "" {
+		return nil, huma.Error422UnprocessableEntity("State cannot be empty")
 	}
 
 	// Admin flow: direct update

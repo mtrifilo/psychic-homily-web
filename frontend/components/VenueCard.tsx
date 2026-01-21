@@ -75,7 +75,13 @@ function ShowItem({ show, state }: ShowItemProps) {
                     &bull;{' '}
                   </span>
                 )}
-                {artist.name}
+                <Link
+                  href={`/artists/${artist.id}`}
+                  className="hover:text-primary transition-colors"
+                  onClick={e => e.stopPropagation()}
+                >
+                  {artist.name}
+                </Link>
               </span>
             ))}
             {show.artists.length === 0 && 'TBA'}
@@ -117,9 +123,16 @@ export function VenueCard({ venue }: VenueCardProps) {
   return (
     <article className="border border-border/50 rounded-lg mb-4 overflow-hidden bg-card">
       {/* Header - always visible */}
-      <button
+      <div
         onClick={() => hasShows && setIsExpanded(!isExpanded)}
-        disabled={!hasShows}
+        role={hasShows ? 'button' : undefined}
+        tabIndex={hasShows ? 0 : undefined}
+        onKeyDown={e => {
+          if (hasShows && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault()
+            setIsExpanded(!isExpanded)
+          }
+        }}
         className={`w-full px-4 py-4 text-left transition-colors ${
           hasShows
             ? 'hover:bg-muted/30 cursor-pointer'
@@ -192,7 +205,7 @@ export function VenueCard({ venue }: VenueCardProps) {
               ))}
           </div>
         </div>
-      </button>
+      </div>
 
       {/* Expandable shows section */}
       {isExpanded && hasShows && (

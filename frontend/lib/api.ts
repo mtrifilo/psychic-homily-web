@@ -74,6 +74,8 @@ export const API_ENDPOINTS = {
   },
   ARTISTS: {
     SEARCH: `${API_BASE_URL}/artists/search`,
+    GET: (artistId: number) => `${API_BASE_URL}/artists/${artistId}`,
+    SHOWS: (artistId: number) => `${API_BASE_URL}/artists/${artistId}/shows`,
   },
   VENUES: {
     LIST: `${API_BASE_URL}/venues`,
@@ -180,10 +182,14 @@ export const apiRequest = async <T = unknown>(
       message: `HTTP ${response.status}: ${response.statusText}`,
     }))
 
+    // Extract error message - Huma uses 'detail', standard APIs use 'message'
+    const errorMessage =
+      errorBody.detail || errorBody.message || response.statusText
+
     // Log the API error with request ID
     authLogger.error(
       'API request failed',
-      new Error(errorBody.message || response.statusText),
+      new Error(errorMessage),
       {
         endpoint: endpoint.replace(API_BASE_URL, ''),
         status: response.status,
@@ -195,7 +201,7 @@ export const apiRequest = async <T = unknown>(
     // Check if this is an auth-related error
     if (response.status === 401 || response.status === 403) {
       throw new AuthError(
-        errorBody.message || 'Authentication failed',
+        errorMessage || 'Authentication failed',
         errorBody.error_code || AuthErrorCode.UNAUTHORIZED,
         {
           requestId: requestId || errorBody.request_id,
@@ -206,7 +212,7 @@ export const apiRequest = async <T = unknown>(
 
     // Create a standard API error
     const apiError: ApiError = new Error(
-      errorBody.message || `HTTP ${response.status}: ${response.statusText}`
+      errorMessage || `HTTP ${response.status}: ${response.statusText}`
     )
     apiError.status = response.status
     apiError.statusText = response.statusText

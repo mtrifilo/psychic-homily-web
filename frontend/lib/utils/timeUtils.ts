@@ -82,6 +82,31 @@ export function formatDateInTimezone(
 }
 
 /**
+ * Format date as "Sat Apr 5, 2025" in specified timezone (includes year)
+ */
+export function formatDateWithYearInTimezone(
+  utcDateString: string,
+  timezone: string
+): string {
+  const date = new Date(utcDateString)
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: timezone,
+  })
+
+  const parts = formatter.formatToParts(date)
+  const weekday = parts.find(p => p.type === 'weekday')?.value || ''
+  const month = parts.find(p => p.type === 'month')?.value || ''
+  const day = parts.find(p => p.type === 'day')?.value || ''
+  const year = parts.find(p => p.type === 'year')?.value || ''
+
+  return `${weekday} ${month} ${day}, ${year}`
+}
+
+/**
  * Format time as "7:30 PM" in specified timezone
  */
 export function formatTimeInTimezone(

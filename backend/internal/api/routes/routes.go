@@ -104,7 +104,10 @@ func setupArtistRoutes(api huma.API, protected *huma.Group) {
 	artistHandler := handlers.NewArtistHandler()
 
 	// Public artist endpoints - registered on main API without middleware
+	// Note: Static routes must come before parameterized routes
 	huma.Get(api, "/artists/search", artistHandler.SearchArtistsHandler)
+	huma.Get(api, "/artists/{artist_id}", artistHandler.GetArtistHandler)
+	huma.Get(api, "/artists/{artist_id}/shows", artistHandler.GetArtistShowsHandler)
 
 	// Note: Add protected artist endpoints here if needed in the future
 }

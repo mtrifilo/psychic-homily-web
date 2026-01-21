@@ -43,3 +43,48 @@ export const getArtistLocation = (artist: Artist): string => {
   return parts.length > 0 ? parts.join(', ') : 'Location Unknown'
 }
 
+/**
+ * Venue info in artist show response
+ */
+export interface ArtistShowVenue {
+  id: number
+  name: string
+  city: string
+  state: string
+}
+
+/**
+ * Artist info in show response (simplified)
+ */
+export interface ArtistShowArtist {
+  id: number
+  name: string
+}
+
+/**
+ * Show response for artist shows endpoint
+ */
+export interface ArtistShow {
+  id: number
+  title: string
+  event_date: string
+  price: number | null
+  age_requirement: string | null
+  venue: ArtistShowVenue | null
+  artists: ArtistShowArtist[]
+}
+
+/**
+ * Response from GET /artists/:id/shows
+ */
+export interface ArtistShowsResponse {
+  shows: ArtistShow[]
+  artist_id: number
+  total: number
+}
+
+/**
+ * Time filter options for artist shows
+ */
+export type ArtistTimeFilter = 'upcoming' | 'past' | 'all'
+

@@ -89,18 +89,12 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
                       &nbsp;•&nbsp;
                     </span>
                   )}
-                  {artist.socials?.instagram ? (
-                    <a
-                      href={`https://instagram.com/${artist.socials.instagram}`}
-                      className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {artist.name}
-                    </a>
-                  ) : (
-                    <span>{artist.name}</span>
-                  )}
+                  <Link
+                    href={`/artists/${artist.id}`}
+                    className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
+                  >
+                    {artist.name}
+                  </Link>
                 </span>
               ))}
             </h1>

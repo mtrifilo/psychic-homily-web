@@ -8,6 +8,7 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import type { VenueShow } from '@/lib/types/venue'
 import {
   formatDateInTimezone,
+  formatDateWithYearInTimezone,
   formatTimeInTimezone,
   getTimezoneForState,
 } from '@/lib/utils/timeUtils'
@@ -28,10 +29,13 @@ interface VenueShowsListProps {
 
 /**
  * Format a date string to "Mon, Dec 1" format in venue timezone
+ * If includeYear is true, formats as "Mon, Dec 1, 2024"
  */
-function formatDate(dateString: string, state: string): string {
+function formatDate(dateString: string, state: string, includeYear = false): string {
   const timezone = getTimezoneForState(state)
-  return formatDateInTimezone(dateString, timezone)
+  return includeYear
+    ? formatDateWithYearInTimezone(dateString, timezone)
+    : formatDateInTimezone(dateString, timezone)
 }
 
 /**
@@ -52,18 +56,16 @@ function formatPrice(price: number): string {
 interface ShowItemProps {
   show: VenueShow
   state: string
+  isPastShow?: boolean
 }
 
-function ShowItem({ show, state }: ShowItemProps) {
+function ShowItem({ show, state, isPastShow = false }: ShowItemProps) {
   return (
-    <Link
-      href={`/shows/${show.id}`}
-      className="block py-3 border-b border-border/30 last:border-b-0 hover:bg-muted/30 -mx-2 px-2 rounded-md transition-colors"
-    >
+    <div className="py-3 border-b border-border/30 last:border-b-0">
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-primary">
-            {formatDate(show.event_date, state)}
+            {formatDate(show.event_date, state, isPastShow)}
           </div>
           <div className="text-base font-semibold">
             {show.artists.map((artist, index) => (
@@ -74,7 +76,12 @@ function ShowItem({ show, state }: ShowItemProps) {
                     &bull;{' '}
                   </span>
                 )}
-                {artist.name}
+                <Link
+                  href={`/artists/${artist.id}`}
+                  className="hover:text-primary transition-colors"
+                >
+                  {artist.name}
+                </Link>
               </span>
             ))}
             {show.artists.length === 0 && 'TBA'}
@@ -85,7 +92,7 @@ function ShowItem({ show, state }: ShowItemProps) {
           {show.price != null && <div>{formatPrice(show.price)}</div>}
         </div>
       </div>
-    </Link>
+    </div>
   )
 }
 
@@ -134,10 +141,12 @@ function ShowsTabContent({
     )
   }
 
+  const isPastShow = timeFilter === 'past'
+
   return (
     <div className="divide-y divide-border/30">
       {data.shows.map(show => (
-        <ShowItem key={show.id} show={show} state={venueState} />
+        <ShowItem key={show.id} show={show} state={venueState} isPastShow={isPastShow} />
       ))}
     </div>
   )
