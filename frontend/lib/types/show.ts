@@ -10,6 +10,10 @@ export interface ShowArtistSocials {
   facebook?: string | null
   twitter?: string | null
   youtube?: string | null
+  spotify?: string | null
+  soundcloud?: string | null
+  bandcamp?: string | null
+  website?: string | null
 }
 
 export interface ArtistResponse {
@@ -19,6 +23,7 @@ export interface ArtistResponse {
   city?: string | null
   is_headliner?: boolean | null
   is_new_artist?: boolean | null
+  bandcamp_embed_url?: string | null
   socials: ShowArtistSocials
 }
 

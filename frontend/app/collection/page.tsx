@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSavedShows } from '@/lib/hooks/useSavedShows'
 import { useMySubmissions } from '@/lib/hooks/useMySubmissions'
@@ -438,7 +438,7 @@ function MySubmissionsList({
   )
 }
 
-export default function CollectionPage() {
+function CollectionPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { isAuthenticated, isLoading: authLoading, user } = useAuthContext()
@@ -563,5 +563,21 @@ export default function CollectionPage() {
         </TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+function CollectionPageLoading() {
+  return (
+    <div className="flex justify-center items-center min-h-screen">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    </div>
+  )
+}
+
+export default function CollectionPage() {
+  return (
+    <Suspense fallback={<CollectionPageLoading />}>
+      <CollectionPageContent />
+    </Suspense>
   )
 }

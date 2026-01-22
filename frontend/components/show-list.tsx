@@ -3,9 +3,9 @@
 import { useState } from 'react'
 import { useUpcomingShows } from '@/lib/hooks/useShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import type { ShowResponse } from '@/lib/types/show'
+import type { ShowResponse, ArtistResponse } from '@/lib/types/show'
 import Link from 'next/link'
-import { Pencil, X, Trash2 } from 'lucide-react'
+import { Pencil, X, Trash2, ChevronDown, ChevronUp, MapPin } from 'lucide-react'
 import {
   formatDateInTimezone,
   formatTimeInTimezone,
@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/button'
 import { ShowForm } from '@/components/forms'
 import { SaveButton } from '@/components/SaveButton'
 import { DeleteShowDialog } from '@/components/DeleteShowDialog'
+import { SocialLinks } from '@/components/SocialLinks'
+import { MusicEmbed } from '@/components/MusicEmbed'
 
 /**
  * Format a date string to "Mon, Dec 1" format in venue timezone
@@ -39,6 +41,24 @@ function formatPrice(price: number): string {
   return `$${price.toFixed(2)}`
 }
 
+/**
+ * Check if an artist has any music available (Bandcamp embed, Spotify, or Bandcamp profile)
+ */
+function artistHasMusic(artist: ArtistResponse): boolean {
+  return !!(
+    artist.bandcamp_embed_url ||
+    artist.socials?.spotify ||
+    artist.socials?.bandcamp
+  )
+}
+
+/**
+ * Check if any artist in the list has music
+ */
+function showHasArtistMusic(artists: ArtistResponse[]): boolean {
+  return artists.some(artistHasMusic)
+}
+
 interface ShowCardProps {
   show: ShowResponse
   isAdmin: boolean
@@ -48,8 +68,12 @@ interface ShowCardProps {
 function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(false)
   const venue = show.venues[0] // Primary venue
   const artists = show.artists
+
+  // Check if any artist has music to show the expand button
+  const hasArtistMusic = showHasArtistMusic(artists)
 
   // Check if user can delete: admin or show owner
   const canDelete =
@@ -101,6 +125,23 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
 
             {/* Action Buttons */}
             <div className="flex items-center gap-1 shrink-0">
+              {/* Expand Button - only show if artists have music */}
+              {hasArtistMusic && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  className="h-7 w-7 p-0"
+                  title={isExpanded ? 'Hide artist music' : 'Discover artist music'}
+                >
+                  {isExpanded ? (
+                    <ChevronUp className="h-4 w-4" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
+
               {/* Save Button */}
               <SaveButton showId={show.id} variant="ghost" size="sm" />
 
@@ -156,6 +197,47 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
           </div>
         </div>
       </div>
+
+      {/* Expanded Artist Music Section */}
+      {isExpanded && hasArtistMusic && (
+        <div className="mt-4 pt-4 border-t border-border/50">
+          <h3 className="text-sm font-semibold text-muted-foreground mb-4">
+            Discover the Artists
+          </h3>
+          <div className="space-y-6">
+            {artists.filter(artistHasMusic).map(artist => (
+              <div key={artist.id} className="space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <Link
+                      href={`/artists/${artist.id}`}
+                      className="font-medium hover:text-primary transition-colors"
+                    >
+                      {artist.name}
+                    </Link>
+                    {(artist.city || artist.state) && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                        <MapPin className="h-3 w-3" />
+                        <span>
+                          {[artist.city, artist.state].filter(Boolean).join(', ')}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <SocialLinks social={artist.socials} className="shrink-0" />
+                </div>
+                <MusicEmbed
+                  bandcampAlbumUrl={artist.bandcamp_embed_url}
+                  bandcampProfileUrl={artist.socials?.bandcamp}
+                  spotifyUrl={artist.socials?.spotify}
+                  artistName={artist.name}
+                  compact
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Inline Edit Form */}
       {isEditing && (

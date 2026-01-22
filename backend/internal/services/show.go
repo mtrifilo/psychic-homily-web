@@ -79,6 +79,11 @@ type ShowResponse struct {
 	Artists         []ArtistResponse `json:"artists"`
 	CreatedAt       time.Time        `json:"created_at"`
 	UpdatedAt       time.Time        `json:"updated_at"`
+
+	// Source tracking (for admin view to identify scraped shows)
+	Source      string     `json:"source,omitempty"`       // "user" or "scraper"
+	SourceVenue *string    `json:"source_venue,omitempty"` // Venue slug for scraped shows
+	ScrapedAt   *time.Time `json:"scraped_at,omitempty"`   // When the show was scraped
 }
 
 // VenueResponse represents venue data in show responses
@@ -105,13 +110,14 @@ type ShowArtistSocials struct {
 
 // ArtistResponse represents artist data in show responses
 type ArtistResponse struct {
-	ID          uint              `json:"id"`
-	Name        string            `json:"name"`
-	State       *string           `json:"state"`
-	City        *string           `json:"city"`
-	IsHeadliner *bool             `json:"is_headliner"`
-	IsNewArtist *bool             `json:"is_new_artist"`
-	Socials     ShowArtistSocials `json:"socials"`
+	ID               uint              `json:"id"`
+	Name             string            `json:"name"`
+	State            *string           `json:"state"`
+	City             *string           `json:"city"`
+	IsHeadliner      *bool             `json:"is_headliner"`
+	IsNewArtist      *bool             `json:"is_new_artist"`
+	BandcampEmbedURL *string           `json:"bandcamp_embed_url"`
+	Socials          ShowArtistSocials `json:"socials"`
 }
 
 // CreateShow creates a new show with associated venues and artists.
@@ -511,13 +517,14 @@ func (s *ShowService) UpdateShowWithRelations(
 						Website:    artist.Social.Website,
 					}
 					artistResponses = append(artistResponses, ArtistResponse{
-						ID:          artist.ID,
-						Name:        artist.Name,
-						State:       artist.State,
-						City:        artist.City,
-						IsHeadliner: &isHeadliner,
-						IsNewArtist: &isNewArtist,
-						Socials:     socials,
+						ID:               artist.ID,
+						Name:             artist.Name,
+						State:            artist.State,
+						City:             artist.City,
+						IsHeadliner:      &isHeadliner,
+						IsNewArtist:      &isNewArtist,
+						BandcampEmbedURL: artist.BandcampEmbedURL,
+						Socials:          socials,
 					})
 				}
 			}
@@ -1176,13 +1183,14 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 		}
 
 		artists = append(artists, ArtistResponse{
-			ID:          artist.ID,
-			Name:        artist.Name,
-			State:       artist.State,
-			City:        artist.City,
-			IsHeadliner: &isHeadliner,
-			IsNewArtist: &isNewArtist,
-			Socials:     socials,
+			ID:               artist.ID,
+			Name:             artist.Name,
+			State:            artist.State,
+			City:             artist.City,
+			IsHeadliner:      &isHeadliner,
+			IsNewArtist:      &isNewArtist,
+			BandcampEmbedURL: artist.BandcampEmbedURL,
+			Socials:          socials,
 		})
 	}
 
@@ -1235,13 +1243,14 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 			isNewArtist := false
 
 			artists = append(artists, ArtistResponse{
-				ID:          artist.ID,
-				Name:        artist.Name,
-				State:       artist.State,
-				City:        artist.City,
-				IsHeadliner: &isHeadliner,
-				IsNewArtist: &isNewArtist,
-				Socials:     socials,
+				ID:               artist.ID,
+				Name:             artist.Name,
+				State:            artist.State,
+				City:             artist.City,
+				IsHeadliner:      &isHeadliner,
+				IsNewArtist:      &isNewArtist,
+				BandcampEmbedURL: artist.BandcampEmbedURL,
+				Socials:          socials,
 			})
 		}
 	}
@@ -1262,5 +1271,8 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 		Artists:         artists,
 		CreatedAt:       show.CreatedAt,
 		UpdatedAt:       show.UpdatedAt,
+		Source:          string(show.Source),
+		SourceVenue:     show.SourceVenue,
+		ScrapedAt:       show.ScrapedAt,
 	}
 }
