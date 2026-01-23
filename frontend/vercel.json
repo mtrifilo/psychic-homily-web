@@ -1,5 +1,5 @@
 {
   "framework": "nextjs",
   "installCommand": "bun install",
-  "buildCommand": "next build --webpack"
+  "buildCommand": "bun run build"
 }
