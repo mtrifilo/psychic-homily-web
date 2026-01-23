@@ -17,7 +17,7 @@ interface UseVenueSearchOptions {
  */
 export function useVenueSearch({
   query,
-  debounceMs = 300,
+  debounceMs = 50,
 }: UseVenueSearchOptions) {
   const [debouncedQuery] = useDebounce(query, debounceMs)
 

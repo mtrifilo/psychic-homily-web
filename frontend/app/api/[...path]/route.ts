@@ -53,6 +53,12 @@ async function proxyRequest(request: NextRequest) {
     response.headers.set('Content-Type', responseContentType)
   }
 
+  // Forward Content-Disposition header (for file downloads)
+  const contentDisposition = backendResponse.headers.get('content-disposition')
+  if (contentDisposition) {
+    response.headers.set('Content-Disposition', contentDisposition)
+  }
+
   // Forward Set-Cookie from backend, but modify for same-origin
   const setCookies = backendResponse.headers.getSetCookie()
   for (const cookie of setCookies) {

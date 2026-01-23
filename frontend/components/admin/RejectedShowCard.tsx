@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import { Calendar, MapPin, XCircle } from 'lucide-react'
 import type { ShowResponse } from '@/lib/types/show'
 import { Badge } from '@/components/ui/badge'
@@ -26,7 +27,10 @@ function formatTime(dateString: string): string {
   })
 }
 
-export function RejectedShowCard({ show }: RejectedShowCardProps) {
+/**
+ * Memoized to prevent unnecessary re-renders when list updates
+ */
+export const RejectedShowCard = memo(function RejectedShowCard({ show }: RejectedShowCardProps) {
   const venue = show.venues[0]
   const artistNames = show.artists.map(a => a.name).join(', ')
 
@@ -85,4 +89,4 @@ export function RejectedShowCard({ show }: RejectedShowCardProps) {
       </div>
     </div>
   )
-}
+})

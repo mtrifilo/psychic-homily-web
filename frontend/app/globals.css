@@ -121,3 +121,16 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Music embed container for responsive iframes */
+.music-embed-container {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 0.5rem;
+}
+
+.music-embed-container iframe {
+  max-width: 100%;
+  border-radius: 0.5rem;
+}

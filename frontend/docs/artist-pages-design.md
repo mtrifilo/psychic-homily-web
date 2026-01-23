@@ -4,6 +4,8 @@
 
 This document outlines the design for individual artist pages, allowing users to click on any artist name throughout the application and view detailed information about that artist, including their social links, upcoming and past shows, and an embedded Bandcamp player featuring their latest release.
 
+**Status:** Phase 1 (MVP) and Phase 2 (Music Embeds) are complete. Phase 3 (Automatic Album Discovery) is planned for future enhancement.
+
 ## User Stories
 
 1. **As a visitor**, I want to click on an artist name on a show listing to learn more about them
@@ -341,9 +343,11 @@ frontend/
 </ArtistDetail>
 ```
 
-#### 2. New Component: `MusicEmbed.tsx`
+#### 2. Component: `MusicEmbed.tsx` (IMPLEMENTED)
 
-A unified component that handles both Bandcamp and Spotify embeds with automatic fallback:
+A unified component that handles both Bandcamp and Spotify embeds with automatic fallback.
+
+**Location:** `frontend/components/MusicEmbed.tsx`
 
 ```tsx
 interface MusicEmbedProps {
@@ -351,7 +355,6 @@ interface MusicEmbedProps {
   bandcampProfileUrl?: string | null
   spotifyUrl?: string | null
   artistName: string
-  theme?: 'light' | 'dark'
 }
 
 export function MusicEmbed({
@@ -359,7 +362,6 @@ export function MusicEmbed({
   bandcampProfileUrl,
   spotifyUrl,
   artistName,
-  theme = 'dark'
 }: MusicEmbedProps) {
   // Priority:
   // 1. Bandcamp album embed (if albumUrl exists)
@@ -369,14 +371,16 @@ export function MusicEmbed({
 }
 ```
 
-**Considerations:**
-- Use Next.js API route to proxy oEmbed requests (avoid CORS)
-- Support dark/light themes to match site theme
-- Responsive sizing
-- Loading state while fetching oEmbed
-- Graceful fallback chain
+**Implementation details:**
+- Uses Next.js API route `/api/oembed` to proxy oEmbed requests (avoids CORS)
+- Responsive sizing via `.music-embed-container` CSS class
+- Loading state with spinner while fetching oEmbed
+- Graceful fallback chain with states: `loading`, `success`, `fallback`, `none`
+- Uses `dangerouslySetInnerHTML` to render oEmbed HTML response
 
-#### 3. New API Route: `/api/oembed`
+#### 3. API Route: `/api/oembed` (IMPLEMENTED)
+
+**Location:** `frontend/app/api/oembed/route.ts`
 
 Unified proxy endpoint to fetch oEmbed data from multiple providers:
 
@@ -517,47 +521,65 @@ export interface ArtistShowsResponse {
 
 ## Implementation Phases
 
-### Phase 1: Basic Artist Pages (MVP)
+### Phase 1: Basic Artist Pages (MVP) - COMPLETED
 
 1. **Backend:**
-   - Add `GET /artists/:id` endpoint
-   - Add `GET /artists/:id/shows` endpoint with time filtering
+   - [x] Add `GET /artists/:id` endpoint
+   - [x] Add `GET /artists/:id/shows` endpoint with time filtering
 
 2. **Frontend:**
-   - Create `/artists/[id]/page.tsx`
-   - Create `ArtistDetail` component
-   - Create `ArtistShowsList` component
-   - Add hooks: `useArtist`, `useArtistShows`
-   - Make artist names clickable in show listings
+   - [x] Create `/artists/[id]/page.tsx`
+   - [x] Create `ArtistDetail` component
+   - [x] Create `ArtistShowsList` component
+   - [x] Add hooks: `useArtist`, `useArtistShows`
+   - [x] Make artist names clickable in show listings
 
 **Deliverable:** Users can click artist names and see artist details + their shows
 
-### Phase 2: Bandcamp Embed (Manual URL)
+### Phase 2: Music Embeds (Bandcamp + Spotify) - COMPLETED
 
 1. **Backend:**
-   - Add `bandcamp_embed_url` column to artists table
-   - Update artist endpoints to include embed URL
+   - [x] Add `bandcamp_embed_url` column to artists table (migration 000009)
+   - [x] Update Artist model with `BandcampEmbedURL` field
+   - [x] Update artist endpoints to include embed URL in response
 
 2. **Frontend:**
-   - Create `BandcampEmbed` component
-   - Create `/api/bandcamp/oembed` proxy route
-   - Integrate embed into artist page
+   - [x] Create `MusicEmbed` component with priority-based loading:
+     1. Bandcamp album URL (from `bandcamp_embed_url` field)
+     2. Spotify artist URL (from `social.spotify`)
+     3. Bandcamp profile link fallback (from `social.bandcamp`)
+   - [x] Create `/api/oembed` proxy route for Bandcamp and Spotify
+   - [x] Integrate `MusicEmbed` into `ArtistDetail` component
+   - [x] Add CSS styles for responsive embed container
 
 3. **Admin:**
-   - Allow admins to manually set embed URL for artists
+   - [ ] Allow admins to manually set embed URL for artists (TODO)
 
-**Deliverable:** Bandcamp embeds work when URL is manually provided
+**Deliverable:** Music embeds work via oEmbed when URLs are available
 
-### Phase 3: Automatic Album Discovery (Enhancement)
+**Files Created:**
+- `backend/db/migrations/000009_add_bandcamp_embed_url.up.sql`
+- `backend/db/migrations/000009_add_bandcamp_embed_url.down.sql`
+- `frontend/app/api/oembed/route.ts`
+- `frontend/components/MusicEmbed.tsx`
+
+**Files Modified:**
+- `backend/internal/models/artist.go` - Added `BandcampEmbedURL` field
+- `backend/internal/services/artist.go` - Added field to response struct/builder
+- `frontend/lib/types/artist.ts` - Added `bandcamp_embed_url` to interface
+- `frontend/components/ArtistDetail.tsx` - Integrated MusicEmbed component
+- `frontend/app/globals.css` - Added `.music-embed-container` styles
+
+### Phase 3: Automatic Album Discovery (Future Enhancement)
 
 1. **Backend:**
-   - Create Bandcamp scraping service
-   - Add endpoint or background job to discover album URLs
-   - Implement caching and refresh logic
+   - [ ] Create Bandcamp scraping service
+   - [ ] Add endpoint or background job to discover album URLs
+   - [ ] Implement caching and refresh logic
 
 2. **Frontend:**
-   - Show loading/discovery state
-   - Graceful fallback when discovery fails
+   - [ ] Show loading/discovery state
+   - [ ] Graceful fallback when discovery fails
 
 **Deliverable:** Album URLs are automatically discovered from profile URLs
 

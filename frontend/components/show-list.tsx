@@ -17,6 +17,7 @@ import { SaveButton } from '@/components/SaveButton'
 import { DeleteShowDialog } from '@/components/DeleteShowDialog'
 import { SocialLinks } from '@/components/SocialLinks'
 import { MusicEmbed } from '@/components/MusicEmbed'
+import { ExportShowButton } from '@/components/ExportShowButton'
 
 /**
  * Format a date string to "Mon, Dec 1" format in venue timezone
@@ -162,6 +163,18 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
                 </Button>
               )}
 
+              {/* Export Button (admin, dev only) */}
+              {isAdmin && (
+                <ExportShowButton
+                  showId={show.id}
+                  showTitle={show.title}
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  iconOnly
+                />
+              )}
+
               {/* Delete Button (admin or owner) */}
               {canDelete && (
                 <Button
@@ -201,9 +214,6 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
       {/* Expanded Artist Music Section */}
       {isExpanded && hasArtistMusic && (
         <div className="mt-4 pt-4 border-t border-border/50">
-          <h3 className="text-sm font-semibold text-muted-foreground mb-4">
-            Discover the Artists
-          </h3>
           <div className="space-y-6">
             {artists.filter(artistHasMusic).map(artist => (
               <div key={artist.id} className="space-y-2">

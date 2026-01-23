@@ -21,6 +21,7 @@ export interface Artist {
   name: string
   state: string | null
   city: string | null
+  bandcamp_embed_url: string | null
   social: ArtistSocial
   created_at: string
   updated_at: string

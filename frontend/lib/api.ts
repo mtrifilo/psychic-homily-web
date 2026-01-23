@@ -71,6 +71,9 @@ export const API_ENDPOINTS = {
     PUBLISH: (showId: string | number) =>
       `${API_BASE_URL}/shows/${showId}/publish`,
     MY_SUBMISSIONS: `${API_BASE_URL}/shows/my-submissions`,
+    // Export endpoint (dev only)
+    EXPORT: (showId: string | number) =>
+      `${API_BASE_URL}/shows/${showId}/export`,
   },
   ARTISTS: {
     SEARCH: `${API_BASE_URL}/artists/search`,
@@ -108,6 +111,8 @@ export const API_ENDPOINTS = {
         `${API_BASE_URL}/admin/shows/${showId}/approve`,
       REJECT: (showId: string | number) =>
         `${API_BASE_URL}/admin/shows/${showId}/reject`,
+      IMPORT_PREVIEW: `${API_BASE_URL}/admin/shows/import/preview`,
+      IMPORT_CONFIRM: `${API_BASE_URL}/admin/shows/import/confirm`,
     },
     VENUES: {
       VERIFY: (venueId: string | number) =>

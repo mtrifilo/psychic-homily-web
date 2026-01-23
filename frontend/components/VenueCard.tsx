@@ -77,7 +77,7 @@ function ShowItem({ show, state }: ShowItemProps) {
                 )}
                 <Link
                   href={`/artists/${artist.id}`}
-                  className="hover:text-primary transition-colors"
+                  className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
                   onClick={e => e.stopPropagation()}
                 >
                   {artist.name}

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, BadgeCheck, Pencil, Trash2, Loader2 } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Pencil, Trash2, Loader2, ExternalLink } from 'lucide-react'
 import { useVenue } from '@/lib/hooks/useVenues'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useQueryClient } from '@tanstack/react-query'
@@ -17,6 +17,29 @@ import { Button } from '@/components/ui/button'
 
 interface VenueDetailProps {
   venueId: number
+}
+
+/**
+ * Extract a display-friendly domain from a URL
+ * e.g., "https://www.therebelphx.com/events" -> "therebelphx.com"
+ */
+function getDisplayDomain(url: string): string {
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`)
+    return parsed.hostname.replace(/^www\./, '')
+  } catch {
+    return url
+  }
+}
+
+/**
+ * Normalize a URL to ensure it has a protocol
+ */
+function normalizeUrl(url: string): string {
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url
+  }
+  return `https://${url}`
 }
 
 export function VenueDetail({ venueId }: VenueDetailProps) {
@@ -116,57 +139,69 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
         </Link>
       </div>
 
-      {/* Header */}
-      <header className="mb-8">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-2xl md:text-3xl font-bold">{venue.name}</h1>
-              {venue.verified && (
-                <BadgeCheck
-                  className="h-6 w-6 text-primary shrink-0"
-                  aria-label="Verified venue"
-                />
+      {/* Main Content - Two Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-8">
+        {/* Main Column - Header + Shows */}
+        <div className="order-2 lg:order-1">
+          {/* Header */}
+          <header className="mb-8">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-2xl md:text-3xl font-bold">{venue.name}</h1>
+                  {venue.verified && (
+                    <BadgeCheck
+                      className="h-6 w-6 text-primary shrink-0"
+                      aria-label="Verified venue"
+                    />
+                  )}
+                </div>
+                <p className="text-muted-foreground mt-1">
+                  {venue.city}, {venue.state}
+                </p>
+                {venue.social?.website && (
+                  <a
+                    href={normalizeUrl(venue.social.website)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-sm text-primary hover:underline mt-1"
+                  >
+                    {getDisplayDomain(venue.social.website)}
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </div>
+
+              {canEdit && (
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsEditingVenue(true)}
+                  >
+                    <Pencil className="h-4 w-4 mr-2" />
+                    Edit
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsDeleteVenueOpen(true)}
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete
+                  </Button>
+                </div>
               )}
             </div>
-            <p className="text-muted-foreground mt-1">
-              {venue.city}, {venue.state}
-            </p>
-          </div>
 
-          {canEdit && (
-            <div className="flex items-center gap-2 shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsEditingVenue(true)}
-              >
-                <Pencil className="h-4 w-4 mr-2" />
-                Edit
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsDeleteVenueOpen(true)}
-                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </Button>
-            </div>
-          )}
-        </div>
+            {/* Social Links */}
+            {venue.social && (
+              <SocialLinks social={venue.social} className="mt-4" />
+            )}
+          </header>
 
-        {/* Social Links */}
-        {venue.social && (
-          <SocialLinks social={venue.social} className="mt-4" />
-        )}
-      </header>
-
-      {/* Main Content - Two Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6">
-        {/* Shows List - Main Column */}
-        <div className="order-2 lg:order-1">
+          {/* Shows List */}
           <VenueShowsList
             venueId={venue.id}
             venueName={venue.name}

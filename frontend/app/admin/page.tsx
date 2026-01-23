@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useDeferredValue } from 'react'
-import { Shield, Music, MapPin, Loader2, XCircle, Search, X } from 'lucide-react'
+import dynamic from 'next/dynamic'
+import { Shield, Music, MapPin, Loader2, XCircle, Search, X, Upload } from 'lucide-react'
 import { usePendingShows, useRejectedShows } from '@/lib/hooks/useAdminShows'
 import { usePendingVenueEdits } from '@/lib/hooks/useAdminVenueEdits'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -9,7 +10,26 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { PendingShowCard } from '@/components/admin/PendingShowCard'
 import { RejectedShowCard } from '@/components/admin/RejectedShowCard'
-import VenueEditsPage from './venue-edits/page'
+
+// Dynamic imports for heavy components - only loaded when their tab is active
+const ShowImportPanel = dynamic(
+  () => import('@/components/admin/ShowImportPanel').then(m => m.ShowImportPanel),
+  {
+    loading: () => (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    ),
+  }
+)
+
+const VenueEditsPage = dynamic(() => import('./venue-edits/page'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('pending-shows')
@@ -74,6 +94,10 @@ export default function AdminPage() {
                   {rejectedData.total}
                 </span>
               )}
+            </TabsTrigger>
+            <TabsTrigger value="import-show" className="gap-2">
+              <Upload className="h-4 w-4" />
+              Import Show
             </TabsTrigger>
           </TabsList>
 
@@ -186,6 +210,10 @@ export default function AdminPage() {
                   ))}
                 </div>
               )}
+          </TabsContent>
+
+          <TabsContent value="import-show" className="space-y-4">
+            <ShowImportPanel />
           </TabsContent>
         </Tabs>
       </div>

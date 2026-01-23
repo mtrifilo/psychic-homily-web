@@ -194,9 +194,6 @@ function ShowCard({ show, isAdmin }: ShowCardProps) {
       {/* Expanded Artist Music Section */}
       {isExpanded && hasArtistMusic && (
         <div className="mt-4 pt-4 border-t border-border/50">
-          <h3 className="text-sm font-semibold text-muted-foreground mb-4">
-            Discover the Artists
-          </h3>
           <div className="space-y-6">
             {artists.filter(artistHasMusic).map(artist => (
               <div key={artist.id} className="space-y-2">

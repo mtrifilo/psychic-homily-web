@@ -57,10 +57,7 @@ function CityFilters({
       {cities.map(city => {
         const isActive =
           selectedCity === city.city && selectedState === city.state
-        const label =
-          cities.filter(c => c.city === city.city).length > 1
-            ? `${city.city}, ${city.state}`
-            : city.city
+        const label = `${city.city}, ${city.state}`
 
         return (
           <FilterChip

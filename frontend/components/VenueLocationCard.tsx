@@ -19,10 +19,9 @@ interface VenueLocationCardProps {
 }
 
 /**
- * Build a Google Maps search URL for the venue.
- * Uses the venue name and address/city/state to search.
+ * Build a Google Maps search query string for the venue.
  */
-function getGoogleMapsUrl(venue: VenueLocationCardProps): string {
+function getMapQuery(venue: VenueLocationCardProps): string {
   const parts: string[] = [venue.name]
 
   if (venue.address) {
@@ -35,8 +34,25 @@ function getGoogleMapsUrl(venue: VenueLocationCardProps): string {
     parts.push(venue.zipcode)
   }
 
-  const query = encodeURIComponent(parts.join(', '))
+  return parts.join(', ')
+}
+
+/**
+ * Build a Google Maps search URL for the venue.
+ * Uses the venue name and address/city/state to search.
+ */
+function getGoogleMapsUrl(venue: VenueLocationCardProps): string {
+  const query = encodeURIComponent(getMapQuery(venue))
   return `https://www.google.com/maps/search/?api=1&query=${query}`
+}
+
+/**
+ * Build a Google Maps embed URL for the venue.
+ * Uses the legacy embed format that works without an API key.
+ */
+function getGoogleMapsEmbedUrl(venue: VenueLocationCardProps): string {
+  const query = encodeURIComponent(getMapQuery(venue))
+  return `https://maps.google.com/maps?q=${query}&t=&z=15&ie=UTF8&iwloc=&output=embed`
 }
 
 /**
@@ -60,9 +76,10 @@ function formatAddress(venue: VenueLocationCardProps): string[] {
 }
 
 export function VenueLocationCard(props: VenueLocationCardProps) {
-  const { name, className } = props
+  const { className } = props
   const addressLines = formatAddress(props)
   const mapsUrl = getGoogleMapsUrl(props)
+  const embedUrl = getGoogleMapsEmbedUrl(props)
 
   return (
     <Card className={className}>
@@ -73,6 +90,17 @@ export function VenueLocationCard(props: VenueLocationCardProps) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Embedded Map */}
+        <div className="relative w-full h-[180px] lg:h-[280px] rounded-md overflow-hidden bg-muted">
+          <iframe
+            title="Venue location map"
+            src={embedUrl}
+            className="absolute inset-0 w-full h-full border-0"
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+          />
+        </div>
+
         <div className="text-sm">
           {addressLines.map((line, index) => (
             <p key={index} className={index === 0 ? '' : 'text-muted-foreground'}>

@@ -133,8 +133,8 @@ export function MusicEmbed({
         <div className="music-embed-container">
           <iframe
             title={`${artistName} on Bandcamp`}
-            style={{ border: 0, width: '100%', maxWidth: '700px', height: compact ? '42px' : '120px' }}
-            src={`https://bandcamp.com/EmbeddedPlayer/album=${embed.albumId}/size=${compact ? 'small' : 'large'}/bgcol=1a1a1a/linkcol=f59e0b/tracklist=false/artwork=small/`}
+            style={{ border: 0, width: '100%', maxWidth: '700px', height: '120px' }}
+            src={`https://bandcamp.com/EmbeddedPlayer/album=${embed.albumId}/size=large/bgcol=1a1a1a/linkcol=f59e0b/tracklist=false/artwork=small/`}
             seamless
           />
         </div>

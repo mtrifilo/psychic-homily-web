@@ -78,7 +78,7 @@ function ShowItem({ show, state, isPastShow = false }: ShowItemProps) {
                 )}
                 <Link
                   href={`/artists/${artist.id}`}
-                  className="hover:text-primary transition-colors"
+                  className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
                 >
                   {artist.name}
                 </Link>
