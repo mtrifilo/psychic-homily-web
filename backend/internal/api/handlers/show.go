@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
@@ -17,17 +18,19 @@ import (
 
 // ShowHandler handles show-related HTTP requests
 type ShowHandler struct {
-	showService      *services.ShowService
-	savedShowService *services.SavedShowService
-	discordService   *services.DiscordService
+	showService           *services.ShowService
+	savedShowService      *services.SavedShowService
+	discordService        *services.DiscordService
+	musicDiscoveryService *services.MusicDiscoveryService
 }
 
 // NewShowHandler creates a new show handler
 func NewShowHandler(cfg *config.Config) *ShowHandler {
 	return &ShowHandler{
-		showService:      services.NewShowService(),
-		savedShowService: services.NewSavedShowService(),
-		discordService:   services.NewDiscordService(cfg),
+		showService:           services.NewShowService(),
+		savedShowService:      services.NewSavedShowService(),
+		discordService:        services.NewDiscordService(cfg),
+		musicDiscoveryService: services.NewMusicDiscoveryService(cfg),
 	}
 }
 
@@ -344,6 +347,13 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 		submitterEmail = *user.Email
 	}
 	h.discordService.NotifyNewShow(show, submitterEmail)
+
+	// Trigger music discovery for any newly created artists
+	for _, artist := range show.Artists {
+		if artist.IsNewArtist != nil && *artist.IsNewArtist {
+			h.musicDiscoveryService.DiscoverMusicForArtist(artist.ID, artist.Name)
+		}
+	}
 
 	// Auto-save the show to the submitter's personal list
 	if submittedByUserID != nil {
@@ -1001,6 +1011,89 @@ func (h *ShowHandler) AIProcessShowHandler(ctx context.Context, req *AIProcessSh
 		}{
 			Message: "AI show processing is not yet implemented",
 			Status:  "not_implemented",
+		},
+	}, nil
+}
+
+// ExportShowRequest represents the HTTP request for exporting a show
+type ExportShowRequest struct {
+	ShowID string `path:"show_id" validate:"required" doc:"Show ID to export"`
+}
+
+// ExportShowResponse represents the HTTP response for exporting a show
+// This is a raw response with custom content type
+type ExportShowResponse struct {
+	ContentType        string
+	ContentDisposition string
+	Body               []byte
+}
+
+// SetHeader sets custom headers for the response
+func (r *ExportShowResponse) SetContentType(w huma.Context) {
+	w.SetHeader("Content-Type", r.ContentType)
+	w.SetHeader("Content-Disposition", r.ContentDisposition)
+}
+
+// ExportShowHandler handles GET /shows/{show_id}/export
+// This endpoint is only available in development environment
+func (h *ShowHandler) ExportShowHandler(ctx context.Context, req *ExportShowRequest) (*huma.StreamResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Check environment - only allow in development
+	if os.Getenv("ENVIRONMENT") != "development" {
+		logger.FromContext(ctx).Warn("show_export_blocked_non_dev",
+			"environment", os.Getenv("ENVIRONMENT"),
+			"request_id", requestID,
+		)
+		return nil, huma.Error404NotFound("Not found")
+	}
+
+	// Parse show ID
+	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
+	if err != nil {
+		showErr := showerrors.ErrShowInvalidID(req.ShowID)
+		logger.FromContext(ctx).Warn("show_export_invalid_id",
+			"show_id_str", req.ShowID,
+			"error_code", showErr.Code,
+			"request_id", requestID,
+		)
+		return nil, huma.Error400BadRequest(
+			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("show_export_attempt",
+		"show_id", showID,
+	)
+
+	// Export show to markdown
+	content, filename, err := h.showService.ExportShowToMarkdown(uint(showID))
+	if err != nil {
+		logger.FromContext(ctx).Error("show_export_failed",
+			"show_id", showID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		if err.Error() == "show not found" {
+			return nil, huma.Error404NotFound("Show not found")
+		}
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to export show (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Info("show_exported",
+		"show_id", showID,
+		"filename", filename,
+		"request_id", requestID,
+	)
+
+	// Return streaming response with correct content type
+	return &huma.StreamResponse{
+		Body: func(ctx huma.Context) {
+			ctx.SetHeader("Content-Type", "text/markdown; charset=utf-8")
+			ctx.SetHeader("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+			ctx.BodyWriter().Write(content)
 		},
 	}, nil
 }

@@ -12,6 +12,14 @@ const (
 	ShowStatusPrivate  ShowStatus = "private"
 )
 
+// ShowSource represents where a show came from
+type ShowSource string
+
+const (
+	ShowSourceUser    ShowSource = "user"    // Manually submitted by a user
+	ShowSourceScraper ShowSource = "scraper" // Automatically imported from a scraper
+)
+
 type Show struct {
 	ID             uint `gorm:"primaryKey"`
 	Title          string
@@ -28,6 +36,12 @@ type Show struct {
 	Status          ShowStatus `gorm:"type:show_status;not null;default:'approved'"`
 	SubmittedBy     *uint      `gorm:"column:submitted_by"`
 	RejectionReason *string    `gorm:"column:rejection_reason"`
+
+	// Source tracking fields (for scraped shows)
+	Source        ShowSource `gorm:"type:show_source;not null;default:'user'"`
+	SourceVenue   *string    `gorm:"column:source_venue"`   // e.g., 'valley-bar', 'crescent-ballroom'
+	SourceEventID *string    `gorm:"column:source_event_id"` // External event ID for deduplication
+	ScrapedAt     *time.Time `gorm:"column:scraped_at"`      // When the event was scraped
 
 	// Relationships
 	Venues  []Venue  `gorm:"many2many:show_venues;"`

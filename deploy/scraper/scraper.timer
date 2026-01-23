@@ -1,0 +1,14 @@
+[Unit]
+Description=Weekly venue scraper timer
+Requires=scraper.service
+
+[Timer]
+# Run every Sunday at 3:00 AM local time
+OnCalendar=Sun *-*-* 03:00:00
+# Randomize start time by up to 30 minutes to avoid thundering herd
+RandomizedDelaySec=1800
+# Run immediately if we missed the last scheduled time (e.g., system was off)
+Persistent=true
+
+[Install]
+WantedBy=timers.target

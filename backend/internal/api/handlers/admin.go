@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strconv"
 
@@ -16,17 +17,19 @@ import (
 
 // AdminHandler handles admin-related HTTP requests
 type AdminHandler struct {
-	showService    *services.ShowService
-	venueService   *services.VenueService
-	discordService *services.DiscordService
+	showService           *services.ShowService
+	venueService          *services.VenueService
+	discordService        *services.DiscordService
+	musicDiscoveryService *services.MusicDiscoveryService
 }
 
 // NewAdminHandler creates a new admin handler
 func NewAdminHandler(cfg *config.Config) *AdminHandler {
 	return &AdminHandler{
-		showService:    services.NewShowService(),
-		venueService:   services.NewVenueService(),
-		discordService: services.NewDiscordService(cfg),
+		showService:           services.NewShowService(),
+		venueService:          services.NewVenueService(),
+		discordService:        services.NewDiscordService(cfg),
+		musicDiscoveryService: services.NewMusicDiscoveryService(cfg),
 	}
 }
 
@@ -565,4 +568,146 @@ func (h *AdminHandler) RejectVenueEditHandler(ctx context.Context, req *RejectVe
 	)
 
 	return &RejectVenueEditResponse{Body: *edit}, nil
+}
+
+// ============================================================================
+// Show Import Admin Handlers
+// ============================================================================
+
+// ImportShowPreviewRequest represents the HTTP request for previewing a show import
+type ImportShowPreviewRequest struct {
+	Body struct {
+		// Content is the base64-encoded markdown file content
+		Content string `json:"content" validate:"required" doc:"Base64-encoded markdown file content"`
+	}
+}
+
+// ImportShowPreviewResponse represents the HTTP response for previewing a show import
+type ImportShowPreviewResponse struct {
+	Body services.ImportPreviewResponse `json:"body"`
+}
+
+// ImportShowPreviewHandler handles POST /admin/shows/import/preview
+func (h *AdminHandler) ImportShowPreviewHandler(ctx context.Context, req *ImportShowPreviewRequest) (*ImportShowPreviewResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Decode base64 content
+	content, err := base64.StdEncoding.DecodeString(req.Body.Content)
+	if err != nil {
+		logger.FromContext(ctx).Warn("import_preview_decode_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error400BadRequest("Invalid base64 content")
+	}
+
+	logger.FromContext(ctx).Debug("admin_import_preview_attempt",
+		"content_size", len(content),
+		"admin_id", user.ID,
+	)
+
+	// Preview the import
+	preview, err := h.showService.PreviewShowImport(content)
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_import_preview_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Failed to preview import: %s (request_id: %s)", err.Error(), requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("admin_import_preview_success",
+		"can_import", preview.CanImport,
+		"warning_count", len(preview.Warnings),
+		"venue_count", len(preview.Venues),
+		"artist_count", len(preview.Artists),
+	)
+
+	return &ImportShowPreviewResponse{Body: *preview}, nil
+}
+
+// ImportShowConfirmRequest represents the HTTP request for confirming a show import
+type ImportShowConfirmRequest struct {
+	Body struct {
+		// Content is the base64-encoded markdown file content
+		Content string `json:"content" validate:"required" doc:"Base64-encoded markdown file content"`
+	}
+}
+
+// ImportShowConfirmResponse represents the HTTP response for confirming a show import
+type ImportShowConfirmResponse struct {
+	Body services.ShowResponse `json:"body"`
+}
+
+// ImportShowConfirmHandler handles POST /admin/shows/import/confirm
+func (h *AdminHandler) ImportShowConfirmHandler(ctx context.Context, req *ImportShowConfirmRequest) (*ImportShowConfirmResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Decode base64 content
+	content, err := base64.StdEncoding.DecodeString(req.Body.Content)
+	if err != nil {
+		logger.FromContext(ctx).Warn("import_confirm_decode_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error400BadRequest("Invalid base64 content")
+	}
+
+	logger.FromContext(ctx).Debug("admin_import_confirm_attempt",
+		"content_size", len(content),
+		"admin_id", user.ID,
+	)
+
+	// Confirm the import (admin imports auto-verify venues)
+	show, err := h.showService.ConfirmShowImport(content, true)
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_import_confirm_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Failed to import show: %s (request_id: %s)", err.Error(), requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Info("admin_import_confirm_success",
+		"show_id", show.ID,
+		"title", show.Title,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	// Send Discord notification for new show
+	h.discordService.NotifyNewShow(show, "")
+
+	// Trigger music discovery for any newly created artists
+	for _, artist := range show.Artists {
+		if artist.IsNewArtist != nil && *artist.IsNewArtist {
+			h.musicDiscoveryService.DiscoverMusicForArtist(artist.ID, artist.Name)
+		}
+	}
+
+	return &ImportShowConfirmResponse{Body: *show}, nil
 }

@@ -1,0 +1,13 @@
+{
+  "name": "venue-scraper-poc",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "scrape": "node scrape-ticketweb-venue.js --all",
+    "scrape:valley-bar": "node scrape-ticketweb-venue.js valley-bar",
+    "scrape:crescent": "node scrape-ticketweb-venue.js crescent-ballroom"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0"
+  }
+}

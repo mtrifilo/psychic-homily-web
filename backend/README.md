@@ -669,13 +669,58 @@ The API uses PostgreSQL with the following main tables:
 
 ## Development
 
+## Venue Scraper
+
+The project includes an automated venue scraper that imports show data from venue calendars.
+
+### Components
+
+- **Node.js Scraper** (`scripts/venue-scraper/`) - Playwright-based scraper for TicketWeb venues
+- **Go Importer** (`cmd/scrape-import/`) - CLI tool to import scraped JSON into the database
+- **Systemd Timer** (`deploy/scraper/`) - Weekly scheduled runs on the server
+
+### Usage
+
+```bash
+# Run scraper and import (from project root)
+cd scripts/venue-scraper
+./run-scraper.sh
+
+# Dry run (no database changes)
+./run-scraper.sh --dry-run
+
+# Import only (if you have JSON files)
+cd backend
+go build -o ./scrape-import ./cmd/scrape-import
+./scrape-import -input ../scripts/venue-scraper/output/scraped-events-*.json -dry-run
+```
+
+### Server Deployment
+
+```bash
+# Install systemd timer
+sudo cp deploy/scraper/scraper.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now scraper.timer
+
+# Manual run
+sudo systemctl start scraper.service
+journalctl -u scraper.service -f
+```
+
+See `docs/venue-scraper-design.md` for detailed documentation.
+
+---
+
 ### Project Structure
 
 ```
 backend/
 ├── cmd/
-│   └── server/
-│       └── main.go              # Application entry point
+│   ├── server/
+│   │   └── main.go              # Application entry point
+│   └── scrape-import/
+│       └── main.go              # Venue scraper importer CLI
 ├── internal/
 │   ├── api/
 │   │   ├── handlers/            # HTTP handlers
@@ -694,6 +739,10 @@ backend/
 │   ├── deploy-to-production.sh  # Deploy to production
 │   ├── update-production.sh     # Update production
 │   └── verify-gcs-backups.sh    # Verify backup integrity
+├── docs/                        # Documentation
+│   └── venue-scraper-design.md  # Venue scraper architecture
+├── deploy/                      # Deployment configurations
+│   └── scraper/                 # Systemd units for venue scraper
 ├── Dockerfile                   # Docker image definition
 ├── docker-compose.yml           # Docker Compose configuration
 ├── docker-compose.prod.yml      # Production Docker Compose

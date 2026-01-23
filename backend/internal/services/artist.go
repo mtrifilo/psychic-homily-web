@@ -39,13 +39,14 @@ type CreateArtistRequest struct {
 
 // ArtistDetailResponse represents the artist data returned to clients
 type ArtistDetailResponse struct {
-	ID        uint           `json:"id"`
-	Name      string         `json:"name"`
-	State     *string        `json:"state"`
-	City      *string        `json:"city"`
-	Social    SocialResponse `json:"social"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	ID               uint           `json:"id"`
+	Name             string         `json:"name"`
+	State            *string        `json:"state"`
+	City             *string        `json:"city"`
+	BandcampEmbedURL *string        `json:"bandcamp_embed_url"`
+	Social           SocialResponse `json:"social"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
 }
 
 // SocialResponse represents social media links
@@ -289,10 +290,11 @@ func (s *ArtistService) SearchArtists(query string) ([]*ArtistDetailResponse, er
 // buildArtistResponse converts an Artist model to ArtistDetailResponse
 func (s *ArtistService) buildArtistResponse(artist *models.Artist) *ArtistDetailResponse {
 	return &ArtistDetailResponse{
-		ID:    artist.ID,
-		Name:  artist.Name,
-		State: artist.State,
-		City:  artist.City,
+		ID:               artist.ID,
+		Name:             artist.Name,
+		State:            artist.State,
+		City:             artist.City,
+		BandcampEmbedURL: artist.BandcampEmbedURL,
 		Social: SocialResponse{
 			Instagram:  artist.Social.Instagram,
 			Facebook:   artist.Social.Facebook,

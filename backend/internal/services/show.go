@@ -1,12 +1,16 @@
 package services
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/base64"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
@@ -1275,4 +1279,498 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 		SourceVenue:     show.SourceVenue,
 		ScrapedAt:       show.ScrapedAt,
 	}
+}
+
+// ============================================================================
+// Show Export/Import Feature
+// ============================================================================
+
+// ExportShowData represents the show data in the markdown frontmatter
+type ExportShowData struct {
+	Title          string   `yaml:"title"`
+	EventDate      string   `yaml:"event_date"`
+	City           string   `yaml:"city,omitempty"`
+	State          string   `yaml:"state,omitempty"`
+	Price          *float64 `yaml:"price,omitempty"`
+	AgeRequirement string   `yaml:"age_requirement,omitempty"`
+	Status         string   `yaml:"status"`
+}
+
+// ExportVenueSocial represents venue social links in export
+type ExportVenueSocial struct {
+	Instagram  string `yaml:"instagram,omitempty"`
+	Facebook   string `yaml:"facebook,omitempty"`
+	Twitter    string `yaml:"twitter,omitempty"`
+	YouTube    string `yaml:"youtube,omitempty"`
+	Spotify    string `yaml:"spotify,omitempty"`
+	SoundCloud string `yaml:"soundcloud,omitempty"`
+	Bandcamp   string `yaml:"bandcamp,omitempty"`
+	Website    string `yaml:"website,omitempty"`
+}
+
+// ExportVenueData represents a venue in the markdown frontmatter
+type ExportVenueData struct {
+	Name    string            `yaml:"name"`
+	City    string            `yaml:"city"`
+	State   string            `yaml:"state"`
+	Address string            `yaml:"address,omitempty"`
+	Zipcode string            `yaml:"zipcode,omitempty"`
+	Social  ExportVenueSocial `yaml:"social,omitempty"`
+}
+
+// ExportArtistSocial represents artist social links in export
+type ExportArtistSocial struct {
+	Instagram  string `yaml:"instagram,omitempty"`
+	Facebook   string `yaml:"facebook,omitempty"`
+	Twitter    string `yaml:"twitter,omitempty"`
+	YouTube    string `yaml:"youtube,omitempty"`
+	Spotify    string `yaml:"spotify,omitempty"`
+	SoundCloud string `yaml:"soundcloud,omitempty"`
+	Bandcamp   string `yaml:"bandcamp,omitempty"`
+	Website    string `yaml:"website,omitempty"`
+}
+
+// ExportArtistData represents an artist in the markdown frontmatter
+type ExportArtistData struct {
+	Name     string             `yaml:"name"`
+	Position int                `yaml:"position"`
+	SetType  string             `yaml:"set_type"`
+	City     string             `yaml:"city,omitempty"`
+	State    string             `yaml:"state,omitempty"`
+	Social   ExportArtistSocial `yaml:"social,omitempty"`
+}
+
+// ExportFrontmatter represents the complete markdown frontmatter
+type ExportFrontmatter struct {
+	Version    string             `yaml:"version"`
+	ExportedAt string             `yaml:"exported_at"`
+	Show       ExportShowData     `yaml:"show"`
+	Venues     []ExportVenueData  `yaml:"venues"`
+	Artists    []ExportArtistData `yaml:"artists"`
+}
+
+// ExportShowToMarkdown exports a show to markdown format
+// Returns the markdown content, suggested filename, and error
+func (s *ShowService) ExportShowToMarkdown(showID uint) ([]byte, string, error) {
+	if s.db == nil {
+		return nil, "", fmt.Errorf("database not initialized")
+	}
+
+	// Fetch show with preloaded venues and artists
+	var show models.Show
+	err := s.db.Preload("Venues").Preload("Artists").First(&show, showID).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, "", fmt.Errorf("show not found")
+		}
+		return nil, "", fmt.Errorf("failed to get show: %w", err)
+	}
+
+	// Get ordered show artists from junction table
+	var showArtists []models.ShowArtist
+	s.db.Where("show_id = ?", show.ID).Order("position ASC").Find(&showArtists)
+
+	// Build frontmatter data
+	frontmatter := ExportFrontmatter{
+		Version:    "1.0",
+		ExportedAt: time.Now().UTC().Format(time.RFC3339),
+		Show: ExportShowData{
+			Title:     show.Title,
+			EventDate: show.EventDate.UTC().Format(time.RFC3339),
+			Status:    string(show.Status),
+		},
+	}
+
+	// Add optional show fields
+	if show.City != nil {
+		frontmatter.Show.City = *show.City
+	}
+	if show.State != nil {
+		frontmatter.Show.State = *show.State
+	}
+	if show.Price != nil {
+		frontmatter.Show.Price = show.Price
+	}
+	if show.AgeRequirement != nil && *show.AgeRequirement != "" {
+		frontmatter.Show.AgeRequirement = *show.AgeRequirement
+	}
+
+	// Build venues
+	for _, venue := range show.Venues {
+		venueData := ExportVenueData{
+			Name:  venue.Name,
+			City:  venue.City,
+			State: venue.State,
+		}
+		if venue.Address != nil {
+			venueData.Address = *venue.Address
+		}
+		if venue.Zipcode != nil {
+			venueData.Zipcode = *venue.Zipcode
+		}
+		// Add social links
+		if venue.Social.Instagram != nil {
+			venueData.Social.Instagram = *venue.Social.Instagram
+		}
+		if venue.Social.Facebook != nil {
+			venueData.Social.Facebook = *venue.Social.Facebook
+		}
+		if venue.Social.Twitter != nil {
+			venueData.Social.Twitter = *venue.Social.Twitter
+		}
+		if venue.Social.YouTube != nil {
+			venueData.Social.YouTube = *venue.Social.YouTube
+		}
+		if venue.Social.Spotify != nil {
+			venueData.Social.Spotify = *venue.Social.Spotify
+		}
+		if venue.Social.SoundCloud != nil {
+			venueData.Social.SoundCloud = *venue.Social.SoundCloud
+		}
+		if venue.Social.Bandcamp != nil {
+			venueData.Social.Bandcamp = *venue.Social.Bandcamp
+		}
+		if venue.Social.Website != nil {
+			venueData.Social.Website = *venue.Social.Website
+		}
+		frontmatter.Venues = append(frontmatter.Venues, venueData)
+	}
+
+	// Build artists in order
+	for _, sa := range showArtists {
+		var artist models.Artist
+		if err := s.db.First(&artist, sa.ArtistID).Error; err != nil {
+			continue
+		}
+
+		artistData := ExportArtistData{
+			Name:     artist.Name,
+			Position: sa.Position,
+			SetType:  sa.SetType,
+		}
+		if artist.City != nil {
+			artistData.City = *artist.City
+		}
+		if artist.State != nil {
+			artistData.State = *artist.State
+		}
+		// Add social links
+		if artist.Social.Instagram != nil {
+			artistData.Social.Instagram = *artist.Social.Instagram
+		}
+		if artist.Social.Facebook != nil {
+			artistData.Social.Facebook = *artist.Social.Facebook
+		}
+		if artist.Social.Twitter != nil {
+			artistData.Social.Twitter = *artist.Social.Twitter
+		}
+		if artist.Social.YouTube != nil {
+			artistData.Social.YouTube = *artist.Social.YouTube
+		}
+		if artist.Social.Spotify != nil {
+			artistData.Social.Spotify = *artist.Social.Spotify
+		}
+		if artist.Social.SoundCloud != nil {
+			artistData.Social.SoundCloud = *artist.Social.SoundCloud
+		}
+		if artist.Social.Bandcamp != nil {
+			artistData.Social.Bandcamp = *artist.Social.Bandcamp
+		}
+		if artist.Social.Website != nil {
+			artistData.Social.Website = *artist.Social.Website
+		}
+		frontmatter.Artists = append(frontmatter.Artists, artistData)
+	}
+
+	// Marshal frontmatter to YAML
+	yamlData, err := yaml.Marshal(frontmatter)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to marshal frontmatter: %w", err)
+	}
+
+	// Build markdown content
+	var buf bytes.Buffer
+	buf.WriteString("---\n")
+	buf.Write(yamlData)
+	buf.WriteString("---\n\n")
+
+	// Add description as markdown body
+	if show.Description != nil && *show.Description != "" {
+		buf.WriteString("## Description\n\n")
+		buf.WriteString(*show.Description)
+		buf.WriteString("\n")
+	}
+
+	// Generate filename
+	dateStr := show.EventDate.Format("2006-01-02")
+	titleSlug := strings.ReplaceAll(strings.ToLower(show.Title), " ", "-")
+	// Remove special characters from slug
+	titleSlug = regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(titleSlug, "")
+	filename := fmt.Sprintf("show-%s-%s.md", dateStr, titleSlug)
+
+	return buf.Bytes(), filename, nil
+}
+
+// ParsedShowImport represents the parsed markdown data for import preview
+type ParsedShowImport struct {
+	Frontmatter ExportFrontmatter
+	Description string
+}
+
+// VenueMatchResult represents the result of matching a venue
+type VenueMatchResult struct {
+	Name       string `json:"name"`
+	City       string `json:"city"`
+	State      string `json:"state"`
+	ExistingID *uint  `json:"existing_id,omitempty"`
+	WillCreate bool   `json:"will_create"`
+}
+
+// ArtistMatchResult represents the result of matching an artist
+type ArtistMatchResult struct {
+	Name       string `json:"name"`
+	Position   int    `json:"position"`
+	SetType    string `json:"set_type"`
+	ExistingID *uint  `json:"existing_id,omitempty"`
+	WillCreate bool   `json:"will_create"`
+}
+
+// ImportPreviewResponse represents the preview response for show import
+type ImportPreviewResponse struct {
+	Show      ExportShowData      `json:"show"`
+	Venues    []VenueMatchResult  `json:"venues"`
+	Artists   []ArtistMatchResult `json:"artists"`
+	Warnings  []string            `json:"warnings"`
+	CanImport bool                `json:"can_import"`
+}
+
+// ParseShowMarkdown parses a markdown file and returns the parsed data
+func (s *ShowService) ParseShowMarkdown(content []byte) (*ParsedShowImport, error) {
+	// Split frontmatter and body
+	str := string(content)
+
+	// Check for frontmatter delimiters
+	if !strings.HasPrefix(str, "---") {
+		return nil, fmt.Errorf("invalid markdown: missing frontmatter delimiter")
+	}
+
+	// Find the closing delimiter
+	parts := strings.SplitN(str[3:], "---", 2)
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("invalid markdown: missing closing frontmatter delimiter")
+	}
+
+	frontmatterYAML := strings.TrimSpace(parts[0])
+	body := strings.TrimSpace(parts[1])
+
+	// Parse frontmatter
+	var frontmatter ExportFrontmatter
+	if err := yaml.Unmarshal([]byte(frontmatterYAML), &frontmatter); err != nil {
+		return nil, fmt.Errorf("failed to parse frontmatter: %w", err)
+	}
+
+	// Extract description from body (look for ## Description section)
+	description := ""
+	if body != "" {
+		scanner := bufio.NewScanner(strings.NewReader(body))
+		inDescription := false
+		var descLines []string
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "## Description") {
+				inDescription = true
+				continue
+			}
+			if inDescription {
+				// Stop at next heading
+				if strings.HasPrefix(line, "##") {
+					break
+				}
+				descLines = append(descLines, line)
+			}
+		}
+		description = strings.TrimSpace(strings.Join(descLines, "\n"))
+	}
+
+	return &ParsedShowImport{
+		Frontmatter: frontmatter,
+		Description: description,
+	}, nil
+}
+
+// PreviewShowImport previews the import by checking for existing venues and artists
+func (s *ShowService) PreviewShowImport(content []byte) (*ImportPreviewResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Parse the markdown
+	parsed, err := s.ParseShowMarkdown(content)
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ImportPreviewResponse{
+		Show:      parsed.Frontmatter.Show,
+		Venues:    make([]VenueMatchResult, 0),
+		Artists:   make([]ArtistMatchResult, 0),
+		Warnings:  make([]string, 0),
+		CanImport: true,
+	}
+
+	// Validate required fields
+	if parsed.Frontmatter.Show.EventDate == "" {
+		response.Warnings = append(response.Warnings, "Missing event date")
+		response.CanImport = false
+	}
+
+	if len(parsed.Frontmatter.Venues) == 0 {
+		response.Warnings = append(response.Warnings, "No venues specified")
+		response.CanImport = false
+	}
+
+	if len(parsed.Frontmatter.Artists) == 0 {
+		response.Warnings = append(response.Warnings, "No artists specified")
+		response.CanImport = false
+	}
+
+	// Check venues
+	for _, venueData := range parsed.Frontmatter.Venues {
+		result := VenueMatchResult{
+			Name:  venueData.Name,
+			City:  venueData.City,
+			State: venueData.State,
+		}
+
+		// Match by LOWER(name) = ? AND LOWER(city) = ?
+		var venue models.Venue
+		err := s.db.Where("LOWER(name) = ? AND LOWER(city) = ?",
+			strings.ToLower(venueData.Name),
+			strings.ToLower(venueData.City),
+		).First(&venue).Error
+
+		if err == nil {
+			result.ExistingID = &venue.ID
+			result.WillCreate = false
+		} else if err == gorm.ErrRecordNotFound {
+			result.WillCreate = true
+		} else {
+			return nil, fmt.Errorf("failed to check venue: %w", err)
+		}
+
+		response.Venues = append(response.Venues, result)
+	}
+
+	// Check artists
+	for _, artistData := range parsed.Frontmatter.Artists {
+		result := ArtistMatchResult{
+			Name:     artistData.Name,
+			Position: artistData.Position,
+			SetType:  artistData.SetType,
+		}
+
+		// Match by LOWER(name) = ?
+		var artist models.Artist
+		err := s.db.Where("LOWER(name) = ?", strings.ToLower(artistData.Name)).First(&artist).Error
+
+		if err == nil {
+			result.ExistingID = &artist.ID
+			result.WillCreate = false
+		} else if err == gorm.ErrRecordNotFound {
+			result.WillCreate = true
+		} else {
+			return nil, fmt.Errorf("failed to check artist: %w", err)
+		}
+
+		response.Artists = append(response.Artists, result)
+	}
+
+	// Check for potential duplicate (same headliner at same venue on same date)
+	eventDate, err := time.Parse(time.RFC3339, parsed.Frontmatter.Show.EventDate)
+	if err == nil {
+		// Find headliners
+		for _, artistResult := range response.Artists {
+			if artistResult.SetType == "headliner" && artistResult.ExistingID != nil {
+				for _, venueResult := range response.Venues {
+					if venueResult.ExistingID != nil {
+						// Check for existing show
+						var existingShows []models.Show
+						s.db.Table("shows").
+							Joins("JOIN show_artists ON shows.id = show_artists.show_id").
+							Joins("JOIN show_venues ON shows.id = show_venues.show_id").
+							Where("show_artists.artist_id = ? AND show_venues.venue_id = ? AND shows.event_date = ? AND show_artists.set_type = ?",
+								*artistResult.ExistingID, *venueResult.ExistingID, eventDate.UTC(), "headliner").
+							Find(&existingShows)
+
+						if len(existingShows) > 0 {
+							response.Warnings = append(response.Warnings,
+								fmt.Sprintf("Warning: Headliner '%s' already has a show at '%s' on this date",
+									artistResult.Name, venueResult.Name))
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return response, nil
+}
+
+// ConfirmShowImport creates a show from the parsed markdown content
+// Admin imports auto-verify venues
+func (s *ShowService) ConfirmShowImport(content []byte, isAdmin bool) (*ShowResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Parse the markdown
+	parsed, err := s.ParseShowMarkdown(content)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse event date
+	eventDate, err := time.Parse(time.RFC3339, parsed.Frontmatter.Show.EventDate)
+	if err != nil {
+		return nil, fmt.Errorf("invalid event date: %w", err)
+	}
+
+	// Build venues for CreateShowRequest
+	var requestVenues []CreateShowVenue
+	for _, venueData := range parsed.Frontmatter.Venues {
+		requestVenues = append(requestVenues, CreateShowVenue{
+			Name:    venueData.Name,
+			City:    venueData.City,
+			State:   venueData.State,
+			Address: venueData.Address,
+		})
+	}
+
+	// Build artists for CreateShowRequest
+	var requestArtists []CreateShowArtist
+	for _, artistData := range parsed.Frontmatter.Artists {
+		isHeadliner := artistData.SetType == "headliner"
+		requestArtists = append(requestArtists, CreateShowArtist{
+			Name:        artistData.Name,
+			IsHeadliner: &isHeadliner,
+		})
+	}
+
+	// Build the create request
+	req := &CreateShowRequest{
+		Title:            parsed.Frontmatter.Show.Title,
+		EventDate:        eventDate,
+		City:             parsed.Frontmatter.Show.City,
+		State:            parsed.Frontmatter.Show.State,
+		Price:            parsed.Frontmatter.Show.Price,
+		AgeRequirement:   parsed.Frontmatter.Show.AgeRequirement,
+		Description:      parsed.Description,
+		Venues:           requestVenues,
+		Artists:          requestArtists,
+		SubmitterIsAdmin: isAdmin,
+	}
+
+	// Create the show
+	return s.CreateShow(req)
 }

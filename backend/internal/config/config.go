@@ -60,24 +60,36 @@ const (
 	// Discord
 	EnvDiscordWebhookURL = "DISCORD_WEBHOOK_URL"
 	EnvDiscordEnabled    = "DISCORD_NOTIFICATIONS_ENABLED"
+
+	// Music Discovery
+	EnvInternalAPISecret        = "INTERNAL_API_SECRET"
+	EnvMusicDiscoveryEnabled    = "MUSIC_DISCOVERY_ENABLED"
 )
 
 // Config holds all configuration for the application
 type Config struct {
-	Server   ServerConfig
-	CORS     CORSConfig
-	OAuth    OAuthConfig
-	Database DatabaseConfig
-	JWT      JWTConfig
-	Session  SessionConfig
-	Email    EmailConfig
-	Discord  DiscordConfig
+	Server         ServerConfig
+	CORS           CORSConfig
+	OAuth          OAuthConfig
+	Database       DatabaseConfig
+	JWT            JWTConfig
+	Session        SessionConfig
+	Email          EmailConfig
+	Discord        DiscordConfig
+	MusicDiscovery MusicDiscoveryConfig
 }
 
 // DiscordConfig holds Discord webhook configuration for admin notifications
 type DiscordConfig struct {
 	WebhookURL string
 	Enabled    bool
+}
+
+// MusicDiscoveryConfig holds configuration for automatic music discovery
+type MusicDiscoveryConfig struct {
+	InternalAPISecret string
+	Enabled           bool
+	FrontendURL       string
 }
 
 // EmailConfig holds email-related configuration (Resend)
@@ -195,6 +207,11 @@ func Load() *Config {
 		Discord: DiscordConfig{
 			WebhookURL: GetEnv(EnvDiscordWebhookURL, ""),
 			Enabled:    getEnvAsBool(EnvDiscordEnabled, false),
+		},
+		MusicDiscovery: MusicDiscoveryConfig{
+			InternalAPISecret: GetEnv(EnvInternalAPISecret, ""),
+			Enabled:           getEnvAsBool(EnvMusicDiscoveryEnabled, false),
+			FrontendURL:       getFrontendURL(),
 		},
 	}
 }

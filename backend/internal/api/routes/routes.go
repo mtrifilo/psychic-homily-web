@@ -3,6 +3,7 @@ package routes
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
@@ -89,6 +90,11 @@ func setupShowRoutes(api huma.API, protected *huma.Group, cfg *config.Config) {
 	huma.Get(api, "/shows/upcoming", showHandler.GetUpcomingShowsHandler)
 	huma.Get(api, "/shows/{show_id}", showHandler.GetShowHandler)
 
+	// Export endpoint - only register in development environment
+	if os.Getenv("ENVIRONMENT") == "development" {
+		huma.Get(api, "/shows/{show_id}/export", showHandler.ExportShowHandler)
+	}
+
 	// Protected show endpoints - registered on protected group with middleware
 	huma.Post(protected, "/shows", showHandler.CreateShowHandler)
 	huma.Put(protected, "/shows/{show_id}", showHandler.UpdateShowHandler)
@@ -146,12 +152,17 @@ func setupSavedShowRoutes(protected *huma.Group) {
 // Note: Admin check is performed inside handlers, JWT auth is required via protected group
 func setupAdminRoutes(protected *huma.Group, cfg *config.Config) {
 	adminHandler := handlers.NewAdminHandler(cfg)
+	artistHandler := handlers.NewArtistHandler()
 
 	// Admin show management endpoints
 	huma.Get(protected, "/admin/shows/pending", adminHandler.GetPendingShowsHandler)
 	huma.Get(protected, "/admin/shows/rejected", adminHandler.GetRejectedShowsHandler)
 	huma.Post(protected, "/admin/shows/{show_id}/approve", adminHandler.ApproveShowHandler)
 	huma.Post(protected, "/admin/shows/{show_id}/reject", adminHandler.RejectShowHandler)
+
+	// Admin show import endpoints
+	huma.Post(protected, "/admin/shows/import/preview", adminHandler.ImportShowPreviewHandler)
+	huma.Post(protected, "/admin/shows/import/confirm", adminHandler.ImportShowConfirmHandler)
 
 	// Admin venue management endpoints
 	huma.Post(protected, "/admin/venues/{venue_id}/verify", adminHandler.VerifyVenueHandler)
@@ -160,4 +171,8 @@ func setupAdminRoutes(protected *huma.Group, cfg *config.Config) {
 	huma.Get(protected, "/admin/venues/pending-edits", adminHandler.GetPendingVenueEditsHandler)
 	huma.Post(protected, "/admin/venues/pending-edits/{edit_id}/approve", adminHandler.ApproveVenueEditHandler)
 	huma.Post(protected, "/admin/venues/pending-edits/{edit_id}/reject", adminHandler.RejectVenueEditHandler)
+
+	// Admin artist management endpoints
+	huma.Patch(protected, "/admin/artists/{artist_id}/bandcamp", artistHandler.UpdateArtistBandcampHandler)
+	huma.Patch(protected, "/admin/artists/{artist_id}/spotify", artistHandler.UpdateArtistSpotifyHandler)
 }
