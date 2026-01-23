@@ -3,8 +3,8 @@ import path from 'path'
 import matter from 'gray-matter'
 import type { BlogPost, BlogPostMeta, BlogPostFrontmatter } from './types/blog'
 
-// Path to blog content (relative to project root, goes up to parent Hugo project)
-const BLOG_CONTENT_PATH = path.join(process.cwd(), '..', 'content', 'blog')
+// Path to blog content (inside frontend directory)
+const BLOG_CONTENT_PATH = path.join(process.cwd(), 'content', 'blog')
 
 /**
  * Get all blog post slugs for static generation

@@ -3,8 +3,8 @@ import path from 'path'
 import matter from 'gray-matter'
 import type { Mix, MixMeta, MixFrontmatter } from './types/mix'
 
-// Path to mixes content (relative to project root, goes up to parent Hugo project)
-const MIXES_CONTENT_PATH = path.join(process.cwd(), '..', 'content', 'mixes')
+// Path to mixes content (inside frontend directory)
+const MIXES_CONTENT_PATH = path.join(process.cwd(), 'content', 'mixes')
 
 /**
  * Get all mix slugs for static generation
