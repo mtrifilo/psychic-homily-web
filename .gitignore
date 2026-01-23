@@ -64,6 +64,7 @@ postgres-data/
 !package-lock.json
 !pnpm-lock.yaml
 !go.sum
+!vercel.json
 
 # Backup files
 *.backup
