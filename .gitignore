@@ -62,6 +62,7 @@ postgres-data/
 *.json
 !package.json
 !package-lock.json
+!tsconfig.json
 !pnpm-lock.yaml
 !go.sum
 !vercel.json
