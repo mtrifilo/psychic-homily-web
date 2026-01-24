@@ -31,5 +31,5 @@
     "**/*.ts",
     "**/*.tsx"
   ],
-  "exclude": ["node_modules", "vitest.config.mts"]
+  "exclude": ["node_modules", "vitest.config.mts", "scripts"]
 }
