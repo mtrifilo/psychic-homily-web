@@ -10,13 +10,13 @@ This document outlines the plan to migrate the Psychic Homily backend deployment
 
 ### Server Specifications
 
-| Resource       | Current Value         | Notes                                 |
-| -------------- | --------------------- | ------------------------------------- |
-| OS             | Ubuntu 24.10 x64      | DigitalOcean Droplet                  |
-| RAM            | 2GB                   | ✅ Upgraded from 960MB                |
-| Disk           | 25GB                  | Sufficient for Coolify                |
-| Docker         | 28.4.0                | ✅ Already installed                  |
-| Docker Compose | v2.39.2               | ✅ Already installed                  |
+| Resource       | Current Value    | Notes                  |
+| -------------- | ---------------- | ---------------------- |
+| OS             | Ubuntu 24.10 x64 | DigitalOcean Droplet   |
+| RAM            | 2GB              | ✅ Upgraded from 960MB |
+| Disk           | 25GB             | Sufficient for Coolify |
+| Docker         | 28.4.0           | ✅ Already installed   |
+| Docker Compose | v2.39.2          | ✅ Already installed   |
 
 ### Current Deployment Architecture
 
@@ -163,7 +163,6 @@ Then configure in Coolify settings.
 1. In Coolify → **Projects** → Create Project (e.g., `psychic-homily-production`)
 2. Inside the project, click **+ Add** → Database → PostgreSQL
 3. Create two PostgreSQL instances:
-
    - **Production DB**: `postgres:18.1-alpine`
    - **Stage DB**: `postgres:18.1-alpine`
 
@@ -191,32 +190,33 @@ sudo docker exec -i <container-id> psql -U <user> -d <dbname> -c '\dt'
 ```
 
 Stage:
+
 ```
-DB_HOST=z88gow84ogw00oc4c4c8808w
+DB_HOST=
 DB_PORT=5432
 DB_USER=ph_stage_user
 DB_NAME=psychic_homily_stage
 ```
 
 Production:
+
 ```
-DB_HOST=nkg0wo808kcosog4004ow8cc
+DB_HOST=
 DB_PORT=5432
 DB_USER=psychic-db
 DB_NAME=psychic-db-production
-DB_PASSWORD=e0WwJ8Tar9YL1ZN7zDZwcMjhOv9UdcZBWZd1gGApSzZYxYRP81j4PgtuvqTFg8tC
+DB_PASSWORD=
 ```
-
 
 #### Step 2.3: Create Redis Services in Coolify
 
 1. In Coolify → Resources → New → Database → Redis
 2. Create two Redis instances (production and stage)
 
-
 Stage:
+
 ```
-DB_HOST=z88gow84ogw00oc4c4c8808w
+DB_HOST=
 DB_PORT=5432
 DB_USER=ph_stage_user
 DB_NAME=psychic_homily_stage
@@ -224,15 +224,15 @@ REDIS_ADDR=ssowscg0oswg4kgck4s08wko:6379
 ```
 
 Production
+
 ```
-DB_HOST=nkg0wo808kcosog4004ow8cc
+DB_HOST=
 DB_PORT=5432
 DB_USER=psychic-db
 DB_NAME=psychic-db-production
-DB_PASSWORD=e0WwJ8Tar9YL1ZN7zDZwcMjhOv9UdcZBWZd1gGApSzZYxYRP81j4PgtuvqTFg8tC
+DB_PASSWORD=
 REDIS_ADDR=v00wooowo0c44sc0400ckg00:6379
 ```
-
 
 ---
 
@@ -249,7 +249,6 @@ REDIS_ADDR=v00wooowo0c44sc0400ckg00:6379
 1. Coolify → Resources → New → Application
 2. Select GitHub as source
 3. Configure:
-
    - **Repository**: `psychic-homily-web`
    - **Branch**: `main`
    - **Build Pack**: Dockerfile
@@ -271,7 +270,6 @@ REDIS_ADDR=v00wooowo0c44sc0400ckg00:6379
    ```
 
 5. Domain Configuration:
-
    - **Domain**: `api.psychichomily.com`
    - **SSL**: Let's Encrypt (Coolify handles this automatically via Traefik)
 
@@ -601,11 +599,13 @@ volumes:
 ### Permission Denied Error on Database Startup
 
 If you see an error like:
+
 ```
 bash: line 11: /data/coolify/databases/<id>/README.md: Permission denied
 ```
 
 This is a known Coolify bug ([GitHub Issue #5199](https://github.com/coollabsio/coolify/issues/5199)). Fix with:
+
 ```bash
 sudo chmod -R 775 /data/coolify
 ```
@@ -613,6 +613,7 @@ sudo chmod -R 775 /data/coolify
 ### Port Already Allocated Error
 
 If you see:
+
 ```
 Bind for 0.0.0.0:5433 failed: port is already allocated
 ```
@@ -622,6 +623,7 @@ This means the old database is still running on that port. **Solution:** Remove 
 ### Database Not Auto-Created
 
 Coolify's "Initial Database" field sometimes doesn't create the database. Manually create it:
+
 ```bash
 sudo docker exec -i <container-id> psql -U <user> -d postgres -c 'CREATE DATABASE <dbname>;'
 ```
@@ -629,6 +631,7 @@ sudo docker exec -i <container-id> psql -U <user> -d postgres -c 'CREATE DATABAS
 ### Finding Container Hostnames
 
 In Coolify, services connect via container ID as hostname. Find them with:
+
 ```bash
 sudo docker ps --format '{{.Names}}\t{{.Image}}'
 ```
@@ -647,20 +650,25 @@ SQL dumps from `pg_dump` are forward-compatible. Restoring a PostgreSQL 17 backu
 - [x] Phase 1: Install Coolify
 - [x] Phase 2: Database Migration
   - [x] Stage PostgreSQL created and data restored
-  - [x] Production PostgreSQL created (empty - migrations will run on backend start)
+  - [x] Production PostgreSQL created and data restored
   - [x] Stage Redis created
   - [x] Production Redis created
 - [ ] Phase 3: Deploy Backend Applications
-  - [x] Stage backend configured in Coolify
+  - [x] Stage backend configured and deployed in Coolify
   - [ ] Production backend configured in Coolify
 - [x] Phase 4: Configure Migrations
   - [x] Updated `backend/Dockerfile` with golang-migrate CLI (v4.19.1)
   - [x] Created `backend/docker-entrypoint.sh` for database wait + migrations
 - [ ] Phase 5: Cleanup Old Infrastructure
-  - [ ] Stop old stage systemd service and Docker containers
-  - [ ] Stop old production systemd service and Docker containers
-  - [ ] Remove old Nginx configuration
-  - [ ] Archive old deployment directories
+  - [x] Stop old stage systemd service
+  - [x] Stop old stage Docker containers (`ph_stage_db`, `ph_stage_redis`)
+  - [x] Remove old stage Nginx config
+  - [x] Archive old stage directory
+  - [ ] Stop old production systemd service
+  - [ ] Stop old production Docker containers
+  - [ ] Remove old production Nginx config
+  - [ ] Archive old production directory
+  - [ ] Disable Nginx service entirely
 
 ---
 
@@ -670,49 +678,50 @@ SQL dumps from `pg_dump` are forward-compatible. Restoring a PostgreSQL 17 backu
 
 The stage backend is now running on Coolify. Complete the following cleanup steps:
 
-#### 1. Verify Stage is Working on Coolify
+#### 1. Verify Stage is Working on Coolify ✅ COMPLETE
 
 ```bash
 # Test health endpoint
 curl https://stage.api.psychichomily.com/health
+# Result: {"status":"ok"}
 
-# Test a few API endpoints to confirm functionality
+# Test API endpoints
 curl https://stage.api.psychichomily.com/api/venues
+# Result: Returns venue data successfully
 ```
 
-#### 2. Stop Old Stage Infrastructure
+**Status:** Stage API is fully functional on Coolify.
 
-```bash
-ssh mattcom
+#### 2. Stop Old Stage Infrastructure ✅ COMPLETE
 
-# Stop and disable the old systemd service
-sudo systemctl stop psychic-homily-stage
-sudo systemctl disable psychic-homily-stage
+**Systemd service:** ✅ Stopped and disabled
 
-# Stop old Docker containers (database/redis - now managed by Coolify)
-docker compose -f /opt/psychic-homily-stage/backend/docker-compose.stage.yml down
+**Docker containers:** ✅ Stopped and removed (`ph_stage_db`, `ph_stage_redis`)
 
-# Verify the old service is stopped
-sudo systemctl status psychic-homily-stage
-```
+#### 3. Remove Old Stage Nginx Config ✅ COMPLETE
 
-#### 3. Remove Old Stage Nginx Config
+Nginx config files removed:
 
-```bash
-# Remove Nginx site config for stage API
-sudo rm /etc/nginx/sites-enabled/stage-api-psychichomily
-sudo rm /etc/nginx/sites-available/stage-api-psychichomily
+- `/etc/nginx/sites-enabled/stage-api-psychichomily`
+- `/etc/nginx/sites-available/stage-api-psychichomily`
 
-# Reload Nginx (if still running for production)
-sudo nginx -t && sudo systemctl reload nginx
-```
+#### 4. Archive Old Stage Directory ✅ COMPLETE
 
-#### 4. Archive Old Stage Directory (Optional)
+Old stage directory archived to `/opt/archive-psychic-homily-stage`
 
-```bash
-# Move old deployment directory to archive
-sudo mv /opt/psychic-homily-stage /opt/archive-psychic-homily-stage
-```
+---
+
+### ⚠️ Production API Status
+
+**Current Status: DOWN (Expected)**
+
+The production API (`api.psychichomily.com`) is currently offline. This is expected during the transition:
+
+- Old systemd service (`psychic-homily-production`) has been disabled
+- Coolify production backend has not yet been deployed
+- Production will be restored once the Coolify backend deployment is complete
+
+**To restore production:** Complete the "Production Backend — Deployment Steps" section below.
 
 ---
 
@@ -724,13 +733,13 @@ sudo mv /opt/psychic-homily-stage /opt/archive-psychic-homily-stage
 2. Click **+ Add** → **Application** → **GitHub**
 3. Select your repository and configure:
 
-| Setting | Value |
-|---------|-------|
-| Repository | `psychic-homily-web` |
-| Branch | `main` |
-| Build Pack | Dockerfile |
+| Setting             | Value                |
+| ------------------- | -------------------- |
+| Repository          | `psychic-homily-web` |
+| Branch              | `main`               |
+| Build Pack          | Dockerfile           |
 | Dockerfile Location | `backend/Dockerfile` |
-| Docker Context | `backend` |
+| Docker Context      | `backend`            |
 
 #### 2. Configure Environment Variables
 
@@ -774,12 +783,12 @@ LOG_LEVEL=info
 
 In Coolify application settings:
 
-| Setting | Value |
-|---------|-------|
-| Domain | `api.psychichomily.com` |
-| SSL | Automatic (Let's Encrypt via Traefik) |
-| Health Check Path | `/health` |
-| Health Check Port | `8080` |
+| Setting           | Value                                 |
+| ----------------- | ------------------------------------- |
+| Domain            | `api.psychichomily.com`               |
+| SSL               | Automatic (Let's Encrypt via Traefik) |
+| Health Check Path | `/health`                             |
+| Health Check Port | `8080`                                |
 
 #### 4. Deploy and Verify
 
@@ -872,4 +881,4 @@ These files are no longer needed but can be kept for reference:
 ---
 
 _Document created: January 12, 2026_
-_Last updated: January 19, 2026_
+_Last updated: January 24, 2026_

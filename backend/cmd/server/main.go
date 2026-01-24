@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -77,9 +78,25 @@ func main() {
 	log.Printf("CORS Configuration: Origins=%v, Methods=%v, Headers=%v, Credentials=%v",
 		cfg.CORS.AllowedOrigins, cfg.CORS.AllowedMethods, cfg.CORS.AllowedHeaders, cfg.CORS.AllowCredentials)
 
-	// CORS middleware with more explicit configuration
+	// Create a map for fast origin lookup
+	allowedOriginsMap := make(map[string]bool)
+	for _, origin := range cfg.CORS.AllowedOrigins {
+		allowedOriginsMap[origin] = true
+	}
+
+	// CORS middleware with dynamic origin validation
 	corsMiddleware := cors.New(cors.Options{
-		AllowedOrigins:   cfg.CORS.AllowedOrigins,
+		AllowOriginFunc: func(r *http.Request, origin string) bool {
+			// Check explicit allowed origins
+			if allowedOriginsMap[origin] {
+				return true
+			}
+			// Allow Vercel preview deployments (*.vercel.app)
+			if strings.HasSuffix(origin, ".vercel.app") {
+				return true
+			}
+			return false
+		},
 		AllowedMethods:   cfg.CORS.AllowedMethods,
 		AllowedHeaders:   cfg.CORS.AllowedHeaders,
 		AllowCredentials: cfg.CORS.AllowCredentials,
