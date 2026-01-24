@@ -80,3 +80,8 @@ postgres-data/
 # OS specific
 .DS_Store
 Thumbs.db
+.vercel
+.env*.local
+
+# Local development documentation (contains sensitive connection info)
+dev-docs/

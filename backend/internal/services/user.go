@@ -395,6 +395,50 @@ func (s *UserService) VerifyPassword(hashedPassword, password string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 }
 
+// UpdatePassword updates a user's password after verifying the current password
+func (s *UserService) UpdatePassword(userID uint, currentPassword, newPassword string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	// Get user with current password hash
+	user, err := s.GetUserByID(userID)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Check if user has a password (not OAuth-only)
+	if user.PasswordHash == nil {
+		return fmt.Errorf("user does not have a password set")
+	}
+
+	// Verify current password
+	if err := s.VerifyPassword(*user.PasswordHash, currentPassword); err != nil {
+		return fmt.Errorf("current password is incorrect")
+	}
+
+	// Hash the new password
+	hashedPassword, err := s.HashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// Update the password in the database
+	result := s.db.Model(&models.User{}).
+		Where("id = ?", userID).
+		Update("password_hash", hashedPassword)
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to update password: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("user not found")
+	}
+
+	return nil
+}
+
 // SetEmailVerified updates the email_verified status for a user
 func (s *UserService) SetEmailVerified(userID uint, verified bool) error {
 	if s.db == nil {

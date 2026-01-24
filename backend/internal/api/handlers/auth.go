@@ -16,24 +16,26 @@ import (
 
 // AuthHandler handles authentication requests
 type AuthHandler struct {
-	authService    *services.AuthService
-	jwtService     *services.JWTService
-	userService    *services.UserService
-	emailService   *services.EmailService
-	discordService *services.DiscordService
-	config         *config.Config
+	authService       *services.AuthService
+	jwtService        *services.JWTService
+	userService       *services.UserService
+	emailService      *services.EmailService
+	discordService    *services.DiscordService
+	passwordValidator *services.PasswordValidator
+	config            *config.Config
 }
 
 // NewAuthHandler creates a new authentication handler
 func NewAuthHandler(authService *services.AuthService, jwtService *services.JWTService,
 	userService *services.UserService, config *config.Config) *AuthHandler {
 	return &AuthHandler{
-		authService:    authService,
-		jwtService:     jwtService,
-		userService:    userService,
-		emailService:   services.NewEmailService(config),
-		discordService: services.NewDiscordService(config),
-		config:         config,
+		authService:       authService,
+		jwtService:        jwtService,
+		userService:       userService,
+		emailService:      services.NewEmailService(config),
+		discordService:    services.NewDiscordService(config),
+		passwordValidator: services.NewPasswordValidator(),
+		config:            config,
 	}
 }
 
@@ -377,6 +379,44 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		"email_hash", logger.HashEmail(input.Body.Email),
 	)
 
+	// Validate email and password presence
+	if input.Body.Email == "" || input.Body.Password == "" {
+		authErr := autherrors.ErrValidationFailed("Email and password are required")
+		logger.AuthWarn(ctx, "register_validation_failed",
+			"error", authErr.Message,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = authErr.Message
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
+	// Validate password using the password validator (min 12, max 128, breach check, common password check)
+	if h.passwordValidator != nil {
+		validationResult, err := h.passwordValidator.ValidatePassword(input.Body.Password)
+		if err != nil {
+			logger.AuthWarn(ctx, "password_validation_error",
+				"error", err.Error(),
+			)
+			// Continue with registration even if validation service fails
+		} else if !validationResult.Valid {
+			// Return the first error message
+			errorMessage := "Password does not meet security requirements"
+			if len(validationResult.Errors) > 0 {
+				errorMessage = validationResult.Errors[0]
+			}
+			authErr := autherrors.ErrValidationFailed(errorMessage)
+			logger.AuthWarn(ctx, "register_validation_failed",
+				"error", authErr.Message,
+				"all_errors", strings.Join(validationResult.Errors, "; "),
+			)
+			resp.Body.Success = false
+			resp.Body.Message = authErr.Message
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
+	}
+
 	if h.userService == nil {
 		logger.AuthError(ctx, "register_failed", autherrors.ErrServiceUnavailable("user", nil))
 		resp.Body.Success = false
@@ -646,5 +686,127 @@ func (h *AuthHandler) ConfirmVerificationHandler(ctx context.Context, input *Con
 
 	resp.Body.Success = true
 	resp.Body.Message = "Email verified successfully! You can now submit shows."
+	return resp, nil
+}
+
+// ChangePasswordRequest represents a password change request
+type ChangePasswordRequest struct {
+	Body struct {
+		CurrentPassword string `json:"current_password" doc:"Current password"`
+		NewPassword     string `json:"new_password" doc:"New password"`
+	}
+}
+
+// ChangePasswordResponse represents a password change response
+type ChangePasswordResponse struct {
+	Body struct {
+		Success   bool   `json:"success" example:"true" doc:"Success status"`
+		Message   string `json:"message" example:"Password changed successfully" doc:"Response message"`
+		ErrorCode string `json:"error_code,omitempty" example:"INVALID_CREDENTIALS" doc:"Error code for programmatic handling"`
+		RequestID string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+	}
+}
+
+// ChangePasswordHandler handles password change requests for authenticated users
+func (h *AuthHandler) ChangePasswordHandler(ctx context.Context, input *ChangePasswordRequest) (*ChangePasswordResponse, error) {
+	resp := &ChangePasswordResponse{}
+	requestID := logger.GetRequestID(ctx)
+	resp.Body.RequestID = requestID
+
+	// Get authenticated user from context
+	contextUser := middleware.GetUserFromContext(ctx)
+	if contextUser == nil {
+		logger.AuthWarn(ctx, "change_password_no_user")
+		resp.Body.Success = false
+		resp.Body.Message = "User not found in context"
+		resp.Body.ErrorCode = autherrors.CodeUnauthorized
+		return resp, nil
+	}
+
+	logger.AuthDebug(ctx, "change_password_attempt",
+		"user_id", contextUser.ID,
+	)
+
+	// Validate input
+	if input.Body.CurrentPassword == "" || input.Body.NewPassword == "" {
+		authErr := autherrors.ErrValidationFailed("Current password and new password are required")
+		logger.AuthWarn(ctx, "change_password_validation_failed",
+			"user_id", contextUser.ID,
+			"error", authErr.Message,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = authErr.Message
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
+	// Check if new password is different from current
+	if input.Body.CurrentPassword == input.Body.NewPassword {
+		logger.AuthWarn(ctx, "change_password_same_password",
+			"user_id", contextUser.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "New password must be different from current password"
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
+	// Validate new password using the password validator
+	if h.passwordValidator != nil {
+		validationResult, err := h.passwordValidator.ValidatePassword(input.Body.NewPassword)
+		if err != nil {
+			logger.AuthWarn(ctx, "change_password_validation_error",
+				"user_id", contextUser.ID,
+				"error", err.Error(),
+			)
+			// Continue even if validation service fails
+		} else if !validationResult.Valid {
+			errorMessage := "Password does not meet security requirements"
+			if len(validationResult.Errors) > 0 {
+				errorMessage = validationResult.Errors[0]
+			}
+			authErr := autherrors.ErrValidationFailed(errorMessage)
+			logger.AuthWarn(ctx, "change_password_weak_password",
+				"user_id", contextUser.ID,
+				"error", authErr.Message,
+				"all_errors", strings.Join(validationResult.Errors, "; "),
+			)
+			resp.Body.Success = false
+			resp.Body.Message = authErr.Message
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
+	}
+
+	// Update password
+	if err := h.userService.UpdatePassword(contextUser.ID, input.Body.CurrentPassword, input.Body.NewPassword); err != nil {
+		// Check for specific error types
+		errorMessage := "Failed to change password"
+		errorCode := autherrors.CodeUnknown
+
+		if strings.Contains(err.Error(), "current password is incorrect") {
+			errorMessage = "Current password is incorrect"
+			errorCode = autherrors.CodeInvalidCredentials
+		} else if strings.Contains(err.Error(), "does not have a password set") {
+			errorMessage = "Cannot change password for OAuth-only accounts"
+			errorCode = autherrors.CodeValidationFailed
+		}
+
+		logger.AuthWarn(ctx, "change_password_failed",
+			"user_id", contextUser.ID,
+			"error", err.Error(),
+		)
+		resp.Body.Success = false
+		resp.Body.Message = errorMessage
+		resp.Body.ErrorCode = errorCode
+		return resp, nil
+	}
+
+	logger.AuthInfo(ctx, "change_password_success",
+		"user_id", contextUser.ID,
+	)
+
+	resp.Body.Success = true
+	resp.Body.Message = "Password changed successfully"
 	return resp, nil
 }

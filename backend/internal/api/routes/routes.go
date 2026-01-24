@@ -39,9 +39,13 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	huma.Get(protectedGroup, "/auth/profile", authHandler.GetProfileHandler)
 	huma.Post(protectedGroup, "/auth/refresh", authHandler.RefreshTokenHandler)
 	huma.Post(protectedGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
+	huma.Post(protectedGroup, "/auth/change-password", authHandler.ChangePasswordHandler)
 
 	// Public email verification confirm endpoint (user clicks link from email)
 	huma.Post(api, "/auth/verify-email/confirm", authHandler.ConfirmVerificationHandler)
+
+	// Setup passkey routes (some public, some protected)
+	setupPasskeyRoutes(api, protectedGroup, jwtService, cfg)
 
 	setupShowRoutes(api, protectedGroup, cfg)
 	setupArtistRoutes(api, protectedGroup)
@@ -79,6 +83,32 @@ func setupSystemRoutes(router *chi.Mux, api huma.API) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(api.OpenAPI())
 	})
+}
+
+// setupPasskeyRoutes configures WebAuthn/passkey endpoints
+func setupPasskeyRoutes(api huma.API, protected *huma.Group, jwtService *services.JWTService, cfg *config.Config) {
+	// Initialize WebAuthn service
+	webauthnService, err := services.NewWebAuthnService(cfg)
+	if err != nil {
+		// Log error but don't fail - passkeys are optional
+		// In production, you might want to handle this differently
+		return
+	}
+
+	userService := services.NewUserService()
+	passkeyHandler := handlers.NewPasskeyHandler(webauthnService, jwtService, userService, cfg)
+
+	// Public passkey login endpoints (no auth required)
+	huma.Post(api, "/auth/passkey/login/begin", passkeyHandler.BeginLoginHandler)
+	huma.Post(api, "/auth/passkey/login/finish", passkeyHandler.FinishLoginHandler)
+
+	// Protected passkey registration endpoints (user must be logged in)
+	huma.Post(protected, "/auth/passkey/register/begin", passkeyHandler.BeginRegisterHandler)
+	huma.Post(protected, "/auth/passkey/register/finish", passkeyHandler.FinishRegisterHandler)
+
+	// Protected passkey management endpoints
+	huma.Get(protected, "/auth/passkey/credentials", passkeyHandler.ListCredentialsHandler)
+	huma.Delete(protected, "/auth/passkey/credentials/{credential_id}", passkeyHandler.DeleteCredentialHandler)
 }
 
 // SetupShowRoutes configures all show-related endpoints

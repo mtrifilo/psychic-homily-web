@@ -51,6 +51,8 @@ export const API_ENDPOINTS = {
     // Email verification endpoints
     VERIFY_EMAIL_SEND: `${API_BASE_URL}/auth/verify-email/send`,
     VERIFY_EMAIL_CONFIRM: `${API_BASE_URL}/auth/verify-email/confirm`,
+    // Password management endpoints
+    CHANGE_PASSWORD: `${API_BASE_URL}/auth/change-password`,
     // OAuth endpoints
     OAUTH_LOGIN: (provider: string) => `${API_BASE_URL}/auth/login/${provider}`,
     OAUTH_CALLBACK: (provider: string) =>

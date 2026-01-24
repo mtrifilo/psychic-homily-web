@@ -19,7 +19,7 @@ The Discord notification system sends real-time alerts to a Discord channel when
 - **Discord Webhooks** (not bot): Simple HTTP POST requests, no library dependencies
 - **Asynchronous**: Fire-and-forget goroutines so API responses aren't delayed
 - **Optional**: Graceful no-op if not configured (follows the EmailService pattern)
-- **Single webhook**: Different embed colors differentiate event types
+- **Separate webhooks per environment**: Stage and Production use different channels
 - **Log-only errors**: No retries; notifications are informational only
 
 ### Flow Diagram
@@ -42,29 +42,53 @@ User Action → Handler → Discord Service → Discord Webhook → Discord Chan
 
 ## Configuration
 
+### Multi-Environment Strategy
+
+To distinguish between Stage and Production notifications, use **separate Discord channels and webhooks** for each environment:
+
+| Environment | Discord Channel | Webhook Name |
+|-------------|-----------------|--------------|
+| Stage | `#stage-alerts` | Psychic Homily Stage |
+| Production | `#production-alerts` | Psychic Homily Production |
+
+This way, you always know which environment generated a notification at a glance.
+
 ### Environment Variables
 
-Add these to your `.env` file or environment:
+| Variable | Description |
+|----------|-------------|
+| `DISCORD_WEBHOOK_URL` | Discord webhook URL for this environment |
+| `DISCORD_NOTIFICATIONS_ENABLED` | Set to `true` to enable notifications (default: `false`) |
 
-```bash
-# Discord webhook URL from your Discord server
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN
+### Creating Discord Webhooks
 
-# Enable/disable notifications (default: false)
-DISCORD_NOTIFICATIONS_ENABLED=true
-```
-
-### Creating a Discord Webhook
+Create a separate webhook for each environment:
 
 1. Open your Discord server
-2. Go to **Server Settings** → **Integrations** → **Webhooks**
-3. Click **New Webhook**
-4. Configure the webhook:
-   - **Name**: e.g., "Psychic Homily Alerts"
-   - **Channel**: Select the channel for notifications
+2. Create channels for alerts (e.g., `#stage-alerts`, `#production-alerts`)
+3. For each channel:
+   - Go to **Edit Channel** → **Integrations** → **Webhooks**
+   - Click **New Webhook**
+   - **Name**: e.g., "Psychic Homily Stage" or "Psychic Homily Production"
    - **Avatar**: Optionally upload a custom icon
-5. Click **Copy Webhook URL**
-6. Add the URL to your environment variables
+   - Click **Copy Webhook URL**
+
+### Coolify Configuration
+
+Environment variables are configured in Coolify for each backend application:
+
+1. Open Coolify dashboard
+2. Go to **Projects** → Select your project (e.g., `psychic-homily-stage`)
+3. Click on the backend application
+4. Go to **Environment Variables**
+5. Add:
+   ```
+   DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN
+   DISCORD_NOTIFICATIONS_ENABLED=true
+   ```
+6. Click **Save** — Coolify will automatically redeploy with the new configuration
+
+Repeat for each environment (Stage, Production) with their respective webhook URLs.
 
 ### Behavior When Not Configured
 
@@ -201,12 +225,12 @@ Returns previously rejected shows. Supports searching by show title or rejection
 
 ### Local Development Testing
 
-1. Create a test Discord server or use a private channel in an existing server
+1. Create a test Discord server or use a `#dev-alerts` channel
 2. Create a webhook for the test channel
-3. Set environment variables:
+3. Add to your `.env.development` file:
    ```bash
-   export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."
-   export DISCORD_NOTIFICATIONS_ENABLED=true
+   DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+   DISCORD_NOTIFICATIONS_ENABLED=true
    ```
 4. Start the backend server
 5. Test each notification type:
@@ -262,18 +286,25 @@ Expected: Red "Show Rejected" embed with reason in Discord
 
 ### Verifying Disabled State
 
-1. Set `DISCORD_NOTIFICATIONS_ENABLED=false`
-2. Restart the server
+1. Set `DISCORD_NOTIFICATIONS_ENABLED=false` (or remove the variable)
+2. Redeploy (Coolify) or restart the server (local)
 3. Perform any of the above actions
 4. Verify no Discord messages are sent
 5. Check logs to ensure no errors related to Discord
 
-### Production Webhook
+### Stage and Production Webhooks
 
-For production, create a separate webhook in your production Discord server:
-- Use a dedicated `#alerts` or `#admin-notifications` channel
+Each environment should have its own webhook pointing to a dedicated channel:
+
+| Environment | Channel | Purpose |
+|-------------|---------|---------|
+| Stage | `#stage-alerts` | Test notifications, catch issues before production |
+| Production | `#production-alerts` | Real user activity monitoring |
+
+**Recommended channel settings:**
 - Restrict channel access to admins only
-- Consider setting up Discord notification settings to avoid excessive pings
+- Mute notifications or set to "Only @mentions" to avoid excessive pings
+- Keep channels private to protect user privacy (emails are masked but still visible)
 
 ## Code Structure
 
@@ -313,10 +344,11 @@ func (s *DiscordService) NotifyShowRejected(show *ShowResponse, reason string)
 
 ### Notifications Not Appearing
 
-1. **Check environment variables**: Ensure both `DISCORD_WEBHOOK_URL` and `DISCORD_NOTIFICATIONS_ENABLED=true` are set
-2. **Check webhook URL**: Verify the URL is correct and the webhook hasn't been deleted
-3. **Check server logs**: Look for `[Discord]` prefixed log messages indicating errors
-4. **Test webhook directly**:
+1. **Check environment variables in Coolify**: Ensure both `DISCORD_WEBHOOK_URL` and `DISCORD_NOTIFICATIONS_ENABLED=true` are set in the application's environment variables
+2. **Verify the deployment**: After adding/changing environment variables, ensure Coolify has redeployed the application
+3. **Check webhook URL**: Verify the URL is correct and the webhook hasn't been deleted in Discord
+4. **Check container logs in Coolify**: Look for `[Discord]` prefixed log messages indicating errors
+5. **Test webhook directly**:
    ```bash
    curl -X POST "YOUR_WEBHOOK_URL" \
      -H "Content-Type: application/json" \

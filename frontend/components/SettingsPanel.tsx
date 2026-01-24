@@ -13,6 +13,7 @@ import {
   Loader2,
   Send,
 } from 'lucide-react'
+import { ChangePassword } from '@/components/settings/change-password'
 
 export function SettingsPanel() {
   const { user } = useAuthContext()
@@ -159,15 +160,8 @@ export function SettingsPanel() {
         </CardContent>
       </Card>
 
-      {/* Placeholder for future settings */}
-      <Card className="border-dashed">
-        <CardHeader>
-          <CardTitle className="text-lg text-muted-foreground">More Settings Coming Soon</CardTitle>
-          <CardDescription>
-            Customize your default cities, notification preferences, and more
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      {/* Password Change Section - only show for users with passwords */}
+      <ChangePassword />
     </div>
   )
 }

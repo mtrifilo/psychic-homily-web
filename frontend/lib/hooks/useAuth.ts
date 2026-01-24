@@ -301,6 +301,19 @@ interface VerificationResponse {
   request_id?: string
 }
 
+// Password change types
+interface ChangePasswordCredentials {
+  current_password: string
+  new_password: string
+}
+
+interface ChangePasswordResponse {
+  success: boolean
+  message: string
+  error_code?: AuthErrorCodeType
+  request_id?: string
+}
+
 // Send verification email mutation
 export const useSendVerificationEmail = () => {
   const queryClient = useQueryClient()
@@ -378,6 +391,55 @@ export const useConfirmVerification = () => {
       )
       // Refetch profile to update email_verified status
       await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
+    },
+  })
+}
+
+// Change password mutation
+export const useChangePassword = () => {
+  return useMutation({
+    mutationFn: async (
+      credentials: ChangePasswordCredentials
+    ): Promise<ChangePasswordResponse> => {
+      authLogger.debug('Password change attempt')
+
+      const response = await apiRequest<ChangePasswordResponse>(
+        API_ENDPOINTS.AUTH.CHANGE_PASSWORD,
+        {
+          method: 'POST',
+          body: JSON.stringify(credentials),
+          credentials: 'include',
+        }
+      )
+
+      if (!response.success) {
+        authLogger.warn(
+          'Password change failed',
+          {
+            errorCode: response.error_code,
+            message: response.message,
+          },
+          response.request_id
+        )
+
+        throw new AuthError(
+          response.message || 'Failed to change password',
+          response.error_code || AuthErrorCode.UNKNOWN,
+          {
+            requestId: response.request_id,
+            status: 400,
+          }
+        )
+      }
+
+      return response
+    },
+    onSuccess: data => {
+      authLogger.info(
+        'Password changed successfully',
+        { message: data.message },
+        data.request_id
+      )
     },
   })
 }

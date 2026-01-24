@@ -64,6 +64,11 @@ const (
 	// Music Discovery
 	EnvInternalAPISecret        = "INTERNAL_API_SECRET"
 	EnvMusicDiscoveryEnabled    = "MUSIC_DISCOVERY_ENABLED"
+
+	// WebAuthn / Passkeys
+	EnvWebAuthnRPID          = "WEBAUTHN_RP_ID"
+	EnvWebAuthnRPDisplayName = "WEBAUTHN_RP_NAME"
+	EnvWebAuthnRPOrigins     = "WEBAUTHN_RP_ORIGINS"
 )
 
 // Config holds all configuration for the application
@@ -77,6 +82,7 @@ type Config struct {
 	Email          EmailConfig
 	Discord        DiscordConfig
 	MusicDiscovery MusicDiscoveryConfig
+	WebAuthn       WebAuthnConfig
 }
 
 // DiscordConfig holds Discord webhook configuration for admin notifications
@@ -90,6 +96,13 @@ type MusicDiscoveryConfig struct {
 	InternalAPISecret string
 	Enabled           bool
 	FrontendURL       string
+}
+
+// WebAuthnConfig holds WebAuthn/passkey configuration
+type WebAuthnConfig struct {
+	RPID          string   // Relying Party ID (e.g., "localhost" or "psychichomily.com")
+	RPDisplayName string   // Relying Party display name (e.g., "Psychic Homily")
+	RPOrigins     []string // Allowed origins for WebAuthn (e.g., ["https://psychichomily.com"])
 }
 
 // EmailConfig holds email-related configuration (Resend)
@@ -213,6 +226,11 @@ func Load() *Config {
 			Enabled:           getEnvAsBool(EnvMusicDiscoveryEnabled, false),
 			FrontendURL:       getFrontendURL(),
 		},
+		WebAuthn: WebAuthnConfig{
+			RPID:          getWebAuthnRPID(),
+			RPDisplayName: GetEnv(EnvWebAuthnRPDisplayName, "Psychic Homily"),
+			RPOrigins:     getWebAuthnOrigins(),
+		},
 	}
 }
 
@@ -271,6 +289,33 @@ func getCORSOrigins() []string {
 		"http://localhost:5173",
 		"http://localhost:1313", // Hugo dev server
 	}
+}
+
+// getWebAuthnRPID returns the WebAuthn Relying Party ID based on environment
+func getWebAuthnRPID() string {
+	if rpID := os.Getenv(EnvWebAuthnRPID); rpID != "" {
+		return rpID
+	}
+
+	env := os.Getenv(EnvEnvironment)
+	switch env {
+	case EnvProduction:
+		return "psychichomily.com"
+	case EnvStage:
+		return "stage.psychichomily.com"
+	default:
+		return "localhost"
+	}
+}
+
+// getWebAuthnOrigins returns the allowed WebAuthn origins based on environment
+func getWebAuthnOrigins() []string {
+	if origins := os.Getenv(EnvWebAuthnRPOrigins); origins != "" {
+		return strings.Split(origins, ",")
+	}
+
+	// Default to frontend URL
+	return []string{getFrontendURL()}
 }
 
 // Helper function for environment variable parsing

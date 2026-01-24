@@ -21,8 +21,9 @@ type User struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 
 	// Relationships
-	OAuthAccounts []OAuthAccount   `json:"oauth_accounts,omitempty" gorm:"foreignKey:UserID"`
-	Preferences   *UserPreferences `json:"preferences,omitempty" gorm:"foreignKey:UserID"`
+	OAuthAccounts  []OAuthAccount       `json:"oauth_accounts,omitempty" gorm:"foreignKey:UserID"`
+	Preferences    *UserPreferences     `json:"preferences,omitempty" gorm:"foreignKey:UserID"`
+	PasskeyCredentials []WebAuthnCredential `json:"passkey_credentials,omitempty" gorm:"foreignKey:UserID"`
 }
 
 // TableName specifies the table name for User
