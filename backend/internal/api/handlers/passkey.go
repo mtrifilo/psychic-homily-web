@@ -322,22 +322,27 @@ func (h *PasskeyHandler) BeginLoginHandler(ctx context.Context, input *BeginLogi
 	return resp, nil
 }
 
+// CredentialAssertionAuthenticatorResponse contains the authenticator assertion data
+type CredentialAssertionAuthenticatorResponse struct {
+	AuthenticatorData string `json:"authenticatorData"`
+	ClientDataJSON    string `json:"clientDataJSON"`
+	Signature         string `json:"signature"`
+	UserHandle        string `json:"userHandle,omitempty"`
+}
+
+// CredentialAssertionResponse represents the WebAuthn credential assertion response from the browser
+type CredentialAssertionResponse struct {
+	ID       string                                   `json:"id"`
+	RawID    string                                   `json:"rawId"`
+	Type     string                                   `json:"type"`
+	Response CredentialAssertionAuthenticatorResponse `json:"response"`
+}
+
 // FinishLoginRequest represents the request to complete passkey login
 type FinishLoginRequest struct {
 	Body struct {
-		ChallengeID string `json:"challenge_id" doc:"Challenge ID from begin login"`
-		// The assertion response from the browser
-		Response struct {
-			ID    string `json:"id"`
-			RawID string `json:"rawId"`
-			Type  string `json:"type"`
-			Response struct {
-				AuthenticatorData string `json:"authenticatorData"`
-				ClientDataJSON    string `json:"clientDataJSON"`
-				Signature         string `json:"signature"`
-				UserHandle        string `json:"userHandle,omitempty"`
-			} `json:"response"`
-		} `json:"response"`
+		ChallengeID string                      `json:"challenge_id" doc:"Challenge ID from begin login"`
+		Response    CredentialAssertionResponse `json:"response" doc:"The assertion response from the browser"`
 	}
 }
 
