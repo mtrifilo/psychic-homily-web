@@ -61,21 +61,47 @@ app/
 ├── admin/          # Admin dashboard
 ├── api/            # API routes (proxy to backend)
 ├── artists/        # Artist profile pages
-├── auth/           # Authentication
+├── auth/           # Authentication (login, signup)
+│   └── magic-link/ # Magic link verification
 ├── blog/           # Blog posts (MDX)
 ├── categories/     # Category listing pages
-├── collection/     # User collection
+├── collection/     # User collection & settings
 ├── dj-sets/        # DJ set pages
 ├── shows/          # Show listings
 ├── submissions/    # Artist submissions
 ├── venues/         # Venue pages
 └── verify-email/   # Email verification
-components/         # Shared React components
+components/
+├── auth/           # Auth components (passkey login/register)
+├── settings/       # Settings components (passkeys, password change)
+├── ui/             # Shared UI components (shadcn/ui)
+└── ...             # Feature-specific components
 content/            # MDX blog content
-lib/                # Utilities and helpers
+lib/
+├── hooks/          # React Query hooks (useAuth, useShows, etc.)
+├── context/        # React context providers
+└── ...             # Utilities and helpers
 docs/               # Project documentation
 test/               # Test setup and utilities
 ```
+
+## Authentication
+
+The app supports multiple authentication methods:
+
+| Method | Description |
+|--------|-------------|
+| **Email/Password** | Traditional login with password strength validation |
+| **Passkeys (WebAuthn)** | Passwordless biometric authentication (Touch ID, Face ID, etc.) |
+| **Magic Links** | Email-based passwordless login (requires verified email) |
+
+Key auth features:
+- Password strength meter with real-time feedback
+- Passkey management in Settings (add, remove, view)
+- Password change for authenticated users
+- Email verification required for show submissions
+
+See `/dev-docs/authentication-overhaul.md` for detailed documentation.
 
 ## Testing
 
