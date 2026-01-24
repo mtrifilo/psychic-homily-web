@@ -314,6 +314,33 @@ interface ChangePasswordResponse {
   request_id?: string
 }
 
+// Magic link types
+interface SendMagicLinkRequest {
+  email: string
+}
+
+interface SendMagicLinkResponse {
+  success: boolean
+  message: string
+  error_code?: string
+  request_id?: string
+}
+
+interface VerifyMagicLinkResponse {
+  success: boolean
+  message: string
+  error_code?: string
+  request_id?: string
+  user?: {
+    id: string
+    email: string
+    name?: string
+    first_name?: string
+    last_name?: string
+    is_admin?: boolean
+  }
+}
+
 // Send verification email mutation
 export const useSendVerificationEmail = () => {
   const queryClient = useQueryClient()
@@ -440,6 +467,83 @@ export const useChangePassword = () => {
         { message: data.message },
         data.request_id
       )
+    },
+  })
+}
+
+// Send magic link mutation
+export const useSendMagicLink = () => {
+  return useMutation({
+    mutationFn: async (
+      request: SendMagicLinkRequest
+    ): Promise<SendMagicLinkResponse> => {
+      authLogger.debug('Magic link request', {
+        email: request.email.slice(0, 2) + '***',
+      })
+
+      const response = await apiRequest<SendMagicLinkResponse>(
+        API_ENDPOINTS.AUTH.MAGIC_LINK_SEND,
+        {
+          method: 'POST',
+          body: JSON.stringify(request),
+          credentials: 'include',
+        }
+      )
+
+      // Note: We don't throw on !success for email enumeration protection
+      // The error_code field indicates specific issues like EMAIL_NOT_VERIFIED
+      return response
+    },
+    onSuccess: data => {
+      authLogger.info(
+        'Magic link response',
+        { message: data.message, errorCode: data.error_code },
+        data.request_id
+      )
+    },
+  })
+}
+
+// Verify magic link mutation
+export const useVerifyMagicLink = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (token: string): Promise<VerifyMagicLinkResponse> => {
+      authLogger.debug('Verifying magic link')
+
+      const response = await apiRequest<VerifyMagicLinkResponse>(
+        API_ENDPOINTS.AUTH.MAGIC_LINK_VERIFY,
+        {
+          method: 'POST',
+          body: JSON.stringify({ token }),
+          credentials: 'include',
+        }
+      )
+
+      if (!response.success) {
+        throw new AuthError(
+          response.message || 'Invalid or expired magic link',
+          (response.error_code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN,
+          {
+            requestId: response.request_id,
+            status: 401,
+          }
+        )
+      }
+
+      return response
+    },
+    onSuccess: async data => {
+      if (data.success && data.user) {
+        authLogger.info(
+          'Magic link login successful',
+          { userId: data.user.id },
+          data.request_id
+        )
+        // Refetch profile to get complete user data
+        await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
+      }
     },
   })
 }

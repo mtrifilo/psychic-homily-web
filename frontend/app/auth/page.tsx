@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
-import { AlertCircle, Loader2, Mail, Lock, User, Eye, EyeOff } from 'lucide-react'
-import { useLogin, useRegister } from '@/lib/hooks/useAuth'
+import { AlertCircle, Loader2, Mail, Lock, User, Eye, EyeOff, Send, CheckCircle2 } from 'lucide-react'
+import { useLogin, useRegister, useSendMagicLink } from '@/lib/hooks/useAuth'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -64,9 +64,12 @@ function getErrorMessage(err: unknown): string {
 function LoginForm() {
   const router = useRouter()
   const loginMutation = useLogin()
+  const sendMagicLink = useSendMagicLink()
   const { setUser } = useAuthContext()
   const [showPassword, setShowPassword] = useState(false)
   const [passkeyError, setPasskeyError] = useState<string | null>(null)
+  const [magicLinkSent, setMagicLinkSent] = useState(false)
+  const [magicLinkError, setMagicLinkError] = useState<string | null>(null)
 
   const form = useForm({
     defaultValues: {
@@ -93,6 +96,36 @@ function LoginForm() {
       onSubmit: loginSchema,
     },
   })
+
+  const handleSendMagicLink = async () => {
+    const email = form.getFieldValue('email')
+    if (!email || !z.string().email().safeParse(email).success) {
+      setMagicLinkError('Please enter a valid email address first')
+      return
+    }
+
+    setMagicLinkError(null)
+    setMagicLinkSent(false)
+
+    sendMagicLink.mutate(
+      { email },
+      {
+        onSuccess: data => {
+          if (data.success) {
+            setMagicLinkSent(true)
+          } else if (data.error_code === 'EMAIL_NOT_VERIFIED') {
+            setMagicLinkError(data.message)
+          } else {
+            // Generic success message (even if user doesn't exist - for security)
+            setMagicLinkSent(true)
+          }
+        },
+        onError: () => {
+          setMagicLinkError('Failed to send magic link. Please try again.')
+        },
+      }
+    )
+  }
 
   return (
     <form
@@ -139,7 +172,12 @@ function LoginForm() {
                 placeholder="you@example.com"
                 value={field.state.value}
                 onBlur={field.handleBlur}
-                onChange={e => field.handleChange(e.target.value)}
+                onChange={e => {
+                  field.handleChange(e.target.value)
+                  // Reset magic link states when email changes
+                  setMagicLinkSent(false)
+                  setMagicLinkError(null)
+                }}
                 className="pl-10"
                 aria-invalid={field.state.meta.errors.length > 0}
               />
@@ -207,6 +245,51 @@ function LoginForm() {
           </Button>
         )}
       </form.Subscribe>
+
+      {/* Magic link option */}
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center">
+          <span className="w-full border-t" />
+        </div>
+        <div className="relative flex justify-center text-xs">
+          <span className="bg-card px-2 text-muted-foreground">or</span>
+        </div>
+      </div>
+
+      {magicLinkSent ? (
+        <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-400">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <span>Check your email for a sign-in link. It expires in 15 minutes.</span>
+        </div>
+      ) : (
+        <>
+          {magicLinkError && (
+            <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{magicLinkError}</span>
+            </div>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={handleSendMagicLink}
+            disabled={sendMagicLink.isPending}
+          >
+            {sendMagicLink.isPending ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                <Send className="h-4 w-4" />
+                Email me a sign-in link
+              </>
+            )}
+          </Button>
+        </>
+      )}
     </form>
   )
 }

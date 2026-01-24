@@ -71,6 +71,10 @@ func setupAuthRoutes(router *chi.Mux, api huma.API, authService *services.AuthSe
 	huma.Post(api, "/auth/login", authHandler.LoginHandler)
 	huma.Post(api, "/auth/logout", authHandler.LogoutHandler)
 	huma.Post(api, "/auth/register", authHandler.RegisterHandler)
+
+	// Magic link endpoints (public)
+	huma.Post(api, "/auth/magic-link/send", authHandler.SendMagicLinkHandler)
+	huma.Post(api, "/auth/magic-link/verify", authHandler.VerifyMagicLinkHandler)
 }
 
 // setupSystemRoutes configures system/infrastructure endpoints

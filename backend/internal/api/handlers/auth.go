@@ -689,6 +689,223 @@ func (h *AuthHandler) ConfirmVerificationHandler(ctx context.Context, input *Con
 	return resp, nil
 }
 
+// SendMagicLinkRequest represents a magic link request
+type SendMagicLinkRequest struct {
+	Body struct {
+		Email string `json:"email" example:"user@example.com" doc:"Email address to send magic link to"`
+	}
+}
+
+// SendMagicLinkResponse represents the response for sending a magic link
+type SendMagicLinkResponse struct {
+	Body struct {
+		Success   bool   `json:"success" example:"true" doc:"Success status"`
+		Message   string `json:"message" example:"Magic link sent" doc:"Response message"`
+		ErrorCode string `json:"error_code,omitempty" example:"EMAIL_NOT_VERIFIED" doc:"Error code for programmatic handling"`
+		RequestID string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+	}
+}
+
+// SendMagicLinkHandler sends a magic link email for passwordless login
+func (h *AuthHandler) SendMagicLinkHandler(ctx context.Context, input *SendMagicLinkRequest) (*SendMagicLinkResponse, error) {
+	resp := &SendMagicLinkResponse{}
+	requestID := logger.GetRequestID(ctx)
+	resp.Body.RequestID = requestID
+
+	logger.AuthDebug(ctx, "magic_link_request",
+		"email_hash", logger.HashEmail(input.Body.Email),
+	)
+
+	// Validate email presence
+	if input.Body.Email == "" {
+		resp.Body.Success = false
+		resp.Body.Message = "Email is required"
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
+	// Check if email service is configured
+	if !h.emailService.IsConfigured() {
+		logger.AuthError(ctx, "magic_link_email_not_configured", nil)
+		resp.Body.Success = false
+		resp.Body.Message = "Email service is not configured"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	// Find user by email
+	user, err := h.userService.GetUserByEmail(input.Body.Email)
+	if err != nil {
+		logger.AuthError(ctx, "magic_link_user_lookup_failed", err,
+			"email_hash", logger.HashEmail(input.Body.Email),
+		)
+		// Don't reveal if user exists - return success message anyway
+		resp.Body.Success = true
+		resp.Body.Message = "If an account exists with this email, a magic link has been sent."
+		return resp, nil
+	}
+
+	if user == nil {
+		// User doesn't exist - return success to avoid email enumeration
+		logger.AuthDebug(ctx, "magic_link_user_not_found",
+			"email_hash", logger.HashEmail(input.Body.Email),
+		)
+		resp.Body.Success = true
+		resp.Body.Message = "If an account exists with this email, a magic link has been sent."
+		return resp, nil
+	}
+
+	// Check if email is verified - magic links only work for verified emails
+	if !user.EmailVerified {
+		logger.AuthDebug(ctx, "magic_link_email_not_verified",
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Please verify your email address first. Check your inbox for a verification email, or sign in with your password to request a new one."
+		resp.Body.ErrorCode = "EMAIL_NOT_VERIFIED"
+		return resp, nil
+	}
+
+	// Generate magic link token
+	token, err := h.jwtService.CreateMagicLinkToken(user.ID, *user.Email)
+	if err != nil {
+		logger.AuthError(ctx, "magic_link_token_failed", err,
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to generate magic link"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	// Send magic link email
+	if err := h.emailService.SendMagicLinkEmail(*user.Email, token); err != nil {
+		logger.AuthError(ctx, "magic_link_email_failed", err,
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to send magic link email"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	logger.AuthInfo(ctx, "magic_link_sent",
+		"user_id", user.ID,
+		"email_hash", logger.HashEmail(input.Body.Email),
+	)
+
+	resp.Body.Success = true
+	resp.Body.Message = "Magic link sent! Check your email to sign in."
+	return resp, nil
+}
+
+// VerifyMagicLinkRequest represents the request to verify a magic link
+type VerifyMagicLinkRequest struct {
+	Body struct {
+		Token string `json:"token" doc:"Magic link token from email"`
+	}
+}
+
+// VerifyMagicLinkResponse represents the response after verifying a magic link
+type VerifyMagicLinkResponse struct {
+	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
+	Body      struct {
+		Success   bool         `json:"success" example:"true" doc:"Success status"`
+		Message   string       `json:"message" example:"Login successful" doc:"Response message"`
+		User      *models.User `json:"user,omitempty" doc:"User information"`
+		ErrorCode string       `json:"error_code,omitempty" example:"INVALID_TOKEN" doc:"Error code for programmatic handling"`
+		RequestID string       `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+	}
+}
+
+// VerifyMagicLinkHandler verifies a magic link token and logs the user in
+func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyMagicLinkRequest) (*VerifyMagicLinkResponse, error) {
+	resp := &VerifyMagicLinkResponse{}
+	requestID := logger.GetRequestID(ctx)
+	resp.Body.RequestID = requestID
+
+	// Validate token presence
+	if input.Body.Token == "" {
+		logger.AuthWarn(ctx, "magic_link_no_token")
+		resp.Body.Success = false
+		resp.Body.Message = "Magic link token is required"
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
+	// Validate the magic link token
+	claims, err := h.jwtService.ValidateMagicLinkToken(input.Body.Token)
+	if err != nil {
+		logger.AuthWarn(ctx, "magic_link_invalid_token",
+			"error", err.Error(),
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Invalid or expired magic link. Please request a new one."
+		resp.Body.ErrorCode = "INVALID_TOKEN"
+		return resp, nil
+	}
+
+	// Get the user
+	user, err := h.userService.GetUserByID(claims.UserID)
+	if err != nil {
+		logger.AuthError(ctx, "magic_link_user_not_found", err,
+			"user_id", claims.UserID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "User not found"
+		resp.Body.ErrorCode = autherrors.CodeUnauthorized
+		return resp, nil
+	}
+
+	// Verify the email still matches (in case user changed email)
+	if user.Email == nil || *user.Email != claims.Email {
+		logger.AuthWarn(ctx, "magic_link_email_mismatch",
+			"user_id", user.ID,
+			"token_email_hash", logger.HashEmail(claims.Email),
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "This magic link is no longer valid"
+		resp.Body.ErrorCode = "INVALID_TOKEN"
+		return resp, nil
+	}
+
+	// Check user is still active
+	if !user.IsActive {
+		logger.AuthWarn(ctx, "magic_link_user_inactive",
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "This account is not active"
+		resp.Body.ErrorCode = autherrors.CodeUnauthorized
+		return resp, nil
+	}
+
+	// Generate JWT token for session
+	token, err := h.jwtService.CreateToken(user)
+	if err != nil {
+		logger.AuthError(ctx, "magic_link_session_token_failed", err,
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to create session"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	// Set HTTP-only cookie
+	resp.SetCookie = *setCookie(token, h.config)
+
+	logger.AuthInfo(ctx, "magic_link_login_success",
+		"user_id", user.ID,
+		"email_hash", logger.HashEmail(claims.Email),
+	)
+
+	resp.Body.Success = true
+	resp.Body.Message = "Login successful"
+	resp.Body.User = user
+	return resp, nil
+}
+
 // ChangePasswordRequest represents a password change request
 type ChangePasswordRequest struct {
 	Body struct {

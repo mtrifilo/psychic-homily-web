@@ -86,3 +86,56 @@ func (s *EmailService) SendVerificationEmail(toEmail, token string) error {
 
 	return nil
 }
+
+// SendMagicLinkEmail sends a magic link login email to the user
+func (s *EmailService) SendMagicLinkEmail(toEmail, token string) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service is not configured")
+	}
+
+	magicLinkURL := fmt.Sprintf("%s/auth/magic-link?token=%s", s.frontendURL, token)
+
+	html := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
+    </div>
+
+    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
+        <h2 style="margin-top: 0; color: #1a1a1a;">Sign in to your account</h2>
+        <p>Click the button below to sign in to your Psychic Homily account. This link will expire in 15 minutes.</p>
+        <p style="text-align: center; margin: 30px 0;">
+            <a href="%s" style="display: inline-block; background: #f97316; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600;">Sign In</a>
+        </p>
+        <p style="font-size: 14px; color: #666;">For security, this link expires in 15 minutes and can only be used once.</p>
+    </div>
+
+    <div style="text-align: center; font-size: 12px; color: #999;">
+        <p>If you didn't request this email, you can safely ignore it.</p>
+        <p>If the button doesn't work, copy and paste this link into your browser:</p>
+        <p style="word-break: break-all; color: #666;">%s</p>
+    </div>
+</body>
+</html>
+`, magicLinkURL, magicLinkURL)
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: "Sign in to Psychic Homily",
+		Html:    html,
+	}
+
+	_, err := s.client.Emails.Send(params)
+	if err != nil {
+		return fmt.Errorf("failed to send magic link email: %w", err)
+	}
+
+	return nil
+}

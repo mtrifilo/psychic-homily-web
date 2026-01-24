@@ -127,3 +127,54 @@ func (s *JWTService) ValidateVerificationToken(tokenString string) (*Verificatio
 
 	return claims, nil
 }
+
+// MagicLinkTokenClaims holds the claims for magic link tokens
+type MagicLinkTokenClaims struct {
+	UserID uint   `json:"user_id"`
+	Email  string `json:"email"`
+	jwt.RegisteredClaims
+}
+
+// CreateMagicLinkToken generates a JWT token for magic link login
+// Token expires in 15 minutes for security
+func (s *JWTService) CreateMagicLinkToken(userID uint, email string) (string, error) {
+	claims := MagicLinkTokenClaims{
+		UserID: userID,
+		Email:  email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    "psychic-homily-backend",
+			Subject:   "magic-link",
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(s.config.JWT.SecretKey))
+}
+
+// ValidateMagicLinkToken validates a magic link token and returns the claims
+func (s *JWTService) ValidateMagicLinkToken(tokenString string) (*MagicLinkTokenClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &MagicLinkTokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(s.config.JWT.SecretKey), nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("invalid magic link token: %w", err)
+	}
+
+	claims, ok := token.Claims.(*MagicLinkTokenClaims)
+	if !ok || !token.Valid {
+		return nil, fmt.Errorf("invalid magic link token claims")
+	}
+
+	// Verify the token is for magic link
+	if claims.Subject != "magic-link" {
+		return nil, fmt.Errorf("invalid token type")
+	}
+
+	return claims, nil
+}

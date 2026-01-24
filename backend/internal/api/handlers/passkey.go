@@ -108,23 +108,28 @@ func (h *PasskeyHandler) BeginRegisterHandler(ctx context.Context, input *BeginR
 	return resp, nil
 }
 
+// CredentialCreationAttestationResponse contains the attestation data from the authenticator
+type CredentialCreationAttestationResponse struct {
+	AttestationObject string   `json:"attestationObject"`
+	ClientDataJSON    string   `json:"clientDataJSON"`
+	Transports        []string `json:"transports,omitempty"`
+}
+
+// CredentialCreationResponse represents the WebAuthn credential creation response from the browser
+type CredentialCreationResponse struct {
+	ID                      string                                `json:"id"`
+	RawID                   string                                `json:"rawId"`
+	Type                    string                                `json:"type"`
+	AuthenticatorAttachment string                                `json:"authenticatorAttachment,omitempty"`
+	Response                CredentialCreationAttestationResponse `json:"response"`
+}
+
 // FinishRegisterRequest represents the request to complete passkey registration
 type FinishRegisterRequest struct {
 	Body struct {
-		ChallengeID string `json:"challenge_id" doc:"Challenge ID from begin registration"`
-		DisplayName string `json:"display_name" example:"My MacBook" doc:"Name for this passkey"`
-		// The credential response from the browser
-		Response struct {
-			ID                      string `json:"id"`
-			RawID                   string `json:"rawId"`
-			Type                    string `json:"type"`
-			AuthenticatorAttachment string `json:"authenticatorAttachment,omitempty"`
-			Response                struct {
-				AttestationObject string   `json:"attestationObject"`
-				ClientDataJSON    string   `json:"clientDataJSON"`
-				Transports        []string `json:"transports,omitempty"`
-			} `json:"response"`
-		} `json:"response"`
+		ChallengeID string                     `json:"challenge_id" doc:"Challenge ID from begin registration"`
+		DisplayName string                     `json:"display_name" example:"My MacBook" doc:"Name for this passkey"`
+		Response    CredentialCreationResponse `json:"response" doc:"The credential response from the browser"`
 	}
 }
 
