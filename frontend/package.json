@@ -10,7 +10,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "blog:new": "bun run scripts/new-blog-post.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
