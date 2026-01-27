@@ -298,3 +298,165 @@ func (s *WebAuthnService) DeleteChallenge(challengeID string) error {
 func (s *WebAuthnService) CleanupExpiredChallenges() error {
 	return s.db.Where("expires_at < ?", time.Now()).Delete(&models.WebAuthnChallenge{}).Error
 }
+
+// --- Passkey Signup (passkey-first registration) methods ---
+
+// signupUser is a temporary user struct for passkey signup (before user exists in DB)
+type signupUser struct {
+	email string
+}
+
+func (u *signupUser) WebAuthnID() []byte {
+	// Use email hash as temporary ID
+	return []byte(u.email)
+}
+
+func (u *signupUser) WebAuthnName() string {
+	return u.email
+}
+
+func (u *signupUser) WebAuthnDisplayName() string {
+	return u.email
+}
+
+func (u *signupUser) WebAuthnCredentials() []webauthn.Credential {
+	return nil // No existing credentials for new signup
+}
+
+func (u *signupUser) WebAuthnIcon() string {
+	return ""
+}
+
+// signupSessionData wraps session data with email for signup flow
+type signupSessionData struct {
+	Email   string                 `json:"email"`
+	Session *webauthn.SessionData `json:"session"`
+}
+
+// BeginRegistrationForEmail starts passkey registration for a new user with just email
+func (s *WebAuthnService) BeginRegistrationForEmail(email string) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
+	tempUser := &signupUser{email: email}
+
+	// Create registration options
+	options, session, err := s.webAuthn.BeginRegistration(
+		tempUser,
+		webauthn.WithResidentKeyRequirement(protocol.ResidentKeyRequirementPreferred),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to begin registration: %w", err)
+	}
+
+	return options, session, nil
+}
+
+// StoreChallengeWithEmail saves a WebAuthn challenge with email for signup flow
+func (s *WebAuthnService) StoreChallengeWithEmail(email string, session *webauthn.SessionData, operation string) (string, error) {
+	// Wrap session with email
+	wrapped := signupSessionData{
+		Email:   email,
+		Session: session,
+	}
+
+	sessionData, err := json.Marshal(wrapped)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal session: %w", err)
+	}
+
+	challenge := models.WebAuthnChallenge{
+		ID:          uuid.New().String(),
+		UserID:      0, // No user yet for signup
+		Challenge:   []byte(session.Challenge),
+		SessionData: sessionData,
+		Operation:   operation,
+		ExpiresAt:   time.Now().Add(5 * time.Minute),
+	}
+
+	if err := s.db.Create(&challenge).Error; err != nil {
+		return "", fmt.Errorf("failed to store challenge: %w", err)
+	}
+
+	return challenge.ID, nil
+}
+
+// GetChallengeWithEmail retrieves a signup challenge and returns session + email
+func (s *WebAuthnService) GetChallengeWithEmail(challengeID string, operation string) (*webauthn.SessionData, string, error) {
+	var challenge models.WebAuthnChallenge
+	if err := s.db.Where("id = ? AND operation = ?", challengeID, operation).First(&challenge).Error; err != nil {
+		return nil, "", fmt.Errorf("challenge not found: %w", err)
+	}
+
+	// Check expiry
+	if challenge.IsExpired() {
+		s.db.Delete(&challenge)
+		return nil, "", fmt.Errorf("challenge expired")
+	}
+
+	// Unmarshal wrapped session data
+	var wrapped signupSessionData
+	if err := json.Unmarshal(challenge.SessionData, &wrapped); err != nil {
+		return nil, "", fmt.Errorf("failed to unmarshal session: %w", err)
+	}
+
+	return wrapped.Session, wrapped.Email, nil
+}
+
+// FinishSignupRegistration completes registration, creates user, and stores credential
+func (s *WebAuthnService) FinishSignupRegistration(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*models.User, error) {
+	// Use the same temp user for credential creation
+	tempUser := &signupUser{email: email}
+
+	// Complete the registration
+	credential, err := s.webAuthn.CreateCredential(tempUser, *session, response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create credential: %w", err)
+	}
+
+	// Start a transaction to create user and credential atomically
+	tx := s.db.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Create user without password
+	user := &models.User{
+		Email:         &email,
+		IsActive:      true,
+		EmailVerified: false,
+	}
+
+	if err := tx.Create(user).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("failed to create user: %w", err)
+	}
+
+	// Create default preferences
+	preferences := &models.UserPreferences{
+		UserID: user.ID,
+	}
+
+	if err := tx.Create(preferences).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("failed to create user preferences: %w", err)
+	}
+
+	// Convert and save credential with real user ID
+	webauthnCred := models.ToWebAuthnCredential(user.ID, credential, displayName)
+
+	if err := tx.Create(webauthnCred).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("failed to save credential: %w", err)
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Load relationships
+	if err := s.db.Preload("Preferences").First(user, user.ID).Error; err != nil {
+		return nil, fmt.Errorf("failed to load user relationships: %w", err)
+	}
+
+	return user, nil
+}

@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/card'
 import { PasswordStrengthMeter } from '@/components/ui/password-strength-meter'
 import { PasskeyLoginButton } from '@/components/auth/passkey-login'
+import { PasskeySignupButton } from '@/components/auth/passkey-signup'
 
 // Password validation constants
 const MIN_PASSWORD_LENGTH = 12
@@ -31,19 +32,13 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 })
 
-const signupSchema = z
-  .object({
-    email: z.string().email('Please enter a valid email address'),
-    password: z
-      .string()
-      .min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
-      .max(MAX_PASSWORD_LENGTH, `Password must be no more than ${MAX_PASSWORD_LENGTH} characters`),
-    confirmPassword: z.string().min(1, 'Please confirm your password'),
-  })
-  .refine(data => data.password === data.confirmPassword, {
-    message: 'Passwords do not match',
-    path: ['confirmPassword'],
-  })
+const signupSchema = z.object({
+  email: z.string().email('Please enter a valid email address'),
+  password: z
+    .string()
+    .min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
+    .max(MAX_PASSWORD_LENGTH, `Password must be no more than ${MAX_PASSWORD_LENGTH} characters`),
+})
 
 type LoginFormData = z.infer<typeof loginSchema>
 type SignupFormData = z.infer<typeof signupSchema>
@@ -223,6 +218,16 @@ function LoginForm() {
                 {field.state.meta.errors.map(getErrorMessage).join(', ')}
               </p>
             )}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleSendMagicLink}
+                className="text-xs text-muted-foreground hover:text-primary underline-offset-4 hover:underline"
+                disabled={sendMagicLink.isPending}
+              >
+                Forgot password?
+              </button>
+            </div>
           </div>
         )}
       </form.Field>
@@ -299,15 +304,13 @@ function SignupForm() {
   const registerMutation = useRegister()
   const { setUser } = useAuthContext()
   const [showPassword, setShowPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [passwordValue, setPasswordValue] = useState('')
-  const [confirmPasswordValue, setConfirmPasswordValue] = useState('')
+  const [passkeyError, setPasskeyError] = useState<string | null>(null)
 
   const form = useForm({
     defaultValues: {
       email: '',
       password: '',
-      confirmPassword: '',
     } as SignupFormData,
     onSubmit: async ({ value }) => {
       registerMutation.mutate(
@@ -334,9 +337,6 @@ function SignupForm() {
     },
   })
 
-  // Check if passwords match for real-time feedback
-  const passwordsMatch = passwordValue === confirmPasswordValue && confirmPasswordValue.length > 0
-
   return (
     <form
       onSubmit={e => {
@@ -346,12 +346,28 @@ function SignupForm() {
       }}
       className="space-y-4"
     >
-      {registerMutation.error && (
+      {(registerMutation.error || passkeyError) && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{registerMutation.error.message}</AlertDescription>
+          <AlertDescription>{registerMutation.error?.message || passkeyError}</AlertDescription>
         </Alert>
       )}
+
+      {/* Passkey signup option */}
+      <div className="space-y-3">
+        <PasskeySignupButton
+          onError={setPasskeyError}
+          className="w-full"
+        />
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-card px-2 text-muted-foreground">Or continue with email</span>
+          </div>
+        </div>
+      </div>
 
       <form.Field name="email">
         {field => (
@@ -390,7 +406,7 @@ function SignupForm() {
                 id={`signup-${field.name}`}
                 name={field.name}
                 type={showPassword ? 'text' : 'password'}
-                placeholder="At least 12 characters"
+                placeholder="Create a password"
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={e => {
@@ -412,46 +428,6 @@ function SignupForm() {
             </div>
             {/* Password strength meter with requirements */}
             <PasswordStrengthMeter password={passwordValue} showRequirements={true} />
-          </div>
-        )}
-      </form.Field>
-
-      <form.Field name="confirmPassword">
-        {field => (
-          <div className="space-y-2">
-            <Label htmlFor={`signup-${field.name}`}>Confirm Password</Label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id={`signup-${field.name}`}
-                name={field.name}
-                type={showConfirmPassword ? 'text' : 'password'}
-                placeholder="Confirm your password"
-                value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={e => {
-                  field.handleChange(e.target.value)
-                  setConfirmPasswordValue(e.target.value)
-                }}
-                className="pl-10 pr-10"
-                aria-invalid={field.state.meta.errors.length > 0}
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
-                aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-                aria-pressed={showConfirmPassword}
-              >
-                {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-            {/* Show password match status */}
-            {confirmPasswordValue && (
-              <p className={`text-xs ${passwordsMatch ? 'text-green-600 dark:text-green-500' : 'text-muted-foreground'}`}>
-                {passwordsMatch ? 'Passwords match' : 'Passwords do not match'}
-              </p>
-            )}
           </div>
         )}
       </form.Field>

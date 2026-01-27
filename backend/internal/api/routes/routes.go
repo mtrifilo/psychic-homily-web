@@ -106,6 +106,10 @@ func setupPasskeyRoutes(api huma.API, protected *huma.Group, jwtService *service
 	huma.Post(api, "/auth/passkey/login/begin", passkeyHandler.BeginLoginHandler)
 	huma.Post(api, "/auth/passkey/login/finish", passkeyHandler.FinishLoginHandler)
 
+	// Public passkey signup endpoints (passkey-first registration, no auth required)
+	huma.Post(api, "/auth/passkey/signup/begin", passkeyHandler.BeginSignupHandler)
+	huma.Post(api, "/auth/passkey/signup/finish", passkeyHandler.FinishSignupHandler)
+
 	// Protected passkey registration endpoints (user must be logged in)
 	huma.Post(protected, "/auth/passkey/register/begin", passkeyHandler.BeginRegisterHandler)
 	huma.Post(protected, "/auth/passkey/register/finish", passkeyHandler.FinishRegisterHandler)

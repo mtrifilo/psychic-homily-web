@@ -590,3 +590,244 @@ func createCredentialRequestReader(input *FinishLoginRequest) io.Reader {
 	data, _ := json.Marshal(response)
 	return bytes.NewReader(data)
 }
+
+// --- Passkey Signup Endpoints (passkey-first registration) ---
+
+// BeginSignupRequest represents the request to begin passkey signup
+type BeginSignupRequest struct {
+	Body struct {
+		Email string `json:"email" example:"user@example.com" doc:"Email for the new account"`
+	}
+}
+
+// BeginSignupResponse represents the response with WebAuthn registration options
+type BeginSignupResponse struct {
+	Body struct {
+		Success     bool                         `json:"success" doc:"Success status"`
+		Message     string                       `json:"message" doc:"Response message"`
+		Options     *protocol.CredentialCreation `json:"options,omitempty" doc:"WebAuthn registration options"`
+		ChallengeID string                       `json:"challenge_id,omitempty" doc:"Challenge ID for finishing registration"`
+		ErrorCode   string                       `json:"error_code,omitempty" doc:"Error code"`
+		RequestID   string                       `json:"request_id,omitempty" doc:"Request ID"`
+	}
+}
+
+// BeginSignupHandler starts the passkey signup process (creates new account with passkey)
+func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSignupRequest) (*BeginSignupResponse, error) {
+	resp := &BeginSignupResponse{}
+	requestID := logger.GetRequestID(ctx)
+	resp.Body.RequestID = requestID
+
+	email := input.Body.Email
+	if email == "" {
+		resp.Body.Success = false
+		resp.Body.Message = "Email is required"
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
+	logger.AuthDebug(ctx, "passkey_signup_begin",
+		"email", email,
+	)
+
+	// Check if user already exists
+	existingUser, err := h.userService.GetUserByEmail(email)
+	if err != nil {
+		logger.AuthError(ctx, "passkey_signup_check_failed", err,
+			"email", email,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to check email"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	if existingUser != nil {
+		resp.Body.Success = false
+		resp.Body.Message = "An account with this email already exists"
+		resp.Body.ErrorCode = autherrors.CodeUserExists
+		return resp, nil
+	}
+
+	// Create a temporary user object for WebAuthn registration
+	// We use a placeholder ID (0) since the user doesn't exist yet
+	tempUser := &models.User{
+		Email: &email,
+	}
+	// Use a temporary ID based on email hash for WebAuthn
+	tempUser.ID = 0
+
+	// Begin registration
+	options, session, err := h.webauthnService.BeginRegistrationForEmail(email)
+	if err != nil {
+		logger.AuthError(ctx, "passkey_signup_begin_failed", err,
+			"email", email,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to start passkey registration"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	// Store challenge with email (userID = 0 indicates signup flow)
+	challengeID, err := h.webauthnService.StoreChallengeWithEmail(email, session, "signup")
+	if err != nil {
+		logger.AuthError(ctx, "passkey_challenge_store_failed", err,
+			"email", email,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to store challenge"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	resp.Body.Success = true
+	resp.Body.Message = "Registration options created"
+	resp.Body.Options = options
+	resp.Body.ChallengeID = challengeID
+	return resp, nil
+}
+
+// FinishSignupRequest represents the request to complete passkey signup
+type FinishSignupRequest struct {
+	Body struct {
+		ChallengeID string                     `json:"challenge_id" doc:"Challenge ID from begin signup"`
+		DisplayName string                     `json:"display_name" example:"My MacBook" doc:"Name for this passkey"`
+		Response    CredentialCreationResponse `json:"response" doc:"The credential response from the browser"`
+	}
+}
+
+// FinishSignupResponse represents the response after completing signup
+type FinishSignupResponse struct {
+	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
+	Body      struct {
+		Success   bool         `json:"success" doc:"Success status"`
+		Message   string       `json:"message" doc:"Response message"`
+		User      *models.User `json:"user,omitempty" doc:"Created user"`
+		ErrorCode string       `json:"error_code,omitempty" doc:"Error code"`
+		RequestID string       `json:"request_id,omitempty" doc:"Request ID"`
+	}
+}
+
+// FinishSignupHandler completes the passkey signup process
+func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishSignupRequest) (*FinishSignupResponse, error) {
+	resp := &FinishSignupResponse{}
+	requestID := logger.GetRequestID(ctx)
+	resp.Body.RequestID = requestID
+
+	logger.AuthDebug(ctx, "passkey_signup_finish")
+
+	// Get challenge with email
+	session, email, err := h.webauthnService.GetChallengeWithEmail(input.Body.ChallengeID, "signup")
+	if err != nil {
+		logger.AuthWarn(ctx, "passkey_challenge_invalid",
+			"error", err.Error(),
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Invalid or expired challenge"
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
+	// Double-check email isn't already taken (race condition protection)
+	existingUser, err := h.userService.GetUserByEmail(email)
+	if err != nil {
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to verify email"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+	if existingUser != nil {
+		resp.Body.Success = false
+		resp.Body.Message = "An account with this email already exists"
+		resp.Body.ErrorCode = autherrors.CodeUserExists
+		return resp, nil
+	}
+
+	// Parse the credential response
+	parsedResponse, err := protocol.ParseCredentialCreationResponseBody(
+		createCredentialCreationReaderFromSignup(input),
+	)
+	if err != nil {
+		logger.AuthWarn(ctx, "passkey_response_parse_failed",
+			"email", email,
+			"error", err.Error(),
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Invalid credential response"
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
+	// Get display name
+	displayName := input.Body.DisplayName
+	if displayName == "" {
+		displayName = "My Passkey"
+	}
+
+	// Complete registration and create user
+	user, err := h.webauthnService.FinishSignupRegistration(email, session, parsedResponse, displayName)
+	if err != nil {
+		logger.AuthError(ctx, "passkey_signup_finish_failed", err,
+			"email", email,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to complete signup"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	// Delete used challenge
+	_ = h.webauthnService.DeleteChallenge(input.Body.ChallengeID)
+
+	// Generate JWT token
+	token, err := h.jwtService.CreateToken(user)
+	if err != nil {
+		logger.AuthError(ctx, "passkey_token_generation_failed", err,
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to generate authentication token"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	// Set cookie
+	resp.SetCookie = http.Cookie{
+		Name:     "auth_token",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   h.config.Session.Secure,
+		SameSite: h.config.Session.GetSameSite(),
+		Expires:  time.Now().Add(24 * time.Hour),
+	}
+
+	logger.AuthInfo(ctx, "passkey_signup_success",
+		"user_id", user.ID,
+		"email", email,
+	)
+
+	resp.Body.Success = true
+	resp.Body.Message = "Account created successfully"
+	resp.Body.User = user
+	return resp, nil
+}
+
+func createCredentialCreationReaderFromSignup(input *FinishSignupRequest) io.Reader {
+	response := map[string]interface{}{
+		"id":    input.Body.Response.ID,
+		"rawId": input.Body.Response.RawID,
+		"type":  input.Body.Response.Type,
+		"response": map[string]interface{}{
+			"attestationObject": input.Body.Response.Response.AttestationObject,
+			"clientDataJSON":    input.Body.Response.Response.ClientDataJSON,
+			"transports":        input.Body.Response.Response.Transports,
+		},
+	}
+	if input.Body.Response.AuthenticatorAttachment != "" {
+		response["authenticatorAttachment"] = input.Body.Response.AuthenticatorAttachment
+	}
+	data, _ := json.Marshal(response)
+	return bytes.NewReader(data)
+}
