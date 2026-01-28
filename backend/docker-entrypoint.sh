@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-echo "Starting entrypoint script..."
+echo "Starting entrypoint script (v2)..."
 
 # Check if running on Railway (uses internal hostnames)
 if echo "$DATABASE_URL" | grep -q "railway.internal"; then
