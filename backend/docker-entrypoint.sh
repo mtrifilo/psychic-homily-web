@@ -1,7 +1,15 @@
 #!/bin/sh
 set -e
 
-echo "Starting entrypoint script (v2)..."
+echo "Starting entrypoint script (v3)..."
+echo "DEBUG: DATABASE_URL=${DATABASE_URL:-NOT SET}"
+
+# Check if DATABASE_URL is set
+if [ -z "$DATABASE_URL" ]; then
+    echo "ERROR: DATABASE_URL is not set!"
+    echo "In Railway, add a Variable Reference from the Postgres service"
+    exit 1
+fi
 
 # Check if running on Railway (uses internal hostnames)
 if echo "$DATABASE_URL" | grep -q "railway.internal"; then
