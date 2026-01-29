@@ -47,7 +47,7 @@ function EmailVerificationRequired() {
             
             <div className="pt-4 space-y-3">
               <Button asChild className="w-full gap-2">
-                <Link href="/collection?tab=settings">
+                <Link href="/profile?tab=settings">
                   <Settings className="h-4 w-4" />
                   Go to Settings to Verify Email
                   <ArrowRight className="h-4 w-4" />

@@ -43,7 +43,7 @@ function VerifyEmailContent() {
                 Please request a new verification email from your settings.
               </p>
               <Button asChild>
-                <Link href="/collection?tab=settings">
+                <Link href="/profile?tab=settings">
                   Go to Settings
                 </Link>
               </Button>
@@ -95,7 +95,7 @@ function VerifyEmailContent() {
                 The verification link may have expired or already been used.
               </p>
               <Button asChild>
-                <Link href="/collection?tab=settings">
+                <Link href="/profile?tab=settings">
                   Request New Verification Email
                 </Link>
               </Button>

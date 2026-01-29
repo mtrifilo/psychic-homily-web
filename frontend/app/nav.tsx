@@ -141,9 +141,12 @@ export default function Nav() {
                   Admin
                 </Link>
               )}
-              <span className="text-sm text-muted-foreground truncate max-w-[150px] ml-2">
+              <Link
+                href="/profile"
+                className="text-sm text-muted-foreground hover:text-primary truncate max-w-[150px] ml-2 transition-colors"
+              >
                 {user.email}
-              </span>
+              </Link>
               <Button
                 variant="ghost"
                 size="sm"
@@ -221,9 +224,13 @@ export default function Nav() {
                   </div>
                 ) : isAuthenticated && user ? (
                   <div className="px-4 py-3 space-y-3 sm:hidden">
-                    <div className="text-sm text-muted-foreground truncate">
+                    <Link
+                      href="/profile"
+                      onClick={() => setOpen(false)}
+                      className="block text-sm text-muted-foreground hover:text-primary truncate transition-colors"
+                    >
                       Signed in as {user.email}
-                    </div>
+                    </Link>
                     <Button
                       variant="outline"
                       className="w-full justify-start"

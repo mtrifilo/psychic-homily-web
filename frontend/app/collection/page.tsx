@@ -18,7 +18,6 @@ import {
   Trash2,
   Globe,
   Send,
-  Settings,
   Library,
 } from 'lucide-react'
 import {
@@ -37,7 +36,6 @@ import { SubmissionSuccessDialog } from '@/components/SubmissionSuccessDialog'
 import { ShowForm } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { SettingsPanel } from '@/components/SettingsPanel'
 
 function formatDate(dateString: string, state?: string | null): string {
   const timezone = getTimezoneForState(state || 'AZ')
@@ -519,7 +517,7 @@ function CollectionPageContent() {
           <h1 className="text-3xl font-bold tracking-tight">My Collection</h1>
         </div>
         <p className="text-muted-foreground">
-          Your saved shows, submissions, and settings
+          Your saved shows and submissions
         </p>
       </div>
 
@@ -538,10 +536,6 @@ function CollectionPageContent() {
             <Send className="h-4 w-4" />
             My Submissions
           </TabsTrigger>
-          <TabsTrigger value="settings" className="gap-1.5">
-            <Settings className="h-4 w-4" />
-            Settings
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="saved">
@@ -558,9 +552,6 @@ function CollectionPageContent() {
           />
         </TabsContent>
 
-        <TabsContent value="settings">
-          <SettingsPanel />
-        </TabsContent>
       </Tabs>
     </div>
   )
