@@ -1287,13 +1287,13 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 
 // ExportShowData represents the show data in the markdown frontmatter
 type ExportShowData struct {
-	Title          string   `yaml:"title"`
-	EventDate      string   `yaml:"event_date"`
-	City           string   `yaml:"city,omitempty"`
-	State          string   `yaml:"state,omitempty"`
-	Price          *float64 `yaml:"price,omitempty"`
-	AgeRequirement string   `yaml:"age_requirement,omitempty"`
-	Status         string   `yaml:"status"`
+	Title          string   `yaml:"title" json:"title"`
+	EventDate      string   `yaml:"event_date" json:"event_date"`
+	City           string   `yaml:"city,omitempty" json:"city,omitempty"`
+	State          string   `yaml:"state,omitempty" json:"state,omitempty"`
+	Price          *float64 `yaml:"price,omitempty" json:"price,omitempty"`
+	AgeRequirement string   `yaml:"age_requirement,omitempty" json:"age_requirement,omitempty"`
+	Status         string   `yaml:"status" json:"status"`
 }
 
 // ExportVenueSocial represents venue social links in export
