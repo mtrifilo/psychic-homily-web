@@ -41,6 +41,9 @@ export async function generateMetadata({ params }: ArtistPageProps): Promise<Met
     return {
       title: artist.name,
       description: `${artist.name} - upcoming shows and artist details on Psychic Homily`,
+      alternates: {
+        canonical: `https://psychichomily.com/artists/${slug}`,
+      },
       openGraph: {
         title: artist.name,
         description: `View upcoming shows featuring ${artist.name}`,

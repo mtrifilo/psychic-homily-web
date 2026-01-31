@@ -65,6 +65,9 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
     return {
       title,
       description,
+      alternates: {
+        canonical: `https://psychichomily.com/shows/${slug}`,
+      },
       openGraph: {
         title,
         description,

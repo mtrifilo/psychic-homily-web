@@ -27,6 +27,9 @@ export async function generateMetadata({ params }: BlogPostPageProps) {
   return {
     title: post.frontmatter.title,
     description: post.frontmatter.description || post.excerpt,
+    alternates: {
+      canonical: `https://psychichomily.com/blog/${slug}`,
+    },
     openGraph: {
       title: post.frontmatter.title,
       description: post.frontmatter.description || post.excerpt,

@@ -42,6 +42,9 @@ export async function generateMetadata({ params }: VenuePageProps): Promise<Meta
     return {
       title: venue.name,
       description: `${venue.name} in ${venue.city}, ${venue.state} - upcoming shows and venue details`,
+      alternates: {
+        canonical: `https://psychichomily.com/venues/${slug}`,
+      },
       openGraph: {
         title: venue.name,
         description: `View upcoming shows at ${venue.name}`,
