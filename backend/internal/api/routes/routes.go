@@ -51,6 +51,11 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	// Data export endpoint (GDPR Right to Portability)
 	huma.Get(protectedGroup, "/auth/account/export", authHandler.ExportDataHandler)
 
+	// OAuth account management endpoints
+	oauthAccountHandler := handlers.NewOAuthAccountHandler()
+	huma.Get(protectedGroup, "/auth/oauth/accounts", oauthAccountHandler.GetOAuthAccountsHandler)
+	huma.Delete(protectedGroup, "/auth/oauth/accounts/{provider}", oauthAccountHandler.UnlinkOAuthAccountHandler)
+
 	// Public email verification confirm endpoint (user clicks link from email)
 	huma.Post(api, "/auth/verify-email/confirm", authHandler.ConfirmVerificationHandler)
 
@@ -72,7 +77,7 @@ func setupAuthRoutes(router *chi.Mux, api huma.API, authService *services.AuthSe
 	jwtService *services.JWTService, cfg *config.Config) {
 	userService := services.NewUserService()
 	authHandler := handlers.NewAuthHandler(authService, jwtService, userService, cfg)
-	oauthHTTPHandler := handlers.NewOAuthHTTPHandler(authService)
+	oauthHTTPHandler := handlers.NewOAuthHTTPHandler(authService, cfg)
 
 	// Create rate limiter for auth endpoints: 10 requests per minute per IP
 	// This helps prevent:

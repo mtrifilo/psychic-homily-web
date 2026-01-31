@@ -114,12 +114,16 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
                       &nbsp;•&nbsp;
                     </span>
                   )}
-                  <Link
-                    href={`/artists/${artist.slug}`}
-                    className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
-                  >
-                    {artist.name}
-                  </Link>
+                  {artist.slug ? (
+                    <Link
+                      href={`/artists/${artist.slug}`}
+                      className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
+                    >
+                      {artist.name}
+                    </Link>
+                  ) : (
+                    <span>{artist.name}</span>
+                  )}
                 </span>
               ))}
             </h1>
@@ -193,12 +197,16 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
           {/* Venue and Details */}
           <div className="text-sm mt-1.5 text-muted-foreground">
             {venue && (
-              <Link
-                href={`/venues/${venue.slug}`}
-                className="text-primary/80 hover:text-primary font-medium transition-colors"
-              >
-                {venue.name}
-              </Link>
+              venue.slug ? (
+                <Link
+                  href={`/venues/${venue.slug}`}
+                  className="text-primary/80 hover:text-primary font-medium transition-colors"
+                >
+                  {venue.name}
+                </Link>
+              ) : (
+                <span className="text-primary/80 font-medium">{venue.name}</span>
+              )
             )}
             {show.price != null && (
               <span>&nbsp;•&nbsp;{formatPrice(show.price)}</span>
@@ -219,12 +227,16 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
               <div key={artist.id} className="space-y-2">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <Link
-                      href={`/artists/${artist.slug}`}
-                      className="font-medium hover:text-primary transition-colors"
-                    >
-                      {artist.name}
-                    </Link>
+                    {artist.slug ? (
+                      <Link
+                        href={`/artists/${artist.slug}`}
+                        className="font-medium hover:text-primary transition-colors"
+                      >
+                        {artist.name}
+                      </Link>
+                    ) : (
+                      <span className="font-medium">{artist.name}</span>
+                    )}
                     {(artist.city || artist.state) && (
                       <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
                         <MapPin className="h-3 w-3" />

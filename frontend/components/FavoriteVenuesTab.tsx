@@ -85,24 +85,34 @@ function ShowItem({
                     &bull;{' '}
                   </span>
                 )}
-                <Link
-                  href={`/artists/${artist.slug}`}
-                  className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
-                >
-                  {artist.name}
-                </Link>
+                {artist.slug ? (
+                  <Link
+                    href={`/artists/${artist.slug}`}
+                    className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
+                  >
+                    {artist.name}
+                  </Link>
+                ) : (
+                  <span>{artist.name}</span>
+                )}
               </span>
             ))}
             {show.artists.length === 0 && 'TBA'}
           </div>
-          {showVenue && displayVenueSlug && displayVenueName && (
+          {showVenue && displayVenueName && (
             <div className="text-sm text-muted-foreground mt-1">
-              <Link
-                href={`/venues/${displayVenueSlug}`}
-                className="text-primary/80 hover:text-primary font-medium transition-colors"
-              >
-                {displayVenueName}
-              </Link>
+              {displayVenueSlug ? (
+                <Link
+                  href={`/venues/${displayVenueSlug}`}
+                  className="text-primary/80 hover:text-primary font-medium transition-colors"
+                >
+                  {displayVenueName}
+                </Link>
+              ) : (
+                <span className="text-primary/80 font-medium">
+                  {displayVenueName}
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -120,15 +130,14 @@ interface VenueCardExpandableProps {
 }
 
 function VenueCardExpandable({ venue }: VenueCardExpandableProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(true)
+  const hasShows = venue.upcoming_show_count > 0
 
   const { data, isLoading, error } = useVenueShows({
     venueId: venue.id,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    enabled: isExpanded,
+    enabled: hasShows, // Always fetch if venue has shows since expanded by default
   })
-
-  const hasShows = venue.upcoming_show_count > 0
 
   return (
     <article className="border border-border/50 rounded-lg mb-4 overflow-hidden bg-card">
@@ -318,7 +327,7 @@ function ByVenueView() {
 }
 
 export function FavoriteVenuesTab() {
-  const [viewMode, setViewMode] = useState<ViewMode>('chronological')
+  const [viewMode, setViewMode] = useState<ViewMode>('byVenue')
   const { data: venuesData, isLoading: venuesLoading } = useFavoriteVenues()
 
   // Load view mode from localStorage on mount

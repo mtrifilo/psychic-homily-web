@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { ChangePassword } from '@/components/settings/change-password'
 import { DeleteAccountDialog } from '@/components/settings/delete-account-dialog'
+import { OAuthAccounts } from '@/components/settings/oauth-accounts'
 
 export function SettingsPanel() {
   const { user } = useAuthContext()
@@ -185,6 +186,9 @@ export function SettingsPanel() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Connected Accounts Section */}
+      <OAuthAccounts />
 
       {/* Password Change Section - only show for users with passwords */}
       <ChangePassword />

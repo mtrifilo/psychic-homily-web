@@ -254,12 +254,16 @@ function ShowCard({
           {/* Venue and Details */}
           <div className="text-sm mt-1.5 text-muted-foreground">
             {venue && (
-              <Link
-                href={`/venues/${venue.slug}`}
-                className="text-primary/80 hover:text-primary font-medium transition-colors"
-              >
-                {venue.name}
-              </Link>
+              venue.slug ? (
+                <Link
+                  href={`/venues/${venue.slug}`}
+                  className="text-primary/80 hover:text-primary font-medium transition-colors"
+                >
+                  {venue.name}
+                </Link>
+              ) : (
+                <span className="text-primary/80 font-medium">{venue.name}</span>
+              )
             )}
             {show.price != null && (
               <span>&nbsp;•&nbsp;{formatPrice(show.price)}</span>

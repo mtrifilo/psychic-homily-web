@@ -1,6 +1,6 @@
 # OAuth2 Implementation Status
 
-## ✅ Completed (Phase 1, 2, 3, 4, 5)
+## ✅ Completed
 
 ### Database & Models ✅
 
@@ -8,23 +8,22 @@
   - Users table with OAuth support
   - OAuth accounts table (Goth compatible)
   - User preferences table
-  - ~~User sessions table~~ (Removed - using JWT authentication)
 - [x] **Go Models**: `internal/models/user.go`
   - User, OAuthAccount, UserPreferences structs
-  - ~~UserSession struct~~ (Removed - using JWT authentication)
   - GORM tags and relationships
 
 ### Configuration ✅
 
 - [x] **OAuth Configuration**: `internal/config/config.go`
-  - Google, GitHub, and Instagram OAuth settings
+  - Google and GitHub OAuth settings
   - JWT configuration (secret key, expiry)
+  - Session configuration for cookies
   - Environment variable handling
 
 ### Goth Integration ✅
 
 - [x] **Goth Setup**: `internal/auth/goth.go`
-  - OAuth provider configuration (Google, GitHub, Instagram)
+  - OAuth provider configuration (Google, GitHub)
   - Temporary session store for OAuth flow only
   - Session management utilities for OAuth redirects
 
@@ -38,223 +37,215 @@
   - JWT token generation and validation
   - Token refresh functionality
   - User claims management
+- [x] **User Service**: `internal/services/user.go`
+  - `GetOAuthAccounts()` - List connected OAuth accounts
+  - `CanUnlinkOAuthAccount()` - Check if safe to unlink
+  - `UnlinkOAuthAccount()` - Remove OAuth connection
 
 ### API Handlers ✅
 
+- [x] **OAuth HTTP Handlers**: `internal/api/handlers/oauth_handlers.go`
+  - OAuth login initiation (redirects to provider)
+  - OAuth callback (sets HTTP-only cookie, redirects to frontend)
+- [x] **OAuth Account Handlers**: `internal/api/handlers/oauth_account.go`
+  - List connected OAuth accounts
+  - Unlink OAuth account (with safety checks)
 - [x] **Auth Handlers**: `internal/api/handlers/auth.go`
-  - OAuth login endpoint
-  - OAuth callback endpoint
-  - Logout endpoint (JWT token invalidation)
+  - Login/register with email/password
+  - Logout endpoint
   - Profile endpoint
   - Token refresh endpoint
-- [x] **Show Handlers**: `internal/api/handlers/shows.go`
-  - Show submission endpoint (existing functionality)
+  - Magic link authentication
+  - Email verification
+  - Password change
 
 ### Routes ✅
 
 - [x] **Route Configuration**: `internal/api/routes/routes.go`
-  - Authentication endpoints
-  - JWT middleware integration
-  - Service dependency injection
-  - Handler initialization
+  - `GET /auth/login/{provider}` - Initiate OAuth flow
+  - `GET /auth/callback/{provider}` - Handle OAuth callback
+  - `GET /auth/oauth/accounts` - List connected accounts (protected)
+  - `DELETE /auth/oauth/accounts/{provider}` - Unlink account (protected)
 
 ### Middleware ✅
 
 - [x] **JWT Middleware**: `internal/api/middleware/jwt.go`
-  - JWT token validation
+  - JWT token validation from HTTP-only cookies
   - User context injection
   - Protected route handling
 
-### Application Setup ✅
+### Frontend Integration ✅
 
-- [x] **Main Application**: `cmd/server/main.go`
-  - Goth initialization
-  - Configuration loading
-  - OAuth provider status logging
-  - JWT service initialization
+- [x] **Google OAuth Button**: `frontend/components/auth/google-oauth-button.tsx`
+  - Google-branded button with official colors/icon
+  - Redirects to backend OAuth endpoint
+- [x] **Auth Page**: `frontend/app/auth/page.tsx`
+  - Google OAuth button in login form
+  - Google OAuth button in signup form
+- [x] **OAuth Accounts Settings**: `frontend/components/settings/oauth-accounts.tsx`
+  - Shows connected Google account
+  - Connect/disconnect functionality
+  - Safety warnings for unlinking
+- [x] **Settings Panel**: `frontend/components/SettingsPanel.tsx`
+  - OAuth accounts section added
+- [x] **Auth Hooks**: `frontend/lib/hooks/useAuth.ts`
+  - `useOAuthAccounts()` - Fetch connected accounts
+  - `useUnlinkOAuthAccount()` - Unlink account mutation
+- [x] **Backup Auth Prompt**: `frontend/components/auth/backup-auth-prompt.tsx`
+  - Shown after passkey-only signup
+  - Encourages users to connect Google as backup
 
 ## 🚀 Current Status
 
 ### What Works Now ✅
 
-1. **Application Builds**: All code compiles successfully
-2. **Database Schema**: User tables created and ready
-3. **API Endpoints**: Authentication endpoints available
-4. **Configuration**: OAuth and JWT settings loaded from environment
-5. **JWT Authentication**: Stateless token-based authentication
-6. **OAuth Integration**: Google, GitHub, Instagram providers configured
-7. **Database Integration**: GORM with JWT authentication
+1. **Google OAuth Login/Signup**: Users can sign in or create accounts with Google
+2. **HTTP-only Cookie Auth**: Secure cookie-based JWT authentication
+3. **OAuth Account Management**: Users can view and disconnect OAuth accounts in Settings
+4. **Account Linking**: Existing users can link Google accounts
+5. **New User Creation**: New users created automatically from Google OAuth
+6. **Backup Auth Flow**: Passkey users prompted to add Google as backup
 
-### Available Endpoints ✅
+### Authentication Flow
 
-- `GET /health` - Health check
-- `GET /auth/login/{provider}` - Initiate OAuth login
-- `GET /auth/callback` - Handle OAuth callback
-- `POST /auth/logout` - User logout (JWT token invalidation)
-- `GET /auth/profile` - Get user profile (JWT protected)
-- `POST /auth/refresh` - Refresh JWT token
-- `POST /show` - Show submission (JWT protected)
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        User clicks                               │
+│                   "Continue with Google"                         │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Frontend redirects to: /auth/login/google                       │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Backend (Goth) redirects to Google OAuth consent screen         │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  User authorizes → Google redirects to /auth/callback/google     │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Backend:                                                        │
+│  1. Exchanges code for tokens                                    │
+│  2. Gets user info from Google                                   │
+│  3. Finds or creates user account                                │
+│  4. Links OAuth account to user                                  │
+│  5. Generates JWT token                                          │
+│  6. Sets auth_token HTTP-only cookie                             │
+│  7. Redirects to frontend home page                              │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  User is now logged in with cookie set                           │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-## 🔧 Next Steps (Future Enhancements)
+### Available Endpoints
 
-### Immediate Tasks
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/auth/login/{provider}` | GET | Public | Initiate OAuth login |
+| `/auth/callback/{provider}` | GET | Public | OAuth callback handler |
+| `/auth/oauth/accounts` | GET | Protected | List connected OAuth accounts |
+| `/auth/oauth/accounts/{provider}` | DELETE | Protected | Unlink OAuth account |
+| `/auth/login` | POST | Public | Email/password login |
+| `/auth/register` | POST | Public | Email/password registration |
+| `/auth/logout` | POST | Public | Logout (clears cookie) |
+| `/auth/profile` | GET | Protected | Get user profile |
+| `/auth/refresh` | POST | Protected | Refresh JWT token |
 
-1. **Local Authentication** (Optional)
+## 🔧 Environment Setup
 
-   - Add email/password registration
-   - Implement local login with JWT
-   - Password reset functionality
-
-2. **User Management**
-
-   - Profile update endpoints
-   - User preferences management
-   - Admin user management
-
-3. **Enhanced Security**
-   - Rate limiting
-   - IP-based restrictions
-   - Audit logging
-
-### Environment Setup ✅
-
-Your `.env.development` file should include:
+Required environment variables for OAuth:
 
 ```bash
-# OAuth Configuration
+# Google OAuth (required for Google login)
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
+GOOGLE_CALLBACK_URL=http://localhost:8080/auth/callback/google
+
+# GitHub OAuth (optional)
 GITHUB_CLIENT_ID=your_github_client_id
 GITHUB_CLIENT_SECRET=your_github_client_secret
-INSTAGRAM_CLIENT_ID=your_instagram_client_id
-INSTAGRAM_CLIENT_SECRET=your_instagram_client_secret
-OAUTH_REDIRECT_URL=http://localhost:8080/auth/callback
+GITHUB_CALLBACK_URL=http://localhost:8080/auth/callback/github
+
+# OAuth session encryption
 OAUTH_SECRET_KEY=your-secret-key-for-oauth-sessions
 
 # JWT Configuration
 JWT_SECRET_KEY=your-super-secret-jwt-key-32-chars-minimum
 JWT_EXPIRY_HOURS=24
 
-# Database Configuration
-DATABASE_URL=postgres://psychicadmin:secretpassword@db:5432/psychicdb
-POSTGRES_USER=psychicadmin
-POSTGRES_PASSWORD=secretpassword
-POSTGRES_DB=psychicdb
+# Session/Cookie Configuration
+SESSION_SECURE=false  # true in production (HTTPS)
+SESSION_SAME_SITE=lax
+SESSION_DOMAIN=       # empty for localhost
+
+# Frontend URL (for OAuth redirects)
+FRONTEND_URL=http://localhost:3000
 ```
 
-## 🧪 Testing
-
-### Current Testing Status ✅
-
-- [x] **Build Testing**: Application compiles successfully
-- [x] **Migration Testing**: Database schema created
-- [x] **Health Check**: API responds correctly
-- [x] **JWT Service**: Token generation and validation
-- [ ] **OAuth Flow Testing**: Need OAuth provider credentials
-- [ ] **Protected Routes**: JWT middleware testing
-- [ ] **API Integration**: Full OAuth + JWT flow
-
-### Test Commands ✅
-
-```bash
-# Build the application
-go build ./cmd/server
-
-# Run migrations
-docker compose up -d db migrate
-
-# Start the application
-docker compose up -d
-
-# Test endpoints (with curl)
-curl http://localhost:8080/health
-curl -X POST http://localhost:8080/auth/login/google
-```
-
-## 📊 Architecture Overview ✅
-
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   API Routes    │───▶│  Auth Handlers  │───▶│  Auth Service   │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-        │                       │                       │
-        ▼                       ▼                       ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  JWT Middleware │    │   Goth OAuth    │    │   JWT Service   │
-│                 │    │   Providers     │    │                 │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-        │                       │                       │
-        ▼                       ▼                       ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Database      │    │   GORM Models   │    │   User Context  │
-│   Connection    │    │                 │    │                 │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-```
-
-## 🛡️ Security Considerations ✅
+## 🛡️ Security Features
 
 ### Implemented ✅
 
-- [x] **JWT Authentication**: Stateless token-based authentication
-- [x] **OAuth Integration**: Secure OAuth2 flow with Goth
-- [x] **Token Validation**: JWT signature and expiry validation
-- [x] **Secure Headers**: Authorization header validation
-- [x] **Token Refresh**: Automatic token renewal
-- [x] **Password Hashing**: Bcrypt implementation (for future local auth)
+- [x] **HTTP-only Cookies**: JWT stored in HTTP-only cookie (not accessible via JS)
+- [x] **Secure Cookie Flag**: Enabled in production (HTTPS only)
+- [x] **SameSite Cookie**: Lax mode for CSRF protection
+- [x] **JWT Validation**: Signature and expiry validation
+- [x] **OAuth State**: CSRF protection via Goth
+- [x] **Unlink Safety**: Prevents unlinking last auth method
+- [x] **Rate Limiting**: Auth endpoints rate-limited (10 req/min)
 
-### Pending (Optional Enhancements)
+### Safety Checks for Unlinking
 
-- [ ] **Rate Limiting**: Login attempt limits
-- [ ] **IP Tracking**: Request IP validation
-- [ ] **Audit Logging**: Authentication event logging
-- [ ] **Token Blacklisting**: Logout token invalidation
+Before allowing a user to unlink an OAuth account, the system checks:
+1. Does the user have a password set?
+2. Does the user have other OAuth accounts?
+3. Does the user have passkeys?
 
-## 🎯 Success Metrics ✅
+If none of these are true, unlinking is blocked with an error message.
 
-- [x] **Code Organization**: Clean separation of concerns
-- [x] **Extensibility**: Easy to add new OAuth providers
-- [x] **Security**: Follows OAuth2 and JWT best practices
-- [x] **Maintainability**: Well-documented and structured
-- [x] **Functionality**: Full OAuth + JWT flow working
-- [x] **Production Ready**: Database integration complete
-- [x] **Scalability**: Stateless JWT authentication
-- [x] **Mobile Friendly**: JWT tokens work well with mobile apps
+## 🔄 Future Enhancements
 
-## 🧹 Migration Cleanup ✅
+- [ ] **GitHub OAuth UI**: Add GitHub button to frontend (backend ready)
+- [ ] **Set Password for OAuth Users**: Allow OAuth-only users to add a password
+- [ ] **Multiple Google Accounts**: Support linking multiple Google accounts
+- [ ] **OAuth Token Refresh**: Refresh OAuth tokens when they expire
+- [ ] **Account Merging**: Merge accounts when same email signs up differently
 
-### Completed Actions ✅
+## 📊 Architecture
 
-1. **Consolidated Migrations**: Single `000001_create_initial_schema.up.sql`
-2. **Removed UserSession Model**: No longer needed with JWT
-3. **Updated Database Schema**: Clean, production-ready schema
-4. **JWT Integration**: Full JWT authentication system
-5. **Documentation Updates**: Reflected JWT-based approach
-
-### Current Schema ✅
-
-```sql
--- Core tables
-artists, venues, shows, show_artists
-
--- Authentication tables
-users, oauth_accounts, user_preferences
-
--- No session tables (using JWT)
 ```
+Frontend                          Backend
+────────                          ───────
 
-## 🚀 Benefits Achieved ✅
+┌──────────────┐                  ┌──────────────────────┐
+│ Google OAuth │ ──redirect───▶  │ /auth/login/google   │
+│    Button    │                  │  (OAuth Handler)     │
+└──────────────┘                  └──────────────────────┘
+                                           │
+                                           ▼
+                                  ┌──────────────────────┐
+                                  │   Google OAuth       │
+                                  │   Consent Screen     │
+                                  └──────────────────────┘
+                                           │
+                                           ▼
+┌──────────────┐                  ┌──────────────────────┐
+│   Home Page  │ ◀──redirect────  │ /auth/callback/google│
+│  (logged in) │    + cookie      │  (Sets JWT cookie)   │
+└──────────────┘                  └──────────────────────┘
 
-### JWT Advantages ✅
-
-- **Stateless**: No server-side session storage
-- **Scalable**: Works across multiple servers
-- **Mobile Friendly**: Easy to implement in mobile apps
-- **Performance**: No database lookups for authentication
-- **CORS Friendly**: Works well with cross-origin requests
-
-### Architecture Benefits ✅
-
-- **Clean Code**: Well-organized, maintainable codebase
-- **Security**: Industry-standard OAuth2 + JWT
-- **Extensibility**: Easy to add new features
-- **Documentation**: Comprehensive implementation guides
+┌──────────────┐                  ┌──────────────────────┐
+│   Settings   │ ◀───────────────▶│ /auth/oauth/accounts │
+│ OAuth Panel  │   API calls      │  (List/Unlink)       │
+└──────────────┘                  └──────────────────────┘
+```

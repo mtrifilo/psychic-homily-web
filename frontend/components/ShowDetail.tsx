@@ -155,12 +155,16 @@ export function ShowDetail({ showId }: ShowDetailProps) {
                       {' '}&bull;{' '}
                     </span>
                   )}
-                  <Link
-                    href={`/artists/${artist.slug}`}
-                    className="hover:text-primary transition-colors"
-                  >
-                    {artist.name}
-                  </Link>
+                  {artist.slug ? (
+                    <Link
+                      href={`/artists/${artist.slug}`}
+                      className="hover:text-primary transition-colors"
+                    >
+                      {artist.name}
+                    </Link>
+                  ) : (
+                    <span>{artist.name}</span>
+                  )}
                 </span>
               ))}
             </h1>
@@ -168,12 +172,18 @@ export function ShowDetail({ showId }: ShowDetailProps) {
             {/* Venue and Location */}
             {venue && (
               <div className="mt-2">
-                <Link
-                  href={`/venues/${venue.slug}`}
-                  className="text-lg text-primary/80 hover:text-primary font-medium transition-colors"
-                >
-                  {venue.name}
-                </Link>
+                {venue.slug ? (
+                  <Link
+                    href={`/venues/${venue.slug}`}
+                    className="text-lg text-primary/80 hover:text-primary font-medium transition-colors"
+                  >
+                    {venue.name}
+                  </Link>
+                ) : (
+                  <span className="text-lg text-primary/80 font-medium">
+                    {venue.name}
+                  </span>
+                )}
                 <div className="flex items-center gap-1 text-muted-foreground mt-1">
                   <MapPin className="h-4 w-4" />
                   <span>
@@ -256,12 +266,16 @@ export function ShowDetail({ showId }: ShowDetailProps) {
               <div key={artist.id} className="space-y-2">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <Link
-                      href={`/artists/${artist.slug}`}
-                      className="font-medium hover:text-primary transition-colors"
-                    >
-                      {artist.name}
-                    </Link>
+                    {artist.slug ? (
+                      <Link
+                        href={`/artists/${artist.slug}`}
+                        className="font-medium hover:text-primary transition-colors"
+                      >
+                        {artist.name}
+                      </Link>
+                    ) : (
+                      <span className="font-medium">{artist.name}</span>
+                    )}
                     {(artist.city || artist.state) && (
                       <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
                         <MapPin className="h-3 w-3" />

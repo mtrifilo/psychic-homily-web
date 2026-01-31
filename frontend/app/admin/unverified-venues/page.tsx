@@ -150,13 +150,15 @@ function UnverifiedVenueCard({ venue }: UnverifiedVenueCardProps) {
                 )}
               </div>
             </div>
-            <Link
-              href={`/venues/${venue.slug}`}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              target="_blank"
-            >
-              <ExternalLink className="h-4 w-4" />
-            </Link>
+            {venue.slug && (
+              <Link
+                href={`/venues/${venue.slug}`}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                target="_blank"
+              >
+                <ExternalLink className="h-4 w-4" />
+              </Link>
+            )}
           </div>
         </CardHeader>
 

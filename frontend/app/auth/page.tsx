@@ -23,6 +23,7 @@ import {
 import { PasswordStrengthMeter } from '@/components/ui/password-strength-meter'
 import { PasskeyLoginButton } from '@/components/auth/passkey-login'
 import { PasskeySignupButton } from '@/components/auth/passkey-signup'
+import { GoogleOAuthButton } from '@/components/auth/google-oauth-button'
 
 // Password validation constants
 const MIN_PASSWORD_LENGTH = 12
@@ -145,8 +146,9 @@ function LoginForm() {
         </Alert>
       )}
 
-      {/* Passkey login option */}
+      {/* OAuth and Passkey login options */}
       <div className="space-y-3">
+        <GoogleOAuthButton className="w-full" variant="login" />
         <PasskeyLoginButton
           onError={setPasskeyError}
           className="w-full"
@@ -361,8 +363,9 @@ function SignupForm() {
         </Alert>
       )}
 
-      {/* Passkey signup option */}
+      {/* OAuth and Passkey signup options */}
       <div className="space-y-3">
+        <GoogleOAuthButton className="w-full" variant="signup" />
         <PasskeySignupButton
           onError={setPasskeyError}
           className="w-full"

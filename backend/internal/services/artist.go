@@ -367,6 +367,7 @@ type ArtistShowResponse struct {
 // ArtistShowVenueResponse represents venue info in artist show response
 type ArtistShowVenueResponse struct {
 	ID    uint   `json:"id"`
+	Slug  string `json:"slug"`
 	Name  string `json:"name"`
 	City  string `json:"city"`
 	State string `json:"state"`
@@ -375,6 +376,7 @@ type ArtistShowVenueResponse struct {
 // ArtistShowArtist represents an artist on a show bill
 type ArtistShowArtist struct {
 	ID   uint   `json:"id"`
+	Slug string `json:"slug"`
 	Name string `json:"name"`
 }
 
@@ -470,8 +472,13 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 		if err := s.db.Where("show_id = ?", show.ID).First(&showVenue).Error; err == nil {
 			var venueModel models.Venue
 			if err := s.db.First(&venueModel, showVenue.VenueID).Error; err == nil {
+				var venueSlug string
+				if venueModel.Slug != nil {
+					venueSlug = *venueModel.Slug
+				}
 				venue = &ArtistShowVenueResponse{
 					ID:    venueModel.ID,
+					Slug:  venueSlug,
 					Name:  venueModel.Name,
 					City:  venueModel.City,
 					State: venueModel.State,
@@ -487,8 +494,13 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 		for _, sa := range showArtists {
 			var artistModel models.Artist
 			if err := s.db.First(&artistModel, sa.ArtistID).Error; err == nil {
+				var artistSlug string
+				if artistModel.Slug != nil {
+					artistSlug = *artistModel.Slug
+				}
 				artists = append(artists, ArtistShowArtist{
 					ID:   artistModel.ID,
+					Slug: artistSlug,
 					Name: artistModel.Name,
 				})
 			}

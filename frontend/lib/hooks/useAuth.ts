@@ -743,3 +743,87 @@ export const useExportData = () => {
     },
   })
 }
+
+// OAuth account types
+interface OAuthAccount {
+  provider: string
+  email?: string
+  name?: string
+  avatar_url?: string
+  connected_at: string
+}
+
+interface GetOAuthAccountsResponse {
+  success: boolean
+  accounts: OAuthAccount[]
+  error_code?: string
+  request_id?: string
+}
+
+interface UnlinkOAuthAccountResponse {
+  success: boolean
+  message: string
+  error_code?: string
+  request_id?: string
+}
+
+// Get OAuth accounts query
+export const useOAuthAccounts = () => {
+  return useQuery({
+    queryKey: ['auth', 'oauth-accounts'],
+    queryFn: async (): Promise<GetOAuthAccountsResponse> => {
+      authLogger.debug('Fetching OAuth accounts')
+
+      const response = await apiRequest<GetOAuthAccountsResponse>(
+        API_ENDPOINTS.AUTH.OAUTH_ACCOUNTS,
+        {
+          method: 'GET',
+          credentials: 'include',
+        }
+      )
+
+      return response
+    },
+  })
+}
+
+// Unlink OAuth account mutation
+export const useUnlinkOAuthAccount = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (provider: string): Promise<UnlinkOAuthAccountResponse> => {
+      authLogger.debug('Unlinking OAuth account', { provider })
+
+      const response = await apiRequest<UnlinkOAuthAccountResponse>(
+        API_ENDPOINTS.AUTH.OAUTH_UNLINK(provider),
+        {
+          method: 'DELETE',
+          credentials: 'include',
+        }
+      )
+
+      if (!response.success) {
+        throw new AuthError(
+          response.message || 'Failed to unlink OAuth account',
+          (response.error_code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN,
+          {
+            requestId: response.request_id,
+            status: 400,
+          }
+        )
+      }
+
+      return response
+    },
+    onSuccess: (data) => {
+      authLogger.info(
+        'OAuth account unlinked successfully',
+        { message: data.message },
+        data.request_id
+      )
+      // Refetch OAuth accounts list
+      queryClient.invalidateQueries({ queryKey: ['auth', 'oauth-accounts'] })
+    },
+  })
+}

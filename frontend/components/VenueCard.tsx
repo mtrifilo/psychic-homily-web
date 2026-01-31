@@ -76,13 +76,17 @@ function ShowItem({ show, state }: ShowItemProps) {
                     &bull;{' '}
                   </span>
                 )}
-                <Link
-                  href={`/artists/${artist.slug}`}
-                  className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
-                  onClick={e => e.stopPropagation()}
-                >
-                  {artist.name}
-                </Link>
+                {artist.slug ? (
+                  <Link
+                    href={`/artists/${artist.slug}`}
+                    className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    {artist.name}
+                  </Link>
+                ) : (
+                  <span>{artist.name}</span>
+                )}
               </span>
             ))}
             {show.artists.length === 0 && 'TBA'}
@@ -144,13 +148,17 @@ export function VenueCard({ venue }: VenueCardProps) {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold truncate">
-                <Link
-                  href={`/venues/${venue.slug}`}
-                  className="hover:text-primary transition-colors"
-                  onClick={e => e.stopPropagation()}
-                >
-                  {venue.name}
-                </Link>
+                {venue.slug ? (
+                  <Link
+                    href={`/venues/${venue.slug}`}
+                    className="hover:text-primary transition-colors"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    {venue.name}
+                  </Link>
+                ) : (
+                  <span>{venue.name}</span>
+                )}
               </h2>
               {venue.verified && (
                 <BadgeCheck className="h-4 w-4 text-primary shrink-0" />
@@ -229,7 +237,7 @@ export function VenueCard({ venue }: VenueCardProps) {
               {data.shows.map(show => (
                 <ShowItem key={show.id} show={show} state={venue.state} />
               ))}
-              {data.total > data.shows.length && (
+              {data.total > data.shows.length && venue.slug && (
                 <div className="text-center pt-3">
                   <Link
                     href={`/venues/${venue.slug}`}

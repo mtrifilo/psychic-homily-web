@@ -1,10 +1,12 @@
 package handlers
 
 import (
-	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"time"
 
+	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/services"
 
 	"github.com/go-chi/chi/v5"
@@ -14,12 +16,14 @@ import (
 // OAuthHTTPHandler handles OAuth HTTP requests directly
 type OAuthHTTPHandler struct {
 	authService *services.AuthService
+	config      *config.Config
 }
 
 // NewOAuthHTTPHandler creates a new OAuth HTTP handler
-func NewOAuthHTTPHandler(authService *services.AuthService) *OAuthHTTPHandler {
+func NewOAuthHTTPHandler(authService *services.AuthService, cfg *config.Config) *OAuthHTTPHandler {
 	return &OAuthHTTPHandler{
 		authService: authService,
+		config:      cfg,
 	}
 }
 
@@ -55,44 +59,48 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 
 // OAuthCallbackHTTPHandler handles OAuth callback via HTTP
 func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *http.Request) {
-    // Get provider from path parameter
-    provider := chi.URLParam(r, "provider")
-    if provider == "" {
-        provider = "google" // fallback
-    }
+	// Get provider from path parameter
+	provider := chi.URLParam(r, "provider")
+	if provider == "" {
+		provider = "google" // fallback
+	}
 
-    log.Printf("DEBUG: Using provider '%s' from URL path", provider)
+	log.Printf("DEBUG: Using provider '%s' from URL path", provider)
 
-    // Add provider to query parameters for Goth (following best practices)
-    q := r.URL.Query()
-    q.Add("provider", provider)
-    r.URL.RawQuery = q.Encode()
+	// Add provider to query parameters for Goth (following best practices)
+	q := r.URL.Query()
+	q.Add("provider", provider)
+	r.URL.RawQuery = q.Encode()
 
-    // Use AuthService to handle the complete OAuth flow
-    user, token, err := h.authService.OAuthCallback(w, r, provider)
-    if err != nil {
-        log.Printf("OAuth callback failed: %v", err)
-        http.Redirect(w, r, "/login?error="+err.Error(), http.StatusTemporaryRedirect)
-        return
-    }
+	// Get frontend URL for redirects
+	frontendURL := h.config.Email.FrontendURL
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+	}
 
-    log.Printf("OAuth callback successful for user: %v", user)
+	// Use AuthService to handle the complete OAuth flow
+	user, token, err := h.authService.OAuthCallback(w, r, provider)
+	if err != nil {
+		log.Printf("OAuth callback failed: %v", err)
+		// Redirect to frontend auth page with error
+		redirectURL := frontendURL + "/auth?error=" + url.QueryEscape(err.Error())
+		http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+		return
+	}
 
-    // Return JWT token to frontend
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(http.StatusOK)
+	log.Printf("OAuth callback successful for user ID: %d", user.ID)
 
-    email := ""
-    if user.Email != nil {
-        email = *user.Email
-    }
+	// Set HTTP-only cookie (same pattern as login/passkey handlers)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   h.config.Session.Secure,
+		SameSite: h.config.Session.GetSameSite(),
+		Expires:  time.Now().Add(7 * 24 * time.Hour), // 7 days
+	})
 
-    w.Write([]byte(fmt.Sprintf(`{
-        "success": true,
-        "token": "%s",
-        "user": {
-            "id": %d,
-            "email": "%s"
-        }
-    }`, token, user.ID, email)))
+	// Redirect to frontend home page
+	http.Redirect(w, r, frontendURL, http.StatusTemporaryRedirect)
 }

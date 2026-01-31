@@ -60,6 +60,9 @@ export const API_ENDPOINTS = {
     OAUTH_LOGIN: (provider: string) => `${API_BASE_URL}/auth/login/${provider}`,
     OAUTH_CALLBACK: (provider: string) =>
       `${API_BASE_URL}/auth/callback/${provider}`,
+    OAUTH_ACCOUNTS: `${API_BASE_URL}/auth/oauth/accounts`,
+    OAUTH_UNLINK: (provider: string) =>
+      `${API_BASE_URL}/auth/oauth/accounts/${provider}`,
     // Account deletion endpoints
     DELETION_SUMMARY: `${API_BASE_URL}/auth/account/deletion-summary`,
     DELETE_ACCOUNT: `${API_BASE_URL}/auth/account/delete`,

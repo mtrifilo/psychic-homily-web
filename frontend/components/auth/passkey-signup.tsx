@@ -19,6 +19,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { BackupAuthPrompt } from './backup-auth-prompt'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
@@ -32,6 +33,7 @@ export function PasskeySignupButton({ onError, className }: PasskeySignupButtonP
   const { setUser } = useAuthContext()
   const [isLoading, setIsLoading] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [showBackupPrompt, setShowBackupPrompt] = useState(false)
   const [email, setEmail] = useState('')
   const [emailError, setEmailError] = useState<string | null>(null)
   const [termsAccepted, setTermsAccepted] = useState(false)
@@ -101,7 +103,7 @@ export function PasskeySignupButton({ onError, className }: PasskeySignupButtonP
         throw new Error(finishData.message || 'Failed to complete passkey signup')
       }
 
-      // Success - update auth context and redirect
+      // Success - update auth context
       if (finishData.user) {
         setUser({
           id: finishData.user.id,
@@ -112,8 +114,9 @@ export function PasskeySignupButton({ onError, className }: PasskeySignupButtonP
         })
       }
 
+      // Close signup dialog and show backup prompt
       setIsDialogOpen(false)
-      router.push('/')
+      setShowBackupPrompt(true)
     } catch (error) {
       // Handle user cancellation gracefully
       if (error instanceof Error) {
@@ -130,12 +133,17 @@ export function PasskeySignupButton({ onError, className }: PasskeySignupButtonP
     }
   }
 
+  const handleBackupComplete = () => {
+    router.push('/')
+  }
+
   // Don't render if browser doesn't support WebAuthn
   if (!supportsWebAuthn) {
     return null
   }
 
   return (
+    <>
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
       <DialogTrigger asChild>
         <Button
@@ -240,6 +248,13 @@ export function PasskeySignupButton({ onError, className }: PasskeySignupButtonP
         </div>
       </DialogContent>
     </Dialog>
+
+    <BackupAuthPrompt
+      open={showBackupPrompt}
+      onOpenChange={setShowBackupPrompt}
+      onComplete={handleBackupComplete}
+    />
+    </>
   )
 }
 

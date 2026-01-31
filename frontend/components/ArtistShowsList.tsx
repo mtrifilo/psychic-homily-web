@@ -69,12 +69,16 @@ function ShowItem({ show, currentArtistId, isPastShow = false }: ShowItemProps) 
           {/* Venue */}
           {show.venue && (
             <div className="mt-1">
-              <Link
-                href={`/venues/${show.venue.slug}`}
-                className="font-semibold hover:text-primary transition-colors"
-              >
-                {show.venue.name}
-              </Link>
+              {show.venue.slug ? (
+                <Link
+                  href={`/venues/${show.venue.slug}`}
+                  className="font-semibold hover:text-primary transition-colors"
+                >
+                  {show.venue.name}
+                </Link>
+              ) : (
+                <span className="font-semibold">{show.venue.name}</span>
+              )}
               <span className="text-muted-foreground">
                 {' '}
                 &middot; {show.venue.city}, {show.venue.state}
@@ -89,12 +93,16 @@ function ShowItem({ show, currentArtistId, isPastShow = false }: ShowItemProps) 
               {otherArtists.map((artist, index) => (
                 <span key={artist.id}>
                   {index > 0 && ', '}
-                  <Link
-                    href={`/artists/${artist.slug}`}
-                    className="hover:text-foreground transition-colors"
-                  >
-                    {artist.name}
-                  </Link>
+                  {artist.slug ? (
+                    <Link
+                      href={`/artists/${artist.slug}`}
+                      className="hover:text-foreground transition-colors"
+                    >
+                      {artist.name}
+                    </Link>
+                  ) : (
+                    <span>{artist.name}</span>
+                  )}
                 </span>
               ))}
             </div>

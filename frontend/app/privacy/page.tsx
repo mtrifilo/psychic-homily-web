@@ -3,12 +3,12 @@ import Link from 'next/link'
 
 export const metadata: Metadata = {
   title: 'Privacy Policy | Psychic Homily',
-  description: 'Privacy Policy for Psychic Homily - how we collect, use, and protect your personal information.',
+  description: 'Privacy Policy for Psychic Homily - how your personal information is collected, used, and protected.',
 }
 
 export default function PrivacyPolicyPage() {
-  const lastUpdated = 'January 29, 2026'
-  const effectiveDate = 'January 29, 2026'
+  const lastUpdated = 'January 31, 2026'
+  const effectiveDate = 'January 31, 2026'
 
   return (
     <div className="flex min-h-screen items-start justify-center bg-background">
@@ -23,28 +23,31 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-xl font-semibold mb-3">1. Introduction</h2>
             <p className="text-foreground/90 leading-relaxed mb-3">
-              Psychic Homily (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;) respects your privacy and is committed to protecting your personal information. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our website and services.
+              Psychic Homily is a personal project operated by Matt T. in Phoenix, Arizona. It is not a registered business entity. In this policy, &quot;I,&quot; &quot;me,&quot; and &quot;my&quot; refer to the operator of Psychic Homily.
+            </p>
+            <p className="text-foreground/90 leading-relaxed mb-3">
+              I respect your privacy and am committed to protecting your personal information. This Privacy Policy explains how I collect, use, disclose, and safeguard your information when you use the website and services.
             </p>
             <p className="text-foreground/90 leading-relaxed">
-              By using Psychic Homily, you agree to the collection and use of information in accordance with this policy. If you do not agree with our policies and practices, please do not use our services.
+              By using Psychic Homily, you agree to the collection and use of information in accordance with this policy. If you do not agree with these policies and practices, please do not use the services.
             </p>
           </section>
 
-          {/* Information We Collect */}
+          {/* Information I Collect */}
           <section>
-            <h2 className="text-xl font-semibold mb-3">2. Information We Collect</h2>
+            <h2 className="text-xl font-semibold mb-3">2. Information I Collect</h2>
 
             <h3 className="text-lg font-medium mt-4 mb-2">2.1 Information You Provide Directly</h3>
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
               <li><strong>Account Information:</strong> Email address, username, password (stored securely as a hash), first name, last name, profile photo/avatar URL, and bio.</li>
-              <li><strong>User-Generated Content:</strong> Shows you save to your collection, show submissions, and any other content you create on our platform.</li>
+              <li><strong>User-Generated Content:</strong> Shows you save to your collection, show submissions, and any other content you create on the platform.</li>
               <li><strong>Preferences:</strong> Theme settings, timezone, language preference, and notification preferences.</li>
-              <li><strong>Communications:</strong> Information you provide when contacting us for support or feedback.</li>
+              <li><strong>Communications:</strong> Information you provide when contacting me for support or feedback.</li>
             </ul>
 
             <h3 className="text-lg font-medium mt-4 mb-2">2.2 Information from Third-Party Services</h3>
             <p className="text-foreground/90 leading-relaxed mb-2">
-              If you choose to sign in using OAuth providers, we receive:
+              If you choose to sign in using OAuth providers, I receive:
             </p>
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
               <li><strong>Google:</strong> Your Google account ID, email address, name, and profile photo.</li>
@@ -60,18 +63,18 @@ export default function PrivacyPolicyPage() {
             </ul>
           </section>
 
-          {/* How We Use Your Information */}
+          {/* How I Use Your Information */}
           <section>
-            <h2 className="text-xl font-semibold mb-3">3. How We Use Your Information</h2>
+            <h2 className="text-xl font-semibold mb-3">3. How I Use Your Information</h2>
             <p className="text-foreground/90 leading-relaxed mb-3">
-              We use the information we collect for the following purposes:
+              I use the information I collect for the following purposes:
             </p>
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
               <li><strong>Provide Services:</strong> To create and manage your account, display your saved shows, and enable show submissions.</li>
               <li><strong>Authentication:</strong> To verify your identity and maintain secure access to your account.</li>
               <li><strong>Communications:</strong> To send you transactional emails (password resets, magic links, email verification) and, with your consent, promotional updates about new features.</li>
               <li><strong>Personalization:</strong> To remember your preferences such as theme, timezone, and language.</li>
-              <li><strong>Improvement:</strong> To analyze usage patterns and improve our services.</li>
+              <li><strong>Improvement:</strong> To analyze usage patterns and improve the services.</li>
               <li><strong>Security:</strong> To detect and prevent fraud, abuse, and security incidents.</li>
               <li><strong>Legal Compliance:</strong> To comply with applicable laws and regulations.</li>
             </ul>
@@ -81,13 +84,13 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-xl font-semibold mb-3">4. Third-Party Services and Data Sharing</h2>
             <p className="text-foreground/90 leading-relaxed mb-3">
-              We share your information with the following categories of third parties:
+              I share your information with the following categories of third parties:
             </p>
 
             <h3 className="text-lg font-medium mt-4 mb-2">4.1 Service Providers</h3>
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
-              <li><strong>Resend:</strong> Email delivery service. We share your email address to send transactional and notification emails. <Link href="https://resend.com/legal/privacy-policy" className="underline hover:text-muted-foreground">Resend Privacy Policy</Link></li>
-              <li><strong>Railway:</strong> Cloud hosting provider where our application and database are hosted. <Link href="https://railway.app/legal/privacy" className="underline hover:text-muted-foreground">Railway Privacy Policy</Link></li>
+              <li><strong>Resend:</strong> Email delivery service. I share your email address to send transactional and notification emails. <Link href="https://resend.com/legal/privacy-policy" className="underline hover:text-muted-foreground">Resend Privacy Policy</Link></li>
+              <li><strong>Railway:</strong> Cloud hosting provider where the application and database are hosted. <Link href="https://railway.app/legal/privacy" className="underline hover:text-muted-foreground">Railway Privacy Policy</Link></li>
               <li><strong>Google Cloud Storage:</strong> Used for backup storage. <Link href="https://cloud.google.com/terms/cloud-privacy-notice" className="underline hover:text-muted-foreground">Google Cloud Privacy Notice</Link></li>
             </ul>
 
@@ -99,7 +102,7 @@ export default function PrivacyPolicyPage() {
 
             <h3 className="text-lg font-medium mt-4 mb-2">4.3 Embedded Content</h3>
             <p className="text-foreground/90 leading-relaxed mb-2">
-              Our site may embed content from third-party music platforms:
+              The site may embed content from third-party music platforms:
             </p>
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
               <li><strong>Spotify:</strong> Embedded players may set cookies and collect data per <Link href="https://www.spotify.com/legal/privacy-policy/" className="underline hover:text-muted-foreground">Spotify&apos;s Privacy Policy</Link></li>
@@ -109,12 +112,12 @@ export default function PrivacyPolicyPage() {
 
             <h3 className="text-lg font-medium mt-4 mb-2">4.4 Discord Notifications</h3>
             <p className="text-foreground/90 leading-relaxed">
-              We use Discord webhooks to send notifications about new show submissions to our administrative team. No personal user data is shared with Discord users beyond what you include in public submissions.
+              I use Discord webhooks to send notifications about new show submissions. No personal user data is shared with Discord users beyond what you include in public submissions.
             </p>
 
-            <h3 className="text-lg font-medium mt-4 mb-2">4.5 We Do NOT Sell Your Data</h3>
+            <h3 className="text-lg font-medium mt-4 mb-2">4.5 I Do NOT Sell Your Data</h3>
             <p className="text-foreground/90 leading-relaxed">
-              We do not sell, rent, or trade your personal information to third parties for their marketing purposes. We do not share your data with data brokers.
+              I do not sell, rent, or trade your personal information to third parties for their marketing purposes. I do not share your data with data brokers.
             </p>
           </section>
 
@@ -122,10 +125,10 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-xl font-semibold mb-3">5. Data Retention</h2>
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
-              <li><strong>Active Accounts:</strong> We retain your information for as long as your account is active.</li>
-              <li><strong>Deleted Accounts:</strong> When you delete your account, we retain your data for 30 days to allow account recovery if requested. After this grace period, your data is permanently deleted.</li>
-              <li><strong>Legal Requirements:</strong> We may retain certain information longer if required by law or to protect our legal interests.</li>
-              <li><strong>Anonymized Data:</strong> We may retain anonymized, aggregated data indefinitely for analytics purposes.</li>
+              <li><strong>Active Accounts:</strong> I retain your information for as long as your account is active.</li>
+              <li><strong>Deleted Accounts:</strong> When you delete your account, I retain your data for 30 days to allow account recovery if requested. After this grace period, your data is permanently deleted.</li>
+              <li><strong>Legal Requirements:</strong> I may retain certain information longer if required by law or to protect legal interests.</li>
+              <li><strong>Anonymized Data:</strong> I may retain anonymized, aggregated data indefinitely for analytics purposes.</li>
             </ul>
           </section>
 
@@ -138,7 +141,7 @@ export default function PrivacyPolicyPage() {
 
             <h3 className="text-lg font-medium mt-4 mb-2">6.1 All Users</h3>
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
-              <li><strong>Access:</strong> Request a copy of the personal information we hold about you.</li>
+              <li><strong>Access:</strong> Request a copy of the personal information I hold about you.</li>
               <li><strong>Correction:</strong> Update or correct inaccurate information via your profile settings.</li>
               <li><strong>Deletion:</strong> Delete your account and associated data through your account settings.</li>
               <li><strong>Portability:</strong> Request an export of your data in a machine-readable format.</li>
@@ -149,17 +152,17 @@ export default function PrivacyPolicyPage() {
               Under the California Consumer Privacy Act, as amended by the California Privacy Rights Act and updated regulations effective January 1, 2026, you have the right to:
             </p>
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
-              <li><strong>Know:</strong> Request disclosure of the categories and specific pieces of personal information we collect.</li>
+              <li><strong>Know:</strong> Request disclosure of the categories and specific pieces of personal information I collect.</li>
               <li><strong>Delete:</strong> Request deletion of your personal information.</li>
-              <li><strong>Opt-Out of Sale/Sharing:</strong> We do not sell or share your personal information for cross-context behavioral advertising.</li>
-              <li><strong>Non-Discrimination:</strong> We will not discriminate against you for exercising your privacy rights.</li>
+              <li><strong>Opt-Out of Sale/Sharing:</strong> I do not sell or share your personal information for cross-context behavioral advertising.</li>
+              <li><strong>Non-Discrimination:</strong> I will not discriminate against you for exercising your privacy rights.</li>
               <li><strong>Correct:</strong> Request correction of inaccurate personal information.</li>
-              <li><strong>Limit Use of Sensitive Personal Information:</strong> We only use sensitive personal information (such as your email and account credentials) for purposes necessary to provide our services.</li>
+              <li><strong>Limit Use of Sensitive Personal Information:</strong> I only use sensitive personal information (such as your email and account credentials) for purposes necessary to provide the services.</li>
             </ul>
 
             <h3 className="text-lg font-medium mt-4 mb-2">6.3 Global Privacy Control (GPC)</h3>
             <p className="text-foreground/90 leading-relaxed">
-              We honor Global Privacy Control (GPC) signals. If your browser sends a GPC signal, we will treat it as a valid opt-out request for the sale or sharing of personal information, as required by California law and other state privacy laws effective in 2026 (including Kentucky, Rhode Island, and Indiana).
+              I honor Global Privacy Control (GPC) signals. If your browser sends a GPC signal, I will treat it as a valid opt-out request for the sale or sharing of personal information, as required by California law and other state privacy laws effective in 2026 (including Kentucky, Rhode Island, and Indiana).
             </p>
 
             <h3 className="text-lg font-medium mt-4 mb-2">6.4 European Economic Area (GDPR)</h3>
@@ -167,16 +170,16 @@ export default function PrivacyPolicyPage() {
               If you are in the EEA, you have additional rights under the General Data Protection Regulation:
             </p>
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
-              <li><strong>Legal Basis:</strong> We process your data based on: (a) your consent, (b) performance of our contract with you, (c) our legitimate interests, or (d) legal obligations.</li>
-              <li><strong>Withdraw Consent:</strong> Where we rely on consent, you may withdraw it at any time.</li>
-              <li><strong>Restriction:</strong> Request that we restrict processing of your data.</li>
+              <li><strong>Legal Basis:</strong> I process your data based on: (a) your consent, (b) performance of the contract with you, (c) legitimate interests, or (d) legal obligations.</li>
+              <li><strong>Withdraw Consent:</strong> Where I rely on consent, you may withdraw it at any time.</li>
+              <li><strong>Restriction:</strong> Request that I restrict processing of your data.</li>
               <li><strong>Object:</strong> Object to processing based on legitimate interests.</li>
               <li><strong>Lodge Complaint:</strong> File a complaint with your local data protection authority.</li>
             </ul>
 
             <h3 className="text-lg font-medium mt-4 mb-2">6.5 How to Exercise Your Rights</h3>
             <p className="text-foreground/90 leading-relaxed">
-              To exercise any of these rights, please contact us at <Link href="mailto:privacy@psychichomily.com" className="underline hover:text-muted-foreground">privacy@psychichomily.com</Link>. We will respond to your request within 45 days (or 30 days for GDPR requests). We may need to verify your identity before processing your request.
+              To exercise any of these rights, please contact me at <Link href="mailto:hello@psychichomily.com" className="underline hover:text-muted-foreground">hello@psychichomily.com</Link>. I will respond to your request within 45 days (or 30 days for GDPR requests). I may need to verify your identity before processing your request.
             </p>
           </section>
 
@@ -184,7 +187,7 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-xl font-semibold mb-3">7. Cookies and Tracking Technologies</h2>
 
-            <h3 className="text-lg font-medium mt-4 mb-2">7.1 Cookies We Use</h3>
+            <h3 className="text-lg font-medium mt-4 mb-2">7.1 Cookies I Use</h3>
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
               <li><strong>Essential Cookies:</strong> Required for authentication and security. These cannot be disabled without breaking core functionality.</li>
               <li><strong>Preference Cookies:</strong> Remember your settings like theme preference. These improve your experience but are not strictly necessary.</li>
@@ -197,7 +200,7 @@ export default function PrivacyPolicyPage() {
 
             <h3 className="text-lg font-medium mt-4 mb-2">7.3 Managing Cookies</h3>
             <p className="text-foreground/90 leading-relaxed">
-              Most browsers allow you to control cookies through their settings. Note that disabling essential cookies may prevent you from using authenticated features of our service.
+              Most browsers allow you to control cookies through their settings. Note that disabling essential cookies may prevent you from using authenticated features of the service.
             </p>
           </section>
 
@@ -205,17 +208,17 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-xl font-semibold mb-3">8. Data Security</h2>
             <p className="text-foreground/90 leading-relaxed mb-3">
-              We implement appropriate technical and organizational measures to protect your personal information:
+              I implement appropriate technical and organizational measures to protect your personal information:
             </p>
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
-              <li><strong>Encryption:</strong> All data transmitted between your browser and our servers is encrypted using TLS/HTTPS.</li>
-              <li><strong>Password Security:</strong> Passwords are hashed using bcrypt. We check passwords against known breach databases (HaveIBeenPwned) to prevent use of compromised credentials.</li>
-              <li><strong>Authentication:</strong> We support secure authentication methods including passkeys/WebAuthn, magic links, and OAuth.</li>
+              <li><strong>Encryption:</strong> All data transmitted between your browser and the servers is encrypted using TLS/HTTPS.</li>
+              <li><strong>Password Security:</strong> Passwords are hashed using bcrypt. I check passwords against known breach databases (HaveIBeenPwned) to prevent use of compromised credentials.</li>
+              <li><strong>Authentication:</strong> The service supports secure authentication methods including passkeys/WebAuthn, magic links, and OAuth.</li>
               <li><strong>Access Controls:</strong> Access to personal data is restricted to authorized personnel only.</li>
               <li><strong>Backups:</strong> Regular encrypted backups ensure data recovery in case of incidents.</li>
             </ul>
             <p className="text-foreground/90 leading-relaxed mt-3">
-              While we strive to protect your information, no method of transmission over the Internet is 100% secure. We cannot guarantee absolute security.
+              While I strive to protect your information, no method of transmission over the Internet is 100% secure. I cannot guarantee absolute security.
             </p>
           </section>
 
@@ -223,7 +226,7 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-xl font-semibold mb-3">9. Children&apos;s Privacy</h2>
             <p className="text-foreground/90 leading-relaxed">
-              Our services are not directed to individuals under the age of 16. We do not knowingly collect personal information from children under 16. If you are a parent or guardian and believe your child has provided us with personal information, please contact us at <Link href="mailto:privacy@psychichomily.com" className="underline hover:text-muted-foreground">privacy@psychichomily.com</Link> and we will delete such information.
+              The services are not directed to individuals under the age of 16. I do not knowingly collect personal information from children under 16. If you are a parent or guardian and believe your child has provided personal information, please contact me at <Link href="mailto:hello@psychichomily.com" className="underline hover:text-muted-foreground">hello@psychichomily.com</Link> and I will delete such information.
             </p>
           </section>
 
@@ -231,7 +234,7 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-xl font-semibold mb-3">10. International Data Transfers</h2>
             <p className="text-foreground/90 leading-relaxed">
-              Our servers are located in the United States. If you access our services from outside the United States, your information will be transferred to, stored, and processed in the United States. By using our services, you consent to this transfer. We take steps to ensure that your data receives adequate protection in accordance with this Privacy Policy.
+              The servers are located in the United States. If you access the services from outside the United States, your information will be transferred to, stored, and processed in the United States. By using the services, you consent to this transfer. I take steps to ensure that your data receives adequate protection in accordance with this Privacy Policy.
             </p>
           </section>
 
@@ -239,22 +242,15 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-xl font-semibold mb-3">11. Changes to This Privacy Policy</h2>
             <p className="text-foreground/90 leading-relaxed">
-              We may update this Privacy Policy from time to time. We will notify you of any material changes by posting the new Privacy Policy on this page and updating the &quot;Last Updated&quot; date. For significant changes, we may also send you an email notification. Your continued use of our services after any changes indicates your acceptance of the updated policy.
+              I may update this Privacy Policy from time to time. I will notify you of any material changes by posting the new Privacy Policy on this page and updating the &quot;Last Updated&quot; date. For significant changes, I may also send you an email notification. Your continued use of the services after any changes indicates your acceptance of the updated policy.
             </p>
           </section>
 
           {/* Contact */}
           <section>
             <h2 className="text-xl font-semibold mb-3">12. Contact Us</h2>
-            <p className="text-foreground/90 leading-relaxed mb-3">
-              If you have any questions about this Privacy Policy or our privacy practices, please contact us:
-            </p>
-            <ul className="list-none space-y-2 text-foreground/90">
-              <li><strong>Email:</strong> <Link href="mailto:privacy@psychichomily.com" className="underline hover:text-muted-foreground">privacy@psychichomily.com</Link></li>
-              <li><strong>Subject Line:</strong> &quot;Privacy Inquiry&quot;</li>
-            </ul>
-            <p className="text-foreground/90 leading-relaxed mt-3">
-              For California residents, you may also submit requests through the contact methods above with the subject line &quot;CCPA Request.&quot;
+            <p className="text-foreground/90 leading-relaxed">
+              If you have any questions about this Privacy Policy or privacy practices, please contact me at <Link href="mailto:hello@psychichomily.com" className="underline hover:text-muted-foreground">hello@psychichomily.com</Link>.
             </p>
           </section>
 
@@ -318,7 +314,7 @@ export default function PrivacyPolicyPage() {
               </table>
             </div>
             <p className="text-sm text-muted-foreground mt-2">
-              * We do not sell or share personal information, so opt-out is not applicable.
+              * I do not sell or share personal information, so opt-out is not applicable.
             </p>
           </section>
         </div>

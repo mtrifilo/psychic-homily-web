@@ -248,28 +248,31 @@ func (s *FavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezo
 		venueIDs[i] = fv.VenueID
 	}
 
-	// Get total count of upcoming shows from favorite venues
+	// Build subquery for show IDs that have venues in the favorites list
 	now := time.Now().UTC()
+	showIDsSubquery := s.db.Table("show_venues").
+		Select("DISTINCT show_id").
+		Where("venue_id IN ?", venueIDs)
+
+	// Get total count of upcoming shows from favorite venues
 	var total int64
-	err = s.db.Table("shows").
-		Joins("JOIN show_venues ON shows.id = show_venues.show_id").
-		Where("show_venues.venue_id IN ?", venueIDs).
-		Where("shows.event_date >= ?", now).
-		Where("shows.status = ?", models.ShowStatusApproved).
+	err = s.db.Model(&models.Show{}).
+		Where("id IN (?)", showIDsSubquery).
+		Where("event_date >= ?", now).
+		Where("status = ?", models.ShowStatusApproved).
 		Count(&total).Error
 
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count upcoming shows: %w", err)
 	}
 
-	// Get shows with pagination
+	// Get shows with pagination using subquery
 	var shows []models.Show
-	err = s.db.Preload("Venues").Preload("Artists").
-		Joins("JOIN show_venues ON shows.id = show_venues.show_id").
-		Where("show_venues.venue_id IN ?", venueIDs).
-		Where("shows.event_date >= ?", now).
-		Where("shows.status = ?", models.ShowStatusApproved).
-		Order("shows.event_date ASC").
+	err = s.db.
+		Where("id IN (?)", showIDsSubquery).
+		Where("event_date >= ?", now).
+		Where("status = ?", models.ShowStatusApproved).
+		Order("event_date ASC").
 		Limit(limit).
 		Offset(offset).
 		Find(&shows).Error
@@ -278,34 +281,76 @@ func (s *FavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezo
 		return nil, 0, fmt.Errorf("failed to get upcoming shows: %w", err)
 	}
 
+	if len(shows) == 0 {
+		return []*FavoriteVenueShowResponse{}, total, nil
+	}
+
+	// Collect show IDs for fetching venues
+	showIDs := make([]uint, len(shows))
+	for i, show := range shows {
+		showIDs[i] = show.ID
+	}
+
+	// Fetch show_venues join table entries
+	type showVenueEntry struct {
+		ShowID  uint
+		VenueID uint
+	}
+	var showVenueEntries []showVenueEntry
+	err = s.db.Table("show_venues").
+		Select("show_id, venue_id").
+		Where("show_id IN ?", showIDs).
+		Where("venue_id IN ?", venueIDs). // Only get venues that are in favorites
+		Scan(&showVenueEntries).Error
+
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get show venues: %w", err)
+	}
+
+	// Get unique venue IDs from the entries
+	venueIDSet := make(map[uint]bool)
+	for _, entry := range showVenueEntries {
+		venueIDSet[entry.VenueID] = true
+	}
+	uniqueVenueIDs := make([]uint, 0, len(venueIDSet))
+	for id := range venueIDSet {
+		uniqueVenueIDs = append(uniqueVenueIDs, id)
+	}
+
+	// Fetch venues
+	var venues []models.Venue
+	if len(uniqueVenueIDs) > 0 {
+		err = s.db.Where("id IN ?", uniqueVenueIDs).Find(&venues).Error
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to fetch venues: %w", err)
+		}
+	}
+
+	// Create venue map for quick lookup
+	venueMap := make(map[uint]*models.Venue)
+	for i := range venues {
+		venueMap[venues[i].ID] = &venues[i]
+	}
+
+	// Create show -> venue mapping
+	showToVenue := make(map[uint]*models.Venue)
+	for _, entry := range showVenueEntries {
+		if venue, ok := venueMap[entry.VenueID]; ok {
+			showToVenue[entry.ShowID] = venue
+		}
+	}
+
 	// Build responses
 	responses := make([]*FavoriteVenueShowResponse, 0, len(shows))
 	for _, show := range shows {
-		// Find the venue that's in the favorites list
 		var venueName, venueSlug string
 		var venueID uint
-		for _, venue := range show.Venues {
-			for _, favVenueID := range venueIDs {
-				if venue.ID == favVenueID {
-					venueID = venue.ID
-					venueName = venue.Name
-					if venue.Slug != nil {
-						venueSlug = *venue.Slug
-					}
-					break
-				}
-			}
-			if venueID != 0 {
-				break
-			}
-		}
 
-		// If no favorite venue found (shouldn't happen), use first venue
-		if venueID == 0 && len(show.Venues) > 0 {
-			venueID = show.Venues[0].ID
-			venueName = show.Venues[0].Name
-			if show.Venues[0].Slug != nil {
-				venueSlug = *show.Venues[0].Slug
+		if venue, ok := showToVenue[show.ID]; ok {
+			venueID = venue.ID
+			venueName = venue.Name
+			if venue.Slug != nil {
+				venueSlug = *venue.Slug
 			}
 		}
 

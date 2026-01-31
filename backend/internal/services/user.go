@@ -878,3 +878,60 @@ func (s *UserService) ExportUserDataJSON(userID uint) ([]byte, error) {
 
 	return json.MarshalIndent(export, "", "  ")
 }
+
+// GetOAuthAccounts returns all OAuth accounts linked to a user
+func (s *UserService) GetOAuthAccounts(userID uint) ([]models.OAuthAccount, error) {
+	var accounts []models.OAuthAccount
+	err := s.db.Where("user_id = ?", userID).Find(&accounts).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get OAuth accounts: %w", err)
+	}
+	return accounts, nil
+}
+
+// CanUnlinkOAuthAccount checks if a user can safely unlink an OAuth account
+// Returns (canUnlink, reason, error)
+func (s *UserService) CanUnlinkOAuthAccount(userID uint, provider string) (bool, string, error) {
+	// Get user
+	var user models.User
+	if err := s.db.First(&user, userID).Error; err != nil {
+		return false, "", fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Check if this OAuth account exists
+	var oauthAccount models.OAuthAccount
+	err := s.db.Where("user_id = ? AND provider = ?", userID, provider).First(&oauthAccount).Error
+	if err != nil {
+		return false, "OAuth account not found", nil
+	}
+
+	// Count alternative auth methods
+	hasPassword := user.PasswordHash != nil && *user.PasswordHash != ""
+
+	// Count other OAuth accounts
+	var otherOAuthCount int64
+	s.db.Model(&models.OAuthAccount{}).Where("user_id = ? AND provider != ?", userID, provider).Count(&otherOAuthCount)
+
+	// Count passkeys
+	var passkeyCount int64
+	s.db.Model(&models.WebAuthnCredential{}).Where("user_id = ?", userID).Count(&passkeyCount)
+
+	// User must have at least one other auth method
+	if !hasPassword && otherOAuthCount == 0 && passkeyCount == 0 {
+		return false, "Cannot unlink - this is your only sign-in method. Add a password or passkey first.", nil
+	}
+
+	return true, "", nil
+}
+
+// UnlinkOAuthAccount removes an OAuth account from a user
+func (s *UserService) UnlinkOAuthAccount(userID uint, provider string) error {
+	result := s.db.Where("user_id = ? AND provider = ?", userID, provider).Delete(&models.OAuthAccount{})
+	if result.Error != nil {
+		return fmt.Errorf("failed to unlink OAuth account: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("OAuth account not found")
+	}
+	return nil
+}

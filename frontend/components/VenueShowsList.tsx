@@ -77,12 +77,16 @@ function ShowItem({ show, state, isPastShow = false }: ShowItemProps) {
                     &bull;{' '}
                   </span>
                 )}
-                <Link
-                  href={`/artists/${artist.slug}`}
-                  className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
-                >
-                  {artist.name}
-                </Link>
+                {artist.slug ? (
+                  <Link
+                    href={`/artists/${artist.slug}`}
+                    className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
+                  >
+                    {artist.name}
+                  </Link>
+                ) : (
+                  <span>{artist.name}</span>
+                )}
               </span>
             ))}
             {show.artists.length === 0 && 'TBA'}

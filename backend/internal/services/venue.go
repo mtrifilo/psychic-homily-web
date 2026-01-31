@@ -639,8 +639,13 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 					Bandcamp:   artist.Social.Bandcamp,
 					Website:    artist.Social.Website,
 				}
+				var slug string
+				if artist.Slug != nil {
+					slug = *artist.Slug
+				}
 				artists = append(artists, ArtistResponse{
 					ID:          artist.ID,
+					Slug:        slug,
 					Name:        artist.Name,
 					State:       artist.State,
 					City:        artist.City,
