@@ -124,7 +124,7 @@ type CreateShowResponse struct {
 
 // GetShowRequest represents the HTTP request for getting a show
 type GetShowRequest struct {
-	ShowID string `path:"show_id" validate:"required" doc:"Show ID"`
+	ShowID string `path:"show_id" validate:"required" doc:"Show ID or slug"`
 }
 
 // GetShowResponse represents the HTTP response for getting a show
@@ -376,34 +376,32 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	return &CreateShowResponse{Body: *show}, nil
 }
 
-// GetShowHandler handles GET /shows/{show_id}
+// GetShowHandler handles GET /shows/{show_id} - accepts either numeric ID or slug
 func (h *ShowHandler) GetShowHandler(ctx context.Context, req *GetShowRequest) (*GetShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Parse show ID
-	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
-	if err != nil {
-		showErr := showerrors.ErrShowInvalidID(req.ShowID)
-		logger.FromContext(ctx).Warn("show_get_invalid_id",
-			"show_id_str", req.ShowID,
-			"error_code", showErr.Code,
-			"request_id", requestID,
+	var show *services.ShowResponse
+	var err error
+
+	// Try to parse as numeric ID first
+	showID, parseErr := strconv.ParseUint(req.ShowID, 10, 32)
+	if parseErr == nil {
+		logger.FromContext(ctx).Debug("show_get_attempt_by_id",
+			"show_id", showID,
 		)
-		return nil, huma.Error400BadRequest(
-			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
+		show, err = h.showService.GetShow(uint(showID))
+	} else {
+		// Fall back to slug lookup
+		logger.FromContext(ctx).Debug("show_get_attempt_by_slug",
+			"slug", req.ShowID,
 		)
+		show, err = h.showService.GetShowBySlug(req.ShowID)
 	}
 
-	logger.FromContext(ctx).Debug("show_get_attempt",
-		"show_id", showID,
-	)
-
-	// Get show using service
-	show, err := h.showService.GetShow(uint(showID))
 	if err != nil {
-		showErr := showerrors.ErrShowNotFound(uint(showID))
+		showErr := showerrors.ErrShowNotFound(0)
 		logger.FromContext(ctx).Warn("show_not_found",
-			"show_id", showID,
+			"show_id_or_slug", req.ShowID,
 			"error", err.Error(),
 			"error_code", showErr.Code,
 			"request_id", requestID,
@@ -414,7 +412,8 @@ func (h *ShowHandler) GetShowHandler(ctx context.Context, req *GetShowRequest) (
 	}
 
 	logger.FromContext(ctx).Debug("show_get_success",
-		"show_id", showID,
+		"show_id", show.ID,
+		"slug", show.Slug,
 	)
 
 	return &GetShowResponse{Body: *show}, nil

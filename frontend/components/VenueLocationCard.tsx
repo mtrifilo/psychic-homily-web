@@ -1,6 +1,6 @@
 'use client'
 
-import { MapPin, Navigation } from 'lucide-react'
+import { MapPin, Navigation, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -8,6 +8,12 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 interface VenueLocationCardProps {
   name: string
@@ -15,6 +21,7 @@ interface VenueLocationCardProps {
   city: string
   state: string
   zipcode?: string | null
+  verified?: boolean
   className?: string
 }
 
@@ -76,10 +83,13 @@ function formatAddress(venue: VenueLocationCardProps): string[] {
 }
 
 export function VenueLocationCard(props: VenueLocationCardProps) {
-  const { className } = props
+  const { className, verified = true } = props
   const addressLines = formatAddress(props)
   const mapsUrl = getGoogleMapsUrl(props)
   const embedUrl = getGoogleMapsEmbedUrl(props)
+
+  // For unverified venues, only show city/state
+  const showFullAddress = verified
 
   return (
     <Card className={className}>
@@ -90,35 +100,56 @@ export function VenueLocationCard(props: VenueLocationCardProps) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Embedded Map */}
-        <div className="relative w-full h-[180px] lg:h-[280px] rounded-md overflow-hidden bg-muted">
-          <iframe
-            title="Venue location map"
-            src={embedUrl}
-            className="absolute inset-0 w-full h-full border-0"
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-          />
-        </div>
+        {showFullAddress ? (
+          <>
+            {/* Embedded Map - only for verified venues */}
+            <div className="relative w-full h-[180px] lg:h-[280px] rounded-md overflow-hidden bg-muted">
+              <iframe
+                title="Venue location map"
+                src={embedUrl}
+                className="absolute inset-0 w-full h-full border-0"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+            </div>
 
-        <div className="text-sm">
-          {addressLines.map((line, index) => (
-            <p key={index} className={index === 0 ? '' : 'text-muted-foreground'}>
-              {line}
-            </p>
-          ))}
-        </div>
+            <div className="text-sm">
+              {addressLines.map((line, index) => (
+                <p key={index} className={index === 0 ? '' : 'text-muted-foreground'}>
+                  {line}
+                </p>
+              ))}
+            </div>
 
-        <Button asChild className="w-full" variant="outline">
-          <a
-            href={mapsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Navigation className="h-4 w-4 mr-2" />
-            Get Directions
-          </a>
-        </Button>
+            <Button asChild className="w-full" variant="outline">
+              <a
+                href={mapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Navigation className="h-4 w-4 mr-2" />
+                Get Directions
+              </a>
+            </Button>
+          </>
+        ) : (
+          /* Unverified venue - show city only with tooltip */
+          <div className="text-sm">
+            <div className="flex items-center gap-1.5">
+              <p>{props.city}, {props.state}</p>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Full address available after venue verification</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   )

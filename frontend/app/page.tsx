@@ -9,6 +9,12 @@ export const metadata = {
   title: 'Psychic Homily | Arizona Music Community',
   description:
     'Discover upcoming live music shows, blog posts, and DJ sets from the Arizona music scene.',
+  openGraph: {
+    title: 'Psychic Homily | Arizona Music Community',
+    description: 'Discover upcoming live music shows, blog posts, and DJ sets from the Arizona music scene.',
+    url: '/',
+    type: 'website',
+  },
 }
 
 function formatDate(dateString: string): string {

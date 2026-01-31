@@ -8,6 +8,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/utils"
 )
 
 // VenueService handles venue-related business logic
@@ -42,6 +43,7 @@ type CreateVenueRequest struct {
 // VenueDetailResponse represents the venue data returned to clients
 type VenueDetailResponse struct {
 	ID          uint           `json:"id"`
+	Slug        string         `json:"slug"`
 	Name        string         `json:"name"`
 	Address     *string        `json:"address"`
 	City        string         `json:"city"`
@@ -71,9 +73,18 @@ func (s *VenueService) CreateVenue(req *CreateVenueRequest, isAdmin bool) (*Venu
 		return nil, fmt.Errorf("failed to check existing venue: %w", err)
 	}
 
+	// Generate unique slug
+	baseSlug := utils.GenerateVenueSlug(req.Name, req.City, req.State)
+	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
+		var count int64
+		s.db.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+		return count > 0
+	})
+
 	// Create the venue - verified if created by admin, unverified otherwise
 	venue := &models.Venue{
 		Name:     req.Name,
+		Slug:     &slug,
 		Address:  req.Address,
 		City:     req.City,
 		State:    req.State,
@@ -106,6 +117,24 @@ func (s *VenueService) GetVenue(venueID uint) (*VenueDetailResponse, error) {
 
 	var venue models.Venue
 	err := s.db.First(&venue, venueID).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("venue not found")
+		}
+		return nil, fmt.Errorf("failed to get venue: %w", err)
+	}
+
+	return s.buildVenueResponse(&venue), nil
+}
+
+// GetVenueBySlug retrieves a venue by slug
+func (s *VenueService) GetVenueBySlug(slug string) (*VenueDetailResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var venue models.Venue
+	err := s.db.Where("slug = ?", slug).First(&venue).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("venue not found")
@@ -374,8 +403,13 @@ func (s *VenueService) VerifyVenue(venueID uint) (*VenueDetailResponse, error) {
 
 // buildVenueResponse converts a Venue model to VenueDetailResponse
 func (s *VenueService) buildVenueResponse(venue *models.Venue) *VenueDetailResponse {
+	slug := ""
+	if venue.Slug != nil {
+		slug = *venue.Slug
+	}
 	return &VenueDetailResponse{
 		ID:          venue.ID,
+		Slug:        slug,
 		Name:        venue.Name,
 		Address:     venue.Address,
 		City:        venue.City,

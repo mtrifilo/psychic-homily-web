@@ -1,8 +1,14 @@
 import { ShowList } from '@/components/show-list'
 
 export const metadata = {
-  title: 'Upcoming Shows | Psychic Homily',
+  title: 'Upcoming Shows',
   description: 'Discover upcoming live music shows in Phoenix and beyond.',
+  openGraph: {
+    title: 'Upcoming Shows | Psychic Homily',
+    description: 'Discover upcoming live music shows in Phoenix and beyond.',
+    url: '/shows',
+    type: 'website',
+  },
 }
 
 export default function ShowsPage() {

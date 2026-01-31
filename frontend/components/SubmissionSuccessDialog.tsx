@@ -40,9 +40,8 @@ export function SubmissionSuccessDialog({
               </div>
               <DialogTitle className="text-xl">Pending Review</DialogTitle>
               <DialogDescription className="text-center">
-                Your show includes a new venue that needs admin verification.
-                It will appear publicly once approved. In the meantime, you can
-                find it in your list below.
+                Your show is pending admin review and will appear publicly once
+                approved. In the meantime, you can find it in your list below.
               </DialogDescription>
             </>
           )}

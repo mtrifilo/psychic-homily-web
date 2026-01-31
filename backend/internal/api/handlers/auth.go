@@ -1027,3 +1027,233 @@ func (h *AuthHandler) ChangePasswordHandler(ctx context.Context, input *ChangePa
 	resp.Body.Message = "Password changed successfully"
 	return resp, nil
 }
+
+// DeletionSummaryResponse represents the response for account deletion summary
+type DeletionSummaryResponse struct {
+	Body struct {
+		Success         bool   `json:"success" example:"true" doc:"Success status"`
+		Message         string `json:"message" example:"Deletion summary retrieved" doc:"Response message"`
+		ShowsCount      int64  `json:"shows_count" example:"5" doc:"Number of shows submitted by user"`
+		SavedShowsCount int64  `json:"saved_shows_count" example:"12" doc:"Number of saved shows"`
+		PasskeysCount   int64  `json:"passkeys_count" example:"2" doc:"Number of registered passkeys"`
+		HasPassword     bool   `json:"has_password" example:"true" doc:"Whether user has a password set"`
+		ErrorCode       string `json:"error_code,omitempty" example:"UNAUTHORIZED" doc:"Error code for programmatic handling"`
+		RequestID       string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+	}
+}
+
+// GetDeletionSummaryHandler returns a summary of data that will be affected by account deletion
+func (h *AuthHandler) GetDeletionSummaryHandler(ctx context.Context, input *struct{}) (*DeletionSummaryResponse, error) {
+	resp := &DeletionSummaryResponse{}
+	requestID := logger.GetRequestID(ctx)
+	resp.Body.RequestID = requestID
+
+	// Get authenticated user from context
+	contextUser := middleware.GetUserFromContext(ctx)
+	if contextUser == nil {
+		logger.AuthWarn(ctx, "deletion_summary_no_user")
+		resp.Body.Success = false
+		resp.Body.Message = "User not found in context"
+		resp.Body.ErrorCode = autherrors.CodeUnauthorized
+		return resp, nil
+	}
+
+	logger.AuthDebug(ctx, "deletion_summary_request",
+		"user_id", contextUser.ID,
+	)
+
+	// Get deletion summary from user service
+	summary, err := h.userService.GetDeletionSummary(contextUser.ID)
+	if err != nil {
+		logger.AuthError(ctx, "deletion_summary_failed", err,
+			"user_id", contextUser.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to retrieve deletion summary"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	resp.Body.Success = true
+	resp.Body.Message = "Deletion summary retrieved"
+	resp.Body.ShowsCount = summary.ShowsCount
+	resp.Body.SavedShowsCount = summary.SavedShowsCount
+	resp.Body.PasskeysCount = summary.PasskeysCount
+	resp.Body.HasPassword = contextUser.PasswordHash != nil
+
+	logger.AuthDebug(ctx, "deletion_summary_success",
+		"user_id", contextUser.ID,
+		"shows_count", summary.ShowsCount,
+		"saved_shows_count", summary.SavedShowsCount,
+		"passkeys_count", summary.PasskeysCount,
+	)
+
+	return resp, nil
+}
+
+// DeleteAccountRequest represents a delete account request
+type DeleteAccountRequest struct {
+	Body struct {
+		Password string  `json:"password" doc:"Current password for re-authentication"`
+		Reason   *string `json:"reason,omitempty" doc:"Optional reason for leaving"`
+	}
+}
+
+// DeleteAccountResponse represents a delete account response
+type DeleteAccountResponse struct {
+	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie (cleared)"`
+	Body      struct {
+		Success         bool   `json:"success" example:"true" doc:"Success status"`
+		Message         string `json:"message" example:"Account scheduled for deletion" doc:"Response message"`
+		DeletionDate    string `json:"deletion_date,omitempty" example:"2024-02-15T00:00:00Z" doc:"Date when account will be permanently deleted"`
+		GracePeriodDays int    `json:"grace_period_days,omitempty" example:"30" doc:"Number of days before permanent deletion"`
+		ErrorCode       string `json:"error_code,omitempty" example:"INVALID_CREDENTIALS" doc:"Error code for programmatic handling"`
+		RequestID       string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+	}
+}
+
+// DeleteAccountHandler handles account deletion requests
+func (h *AuthHandler) DeleteAccountHandler(ctx context.Context, input *DeleteAccountRequest) (*DeleteAccountResponse, error) {
+	resp := &DeleteAccountResponse{}
+	requestID := logger.GetRequestID(ctx)
+	resp.Body.RequestID = requestID
+
+	// Get authenticated user from context
+	contextUser := middleware.GetUserFromContext(ctx)
+	if contextUser == nil {
+		logger.AuthWarn(ctx, "delete_account_no_user")
+		resp.Body.Success = false
+		resp.Body.Message = "User not found in context"
+		resp.Body.ErrorCode = autherrors.CodeUnauthorized
+		return resp, nil
+	}
+
+	logger.AuthDebug(ctx, "delete_account_attempt",
+		"user_id", contextUser.ID,
+	)
+
+	// Check if user has a password set
+	if contextUser.PasswordHash == nil {
+		// OAuth-only user - would need email confirmation flow
+		// For now, return an error indicating they need to use email confirmation
+		logger.AuthWarn(ctx, "delete_account_no_password",
+			"user_id", contextUser.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "OAuth users must confirm deletion via email. Please use the email confirmation option."
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
+	// Validate password is provided
+	if input.Body.Password == "" {
+		authErr := autherrors.ErrValidationFailed("Password is required")
+		logger.AuthWarn(ctx, "delete_account_no_password_provided",
+			"user_id", contextUser.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = authErr.Message
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
+	// Verify password
+	if err := h.userService.VerifyPassword(*contextUser.PasswordHash, input.Body.Password); err != nil {
+		logger.AuthWarn(ctx, "delete_account_invalid_password",
+			"user_id", contextUser.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Password is incorrect"
+		resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
+		return resp, nil
+	}
+
+	// Perform soft delete
+	if err := h.userService.SoftDeleteAccount(contextUser.ID, input.Body.Reason); err != nil {
+		logger.AuthError(ctx, "delete_account_failed", err,
+			"user_id", contextUser.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to delete account"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	// Clear auth cookie to log out the user
+	resp.SetCookie = http.Cookie{
+		Name:     "auth_token",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   h.config.Session.Secure,
+		SameSite: http.SameSiteStrictMode,
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+	}
+
+	// Calculate deletion date (30 days from now)
+	gracePeriodDays := 30
+	deletionDate := time.Now().AddDate(0, 0, gracePeriodDays)
+
+	logger.AuthInfo(ctx, "delete_account_success",
+		"user_id", contextUser.ID,
+		"deletion_date", deletionDate.Format(time.RFC3339),
+	)
+
+	resp.Body.Success = true
+	resp.Body.Message = "Your account has been scheduled for deletion. You have 30 days to recover your account by contacting support."
+	resp.Body.DeletionDate = deletionDate.Format(time.RFC3339)
+	resp.Body.GracePeriodDays = gracePeriodDays
+
+	return resp, nil
+}
+
+// ExportDataResponse represents the response for data export
+// Note: The Body field contains the raw JSON export data
+type ExportDataResponse struct {
+	ContentType        string `header:"Content-Type" doc:"Content type of the response"`
+	ContentDisposition string `header:"Content-Disposition" doc:"Content disposition header for file download"`
+	Body               []byte
+}
+
+// ExportDataHandler handles GDPR data export requests (Right to Portability)
+func (h *AuthHandler) ExportDataHandler(ctx context.Context, input *struct{}) (*ExportDataResponse, error) {
+	resp := &ExportDataResponse{}
+
+	// Get authenticated user from context
+	contextUser := middleware.GetUserFromContext(ctx)
+	if contextUser == nil {
+		logger.AuthWarn(ctx, "export_data_no_user")
+		// Return an error JSON instead of the file
+		resp.ContentType = "application/json"
+		resp.Body = []byte(`{"success":false,"error":"unauthorized","message":"User not found in context"}`)
+		return resp, nil
+	}
+
+	logger.AuthDebug(ctx, "export_data_request",
+		"user_id", contextUser.ID,
+	)
+
+	// Export user data as JSON
+	exportData, err := h.userService.ExportUserDataJSON(contextUser.ID)
+	if err != nil {
+		logger.AuthError(ctx, "export_data_failed", err,
+			"user_id", contextUser.ID,
+		)
+		resp.ContentType = "application/json"
+		resp.Body = []byte(`{"success":false,"error":"export_failed","message":"Failed to export user data"}`)
+		return resp, nil
+	}
+
+	logger.AuthInfo(ctx, "export_data_success",
+		"user_id", contextUser.ID,
+		"export_size_bytes", len(exportData),
+	)
+
+	// Set headers for file download
+	resp.ContentType = "application/json"
+	resp.ContentDisposition = "attachment; filename=\"psychic-homily-data-export.json\""
+	resp.Body = exportData
+
+	return resp, nil
+}

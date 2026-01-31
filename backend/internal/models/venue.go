@@ -5,8 +5,9 @@ import (
 )
 
 type Venue struct {
-	ID          uint   `gorm:"primaryKey"`
-	Name        string `gorm:"not null"` // Unique with city via composite index
+	ID          uint    `gorm:"primaryKey"`
+	Name        string  `gorm:"not null"` // Unique with city via composite index
+	Slug        *string `gorm:"column:slug;uniqueIndex"`
 	Address     *string
 	City        string `gorm:"not null"` // Required
 	State       string `gorm:"not null"` // Required

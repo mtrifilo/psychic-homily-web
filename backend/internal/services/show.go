@@ -15,6 +15,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/utils"
 )
 
 // ShowService handles show-related business logic
@@ -69,6 +70,7 @@ type CreateShowRequest struct {
 // ShowResponse represents the show data returned to clients
 type ShowResponse struct {
 	ID              uint             `json:"id"`
+	Slug            string           `json:"slug"`
 	Title           string           `json:"title"`
 	EventDate       time.Time        `json:"event_date"`
 	City            *string          `json:"city"`
@@ -93,6 +95,7 @@ type ShowResponse struct {
 // VenueResponse represents venue data in show responses
 type VenueResponse struct {
 	ID       uint    `json:"id"`
+	Slug     string  `json:"slug"`
 	Name     string  `json:"name"`
 	Address  *string `json:"address"`
 	City     string  `json:"city"`
@@ -115,6 +118,7 @@ type ShowArtistSocials struct {
 // ArtistResponse represents artist data in show responses
 type ArtistResponse struct {
 	ID               uint              `json:"id"`
+	Slug             string            `json:"slug"`
 	Name             string            `json:"name"`
 	State            *string           `json:"state"`
 	City             *string           `json:"city"`
@@ -173,9 +177,38 @@ func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) 
 			return fmt.Errorf("failed to associate artists: %w", err)
 		}
 
+		// Generate slug after artists and venues are associated
+		headlinerName := "unknown"
+		venueName := "unknown"
+		for _, a := range artists {
+			if a.IsHeadliner != nil && *a.IsHeadliner {
+				headlinerName = a.Name
+				break
+			}
+		}
+		if len(artists) > 0 && headlinerName == "unknown" {
+			headlinerName = artists[0].Name
+		}
+		if len(venues) > 0 {
+			venueName = venues[0].Name
+		}
+
+		baseSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueName)
+		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
+			var count int64
+			tx.Model(&models.Show{}).Where("slug = ?", candidate).Count(&count)
+			return count > 0
+		})
+
+		// Update show with slug
+		if err := tx.Model(show).Update("slug", slug).Error; err != nil {
+			return fmt.Errorf("failed to update show slug: %w", err)
+		}
+
 		// Build response
 		response = &ShowResponse{
 			ID:              show.ID,
+			Slug:            slug,
 			Title:           show.Title,
 			EventDate:       show.EventDate,
 			City:            show.City,
@@ -202,43 +235,16 @@ func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) 
 	return response, nil
 }
 
-// determineShowStatus determines whether a show should be pending, approved, or private.
-// Admins always get approved status. Non-admins get pending/private if any venue is unverified.
-// If isPrivate is true and venue is unverified, the show is private (user's list only).
+// determineShowStatus determines whether a show should be approved or private.
+// Shows from unverified venues are now approved but display city-only until venue is verified.
+// Private shows remain private (user's list only).
 func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []CreateShowVenue, isAdmin bool, isPrivate bool) models.ShowStatus {
-	// Admins bypass the pending workflow - their shows are always approved
-	if isAdmin {
-		return models.ShowStatusApproved
+	// Private shows stay private regardless of venue status
+	if isPrivate {
+		return models.ShowStatusPrivate
 	}
 
-	// Check if any venue is unverified
-	hasUnverifiedVenue := false
-	for _, v := range venues {
-		if v.ID == nil {
-			// New venue (no ID) = will be created as unverified
-			hasUnverifiedVenue = true
-			break
-		}
-
-		// Check if existing venue is verified
-		var venue models.Venue
-		if err := tx.First(&venue, *v.ID).Error; err == nil {
-			if !venue.Verified {
-				hasUnverifiedVenue = true
-				break
-			}
-		}
-	}
-
-	// If there's an unverified venue, determine if private or pending
-	if hasUnverifiedVenue {
-		if isPrivate {
-			return models.ShowStatusPrivate
-		}
-		return models.ShowStatusPending
-	}
-
-	// All venues are verified - show is approved
+	// All other shows are approved - unverified venues will show city-only on frontend
 	return models.ShowStatusApproved
 }
 
@@ -301,6 +307,24 @@ func (s *ShowService) GetShow(showID uint) (*ShowResponse, error) {
 
 	var show models.Show
 	err := s.db.Preload("Venues").Preload("Artists").First(&show, showID).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("show not found")
+		}
+		return nil, fmt.Errorf("failed to get show: %w", err)
+	}
+
+	return s.buildShowResponse(&show), nil
+}
+
+// GetShowBySlug retrieves a show by slug with all associations
+func (s *ShowService) GetShowBySlug(slug string) (*ShowResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var show models.Show
+	err := s.db.Preload("Venues").Preload("Artists").Where("slug = ?", slug).First(&show).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("show not found")
@@ -1206,8 +1230,13 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 	// Build venue responses
 	venues := make([]VenueResponse, len(show.Venues))
 	for i, venue := range show.Venues {
+		venueSlug := ""
+		if venue.Slug != nil {
+			venueSlug = *venue.Slug
+		}
 		venues[i] = VenueResponse{
 			ID:       venue.ID,
+			Slug:     venueSlug,
 			Name:     venue.Name,
 			Address:  venue.Address,
 			City:     venue.City,
@@ -1246,8 +1275,13 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 			// So we'll set this to false for all existing artists
 			isNewArtist := false
 
+			artistSlug := ""
+			if artist.Slug != nil {
+				artistSlug = *artist.Slug
+			}
 			artists = append(artists, ArtistResponse{
 				ID:               artist.ID,
+				Slug:             artistSlug,
 				Name:             artist.Name,
 				State:            artist.State,
 				City:             artist.City,
@@ -1259,8 +1293,13 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 		}
 	}
 
+	showSlug := ""
+	if show.Slug != nil {
+		showSlug = *show.Slug
+	}
 	return &ShowResponse{
 		ID:              show.ID,
+		Slug:            showSlug,
 		Title:           show.Title,
 		EventDate:       show.EventDate,
 		City:            show.City,

@@ -30,7 +30,7 @@ import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
 interface ArtistDetailProps {
-  artistId: number
+  artistId: string | number
 }
 
 export function ArtistDetail({ artistId }: ArtistDetailProps) {
@@ -67,10 +67,11 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
     return platform === 'bandcamp' ? 'Bandcamp' : 'Spotify'
   }
 
-  // Handlers
+  // Handlers - use artist.id (numeric) for mutations
   const handleDiscover = () => {
+    if (!artist) return
     setFeedback(null)
-    discoverMusic.mutate(artistId, {
+    discoverMusic.mutate(artist.id, {
       onSuccess: data => {
         const platformName = data.platform
           ? formatPlatformName(data.platform)
@@ -104,11 +105,11 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   }
 
   const handleManualSaveBandcamp = () => {
-    if (!manualUrl.trim()) return
+    if (!manualUrl.trim() || !artist) return
 
     setFeedback(null)
     updateBandcamp.mutate(
-      { artistId, bandcampUrl: manualUrl.trim() },
+      { artistId: artist.id, bandcampUrl: manualUrl.trim() },
       {
         onSuccess: () => {
           setFeedback({ type: 'success', message: 'Bandcamp URL saved' })
@@ -126,11 +127,11 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   }
 
   const handleManualSaveSpotify = () => {
-    if (!manualUrl.trim()) return
+    if (!manualUrl.trim() || !artist) return
 
     setFeedback(null)
     updateSpotify.mutate(
-      { artistId, spotifyUrl: manualUrl.trim() },
+      { artistId: artist.id, spotifyUrl: manualUrl.trim() },
       {
         onSuccess: () => {
           setFeedback({ type: 'success', message: 'Spotify URL saved' })
@@ -148,8 +149,9 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   }
 
   const handleClearBandcamp = () => {
+    if (!artist) return
     setFeedback(null)
-    clearBandcamp.mutate(artistId, {
+    clearBandcamp.mutate(artist.id, {
       onSuccess: () => {
         setFeedback({ type: 'success', message: 'Bandcamp URL cleared' })
         setShowManualInput(null)
@@ -164,8 +166,9 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   }
 
   const handleClearSpotify = () => {
+    if (!artist) return
     setFeedback(null)
-    clearSpotify.mutate(artistId, {
+    clearSpotify.mutate(artist.id, {
       onSuccess: () => {
         setFeedback({ type: 'success', message: 'Spotify URL cleared' })
         setShowManualInput(null)

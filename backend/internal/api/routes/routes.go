@@ -4,14 +4,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/httprate"
 
 	"psychic-homily-backend/internal/api/handlers"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
 )
 
@@ -41,11 +44,18 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	huma.Post(protectedGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
 	huma.Post(protectedGroup, "/auth/change-password", authHandler.ChangePasswordHandler)
 
+	// Account deletion endpoints
+	huma.Get(protectedGroup, "/auth/account/deletion-summary", authHandler.GetDeletionSummaryHandler)
+	huma.Post(protectedGroup, "/auth/account/delete", authHandler.DeleteAccountHandler)
+
+	// Data export endpoint (GDPR Right to Portability)
+	huma.Get(protectedGroup, "/auth/account/export", authHandler.ExportDataHandler)
+
 	// Public email verification confirm endpoint (user clicks link from email)
 	huma.Post(api, "/auth/verify-email/confirm", authHandler.ConfirmVerificationHandler)
 
-	// Setup passkey routes (some public, some protected)
-	setupPasskeyRoutes(api, protectedGroup, jwtService, cfg)
+	// Setup passkey routes (some public, some protected) - with rate limiting
+	setupPasskeyRoutes(router, api, protectedGroup, jwtService, cfg)
 
 	setupShowRoutes(api, protectedGroup, cfg)
 	setupArtistRoutes(api, protectedGroup)
@@ -63,18 +73,43 @@ func setupAuthRoutes(router *chi.Mux, api huma.API, authService *services.AuthSe
 	authHandler := handlers.NewAuthHandler(authService, jwtService, userService, cfg)
 	oauthHTTPHandler := handlers.NewOAuthHTTPHandler(authService)
 
-	// Public OAuth routes
-	router.Get("/auth/login/{provider}", oauthHTTPHandler.OAuthLoginHTTPHandler)
-	router.Get("/auth/callback/{provider}", oauthHTTPHandler.OAuthCallbackHTTPHandler)
+	// Create rate limiter for auth endpoints: 10 requests per minute per IP
+	// This helps prevent:
+	// - Brute force attacks on login
+	// - Credential stuffing
+	// - Email bombing via magic links
+	// - Spam account creation
+	authRateLimiter := httprate.Limit(
+		10,              // requests
+		1*time.Minute,   // per duration
+		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithLimitHandler(rateLimitHandler),
+	)
 
-	// Public auth endpoints
-	huma.Post(api, "/auth/login", authHandler.LoginHandler)
+	// Rate-limited OAuth routes
+	router.Group(func(r chi.Router) {
+		r.Use(authRateLimiter)
+		r.Get("/auth/login/{provider}", oauthHTTPHandler.OAuthLoginHTTPHandler)
+		r.Get("/auth/callback/{provider}", oauthHTTPHandler.OAuthCallbackHTTPHandler)
+	})
+
+	// Rate-limited auth API endpoints using Chi middleware wrapper
+	// We register these directly on the router with rate limiting, then Huma picks them up
+	router.Group(func(r chi.Router) {
+		r.Use(authRateLimiter)
+
+		// Create a sub-API for rate-limited routes
+		rateLimitedAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Auth", "1.0.0"))
+		rateLimitedAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
+
+		huma.Post(rateLimitedAPI, "/auth/login", authHandler.LoginHandler)
+		huma.Post(rateLimitedAPI, "/auth/register", authHandler.RegisterHandler)
+		huma.Post(rateLimitedAPI, "/auth/magic-link/send", authHandler.SendMagicLinkHandler)
+		huma.Post(rateLimitedAPI, "/auth/magic-link/verify", authHandler.VerifyMagicLinkHandler)
+	})
+
+	// Logout doesn't need strict rate limiting (already requires valid session)
 	huma.Post(api, "/auth/logout", authHandler.LogoutHandler)
-	huma.Post(api, "/auth/register", authHandler.RegisterHandler)
-
-	// Magic link endpoints (public)
-	huma.Post(api, "/auth/magic-link/send", authHandler.SendMagicLinkHandler)
-	huma.Post(api, "/auth/magic-link/verify", authHandler.VerifyMagicLinkHandler)
 }
 
 // setupSystemRoutes configures system/infrastructure endpoints
@@ -90,7 +125,7 @@ func setupSystemRoutes(router *chi.Mux, api huma.API) {
 }
 
 // setupPasskeyRoutes configures WebAuthn/passkey endpoints
-func setupPasskeyRoutes(api huma.API, protected *huma.Group, jwtService *services.JWTService, cfg *config.Config) {
+func setupPasskeyRoutes(router *chi.Mux, api huma.API, protected *huma.Group, jwtService *services.JWTService, cfg *config.Config) {
 	// Initialize WebAuthn service
 	webauthnService, err := services.NewWebAuthnService(cfg)
 	if err != nil {
@@ -102,13 +137,30 @@ func setupPasskeyRoutes(api huma.API, protected *huma.Group, jwtService *service
 	userService := services.NewUserService()
 	passkeyHandler := handlers.NewPasskeyHandler(webauthnService, jwtService, userService, cfg)
 
-	// Public passkey login endpoints (no auth required)
-	huma.Post(api, "/auth/passkey/login/begin", passkeyHandler.BeginLoginHandler)
-	huma.Post(api, "/auth/passkey/login/finish", passkeyHandler.FinishLoginHandler)
+	// Create rate limiter for passkey endpoints: 20 requests per minute per IP
+	// Slightly more lenient than auth due to multi-step WebAuthn flow
+	passkeyRateLimiter := httprate.Limit(
+		20,              // requests
+		1*time.Minute,   // per duration
+		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithLimitHandler(rateLimitHandler),
+	)
 
-	// Public passkey signup endpoints (passkey-first registration, no auth required)
-	huma.Post(api, "/auth/passkey/signup/begin", passkeyHandler.BeginSignupHandler)
-	huma.Post(api, "/auth/passkey/signup/finish", passkeyHandler.FinishSignupHandler)
+	// Rate-limited public passkey endpoints
+	router.Group(func(r chi.Router) {
+		r.Use(passkeyRateLimiter)
+
+		passkeyAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Passkey", "1.0.0"))
+		passkeyAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
+
+		// Public passkey login endpoints (no auth required)
+		huma.Post(passkeyAPI, "/auth/passkey/login/begin", passkeyHandler.BeginLoginHandler)
+		huma.Post(passkeyAPI, "/auth/passkey/login/finish", passkeyHandler.FinishLoginHandler)
+
+		// Public passkey signup endpoints (passkey-first registration, no auth required)
+		huma.Post(passkeyAPI, "/auth/passkey/signup/begin", passkeyHandler.BeginSignupHandler)
+		huma.Post(passkeyAPI, "/auth/passkey/signup/finish", passkeyHandler.FinishSignupHandler)
+	})
 
 	// Protected passkey registration endpoints (user must be logged in)
 	huma.Post(protected, "/auth/passkey/register/begin", passkeyHandler.BeginRegisterHandler)
@@ -213,4 +265,23 @@ func setupAdminRoutes(protected *huma.Group, cfg *config.Config) {
 	// Admin artist management endpoints
 	huma.Patch(protected, "/admin/artists/{artist_id}/bandcamp", artistHandler.UpdateArtistBandcampHandler)
 	huma.Patch(protected, "/admin/artists/{artist_id}/spotify", artistHandler.UpdateArtistSpotifyHandler)
+}
+
+// rateLimitHandler handles rate limit exceeded responses with JSON
+func rateLimitHandler(w http.ResponseWriter, r *http.Request) {
+	// Log the rate limit hit
+	log := logger.FromContext(r.Context())
+	if log == nil {
+		log = logger.Default()
+	}
+	log.Warn("rate limit exceeded",
+		"path", r.URL.Path,
+		"method", r.Method,
+		"remote_addr", r.RemoteAddr,
+	)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", "60")
+	w.WriteHeader(http.StatusTooManyRequests)
+	w.Write([]byte(`{"success":false,"error":"too_many_requests","message":"Rate limit exceeded. Please try again in 60 seconds."}`))
 }

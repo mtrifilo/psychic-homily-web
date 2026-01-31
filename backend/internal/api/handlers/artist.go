@@ -63,7 +63,7 @@ func (h *ArtistHandler) SearchArtistsHandler(ctx context.Context, req *SearchArt
 
 // GetArtistRequest represents the request for getting a single artist
 type GetArtistRequest struct {
-	ArtistID uint `path:"artist_id" doc:"Artist ID" example:"1"`
+	ArtistID string `path:"artist_id" doc:"Artist ID or slug" example:"the-national"`
 }
 
 // GetArtistResponse represents the response for the get artist endpoint
@@ -71,9 +71,19 @@ type GetArtistResponse struct {
 	Body *services.ArtistDetailResponse
 }
 
-// GetArtistHandler handles GET /artists/{artist_id} - returns a single artist by ID
+// GetArtistHandler handles GET /artists/{artist_id} - returns a single artist by ID or slug
 func (h *ArtistHandler) GetArtistHandler(ctx context.Context, req *GetArtistRequest) (*GetArtistResponse, error) {
-	artist, err := h.artistService.GetArtist(req.ArtistID)
+	var artist *services.ArtistDetailResponse
+	var err error
+
+	// Try to parse as numeric ID first
+	if id, parseErr := strconv.ParseUint(req.ArtistID, 10, 32); parseErr == nil {
+		artist, err = h.artistService.GetArtist(uint(id))
+	} else {
+		// Fall back to slug lookup
+		artist, err = h.artistService.GetArtistBySlug(req.ArtistID)
+	}
+
 	if err != nil {
 		if err.Error() == "artist not found" {
 			return nil, huma.Error404NotFound("Artist not found")
@@ -86,7 +96,7 @@ func (h *ArtistHandler) GetArtistHandler(ctx context.Context, req *GetArtistRequ
 
 // GetArtistShowsRequest represents the request for getting shows for an artist
 type GetArtistShowsRequest struct {
-	ArtistID   uint   `path:"artist_id" doc:"Artist ID" example:"1"`
+	ArtistID   string `path:"artist_id" doc:"Artist ID or slug" example:"the-national"`
 	Timezone   string `query:"timezone" doc:"Timezone for date filtering" example:"America/Phoenix"`
 	Limit      int    `query:"limit" default:"20" minimum:"1" maximum:"50" doc:"Maximum number of shows to return"`
 	TimeFilter string `query:"time_filter" doc:"Filter shows by time: upcoming, past, or all" example:"upcoming" enum:"upcoming,past,all"`
@@ -96,7 +106,7 @@ type GetArtistShowsRequest struct {
 type GetArtistShowsResponse struct {
 	Body struct {
 		Shows    []*services.ArtistShowResponse `json:"shows" doc:"List of shows"`
-		ArtistID uint                           `json:"artist_id" doc:"Artist ID"`
+		ArtistID uint                           `json:"artist_id" doc:"Artist ID (resolved from slug if provided)"`
 		Total    int64                          `json:"total" doc:"Total number of shows matching filter"`
 	}
 }
@@ -118,7 +128,23 @@ func (h *ArtistHandler) GetArtistShowsHandler(ctx context.Context, req *GetArtis
 		timeFilter = "upcoming"
 	}
 
-	shows, total, err := h.artistService.GetShowsForArtist(req.ArtistID, timezone, limit, timeFilter)
+	// Resolve artist ID from ID or slug
+	var artistID uint
+	if id, parseErr := strconv.ParseUint(req.ArtistID, 10, 32); parseErr == nil {
+		artistID = uint(id)
+	} else {
+		// Look up by slug to get the ID
+		artist, err := h.artistService.GetArtistBySlug(req.ArtistID)
+		if err != nil {
+			if err.Error() == "artist not found" {
+				return nil, huma.Error404NotFound("Artist not found")
+			}
+			return nil, huma.Error500InternalServerError("Failed to fetch artist", err)
+		}
+		artistID = artist.ID
+	}
+
+	shows, total, err := h.artistService.GetShowsForArtist(artistID, timezone, limit, timeFilter)
 	if err != nil {
 		if err.Error() == "artist not found" {
 			return nil, huma.Error404NotFound("Artist not found")
@@ -128,7 +154,7 @@ func (h *ArtistHandler) GetArtistShowsHandler(ctx context.Context, req *GetArtis
 
 	resp := &GetArtistShowsResponse{}
 	resp.Body.Shows = shows
-	resp.Body.ArtistID = req.ArtistID
+	resp.Body.ArtistID = artistID
 	resp.Body.Total = total
 
 	return resp, nil

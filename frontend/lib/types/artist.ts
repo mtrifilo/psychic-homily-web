@@ -18,6 +18,7 @@ export interface ArtistSocial {
 
 export interface Artist {
   id: number
+  slug: string
   name: string
   state: string | null
   city: string | null
@@ -49,6 +50,7 @@ export const getArtistLocation = (artist: Artist): string => {
  */
 export interface ArtistShowVenue {
   id: number
+  slug: string
   name: string
   city: string
   state: string
@@ -59,6 +61,7 @@ export interface ArtistShowVenue {
  */
 export interface ArtistShowArtist {
   id: number
+  slug: string
   name: string
 }
 
@@ -67,6 +70,7 @@ export interface ArtistShowArtist {
  */
 export interface ArtistShow {
   id: number
+  slug: string
   title: string
   event_date: string
   price: number | null

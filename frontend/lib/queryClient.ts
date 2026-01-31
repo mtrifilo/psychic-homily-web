@@ -79,12 +79,12 @@ export const queryKeys = {
     list: (filters?: Record<string, unknown>) =>
       ['venues', 'list', filters] as const,
     cities: ['venues', 'cities'] as const,
-    detail: (id: string) => ['venues', 'detail', id] as const,
+    detail: (idOrSlug: string | number) => ['venues', 'detail', String(idOrSlug)] as const,
     search: (query: string) =>
       ['venues', 'search', query.toLowerCase()] as const,
-    shows: (venueId: number) => ['venues', 'shows', venueId] as const,
-    myPendingEdit: (venueId: number) =>
-      ['venues', 'myPendingEdit', venueId] as const,
+    shows: (venueIdOrSlug: string | number) => ['venues', 'shows', String(venueIdOrSlug)] as const,
+    myPendingEdit: (venueIdOrSlug: string | number) =>
+      ['venues', 'myPendingEdit', String(venueIdOrSlug)] as const,
   },
 
   // Admin queries
@@ -98,8 +98,8 @@ export const queryKeys = {
     all: ['artists'] as const,
     search: (query: string) =>
       ['artists', 'search', query.toLowerCase()] as const,
-    detail: (id: number) => ['artists', 'detail', id] as const,
-    shows: (artistId: number) => ['artists', 'shows', artistId] as const,
+    detail: (idOrSlug: string | number) => ['artists', 'detail', String(idOrSlug)] as const,
+    shows: (artistIdOrSlug: string | number) => ['artists', 'shows', String(artistIdOrSlug)] as const,
   },
 
   // Saved shows queries (user's "My List")

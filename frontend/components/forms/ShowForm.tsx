@@ -14,7 +14,7 @@ import {
   CheckCircle2,
   X,
   ShieldCheck,
-  AlertTriangle,
+  Info,
   EyeOff,
 } from 'lucide-react'
 import { useShowSubmit, type ShowSubmission } from '@/lib/hooks/useShowSubmit'
@@ -119,11 +119,12 @@ function showToFormValues(show: ShowResponse): FormValues {
 /** Pre-filled venue data for locking venue selection */
 interface PrefilledVenue {
   id: number
+  slug: string
   name: string
   city: string
   state: string
   address?: string | null
-  verified: boolean
+  verified?: boolean
 }
 
 interface ShowFormProps {
@@ -163,11 +164,12 @@ export function ShowForm({
       prefilledVenue
         ? {
             id: prefilledVenue.id,
+            slug: prefilledVenue.slug,
             name: prefilledVenue.name,
             city: prefilledVenue.city,
             state: prefilledVenue.state,
             address: prefilledVenue.address ?? null,
-            verified: prefilledVenue.verified,
+            verified: prefilledVenue.verified ?? false,
           }
         : (initialData?.venues[0] ?? null)
   )
@@ -320,6 +322,7 @@ export function ShowForm({
       // Store the full venue object for editability checks
       setSelectedVenue({
         id: venue.id,
+        slug: venue.slug,
         name: venue.name,
         address: venue.address,
         city: venue.city,
@@ -535,19 +538,19 @@ export function ShowForm({
           </div>
         )}
 
-        {/* New venue warning (for non-admins entering a new venue) */}
+        {/* New venue info (for non-admins entering a new venue) */}
         {!selectedVenue && !isAdmin && venueName && (
           <div className="space-y-3">
-            <div className="flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 p-3">
-              <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
+            <div className="flex items-start gap-2 rounded-md bg-blue-500/10 border border-blue-500/20 p-3">
+              <Info className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
               <div className="text-sm">
-                <p className="font-medium text-amber-600 dark:text-amber-400">
-                  New Venue - Pending Review
+                <p className="font-medium text-blue-600 dark:text-blue-400">
+                  New Venue
                 </p>
                 <p className="text-muted-foreground text-xs mt-0.5">
-                  Shows with new venues require admin verification before
-                  appearing publicly. This helps ensure event safety and
-                  prevents listings at fake or unauthorized locations.
+                  Your show will be published with city-only location until the
+                  venue is verified. This protects venue privacy for
+                  new or unconfirmed locations.
                 </p>
               </div>
             </div>
@@ -570,8 +573,7 @@ export function ShowForm({
                     Do not publish - this show is just for my list
                   </span>
                   <p className="text-muted-foreground text-xs mt-0.5">
-                    Private shows won&apos;t be submitted for review and will
-                    only appear in your personal list.
+                    Private shows will only appear in your personal list.
                   </p>
                 </label>
               </div>

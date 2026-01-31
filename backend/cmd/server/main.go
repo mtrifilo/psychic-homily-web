@@ -100,11 +100,15 @@ func main() {
 		AllowedMethods:   cfg.CORS.AllowedMethods,
 		AllowedHeaders:   cfg.CORS.AllowedHeaders,
 		AllowCredentials: cfg.CORS.AllowCredentials,
-		MaxAge:           300,  // Cache preflight for 5 minutes
-		Debug:            true, // Enable debug logging
+		MaxAge:           300,            // Cache preflight for 5 minutes
+		Debug:            !isProduction, // Only enable debug logging in development
 	})
 
 	router.Use(corsMiddleware.Handler)
+
+	// Add security headers middleware
+	// Adds headers like X-Content-Type-Options, X-Frame-Options, CSP, HSTS (in production)
+	router.Use(middleware.SecurityHeaders)
 
 	// Setup routes
 	_ = routes.SetupRoutes(router, cfg)

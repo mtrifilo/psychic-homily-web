@@ -53,12 +53,12 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
 }
 
 interface UseVenueOptions {
-  venueId: number
+  venueId: string | number
   enabled?: boolean
 }
 
 /**
- * Hook to fetch a single venue by ID
+ * Hook to fetch a single venue by ID or slug
  */
 export const useVenue = (options: UseVenueOptions) => {
   const { venueId, enabled = true } = options
@@ -70,7 +70,7 @@ export const useVenue = (options: UseVenueOptions) => {
         method: 'GET',
       })
     },
-    enabled: enabled && venueId > 0,
+    enabled: enabled && Boolean(venueId),
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }
@@ -78,7 +78,7 @@ export const useVenue = (options: UseVenueOptions) => {
 export type TimeFilter = 'upcoming' | 'past' | 'all'
 
 interface UseVenueShowsOptions {
-  venueId: number
+  venueId: string | number
   timezone?: string
   limit?: number
   enabled?: boolean
@@ -86,7 +86,7 @@ interface UseVenueShowsOptions {
 }
 
 /**
- * Hook to fetch shows for a specific venue (lazy-loaded)
+ * Hook to fetch shows for a specific venue by ID or slug (lazy-loaded)
  * @param timeFilter - Filter by time: 'upcoming' (default), 'past', or 'all'
  */
 export const useVenueShows = (options: UseVenueShowsOptions) => {
@@ -116,7 +116,7 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
         method: 'GET',
       })
     },
-    enabled: enabled && venueId > 0,
+    enabled: enabled && Boolean(venueId),
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }

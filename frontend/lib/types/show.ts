@@ -18,6 +18,7 @@ export interface ShowArtistSocials {
 
 export interface ArtistResponse {
   id: number
+  slug: string
   name: string
   state?: string | null
   city?: string | null
@@ -29,6 +30,7 @@ export interface ArtistResponse {
 
 export interface VenueResponse {
   id: number
+  slug: string
   name: string
   address?: string | null
   city: string
@@ -47,6 +49,7 @@ export type ShowStatus = 'pending' | 'approved' | 'rejected' | 'private'
 
 export interface ShowResponse {
   id: number
+  slug: string
   title: string
   event_date: string // ISO date string
   city?: string | null

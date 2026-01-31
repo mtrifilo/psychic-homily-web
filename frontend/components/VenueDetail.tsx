@@ -16,7 +16,7 @@ import { DeleteVenueDialog } from '@/components/DeleteVenueDialog'
 import { Button } from '@/components/ui/button'
 
 interface VenueDetailProps {
-  venueId: number
+  venueId: string | number
 }
 
 /**
@@ -204,6 +204,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
           {/* Shows List */}
           <VenueShowsList
             venueId={venue.id}
+            venueSlug={venue.slug}
             venueName={venue.name}
             venueCity={venue.city}
             venueState={venue.state}
@@ -221,6 +222,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
             city={venue.city}
             state={venue.state}
             zipcode={venue.zipcode}
+            verified={venue.verified}
           />
         </div>
       </div>

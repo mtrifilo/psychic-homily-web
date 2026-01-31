@@ -18,6 +18,7 @@ import { ShowForm } from '@/components/forms/ShowForm'
 
 interface VenueShowsListProps {
   venueId: number
+  venueSlug: string
   venueName: string
   venueCity: string
   venueState: string
@@ -77,7 +78,7 @@ function ShowItem({ show, state, isPastShow = false }: ShowItemProps) {
                   </span>
                 )}
                 <Link
-                  href={`/artists/${artist.id}`}
+                  href={`/artists/${artist.slug}`}
                   className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
                 >
                   {artist.name}
@@ -154,6 +155,7 @@ function ShowsTabContent({
 
 export function VenueShowsList({
   venueId,
+  venueSlug,
   venueName,
   venueCity,
   venueState,
@@ -210,6 +212,7 @@ export function VenueShowsList({
               mode="create"
               prefilledVenue={{
                 id: venueId,
+                slug: venueSlug,
                 name: venueName,
                 city: venueCity,
                 state: venueState,

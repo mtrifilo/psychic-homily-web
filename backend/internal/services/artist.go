@@ -8,6 +8,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/utils"
 )
 
 // ArtistService handles artist-related business logic
@@ -40,6 +41,7 @@ type CreateArtistRequest struct {
 // ArtistDetailResponse represents the artist data returned to clients
 type ArtistDetailResponse struct {
 	ID               uint           `json:"id"`
+	Slug             string         `json:"slug"`
 	Name             string         `json:"name"`
 	State            *string        `json:"state"`
 	City             *string        `json:"city"`
@@ -76,9 +78,18 @@ func (s *ArtistService) CreateArtist(req *CreateArtistRequest) (*ArtistDetailRes
 		return nil, fmt.Errorf("failed to check existing artist: %w", err)
 	}
 
+	// Generate unique slug
+	baseSlug := utils.GenerateArtistSlug(req.Name)
+	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
+		var count int64
+		s.db.Model(&models.Artist{}).Where("slug = ?", candidate).Count(&count)
+		return count > 0
+	})
+
 	// Create the artist
 	artist := &models.Artist{
 		Name:  req.Name,
+		Slug:  &slug,
 		State: req.State,
 		City:  req.City,
 		Social: models.Social{
@@ -126,6 +137,24 @@ func (s *ArtistService) GetArtistByName(name string) (*ArtistDetailResponse, err
 
 	var artist models.Artist
 	err := s.db.Where("LOWER(name) = LOWER(?)", name).First(&artist).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("artist not found")
+		}
+		return nil, fmt.Errorf("failed to get artist: %w", err)
+	}
+
+	return s.buildArtistResponse(&artist), nil
+}
+
+// GetArtistBySlug retrieves an artist by slug
+func (s *ArtistService) GetArtistBySlug(slug string) (*ArtistDetailResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var artist models.Artist
+	err := s.db.Where("slug = ?", slug).First(&artist).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("artist not found")
@@ -188,6 +217,15 @@ func (s *ArtistService) UpdateArtist(artistID uint, updates map[string]interface
 		} else if err != gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("failed to check existing artist: %w", err)
 		}
+
+		// Regenerate slug when name changes
+		baseSlug := utils.GenerateArtistSlug(name)
+		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
+			var count int64
+			s.db.Model(&models.Artist{}).Where("slug = ? AND id != ?", candidate, artistID).Count(&count)
+			return count > 0
+		})
+		updates["slug"] = slug
 	}
 
 	err := s.db.Model(&models.Artist{}).Where("id = ?", artistID).Updates(updates).Error
@@ -289,8 +327,13 @@ func (s *ArtistService) SearchArtists(query string) ([]*ArtistDetailResponse, er
 
 // buildArtistResponse converts an Artist model to ArtistDetailResponse
 func (s *ArtistService) buildArtistResponse(artist *models.Artist) *ArtistDetailResponse {
+	slug := ""
+	if artist.Slug != nil {
+		slug = *artist.Slug
+	}
 	return &ArtistDetailResponse{
 		ID:               artist.ID,
+		Slug:             slug,
 		Name:             artist.Name,
 		State:            artist.State,
 		City:             artist.City,

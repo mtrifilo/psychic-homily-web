@@ -1,7 +1,9 @@
 package services
 
 import (
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/markbates/goth"
 	"golang.org/x/crypto/bcrypt"
@@ -460,6 +462,71 @@ func (s *UserService) SetEmailVerified(userID uint, verified bool) error {
 	return nil
 }
 
+// DeletionSummary contains counts of user data that will be affected by deletion
+type DeletionSummary struct {
+	ShowsCount      int64 `json:"shows_count"`
+	SavedShowsCount int64 `json:"saved_shows_count"`
+	PasskeysCount   int64 `json:"passkeys_count"`
+}
+
+// GetDeletionSummary returns counts of data that will be affected by account deletion
+func (s *UserService) GetDeletionSummary(userID uint) (*DeletionSummary, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	summary := &DeletionSummary{}
+
+	// Count shows submitted by this user
+	if err := s.db.Model(&models.Show{}).Where("submitted_by = ?", userID).Count(&summary.ShowsCount).Error; err != nil {
+		return nil, fmt.Errorf("failed to count shows: %w", err)
+	}
+
+	// Count saved shows
+	if err := s.db.Model(&models.UserSavedShow{}).Where("user_id = ?", userID).Count(&summary.SavedShowsCount).Error; err != nil {
+		return nil, fmt.Errorf("failed to count saved shows: %w", err)
+	}
+
+	// Count passkeys
+	if err := s.db.Model(&models.WebAuthnCredential{}).Where("user_id = ?", userID).Count(&summary.PasskeysCount).Error; err != nil {
+		return nil, fmt.Errorf("failed to count passkeys: %w", err)
+	}
+
+	return summary, nil
+}
+
+// SoftDeleteAccount performs a soft delete on the user account
+// Sets is_active=false, deleted_at=now, and stores optional deletion reason
+func (s *UserService) SoftDeleteAccount(userID uint, reason *string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now()
+	updates := map[string]interface{}{
+		"is_active":  false,
+		"deleted_at": now,
+	}
+
+	if reason != nil && *reason != "" {
+		updates["deletion_reason"] = *reason
+	}
+
+	result := s.db.Model(&models.User{}).
+		Where("id = ?", userID).
+		Updates(updates)
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to soft delete user: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("user not found")
+	}
+
+	return nil
+}
+
 // CreateUserWithoutPassword creates a user account without a password
 // (for passkey-only or OAuth-only accounts)
 func (s *UserService) CreateUserWithoutPassword(email string) (*models.User, error) {
@@ -515,4 +582,215 @@ func (s *UserService) CreateUserWithoutPassword(email string) (*models.User, err
 	}
 
 	return user, nil
+}
+
+// UserDataExport represents all user data in a portable format (GDPR compliance)
+type UserDataExport struct {
+	ExportedAt     time.Time                `json:"exported_at"`
+	ExportVersion  string                   `json:"export_version"`
+	Profile        UserProfileExport        `json:"profile"`
+	Preferences    *UserPreferencesExport   `json:"preferences,omitempty"`
+	OAuthAccounts  []OAuthAccountExport     `json:"oauth_accounts,omitempty"`
+	Passkeys       []PasskeyExport          `json:"passkeys,omitempty"`
+	SavedShows     []SavedShowExport        `json:"saved_shows,omitempty"`
+	SubmittedShows []SubmittedShowExport    `json:"submitted_shows,omitempty"`
+}
+
+// UserProfileExport contains user profile data for export
+type UserProfileExport struct {
+	ID            uint       `json:"id"`
+	Email         *string    `json:"email"`
+	Username      *string    `json:"username,omitempty"`
+	FirstName     *string    `json:"first_name,omitempty"`
+	LastName      *string    `json:"last_name,omitempty"`
+	AvatarURL     *string    `json:"avatar_url,omitempty"`
+	Bio           *string    `json:"bio,omitempty"`
+	EmailVerified bool       `json:"email_verified"`
+	CreatedAt     time.Time  `json:"account_created_at"`
+	UpdatedAt     time.Time  `json:"last_updated_at"`
+}
+
+// UserPreferencesExport contains user preferences for export
+type UserPreferencesExport struct {
+	NotificationEmail bool   `json:"notification_email"`
+	NotificationPush  bool   `json:"notification_push"`
+	Theme             string `json:"theme"`
+	Timezone          string `json:"timezone"`
+	Language          string `json:"language"`
+}
+
+// OAuthAccountExport contains OAuth account data for export (no tokens)
+type OAuthAccountExport struct {
+	Provider      string    `json:"provider"`
+	ProviderEmail *string   `json:"provider_email,omitempty"`
+	ProviderName  *string   `json:"provider_name,omitempty"`
+	LinkedAt      time.Time `json:"linked_at"`
+}
+
+// PasskeyExport contains passkey metadata for export (no keys)
+type PasskeyExport struct {
+	DisplayName    string     `json:"display_name"`
+	CreatedAt      time.Time  `json:"created_at"`
+	LastUsedAt     *time.Time `json:"last_used_at,omitempty"`
+	BackupEligible bool       `json:"backup_eligible"`
+	BackupState    bool       `json:"backup_state"`
+}
+
+// SavedShowExport contains saved show data for export
+type SavedShowExport struct {
+	ShowID    uint      `json:"show_id"`
+	Title     string    `json:"title"`
+	EventDate time.Time `json:"event_date"`
+	Venue     *string   `json:"venue,omitempty"`
+	City      *string   `json:"city,omitempty"`
+	SavedAt   time.Time `json:"saved_at"`
+}
+
+// SubmittedShowExport contains submitted show data for export
+type SubmittedShowExport struct {
+	ShowID      uint      `json:"show_id"`
+	Title       string    `json:"title"`
+	EventDate   time.Time `json:"event_date"`
+	Status      string    `json:"status"`
+	SubmittedAt time.Time `json:"submitted_at"`
+	Venue       *string   `json:"venue,omitempty"`
+	City        *string   `json:"city,omitempty"`
+	Artists     []string  `json:"artists,omitempty"`
+}
+
+// ExportUserData exports all user data in a portable JSON format
+// This supports GDPR Article 20 - Right to data portability
+func (s *UserService) ExportUserData(userID uint) (*UserDataExport, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Get user with all relationships
+	var user models.User
+	if err := s.db.
+		Preload("OAuthAccounts").
+		Preload("Preferences").
+		Preload("PasskeyCredentials").
+		First(&user, userID).Error; err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	export := &UserDataExport{
+		ExportedAt:    time.Now().UTC(),
+		ExportVersion: "1.0",
+		Profile: UserProfileExport{
+			ID:            user.ID,
+			Email:         user.Email,
+			Username:      user.Username,
+			FirstName:     user.FirstName,
+			LastName:      user.LastName,
+			AvatarURL:     user.AvatarURL,
+			Bio:           user.Bio,
+			EmailVerified: user.EmailVerified,
+			CreatedAt:     user.CreatedAt,
+			UpdatedAt:     user.UpdatedAt,
+		},
+	}
+
+	// Export preferences
+	if user.Preferences != nil {
+		export.Preferences = &UserPreferencesExport{
+			NotificationEmail: user.Preferences.NotificationEmail,
+			NotificationPush:  user.Preferences.NotificationPush,
+			Theme:             user.Preferences.Theme,
+			Timezone:          user.Preferences.Timezone,
+			Language:          user.Preferences.Language,
+		}
+	}
+
+	// Export OAuth accounts (without tokens)
+	for _, oauth := range user.OAuthAccounts {
+		export.OAuthAccounts = append(export.OAuthAccounts, OAuthAccountExport{
+			Provider:      oauth.Provider,
+			ProviderEmail: oauth.ProviderEmail,
+			ProviderName:  oauth.ProviderName,
+			LinkedAt:      oauth.CreatedAt,
+		})
+	}
+
+	// Export passkey metadata (no keys)
+	for _, passkey := range user.PasskeyCredentials {
+		export.Passkeys = append(export.Passkeys, PasskeyExport{
+			DisplayName:    passkey.DisplayName,
+			CreatedAt:      passkey.CreatedAt,
+			LastUsedAt:     passkey.LastUsedAt,
+			BackupEligible: passkey.BackupEligible,
+			BackupState:    passkey.BackupState,
+		})
+	}
+
+	// Get saved shows with venue info
+	var savedShowRecords []models.UserSavedShow
+	if err := s.db.Where("user_id = ?", userID).Find(&savedShowRecords).Error; err != nil {
+		return nil, fmt.Errorf("failed to get saved shows: %w", err)
+	}
+
+	for _, ss := range savedShowRecords {
+		var show models.Show
+		if err := s.db.Preload("Venues").First(&show, ss.ShowID).Error; err != nil {
+			continue // Skip if show not found
+		}
+
+		savedExport := SavedShowExport{
+			ShowID:    show.ID,
+			Title:     show.Title,
+			EventDate: show.EventDate,
+			City:      show.City,
+			SavedAt:   ss.SavedAt,
+		}
+
+		if len(show.Venues) > 0 {
+			savedExport.Venue = &show.Venues[0].Name
+		}
+
+		export.SavedShows = append(export.SavedShows, savedExport)
+	}
+
+	// Export submitted shows with details
+	var submittedShows []models.Show
+	if err := s.db.
+		Preload("Venues").
+		Preload("Artists").
+		Where("submitted_by = ?", userID).
+		Find(&submittedShows).Error; err != nil {
+		return nil, fmt.Errorf("failed to get submitted shows: %w", err)
+	}
+
+	for _, show := range submittedShows {
+		submittedExport := SubmittedShowExport{
+			ShowID:      show.ID,
+			Title:       show.Title,
+			EventDate:   show.EventDate,
+			Status:      string(show.Status),
+			SubmittedAt: show.CreatedAt,
+			City:        show.City,
+		}
+
+		if len(show.Venues) > 0 {
+			submittedExport.Venue = &show.Venues[0].Name
+		}
+
+		for _, artist := range show.Artists {
+			submittedExport.Artists = append(submittedExport.Artists, artist.Name)
+		}
+
+		export.SubmittedShows = append(export.SubmittedShows, submittedExport)
+	}
+
+	return export, nil
+}
+
+// ExportUserDataJSON exports user data as a JSON byte slice
+func (s *UserService) ExportUserDataJSON(userID uint) ([]byte, error) {
+	export, err := s.ExportUserData(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.MarshalIndent(export, "", "  ")
 }

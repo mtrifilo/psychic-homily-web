@@ -14,11 +14,13 @@ type User struct {
 	LastName      *string   `json:"last_name" gorm:"column:last_name"`
 	AvatarURL     *string   `json:"avatar_url" gorm:"column:avatar_url"`
 	Bio           *string   `json:"bio"`
-	IsActive      bool      `json:"is_active" gorm:"default:true"`
-	IsAdmin       bool      `json:"is_admin" gorm:"default:false"`
-	EmailVerified bool      `json:"email_verified" gorm:"default:false"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	IsActive      bool       `json:"is_active" gorm:"default:true"`
+	IsAdmin       bool       `json:"is_admin" gorm:"default:false"`
+	EmailVerified bool       `json:"email_verified" gorm:"default:false"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	DeletedAt     *time.Time `json:"deleted_at,omitempty" gorm:"column:deleted_at"`
+	DeletionReason *string   `json:"-" gorm:"column:deletion_reason"` // Hidden from JSON
 
 	// Relationships
 	OAuthAccounts  []OAuthAccount       `json:"oauth_accounts,omitempty" gorm:"foreignKey:UserID"`

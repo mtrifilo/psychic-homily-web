@@ -2,14 +2,16 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
-import { AlertCircle, Loader2, Mail, Lock, User, Eye, EyeOff, Send, CheckCircle2 } from 'lucide-react'
+import { AlertCircle, Loader2, Mail, Lock, User, Eye, EyeOff, Send, CheckCircle2, Check } from 'lucide-react'
 import { useLogin, useRegister, useSendMagicLink } from '@/lib/hooks/useAuth'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -38,6 +40,11 @@ const signupSchema = z.object({
     .string()
     .min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
     .max(MAX_PASSWORD_LENGTH, `Password must be no more than ${MAX_PASSWORD_LENGTH} characters`),
+  termsAccepted: z
+    .boolean()
+    .refine((val) => val === true, {
+      message: 'You must agree to the Terms of Service and Privacy Policy',
+    }),
 })
 
 type LoginFormData = z.infer<typeof loginSchema>
@@ -311,6 +318,7 @@ function SignupForm() {
     defaultValues: {
       email: '',
       password: '',
+      termsAccepted: false,
     } as SignupFormData,
     onSubmit: async ({ value }) => {
       registerMutation.mutate(
@@ -432,6 +440,48 @@ function SignupForm() {
         )}
       </form.Field>
 
+      <form.Field name="termsAccepted">
+        {field => (
+          <div className="space-y-2">
+            <div className="flex items-start space-x-3">
+              <Checkbox
+                id="terms"
+                checked={field.state.value}
+                onCheckedChange={(checked) => field.handleChange(checked === true)}
+                aria-invalid={field.state.meta.errors.length > 0}
+                className="mt-0.5"
+              />
+              <Label
+                htmlFor="terms"
+                className="text-sm font-normal leading-relaxed cursor-pointer"
+              >
+                I agree to the{' '}
+                <Link
+                  href="/terms"
+                  target="_blank"
+                  className="font-medium underline underline-offset-4 hover:text-primary"
+                >
+                  Terms of Service
+                </Link>{' '}
+                and{' '}
+                <Link
+                  href="/privacy"
+                  target="_blank"
+                  className="font-medium underline underline-offset-4 hover:text-primary"
+                >
+                  Privacy Policy
+                </Link>
+              </Label>
+            </div>
+            {field.state.meta.errors.length > 0 && (
+              <p className="text-sm text-destructive">
+                {field.state.meta.errors.map(getErrorMessage).join(', ')}
+              </p>
+            )}
+          </div>
+        )}
+      </form.Field>
+
       <form.Subscribe selector={state => [state.canSubmit, state.isSubmitting]}>
         {([canSubmit, isSubmitting]) => (
           <Button
@@ -531,7 +581,15 @@ export default function AuthPage() {
 
         {/* Footer */}
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          By continuing, you agree to our terms of service and privacy policy.
+          By signing in, you agree to our{' '}
+          <Link href="/terms" className="underline underline-offset-4 hover:text-primary">
+            Terms of Service
+          </Link>{' '}
+          and{' '}
+          <Link href="/privacy" className="underline underline-offset-4 hover:text-primary">
+            Privacy Policy
+          </Link>
+          .
         </p>
       </div>
     </div>

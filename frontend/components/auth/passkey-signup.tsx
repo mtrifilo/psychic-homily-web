@@ -2,12 +2,14 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { startRegistration, browserSupportsWebAuthn } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2, Mail, X } from 'lucide-react'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -32,6 +34,8 @@ export function PasskeySignupButton({ onError, className }: PasskeySignupButtonP
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [email, setEmail] = useState('')
   const [emailError, setEmailError] = useState<string | null>(null)
+  const [termsAccepted, setTermsAccepted] = useState(false)
+  const [termsError, setTermsError] = useState<string | null>(null)
 
   // Check if browser supports WebAuthn
   const supportsWebAuthn = browserSupportsWebAuthn()
@@ -45,6 +49,13 @@ export function PasskeySignupButton({ onError, className }: PasskeySignupButtonP
       return
     }
     setEmailError(null)
+
+    // Validate terms acceptance
+    if (!termsAccepted) {
+      setTermsError('You must agree to the Terms of Service and Privacy Policy')
+      return
+    }
+    setTermsError(null)
 
     if (!supportsWebAuthn) {
       onError?.('Your browser does not support passkeys')
@@ -171,10 +182,47 @@ export function PasskeySignupButton({ onError, className }: PasskeySignupButtonP
               <p className="text-sm text-destructive">{emailError}</p>
             )}
           </div>
+          <div className="space-y-2">
+            <div className="flex items-start space-x-3">
+              <Checkbox
+                id="passkey-terms"
+                checked={termsAccepted}
+                onCheckedChange={(checked) => {
+                  setTermsAccepted(checked === true)
+                  setTermsError(null)
+                }}
+                className="mt-0.5"
+              />
+              <Label
+                htmlFor="passkey-terms"
+                className="text-sm font-normal leading-relaxed cursor-pointer"
+              >
+                I agree to the{' '}
+                <Link
+                  href="/terms"
+                  target="_blank"
+                  className="font-medium underline underline-offset-4 hover:text-primary"
+                >
+                  Terms of Service
+                </Link>{' '}
+                and{' '}
+                <Link
+                  href="/privacy"
+                  target="_blank"
+                  className="font-medium underline underline-offset-4 hover:text-primary"
+                >
+                  Privacy Policy
+                </Link>
+              </Label>
+            </div>
+            {termsError && (
+              <p className="text-sm text-destructive">{termsError}</p>
+            )}
+          </div>
           <Button
             type="button"
             onClick={handlePasskeySignup}
-            disabled={isLoading || !email}
+            disabled={isLoading || !email || !termsAccepted}
             className="w-full"
           >
             {isLoading ? (

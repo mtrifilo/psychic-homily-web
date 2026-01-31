@@ -115,7 +115,7 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
                     </span>
                   )}
                   <Link
-                    href={`/artists/${artist.id}`}
+                    href={`/artists/${artist.slug}`}
                     className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
                   >
                     {artist.name}
@@ -194,7 +194,7 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
           <div className="text-sm mt-1.5 text-muted-foreground">
             {venue && (
               <Link
-                href={`/venues/${venue.id}`}
+                href={`/venues/${venue.slug}`}
                 className="text-primary/80 hover:text-primary font-medium transition-colors"
               >
                 {venue.name}
@@ -220,7 +220,7 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <Link
-                      href={`/artists/${artist.id}`}
+                      href={`/artists/${artist.slug}`}
                       className="font-medium hover:text-primary transition-colors"
                     >
                       {artist.name}

@@ -251,7 +251,7 @@ function ShowCard({
           <div className="text-sm mt-1.5 text-muted-foreground">
             {venue && (
               <Link
-                href={`/venues/${venue.id}`}
+                href={`/venues/${venue.slug}`}
                 className="text-primary/80 hover:text-primary font-medium transition-colors"
               >
                 {venue.name}

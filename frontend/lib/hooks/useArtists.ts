@@ -16,12 +16,12 @@ import type {
 } from '../types/artist'
 
 interface UseArtistOptions {
-  artistId: number
+  artistId: string | number
   enabled?: boolean
 }
 
 /**
- * Hook to fetch a single artist by ID
+ * Hook to fetch a single artist by ID or slug
  */
 export function useArtist(options: UseArtistOptions) {
   const { artistId, enabled = true } = options
@@ -33,13 +33,13 @@ export function useArtist(options: UseArtistOptions) {
         method: 'GET',
       })
     },
-    enabled: enabled && artistId > 0,
+    enabled: enabled && Boolean(artistId),
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }
 
 interface UseArtistShowsOptions {
-  artistId: number
+  artistId: string | number
   timezone?: string
   limit?: number
   enabled?: boolean
@@ -47,7 +47,7 @@ interface UseArtistShowsOptions {
 }
 
 /**
- * Hook to fetch shows for a specific artist
+ * Hook to fetch shows for a specific artist by ID or slug
  * @param timeFilter - Filter by time: 'upcoming' (default), 'past', or 'all'
  */
 export function useArtistShows(options: UseArtistShowsOptions) {
@@ -77,7 +77,7 @@ export function useArtistShows(options: UseArtistShowsOptions) {
         method: 'GET',
       })
     },
-    enabled: enabled && artistId > 0,
+    enabled: enabled && Boolean(artistId),
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }

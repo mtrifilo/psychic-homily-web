@@ -76,7 +76,7 @@ function ShowItem({ show, state }: ShowItemProps) {
                   </span>
                 )}
                 <Link
-                  href={`/artists/${artist.id}`}
+                  href={`/artists/${artist.slug}`}
                   className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
                   onClick={e => e.stopPropagation()}
                 >
@@ -144,7 +144,7 @@ export function VenueCard({ venue }: VenueCardProps) {
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold truncate">
                 <Link
-                  href={`/venues/${venue.id}`}
+                  href={`/venues/${venue.slug}`}
                   className="hover:text-primary transition-colors"
                   onClick={e => e.stopPropagation()}
                 >
@@ -230,7 +230,7 @@ export function VenueCard({ venue }: VenueCardProps) {
               {data.total > data.shows.length && (
                 <div className="text-center pt-3">
                   <Link
-                    href={`/venues/${venue.id}`}
+                    href={`/venues/${venue.slug}`}
                     className="text-sm text-primary hover:underline"
                   >
                     View all {data.total} shows
@@ -253,6 +253,7 @@ export function VenueCard({ venue }: VenueCardProps) {
                 mode="create"
                 prefilledVenue={{
                   id: venue.id,
+                  slug: venue.slug,
                   name: venue.name,
                   city: venue.city,
                   state: venue.state,

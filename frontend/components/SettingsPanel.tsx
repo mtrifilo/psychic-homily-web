@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useSendVerificationEmail } from '@/lib/hooks/useAuth'
+import { useSendVerificationEmail, useExportData } from '@/lib/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -12,13 +12,19 @@ import {
   AlertCircle,
   Loader2,
   Send,
+  AlertTriangle,
+  Download,
+  FileJson,
 } from 'lucide-react'
 import { ChangePassword } from '@/components/settings/change-password'
+import { DeleteAccountDialog } from '@/components/settings/delete-account-dialog'
 
 export function SettingsPanel() {
   const { user } = useAuthContext()
   const sendVerificationEmail = useSendVerificationEmail()
+  const exportData = useExportData()
   const [emailSent, setEmailSent] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   const handleSendVerification = async () => {
     try {
@@ -27,6 +33,26 @@ export function SettingsPanel() {
     } catch (error) {
       // Error handling is done in the mutation
       console.error('Failed to send verification email:', error)
+    }
+  }
+
+  const handleExportData = async () => {
+    try {
+      const data = await exportData.mutateAsync()
+      // Create a blob from the JSON data and trigger download
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: 'application/json',
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `psychic-homily-export-${new Date().toISOString().split('T')[0]}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Failed to export data:', error)
     }
   }
 
@@ -162,6 +188,113 @@ export function SettingsPanel() {
 
       {/* Password Change Section - only show for users with passwords */}
       <ChangePassword />
+
+      {/* Data Export Section (GDPR Right to Portability) */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <FileJson className="h-5 w-5 text-muted-foreground" />
+            <CardTitle className="text-lg">Export Your Data</CardTitle>
+          </div>
+          <CardDescription>
+            Download a copy of all your data in JSON format
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border/50 bg-muted/30 p-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-foreground">
+                    Your data export includes:
+                  </p>
+                  <ul className="text-sm text-muted-foreground list-disc list-inside space-y-0.5">
+                    <li>Profile information</li>
+                    <li>Email preferences</li>
+                    <li>Connected accounts</li>
+                    <li>Passkeys</li>
+                    <li>Saved shows</li>
+                    <li>Submitted shows</li>
+                  </ul>
+                </div>
+                <Button
+                  onClick={handleExportData}
+                  disabled={exportData.isPending}
+                  variant="outline"
+                  className="shrink-0 gap-2"
+                >
+                  {exportData.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  Export My Data
+                </Button>
+              </div>
+            </div>
+
+            {exportData.isError && (
+              <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4" />
+                <span>
+                  {exportData.error?.message || 'Failed to export data. Please try again.'}
+                </span>
+              </div>
+            )}
+
+            {exportData.isSuccess && (
+              <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Data exported successfully! Check your downloads folder.</span>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Danger Zone - Account Deletion */}
+      <Card className="border-destructive/50">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-destructive" />
+            <CardTitle className="text-lg text-destructive">Danger Zone</CardTitle>
+          </div>
+          <CardDescription>
+            Irreversible actions that affect your account
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-foreground">
+                    Delete your account
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Permanently delete your account and all associated data.
+                    You&apos;ll have 30 days to recover your account.
+                  </p>
+                </div>
+                <Button
+                  variant="destructive"
+                  onClick={() => setDeleteDialogOpen(true)}
+                  className="shrink-0"
+                >
+                  <AlertTriangle className="mr-2 h-4 w-4" />
+                  Delete Account
+                </Button>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Delete Account Dialog */}
+      <DeleteAccountDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+      />
     </div>
   )
 }

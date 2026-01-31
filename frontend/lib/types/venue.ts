@@ -9,6 +9,7 @@ import type { ArtistResponse } from './show'
 
 export interface Venue {
   id: number
+  slug: string
   name: string
   address: string | null
   city: string
@@ -61,6 +62,7 @@ export interface VenuesListResponse {
  */
 export interface VenueShow {
   id: number
+  slug: string
   title: string
   event_date: string
   city: string | null

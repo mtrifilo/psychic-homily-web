@@ -2,8 +2,14 @@ import { Suspense } from 'react'
 import { VenueList } from '@/components/VenueList'
 
 export const metadata = {
-  title: 'Venues | Psychic Homily',
+  title: 'Venues',
   description: 'Browse music venues and discover upcoming shows.',
+  openGraph: {
+    title: 'Venues | Psychic Homily',
+    description: 'Browse music venues and discover upcoming shows.',
+    url: '/venues',
+    type: 'website',
+  },
 }
 
 function VenueListLoading() {

@@ -547,3 +547,199 @@ export const useVerifyMagicLink = () => {
     },
   })
 }
+
+// Account deletion types
+interface DeletionSummaryResponse {
+  success: boolean
+  message: string
+  shows_count: number
+  saved_shows_count: number
+  passkeys_count: number
+  has_password: boolean
+  error_code?: string
+  request_id?: string
+}
+
+interface DeleteAccountRequest {
+  password: string
+  reason?: string
+}
+
+interface DeleteAccountResponse {
+  success: boolean
+  message: string
+  deletion_date?: string
+  grace_period_days?: number
+  error_code?: AuthErrorCodeType
+  request_id?: string
+}
+
+// Get deletion summary query
+export const useDeletionSummary = () => {
+  return useQuery({
+    queryKey: ['auth', 'deletion-summary'],
+    queryFn: async (): Promise<DeletionSummaryResponse> => {
+      authLogger.debug('Fetching deletion summary')
+
+      const response = await apiRequest<DeletionSummaryResponse>(
+        API_ENDPOINTS.AUTH.DELETION_SUMMARY,
+        {
+          method: 'GET',
+          credentials: 'include',
+        }
+      )
+
+      if (!response.success) {
+        throw new AuthError(
+          response.message || 'Failed to get deletion summary',
+          (response.error_code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN,
+          {
+            requestId: response.request_id,
+            status: 400,
+          }
+        )
+      }
+
+      return response
+    },
+    enabled: false, // Only fetch when explicitly called
+  })
+}
+
+// Delete account mutation
+export const useDeleteAccount = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (
+      request: DeleteAccountRequest
+    ): Promise<DeleteAccountResponse> => {
+      authLogger.debug('Delete account attempt')
+
+      const response = await apiRequest<DeleteAccountResponse>(
+        API_ENDPOINTS.AUTH.DELETE_ACCOUNT,
+        {
+          method: 'POST',
+          body: JSON.stringify(request),
+          credentials: 'include',
+        }
+      )
+
+      if (!response.success) {
+        authLogger.warn(
+          'Delete account failed',
+          {
+            errorCode: response.error_code,
+            message: response.message,
+          },
+          response.request_id
+        )
+
+        throw new AuthError(
+          response.message || 'Failed to delete account',
+          response.error_code || AuthErrorCode.UNKNOWN,
+          {
+            requestId: response.request_id,
+            status: 400,
+          }
+        )
+      }
+
+      return response
+    },
+    onSuccess: data => {
+      authLogger.info(
+        'Account deletion successful',
+        {
+          message: data.message,
+          deletionDate: data.deletion_date,
+        },
+        data.request_id
+      )
+      // Clear all cached data (user is now logged out)
+      queryClient.clear()
+    },
+  })
+}
+
+// Data export types (GDPR Right to Portability)
+interface ExportDataResponse {
+  success: boolean
+  message: string
+  exported_at: string
+  export_version: string
+  profile: {
+    id: number
+    email: string
+    first_name?: string
+    last_name?: string
+    is_admin: boolean
+    email_verified: boolean
+    created_at: string
+    updated_at: string
+  }
+  preferences?: {
+    email_notifications: boolean
+    marketing_emails: boolean
+  }
+  oauth_accounts?: Array<{
+    provider: string
+    provider_id: string
+    linked_at: string
+  }>
+  passkeys?: Array<{
+    credential_id: string
+    name: string
+    created_at: string
+    last_used_at?: string
+  }>
+  saved_shows?: Array<{
+    show_id: number
+    saved_at: string
+  }>
+  submitted_shows?: Array<{
+    id: number
+    status: string
+    created_at: string
+    updated_at: string
+  }>
+  error_code?: string
+  request_id?: string
+}
+
+// Export user data mutation (GDPR Right to Portability)
+export const useExportData = () => {
+  return useMutation({
+    mutationFn: async (): Promise<ExportDataResponse> => {
+      authLogger.debug('Exporting user data')
+
+      const response = await apiRequest<ExportDataResponse>(
+        API_ENDPOINTS.AUTH.EXPORT_DATA,
+        {
+          method: 'GET',
+          credentials: 'include',
+        }
+      )
+
+      if (!response.success) {
+        throw new AuthError(
+          response.message || 'Failed to export data',
+          (response.error_code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN,
+          {
+            requestId: response.request_id,
+            status: 400,
+          }
+        )
+      }
+
+      return response
+    },
+    onSuccess: data => {
+      authLogger.info(
+        'Data export successful',
+        { exportedAt: data.exported_at },
+        data.request_id
+      )
+    },
+  })
+}

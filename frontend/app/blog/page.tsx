@@ -3,8 +3,14 @@ import { getBlogSlugs, getBlogPost } from '@/lib/blog'
 import { MDXContent } from '@/components/blog/mdx-content'
 
 export const metadata = {
-  title: 'Blog | Psychic Homily',
+  title: 'Blog',
   description: 'Music news, reviews, and updates from the Arizona music scene.',
+  openGraph: {
+    title: 'Blog | Psychic Homily',
+    description: 'Music news, reviews, and updates from the Arizona music scene.',
+    url: '/blog',
+    type: 'website',
+  },
 }
 
 function formatDate(dateString: string): string {

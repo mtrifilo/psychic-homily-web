@@ -21,8 +21,9 @@ const (
 )
 
 type Show struct {
-	ID             uint `gorm:"primaryKey"`
+	ID             uint    `gorm:"primaryKey"`
 	Title          string
+	Slug           *string `gorm:"column:slug;uniqueIndex"`
 	EventDate      time.Time `gorm:"not null"`
 	City           *string
 	State          *string

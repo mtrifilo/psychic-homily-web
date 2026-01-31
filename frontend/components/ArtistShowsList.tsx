@@ -70,7 +70,7 @@ function ShowItem({ show, currentArtistId, isPastShow = false }: ShowItemProps) 
           {show.venue && (
             <div className="mt-1">
               <Link
-                href={`/venues/${show.venue.id}`}
+                href={`/venues/${show.venue.slug}`}
                 className="font-semibold hover:text-primary transition-colors"
               >
                 {show.venue.name}
@@ -90,7 +90,7 @@ function ShowItem({ show, currentArtistId, isPastShow = false }: ShowItemProps) 
                 <span key={artist.id}>
                   {index > 0 && ', '}
                   <Link
-                    href={`/artists/${artist.id}`}
+                    href={`/artists/${artist.slug}`}
                     className="hover:text-foreground transition-colors"
                   >
                     {artist.name}

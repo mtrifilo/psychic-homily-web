@@ -5,6 +5,7 @@ import "time"
 type Artist struct {
 	ID               uint      `gorm:"primaryKey"`
 	Name             string    `gorm:"uniqueIndex"`
+	Slug             *string   `gorm:"column:slug;uniqueIndex"`
 	State            *string   `gorm:"column:state"`
 	City             *string   `gorm:"column:city"`
 	BandcampEmbedURL *string   `gorm:"column:bandcamp_embed_url"`

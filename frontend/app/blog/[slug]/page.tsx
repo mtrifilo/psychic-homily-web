@@ -23,8 +23,15 @@ export async function generateMetadata({ params }: BlogPostPageProps) {
   }
 
   return {
-    title: `${post.frontmatter.title} | Psychic Homily`,
+    title: post.frontmatter.title,
     description: post.frontmatter.description || post.excerpt,
+    openGraph: {
+      title: post.frontmatter.title,
+      description: post.frontmatter.description || post.excerpt,
+      type: 'article',
+      publishedTime: post.frontmatter.date,
+      url: `/blog/${slug}`,
+    },
   }
 }
 

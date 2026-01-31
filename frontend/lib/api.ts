@@ -60,6 +60,11 @@ export const API_ENDPOINTS = {
     OAUTH_LOGIN: (provider: string) => `${API_BASE_URL}/auth/login/${provider}`,
     OAUTH_CALLBACK: (provider: string) =>
       `${API_BASE_URL}/auth/callback/${provider}`,
+    // Account deletion endpoints
+    DELETION_SUMMARY: `${API_BASE_URL}/auth/account/deletion-summary`,
+    DELETE_ACCOUNT: `${API_BASE_URL}/auth/account/delete`,
+    // Data export endpoint (GDPR Right to Portability)
+    EXPORT_DATA: `${API_BASE_URL}/auth/account/export`,
   },
 
   // Application endpoints
@@ -82,19 +87,19 @@ export const API_ENDPOINTS = {
   },
   ARTISTS: {
     SEARCH: `${API_BASE_URL}/artists/search`,
-    GET: (artistId: number) => `${API_BASE_URL}/artists/${artistId}`,
-    SHOWS: (artistId: number) => `${API_BASE_URL}/artists/${artistId}/shows`,
+    GET: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}`,
+    SHOWS: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}/shows`,
   },
   VENUES: {
     LIST: `${API_BASE_URL}/venues`,
     CITIES: `${API_BASE_URL}/venues/cities`,
     SEARCH: `${API_BASE_URL}/venues/search`,
-    GET: (venueId: number) => `${API_BASE_URL}/venues/${venueId}`,
-    SHOWS: (venueId: number) => `${API_BASE_URL}/venues/${venueId}/shows`,
-    UPDATE: (venueId: number) => `${API_BASE_URL}/venues/${venueId}`,
-    DELETE: (venueId: number) => `${API_BASE_URL}/venues/${venueId}`,
-    MY_PENDING_EDIT: (venueId: number) =>
-      `${API_BASE_URL}/venues/${venueId}/my-pending-edit`,
+    GET: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
+    SHOWS: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}/shows`,
+    UPDATE: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
+    DELETE: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
+    MY_PENDING_EDIT: (venueIdOrSlug: string | number) =>
+      `${API_BASE_URL}/venues/${venueIdOrSlug}/my-pending-edit`,
   },
 
   // Saved shows (user's "My List") endpoints

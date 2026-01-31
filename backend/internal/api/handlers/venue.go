@@ -93,7 +93,7 @@ func (h *VenueHandler) ListVenuesHandler(ctx context.Context, req *ListVenuesReq
 
 // GetVenueRequest represents the request parameters for getting a single venue
 type GetVenueRequest struct {
-	VenueID uint `path:"venue_id" doc:"Venue ID" example:"1"`
+	VenueID string `path:"venue_id" doc:"Venue ID or slug" example:"valley-bar-phoenix-az"`
 }
 
 // GetVenueResponse represents the response for the get venue endpoint
@@ -101,9 +101,19 @@ type GetVenueResponse struct {
 	Body *services.VenueDetailResponse
 }
 
-// GetVenueHandler handles GET /venues/{venue_id} - returns a single venue by ID
+// GetVenueHandler handles GET /venues/{venue_id} - returns a single venue by ID or slug
 func (h *VenueHandler) GetVenueHandler(ctx context.Context, req *GetVenueRequest) (*GetVenueResponse, error) {
-	venue, err := h.venueService.GetVenue(req.VenueID)
+	var venue *services.VenueDetailResponse
+	var err error
+
+	// Try to parse as numeric ID first
+	if id, parseErr := strconv.ParseUint(req.VenueID, 10, 32); parseErr == nil {
+		venue, err = h.venueService.GetVenue(uint(id))
+	} else {
+		// Fall back to slug lookup
+		venue, err = h.venueService.GetVenueBySlug(req.VenueID)
+	}
+
 	if err != nil {
 		if err.Error() == "venue not found" {
 			return nil, huma.Error404NotFound("Venue not found")
@@ -116,7 +126,7 @@ func (h *VenueHandler) GetVenueHandler(ctx context.Context, req *GetVenueRequest
 
 // GetVenueShowsRequest represents the request parameters for getting shows at a venue
 type GetVenueShowsRequest struct {
-	VenueID    uint   `path:"venue_id" doc:"Venue ID" example:"1"`
+	VenueID    string `path:"venue_id" doc:"Venue ID or slug" example:"valley-bar-phoenix-az"`
 	Timezone   string `query:"timezone" doc:"Timezone for date filtering" example:"America/Phoenix"`
 	Limit      int    `query:"limit" default:"20" minimum:"1" maximum:"50" doc:"Maximum number of shows to return"`
 	TimeFilter string `query:"time_filter" doc:"Filter shows by time: upcoming, past, or all" example:"upcoming" enum:"upcoming,past,all"`
@@ -148,7 +158,23 @@ func (h *VenueHandler) GetVenueShowsHandler(ctx context.Context, req *GetVenueSh
 		timeFilter = "upcoming"
 	}
 
-	shows, total, err := h.venueService.GetShowsForVenue(req.VenueID, timezone, limit, timeFilter)
+	// Resolve venue ID from ID or slug
+	var venueID uint
+	if id, parseErr := strconv.ParseUint(req.VenueID, 10, 32); parseErr == nil {
+		venueID = uint(id)
+	} else {
+		// Look up by slug to get the ID
+		venue, err := h.venueService.GetVenueBySlug(req.VenueID)
+		if err != nil {
+			if err.Error() == "venue not found" {
+				return nil, huma.Error404NotFound("Venue not found")
+			}
+			return nil, huma.Error500InternalServerError("Failed to fetch venue", err)
+		}
+		venueID = venue.ID
+	}
+
+	shows, total, err := h.venueService.GetShowsForVenue(venueID, timezone, limit, timeFilter)
 	if err != nil {
 		if err.Error() == "venue not found" {
 			return nil, huma.Error404NotFound("Venue not found")
@@ -158,7 +184,7 @@ func (h *VenueHandler) GetVenueShowsHandler(ctx context.Context, req *GetVenueSh
 
 	resp := &GetVenueShowsResponse{}
 	resp.Body.Shows = shows
-	resp.Body.VenueID = req.VenueID
+	resp.Body.VenueID = venueID
 	resp.Body.Total = total
 
 	return resp, nil

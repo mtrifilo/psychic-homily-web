@@ -3,8 +3,14 @@ import { getAllMixes } from '@/lib/mixes'
 import { SoundCloud } from '@/components/blog/soundcloud-embed'
 
 export const metadata = {
-  title: 'DJ Sets | Psychic Homily',
+  title: 'DJ Sets',
   description: 'Featured DJ mixes from Arizona DJs and beyond.',
+  openGraph: {
+    title: 'DJ Sets | Psychic Homily',
+    description: 'Featured DJ mixes from Arizona DJs and beyond.',
+    url: '/dj-sets',
+    type: 'website',
+  },
 }
 
 function formatDate(dateString: string): string {

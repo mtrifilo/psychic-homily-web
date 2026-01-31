@@ -23,8 +23,14 @@ export async function generateMetadata({ params }: MixPageProps) {
   }
 
   return {
-    title: `${mix.frontmatter.title} | Psychic Homily`,
-    description: mix.frontmatter.description,
+    title: mix.frontmatter.title,
+    description: mix.frontmatter.description || `DJ set by ${mix.frontmatter.artist}`,
+    openGraph: {
+      title: mix.frontmatter.title,
+      description: mix.frontmatter.description || `DJ set by ${mix.frontmatter.artist}`,
+      type: 'music.song',
+      url: `/dj-sets/${slug}`,
+    },
   }
 }
 
