@@ -61,6 +61,42 @@ func (h *ArtistHandler) SearchArtistsHandler(ctx context.Context, req *SearchArt
 	return resp, nil
 }
 
+// ListArtistsRequest represents the request for listing all artists
+type ListArtistsRequest struct {
+	State string `query:"state" doc:"Filter by state" example:"AZ"`
+	City  string `query:"city" doc:"Filter by city" example:"Phoenix"`
+}
+
+// ListArtistsResponse represents the response for listing artists
+type ListArtistsResponse struct {
+	Body struct {
+		Artists []*services.ArtistDetailResponse `json:"artists" doc:"List of artists"`
+		Count   int                              `json:"count" doc:"Number of artists"`
+	}
+}
+
+// ListArtistsHandler handles GET /artists - returns all artists
+func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtistsRequest) (*ListArtistsResponse, error) {
+	filters := make(map[string]interface{})
+	if req.State != "" {
+		filters["state"] = req.State
+	}
+	if req.City != "" {
+		filters["city"] = req.City
+	}
+
+	artists, err := h.artistService.GetArtists(filters)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to fetch artists", err)
+	}
+
+	resp := &ListArtistsResponse{}
+	resp.Body.Artists = artists
+	resp.Body.Count = len(artists)
+
+	return resp, nil
+}
+
 // GetArtistRequest represents the request for getting a single artist
 type GetArtistRequest struct {
 	ArtistID string `path:"artist_id" doc:"Artist ID or slug" example:"the-national"`

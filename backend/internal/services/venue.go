@@ -1142,3 +1142,77 @@ func (s *VenueService) GetVenueModel(venueID uint) (*models.Venue, error) {
 
 	return &venue, nil
 }
+
+// UnverifiedVenueResponse represents an unverified venue for admin review
+type UnverifiedVenueResponse struct {
+	ID          uint      `json:"id"`
+	Slug        string    `json:"slug"`
+	Name        string    `json:"name"`
+	Address     *string   `json:"address"`
+	City        string    `json:"city"`
+	State       string    `json:"state"`
+	Zipcode     *string   `json:"zipcode"`
+	SubmittedBy *uint     `json:"submitted_by"`
+	CreatedAt   time.Time `json:"created_at"`
+	ShowCount   int       `json:"show_count"` // Number of shows using this venue
+}
+
+// GetUnverifiedVenues retrieves all unverified venues for admin review.
+// Results are sorted by creation date (newest first).
+func (s *VenueService) GetUnverifiedVenues(limit, offset int) ([]*UnverifiedVenueResponse, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	// Get total count of unverified venues
+	var total int64
+	if err := s.db.Model(&models.Venue{}).Where("verified = ?", false).Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count unverified venues: %w", err)
+	}
+
+	// Build query with show count subquery
+	subquery := s.db.Table("show_venues").
+		Select("venue_id, COUNT(*) as show_count").
+		Group("venue_id")
+
+	var results []struct {
+		models.Venue
+		ShowCount int64 `gorm:"column:show_count"`
+	}
+
+	err := s.db.Table("venues").
+		Select("venues.*, COALESCE(sc.show_count, 0) as show_count").
+		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", subquery).
+		Where("venues.verified = ?", false).
+		Order("venues.created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&results).Error
+
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get unverified venues: %w", err)
+	}
+
+	// Build responses
+	responses := make([]*UnverifiedVenueResponse, len(results))
+	for i, r := range results {
+		slug := ""
+		if r.Slug != nil {
+			slug = *r.Slug
+		}
+		responses[i] = &UnverifiedVenueResponse{
+			ID:          r.ID,
+			Slug:        slug,
+			Name:        r.Name,
+			Address:     r.Address,
+			City:        r.City,
+			State:       r.State,
+			Zipcode:     r.Zipcode,
+			SubmittedBy: r.SubmittedBy,
+			CreatedAt:   r.CreatedAt,
+			ShowCount:   int(r.ShowCount),
+		}
+	}
+
+	return responses, total, nil
+}

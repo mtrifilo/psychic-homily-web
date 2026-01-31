@@ -86,6 +86,7 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/shows/${showId}/export`,
   },
   ARTISTS: {
+    LIST: `${API_BASE_URL}/artists`,
     SEARCH: `${API_BASE_URL}/artists/search`,
     GET: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}`,
     SHOWS: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}/shows`,
@@ -112,6 +113,18 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/saved-shows/${showId}/check`,
   },
 
+  // Favorite venues endpoints
+  FAVORITE_VENUES: {
+    LIST: `${API_BASE_URL}/favorite-venues`,
+    FAVORITE: (venueId: string | number) =>
+      `${API_BASE_URL}/favorite-venues/${venueId}`,
+    UNFAVORITE: (venueId: string | number) =>
+      `${API_BASE_URL}/favorite-venues/${venueId}`,
+    CHECK: (venueId: string | number) =>
+      `${API_BASE_URL}/favorite-venues/${venueId}/check`,
+    SHOWS: `${API_BASE_URL}/favorite-venues/shows`,
+  },
+
   // Admin endpoints
   ADMIN: {
     SHOWS: {
@@ -125,6 +138,7 @@ export const API_ENDPOINTS = {
       IMPORT_CONFIRM: `${API_BASE_URL}/admin/shows/import/confirm`,
     },
     VENUES: {
+      UNVERIFIED: `${API_BASE_URL}/admin/venues/unverified`,
       VERIFY: (venueId: string | number) =>
         `${API_BASE_URL}/admin/venues/${venueId}/verify`,
       PENDING_EDITS: `${API_BASE_URL}/admin/venues/pending-edits`,

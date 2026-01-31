@@ -195,3 +195,104 @@ export interface PendingVenueEditsResponse {
   total: number
 }
 
+// ============================================================================
+// Admin Unverified Venues Types
+// ============================================================================
+
+/**
+ * Unverified venue awaiting admin verification
+ */
+export interface UnverifiedVenue {
+  id: number
+  slug: string
+  name: string
+  address: string | null
+  city: string
+  state: string
+  zipcode: string | null
+  submitted_by: number | null
+  created_at: string
+  show_count: number
+}
+
+/**
+ * Response for admin listing unverified venues
+ */
+export interface UnverifiedVenuesResponse {
+  venues: UnverifiedVenue[]
+  total: number
+}
+
+// ============================================================================
+// Favorite Venues Types
+// ============================================================================
+
+/**
+ * Favorite venue with metadata
+ */
+export interface FavoriteVenueResponse {
+  id: number
+  slug: string
+  name: string
+  address: string | null
+  city: string
+  state: string
+  verified: boolean
+  favorited_at: string
+  upcoming_show_count: number
+}
+
+/**
+ * Response for listing favorite venues
+ */
+export interface FavoriteVenuesListResponse {
+  venues: FavoriteVenueResponse[]
+  total: number
+  limit: number
+  offset: number
+}
+
+/**
+ * Response for checking if a venue is favorited
+ */
+export interface CheckFavoritedResponse {
+  is_favorited: boolean
+}
+
+/**
+ * Response for favoriting/unfavoriting a venue
+ */
+export interface FavoriteVenueActionResponse {
+  success: boolean
+  message: string
+}
+
+/**
+ * Show from a favorite venue (includes venue info)
+ */
+export interface FavoriteVenueShow {
+  id: number
+  slug: string
+  title: string
+  event_date: string
+  city: string | null
+  state: string | null
+  price: number | null
+  age_requirement: string | null
+  venue_id: number
+  venue_name: string
+  venue_slug: string
+  artists: ArtistResponse[]
+}
+
+/**
+ * Response for getting shows from favorite venues
+ */
+export interface FavoriteVenueShowsResponse {
+  shows: FavoriteVenueShow[]
+  total: number
+  limit: number
+  offset: number
+  timezone: string
+}
+

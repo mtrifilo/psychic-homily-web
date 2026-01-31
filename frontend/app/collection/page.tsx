@@ -19,6 +19,7 @@ import {
   Globe,
   Send,
   Library,
+  Star,
 } from 'lucide-react'
 import {
   formatDateInTimezone,
@@ -36,6 +37,7 @@ import { SubmissionSuccessDialog } from '@/components/SubmissionSuccessDialog'
 import { ShowForm } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { FavoriteVenuesTab } from '@/components/FavoriteVenuesTab'
 
 function formatDate(dateString: string, state?: string | null): string {
   const timezone = getTimezoneForState(state || 'AZ')
@@ -80,9 +82,11 @@ function ShowCard({
   const canUnpublish = show.status === 'approved' && (isAdmin || isOwner)
 
   // Check if user can make show private (pending -> private)
+  // Note: New shows are never pending, but legacy data may have this status
   const canMakePrivate = show.status === 'pending' && (isAdmin || isOwner)
 
-  // Check if user can publish show (private/rejected -> approved/pending)
+  // Check if user can publish show (private/rejected -> approved)
+  // Shows are always approved now (unverified venues display city-only)
   // Rejected shows will show a VenueDeniedDialog instead of actual publish
   const canPublish =
     (show.status === 'private' || show.status === 'rejected') &&
@@ -444,18 +448,12 @@ function CollectionPageContent() {
   // Get current tab from URL or default to "saved"
   const currentTab = searchParams.get('tab') || 'saved'
 
-  // Handle submission success dialog from query param
-  const submittedStatus = searchParams.get('submitted') as
-    | 'pending'
-    | 'private'
-    | null
+  // Handle private show submission success dialog from query param
+  const isPrivateSubmission = searchParams.get('submitted') === 'private'
   const [dialogDismissed, setDialogDismissed] = useState(false)
 
-  // Derive dialog state from URL param and dismissed state
-  const showSuccessDialog =
-    !dialogDismissed &&
-    (submittedStatus === 'pending' || submittedStatus === 'private')
-  const dialogStatus = showSuccessDialog ? submittedStatus : null
+  // Show dialog for private show submissions
+  const showSuccessDialog = !dialogDismissed && isPrivateSubmission
 
   // Clean up URL when dialog is closed
   const handleDialogClose = (open: boolean) => {
@@ -503,9 +501,8 @@ function CollectionPageContent() {
 
   return (
     <div className="container max-w-4xl mx-auto px-4 py-12">
-      {/* Submission Success Dialog */}
+      {/* Private Show Submission Success Dialog */}
       <SubmissionSuccessDialog
-        status={dialogStatus}
         open={showSuccessDialog}
         onOpenChange={handleDialogClose}
       />
@@ -532,6 +529,10 @@ function CollectionPageContent() {
             <Heart className="h-4 w-4" />
             Saved Shows
           </TabsTrigger>
+          <TabsTrigger value="favorites" className="gap-1.5">
+            <Star className="h-4 w-4" />
+            Favorite Venues
+          </TabsTrigger>
           <TabsTrigger value="submissions" className="gap-1.5">
             <Send className="h-4 w-4" />
             My Submissions
@@ -543,6 +544,10 @@ function CollectionPageContent() {
             currentUserId={currentUserId}
             isAdmin={user?.is_admin}
           />
+        </TabsContent>
+
+        <TabsContent value="favorites">
+          <FavoriteVenuesTab />
         </TabsContent>
 
         <TabsContent value="submissions">

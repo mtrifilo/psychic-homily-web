@@ -91,6 +91,8 @@ export const queryKeys = {
   admin: {
     pendingVenueEdits: (limit: number, offset: number) =>
       ['admin', 'venues', 'pendingEdits', { limit, offset }] as const,
+    unverifiedVenues: (limit: number, offset: number) =>
+      ['admin', 'venues', 'unverified', { limit, offset }] as const,
   },
 
   // Artist queries
@@ -108,6 +110,16 @@ export const queryKeys = {
     list: (userId?: string) => ['savedShows', 'list', userId] as const,
     check: (showId: string | number) =>
       ['savedShows', 'check', String(showId)] as const,
+  },
+
+  // Favorite venues queries
+  favoriteVenues: {
+    all: ['favoriteVenues'] as const,
+    list: (userId?: string) => ['favoriteVenues', 'list', userId] as const,
+    check: (venueId: string | number) =>
+      ['favoriteVenues', 'check', String(venueId)] as const,
+    shows: (params?: Record<string, unknown>) =>
+      ['favoriteVenues', 'shows', params] as const,
   },
 
   // User's submitted shows
@@ -143,6 +155,10 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate saved shows queries
   savedShows: () =>
     queryClient.invalidateQueries({ queryKey: ['savedShows'] }),
+
+  // Invalidate favorite venues queries
+  favoriteVenues: () =>
+    queryClient.invalidateQueries({ queryKey: ['favoriteVenues'] }),
 
   // Invalidate user's submissions queries
   mySubmissions: () =>

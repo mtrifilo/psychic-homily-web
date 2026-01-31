@@ -9,8 +9,8 @@ import type { ShowResponse } from '../types/show'
 
 /**
  * Hook for publishing a private show
- * If all venues are verified, status becomes approved.
- * If any venue is unverified, status becomes pending.
+ * Shows are always approved regardless of venue verification status.
+ * Unverified venues will display city-only until verified by an admin.
  * Requires authentication (JWT cookie handled by API proxy)
  * User must be admin or the show's submitter
  */

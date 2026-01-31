@@ -98,6 +98,20 @@ type VerifyVenueResponse struct {
 	Body services.VenueDetailResponse `json:"body"`
 }
 
+// GetUnverifiedVenuesRequest represents the HTTP request for listing unverified venues
+type GetUnverifiedVenuesRequest struct {
+	Limit  int `query:"limit" default:"50" doc:"Number of venues to return (max 100)"`
+	Offset int `query:"offset" default:"0" doc:"Offset for pagination"`
+}
+
+// GetUnverifiedVenuesResponse represents the HTTP response for listing unverified venues
+type GetUnverifiedVenuesResponse struct {
+	Body struct {
+		Venues []*services.UnverifiedVenueResponse `json:"venues"`
+		Total  int64                               `json:"total"`
+	}
+}
+
 // GetPendingShowsHandler handles GET /admin/shows/pending
 func (h *AdminHandler) GetPendingShowsHandler(ctx context.Context, req *GetPendingShowsRequest) (*GetPendingShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
@@ -363,6 +377,58 @@ func (h *AdminHandler) VerifyVenueHandler(ctx context.Context, req *VerifyVenueR
 	)
 
 	return &VerifyVenueResponse{Body: *venue}, nil
+}
+
+// GetUnverifiedVenuesHandler handles GET /admin/venues/unverified
+// Returns venues that have not been verified by an admin, for admin review.
+func (h *AdminHandler) GetUnverifiedVenuesHandler(ctx context.Context, req *GetUnverifiedVenuesRequest) (*GetUnverifiedVenuesResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Validate limit
+	limit := req.Limit
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	logger.FromContext(ctx).Debug("admin_unverified_venues_attempt",
+		"limit", limit,
+		"offset", req.Offset,
+	)
+
+	// Get unverified venues
+	venues, total, err := h.venueService.GetUnverifiedVenues(limit, req.Offset)
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_unverified_venues_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get unverified venues (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("admin_unverified_venues_success",
+		"count", len(venues),
+		"total", total,
+	)
+
+	resp := &GetUnverifiedVenuesResponse{}
+	resp.Body.Venues = venues
+	resp.Body.Total = total
+	return resp, nil
 }
 
 // getUserID safely gets user ID or returns 0 if user is nil

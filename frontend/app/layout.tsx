@@ -6,6 +6,8 @@ import { ThemeProvider } from '@/components/theme-provider'
 import { Providers } from '@/components/providers'
 import Nav from '@/app/nav'
 import Footer from '@/components/Footer'
+import { JsonLd } from '@/components/seo/JsonLd'
+import { generateOrganizationSchema } from '@/lib/seo/jsonld'
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://psychichomily.com'),
@@ -18,9 +20,11 @@ export const metadata: Metadata = {
     type: 'website',
     locale: 'en_US',
     siteName: 'Psychic Homily',
+    images: [{ url: '/og-image.jpg', width: 1200, height: 630, alt: 'Psychic Homily' }],
   },
   twitter: {
     card: 'summary_large_image',
+    images: ['/og-image.jpg'],
   },
 }
 
@@ -31,6 +35,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <JsonLd data={generateOrganizationSchema()} />
+      </head>
       <body
         className={`${GeistSans.variable} ${GeistMono.variable} antialiased`}
       >

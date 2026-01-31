@@ -1007,9 +1007,9 @@ func (s *ShowService) MakePrivateShow(showID uint, userID uint, isAdmin bool) (*
 	return response, nil
 }
 
-// PublishShow changes a private show's status to approved or pending.
-// If all venues are verified, status becomes approved.
-// If any venue is unverified, status becomes pending.
+// PublishShow changes a private show's status to approved.
+// Shows are always approved regardless of venue verification status.
+// Unverified venues will display city-only until verified by an admin.
 // Only the submitter or an admin can publish a show.
 func (s *ShowService) PublishShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error) {
 	if s.db == nil {
@@ -1039,18 +1039,8 @@ func (s *ShowService) PublishShow(showID uint, userID uint, isAdmin bool) (*Show
 			}
 		}
 
-		// Determine the new status based on venue verification
-		// If all venues are verified, set to approved; otherwise set to pending
-		newStatus := models.ShowStatusApproved
-		for _, venue := range show.Venues {
-			if !venue.Verified {
-				newStatus = models.ShowStatusPending
-				break
-			}
-		}
-
-		// Update show status
-		if err := tx.Model(&show).Update("status", newStatus).Error; err != nil {
+		// Always set status to approved - unverified venues show city-only until verified
+		if err := tx.Model(&show).Update("status", models.ShowStatusApproved).Error; err != nil {
 			return fmt.Errorf("failed to publish show: %w", err)
 		}
 

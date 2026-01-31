@@ -72,6 +72,22 @@ export interface MusicVenueSchema {
   url?: string
 }
 
+export interface MusicGroupSchema {
+  '@context': 'https://schema.org'
+  '@type': 'MusicGroup'
+  name: string
+  url?: string
+  sameAs?: string[]
+  foundingLocation?: {
+    '@type': 'Place'
+    address?: {
+      '@type': 'PostalAddress'
+      addressLocality?: string
+      addressRegion?: string
+    }
+  }
+}
+
 /**
  * Generate Organization schema for the site
  */
@@ -206,6 +222,53 @@ export function generateMusicVenueSchema(venue: {
 
   if (venue.slug) {
     schema.url = `https://psychichomily.com/venues/${venue.slug}`
+  }
+
+  return schema
+}
+
+/**
+ * Generate MusicGroup schema for an artist
+ */
+export function generateMusicGroupSchema(artist: {
+  name: string
+  slug?: string
+  city?: string | null
+  state?: string | null
+  social?: Record<string, string | null>
+}): MusicGroupSchema {
+  const schema: MusicGroupSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'MusicGroup',
+    name: artist.name,
+  }
+
+  if (artist.slug) {
+    schema.url = `https://psychichomily.com/artists/${artist.slug}`
+  }
+
+  // Add social links to sameAs
+  if (artist.social) {
+    const socialLinks: string[] = []
+    for (const [, value] of Object.entries(artist.social)) {
+      if (value) {
+        socialLinks.push(value)
+      }
+    }
+    if (socialLinks.length > 0) {
+      schema.sameAs = socialLinks
+    }
+  }
+
+  if (artist.city || artist.state) {
+    schema.foundingLocation = {
+      '@type': 'Place',
+      address: {
+        '@type': 'PostalAddress',
+        addressLocality: artist.city || undefined,
+        addressRegion: artist.state || undefined,
+      },
+    }
   }
 
   return schema

@@ -2,6 +2,8 @@ import { Suspense } from 'react'
 import { Metadata } from 'next'
 import { Loader2 } from 'lucide-react'
 import { ArtistDetail } from '@/components/ArtistDetail'
+import { JsonLd } from '@/components/seo/JsonLd'
+import { generateMusicGroupSchema } from '@/lib/seo/jsonld'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.psychichomily.com'
 
@@ -9,28 +11,45 @@ interface ArtistPageProps {
   params: Promise<{ slug: string }>
 }
 
-export async function generateMetadata({ params }: ArtistPageProps): Promise<Metadata> {
-  const { slug } = await params
+interface ArtistData {
+  name: string
+  slug?: string
+  city?: string | null
+  state?: string | null
+  social?: Record<string, string | null>
+}
+
+async function getArtist(slug: string): Promise<ArtistData | null> {
   try {
     const res = await fetch(`${API_BASE_URL}/artists/${slug}`, {
       next: { revalidate: 3600 },
     })
     if (res.ok) {
-      const artist = await res.json()
-      return {
-        title: artist.name,
-        description: `${artist.name} - upcoming shows and artist details on Psychic Homily`,
-        openGraph: {
-          title: artist.name,
-          description: `View upcoming shows featuring ${artist.name}`,
-          type: 'website',
-          url: `/artists/${slug}`,
-        },
-      }
+      return res.json()
     }
   } catch {
-    // Fall through to default metadata
+    // Fall through to null
   }
+  return null
+}
+
+export async function generateMetadata({ params }: ArtistPageProps): Promise<Metadata> {
+  const { slug } = await params
+  const artist = await getArtist(slug)
+
+  if (artist) {
+    return {
+      title: artist.name,
+      description: `${artist.name} - upcoming shows and artist details on Psychic Homily`,
+      openGraph: {
+        title: artist.name,
+        description: `View upcoming shows featuring ${artist.name}`,
+        type: 'website',
+        url: `/artists/${slug}`,
+      },
+    }
+  }
+
   return {
     title: 'Artist',
     description: 'View artist details and upcoming shows',
@@ -61,9 +80,22 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
     )
   }
 
+  const artistData = await getArtist(slug)
+
   return (
-    <Suspense fallback={<ArtistLoadingFallback />}>
-      <ArtistDetail artistId={slug} />
-    </Suspense>
+    <>
+      {artistData && (
+        <JsonLd data={generateMusicGroupSchema({
+          name: artistData.name,
+          slug: artistData.slug || slug,
+          city: artistData.city,
+          state: artistData.state,
+          social: artistData.social,
+        })} />
+      )}
+      <Suspense fallback={<ArtistLoadingFallback />}>
+        <ArtistDetail artistId={slug} />
+      </Suspense>
+    </>
   )
 }

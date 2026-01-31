@@ -285,18 +285,15 @@ export function ShowForm({
 
         submitMutation.mutate(submission, {
           onSuccess: data => {
-            const isPending = data.status === 'pending'
             const isPrivate = data.status === 'private'
             form.reset()
             setIsPrivateShow(false)
 
-            // Redirect to My Collection with query param for pending/private submissions
-            if (isPending) {
-              router.push('/collection?submitted=pending')
-            } else if (isPrivate) {
+            if (isPrivate) {
+              // Private shows redirect with dialog trigger
               router.push('/collection?submitted=private')
             } else if (redirectOnCreate) {
-              // For approved submissions, show brief success then redirect
+              // Approved submissions show brief success then redirect
               setShowSuccess(true)
               setTimeout(() => {
                 router.push('/collection')

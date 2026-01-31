@@ -2,9 +2,10 @@
 
 import { useState, useDeferredValue } from 'react'
 import dynamic from 'next/dynamic'
-import { Shield, Music, MapPin, Loader2, XCircle, Search, X, Upload } from 'lucide-react'
+import { Shield, Music, MapPin, Loader2, XCircle, Search, X, Upload, BadgeCheck } from 'lucide-react'
 import { usePendingShows, useRejectedShows } from '@/lib/hooks/useAdminShows'
 import { usePendingVenueEdits } from '@/lib/hooks/useAdminVenueEdits'
+import { useUnverifiedVenues } from '@/lib/hooks/useAdminVenues'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -31,6 +32,14 @@ const VenueEditsPage = dynamic(() => import('./venue-edits/page'), {
   ),
 })
 
+const UnverifiedVenuesPage = dynamic(() => import('./unverified-venues/page'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('pending-shows')
   const [rejectedSearch, setRejectedSearch] = useState('')
@@ -47,6 +56,9 @@ export default function AdminPage() {
     isLoading: rejectedLoading,
     error: rejectedError,
   } = useRejectedShows({ search: deferredRejectedSearch || undefined })
+  const {
+    data: unverifiedVenuesData,
+  } = useUnverifiedVenues()
 
   return (
     <div className="min-h-[calc(100vh-64px)] bg-background px-4 py-8">
@@ -83,6 +95,16 @@ export default function AdminPage() {
                 venueEditsData.total > 0 && (
                   <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-medium text-white">
                     {venueEditsData.total}
+                  </span>
+                )}
+            </TabsTrigger>
+            <TabsTrigger value="unverified-venues" className="gap-2">
+              <BadgeCheck className="h-4 w-4" />
+              Unverified Venues
+              {unverifiedVenuesData?.total !== undefined &&
+                unverifiedVenuesData.total > 0 && (
+                  <span className="ml-1 rounded-full bg-orange-500 px-2 py-0.5 text-xs font-medium text-white">
+                    {unverifiedVenuesData.total}
                   </span>
                 )}
             </TabsTrigger>
@@ -143,6 +165,10 @@ export default function AdminPage() {
 
           <TabsContent value="pending-venue-edits" className="space-y-4">
             <VenueEditsPage />
+          </TabsContent>
+
+          <TabsContent value="unverified-venues" className="space-y-4">
+            <UnverifiedVenuesPage />
           </TabsContent>
 
           <TabsContent value="rejected-shows" className="space-y-4">

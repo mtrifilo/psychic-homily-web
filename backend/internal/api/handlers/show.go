@@ -924,9 +924,9 @@ type PublishShowResponse struct {
 }
 
 // PublishShowHandler handles POST /shows/{show_id}/publish
-// Changes a private show's status to approved or pending.
-// If all venues are verified, status becomes approved.
-// If any venue is unverified, status becomes pending.
+// Changes a private show's status to approved.
+// Shows are always approved regardless of venue verification status.
+// Unverified venues will display city-only until verified by an admin.
 // Only the submitter or an admin can publish a show.
 func (h *ShowHandler) PublishShowHandler(ctx context.Context, req *PublishShowRequest) (*PublishShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)

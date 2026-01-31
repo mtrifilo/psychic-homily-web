@@ -13,6 +13,7 @@ import { VenueLocationCard } from '@/components/VenueLocationCard'
 import { VenueShowsList } from '@/components/VenueShowsList'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
 import { DeleteVenueDialog } from '@/components/DeleteVenueDialog'
+import { FavoriteVenueButton } from '@/components/FavoriteVenueButton'
 import { Button } from '@/components/ui/button'
 
 interface VenueDetailProps {
@@ -155,6 +156,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
                       aria-label="Verified venue"
                     />
                   )}
+                  <FavoriteVenueButton venueId={venue.id} size="md" />
                 </div>
                 <p className="text-muted-foreground mt-1">
                   {venue.city}, {venue.state}

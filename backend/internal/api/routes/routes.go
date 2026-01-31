@@ -61,6 +61,7 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	setupArtistRoutes(api, protectedGroup)
 	setupVenueRoutes(api, protectedGroup)
 	setupSavedShowRoutes(protectedGroup)
+	setupFavoriteVenueRoutes(protectedGroup)
 	setupAdminRoutes(protectedGroup, cfg)
 
 	return api
@@ -201,6 +202,7 @@ func setupArtistRoutes(api huma.API, protected *huma.Group) {
 
 	// Public artist endpoints - registered on main API without middleware
 	// Note: Static routes must come before parameterized routes
+	huma.Get(api, "/artists", artistHandler.ListArtistsHandler)
 	huma.Get(api, "/artists/search", artistHandler.SearchArtistsHandler)
 	huma.Get(api, "/artists/{artist_id}", artistHandler.GetArtistHandler)
 	huma.Get(api, "/artists/{artist_id}/shows", artistHandler.GetArtistShowsHandler)
@@ -238,6 +240,19 @@ func setupSavedShowRoutes(protected *huma.Group) {
 	huma.Get(protected, "/saved-shows/{show_id}/check", savedShowHandler.CheckSavedHandler)
 }
 
+// setupFavoriteVenueRoutes configures favorite venue endpoints
+// All endpoints require authentication via protected group
+func setupFavoriteVenueRoutes(protected *huma.Group) {
+	favoriteVenueHandler := handlers.NewFavoriteVenueHandler()
+
+	// Protected favorite venue endpoints
+	huma.Post(protected, "/favorite-venues/{venue_id}", favoriteVenueHandler.FavoriteVenueHandler)
+	huma.Delete(protected, "/favorite-venues/{venue_id}", favoriteVenueHandler.UnfavoriteVenueHandler)
+	huma.Get(protected, "/favorite-venues", favoriteVenueHandler.GetFavoriteVenuesHandler)
+	huma.Get(protected, "/favorite-venues/{venue_id}/check", favoriteVenueHandler.CheckFavoritedHandler)
+	huma.Get(protected, "/favorite-venues/shows", favoriteVenueHandler.GetFavoriteVenueShowsHandler)
+}
+
 // setupAdminRoutes configures admin-only endpoints
 // Note: Admin check is performed inside handlers, JWT auth is required via protected group
 func setupAdminRoutes(protected *huma.Group, cfg *config.Config) {
@@ -255,6 +270,7 @@ func setupAdminRoutes(protected *huma.Group, cfg *config.Config) {
 	huma.Post(protected, "/admin/shows/import/confirm", adminHandler.ImportShowConfirmHandler)
 
 	// Admin venue management endpoints
+	huma.Get(protected, "/admin/venues/unverified", adminHandler.GetUnverifiedVenuesHandler)
 	huma.Post(protected, "/admin/venues/{venue_id}/verify", adminHandler.VerifyVenueHandler)
 
 	// Admin pending venue edit endpoints
