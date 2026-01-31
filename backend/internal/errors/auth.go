@@ -27,6 +27,8 @@ const (
 	CodeUnauthorized = "UNAUTHORIZED"
 	// CodeUnknown indicates an unknown error occurred
 	CodeUnknown = "UNKNOWN"
+	// CodeAccountLocked indicates the account is locked due to too many failed attempts
+	CodeAccountLocked = "ACCOUNT_LOCKED"
 )
 
 // AuthError represents an authentication-related error with additional context.
@@ -117,6 +119,11 @@ func ErrValidationFailed(message string) *AuthError {
 	return NewAuthError(CodeValidationFailed, message, nil)
 }
 
+// ErrAccountLocked creates an account locked error with the unlock time.
+func ErrAccountLocked(message string) *AuthError {
+	return NewAuthError(CodeAccountLocked, message, nil)
+}
+
 // ToExternalCode converts internal error codes to external (safe) codes.
 // This prevents leaking information like whether an email exists.
 func ToExternalCode(code string) string {
@@ -145,6 +152,8 @@ func ToExternalMessage(code string) string {
 		return "An account with this email already exists"
 	case CodeValidationFailed:
 		return "Validation failed"
+	case CodeAccountLocked:
+		return "Account temporarily locked. Please try again later."
 	default:
 		return "An error occurred"
 	}

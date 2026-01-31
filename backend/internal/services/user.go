@@ -13,6 +13,12 @@ import (
 	"psychic-homily-backend/internal/models"
 )
 
+// Account lockout constants
+const (
+	MaxFailedLoginAttempts = 5
+	AccountLockDuration    = 15 * time.Minute
+)
+
 // UserService handles user-related business logic
 type UserService struct {
 	db *gorm.DB
@@ -152,6 +158,13 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*mod
 		return nil, fmt.Errorf("invalid credentials")
 	}
 
+	// Check if account is locked before password verification
+	if s.IsAccountLocked(user) {
+		remaining := s.GetLockTimeRemaining(user)
+		minutes := int(remaining.Minutes()) + 1 // Round up
+		return nil, fmt.Errorf("account_locked:%d", minutes)
+	}
+
 	if user.PasswordHash == nil {
 		// Also do dummy verification for OAuth-only accounts
 		dummyHash := "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
@@ -160,12 +173,17 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*mod
 	}
 
 	if err := s.VerifyPassword(*user.PasswordHash, password); err != nil {
+		// Increment failed attempts on password failure
+		s.IncrementFailedAttempts(user.ID)
 		return nil, fmt.Errorf("invalid credentials")
 	}
 
 	if !user.IsActive {
 		return nil, fmt.Errorf("user account is not active")
 	}
+
+	// Reset failed attempts on successful login
+	s.ResetFailedAttempts(user.ID)
 
 	return user, nil
 }
@@ -395,6 +413,72 @@ func (s *UserService) HashPassword(password string) (string, error) {
 
 func (s *UserService) VerifyPassword(hashedPassword, password string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+}
+
+// IsAccountLocked checks if the user account is currently locked
+func (s *UserService) IsAccountLocked(user *models.User) bool {
+	return user.LockedUntil != nil && time.Now().Before(*user.LockedUntil)
+}
+
+// GetLockTimeRemaining returns the duration until the account is unlocked
+func (s *UserService) GetLockTimeRemaining(user *models.User) time.Duration {
+	if user.LockedUntil == nil {
+		return 0
+	}
+	remaining := time.Until(*user.LockedUntil)
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+// IncrementFailedAttempts increments the counter and locks if threshold reached
+func (s *UserService) IncrementFailedAttempts(userID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	// Use a transaction to atomically increment and check
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var user models.User
+		if err := tx.First(&user, userID).Error; err != nil {
+			return fmt.Errorf("failed to get user: %w", err)
+		}
+
+		user.FailedLoginAttempts++
+
+		// Lock account if threshold reached
+		if user.FailedLoginAttempts >= MaxFailedLoginAttempts {
+			lockUntil := time.Now().Add(AccountLockDuration)
+			user.LockedUntil = &lockUntil
+		}
+
+		if err := tx.Save(&user).Error; err != nil {
+			return fmt.Errorf("failed to update user: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// ResetFailedAttempts clears the counter and unlocks the account
+func (s *UserService) ResetFailedAttempts(userID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	result := s.db.Model(&models.User{}).
+		Where("id = ?", userID).
+		Updates(map[string]interface{}{
+			"failed_login_attempts": 0,
+			"locked_until":          nil,
+		})
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to reset failed attempts: %w", result.Error)
+	}
+
+	return nil
 }
 
 // UpdatePassword updates a user's password after verifying the current password

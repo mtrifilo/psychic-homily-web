@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -83,6 +84,23 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 
 	user, err := h.userService.AuthenticateUserWithPassword(input.Body.Email, input.Body.Password)
 	if err != nil {
+		// Check if account is locked
+		if strings.HasPrefix(err.Error(), "account_locked:") {
+			// Parse remaining minutes from error
+			var minutes int
+			fmt.Sscanf(err.Error(), "account_locked:%d", &minutes)
+			message := fmt.Sprintf("Account temporarily locked due to too many failed login attempts. Please try again in %d minute(s).", minutes)
+			authErr := autherrors.ErrAccountLocked(message)
+			logger.AuthWarn(ctx, "login_account_locked",
+				"email_hash", logger.HashEmail(input.Body.Email),
+				"minutes_remaining", minutes,
+			)
+			resp.Body.Success = false
+			resp.Body.Message = authErr.UserMessage()
+			resp.Body.ErrorCode = autherrors.CodeAccountLocked
+			return resp, nil
+		}
+
 		authErr := autherrors.ErrInvalidCredentials(err)
 		logger.AuthWarn(ctx, "login_failed",
 			"email_hash", logger.HashEmail(input.Body.Email),
