@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -167,6 +168,38 @@ func (s SessionConfig) GetSameSite() http.SameSite {
 		return http.SameSiteNoneMode
 	default:
 		return http.SameSiteLaxMode
+	}
+}
+
+// AuthCookieName is the name of the authentication cookie
+const AuthCookieName = "auth_token"
+
+// NewAuthCookie creates a new authentication cookie with the given token and expiry duration.
+func (s SessionConfig) NewAuthCookie(token string, expiry time.Duration) http.Cookie {
+	return http.Cookie{
+		Name:     AuthCookieName,
+		Value:    token,
+		Path:     s.Path,
+		Domain:   s.Domain,
+		HttpOnly: s.HttpOnly,
+		Secure:   s.Secure,
+		SameSite: s.GetSameSite(),
+		Expires:  time.Now().Add(expiry),
+	}
+}
+
+// ClearAuthCookie creates a cookie that clears the authentication token.
+func (s SessionConfig) ClearAuthCookie() http.Cookie {
+	return http.Cookie{
+		Name:     AuthCookieName,
+		Value:    "",
+		Path:     s.Path,
+		Domain:   s.Domain,
+		HttpOnly: s.HttpOnly,
+		Secure:   s.Secure,
+		SameSite: http.SameSiteStrictMode,
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
 	}
 }
 

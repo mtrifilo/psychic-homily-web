@@ -90,16 +90,9 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 
 	log.Printf("OAuth callback successful for user ID: %d", user.ID)
 
-	// Set HTTP-only cookie (same pattern as login/passkey handlers)
-	http.SetCookie(w, &http.Cookie{
-		Name:     "auth_token",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   h.config.Session.Secure,
-		SameSite: h.config.Session.GetSameSite(),
-		Expires:  time.Now().Add(7 * 24 * time.Hour), // 7 days
-	})
+	// Set HTTP-only auth cookie
+	cookie := h.config.Session.NewAuthCookie(token, 7*24*time.Hour)
+	http.SetCookie(w, &cookie)
 
 	// Redirect to frontend home page
 	http.Redirect(w, r, frontendURL, http.StatusTemporaryRedirect)

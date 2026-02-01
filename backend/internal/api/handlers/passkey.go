@@ -436,15 +436,7 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 	}
 
 	// Set cookie
-	resp.SetCookie = http.Cookie{
-		Name:     "auth_token",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   h.config.Session.Secure,
-		SameSite: h.config.Session.GetSameSite(),
-		Expires:  time.Now().Add(24 * time.Hour),
-	}
+	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
 
 	logger.AuthInfo(ctx, "passkey_login_success",
 		"user_id", user.ID,
@@ -793,15 +785,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 	}
 
 	// Set cookie
-	resp.SetCookie = http.Cookie{
-		Name:     "auth_token",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   h.config.Session.Secure,
-		SameSite: h.config.Session.GetSameSite(),
-		Expires:  time.Now().Add(24 * time.Hour),
-	}
+	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
 
 	logger.AuthInfo(ctx, "passkey_signup_success",
 		"user_id", user.ID,

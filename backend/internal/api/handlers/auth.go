@@ -126,7 +126,7 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 	}
 
 	// Set HTTP-only cookie using Huma's built-in support
-	resp.SetCookie = *setCookie(token, h.config)
+	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
 
 	logger.AuthInfo(ctx, "login_success",
 		"user_id", user.ID,
@@ -217,16 +217,7 @@ func (h *AuthHandler) LogoutHandler(ctx context.Context, input *struct{}) (*Logo
 		logger.AuthDebug(ctx, "logout_no_user")
 	}
 
-	resp.SetCookie = http.Cookie{
-		Name:     "auth_token",
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   h.config.Session.Secure,
-		SameSite: http.SameSiteStrictMode,
-		Expires:  time.Unix(0, 0), // Expire immediately
-		MaxAge:   -1,
-	}
+	resp.SetCookie = h.config.Session.ClearAuthCookie()
 
 	resp.Body.Success = true
 	resp.Body.Message = "Logout successful"
@@ -485,7 +476,7 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 	}
 
 	// Set HTTP-only cookie for immediate authentication
-	resp.SetCookie = *setCookie(token, h.config)
+	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
 
 	logger.AuthInfo(ctx, "register_success",
 		"user_id", user.ID,
@@ -499,19 +490,6 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 	resp.Body.User = user
 	resp.Body.Message = "Registration successful and you are now logged in"
 	return resp, nil
-}
-
-func setCookie(token string, config *config.Config) *http.Cookie {
-	// Set HTTP-only cookie for immediate authentication
-	return &http.Cookie{
-		Name:     "auth_token",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   config.Session.Secure, // Set to true in production (HTTPS only)
-		SameSite: config.Session.GetSameSite(),
-		Expires:  time.Now().Add(24 * time.Hour),
-	}
 }
 
 // SendVerificationEmailResponse represents the response for sending verification email
@@ -911,7 +889,7 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 	}
 
 	// Set HTTP-only cookie
-	resp.SetCookie = *setCookie(token, h.config)
+	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
 
 	logger.AuthInfo(ctx, "magic_link_login_success",
 		"user_id", user.ID,
@@ -1198,16 +1176,7 @@ func (h *AuthHandler) DeleteAccountHandler(ctx context.Context, input *DeleteAcc
 	}
 
 	// Clear auth cookie to log out the user
-	resp.SetCookie = http.Cookie{
-		Name:     "auth_token",
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   h.config.Session.Secure,
-		SameSite: http.SameSiteStrictMode,
-		Expires:  time.Unix(0, 0),
-		MaxAge:   -1,
-	}
+	resp.SetCookie = h.config.Session.ClearAuthCookie()
 
 	// Calculate deletion date (30 days from now)
 	gracePeriodDays := 30
@@ -1457,7 +1426,7 @@ func (h *AuthHandler) RecoverAccountHandler(ctx context.Context, input *RecoverA
 		return resp, nil
 	}
 
-	resp.SetCookie = *setCookie(token, h.config)
+	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
 
 	logger.AuthInfo(ctx, "recover_account_success",
 		"user_id", user.ID,
@@ -1698,7 +1667,7 @@ func (h *AuthHandler) ConfirmAccountRecoveryHandler(ctx context.Context, input *
 		return resp, nil
 	}
 
-	resp.SetCookie = *setCookie(token, h.config)
+	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
 
 	logger.AuthInfo(ctx, "confirm_recovery_success",
 		"user_id", user.ID,
