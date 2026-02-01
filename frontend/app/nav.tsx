@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { Menu, LogOut, Loader2, Shield, Library } from 'lucide-react'
-import { ModeToggle } from '@/components/mode-toggle'
+import { ModeToggle } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,

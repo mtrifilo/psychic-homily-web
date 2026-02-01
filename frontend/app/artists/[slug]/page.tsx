@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import { Metadata } from 'next'
 import { Loader2 } from 'lucide-react'
-import { ArtistDetail } from '@/components/ArtistDetail'
+import { ArtistDetail } from '@/components/artists'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicGroupSchema } from '@/lib/seo/jsonld'
 

@@ -22,9 +22,8 @@ import {
   useClearArtistSpotify,
   type MusicPlatform,
 } from '@/lib/hooks/useAdminArtists'
-import { SocialLinks } from '@/components/SocialLinks'
-import { ArtistShowsList } from '@/components/ArtistShowsList'
-import { MusicEmbed } from '@/components/MusicEmbed'
+import { SocialLinks, MusicEmbed } from '@/components/shared'
+import { ArtistShowsList } from './ArtistShowsList'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'

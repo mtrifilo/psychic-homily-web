@@ -18,7 +18,7 @@ import {
 } from '@/lib/hooks/useFavoriteVenues'
 import { useVenueShows } from '@/lib/hooks/useVenues'
 import { Button } from '@/components/ui/button'
-import { FavoriteVenueButton } from '@/components/FavoriteVenueButton'
+import { FavoriteVenueButton } from './FavoriteVenueButton'
 import type {
   FavoriteVenueResponse,
   FavoriteVenueShow,

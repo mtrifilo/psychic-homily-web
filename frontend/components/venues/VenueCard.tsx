@@ -23,8 +23,8 @@ import {
 } from '@/lib/utils/timeUtils'
 import { ShowForm } from '@/components/forms/ShowForm'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
-import { DeleteVenueDialog } from '@/components/DeleteVenueDialog'
-import { FavoriteVenueButton } from '@/components/FavoriteVenueButton'
+import { DeleteVenueDialog } from './DeleteVenueDialog'
+import { FavoriteVenueButton } from './FavoriteVenueButton'
 import { Button } from '@/components/ui/button'
 
 interface VenueCardProps {

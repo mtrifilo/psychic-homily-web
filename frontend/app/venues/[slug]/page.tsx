@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import { Metadata } from 'next'
 import { Loader2 } from 'lucide-react'
-import { VenueDetail } from '@/components/VenueDetail'
+import { VenueDetail } from '@/components/venues'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicVenueSchema } from '@/lib/seo/jsonld'
 

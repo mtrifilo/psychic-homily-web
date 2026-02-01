@@ -27,17 +27,17 @@ import {
   getTimezoneForState,
 } from '@/lib/utils/timeUtils'
 import type { SavedShowResponse, ShowResponse } from '@/lib/types/show'
-import { SaveButton } from '@/components/SaveButton'
-import { DeleteShowDialog } from '@/components/DeleteShowDialog'
-import { UnpublishShowDialog } from '@/components/UnpublishShowDialog'
-import { MakePrivateDialog } from '@/components/MakePrivateDialog'
-import { PublishShowDialog } from '@/components/PublishShowDialog'
-import { VenueDeniedDialog } from '@/components/VenueDeniedDialog'
-import { SubmissionSuccessDialog } from '@/components/SubmissionSuccessDialog'
+import { SaveButton, SubmissionSuccessDialog } from '@/components/shared'
+import {
+  DeleteShowDialog,
+  UnpublishShowDialog,
+  MakePrivateDialog,
+  PublishShowDialog,
+} from '@/components/shows'
+import { VenueDeniedDialog, FavoriteVenuesTab } from '@/components/venues'
 import { ShowForm } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { FavoriteVenuesTab } from '@/components/FavoriteVenuesTab'
 
 function formatDate(dateString: string, state?: string | null): string {
   const timezone = getTimezoneForState(state || 'AZ')

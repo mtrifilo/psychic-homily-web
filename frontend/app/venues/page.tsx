@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import { VenueList } from '@/components/VenueList'
+import { VenueList } from '@/components/venues'
 
 export const metadata = {
   title: 'Venues',

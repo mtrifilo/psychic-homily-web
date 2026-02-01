@@ -12,11 +12,9 @@ import {
   getTimezoneForState,
 } from '@/lib/utils/timeUtils'
 import { Button } from '@/components/ui/button'
-import { SocialLinks } from '@/components/SocialLinks'
-import { MusicEmbed } from '@/components/MusicEmbed'
+import { SocialLinks, MusicEmbed, SaveButton } from '@/components/shared'
 import { ShowForm } from '@/components/forms'
-import { SaveButton } from '@/components/SaveButton'
-import { DeleteShowDialog } from '@/components/DeleteShowDialog'
+import { DeleteShowDialog } from './DeleteShowDialog'
 
 interface ShowDetailProps {
   showId: string | number

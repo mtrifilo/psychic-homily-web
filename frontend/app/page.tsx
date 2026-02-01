@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { HomeShowList } from '@/components/home-show-list'
+import { HomeShowList } from '@/components/shows'
 import { getBlogSlugs, getBlogPost } from '@/lib/blog'
 import { getAllMixes } from '@/lib/mixes'
 import { MDXContent } from '@/components/blog/mdx-content'

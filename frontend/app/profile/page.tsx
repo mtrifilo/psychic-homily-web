@@ -7,7 +7,7 @@ import { redirect } from 'next/navigation'
 import { Loader2, User, Settings } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { SettingsPanel } from '@/components/SettingsPanel'
+import { SettingsPanel } from '@/components/settings'
 
 function ProfileTab() {
   const { user } = useAuthContext()
