@@ -6,7 +6,7 @@
  * TanStack Query hooks for fetching venue data from the API.
  */
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../api'
 import { queryKeys } from '../queryClient'
 import type {
@@ -49,6 +49,7 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
       })
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
+    placeholderData: keepPreviousData, // Keep old data visible while fetching
   })
 }
 
@@ -133,5 +134,6 @@ export const useVenueCities = () => {
       })
     },
     staleTime: 10 * 60 * 1000, // 10 minutes - cities don't change often
+    placeholderData: keepPreviousData, // Keep old data visible while fetching
   })
 }

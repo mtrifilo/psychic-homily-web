@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
@@ -25,6 +25,7 @@ import {
 } from '@/lib/utils/timeUtils'
 import type { Venue } from '@/lib/types/venue'
 import type { ShowResponse, VenueResponse } from '@/lib/types/show'
+import type { ExtractedShowData } from '@/lib/types/extraction'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Label } from '@/components/ui/label'
@@ -140,6 +141,8 @@ interface ShowFormProps {
   onCancel?: () => void
   /** Whether to redirect to shows page after create (defaults to true for create mode) */
   redirectOnCreate?: boolean
+  /** AI-extracted show data to populate form (used with AIFormFiller) */
+  initialExtraction?: ExtractedShowData
 }
 
 export function ShowForm({
@@ -149,6 +152,7 @@ export function ShowForm({
   onSuccess,
   onCancel,
   redirectOnCreate = true,
+  initialExtraction,
 }: ShowFormProps) {
   const router = useRouter()
   const { user } = useAuthContext()
@@ -312,6 +316,84 @@ export function ShowForm({
       onSubmit: showFormSchema,
     },
   })
+
+  // Populate form from AI extraction
+  // Using a ref to track the last applied extraction to avoid duplicate applications
+  const lastAppliedExtraction = useRef<ExtractedShowData | null>(null)
+
+  useEffect(() => {
+    if (!initialExtraction) return
+    // Skip if we've already applied this exact extraction
+    if (lastAppliedExtraction.current === initialExtraction) return
+    lastAppliedExtraction.current = initialExtraction
+
+    // Use requestAnimationFrame to batch state updates and avoid cascading renders
+    requestAnimationFrame(() => {
+      // Set artists
+      if (initialExtraction.artists.length > 0) {
+        form.setFieldValue(
+          'artists',
+          initialExtraction.artists.map(a => ({
+            name: a.matched_name || a.name,
+            is_headliner: a.is_headliner,
+          }))
+        )
+      }
+
+      // Set venue
+      if (initialExtraction.venue) {
+        const v = initialExtraction.venue
+        form.setFieldValue('venue', {
+          id: v.matched_id,
+          name: v.matched_name || v.name,
+          city: v.city || '',
+          state: v.state || '',
+          address: '',
+        })
+        // Update venue name for new venue warning
+        setVenueName(v.matched_name || v.name)
+        // Update selected venue if matched
+        if (v.matched_id && v.matched_name && v.matched_slug) {
+          setSelectedVenue({
+            id: v.matched_id,
+            slug: v.matched_slug,
+            name: v.matched_name,
+            address: null,
+            city: v.city || '',
+            state: v.state || '',
+            verified: true, // Assume matched venues are verified
+          })
+        } else {
+          setSelectedVenue(null)
+        }
+      }
+
+      // Set date
+      if (initialExtraction.date) {
+        form.setFieldValue('date', initialExtraction.date)
+      }
+
+      // Set time
+      if (initialExtraction.time) {
+        form.setFieldValue('time', initialExtraction.time)
+      }
+
+      // Set cost
+      if (initialExtraction.cost) {
+        form.setFieldValue('cost', initialExtraction.cost)
+      }
+
+      // Set ages
+      if (initialExtraction.ages) {
+        form.setFieldValue('ages', initialExtraction.ages)
+      }
+
+      // Set description
+      if (initialExtraction.description) {
+        form.setFieldValue('description', initialExtraction.description)
+      }
+    })
+  }, [initialExtraction, form])
 
   // Handle venue selection to auto-fill city/state and track selected venue
   const handleVenueSelect = (venue: Venue | null) => {

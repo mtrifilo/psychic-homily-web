@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
@@ -507,9 +507,13 @@ function SignupForm() {
   )
 }
 
-export default function AuthPage() {
+function AuthPageContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { isAuthenticated, isLoading } = useAuthContext()
+
+  // Get error from URL query params (e.g., OAuth errors)
+  const urlError = searchParams.get('error')
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -547,6 +551,16 @@ export default function AuthPage() {
             Join the Arizona music community
           </p>
         </div>
+
+        {/* OAuth/URL Error Display */}
+        {urlError && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              {decodeURIComponent(urlError)}
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Auth Card with Tabs */}
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
@@ -594,7 +608,27 @@ export default function AuthPage() {
           </Link>
           .
         </p>
+
+        {/* Recovery link */}
+        <p className="mt-4 text-center text-xs text-muted-foreground">
+          Deleted your account?{' '}
+          <Link href="/auth/recover" className="underline underline-offset-4 hover:text-primary">
+            Recover it here
+          </Link>
+        </p>
       </div>
     </div>
+  )
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    }>
+      <AuthPageContent />
+    </Suspense>
   )
 }

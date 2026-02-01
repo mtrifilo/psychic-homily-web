@@ -59,6 +59,9 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	// Public email verification confirm endpoint (user clicks link from email)
 	huma.Post(api, "/auth/verify-email/confirm", authHandler.ConfirmVerificationHandler)
 
+	// Account recovery endpoints (public - user is not authenticated)
+	// These are registered in setupAuthRoutes with rate limiting
+
 	// Setup passkey routes (some public, some protected) - with rate limiting
 	setupPasskeyRoutes(router, api, protectedGroup, jwtService, cfg)
 
@@ -112,6 +115,11 @@ func setupAuthRoutes(router *chi.Mux, api huma.API, authService *services.AuthSe
 		huma.Post(rateLimitedAPI, "/auth/register", authHandler.RegisterHandler)
 		huma.Post(rateLimitedAPI, "/auth/magic-link/send", authHandler.SendMagicLinkHandler)
 		huma.Post(rateLimitedAPI, "/auth/magic-link/verify", authHandler.VerifyMagicLinkHandler)
+
+		// Account recovery endpoints (public, rate-limited)
+		huma.Post(rateLimitedAPI, "/auth/recover-account", authHandler.RecoverAccountHandler)
+		huma.Post(rateLimitedAPI, "/auth/recover-account/request", authHandler.RequestAccountRecoveryHandler)
+		huma.Post(rateLimitedAPI, "/auth/recover-account/confirm", authHandler.ConfirmAccountRecoveryHandler)
 	})
 
 	// Logout doesn't need strict rate limiting (already requires valid session)
@@ -182,7 +190,9 @@ func setupShowRoutes(api huma.API, protected *huma.Group, cfg *config.Config) {
 	showHandler := handlers.NewShowHandler(cfg)
 
 	// Public show endpoints - registered on main API without middleware
+	// Note: Static routes must come before parameterized routes
 	huma.Get(api, "/shows", showHandler.GetShowsHandler)
+	huma.Get(api, "/shows/cities", showHandler.GetShowCitiesHandler)
 	huma.Get(api, "/shows/upcoming", showHandler.GetUpcomingShowsHandler)
 	huma.Get(api, "/shows/{show_id}", showHandler.GetShowHandler)
 

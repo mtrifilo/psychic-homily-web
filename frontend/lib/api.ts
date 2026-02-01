@@ -68,12 +68,17 @@ export const API_ENDPOINTS = {
     DELETE_ACCOUNT: `${API_BASE_URL}/auth/account/delete`,
     // Data export endpoint (GDPR Right to Portability)
     EXPORT_DATA: `${API_BASE_URL}/auth/account/export`,
+    // Account recovery endpoints
+    RECOVER_ACCOUNT: `${API_BASE_URL}/auth/recover-account`,
+    RECOVER_ACCOUNT_REQUEST: `${API_BASE_URL}/auth/recover-account/request`,
+    RECOVER_ACCOUNT_CONFIRM: `${API_BASE_URL}/auth/recover-account/confirm`,
   },
 
   // Application endpoints
   SHOWS: {
     SUBMIT: `${API_BASE_URL}/shows`,
     UPCOMING: `${API_BASE_URL}/shows/upcoming`,
+    CITIES: `${API_BASE_URL}/shows/cities`,
     GET: (showId: string | number) => `${API_BASE_URL}/shows/${showId}`,
     UPDATE: (showId: string | number) => `${API_BASE_URL}/shows/${showId}`,
     DELETE: (showId: string | number) => `${API_BASE_URL}/shows/${showId}`,

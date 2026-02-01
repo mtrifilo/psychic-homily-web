@@ -827,3 +827,190 @@ export const useUnlinkOAuthAccount = () => {
     },
   })
 }
+
+// Account recovery types
+interface RecoverAccountRequest {
+  email: string
+  password: string
+}
+
+interface RecoverAccountResponse {
+  success: boolean
+  message: string
+  user?: {
+    id: string
+    email: string
+    name?: string
+    first_name?: string
+    last_name?: string
+    is_admin?: boolean
+  }
+  error_code?: AuthErrorCodeType
+  request_id?: string
+}
+
+interface RequestAccountRecoveryRequest {
+  email: string
+}
+
+interface RequestAccountRecoveryResponse {
+  success: boolean
+  message: string
+  has_password?: boolean
+  days_remaining?: number
+  error_code?: string
+  request_id?: string
+}
+
+interface ConfirmAccountRecoveryResponse {
+  success: boolean
+  message: string
+  user?: {
+    id: string
+    email: string
+    name?: string
+    first_name?: string
+    last_name?: string
+    is_admin?: boolean
+  }
+  error_code?: AuthErrorCodeType
+  request_id?: string
+}
+
+// Recover account with password mutation
+export const useRecoverAccount = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (
+      request: RecoverAccountRequest
+    ): Promise<RecoverAccountResponse> => {
+      authLogger.debug('Account recovery attempt', {
+        email: request.email.slice(0, 2) + '***',
+      })
+
+      const response = await apiRequest<RecoverAccountResponse>(
+        API_ENDPOINTS.AUTH.RECOVER_ACCOUNT,
+        {
+          method: 'POST',
+          body: JSON.stringify(request),
+          credentials: 'include',
+        }
+      )
+
+      if (!response.success) {
+        authLogger.warn(
+          'Account recovery failed',
+          {
+            errorCode: response.error_code,
+            message: response.message,
+          },
+          response.request_id
+        )
+
+        throw new AuthError(
+          response.message || 'Account recovery failed',
+          response.error_code || AuthErrorCode.UNKNOWN,
+          {
+            requestId: response.request_id,
+            status: 400,
+          }
+        )
+      }
+
+      return response
+    },
+    onSuccess: async data => {
+      if (data.success && data.user) {
+        authLogger.info(
+          'Account recovered successfully',
+          { userId: data.user.id },
+          data.request_id
+        )
+        // Refetch profile to get complete user data
+        await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
+      }
+    },
+  })
+}
+
+// Request account recovery (magic link) mutation
+export const useRequestAccountRecovery = () => {
+  return useMutation({
+    mutationFn: async (
+      request: RequestAccountRecoveryRequest
+    ): Promise<RequestAccountRecoveryResponse> => {
+      authLogger.debug('Account recovery request', {
+        email: request.email.slice(0, 2) + '***',
+      })
+
+      const response = await apiRequest<RequestAccountRecoveryResponse>(
+        API_ENDPOINTS.AUTH.RECOVER_ACCOUNT_REQUEST,
+        {
+          method: 'POST',
+          body: JSON.stringify(request),
+          credentials: 'include',
+        }
+      )
+
+      // Note: We return the response even if !success to provide
+      // has_password and days_remaining information
+      return response
+    },
+    onSuccess: data => {
+      authLogger.info(
+        'Account recovery request processed',
+        {
+          message: data.message,
+          hasPassword: data.has_password,
+          daysRemaining: data.days_remaining,
+        },
+        data.request_id
+      )
+    },
+  })
+}
+
+// Confirm account recovery (magic link) mutation
+export const useConfirmAccountRecovery = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (token: string): Promise<ConfirmAccountRecoveryResponse> => {
+      authLogger.debug('Confirming account recovery')
+
+      const response = await apiRequest<ConfirmAccountRecoveryResponse>(
+        API_ENDPOINTS.AUTH.RECOVER_ACCOUNT_CONFIRM,
+        {
+          method: 'POST',
+          body: JSON.stringify({ token }),
+          credentials: 'include',
+        }
+      )
+
+      if (!response.success) {
+        throw new AuthError(
+          response.message || 'Account recovery failed',
+          response.error_code || AuthErrorCode.UNKNOWN,
+          {
+            requestId: response.request_id,
+            status: 400,
+          }
+        )
+      }
+
+      return response
+    },
+    onSuccess: async data => {
+      if (data.success && data.user) {
+        authLogger.info(
+          'Account recovery confirmed',
+          { userId: data.user.id },
+          data.request_id
+        )
+        // Refetch profile to get complete user data
+        await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
+      }
+    },
+  })
+}

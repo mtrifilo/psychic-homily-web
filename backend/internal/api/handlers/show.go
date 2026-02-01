@@ -150,6 +150,20 @@ type GetUpcomingShowsRequest struct {
 	Timezone string `query:"timezone" default:"UTC" doc:"IANA timezone (e.g., 'America/Phoenix', 'America/New_York'). Defaults to UTC."`
 	Cursor   string `query:"cursor" doc:"Pagination cursor from previous response. Omit for first page."`
 	Limit    int    `query:"limit" default:"50" doc:"Number of shows per page (max 200). Defaults to 50."`
+	City     string `query:"city" doc:"Filter by city name (exact match)."`
+	State    string `query:"state" doc:"Filter by state code (exact match, e.g., 'AZ')."`
+}
+
+// GetShowCitiesRequest represents the HTTP request for listing show cities
+type GetShowCitiesRequest struct {
+	Timezone string `query:"timezone" default:"UTC" doc:"IANA timezone for determining 'today'. Defaults to UTC."`
+}
+
+// GetShowCitiesResponse represents the HTTP response for listing show cities
+type GetShowCitiesResponse struct {
+	Body struct {
+		Cities []services.ShowCityResponse `json:"cities"`
+	}
 }
 
 // CursorPaginationMeta contains cursor-based pagination metadata
@@ -461,6 +475,45 @@ func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest)
 	return &GetShowsResponse{Body: shows}, nil
 }
 
+// GetShowCitiesHandler handles GET /shows/cities
+func (h *ShowHandler) GetShowCitiesHandler(ctx context.Context, req *GetShowCitiesRequest) (*GetShowCitiesResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Default timezone to UTC if not provided
+	timezone := req.Timezone
+	if timezone == "" {
+		timezone = "UTC"
+	}
+
+	logger.FromContext(ctx).Debug("show_cities_attempt",
+		"timezone", timezone,
+	)
+
+	cities, err := h.showService.GetShowCities(timezone)
+	if err != nil {
+		logger.FromContext(ctx).Error("show_cities_failed",
+			"error", err.Error(),
+			"timezone", timezone,
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get show cities [SERVICE_UNAVAILABLE] (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("show_cities_success",
+		"count", len(cities),
+	)
+
+	return &GetShowCitiesResponse{
+		Body: struct {
+			Cities []services.ShowCityResponse `json:"cities"`
+		}{
+			Cities: cities,
+		},
+	}, nil
+}
+
 // GetUpcomingShowsHandler handles GET /shows/upcoming
 func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcomingShowsRequest) (*GetUpcomingShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
@@ -484,15 +537,26 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 		limit = 200 // Cap at 200 to prevent excessive queries
 	}
 
+	// Build filters from query params
+	var filters *services.UpcomingShowsFilter
+	if req.City != "" || req.State != "" {
+		filters = &services.UpcomingShowsFilter{
+			City:  req.City,
+			State: req.State,
+		}
+	}
+
 	logger.FromContext(ctx).Debug("shows_upcoming_attempt",
 		"timezone", timezone,
 		"limit", limit,
 		"has_cursor", req.Cursor != "",
 		"include_non_approved", includeNonApproved,
+		"city", req.City,
+		"state", req.State,
 	)
 
 	// Get upcoming shows using service (admins see all, others see only approved)
-	shows, nextCursor, err := h.showService.GetUpcomingShows(timezone, req.Cursor, limit, includeNonApproved)
+	shows, nextCursor, err := h.showService.GetUpcomingShows(timezone, req.Cursor, limit, includeNonApproved, filters)
 	if err != nil {
 		logger.FromContext(ctx).Error("shows_upcoming_failed",
 			"error", err.Error(),

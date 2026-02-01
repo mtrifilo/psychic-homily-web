@@ -21,6 +21,7 @@ import (
 	"psychic-homily-backend/internal/auth"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/services"
 )
 
 func main() {
@@ -113,6 +114,11 @@ func main() {
 	// Setup routes
 	_ = routes.SetupRoutes(router, cfg)
 
+	// Start account cleanup service (background job for permanent deletion)
+	cleanupService := services.NewCleanupService()
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
+	cleanupService.Start(cleanupCtx)
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -136,6 +142,10 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down Psychic Homily API...")
+
+	// Stop cleanup service
+	cleanupCancel()
+	cleanupService.Stop()
 
 	// Graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

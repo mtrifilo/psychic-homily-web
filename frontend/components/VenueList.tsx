@@ -1,87 +1,22 @@
 'use client'
 
+import { useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useVenues, useVenueCities } from '@/lib/hooks/useVenues'
 import { VenueCard } from './VenueCard'
-import type { VenueCity } from '@/lib/types/venue'
-
-interface FilterChipProps {
-  label: string
-  isActive: boolean
-  onClick: () => void
-  count?: number
-}
-
-function FilterChip({ label, isActive, onClick, count }: FilterChipProps) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-        isActive
-          ? 'bg-primary text-primary-foreground'
-          : 'bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground'
-      }`}
-    >
-      {label}
-      {count !== undefined && (
-        <span className={`ml-1.5 ${isActive ? 'opacity-80' : 'opacity-60'}`}>
-          ({count})
-        </span>
-      )}
-    </button>
-  )
-}
-
-interface CityFiltersProps {
-  cities: VenueCity[]
-  selectedCity: string | null
-  selectedState: string | null
-  onFilterChange: (city: string | null, state: string | null) => void
-}
-
-function CityFilters({
-  cities,
-  selectedCity,
-  selectedState,
-  onFilterChange,
-}: CityFiltersProps) {
-  const isAllSelected = !selectedCity && !selectedState
-
-  return (
-    <div className="flex flex-wrap gap-2 mb-6">
-      <FilterChip
-        label="All Cities"
-        isActive={isAllSelected}
-        onClick={() => onFilterChange(null, null)}
-      />
-      {cities.map(city => {
-        const isActive =
-          selectedCity === city.city && selectedState === city.state
-        const label = `${city.city}, ${city.state}`
-
-        return (
-          <FilterChip
-            key={`${city.city}-${city.state}`}
-            label={label}
-            isActive={isActive}
-            onClick={() => onFilterChange(city.city, city.state)}
-            count={city.venue_count}
-          />
-        )
-      })}
-    </div>
-  )
-}
+import { CityFilters, type CityWithCount } from '@/components/filters'
+import { LoadingSpinner } from '@/components/shared'
 
 export function VenueList() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const [isPending, startTransition] = useTransition()
 
   const selectedCity = searchParams.get('city')
   const selectedState = searchParams.get('state')
 
-  const { data: citiesData, isLoading: citiesLoading } = useVenueCities()
-  const { data, isLoading, error } = useVenues({
+  const { data: citiesData, isLoading: citiesLoading, isFetching: citiesFetching } = useVenueCities()
+  const { data, isLoading, isFetching, error } = useVenues({
     city: selectedCity || undefined,
     state: selectedState || undefined,
   })
@@ -92,16 +27,22 @@ export function VenueList() {
     if (state) params.set('state', state)
 
     const queryString = params.toString()
-    router.push(queryString ? `/venues?${queryString}` : '/venues')
+    startTransition(() => {
+      router.push(queryString ? `/venues?${queryString}` : '/venues')
+    })
   }
 
-  if (isLoading || citiesLoading) {
+  // Only show full spinner on FIRST load (no data yet)
+  if ((isLoading && !data) || (citiesLoading && !citiesData)) {
     return (
       <div className="flex justify-center items-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground"></div>
+        <LoadingSpinner />
       </div>
     )
   }
+
+  // Track if we're updating (fetching but already have data)
+  const isUpdating = isFetching || citiesFetching || isPending
 
   if (error) {
     return (
@@ -111,48 +52,58 @@ export function VenueList() {
     )
   }
 
+  // Map VenueCity to CityWithCount
+  const cities: CityWithCount[] = citiesData?.cities?.map(c => ({
+    city: c.city,
+    state: c.state,
+    count: c.venue_count,
+  })) ?? []
+
   return (
     <section className="w-full max-w-4xl">
-      {citiesData?.cities && citiesData.cities.length > 1 && (
+      {cities.length > 1 && (
         <CityFilters
-          cities={citiesData.cities}
+          cities={cities}
           selectedCity={selectedCity}
           selectedState={selectedState}
           onFilterChange={handleFilterChange}
         />
       )}
 
-      {!data?.venues || data.venues.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <p>
-            {selectedCity
-              ? `No venues found in ${selectedCity}.`
-              : 'No venues available at this time.'}
-          </p>
-          {selectedCity && (
-            <button
-              onClick={() => handleFilterChange(null, null)}
-              className="mt-4 text-primary hover:underline"
-            >
-              View all venues
-            </button>
-          )}
-        </div>
-      ) : (
-        <>
-          {data.venues.map(venue => (
-            <VenueCard key={venue.id} venue={venue} />
-          ))}
+      {/* Dim content while fetching, don't hide it */}
+      <div className={isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
+        {!data?.venues || data.venues.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p>
+              {selectedCity
+                ? `No venues found in ${selectedCity}.`
+                : 'No venues available at this time.'}
+            </p>
+            {selectedCity && (
+              <button
+                onClick={() => handleFilterChange(null, null)}
+                className="mt-4 text-primary hover:underline"
+              >
+                View all venues
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            {data.venues.map(venue => (
+              <VenueCard key={venue.id} venue={venue} />
+            ))}
 
-          {data.total > data.venues.length && (
-            <div className="text-center py-6">
-              <p className="text-muted-foreground text-sm">
-                Showing {data.venues.length} of {data.total} venues
-              </p>
-            </div>
-          )}
-        </>
-      )}
+            {data.total > data.venues.length && (
+              <div className="text-center py-6">
+                <p className="text-muted-foreground text-sm">
+                  Showing {data.venues.length} of {data.total} venues
+                </p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </section>
   )
 }

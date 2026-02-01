@@ -69,6 +69,7 @@ export const queryKeys = {
     all: ['shows'] as const,
     list: (filters?: Record<string, unknown>) =>
       ['shows', 'list', filters] as const,
+    cities: (timezone?: string) => ['shows', 'cities', timezone] as const,
     detail: (id: string) => ['shows', 'detail', id] as const,
     userShows: (userId: string) => ['shows', 'user', userId] as const,
   },

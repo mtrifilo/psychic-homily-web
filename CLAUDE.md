@@ -23,9 +23,23 @@
 
 ### Frontend
 - App router pages in `/frontend/app/`
-- Shared components in `/frontend/components/`
 - API client and hooks in `/frontend/lib/`
 - Tests colocated or in `/frontend/test/`
+
+#### Component Organization
+```
+/frontend/components/
+├── /filters/       # Reusable filter components (FilterChip, CityFilters)
+├── /forms/         # Form components (ShowForm, etc.)
+├── /shared/        # Cross-cutting utilities (LoadingSpinner, etc.)
+├── /ui/            # Shadcn primitives (Button, Dialog, etc.)
+└── *.tsx           # Feature-specific components (VenueList, ShowCard, etc.)
+```
+
+- **filters/**: Generic filter UI components with shared interfaces (e.g., `CityWithCount`)
+- **shared/**: Common utilities used across multiple features
+- **ui/**: Low-level Shadcn components (don't modify directly)
+- Prefer extracting reusable patterns into `/filters/` or `/shared/` to prevent drift
 
 ### URLs
 - Artists, venues, and shows use SEO-friendly slugs (e.g., `/artists/the-national`)

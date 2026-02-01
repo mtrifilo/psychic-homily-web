@@ -1,13 +1,27 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Loader2, Music, AlertCircle, Mail, Settings, ArrowRight } from 'lucide-react'
+import {
+  Loader2,
+  Music,
+  AlertCircle,
+  Mail,
+  Settings,
+  ArrowRight,
+} from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ShowForm } from '@/components/forms'
+import { ShowForm, AIFormFiller } from '@/components/forms'
+import type { ExtractedShowData } from '@/lib/types/extraction'
 
 function EmailVerificationRequired() {
   return (
@@ -18,7 +32,9 @@ function EmailVerificationRequired() {
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10">
             <Mail className="h-6 w-6 text-amber-500" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">Email Verification Required</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Email Verification Required
+          </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Please verify your email to submit shows
           </p>
@@ -32,7 +48,8 @@ function EmailVerificationRequired() {
               <CardTitle className="text-lg">Why verify your email?</CardTitle>
             </div>
             <CardDescription>
-              To maintain the quality of our community calendar, we require email verification before you can submit shows.
+              To maintain the quality of our community calendar, we require
+              email verification before you can submit shows.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -44,7 +61,7 @@ function EmailVerificationRequired() {
               <li>Contact you if there are questions about your submission</li>
               <li>Keep the calendar accurate and spam-free</li>
             </ul>
-            
+
             <div className="pt-4 space-y-3">
               <Button asChild className="w-full gap-2">
                 <Link href="/profile?tab=settings">
@@ -67,6 +84,11 @@ function EmailVerificationRequired() {
 export default function SubmissionsPage() {
   const router = useRouter()
   const { isAuthenticated, isLoading, user } = useAuthContext()
+
+  // State for AI-extracted show data (must be before any early returns)
+  const [extractedData, setExtractedData] = useState<
+    ExtractedShowData | undefined
+  >()
 
   // Redirect unauthenticated users to login
   useEffect(() => {
@@ -106,9 +128,6 @@ export default function SubmissionsPage() {
             <Music className="h-6 w-6 text-primary" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Submit a Show</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Add an upcoming show to the Arizona music calendar
-          </p>
           {user && (
             <p className="mt-1 text-xs text-muted-foreground">
               Submitting as {user.email}
@@ -116,10 +135,13 @@ export default function SubmissionsPage() {
           )}
         </div>
 
+        {/* AI Form Filler */}
+        <AIFormFiller onExtracted={setExtractedData} />
+
         {/* Form Card */}
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-          <CardContent className="pt-6">
-            <ShowForm mode="create" />
+          <CardContent className="pt-4">
+            <ShowForm mode="create" initialExtraction={extractedData} />
           </CardContent>
         </Card>
       </div>

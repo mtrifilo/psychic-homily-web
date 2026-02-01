@@ -618,12 +618,19 @@ func decodeCursor(cursor string) (time.Time, uint, error) {
 	return time.Unix(0, unixNano), uint(id), nil
 }
 
+// UpcomingShowsFilter contains optional filters for GetUpcomingShows
+type UpcomingShowsFilter struct {
+	City  string
+	State string
+}
+
 // GetUpcomingShows retrieves shows from today onwards in the specified timezone with cursor pagination.
 // Includes tonight's shows by filtering from the start of today in the user's timezone.
 // If includeNonApproved is false, only approved shows are returned (public view).
 // If includeNonApproved is true, all shows are returned including pending/rejected (admin view).
+// Optional filters can be provided to filter by city and state.
 // Returns shows, next cursor (nil if no more), and error.
-func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool) ([]*ShowResponse, *string, error) {
+func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *UpcomingShowsFilter) ([]*ShowResponse, *string, error) {
 	if s.db == nil {
 		return nil, nil, fmt.Errorf("database not initialized")
 	}
@@ -649,6 +656,16 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 	} else {
 		// For admin view, still exclude private shows (those are personal to the submitter)
 		query = query.Where("status != ?", models.ShowStatusPrivate)
+	}
+
+	// Apply city/state filters if provided
+	if filters != nil {
+		if filters.City != "" {
+			query = query.Where("city = ?", filters.City)
+		}
+		if filters.State != "" {
+			query = query.Where("state = ?", filters.State)
+		}
 	}
 
 	// Apply cursor filter if provided
@@ -693,6 +710,50 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 	}
 
 	return responses, nextCursor, nil
+}
+
+// ShowCityResponse represents a city with the count of upcoming shows
+type ShowCityResponse struct {
+	City      string `json:"city"`
+	State     string `json:"state"`
+	ShowCount int    `json:"show_count"`
+}
+
+// GetShowCities retrieves cities that have upcoming approved shows, with counts.
+// Returns cities sorted by show count (descending).
+func (s *ShowService) GetShowCities(timezone string) ([]ShowCityResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Load timezone, default to UTC
+	loc, err := time.LoadLocation(timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+
+	// Get start of today in the user's timezone, then convert to UTC for query
+	now := time.Now().In(loc)
+	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	startOfTodayUTC := startOfToday.UTC()
+
+	var results []ShowCityResponse
+
+	err = s.db.Model(&models.Show{}).
+		Select("city, state, COUNT(*) as show_count").
+		Where("status = ?", models.ShowStatusApproved).
+		Where("event_date >= ?", startOfTodayUTC).
+		Where("city IS NOT NULL AND city != ''").
+		Where("state IS NOT NULL AND state != ''").
+		Group("city, state").
+		Order("show_count DESC, city ASC").
+		Scan(&results).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get show cities: %w", err)
+	}
+
+	return results, nil
 }
 
 // DeleteShow deletes a show and its associations

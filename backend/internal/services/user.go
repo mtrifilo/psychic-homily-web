@@ -889,6 +889,143 @@ func (s *UserService) GetOAuthAccounts(userID uint) ([]models.OAuthAccount, erro
 	return accounts, nil
 }
 
+// Account recovery grace period constant
+const AccountRecoveryGracePeriod = 30 * 24 * time.Hour // 30 days
+
+// GetUserByEmailIncludingDeleted retrieves a user by email, including soft-deleted accounts
+func (s *UserService) GetUserByEmailIncludingDeleted(email string) (*models.User, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var user models.User
+
+	// Query without filtering by is_active to include soft-deleted accounts
+	result := s.db.Where("email = ?", email).
+		Preload("OAuthAccounts").
+		Preload("Preferences").
+		First(&user)
+
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get user: %w", result.Error)
+	}
+
+	return &user, nil
+}
+
+// IsAccountRecoverable checks if a soft-deleted account can still be recovered
+// Returns true if account is deleted and within the 30-day grace period
+func (s *UserService) IsAccountRecoverable(user *models.User) bool {
+	if user == nil {
+		return false
+	}
+
+	// Account must be soft-deleted (not active and has deleted_at set)
+	if user.IsActive || user.DeletedAt == nil {
+		return false
+	}
+
+	// Check if within grace period
+	deletedAt := *user.DeletedAt
+	gracePeriodEnd := deletedAt.Add(AccountRecoveryGracePeriod)
+
+	return time.Now().Before(gracePeriodEnd)
+}
+
+// GetDaysUntilPermanentDeletion returns the number of days until an account is permanently deleted
+// Returns 0 if account is not recoverable
+func (s *UserService) GetDaysUntilPermanentDeletion(user *models.User) int {
+	if user == nil || user.DeletedAt == nil || user.IsActive {
+		return 0
+	}
+
+	gracePeriodEnd := user.DeletedAt.Add(AccountRecoveryGracePeriod)
+	remaining := time.Until(gracePeriodEnd)
+
+	if remaining <= 0 {
+		return 0
+	}
+
+	// Round up to nearest day
+	days := int(remaining.Hours()/24) + 1
+	return days
+}
+
+// RestoreAccount restores a soft-deleted account
+func (s *UserService) RestoreAccount(userID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	result := s.db.Model(&models.User{}).
+		Where("id = ?", userID).
+		Updates(map[string]interface{}{
+			"is_active":       true,
+			"deleted_at":      nil,
+			"deletion_reason": nil,
+		})
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to restore account: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("user not found")
+	}
+
+	return nil
+}
+
+// GetExpiredDeletedAccounts returns users whose accounts have been soft-deleted
+// for longer than the grace period and are ready for permanent deletion
+func (s *UserService) GetExpiredDeletedAccounts() ([]models.User, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	cutoffDate := time.Now().Add(-AccountRecoveryGracePeriod)
+
+	var users []models.User
+	result := s.db.
+		Where("is_active = ? AND deleted_at IS NOT NULL AND deleted_at < ?", false, cutoffDate).
+		Find(&users)
+
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to get expired deleted accounts: %w", result.Error)
+	}
+
+	return users, nil
+}
+
+// PermanentlyDeleteUser hard-deletes a user and all associated data
+// This should only be called for accounts that have exceeded the grace period
+func (s *UserService) PermanentlyDeleteUser(userID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// Set shows.submitted_by to NULL for shows submitted by this user
+		// (this is already handled by ON DELETE SET NULL in the FK, but being explicit)
+		if err := tx.Model(&models.Show{}).
+			Where("submitted_by = ?", userID).
+			Update("submitted_by", nil).Error; err != nil {
+			return fmt.Errorf("failed to nullify show submissions: %w", err)
+		}
+
+		// Hard delete the user (cascades will handle related data like OAuth accounts,
+		// preferences, passkeys, saved shows, favorite venues)
+		if err := tx.Unscoped().Delete(&models.User{}, userID).Error; err != nil {
+			return fmt.Errorf("failed to permanently delete user: %w", err)
+		}
+
+		return nil
+	})
+}
+
 // CanUnlinkOAuthAccount checks if a user can safely unlink an OAuth account
 // Returns (canUnlink, reason, error)
 func (s *UserService) CanUnlinkOAuthAccount(userID uint, provider string) (bool, string, error) {

@@ -178,3 +178,54 @@ func (s *JWTService) ValidateMagicLinkToken(tokenString string) (*MagicLinkToken
 
 	return claims, nil
 }
+
+// AccountRecoveryTokenClaims holds the claims for account recovery tokens
+type AccountRecoveryTokenClaims struct {
+	UserID uint   `json:"user_id"`
+	Email  string `json:"email"`
+	jwt.RegisteredClaims
+}
+
+// CreateAccountRecoveryToken generates a JWT token for account recovery
+// Token expires in 1 hour for security
+func (s *JWTService) CreateAccountRecoveryToken(userID uint, email string) (string, error) {
+	claims := AccountRecoveryTokenClaims{
+		UserID: userID,
+		Email:  email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    "psychic-homily-backend",
+			Subject:   "account-recovery",
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(s.config.JWT.SecretKey))
+}
+
+// ValidateAccountRecoveryToken validates an account recovery token and returns the claims
+func (s *JWTService) ValidateAccountRecoveryToken(tokenString string) (*AccountRecoveryTokenClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &AccountRecoveryTokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(s.config.JWT.SecretKey), nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("invalid account recovery token: %w", err)
+	}
+
+	claims, ok := token.Claims.(*AccountRecoveryTokenClaims)
+	if !ok || !token.Valid {
+		return nil, fmt.Errorf("invalid account recovery token claims")
+	}
+
+	// Verify the token is for account recovery
+	if claims.Subject != "account-recovery" {
+		return nil, fmt.Errorf("invalid token type")
+	}
+
+	return claims, nil
+}

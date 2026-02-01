@@ -138,7 +138,7 @@ export function VenueCard({ venue }: VenueCardProps) {
             setIsExpanded(!isExpanded)
           }
         }}
-        className={`w-full px-4 py-4 text-left transition-colors ${
+        className={`w-full px-4 py-4 text-left transition-colors duration-75 ${
           hasShows
             ? 'hover:bg-muted/30 cursor-pointer'
             : 'cursor-default opacity-80'
@@ -220,12 +220,6 @@ export function VenueCard({ venue }: VenueCardProps) {
       {/* Expandable shows section */}
       {isExpanded && hasShows && (
         <div className="px-4 pb-4 border-t border-border/50">
-          {isLoading && (
-            <div className="flex justify-center py-6">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-foreground"></div>
-            </div>
-          )}
-
           {error && (
             <div className="py-4 text-center text-sm text-destructive">
               Failed to load shows

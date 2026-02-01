@@ -139,3 +139,56 @@ func (s *EmailService) SendMagicLinkEmail(toEmail, token string) error {
 
 	return nil
 }
+
+// SendAccountRecoveryEmail sends an account recovery link to the user
+func (s *EmailService) SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service is not configured")
+	}
+
+	recoveryURL := fmt.Sprintf("%s/auth/recover?token=%s", s.frontendURL, token)
+
+	html := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
+    </div>
+
+    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
+        <h2 style="margin-top: 0; color: #1a1a1a;">Recover Your Account</h2>
+        <p>We received a request to recover your deleted Psychic Homily account. You have <strong>%d days remaining</strong> to recover your account before it is permanently deleted.</p>
+        <p style="text-align: center; margin: 30px 0;">
+            <a href="%s" style="display: inline-block; background: #f97316; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600;">Recover Account</a>
+        </p>
+        <p style="font-size: 14px; color: #666;">This link will expire in 1 hour.</p>
+    </div>
+
+    <div style="text-align: center; font-size: 12px; color: #999;">
+        <p>If you didn't request this, you can safely ignore this email. Your account will remain scheduled for deletion.</p>
+        <p>If the button doesn't work, copy and paste this link into your browser:</p>
+        <p style="word-break: break-all; color: #666;">%s</p>
+    </div>
+</body>
+</html>
+`, daysRemaining, recoveryURL, recoveryURL)
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: "Recover your Psychic Homily account",
+		Html:    html,
+	}
+
+	_, err := s.client.Emails.Send(params)
+	if err != nil {
+		return fmt.Errorf("failed to send account recovery email: %w", err)
+	}
+
+	return nil
+}

@@ -1234,6 +1234,64 @@ type ExportDataResponse struct {
 	Body               []byte
 }
 
+// RecoverAccountRequest represents a password-based account recovery request
+type RecoverAccountRequest struct {
+	Body struct {
+		Email    string `json:"email" doc:"Email address of the account to recover"`
+		Password string `json:"password" doc:"Password for re-authentication"`
+	}
+}
+
+// RecoverAccountResponse represents the response for account recovery
+type RecoverAccountResponse struct {
+	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
+	Body      struct {
+		Success   bool         `json:"success" example:"true" doc:"Success status"`
+		Message   string       `json:"message" example:"Account recovered successfully" doc:"Response message"`
+		User      *models.User `json:"user,omitempty" doc:"User information"`
+		ErrorCode string       `json:"error_code,omitempty" example:"ACCOUNT_NOT_RECOVERABLE" doc:"Error code for programmatic handling"`
+		RequestID string       `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+	}
+}
+
+// RequestAccountRecoveryRequest represents a request for magic link recovery
+type RequestAccountRecoveryRequest struct {
+	Body struct {
+		Email string `json:"email" doc:"Email address of the account to recover"`
+	}
+}
+
+// RequestAccountRecoveryResponse represents the response for requesting recovery
+type RequestAccountRecoveryResponse struct {
+	Body struct {
+		Success      bool   `json:"success" example:"true" doc:"Success status"`
+		Message      string `json:"message" example:"Recovery email sent" doc:"Response message"`
+		HasPassword  bool   `json:"has_password,omitempty" doc:"Whether the account has a password set"`
+		DaysRemaining int   `json:"days_remaining,omitempty" doc:"Days remaining before permanent deletion"`
+		ErrorCode    string `json:"error_code,omitempty" example:"ACCOUNT_NOT_FOUND" doc:"Error code for programmatic handling"`
+		RequestID    string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+	}
+}
+
+// ConfirmAccountRecoveryRequest represents a magic link recovery confirmation
+type ConfirmAccountRecoveryRequest struct {
+	Body struct {
+		Token string `json:"token" doc:"Recovery token from email"`
+	}
+}
+
+// ConfirmAccountRecoveryResponse represents the response for confirming recovery
+type ConfirmAccountRecoveryResponse struct {
+	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
+	Body      struct {
+		Success   bool         `json:"success" example:"true" doc:"Success status"`
+		Message   string       `json:"message" example:"Account recovered successfully" doc:"Response message"`
+		User      *models.User `json:"user,omitempty" doc:"User information"`
+		ErrorCode string       `json:"error_code,omitempty" example:"INVALID_TOKEN" doc:"Error code for programmatic handling"`
+		RequestID string       `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+	}
+}
+
 // ExportDataHandler handles GDPR data export requests (Right to Portability)
 func (h *AuthHandler) ExportDataHandler(ctx context.Context, input *struct{}) (*ExportDataResponse, error) {
 	resp := &ExportDataResponse{}
@@ -1272,6 +1330,384 @@ func (h *AuthHandler) ExportDataHandler(ctx context.Context, input *struct{}) (*
 	resp.ContentType = "application/json"
 	resp.ContentDisposition = "attachment; filename=\"psychic-homily-data-export.json\""
 	resp.Body = exportData
+
+	return resp, nil
+}
+
+// RecoverAccountHandler handles password-based account recovery
+// This is for users who have a password set and remember it
+func (h *AuthHandler) RecoverAccountHandler(ctx context.Context, input *RecoverAccountRequest) (*RecoverAccountResponse, error) {
+	resp := &RecoverAccountResponse{}
+	requestID := logger.GetRequestID(ctx)
+	resp.Body.RequestID = requestID
+
+	logger.AuthDebug(ctx, "recover_account_attempt",
+		"email_hash", logger.HashEmail(input.Body.Email),
+	)
+
+	// Validate input
+	if input.Body.Email == "" || input.Body.Password == "" {
+		authErr := autherrors.ErrValidationFailed("Email and password are required")
+		logger.AuthWarn(ctx, "recover_account_validation_failed",
+			"error", authErr.Message,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = authErr.Message
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
+	// Get user by email including soft-deleted accounts
+	user, err := h.userService.GetUserByEmailIncludingDeleted(input.Body.Email)
+	if err != nil {
+		logger.AuthError(ctx, "recover_account_lookup_failed", err,
+			"email_hash", logger.HashEmail(input.Body.Email),
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Invalid credentials"
+		resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
+		return resp, nil
+	}
+
+	if user == nil {
+		// Constant-time response to prevent email enumeration
+		logger.AuthDebug(ctx, "recover_account_user_not_found",
+			"email_hash", logger.HashEmail(input.Body.Email),
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Invalid credentials"
+		resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
+		return resp, nil
+	}
+
+	// Check if account is actually deleted and recoverable
+	if user.IsActive {
+		logger.AuthDebug(ctx, "recover_account_already_active",
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "This account is already active. Please log in normally."
+		resp.Body.ErrorCode = "ACCOUNT_ACTIVE"
+		return resp, nil
+	}
+
+	if !h.userService.IsAccountRecoverable(user) {
+		logger.AuthWarn(ctx, "recover_account_expired",
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "This account can no longer be recovered. The 30-day recovery period has expired."
+		resp.Body.ErrorCode = "ACCOUNT_NOT_RECOVERABLE"
+		return resp, nil
+	}
+
+	// Verify password
+	if user.PasswordHash == nil {
+		logger.AuthDebug(ctx, "recover_account_no_password",
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "This account does not have a password. Please use the email recovery option."
+		resp.Body.ErrorCode = "NO_PASSWORD"
+		return resp, nil
+	}
+
+	if err := h.userService.VerifyPassword(*user.PasswordHash, input.Body.Password); err != nil {
+		logger.AuthWarn(ctx, "recover_account_invalid_password",
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Invalid credentials"
+		resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
+		return resp, nil
+	}
+
+	// Restore the account
+	if err := h.userService.RestoreAccount(user.ID); err != nil {
+		logger.AuthError(ctx, "recover_account_restore_failed", err,
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to restore account"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	// Fetch the restored user
+	restoredUser, err := h.userService.GetUserByID(user.ID)
+	if err != nil {
+		logger.AuthError(ctx, "recover_account_fetch_failed", err,
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Account restored but failed to fetch user data"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	// Generate JWT token and log user in
+	token, err := h.jwtService.CreateToken(restoredUser)
+	if err != nil {
+		logger.AuthError(ctx, "recover_account_token_failed", err,
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Account restored but failed to generate authentication token"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	resp.SetCookie = *setCookie(token, h.config)
+
+	logger.AuthInfo(ctx, "recover_account_success",
+		"user_id", user.ID,
+		"email_hash", logger.HashEmail(input.Body.Email),
+	)
+
+	resp.Body.Success = true
+	resp.Body.Message = "Account recovered successfully. Welcome back!"
+	resp.Body.User = restoredUser
+
+	return resp, nil
+}
+
+// RequestAccountRecoveryHandler handles requests to send a recovery email
+// This is for OAuth-only users or users who forgot their password
+func (h *AuthHandler) RequestAccountRecoveryHandler(ctx context.Context, input *RequestAccountRecoveryRequest) (*RequestAccountRecoveryResponse, error) {
+	resp := &RequestAccountRecoveryResponse{}
+	requestID := logger.GetRequestID(ctx)
+	resp.Body.RequestID = requestID
+
+	logger.AuthDebug(ctx, "request_recovery_attempt",
+		"email_hash", logger.HashEmail(input.Body.Email),
+	)
+
+	// Validate input
+	if input.Body.Email == "" {
+		authErr := autherrors.ErrValidationFailed("Email is required")
+		logger.AuthWarn(ctx, "request_recovery_validation_failed",
+			"error", authErr.Message,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = authErr.Message
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
+	// Get user by email including soft-deleted accounts
+	user, err := h.userService.GetUserByEmailIncludingDeleted(input.Body.Email)
+	if err != nil {
+		logger.AuthError(ctx, "request_recovery_lookup_failed", err,
+			"email_hash", logger.HashEmail(input.Body.Email),
+		)
+		// Don't reveal if lookup failed - return generic message
+		resp.Body.Success = true
+		resp.Body.Message = "If an account exists with this email and is eligible for recovery, a recovery email has been sent."
+		return resp, nil
+	}
+
+	if user == nil {
+		// Don't reveal if user doesn't exist
+		logger.AuthDebug(ctx, "request_recovery_user_not_found",
+			"email_hash", logger.HashEmail(input.Body.Email),
+		)
+		resp.Body.Success = true
+		resp.Body.Message = "If an account exists with this email and is eligible for recovery, a recovery email has been sent."
+		return resp, nil
+	}
+
+	// Check if account is deleted
+	if user.IsActive {
+		logger.AuthDebug(ctx, "request_recovery_account_active",
+			"user_id", user.ID,
+		)
+		// Inform user that account is active
+		resp.Body.Success = false
+		resp.Body.Message = "This account is active. Please log in normally."
+		resp.Body.ErrorCode = "ACCOUNT_ACTIVE"
+		resp.Body.HasPassword = user.PasswordHash != nil
+		return resp, nil
+	}
+
+	// Check if account is recoverable
+	if !h.userService.IsAccountRecoverable(user) {
+		logger.AuthWarn(ctx, "request_recovery_expired",
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "This account can no longer be recovered. The 30-day recovery period has expired."
+		resp.Body.ErrorCode = "ACCOUNT_NOT_RECOVERABLE"
+		return resp, nil
+	}
+
+	// Check if email service is configured
+	if !h.emailService.IsConfigured() {
+		logger.AuthError(ctx, "request_recovery_email_not_configured", nil,
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Email service is not configured"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	// Calculate days remaining
+	daysRemaining := h.userService.GetDaysUntilPermanentDeletion(user)
+
+	// Generate recovery token
+	token, err := h.jwtService.CreateAccountRecoveryToken(user.ID, *user.Email)
+	if err != nil {
+		logger.AuthError(ctx, "request_recovery_token_failed", err,
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to generate recovery token"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	// Send recovery email
+	if err := h.emailService.SendAccountRecoveryEmail(*user.Email, token, daysRemaining); err != nil {
+		logger.AuthError(ctx, "request_recovery_email_failed", err,
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to send recovery email"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	logger.AuthInfo(ctx, "request_recovery_email_sent",
+		"user_id", user.ID,
+		"email_hash", logger.HashEmail(input.Body.Email),
+		"days_remaining", daysRemaining,
+	)
+
+	resp.Body.Success = true
+	resp.Body.Message = "Recovery email sent. Please check your inbox."
+	resp.Body.HasPassword = user.PasswordHash != nil
+	resp.Body.DaysRemaining = daysRemaining
+
+	return resp, nil
+}
+
+// ConfirmAccountRecoveryHandler handles magic link account recovery confirmation
+func (h *AuthHandler) ConfirmAccountRecoveryHandler(ctx context.Context, input *ConfirmAccountRecoveryRequest) (*ConfirmAccountRecoveryResponse, error) {
+	resp := &ConfirmAccountRecoveryResponse{}
+	requestID := logger.GetRequestID(ctx)
+	resp.Body.RequestID = requestID
+
+	// Validate token presence
+	if input.Body.Token == "" {
+		logger.AuthWarn(ctx, "confirm_recovery_no_token")
+		resp.Body.Success = false
+		resp.Body.Message = "Recovery token is required"
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
+	// Validate the recovery token
+	claims, err := h.jwtService.ValidateAccountRecoveryToken(input.Body.Token)
+	if err != nil {
+		logger.AuthWarn(ctx, "confirm_recovery_invalid_token",
+			"error", err.Error(),
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Invalid or expired recovery token. Please request a new one."
+		resp.Body.ErrorCode = "INVALID_TOKEN"
+		return resp, nil
+	}
+
+	// Get the user (including deleted)
+	user, err := h.userService.GetUserByEmailIncludingDeleted(claims.Email)
+	if err != nil || user == nil {
+		logger.AuthError(ctx, "confirm_recovery_user_not_found", err,
+			"user_id", claims.UserID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "User not found"
+		resp.Body.ErrorCode = autherrors.CodeUnauthorized
+		return resp, nil
+	}
+
+	// Verify user ID matches
+	if user.ID != claims.UserID {
+		logger.AuthWarn(ctx, "confirm_recovery_user_mismatch",
+			"token_user_id", claims.UserID,
+			"actual_user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Invalid recovery token"
+		resp.Body.ErrorCode = "INVALID_TOKEN"
+		return resp, nil
+	}
+
+	// Check if account is still recoverable
+	if user.IsActive {
+		logger.AuthDebug(ctx, "confirm_recovery_already_active",
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "This account is already active"
+		resp.Body.ErrorCode = "ACCOUNT_ACTIVE"
+		return resp, nil
+	}
+
+	if !h.userService.IsAccountRecoverable(user) {
+		logger.AuthWarn(ctx, "confirm_recovery_expired",
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "This account can no longer be recovered. The 30-day recovery period has expired."
+		resp.Body.ErrorCode = "ACCOUNT_NOT_RECOVERABLE"
+		return resp, nil
+	}
+
+	// Restore the account
+	if err := h.userService.RestoreAccount(user.ID); err != nil {
+		logger.AuthError(ctx, "confirm_recovery_restore_failed", err,
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to restore account"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	// Fetch the restored user
+	restoredUser, err := h.userService.GetUserByID(user.ID)
+	if err != nil {
+		logger.AuthError(ctx, "confirm_recovery_fetch_failed", err,
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Account restored but failed to fetch user data"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	// Generate JWT token and log user in
+	token, err := h.jwtService.CreateToken(restoredUser)
+	if err != nil {
+		logger.AuthError(ctx, "confirm_recovery_token_failed", err,
+			"user_id", user.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Account restored but failed to generate authentication token"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	resp.SetCookie = *setCookie(token, h.config)
+
+	logger.AuthInfo(ctx, "confirm_recovery_success",
+		"user_id", user.ID,
+		"email_hash", logger.HashEmail(claims.Email),
+	)
+
+	resp.Body.Success = true
+	resp.Body.Message = "Account recovered successfully. Welcome back!"
+	resp.Body.User = restoredUser
 
 	return resp, nil
 }

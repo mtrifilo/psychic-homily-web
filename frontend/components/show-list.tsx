@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { useUpcomingShows } from '@/lib/hooks/useShows'
+import { useState, useTransition } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
+import { useUpcomingShows, useShowCities } from '@/lib/hooks/useShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { ShowResponse, ArtistResponse } from '@/lib/types/show'
 import Link from 'next/link'
@@ -18,6 +19,8 @@ import { DeleteShowDialog } from '@/components/DeleteShowDialog'
 import { SocialLinks } from '@/components/SocialLinks'
 import { MusicEmbed } from '@/components/MusicEmbed'
 import { ExportShowButton } from '@/components/ExportShowButton'
+import { CityFilters, type CityWithCount } from '@/components/filters'
+import { LoadingSpinner } from '@/components/shared'
 
 /**
  * Format a date string to "Mon, Dec 1" format in venue timezone
@@ -90,7 +93,7 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
   }
 
   return (
-    <article className="border-b border-border/50 py-5 -mx-3 px-3 rounded-lg hover:bg-muted/30 transition-colors duration-200">
+    <article className="border-b border-border/50 py-5 -mx-3 px-3 rounded-lg hover:bg-muted/30 transition-colors duration-75">
       <div className="flex flex-col md:flex-row">
         {/* Left column: Date and Location */}
         <div className="w-full md:w-1/5 md:pr-4 mb-2 md:mb-0">
@@ -284,20 +287,49 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
 }
 
 export function ShowList() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const { user } = useAuthContext()
   const isAdmin = user?.is_admin ?? false
+  const [isPending, startTransition] = useTransition()
 
-  const { data, isLoading, error } = useUpcomingShows({
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  const selectedCity = searchParams.get('city')
+  const selectedState = searchParams.get('state')
+
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+  const { data: citiesData, isLoading: citiesLoading, isFetching: citiesFetching } = useShowCities({
+    timezone,
   })
 
-  if (isLoading) {
+  const { data, isLoading, isFetching, error } = useUpcomingShows({
+    timezone,
+    city: selectedCity || undefined,
+    state: selectedState || undefined,
+  })
+
+  const handleFilterChange = (city: string | null, state: string | null) => {
+    const params = new URLSearchParams()
+    if (city) params.set('city', city)
+    if (state) params.set('state', state)
+
+    const queryString = params.toString()
+    startTransition(() => {
+      router.push(queryString ? `/shows?${queryString}` : '/shows')
+    })
+  }
+
+  // Only show full spinner on FIRST load (no data yet)
+  if ((isLoading && !data) || (citiesLoading && !citiesData)) {
     return (
       <div className="flex justify-center items-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground"></div>
+        <LoadingSpinner />
       </div>
     )
   }
+
+  // Track if we're updating (fetching but already have data)
+  const isUpdating = isFetching || citiesFetching || isPending
 
   if (error) {
     return (
@@ -307,32 +339,63 @@ export function ShowList() {
     )
   }
 
-  if (!data?.shows || data.shows.length === 0) {
-    return (
-      <div className="text-center py-12 text-muted-foreground">
-        <p>No upcoming shows at this time.</p>
-      </div>
-    )
-  }
+  // Map ShowCity to CityWithCount
+  const cities: CityWithCount[] = citiesData?.cities?.map(c => ({
+    city: c.city,
+    state: c.state,
+    count: c.show_count,
+  })) ?? []
 
   return (
     <section className="w-full max-w-4xl">
-      {data.shows.map(show => (
-        <ShowCard
-          key={show.id}
-          show={show}
-          isAdmin={isAdmin}
-          userId={user?.id}
+      {cities.length > 1 && (
+        <CityFilters
+          cities={cities}
+          selectedCity={selectedCity}
+          selectedState={selectedState}
+          onFilterChange={handleFilterChange}
         />
-      ))}
-
-      {data.pagination.has_more && (
-        <div className="text-center py-6">
-          <p className="text-muted-foreground text-sm">
-            More shows available...
-          </p>
-        </div>
       )}
+
+      {/* Dim content while fetching, don't hide it */}
+      <div className={isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
+        {!data?.shows || data.shows.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p>
+              {selectedCity
+                ? `No upcoming shows in ${selectedCity}.`
+                : 'No upcoming shows at this time.'}
+            </p>
+            {selectedCity && (
+              <button
+                onClick={() => handleFilterChange(null, null)}
+                className="mt-4 text-primary hover:underline"
+              >
+                View all shows
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            {data.shows.map(show => (
+              <ShowCard
+                key={show.id}
+                show={show}
+                isAdmin={isAdmin}
+                userId={user?.id}
+              />
+            ))}
+
+            {data.pagination.has_more && (
+              <div className="text-center py-6">
+                <p className="text-muted-foreground text-sm">
+                  More shows available...
+                </p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </section>
   )
 }

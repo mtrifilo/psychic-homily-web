@@ -123,3 +123,15 @@ export interface MySubmissionsResponse {
   shows: ShowResponse[]
   total: number
 }
+
+// City with show count for filtering
+export interface ShowCity {
+  city: string
+  state: string
+  show_count: number
+}
+
+// Response for the show cities endpoint
+export interface ShowCitiesResponse {
+  cities: ShowCity[]
+}
