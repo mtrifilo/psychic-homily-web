@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/getsentry/sentry-go"
+	sentryhttp "github.com/getsentry/sentry-go/http"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	"github.com/joho/godotenv"
@@ -45,6 +47,25 @@ func main() {
 	isProduction := environment == config.EnvProduction
 	logger.Init(isProduction, !isProduction)
 
+	// Initialize Sentry for error tracking
+	if sentryDSN := os.Getenv("SENTRY_DSN"); sentryDSN != "" {
+		if err := sentry.Init(sentry.ClientOptions{
+			Dsn:              sentryDSN,
+			Environment:      environment,
+			Debug:            !isProduction,
+			TracesSampleRate: 0.1, // Sample 10% of transactions for performance monitoring
+			EnableTracing:    true,
+		}); err != nil {
+			log.Printf("Sentry initialization failed: %v", err)
+		} else {
+			log.Printf("Sentry initialized for environment: %s", environment)
+		}
+		// Flush buffered events before the program terminates
+		defer sentry.Flush(2 * time.Second)
+	} else {
+		log.Printf("SENTRY_DSN not set, error tracking disabled")
+	}
+
 	// Connect to database
 	if err := db.Connect(cfg); err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
@@ -60,6 +81,15 @@ func main() {
 
 	// Add request ID middleware (must be first to ensure all subsequent middleware has access)
 	router.Use(middleware.RequestIDMiddleware)
+
+	// Add Sentry middleware for error tracking and panic recovery
+	// Must come early to capture errors from all subsequent handlers
+	sentryHandler := sentryhttp.New(sentryhttp.Options{
+		Repanic:         false, // Recover from panics gracefully (no other recoverer in chain)
+		WaitForDelivery: false, // Don't block responses waiting for Sentry
+		Timeout:         2 * time.Second,
+	})
+	router.Use(sentryHandler.Handle)
 
 	// Add request logging middleware
 	router.Use(func(next http.Handler) http.Handler {
