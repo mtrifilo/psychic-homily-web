@@ -1,6 +1,10 @@
+'use client'
+
 import Link from 'next/link'
+import { useCookieConsent } from '@/lib/context/CookieConsentContext'
 
 export default function Footer() {
+  const { openPreferences } = useCookieConsent()
   const currentYear = new Date().getFullYear()
 
   return (
@@ -27,6 +31,13 @@ export default function Footer() {
             >
               Contact
             </Link>
+            <button
+              type="button"
+              onClick={openPreferences}
+              className="hover:text-foreground transition-colors"
+            >
+              Cookie Preferences
+            </button>
           </nav>
         </div>
       </div>

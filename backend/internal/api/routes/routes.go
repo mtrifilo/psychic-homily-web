@@ -51,6 +51,9 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	// Data export endpoint (GDPR Right to Portability)
 	huma.Get(protectedGroup, "/auth/account/export", authHandler.ExportDataHandler)
 
+	// CLI token generation endpoint (admin only)
+	huma.Post(protectedGroup, "/auth/cli-token", authHandler.GenerateCLITokenHandler)
+
 	// OAuth account management endpoints
 	oauthAccountHandler := handlers.NewOAuthAccountHandler()
 	huma.Get(protectedGroup, "/auth/oauth/accounts", oauthAccountHandler.GetOAuthAccountsHandler)
@@ -70,6 +73,7 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	setupVenueRoutes(api, protectedGroup)
 	setupSavedShowRoutes(protectedGroup)
 	setupFavoriteVenueRoutes(protectedGroup)
+	setupShowReportRoutes(protectedGroup, cfg)
 	setupAdminRoutes(protectedGroup, cfg)
 
 	return api
@@ -208,6 +212,8 @@ func setupShowRoutes(api huma.API, protected *huma.Group, cfg *config.Config) {
 	huma.Post(protected, "/shows/{show_id}/unpublish", showHandler.UnpublishShowHandler)
 	huma.Post(protected, "/shows/{show_id}/make-private", showHandler.MakePrivateShowHandler)
 	huma.Post(protected, "/shows/{show_id}/publish", showHandler.PublishShowHandler)
+	huma.Post(protected, "/shows/{show_id}/sold-out", showHandler.SetShowSoldOutHandler)
+	huma.Post(protected, "/shows/{show_id}/cancelled", showHandler.SetShowCancelledHandler)
 	huma.Get(protected, "/shows/my-submissions", showHandler.GetMySubmissionsHandler)
 	huma.Post(protected, "/shows/ai-process", showHandler.AIProcessShowHandler)
 }
@@ -268,11 +274,29 @@ func setupFavoriteVenueRoutes(protected *huma.Group) {
 	huma.Get(protected, "/favorite-venues/shows", favoriteVenueHandler.GetFavoriteVenueShowsHandler)
 }
 
+// setupShowReportRoutes configures show report endpoints
+// All endpoints require authentication via protected group
+func setupShowReportRoutes(protected *huma.Group, cfg *config.Config) {
+	showReportHandler := handlers.NewShowReportHandler(cfg)
+
+	// User endpoints for reporting shows
+	huma.Post(protected, "/shows/{show_id}/report", showReportHandler.ReportShowHandler)
+	huma.Get(protected, "/shows/{show_id}/my-report", showReportHandler.GetMyReportHandler)
+
+	// Admin endpoints for managing reports
+	huma.Get(protected, "/admin/reports", showReportHandler.GetPendingReportsHandler)
+	huma.Post(protected, "/admin/reports/{report_id}/dismiss", showReportHandler.DismissReportHandler)
+	huma.Post(protected, "/admin/reports/{report_id}/resolve", showReportHandler.ResolveReportHandler)
+}
+
 // setupAdminRoutes configures admin-only endpoints
 // Note: Admin check is performed inside handlers, JWT auth is required via protected group
 func setupAdminRoutes(protected *huma.Group, cfg *config.Config) {
 	adminHandler := handlers.NewAdminHandler(cfg)
 	artistHandler := handlers.NewArtistHandler()
+
+	// Admin show listing endpoint (for CLI export)
+	huma.Get(protected, "/admin/shows", adminHandler.GetAdminShowsHandler)
 
 	// Admin show management endpoints
 	huma.Get(protected, "/admin/shows/pending", adminHandler.GetPendingShowsHandler)
@@ -280,9 +304,14 @@ func setupAdminRoutes(protected *huma.Group, cfg *config.Config) {
 	huma.Post(protected, "/admin/shows/{show_id}/approve", adminHandler.ApproveShowHandler)
 	huma.Post(protected, "/admin/shows/{show_id}/reject", adminHandler.RejectShowHandler)
 
-	// Admin show import endpoints
+	// Admin show import endpoints (single)
 	huma.Post(protected, "/admin/shows/import/preview", adminHandler.ImportShowPreviewHandler)
 	huma.Post(protected, "/admin/shows/import/confirm", adminHandler.ImportShowConfirmHandler)
+
+	// Admin show export/import endpoints (bulk - for CLI)
+	huma.Post(protected, "/admin/shows/export/bulk", adminHandler.BulkExportShowsHandler)
+	huma.Post(protected, "/admin/shows/import/bulk/preview", adminHandler.BulkImportPreviewHandler)
+	huma.Post(protected, "/admin/shows/import/bulk/confirm", adminHandler.BulkImportConfirmHandler)
 
 	// Admin venue management endpoints
 	huma.Get(protected, "/admin/venues/unverified", adminHandler.GetUnverifiedVenuesHandler)

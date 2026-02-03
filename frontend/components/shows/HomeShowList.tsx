@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { ShowForm } from '@/components/forms'
 import { SaveButton, SocialLinks, MusicEmbed } from '@/components/shared'
 import { DeleteShowDialog } from './DeleteShowDialog'
+import { ShowStatusBadge } from './ShowStatusBadge'
 
 /**
  * Format a date string to "Mon, Dec 1" format in venue timezone
@@ -85,7 +86,7 @@ function ShowCard({ show, isAdmin }: ShowCardProps) {
   }
 
   return (
-    <article className="border-b border-border/50 py-4 -mx-2 px-2 rounded-md hover:bg-muted/30 transition-colors duration-75">
+    <article className={`border-b border-border/50 py-4 -mx-2 px-2 rounded-md hover:bg-muted/30 transition-colors duration-75 ${show.is_cancelled ? 'opacity-60' : ''}`}>
       <div className="flex flex-col md:flex-row">
         {/* Left column: Date and Location */}
         <div className="w-full md:w-1/5 md:pr-4 mb-1 md:mb-0">
@@ -121,6 +122,8 @@ function ShowCard({ show, isAdmin }: ShowCardProps) {
                   )}
                 </span>
               ))}
+              {/* Status badges */}
+              <ShowStatusBadge show={show} className="ml-2 inline-flex gap-1" />
             </h2>
 
             {/* Action Buttons */}

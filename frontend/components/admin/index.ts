@@ -1,3 +1,6 @@
 export { PendingShowCard } from './PendingShowCard'
 export { ApproveShowDialog } from './ApproveShowDialog'
 export { RejectShowDialog } from './RejectShowDialog'
+export { ShowReportCard } from './ShowReportCard'
+export { DismissReportDialog } from './DismissReportDialog'
+export { ResolveReportDialog } from './ResolveReportDialog'

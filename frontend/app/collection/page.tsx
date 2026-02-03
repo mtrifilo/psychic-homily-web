@@ -20,6 +20,8 @@ import {
   Send,
   Library,
   Star,
+  Ban,
+  TicketX,
 } from 'lucide-react'
 import {
   formatDateInTimezone,
@@ -35,6 +37,7 @@ import {
   PublishShowDialog,
 } from '@/components/shows'
 import { VenueDeniedDialog, FavoriteVenuesTab } from '@/components/venues'
+import { useSetShowSoldOut, useSetShowCancelled } from '@/lib/hooks/useAdminShows'
 import { ShowForm } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -75,6 +78,10 @@ function ShowCard({
   const venue = show.venues[0]
   const artists = show.artists
 
+  // Status mutation hooks
+  const setSoldOutMutation = useSetShowSoldOut()
+  const setCancelledMutation = useSetShowCancelled()
+
   // Check if user owns this show
   const isOwner = currentUserId && show.submitted_by === currentUserId
 
@@ -98,6 +105,17 @@ function ShowCard({
   // Check if user can delete: admin or show owner
   const canDelete = isAdmin || isOwner
 
+  // Check if user can toggle status (admin or owner)
+  const canToggleStatus = isAdmin || isOwner
+
+  const handleToggleSoldOut = () => {
+    setSoldOutMutation.mutate({ showId: show.id, value: !show.is_sold_out })
+  }
+
+  const handleToggleCancelled = () => {
+    setCancelledMutation.mutate({ showId: show.id, value: !show.is_cancelled })
+  }
+
   const handleEditSuccess = () => {
     setIsEditing(false)
   }
@@ -119,23 +137,39 @@ function ShowCard({
           </h3>
 
           {/* Status Badge */}
-          <div className="mt-2">
+          <div className="mt-2 flex flex-col gap-1">
             {show.status === 'approved' ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 w-fit">
                 <CheckCircle2 className="h-3 w-3" />
                 Published
               </span>
             ) : show.status === 'pending' ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 w-fit">
                 <Clock className="h-3 w-3" />
                 Pending
               </span>
             ) : show.status === 'private' || show.status === 'rejected' ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/10 text-slate-600 dark:text-slate-400">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/10 text-slate-600 dark:text-slate-400 w-fit">
                 <EyeOff className="h-3 w-3" />
                 Private
               </span>
             ) : null}
+
+            {/* Sold Out Badge */}
+            {show.is_sold_out && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-600 dark:text-rose-400 w-fit">
+                <TicketX className="h-3 w-3" />
+                Sold Out
+              </span>
+            )}
+
+            {/* Cancelled Badge */}
+            {show.is_cancelled && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/10 text-slate-600 dark:text-slate-400 w-fit">
+                <Ban className="h-3 w-3" />
+                Cancelled
+              </span>
+            )}
           </div>
         </div>
 
@@ -246,6 +280,48 @@ function ShowCard({
                   title="Delete show"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
+
+              {/* Sold Out Toggle (admin or owner) */}
+              {canToggleStatus && (
+                <Button
+                  variant={show.is_sold_out ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={handleToggleSoldOut}
+                  disabled={setSoldOutMutation.isPending}
+                  className="h-7 px-2 text-xs"
+                  title={show.is_sold_out ? 'Mark as available' : 'Mark as sold out'}
+                >
+                  {setSoldOutMutation.isPending ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <>
+                      <TicketX className="h-3 w-3 mr-1" />
+                      {show.is_sold_out ? 'Undo Sold Out' : 'Sold Out'}
+                    </>
+                  )}
+                </Button>
+              )}
+
+              {/* Cancelled Toggle (admin or owner) */}
+              {canToggleStatus && (
+                <Button
+                  variant={show.is_cancelled ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={handleToggleCancelled}
+                  disabled={setCancelledMutation.isPending}
+                  className="h-7 px-2 text-xs"
+                  title={show.is_cancelled ? 'Mark as active' : 'Mark as cancelled'}
+                >
+                  {setCancelledMutation.isPending ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <>
+                      <Ban className="h-3 w-3 mr-1" />
+                      {show.is_cancelled ? 'Undo Cancelled' : 'Cancelled'}
+                    </>
+                  )}
                 </Button>
               )}
             </div>

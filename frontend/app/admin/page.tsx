@@ -2,9 +2,10 @@
 
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
-import { Shield, MapPin, Loader2, Upload, BadgeCheck } from 'lucide-react'
+import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag } from 'lucide-react'
 import { usePendingVenueEdits } from '@/lib/hooks/useAdminVenueEdits'
 import { useUnverifiedVenues } from '@/lib/hooks/useAdminVenues'
+import { usePendingReports } from '@/lib/hooks/useAdminReports'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 // Dynamic imports for heavy components - only loaded when their tab is active
@@ -35,6 +36,14 @@ const UnverifiedVenuesPage = dynamic(() => import('./unverified-venues/page'), {
   ),
 })
 
+const ReportsPage = dynamic(() => import('./reports/page'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('pending-venue-edits')
 
@@ -44,6 +53,9 @@ export default function AdminPage() {
   const {
     data: unverifiedVenuesData,
   } = useUnverifiedVenues()
+  const {
+    data: reportsData,
+  } = usePendingReports()
 
   return (
     <div className="min-h-[calc(100vh-64px)] bg-background px-4 py-8">
@@ -84,6 +96,16 @@ export default function AdminPage() {
                   </span>
                 )}
             </TabsTrigger>
+            <TabsTrigger value="reports" className="gap-2">
+              <Flag className="h-4 w-4" />
+              Reports
+              {reportsData?.total !== undefined &&
+                reportsData.total > 0 && (
+                  <span className="ml-1 rounded-full bg-red-500 px-2 py-0.5 text-xs font-medium text-white">
+                    {reportsData.total}
+                  </span>
+                )}
+            </TabsTrigger>
             <TabsTrigger value="import-show" className="gap-2">
               <Upload className="h-4 w-4" />
               Import Show
@@ -96,6 +118,10 @@ export default function AdminPage() {
 
           <TabsContent value="unverified-venues" className="space-y-4">
             <UnverifiedVenuesPage />
+          </TabsContent>
+
+          <TabsContent value="reports" className="space-y-4">
+            <ReportsPage />
           </TabsContent>
 
           <TabsContent value="import-show" className="space-y-4">

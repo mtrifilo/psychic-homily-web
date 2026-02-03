@@ -777,3 +777,412 @@ func (h *AdminHandler) ImportShowConfirmHandler(ctx context.Context, req *Import
 
 	return &ImportShowConfirmResponse{Body: *show}, nil
 }
+
+// ============================================================================
+// Admin Show Export/Import Bulk Handlers (for CLI)
+// ============================================================================
+
+// GetAdminShowsRequest represents the HTTP request for listing all shows (admin)
+type GetAdminShowsRequest struct {
+	Limit    int    `query:"limit" default:"50" doc:"Number of shows to return (max 100)"`
+	Offset   int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Status   string `query:"status" doc:"Filter by status (pending, approved, rejected, private)"`
+	FromDate string `query:"from_date" doc:"Filter shows from this date (RFC3339 format)"`
+	ToDate   string `query:"to_date" doc:"Filter shows until this date (RFC3339 format)"`
+	City     string `query:"city" doc:"Filter by city"`
+}
+
+// GetAdminShowsResponse represents the HTTP response for listing all shows (admin)
+type GetAdminShowsResponse struct {
+	Body struct {
+		Shows []*services.ShowResponse `json:"shows"`
+		Total int64                    `json:"total"`
+	}
+}
+
+// GetAdminShowsHandler handles GET /admin/shows
+// Returns paginated show list with full details for admin export purposes
+func (h *AdminHandler) GetAdminShowsHandler(ctx context.Context, req *GetAdminShowsRequest) (*GetAdminShowsResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Validate limit
+	limit := req.Limit
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	logger.FromContext(ctx).Debug("admin_shows_list_attempt",
+		"limit", limit,
+		"offset", req.Offset,
+		"status", req.Status,
+		"from_date", req.FromDate,
+		"to_date", req.ToDate,
+		"city", req.City,
+	)
+
+	// Build filters
+	filters := services.AdminShowFilters{
+		Status:   req.Status,
+		FromDate: req.FromDate,
+		ToDate:   req.ToDate,
+		City:     req.City,
+	}
+
+	// Get shows
+	shows, total, err := h.showService.GetAdminShows(limit, req.Offset, filters)
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_shows_list_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get shows (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("admin_shows_list_success",
+		"count", len(shows),
+		"total", total,
+	)
+
+	return &GetAdminShowsResponse{
+		Body: struct {
+			Shows []*services.ShowResponse `json:"shows"`
+			Total int64                    `json:"total"`
+		}{
+			Shows: shows,
+			Total: total,
+		},
+	}, nil
+}
+
+// BulkExportShowsRequest represents the HTTP request for bulk exporting shows
+type BulkExportShowsRequest struct {
+	Body struct {
+		ShowIDs []uint `json:"show_ids" validate:"required,min=1" doc:"IDs of shows to export"`
+	}
+}
+
+// BulkExportShowsResponse represents the HTTP response for bulk exporting shows
+type BulkExportShowsResponse struct {
+	Body struct {
+		Exports []string `json:"exports" doc:"Base64-encoded markdown exports"`
+	}
+}
+
+// BulkExportShowsHandler handles POST /admin/shows/export/bulk
+// Exports multiple shows as base64-encoded markdown
+func (h *AdminHandler) BulkExportShowsHandler(ctx context.Context, req *BulkExportShowsRequest) (*BulkExportShowsResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	if len(req.Body.ShowIDs) == 0 {
+		return nil, huma.Error400BadRequest("At least one show ID is required")
+	}
+
+	if len(req.Body.ShowIDs) > 50 {
+		return nil, huma.Error400BadRequest("Maximum 50 shows can be exported at once")
+	}
+
+	logger.FromContext(ctx).Debug("admin_bulk_export_attempt",
+		"show_count", len(req.Body.ShowIDs),
+		"admin_id", user.ID,
+	)
+
+	// Export each show
+	exports := make([]string, 0, len(req.Body.ShowIDs))
+	for _, showID := range req.Body.ShowIDs {
+		content, _, err := h.showService.ExportShowToMarkdown(showID)
+		if err != nil {
+			logger.FromContext(ctx).Error("admin_bulk_export_show_failed",
+				"show_id", showID,
+				"error", err.Error(),
+				"request_id", requestID,
+			)
+			return nil, huma.Error422UnprocessableEntity(
+				fmt.Sprintf("Failed to export show %d: %s (request_id: %s)", showID, err.Error(), requestID),
+			)
+		}
+		exports = append(exports, base64.StdEncoding.EncodeToString(content))
+	}
+
+	logger.FromContext(ctx).Info("admin_bulk_export_success",
+		"show_count", len(exports),
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &BulkExportShowsResponse{
+		Body: struct {
+			Exports []string `json:"exports" doc:"Base64-encoded markdown exports"`
+		}{
+			Exports: exports,
+		},
+	}, nil
+}
+
+// BulkImportPreviewRequest represents the HTTP request for bulk import preview
+type BulkImportPreviewRequest struct {
+	Body struct {
+		Shows []string `json:"shows" validate:"required,min=1" doc:"Base64-encoded markdown content for each show"`
+	}
+}
+
+// BulkImportPreviewSummary represents a summary of the bulk import preview
+type BulkImportPreviewSummary struct {
+	TotalShows      int `json:"total_shows"`
+	NewArtists      int `json:"new_artists"`
+	NewVenues       int `json:"new_venues"`
+	ExistingArtists int `json:"existing_artists"`
+	ExistingVenues  int `json:"existing_venues"`
+	WarningCount    int `json:"warning_count"`
+	CanImportAll    bool `json:"can_import_all"`
+}
+
+// BulkImportPreviewResponse represents the HTTP response for bulk import preview
+type BulkImportPreviewResponse struct {
+	Body struct {
+		Previews []services.ImportPreviewResponse `json:"previews"`
+		Summary  BulkImportPreviewSummary         `json:"summary"`
+	}
+}
+
+// BulkImportPreviewHandler handles POST /admin/shows/import/bulk/preview
+// Previews import of multiple shows with conflict detection
+func (h *AdminHandler) BulkImportPreviewHandler(ctx context.Context, req *BulkImportPreviewRequest) (*BulkImportPreviewResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	if len(req.Body.Shows) == 0 {
+		return nil, huma.Error400BadRequest("At least one show is required")
+	}
+
+	if len(req.Body.Shows) > 50 {
+		return nil, huma.Error400BadRequest("Maximum 50 shows can be imported at once")
+	}
+
+	logger.FromContext(ctx).Debug("admin_bulk_import_preview_attempt",
+		"show_count", len(req.Body.Shows),
+		"admin_id", user.ID,
+	)
+
+	// Preview each show
+	previews := make([]services.ImportPreviewResponse, 0, len(req.Body.Shows))
+	summary := BulkImportPreviewSummary{
+		TotalShows:   len(req.Body.Shows),
+		CanImportAll: true,
+	}
+
+	for i, encodedContent := range req.Body.Shows {
+		content, err := base64.StdEncoding.DecodeString(encodedContent)
+		if err != nil {
+			logger.FromContext(ctx).Warn("admin_bulk_import_preview_decode_failed",
+				"show_index", i,
+				"error", err.Error(),
+				"request_id", requestID,
+			)
+			return nil, huma.Error400BadRequest(fmt.Sprintf("Invalid base64 content for show %d", i+1))
+		}
+
+		preview, err := h.showService.PreviewShowImport(content)
+		if err != nil {
+			logger.FromContext(ctx).Error("admin_bulk_import_preview_failed",
+				"show_index", i,
+				"error", err.Error(),
+				"request_id", requestID,
+			)
+			return nil, huma.Error422UnprocessableEntity(
+				fmt.Sprintf("Failed to preview show %d: %s (request_id: %s)", i+1, err.Error(), requestID),
+			)
+		}
+
+		previews = append(previews, *preview)
+
+		// Update summary
+		for _, venue := range preview.Venues {
+			if venue.WillCreate {
+				summary.NewVenues++
+			} else {
+				summary.ExistingVenues++
+			}
+		}
+		for _, artist := range preview.Artists {
+			if artist.WillCreate {
+				summary.NewArtists++
+			} else {
+				summary.ExistingArtists++
+			}
+		}
+		summary.WarningCount += len(preview.Warnings)
+		if !preview.CanImport {
+			summary.CanImportAll = false
+		}
+	}
+
+	logger.FromContext(ctx).Debug("admin_bulk_import_preview_success",
+		"show_count", len(previews),
+		"new_artists", summary.NewArtists,
+		"new_venues", summary.NewVenues,
+		"warnings", summary.WarningCount,
+	)
+
+	return &BulkImportPreviewResponse{
+		Body: struct {
+			Previews []services.ImportPreviewResponse `json:"previews"`
+			Summary  BulkImportPreviewSummary         `json:"summary"`
+		}{
+			Previews: previews,
+			Summary:  summary,
+		},
+	}, nil
+}
+
+// BulkImportConfirmRequest represents the HTTP request for bulk import confirmation
+type BulkImportConfirmRequest struct {
+	Body struct {
+		Shows []string `json:"shows" validate:"required,min=1" doc:"Base64-encoded markdown content for each show"`
+	}
+}
+
+// BulkImportResult represents the result of importing a single show
+type BulkImportResult struct {
+	Success bool                    `json:"success"`
+	Show    *services.ShowResponse  `json:"show,omitempty"`
+	Error   string                  `json:"error,omitempty"`
+}
+
+// BulkImportConfirmResponse represents the HTTP response for bulk import confirmation
+type BulkImportConfirmResponse struct {
+	Body struct {
+		Results      []BulkImportResult `json:"results"`
+		SuccessCount int                `json:"success_count"`
+		ErrorCount   int                `json:"error_count"`
+	}
+}
+
+// BulkImportConfirmHandler handles POST /admin/shows/import/bulk/confirm
+// Executes the import of multiple shows
+func (h *AdminHandler) BulkImportConfirmHandler(ctx context.Context, req *BulkImportConfirmRequest) (*BulkImportConfirmResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	if len(req.Body.Shows) == 0 {
+		return nil, huma.Error400BadRequest("At least one show is required")
+	}
+
+	if len(req.Body.Shows) > 50 {
+		return nil, huma.Error400BadRequest("Maximum 50 shows can be imported at once")
+	}
+
+	logger.FromContext(ctx).Debug("admin_bulk_import_confirm_attempt",
+		"show_count", len(req.Body.Shows),
+		"admin_id", user.ID,
+	)
+
+	// Import each show
+	results := make([]BulkImportResult, 0, len(req.Body.Shows))
+	successCount := 0
+	errorCount := 0
+
+	for i, encodedContent := range req.Body.Shows {
+		content, err := base64.StdEncoding.DecodeString(encodedContent)
+		if err != nil {
+			results = append(results, BulkImportResult{
+				Success: false,
+				Error:   fmt.Sprintf("Invalid base64 content: %s", err.Error()),
+			})
+			errorCount++
+			continue
+		}
+
+		show, err := h.showService.ConfirmShowImport(content, true)
+		if err != nil {
+			results = append(results, BulkImportResult{
+				Success: false,
+				Error:   err.Error(),
+			})
+			errorCount++
+			logger.FromContext(ctx).Warn("admin_bulk_import_show_failed",
+				"show_index", i,
+				"error", err.Error(),
+			)
+			continue
+		}
+
+		results = append(results, BulkImportResult{
+			Success: true,
+			Show:    show,
+		})
+		successCount++
+
+		// Send Discord notification for new show
+		h.discordService.NotifyNewShow(show, "")
+
+		// Trigger music discovery for any newly created artists
+		for _, artist := range show.Artists {
+			if artist.IsNewArtist != nil && *artist.IsNewArtist {
+				h.musicDiscoveryService.DiscoverMusicForArtist(artist.ID, artist.Name)
+			}
+		}
+	}
+
+	logger.FromContext(ctx).Info("admin_bulk_import_confirm_complete",
+		"success_count", successCount,
+		"error_count", errorCount,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &BulkImportConfirmResponse{
+		Body: struct {
+			Results      []BulkImportResult `json:"results"`
+			SuccessCount int                `json:"success_count"`
+			ErrorCount   int                `json:"error_count"`
+		}{
+			Results:      results,
+			SuccessCount: successCount,
+			ErrorCount:   errorCount,
+		},
+	}, nil
+}
+

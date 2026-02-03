@@ -17,6 +17,7 @@ import { ShowForm } from '@/components/forms'
 import { SaveButton, SocialLinks, MusicEmbed, LoadingSpinner } from '@/components/shared'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ExportShowButton } from './ExportShowButton'
+import { ShowStatusBadge } from './ShowStatusBadge'
 import { CityFilters, type CityWithCount } from '@/components/filters'
 
 /**
@@ -90,16 +91,21 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
   }
 
   return (
-    <article className="border-b border-border/50 py-5 -mx-3 px-3 rounded-lg hover:bg-muted/30 transition-colors duration-75">
+    <article className={`border-b border-border/50 py-5 -mx-3 px-3 rounded-lg hover:bg-muted/30 transition-colors duration-75 ${show.is_cancelled ? 'opacity-60' : ''}`}>
       <div className="flex flex-col md:flex-row">
         {/* Left column: Date and Location */}
         <div className="w-full md:w-1/5 md:pr-4 mb-2 md:mb-0">
-          <h2 className="text-sm font-bold tracking-wide text-primary">
-            {formatDate(show.event_date, show.state)}
-          </h2>
-          <h3 className="text-xs text-muted-foreground mt-0.5">
-            {show.city}, {show.state}
-          </h3>
+          <Link
+            href={`/shows/${show.slug || show.id}`}
+            className="block group"
+          >
+            <h2 className="text-sm font-bold tracking-wide text-primary group-hover:underline underline-offset-2">
+              {formatDate(show.event_date, show.state)}
+            </h2>
+            <h3 className="text-xs text-muted-foreground mt-0.5">
+              {show.city}, {show.state}
+            </h3>
+          </Link>
         </div>
 
         {/* Right column: Artists, Venue, Details */}
@@ -126,6 +132,8 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
                   )}
                 </span>
               ))}
+              {/* Status badges */}
+              <ShowStatusBadge show={show} className="ml-2 inline-flex gap-1" />
             </h1>
 
             {/* Action Buttons */}
@@ -215,6 +223,13 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
               <span>&nbsp;•&nbsp;{show.age_requirement}</span>
             )}
             <span>&nbsp;•&nbsp;{formatTime(show.event_date, show.state)}</span>
+            <span>&nbsp;•&nbsp;</span>
+            <Link
+              href={`/shows/${show.slug || show.id}`}
+              className="text-primary/80 hover:text-primary underline underline-offset-2 transition-colors"
+            >
+              Details
+            </Link>
           </div>
         </div>
       </div>

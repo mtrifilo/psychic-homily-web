@@ -1014,3 +1014,43 @@ export const useConfirmAccountRecovery = () => {
     },
   })
 }
+
+// CLI Token response type
+interface CLITokenResponse {
+  success: boolean
+  token?: string
+  expires_in?: number
+  message: string
+  error_code?: string
+  request_id?: string
+}
+
+// Generate CLI token mutation (admin only)
+export const useGenerateCLIToken = () => {
+  return useMutation({
+    mutationFn: async (): Promise<CLITokenResponse> => {
+      authLogger.debug('Generating CLI token')
+
+      const response = await apiRequest<CLITokenResponse>(
+        API_ENDPOINTS.AUTH.CLI_TOKEN,
+        {
+          method: 'POST',
+          credentials: 'include',
+        }
+      )
+
+      if (!response.success) {
+        throw new AuthError(
+          response.message || 'Failed to generate CLI token',
+          (response.error_code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN,
+          {
+            requestId: response.request_id,
+            status: 400,
+          }
+        )
+      }
+
+      return response
+    },
+  })
+}

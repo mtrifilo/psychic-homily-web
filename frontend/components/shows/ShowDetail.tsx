@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, MapPin, Pencil, X, Trash2 } from 'lucide-react'
 import { useShow } from '@/lib/hooks/useShows'
+import { useSetShowSoldOut, useSetShowCancelled } from '@/lib/hooks/useAdminShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { ArtistResponse } from '@/lib/types/show'
 import {
@@ -14,7 +15,10 @@ import {
 import { Button } from '@/components/ui/button'
 import { SocialLinks, MusicEmbed, SaveButton } from '@/components/shared'
 import { ShowForm } from '@/components/forms'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { DeleteShowDialog } from './DeleteShowDialog'
+import { ReportShowButton } from './ReportShowButton'
 
 interface ShowDetailProps {
   showId: string | number
@@ -50,10 +54,18 @@ export function ShowDetail({ showId }: ShowDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
 
+  // Admin mutations for status flags
+  const setSoldOutMutation = useSetShowSoldOut()
+  const setCancelledMutation = useSetShowCancelled()
+
+  // Check if user is the show owner (submitter)
+  const isOwner = user?.id && show?.submitted_by && String(show.submitted_by) === user.id
+
   // Check if user can delete: admin or show owner
-  const canDelete =
-    isAdmin ||
-    (user?.id && show?.submitted_by && String(show.submitted_by) === user.id)
+  const canDelete = isAdmin || isOwner
+
+  // Check if user can manage status flags: admin or show owner
+  const canManageStatus = isAdmin || isOwner
 
   const handleEditSuccess = () => {
     setIsEditing(false)
@@ -61,6 +73,16 @@ export function ShowDetail({ showId }: ShowDetailProps) {
 
   const handleEditCancel = () => {
     setIsEditing(false)
+  }
+
+  const handleToggleSoldOut = () => {
+    if (!show) return
+    setSoldOutMutation.mutate({ showId: show.id, value: !show.is_sold_out })
+  }
+
+  const handleToggleCancelled = () => {
+    if (!show) return
+    setCancelledMutation.mutate({ showId: show.id, value: !show.is_cancelled })
   }
 
   if (isLoading) {
@@ -135,13 +157,29 @@ export function ShowDetail({ showId }: ShowDetailProps) {
         </Link>
       </div>
 
+      {/* Cancelled Alert Banner */}
+      {show.is_cancelled && (
+        <Alert variant="destructive" className="mb-6">
+          <AlertDescription className="font-semibold">
+            This show has been cancelled.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Header */}
       <header className="mb-8">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
-            {/* Date */}
-            <div className="text-lg font-bold text-primary mb-2">
-              {formatDate(show.event_date, show.state)}
+            {/* Date and Status Badges */}
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-lg font-bold text-primary">
+                {formatDate(show.event_date, show.state)}
+              </span>
+              {show.is_sold_out && (
+                <Badge variant="secondary" className="text-xs font-semibold bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400">
+                  SOLD OUT
+                </Badge>
+              )}
             </div>
 
             {/* Artists */}
@@ -205,39 +243,75 @@ export function ShowDetail({ showId }: ShowDetailProps) {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-2 shrink-0">
-            <SaveButton showId={show.id} variant="outline" size="sm" />
+          <div className="flex flex-col items-end gap-2 shrink-0">
+            <div className="flex items-center gap-2">
+              <SaveButton showId={show.id} variant="outline" size="sm" />
+              <ReportShowButton
+                showId={show.id}
+                showTitle={show.title || artists.map(a => a.name).join(', ')}
+              />
 
-            {isAdmin && (
-              <Button
-                variant={isEditing ? 'secondary' : 'outline'}
-                size="sm"
-                onClick={() => setIsEditing(!isEditing)}
-              >
-                {isEditing ? (
-                  <>
-                    <X className="h-4 w-4 mr-2" />
-                    Cancel
-                  </>
-                ) : (
-                  <>
-                    <Pencil className="h-4 w-4 mr-2" />
-                    Edit
-                  </>
-                )}
-              </Button>
-            )}
+              {isAdmin && (
+                <Button
+                  variant={isEditing ? 'secondary' : 'outline'}
+                  size="sm"
+                  onClick={() => setIsEditing(!isEditing)}
+                >
+                  {isEditing ? (
+                    <>
+                      <X className="h-4 w-4 mr-2" />
+                      Cancel
+                    </>
+                  ) : (
+                    <>
+                      <Pencil className="h-4 w-4 mr-2" />
+                      Edit
+                    </>
+                  )}
+                </Button>
+              )}
 
-            {canDelete && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsDeleteDialogOpen(true)}
-                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </Button>
+              {canDelete && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsDeleteDialogOpen(true)}
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              )}
+            </div>
+
+            {/* Status Flag Buttons (Admin or Submitter) */}
+            {canManageStatus && (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={show.is_sold_out ? 'secondary' : 'outline'}
+                  size="sm"
+                  onClick={handleToggleSoldOut}
+                  disabled={setSoldOutMutation.isPending}
+                  className={show.is_sold_out ? 'bg-orange-100 text-orange-800 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50' : ''}
+                >
+                  {setSoldOutMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : null}
+                  {show.is_sold_out ? 'Unmark Sold Out' : 'Mark Sold Out'}
+                </Button>
+                <Button
+                  variant={show.is_cancelled ? 'secondary' : 'outline'}
+                  size="sm"
+                  onClick={handleToggleCancelled}
+                  disabled={setCancelledMutation.isPending}
+                  className={show.is_cancelled ? 'bg-destructive/10 text-destructive hover:bg-destructive/20' : ''}
+                >
+                  {setCancelledMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : null}
+                  {show.is_cancelled ? 'Unmark Cancelled' : 'Mark Cancelled'}
+                </Button>
+              </div>
             )}
           </div>
         </div>

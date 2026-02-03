@@ -72,6 +72,8 @@ export const API_ENDPOINTS = {
     RECOVER_ACCOUNT: `${API_BASE_URL}/auth/recover-account`,
     RECOVER_ACCOUNT_REQUEST: `${API_BASE_URL}/auth/recover-account/request`,
     RECOVER_ACCOUNT_CONFIRM: `${API_BASE_URL}/auth/recover-account/confirm`,
+    // CLI token generation (admin only)
+    CLI_TOKEN: `${API_BASE_URL}/auth/cli-token`,
   },
 
   // Application endpoints
@@ -88,10 +90,19 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/shows/${showId}/make-private`,
     PUBLISH: (showId: string | number) =>
       `${API_BASE_URL}/shows/${showId}/publish`,
+    SET_SOLD_OUT: (showId: string | number) =>
+      `${API_BASE_URL}/shows/${showId}/sold-out`,
+    SET_CANCELLED: (showId: string | number) =>
+      `${API_BASE_URL}/shows/${showId}/cancelled`,
     MY_SUBMISSIONS: `${API_BASE_URL}/shows/my-submissions`,
     // Export endpoint (dev only)
     EXPORT: (showId: string | number) =>
       `${API_BASE_URL}/shows/${showId}/export`,
+    // Show report endpoints
+    REPORT: (showId: string | number) =>
+      `${API_BASE_URL}/shows/${showId}/report`,
+    MY_REPORT: (showId: string | number) =>
+      `${API_BASE_URL}/shows/${showId}/my-report`,
   },
   ARTISTS: {
     LIST: `${API_BASE_URL}/artists`,
@@ -144,6 +155,10 @@ export const API_ENDPOINTS = {
         `${API_BASE_URL}/admin/shows/${showId}/reject`,
       IMPORT_PREVIEW: `${API_BASE_URL}/admin/shows/import/preview`,
       IMPORT_CONFIRM: `${API_BASE_URL}/admin/shows/import/confirm`,
+      SET_SOLD_OUT: (showId: string | number) =>
+        `${API_BASE_URL}/admin/shows/${showId}/sold-out`,
+      SET_CANCELLED: (showId: string | number) =>
+        `${API_BASE_URL}/admin/shows/${showId}/cancelled`,
     },
     VENUES: {
       UNVERIFIED: `${API_BASE_URL}/admin/venues/unverified`,
@@ -154,6 +169,13 @@ export const API_ENDPOINTS = {
         `${API_BASE_URL}/admin/venues/pending-edits/${editId}/approve`,
       REJECT_EDIT: (editId: string | number) =>
         `${API_BASE_URL}/admin/venues/pending-edits/${editId}/reject`,
+    },
+    REPORTS: {
+      LIST: `${API_BASE_URL}/admin/reports`,
+      DISMISS: (reportId: string | number) =>
+        `${API_BASE_URL}/admin/reports/${reportId}/dismiss`,
+      RESOLVE: (reportId: string | number) =>
+        `${API_BASE_URL}/admin/reports/${reportId}/resolve`,
     },
   },
 

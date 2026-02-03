@@ -64,6 +64,9 @@ export interface ShowResponse {
   artists: ArtistResponse[]
   created_at: string
   updated_at: string
+  // Status flags (admin-controlled)
+  is_sold_out: boolean
+  is_cancelled: boolean
 }
 
 export interface CursorPaginationMeta {
@@ -134,4 +137,60 @@ export interface ShowCity {
 // Response for the show cities endpoint
 export interface ShowCitiesResponse {
   cities: ShowCity[]
+}
+
+// Show report types
+export type ShowReportType = 'cancelled' | 'sold_out' | 'inaccurate'
+export type ShowReportStatus = 'pending' | 'dismissed' | 'resolved'
+
+// Show info for report responses
+export interface ShowReportShowInfo {
+  id: number
+  title: string
+  slug: string
+  event_date: string
+  city?: string | null
+  state?: string | null
+}
+
+// Show report response
+export interface ShowReportResponse {
+  id: number
+  show_id: number
+  report_type: ShowReportType
+  details?: string | null
+  status: ShowReportStatus
+  admin_notes?: string | null
+  reviewed_by?: number | null
+  reviewed_at?: string | null
+  created_at: string
+  updated_at: string
+  show?: ShowReportShowInfo
+}
+
+// Request to create a show report
+export interface CreateShowReportRequest {
+  report_type: ShowReportType
+  details?: string
+}
+
+// Response for my-report endpoint
+export interface MyShowReportResponse {
+  report: ShowReportResponse | null
+}
+
+// Response for admin reports list
+export interface ShowReportsListResponse {
+  reports: ShowReportResponse[]
+  total: number
+}
+
+// Request for admin actions on reports
+export interface AdminReportActionRequest {
+  notes?: string
+}
+
+// Request for resolving a report (extends AdminReportActionRequest)
+export interface ResolveReportRequest extends AdminReportActionRequest {
+  set_show_flag?: boolean
 }

@@ -21,6 +21,12 @@
 - Services in `/backend/internal/services/`
 - Models in `/backend/internal/models/`
 
+#### Huma API Framework Quirks
+- **All request body fields are required by default** - Even pointer types (`*bool`, `*string`) are treated as required unless explicitly marked optional
+- When adding optional fields to request structs, the frontend must still send the field (use a default value like `false` or `""`)
+- Huma returns 422 "validation failed" errors when required fields are missing from the request body
+- If you see "expected required property X to be present" errors, ensure the frontend always sends that field
+
 ### Frontend
 - App router pages in `/frontend/app/`
 - API client and hooks in `/frontend/lib/`

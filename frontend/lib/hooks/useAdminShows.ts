@@ -135,3 +135,63 @@ export function useRejectShow() {
     },
   })
 }
+
+/**
+ * Hook for setting a show's sold out status (admin or submitter)
+ */
+export function useSetShowSoldOut() {
+  const queryClient = useQueryClient()
+  const invalidateQueries = createInvalidateQueries(queryClient)
+
+  return useMutation({
+    mutationFn: async ({
+      showId,
+      value,
+    }: {
+      showId: number
+      value: boolean
+    }) => {
+      return apiRequest<ShowResponse>(
+        API_ENDPOINTS.SHOWS.SET_SOLD_OUT(showId),
+        {
+          method: 'POST',
+          body: JSON.stringify({ value }),
+        }
+      )
+    },
+    onSuccess: () => {
+      // Invalidate shows list since display may change
+      invalidateQueries.shows()
+    },
+  })
+}
+
+/**
+ * Hook for setting a show's cancelled status (admin or submitter)
+ */
+export function useSetShowCancelled() {
+  const queryClient = useQueryClient()
+  const invalidateQueries = createInvalidateQueries(queryClient)
+
+  return useMutation({
+    mutationFn: async ({
+      showId,
+      value,
+    }: {
+      showId: number
+      value: boolean
+    }) => {
+      return apiRequest<ShowResponse>(
+        API_ENDPOINTS.SHOWS.SET_CANCELLED(showId),
+        {
+          method: 'POST',
+          body: JSON.stringify({ value }),
+        }
+      )
+    },
+    onSuccess: () => {
+      // Invalidate shows list since display may change
+      invalidateQueries.shows()
+    },
+  })
+}

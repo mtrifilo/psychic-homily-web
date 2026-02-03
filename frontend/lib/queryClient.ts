@@ -129,6 +129,15 @@ export const queryKeys = {
     list: () => ['mySubmissions', 'list'] as const,
   },
 
+  // Show reports queries
+  showReports: {
+    all: ['showReports'] as const,
+    myReport: (showId: string | number) =>
+      ['showReports', 'myReport', String(showId)] as const,
+    pending: (limit: number, offset: number) =>
+      ['showReports', 'pending', { limit, offset }] as const,
+  },
+
   // System queries
   system: {
     health: ['system', 'health'] as const,
@@ -164,4 +173,8 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate user's submissions queries
   mySubmissions: () =>
     queryClient.invalidateQueries({ queryKey: ['mySubmissions'] }),
+
+  // Invalidate show reports queries
+  showReports: () =>
+    queryClient.invalidateQueries({ queryKey: ['showReports'] }),
 })

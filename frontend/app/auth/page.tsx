@@ -64,7 +64,7 @@ function getErrorMessage(err: unknown): string {
   return String(err)
 }
 
-function LoginForm() {
+function LoginForm({ returnTo }: { returnTo: string }) {
   const router = useRouter()
   const loginMutation = useLogin()
   const sendMagicLink = useSendMagicLink()
@@ -91,7 +91,7 @@ function LoginForm() {
               email_verified: false,
             })
           }
-          router.push('/')
+          router.push(returnTo)
         },
       })
     },
@@ -308,7 +308,7 @@ function LoginForm() {
   )
 }
 
-function SignupForm() {
+function SignupForm({ returnTo }: { returnTo: string }) {
   const router = useRouter()
   const registerMutation = useRegister()
   const { setUser } = useAuthContext()
@@ -335,7 +335,7 @@ function SignupForm() {
                 last_name: data.user.last_name,
                 email_verified: false,
               })
-              router.push('/')
+              router.push(returnTo)
             }
           },
         }
@@ -515,12 +515,15 @@ function AuthPageContent() {
   // Get error from URL query params (e.g., OAuth errors)
   const urlError = searchParams.get('error')
 
+  // Get returnTo from URL query params (for redirecting after login)
+  const returnTo = searchParams.get('returnTo') || '/'
+
   // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      router.push('/')
+      router.push(returnTo)
     }
-  }, [isAuthenticated, isLoading, router])
+  }, [isAuthenticated, isLoading, router, returnTo])
 
   // Show loading state while checking auth
   if (isLoading) {
@@ -579,7 +582,7 @@ function AuthPageContent() {
                   Enter your email and password to continue
                 </CardDescription>
                 <div className="mt-4">
-                  <LoginForm />
+                  <LoginForm returnTo={returnTo} />
                 </div>
               </TabsContent>
 
@@ -589,7 +592,7 @@ function AuthPageContent() {
                   Sign up to submit shows and join the community
                 </CardDescription>
                 <div className="mt-4">
-                  <SignupForm />
+                  <SignupForm returnTo={returnTo} />
                 </div>
               </TabsContent>
             </Tabs>

@@ -2,7 +2,13 @@ import type { Metadata } from 'next'
 import { GeistSans } from 'geist/font/sans'
 import { GeistMono } from 'geist/font/mono'
 import './globals.css'
-import { ThemeProvider, Providers, Footer } from '@/components/layout'
+import {
+  ThemeProvider,
+  Providers,
+  Footer,
+  CookieConsentBanner,
+} from '@/components/layout'
+import { CookieConsentProvider } from '@/lib/context/CookieConsentContext'
 import Nav from '@/app/nav'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateOrganizationSchema } from '@/lib/seo/jsonld'
@@ -46,11 +52,14 @@ export default function RootLayout({
             enableSystem
             disableTransitionOnChange
           >
-            <div className="flex flex-col min-h-screen">
-              <Nav />
-              <main className="flex-1">{children}</main>
-              <Footer />
-            </div>
+            <CookieConsentProvider>
+              <div className="flex flex-col min-h-screen">
+                <Nav />
+                <main className="flex-1">{children}</main>
+                <Footer />
+              </div>
+              <CookieConsentBanner />
+            </CookieConsentProvider>
           </ThemeProvider>
         </Providers>
       </body>

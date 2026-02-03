@@ -86,6 +86,10 @@ type ShowResponse struct {
 	CreatedAt       time.Time        `json:"created_at"`
 	UpdatedAt       time.Time        `json:"updated_at"`
 
+	// Status flags (admin-controlled)
+	IsSoldOut   bool `json:"is_sold_out"`
+	IsCancelled bool `json:"is_cancelled"`
+
 	// Source tracking (for admin view to identify scraped shows)
 	Source      string     `json:"source,omitempty"`       // "user" or "scraper"
 	SourceVenue *string    `json:"source_venue,omitempty"` // Venue slug for scraped shows
@@ -1365,6 +1369,8 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 		Artists:         artists,
 		CreatedAt:       show.CreatedAt,
 		UpdatedAt:       show.UpdatedAt,
+		IsSoldOut:       show.IsSoldOut,
+		IsCancelled:     show.IsCancelled,
 		Source:          string(show.Source),
 		SourceVenue:     show.SourceVenue,
 		ScrapedAt:       show.ScrapedAt,
@@ -1807,6 +1813,95 @@ func (s *ShowService) PreviewShowImport(content []byte) (*ImportPreviewResponse,
 	return response, nil
 }
 
+// AdminShowFilters contains filters for GetAdminShows
+type AdminShowFilters struct {
+	Status   string // pending, approved, rejected, private
+	FromDate string // RFC3339 format
+	ToDate   string // RFC3339 format
+	City     string
+}
+
+// GetAdminShows retrieves shows for admin with optional filters (for CLI export)
+// Returns shows with all statuses including pending, rejected, and private
+func (s *ShowService) GetAdminShows(limit, offset int, filters AdminShowFilters) ([]*ShowResponse, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	// Build base query
+	baseQuery := s.db.Model(&models.Show{})
+
+	// Apply status filter
+	if filters.Status != "" {
+		baseQuery = baseQuery.Where("status = ?", filters.Status)
+	}
+
+	// Apply date filters
+	if filters.FromDate != "" {
+		fromDate, err := time.Parse(time.RFC3339, filters.FromDate)
+		if err == nil {
+			baseQuery = baseQuery.Where("event_date >= ?", fromDate.UTC())
+		}
+	}
+	if filters.ToDate != "" {
+		toDate, err := time.Parse(time.RFC3339, filters.ToDate)
+		if err == nil {
+			baseQuery = baseQuery.Where("event_date <= ?", toDate.UTC())
+		}
+	}
+
+	// Apply city filter
+	if filters.City != "" {
+		baseQuery = baseQuery.Where("city = ?", filters.City)
+	}
+
+	// Get total count
+	var total int64
+	if err := baseQuery.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count shows: %w", err)
+	}
+
+	// Get shows with pagination
+	var shows []models.Show
+	err := s.db.Preload("Venues").Preload("Artists").
+		Scopes(func(db *gorm.DB) *gorm.DB {
+			if filters.Status != "" {
+				db = db.Where("status = ?", filters.Status)
+			}
+			if filters.FromDate != "" {
+				fromDate, err := time.Parse(time.RFC3339, filters.FromDate)
+				if err == nil {
+					db = db.Where("event_date >= ?", fromDate.UTC())
+				}
+			}
+			if filters.ToDate != "" {
+				toDate, err := time.Parse(time.RFC3339, filters.ToDate)
+				if err == nil {
+					db = db.Where("event_date <= ?", toDate.UTC())
+				}
+			}
+			if filters.City != "" {
+				db = db.Where("city = ?", filters.City)
+			}
+			return db
+		}).
+		Order("event_date DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&shows).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get shows: %w", err)
+	}
+
+	// Build responses
+	responses := make([]*ShowResponse, len(shows))
+	for i, show := range shows {
+		responses[i] = s.buildShowResponse(&show)
+	}
+
+	return responses, total, nil
+}
+
 // ConfirmShowImport creates a show from the parsed markdown content
 // Admin imports auto-verify venues
 func (s *ShowService) ConfirmShowImport(content []byte, isAdmin bool) (*ShowResponse, error) {
@@ -1863,4 +1958,50 @@ func (s *ShowService) ConfirmShowImport(content []byte, isAdmin bool) (*ShowResp
 
 	// Create the show
 	return s.CreateShow(req)
+}
+
+// ============================================================================
+// Show Status Flag Methods (Admin Only)
+// ============================================================================
+
+// SetShowSoldOut sets or clears the is_sold_out flag on a show
+func (s *ShowService) SetShowSoldOut(showID uint, isSoldOut bool) (*ShowResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var show models.Show
+	if err := s.db.First(&show, showID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("show not found")
+		}
+		return nil, fmt.Errorf("failed to find show: %w", err)
+	}
+
+	if err := s.db.Model(&show).Update("is_sold_out", isSoldOut).Error; err != nil {
+		return nil, fmt.Errorf("failed to update show sold out status: %w", err)
+	}
+
+	return s.GetShow(showID)
+}
+
+// SetShowCancelled sets or clears the is_cancelled flag on a show
+func (s *ShowService) SetShowCancelled(showID uint, isCancelled bool) (*ShowResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var show models.Show
+	if err := s.db.First(&show, showID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("show not found")
+		}
+		return nil, fmt.Errorf("failed to find show: %w", err)
+	}
+
+	if err := s.db.Model(&show).Update("is_cancelled", isCancelled).Error; err != nil {
+		return nil, fmt.Errorf("failed to update show cancelled status: %w", err)
+	}
+
+	return s.GetShow(showID)
 }

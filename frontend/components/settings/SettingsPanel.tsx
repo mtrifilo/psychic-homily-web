@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useSendVerificationEmail, useExportData } from '@/lib/hooks/useAuth'
+import { useSendVerificationEmail, useExportData, useGenerateCLIToken } from '@/lib/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -15,6 +15,9 @@ import {
   AlertTriangle,
   Download,
   FileJson,
+  Terminal,
+  Copy,
+  Check,
 } from 'lucide-react'
 import { ChangePassword } from '@/components/settings/change-password'
 import { DeleteAccountDialog } from '@/components/settings/delete-account-dialog'
@@ -24,8 +27,11 @@ export function SettingsPanel() {
   const { user } = useAuthContext()
   const sendVerificationEmail = useSendVerificationEmail()
   const exportData = useExportData()
+  const generateCLIToken = useGenerateCLIToken()
   const [emailSent, setEmailSent] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [cliToken, setCLIToken] = useState<string | null>(null)
+  const [tokenCopied, setTokenCopied] = useState(false)
 
   const handleSendVerification = async () => {
     try {
@@ -54,6 +60,24 @@ export function SettingsPanel() {
       URL.revokeObjectURL(url)
     } catch (error) {
       console.error('Failed to export data:', error)
+    }
+  }
+
+  const handleGenerateCLIToken = async () => {
+    try {
+      const response = await generateCLIToken.mutateAsync()
+      setCLIToken(response.token)
+      setTokenCopied(false)
+    } catch (error) {
+      console.error('Failed to generate CLI token:', error)
+    }
+  }
+
+  const handleCopyToken = async () => {
+    if (cliToken) {
+      await navigator.clipboard.writeText(cliToken)
+      setTokenCopied(true)
+      setTimeout(() => setTokenCopied(false), 2000)
     }
   }
 
@@ -255,6 +279,100 @@ export function SettingsPanel() {
           </div>
         </CardContent>
       </Card>
+
+      {/* CLI Token Section (Admin Only) */}
+      {user?.is_admin && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Terminal className="h-5 w-5 text-muted-foreground" />
+              <CardTitle className="text-lg">CLI Authentication</CardTitle>
+            </div>
+            <CardDescription>
+              Generate a token to authenticate the admin CLI tool
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="rounded-lg border border-border/50 bg-muted/30 p-4">
+                <div className="flex flex-col gap-4">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-foreground">
+                      Admin CLI Token
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Generate a token to use with the admin CLI for exporting and importing shows between environments. Tokens expire after 24 hours.
+                    </p>
+                  </div>
+
+                  {cliToken ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 rounded-md bg-background p-3 text-xs font-mono break-all border">
+                          {cliToken}
+                        </code>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={handleCopyToken}
+                          className="shrink-0"
+                        >
+                          {tokenCopied ? (
+                            <Check className="h-4 w-4 text-emerald-500" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <AlertCircle className="h-3 w-3" />
+                        <span>This token will expire in 24 hours. Copy it now — it won&apos;t be shown again.</span>
+                      </div>
+                      <Button
+                        onClick={handleGenerateCLIToken}
+                        disabled={generateCLIToken.isPending}
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                      >
+                        {generateCLIToken.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Terminal className="h-4 w-4" />
+                        )}
+                        Generate New Token
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      onClick={handleGenerateCLIToken}
+                      disabled={generateCLIToken.isPending}
+                      variant="outline"
+                      className="gap-2 w-fit"
+                    >
+                      {generateCLIToken.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Terminal className="h-4 w-4" />
+                      )}
+                      Generate CLI Token
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {generateCLIToken.isError && (
+                <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>
+                    {generateCLIToken.error?.message || 'Failed to generate token. Please try again.'}
+                  </span>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Danger Zone - Account Deletion */}
       <Card className="border-destructive/50">

@@ -44,6 +44,10 @@ type Show struct {
 	SourceEventID *string    `gorm:"column:source_event_id"` // External event ID for deduplication
 	ScrapedAt     *time.Time `gorm:"column:scraped_at"`      // When the event was scraped
 
+	// Status flags (admin-controlled)
+	IsSoldOut   bool `gorm:"column:is_sold_out;not null;default:false"`
+	IsCancelled bool `gorm:"column:is_cancelled;not null;default:false"`
+
 	// Relationships
 	Venues  []Venue  `gorm:"many2many:show_venues;"`
 	Artists []Artist `gorm:"many2many:show_artists;"`

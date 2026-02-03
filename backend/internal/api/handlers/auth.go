@@ -1680,3 +1680,71 @@ func (h *AuthHandler) ConfirmAccountRecoveryHandler(ctx context.Context, input *
 
 	return resp, nil
 }
+
+// GenerateCLITokenResponse represents the response for CLI token generation
+type GenerateCLITokenResponse struct {
+	Body struct {
+		Success   bool   `json:"success" example:"true" doc:"Success status"`
+		Token     string `json:"token,omitempty" doc:"CLI authentication token"`
+		ExpiresIn int    `json:"expires_in,omitempty" example:"86400" doc:"Token expiry in seconds"`
+		Message   string `json:"message" example:"CLI token generated" doc:"Response message"`
+		ErrorCode string `json:"error_code,omitempty" example:"UNAUTHORIZED" doc:"Error code for programmatic handling"`
+		RequestID string `json:"request_id,omitempty" doc:"Request ID for debugging"`
+	}
+}
+
+// GenerateCLITokenHandler generates a token for CLI authentication
+// This allows users to copy a token from the web UI and paste it into the CLI
+func (h *AuthHandler) GenerateCLITokenHandler(ctx context.Context, input *struct{}) (*GenerateCLITokenResponse, error) {
+	resp := &GenerateCLITokenResponse{}
+	requestID := logger.GetRequestID(ctx)
+	resp.Body.RequestID = requestID
+
+	// Get authenticated user from context
+	contextUser := middleware.GetUserFromContext(ctx)
+	if contextUser == nil {
+		logger.AuthWarn(ctx, "generate_cli_token_no_user")
+		resp.Body.Success = false
+		resp.Body.Message = "User not found in context"
+		resp.Body.ErrorCode = autherrors.CodeUnauthorized
+		return resp, nil
+	}
+
+	// Only allow admins to generate CLI tokens
+	if !contextUser.IsAdmin {
+		logger.AuthWarn(ctx, "generate_cli_token_not_admin",
+			"user_id", contextUser.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "CLI tokens are only available for admin users"
+		resp.Body.ErrorCode = autherrors.CodeUnauthorized
+		return resp, nil
+	}
+
+	logger.AuthDebug(ctx, "generate_cli_token_attempt",
+		"user_id", contextUser.ID,
+	)
+
+	// Generate a fresh JWT token for CLI use (24 hour expiry)
+	token, err := h.jwtService.CreateToken(contextUser)
+	if err != nil {
+		logger.AuthError(ctx, "generate_cli_token_failed", err,
+			"user_id", contextUser.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to generate CLI token"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	logger.AuthInfo(ctx, "generate_cli_token_success",
+		"user_id", contextUser.ID,
+	)
+
+	resp.Body.Success = true
+	resp.Body.Token = token
+	resp.Body.ExpiresIn = 86400 // 24 hours
+	resp.Body.Message = "CLI token generated successfully. This token expires in 24 hours."
+
+	return resp, nil
+}

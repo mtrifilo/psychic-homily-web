@@ -1175,6 +1175,174 @@ type GetMySubmissionsResponse struct {
 	}
 }
 
+// ============================================================================
+// Show Status Flag Handlers (Admin or Submitter)
+// ============================================================================
+
+// SetShowSoldOutRequest represents the HTTP request for setting sold out status
+type SetShowSoldOutRequest struct {
+	ShowID string `path:"show_id" validate:"required" doc:"Show ID"`
+	Body   struct {
+		Value bool `json:"value" doc:"true to mark as sold out, false to clear"`
+	}
+}
+
+// SetShowSoldOutResponse represents the HTTP response for setting sold out status
+type SetShowSoldOutResponse struct {
+	Body services.ShowResponse `json:"body"`
+}
+
+// SetShowSoldOutHandler handles POST /shows/{show_id}/sold-out
+// Allows admin or the show submitter to set the sold out flag
+func (h *ShowHandler) SetShowSoldOutHandler(ctx context.Context, req *SetShowSoldOutRequest) (*SetShowSoldOutResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Require authentication
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	// Parse show ID
+	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid show ID")
+	}
+
+	// Get the show to check ownership
+	show, err := h.showService.GetShow(uint(showID))
+	if err != nil {
+		if err.Error() == "show not found" {
+			return nil, huma.Error404NotFound("Show not found")
+		}
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get show (request_id: %s)", requestID),
+		)
+	}
+
+	// Check authorization: must be admin or submitter
+	isOwner := show.SubmittedBy != nil && *show.SubmittedBy == user.ID
+	if !user.IsAdmin && !isOwner {
+		logger.FromContext(ctx).Warn("set_show_sold_out_unauthorized",
+			"show_id", showID,
+			"user_id", user.ID,
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Only the show submitter or an admin can update this show")
+	}
+
+	logger.FromContext(ctx).Debug("set_show_sold_out_attempt",
+		"show_id", showID,
+		"value", req.Body.Value,
+		"user_id", user.ID,
+		"is_admin", user.IsAdmin,
+	)
+
+	// Set sold out status
+	updatedShow, err := h.showService.SetShowSoldOut(uint(showID), req.Body.Value)
+	if err != nil {
+		logger.FromContext(ctx).Error("set_show_sold_out_failed",
+			"show_id", showID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Failed to update show: %s (request_id: %s)", err.Error(), requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Info("set_show_sold_out_success",
+		"show_id", showID,
+		"is_sold_out", req.Body.Value,
+		"user_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &SetShowSoldOutResponse{Body: *updatedShow}, nil
+}
+
+// SetShowCancelledRequest represents the HTTP request for setting cancelled status
+type SetShowCancelledRequest struct {
+	ShowID string `path:"show_id" validate:"required" doc:"Show ID"`
+	Body   struct {
+		Value bool `json:"value" doc:"true to mark as cancelled, false to clear"`
+	}
+}
+
+// SetShowCancelledResponse represents the HTTP response for setting cancelled status
+type SetShowCancelledResponse struct {
+	Body services.ShowResponse `json:"body"`
+}
+
+// SetShowCancelledHandler handles POST /shows/{show_id}/cancelled
+// Allows admin or the show submitter to set the cancelled flag
+func (h *ShowHandler) SetShowCancelledHandler(ctx context.Context, req *SetShowCancelledRequest) (*SetShowCancelledResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Require authentication
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	// Parse show ID
+	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid show ID")
+	}
+
+	// Get the show to check ownership
+	show, err := h.showService.GetShow(uint(showID))
+	if err != nil {
+		if err.Error() == "show not found" {
+			return nil, huma.Error404NotFound("Show not found")
+		}
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get show (request_id: %s)", requestID),
+		)
+	}
+
+	// Check authorization: must be admin or submitter
+	isOwner := show.SubmittedBy != nil && *show.SubmittedBy == user.ID
+	if !user.IsAdmin && !isOwner {
+		logger.FromContext(ctx).Warn("set_show_cancelled_unauthorized",
+			"show_id", showID,
+			"user_id", user.ID,
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Only the show submitter or an admin can update this show")
+	}
+
+	logger.FromContext(ctx).Debug("set_show_cancelled_attempt",
+		"show_id", showID,
+		"value", req.Body.Value,
+		"user_id", user.ID,
+		"is_admin", user.IsAdmin,
+	)
+
+	// Set cancelled status
+	updatedShow, err := h.showService.SetShowCancelled(uint(showID), req.Body.Value)
+	if err != nil {
+		logger.FromContext(ctx).Error("set_show_cancelled_failed",
+			"show_id", showID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Failed to update show: %s (request_id: %s)", err.Error(), requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Info("set_show_cancelled_success",
+		"show_id", showID,
+		"is_cancelled", req.Body.Value,
+		"user_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &SetShowCancelledResponse{Body: *updatedShow}, nil
+}
+
 // GetMySubmissionsHandler handles GET /shows/my-submissions
 // Returns all shows submitted by the authenticated user
 func (h *ShowHandler) GetMySubmissionsHandler(ctx context.Context, req *GetMySubmissionsRequest) (*GetMySubmissionsResponse, error) {

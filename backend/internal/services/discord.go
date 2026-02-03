@@ -205,6 +205,60 @@ func (s *DiscordService) NotifyShowRejected(show *ShowResponse, reason string) {
 	go s.sendWebhook(embed)
 }
 
+// NotifyShowReport sends a notification when a user reports a show issue
+func (s *DiscordService) NotifyShowReport(report *models.ShowReport, reporterEmail string) {
+	if !s.IsConfigured() || report == nil {
+		return
+	}
+
+	// Format report type for display
+	reportTypeDisplay := string(report.ReportType)
+	switch report.ReportType {
+	case models.ShowReportTypeCancelled:
+		reportTypeDisplay = "Cancelled"
+	case models.ShowReportTypeSoldOut:
+		reportTypeDisplay = "Sold Out"
+	case models.ShowReportTypeInaccurate:
+		reportTypeDisplay = "Inaccurate Info"
+	}
+
+	showTitle := "Unknown Show"
+	eventDate := "Unknown Date"
+	if report.Show.ID != 0 {
+		showTitle = report.Show.Title
+		eventDate = report.Show.EventDate.Format("Jan 2, 2006")
+	}
+
+	fields := []DiscordEmbedField{
+		{Name: "Report Type", Value: reportTypeDisplay, Inline: true},
+		{Name: "Show", Value: showTitle, Inline: true},
+		{Name: "Event Date", Value: eventDate, Inline: true},
+		{Name: "Reporter", Value: hashEmail(reporterEmail), Inline: true},
+	}
+
+	// Add details if provided
+	if report.Details != nil && *report.Details != "" {
+		details := *report.Details
+		if len(details) > 200 {
+			details = details[:197] + "..."
+		}
+		fields = append(fields, DiscordEmbedField{Name: "Details", Value: details, Inline: false})
+	}
+
+	// Add action link
+	actions := fmt.Sprintf("[Review Reports](%s/admin?tab=reports)", s.frontendURL)
+	fields = append(fields, DiscordEmbedField{Name: "Actions", Value: actions, Inline: false})
+
+	embed := DiscordEmbed{
+		Title:     fmt.Sprintf("Show Report: %s", showTitle),
+		Color:     ColorOrange,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Fields:    fields,
+	}
+
+	go s.sendWebhook(embed)
+}
+
 // sendWebhook sends an embed to the Discord webhook (fire-and-forget)
 func (s *DiscordService) sendWebhook(embed DiscordEmbed) {
 	payload := DiscordWebhookPayload{
