@@ -464,6 +464,11 @@ export async function POST(
     )
   }
 
+  // Debug: Log API key info (prefix only, not full key)
+  console.log(
+    `[MusicDiscovery] API key check - prefix: ${apiKey.substring(0, 10)}..., length: ${apiKey.length}`
+  )
+
   try {
     // Initialize Anthropic client
     const anthropic = new Anthropic({ apiKey })
