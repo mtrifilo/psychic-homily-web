@@ -35,7 +35,7 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 
 	// Create a protected group that will require authentication
 	protectedGroup := huma.NewGroup(api, "")
-	protectedGroup.UseMiddleware(middleware.HumaJWTMiddleware(jwtService))
+	protectedGroup.UseMiddleware(middleware.HumaJWTMiddleware(jwtService, cfg.Session))
 
 	// Add protected auth routes
 	authHandler := handlers.NewAuthHandler(authService, jwtService, services.NewUserService(), cfg)

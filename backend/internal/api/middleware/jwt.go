@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
@@ -104,7 +105,13 @@ func JWTMiddleware(jwtService *services.JWTService) func(http.Handler) http.Hand
 }
 
 // HumaJWTMiddleware validates JWT tokens (Huma middleware version)
-func HumaJWTMiddleware(jwtService *services.JWTService) func(ctx huma.Context, next func(huma.Context)) {
+func HumaJWTMiddleware(jwtService *services.JWTService, sessionConfig ...config.SessionConfig) func(ctx huma.Context, next func(huma.Context)) {
+	// Get session config if provided (for clearing cookies on auth failure)
+	var sessConfig *config.SessionConfig
+	if len(sessionConfig) > 0 {
+		sessConfig = &sessionConfig[0]
+	}
+
 	return func(ctx huma.Context, next func(huma.Context)) {
 		url := ctx.URL()
 
@@ -147,7 +154,7 @@ func HumaJWTMiddleware(jwtService *services.JWTService) func(ctx huma.Context, n
 			logger.AuthWarn(ctx.Context(), "huma_jwt_token_missing",
 				"path", url.Path,
 			)
-			writeHumaJWTError(ctx, requestID, autherrors.CodeTokenMissing, "Authentication required")
+			writeHumaJWTError(ctx, requestID, autherrors.CodeTokenMissing, "Authentication required", nil)
 			return
 		}
 
@@ -171,7 +178,8 @@ func HumaJWTMiddleware(jwtService *services.JWTService) func(ctx huma.Context, n
 				"error", err.Error(),
 				"error_code", errorCode,
 			)
-			writeHumaJWTError(ctx, requestID, errorCode, message)
+			// Clear the invalid cookie if we have session config
+			writeHumaJWTError(ctx, requestID, errorCode, message, sessConfig)
 			return
 		}
 
@@ -207,8 +215,15 @@ func writeJWTError(w http.ResponseWriter, requestID, errorCode, message string, 
 }
 
 // writeHumaJWTError writes a JSON error response for Huma JWT authentication failures
-func writeHumaJWTError(ctx huma.Context, requestID, errorCode, message string) {
+func writeHumaJWTError(ctx huma.Context, requestID, errorCode, message string, sessConfig *config.SessionConfig) {
 	ctx.SetStatus(http.StatusUnauthorized)
+
+	// Clear the invalid cookie if session config is provided
+	if sessConfig != nil {
+		clearCookie := sessConfig.ClearAuthCookie()
+		ctx.SetHeader("Set-Cookie", clearCookie.String())
+	}
+
 	resp := JWTErrorResponse{
 		Success:   false,
 		Message:   message,

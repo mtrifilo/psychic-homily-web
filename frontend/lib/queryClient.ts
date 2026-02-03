@@ -7,7 +7,8 @@
  * and provides query client utilities for the application.
  */
 
-import { QueryClient, DefaultOptions } from '@tanstack/react-query'
+import { QueryClient, DefaultOptions, QueryCache, MutationCache } from '@tanstack/react-query'
+import { AuthError, AuthErrorCode } from './errors'
 
 // Default query options for all queries
 const defaultQueryOptions: DefaultOptions = {
@@ -36,9 +37,50 @@ const defaultQueryOptions: DefaultOptions = {
   },
 }
 
+// Helper to check if an error is a session expiry error
+function isSessionExpiredError(error: unknown): boolean {
+  if (error instanceof AuthError) {
+    return error.shouldRedirectToLogin
+  }
+  // Check for raw error objects with error_code
+  const apiError = error as { code?: string; error_code?: string }
+  return (
+    apiError?.code === AuthErrorCode.TOKEN_EXPIRED ||
+    apiError?.code === AuthErrorCode.TOKEN_INVALID ||
+    apiError?.error_code === AuthErrorCode.TOKEN_EXPIRED ||
+    apiError?.error_code === AuthErrorCode.TOKEN_INVALID
+  )
+}
+
 // Function to create query client (for use in provider)
 function makeQueryClient() {
+  // Create caches with global error handlers
+  const queryCache = new QueryCache({
+    onError: (error, query) => {
+      // When a session expires, clear all cached data
+      // The backend also clears the cookie via Set-Cookie header
+      if (isSessionExpiredError(error)) {
+        // Don't clear the cache for the profile query itself to avoid infinite loops
+        if (query.queryKey[0] !== 'auth' || query.queryKey[1] !== 'profile') {
+          // Clear all queries to force re-auth state check
+          browserQueryClient?.clear()
+        }
+      }
+    },
+  })
+
+  const mutationCache = new MutationCache({
+    onError: error => {
+      // When a session expires during a mutation, clear cached data
+      if (isSessionExpiredError(error)) {
+        browserQueryClient?.clear()
+      }
+    },
+  })
+
   return new QueryClient({
+    queryCache,
+    mutationCache,
     defaultOptions: defaultQueryOptions,
   })
 }
