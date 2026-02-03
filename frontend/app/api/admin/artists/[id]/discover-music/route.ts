@@ -251,7 +251,8 @@ async function discoverBandcamp(
       messages: [
         {
           role: 'user',
-          content: `Find the official Bandcamp album page for: ${artistName}`,
+          // Include "bandcamp" in query to improve search results
+          content: `Find the official Bandcamp album page for: ${artistName} bandcamp`,
         },
       ],
     })
@@ -264,11 +265,17 @@ async function discoverBandcamp(
       }
     }
 
+    console.log(
+      `[MusicDiscovery] Bandcamp search for "${artistName}" returned:`,
+      responseText.substring(0, 500)
+    )
+
     // Check for NOT_FOUND
     if (
       responseText.trim() === 'NOT_FOUND' ||
       responseText.includes('NOT_FOUND')
     ) {
+      console.log(`[MusicDiscovery] Bandcamp: NOT_FOUND for "${artistName}"`)
       return { found: false }
     }
 
@@ -276,12 +283,22 @@ async function discoverBandcamp(
     const bandcampUrl = extractBandcampUrl(responseText)
 
     if (!bandcampUrl) {
+      console.log(
+        `[MusicDiscovery] Bandcamp: No valid URL extracted for "${artistName}"`
+      )
       return { found: false, error: 'No valid URL in response' }
     }
+
+    console.log(
+      `[MusicDiscovery] Bandcamp: Found URL "${bandcampUrl}" for "${artistName}", validating...`
+    )
 
     // Validate the URL is actually embeddable
     const isValid = await validateBandcampUrl(bandcampUrl)
     if (!isValid) {
+      console.log(
+        `[MusicDiscovery] Bandcamp: URL validation failed for "${bandcampUrl}"`
+      )
       return { found: false, error: 'URL validation failed' }
     }
 
@@ -318,7 +335,8 @@ async function discoverSpotify(
       messages: [
         {
           role: 'user',
-          content: `Find the official Spotify artist page for: ${artistName}`,
+          // Include "spotify" in query to improve search results
+          content: `Find the official Spotify artist page for: ${artistName} spotify`,
         },
       ],
     })
@@ -331,11 +349,17 @@ async function discoverSpotify(
       }
     }
 
+    console.log(
+      `[MusicDiscovery] Spotify search for "${artistName}" returned:`,
+      responseText.substring(0, 500)
+    )
+
     // Check for NOT_FOUND
     if (
       responseText.trim() === 'NOT_FOUND' ||
       responseText.includes('NOT_FOUND')
     ) {
+      console.log(`[MusicDiscovery] Spotify: NOT_FOUND for "${artistName}"`)
       return { found: false }
     }
 
@@ -343,11 +367,21 @@ async function discoverSpotify(
     const spotifyUrl = extractSpotifyUrl(responseText)
 
     if (!spotifyUrl) {
+      console.log(
+        `[MusicDiscovery] Spotify: No valid URL extracted for "${artistName}"`
+      )
       return { found: false, error: 'No valid URL in response' }
     }
 
+    console.log(
+      `[MusicDiscovery] Spotify: Found URL "${spotifyUrl}" for "${artistName}"`
+    )
+
     // Validate URL format
     if (!isValidSpotifyArtistUrl(spotifyUrl)) {
+      console.log(
+        `[MusicDiscovery] Spotify: Invalid URL format "${spotifyUrl}"`
+      )
       return { found: false, error: 'Invalid Spotify URL format' }
     }
 
