@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import * as Sentry from '@sentry/nextjs'
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -21,6 +22,11 @@ export async function GET(request: NextRequest) {
     })
 
     if (!response.ok) {
+      Sentry.captureMessage(`Bandcamp page fetch failed: ${response.status}`, {
+        level: 'warning',
+        tags: { service: 'bandcamp-scraper' },
+        extra: { url, status: response.status },
+      })
       return NextResponse.json(
         { error: `Failed to fetch Bandcamp page: ${response.status}` },
         { status: response.status }
@@ -49,7 +55,11 @@ export async function GET(request: NextRequest) {
       }
     )
   } catch (error) {
-    console.error('Bandcamp album ID extraction error:', error)
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'bandcamp-scraper' },
+      extra: { url },
+    })
     return NextResponse.json(
       { error: 'Failed to extract album ID' },
       { status: 500 }

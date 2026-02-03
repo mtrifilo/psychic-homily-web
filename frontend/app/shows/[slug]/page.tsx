@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import { Metadata } from 'next'
 import { Loader2 } from 'lucide-react'
+import * as Sentry from '@sentry/nextjs'
 import { ShowDetail } from '@/components/shows'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicEventSchema } from '@/lib/seo/jsonld'
@@ -35,8 +36,20 @@ async function getShow(slug: string): Promise<ShowData | null> {
     if (res.ok) {
       return res.json()
     }
-  } catch {
-    // Fall through to null
+    // Don't report 404s - they're expected for invalid slugs
+    if (res.status >= 500) {
+      Sentry.captureMessage(`Show page: API returned ${res.status}`, {
+        level: 'error',
+        tags: { service: 'show-page' },
+        extra: { slug, status: res.status },
+      })
+    }
+  } catch (error) {
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'show-page' },
+      extra: { slug },
+    })
   }
   return null
 }

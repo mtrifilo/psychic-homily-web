@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import Anthropic from '@anthropic-ai/sdk'
+import * as Sentry from '@sentry/nextjs'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -418,7 +419,11 @@ export async function POST(
   // Check if Anthropic API key is configured
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
-    console.error('ANTHROPIC_API_KEY not configured')
+    const error = new Error('ANTHROPIC_API_KEY not configured')
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'music-discovery' },
+    })
     return NextResponse.json(
       { error: 'AI service not configured' },
       { status: 503 }
@@ -441,6 +446,11 @@ export async function POST(
       )
 
       if (!updatedArtist) {
+        Sentry.captureMessage('Failed to save discovered Bandcamp URL', {
+          level: 'error',
+          tags: { service: 'music-discovery', error_type: 'update_failed' },
+          extra: { artistId, url: bandcampResult.url },
+        })
         return NextResponse.json(
           {
             success: false,
@@ -473,6 +483,11 @@ export async function POST(
       )
 
       if (!updatedArtist) {
+        Sentry.captureMessage('Failed to save discovered Spotify URL', {
+          level: 'error',
+          tags: { service: 'music-discovery', error_type: 'update_failed' },
+          extra: { artistId, url: spotifyResult.url },
+        })
         return NextResponse.json(
           {
             success: false,
@@ -508,10 +523,10 @@ export async function POST(
     if (error instanceof Anthropic.APIError) {
       // Check for credit/billing errors and log prominently
       if (isCreditsError(error)) {
-        console.error('========================================')
-        console.error('ANTHROPIC API CREDITS EXHAUSTED')
-        console.error('Please add credits at console.anthropic.com')
-        console.error('========================================')
+        Sentry.captureException(error, {
+          level: 'error',
+          tags: { service: 'music-discovery', error_type: 'credits_exhausted' },
+        })
         return NextResponse.json(
           {
             error: 'API_CREDITS_EXHAUSTED',
@@ -522,6 +537,10 @@ export async function POST(
         )
       }
 
+      Sentry.captureException(error, {
+        level: 'error',
+        tags: { service: 'music-discovery', error_type: 'api_error' },
+      })
       return NextResponse.json(
         {
           error: 'AI service error',
@@ -531,6 +550,10 @@ export async function POST(
       )
     }
 
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'music-discovery' },
+    })
     return NextResponse.json(
       {
         error: 'Discovery failed',

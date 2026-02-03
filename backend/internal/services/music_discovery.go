@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/getsentry/sentry-go"
+
 	"psychic-homily-backend/internal/config"
 )
 
@@ -55,7 +57,12 @@ func (s *MusicDiscoveryService) triggerDiscovery(artistID uint, artistName strin
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
 	if err != nil {
-		log.Printf("[MusicDiscovery] Failed to create request for artist %d (%s): %v", artistID, artistName, err)
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "music-discovery")
+			scope.SetExtra("artist_id", artistID)
+			scope.SetExtra("artist_name", artistName)
+			sentry.CaptureException(fmt.Errorf("failed to create request: %w", err))
+		})
 		return
 	}
 
@@ -64,7 +71,12 @@ func (s *MusicDiscoveryService) triggerDiscovery(artistID uint, artistName strin
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		log.Printf("[MusicDiscovery] Failed to call discovery endpoint for artist %d (%s): %v", artistID, artistName, err)
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "music-discovery")
+			scope.SetExtra("artist_id", artistID)
+			scope.SetExtra("artist_name", artistName)
+			sentry.CaptureException(fmt.Errorf("discovery endpoint call failed: %w", err))
+		})
 		return
 	}
 	defer resp.Body.Close()
@@ -87,6 +99,16 @@ func (s *MusicDiscoveryService) triggerDiscovery(artistID uint, artistName strin
 	} else if resp.StatusCode == 404 {
 		log.Printf("[MusicDiscovery] No music found for artist %d (%s)", artistID, artistName)
 	} else {
+		// Capture 5xx errors to Sentry (service failures)
+		if resp.StatusCode >= 500 {
+			sentry.WithScope(func(scope *sentry.Scope) {
+				scope.SetTag("service", "music-discovery")
+				scope.SetExtra("artist_id", artistID)
+				scope.SetExtra("artist_name", artistName)
+				scope.SetExtra("status_code", resp.StatusCode)
+				sentry.CaptureMessage(fmt.Sprintf("Discovery endpoint returned %d", resp.StatusCode))
+			})
+		}
 		log.Printf("[MusicDiscovery] Discovery endpoint returned status %d for artist %d (%s)", resp.StatusCode, artistID, artistName)
 	}
 }

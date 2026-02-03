@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import Anthropic from '@anthropic-ai/sdk'
+import * as Sentry from '@sentry/nextjs'
 import type {
   ExtractShowRequest,
   ExtractShowResponse,
@@ -252,7 +253,11 @@ export async function POST(request: NextRequest) {
   // Check if Anthropic API key is configured
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
-    console.error('ANTHROPIC_API_KEY not configured')
+    const error = new Error('ANTHROPIC_API_KEY not configured')
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'extract-show' },
+    })
     return NextResponse.json<ExtractShowResponse>(
       { success: false, error: 'AI service not configured' },
       { status: 503 }
@@ -448,6 +453,10 @@ export async function POST(request: NextRequest) {
     if (error instanceof Anthropic.APIError) {
       const message = error.message.toLowerCase()
       if (message.includes('credit') || message.includes('billing') || message.includes('balance')) {
+        Sentry.captureException(error, {
+          level: 'error',
+          tags: { service: 'extract-show', error_type: 'credits_exhausted' },
+        })
         return NextResponse.json<ExtractShowResponse>(
           {
             success: false,
@@ -457,6 +466,10 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      Sentry.captureException(error, {
+        level: 'error',
+        tags: { service: 'extract-show', error_type: 'api_error' },
+      })
       return NextResponse.json<ExtractShowResponse>(
         {
           success: false,
@@ -466,6 +479,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'extract-show' },
+    })
     return NextResponse.json<ExtractShowResponse>(
       {
         success: false,

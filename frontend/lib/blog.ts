@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import matter from 'gray-matter'
+import * as Sentry from '@sentry/nextjs'
 import type { BlogPost, BlogPostMeta, BlogPostFrontmatter } from './types/blog'
 
 // Path to blog content (inside frontend directory)
@@ -10,10 +11,19 @@ const BLOG_CONTENT_PATH = path.join(process.cwd(), 'content', 'blog')
  * Get all blog post slugs for static generation
  */
 export function getBlogSlugs(): string[] {
-  const files = fs.readdirSync(BLOG_CONTENT_PATH)
-  return files
-    .filter(file => file.endsWith('.md') && !file.startsWith('_'))
-    .map(file => file.replace(/\.md$/, ''))
+  try {
+    const files = fs.readdirSync(BLOG_CONTENT_PATH)
+    return files
+      .filter(file => file.endsWith('.md') && !file.startsWith('_'))
+      .map(file => file.replace(/\.md$/, ''))
+  } catch (error) {
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'blog', operation: 'getBlogSlugs' },
+      extra: { path: BLOG_CONTENT_PATH },
+    })
+    return []
+  }
 }
 
 /**
@@ -66,21 +76,30 @@ function extractExcerpt(content: string, maxLength = 200): string {
 export function getBlogPost(slug: string): BlogPost | null {
   const filePath = path.join(BLOG_CONTENT_PATH, `${slug}.md`)
 
-  if (!fs.existsSync(filePath)) {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return null
+    }
+
+    const fileContents = fs.readFileSync(filePath, 'utf8')
+    const { data, content } = matter(fileContents)
+
+    const frontmatter = data as BlogPostFrontmatter
+    const mdxContent = convertShortcodesToMDX(content)
+
+    return {
+      slug,
+      frontmatter,
+      content: mdxContent,
+      excerpt: extractExcerpt(content),
+    }
+  } catch (error) {
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'blog', operation: 'getBlogPost' },
+      extra: { slug, filePath },
+    })
     return null
-  }
-
-  const fileContents = fs.readFileSync(filePath, 'utf8')
-  const { data, content } = matter(fileContents)
-
-  const frontmatter = data as BlogPostFrontmatter
-  const mdxContent = convertShortcodesToMDX(content)
-
-  return {
-    slug,
-    frontmatter,
-    content: mdxContent,
-    excerpt: extractExcerpt(content),
   }
 }
 

@@ -7,6 +7,7 @@ import {
   Providers,
   Footer,
   CookieConsentBanner,
+  PostHogProvider,
 } from '@/components/layout'
 import { CookieConsentProvider } from '@/lib/context/CookieConsentContext'
 import Nav from '@/app/nav'
@@ -53,12 +54,14 @@ export default function RootLayout({
             disableTransitionOnChange
           >
             <CookieConsentProvider>
-              <div className="flex flex-col min-h-screen">
-                <Nav />
-                <main className="flex-1">{children}</main>
-                <Footer />
-              </div>
-              <CookieConsentBanner />
+              <PostHogProvider>
+                <div className="flex flex-col min-h-screen">
+                  <Nav />
+                  <main className="flex-1">{children}</main>
+                  <Footer />
+                </div>
+                <CookieConsentBanner />
+              </PostHogProvider>
             </CookieConsentProvider>
           </ThemeProvider>
         </Providers>

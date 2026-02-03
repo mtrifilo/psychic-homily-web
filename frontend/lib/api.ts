@@ -10,6 +10,7 @@
 
 import { authLogger } from './utils/authLogger'
 import { AuthError, AuthErrorCode } from './errors'
+import * as Sentry from '@sentry/nextjs'
 
 // Request ID header name (must match backend middleware)
 const REQUEST_ID_HEADER = 'X-Request-ID'
@@ -226,12 +227,28 @@ export const apiRequest = async <T = unknown>(
     },
   }
 
+  const endpointPath = endpoint.replace(API_BASE_URL, '')
+  const isAuthEndpoint = endpointPath.startsWith('/auth/')
+
   authLogger.debug('API request', {
-    endpoint: endpoint.replace(API_BASE_URL, ''),
+    endpoint: endpointPath,
     method: config.method || 'GET',
   })
 
-  const response = await fetch(endpoint, config)
+  let response: Response
+  try {
+    response = await fetch(endpoint, config)
+  } catch (networkError) {
+    // Network failure (backend unreachable, DNS failure, etc.)
+    if (isAuthEndpoint) {
+      Sentry.captureException(networkError, {
+        level: 'error',
+        tags: { service: 'auth', error_type: 'network_failure' },
+        extra: { endpoint: endpointPath },
+      })
+    }
+    throw networkError
+  }
 
   // Extract request ID from response headers
   const requestId = response.headers.get(REQUEST_ID_HEADER) || undefined
@@ -250,12 +267,29 @@ export const apiRequest = async <T = unknown>(
       'API request failed',
       new Error(errorMessage),
       {
-        endpoint: endpoint.replace(API_BASE_URL, ''),
+        endpoint: endpointPath,
         status: response.status,
         errorCode: errorBody.error_code,
       },
       requestId || errorBody.request_id
     )
+
+    // Capture 5xx errors on auth endpoints to Sentry (service failures)
+    if (response.status >= 500 && isAuthEndpoint) {
+      Sentry.captureMessage(`Auth service error: ${response.status}`, {
+        level: 'error',
+        tags: {
+          service: 'auth',
+          error_type: 'service_error',
+          status: response.status,
+        },
+        extra: {
+          endpoint: endpointPath,
+          errorCode: errorBody.error_code,
+          requestId: requestId || errorBody.request_id,
+        },
+      })
+    }
 
     // Check if this is an auth-related error
     if (response.status === 401 || response.status === 403) {
@@ -287,7 +321,7 @@ export const apiRequest = async <T = unknown>(
     authLogger.debug(
       'API response',
       {
-        endpoint: endpoint.replace(API_BASE_URL, ''),
+        endpoint: endpointPath,
         success: true,
       },
       requestId
@@ -311,7 +345,7 @@ export const apiRequest = async <T = unknown>(
   authLogger.debug(
     'API response',
     {
-      endpoint: endpoint.replace(API_BASE_URL, ''),
+      endpoint: endpointPath,
       success: dataObj?.success,
     },
     requestId

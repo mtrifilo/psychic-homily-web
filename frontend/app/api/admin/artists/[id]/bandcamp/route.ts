@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
+import * as Sentry from '@sentry/nextjs'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -154,7 +155,11 @@ export async function POST(
       artist,
     })
   } catch (error) {
-    console.error('Error updating artist Bandcamp URL:', error)
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'admin-bandcamp', operation: 'update' },
+      extra: { artistId },
+    })
     return NextResponse.json(
       { error: 'Failed to update artist' },
       { status: 500 }
@@ -215,7 +220,11 @@ export async function DELETE(
       artist,
     })
   } catch (error) {
-    console.error('Error clearing artist Bandcamp URL:', error)
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'admin-bandcamp', operation: 'clear' },
+      extra: { artistId },
+    })
     return NextResponse.json(
       { error: 'Failed to clear Bandcamp URL' },
       { status: 500 }

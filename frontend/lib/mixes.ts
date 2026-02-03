@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import matter from 'gray-matter'
+import * as Sentry from '@sentry/nextjs'
 import type { Mix, MixMeta, MixFrontmatter } from './types/mix'
 
 // Path to mixes content (inside frontend directory)
@@ -10,10 +11,19 @@ const MIXES_CONTENT_PATH = path.join(process.cwd(), 'content', 'mixes')
  * Get all mix slugs for static generation
  */
 export function getMixSlugs(): string[] {
-  const files = fs.readdirSync(MIXES_CONTENT_PATH)
-  return files
-    .filter(file => file.endsWith('.md') && !file.startsWith('_'))
-    .map(file => file.replace(/\.md$/, ''))
+  try {
+    const files = fs.readdirSync(MIXES_CONTENT_PATH)
+    return files
+      .filter(file => file.endsWith('.md') && !file.startsWith('_'))
+      .map(file => file.replace(/\.md$/, ''))
+  } catch (error) {
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'mixes', operation: 'getMixSlugs' },
+      extra: { path: MIXES_CONTENT_PATH },
+    })
+    return []
+  }
 }
 
 /**
@@ -38,20 +48,29 @@ function convertShortcodesToMDX(content: string): string {
 export function getMix(slug: string): Mix | null {
   const filePath = path.join(MIXES_CONTENT_PATH, `${slug}.md`)
 
-  if (!fs.existsSync(filePath)) {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return null
+    }
+
+    const fileContents = fs.readFileSync(filePath, 'utf8')
+    const { data, content } = matter(fileContents)
+
+    const frontmatter = data as MixFrontmatter
+    const mdxContent = convertShortcodesToMDX(content)
+
+    return {
+      slug,
+      frontmatter,
+      content: mdxContent,
+    }
+  } catch (error) {
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'mixes', operation: 'getMix' },
+      extra: { slug, filePath },
+    })
     return null
-  }
-
-  const fileContents = fs.readFileSync(filePath, 'utf8')
-  const { data, content } = matter(fileContents)
-
-  const frontmatter = data as MixFrontmatter
-  const mdxContent = convertShortcodesToMDX(content)
-
-  return {
-    slug,
-    frontmatter,
-    content: mdxContent,
   }
 }
 

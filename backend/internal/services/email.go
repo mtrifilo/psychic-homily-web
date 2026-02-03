@@ -3,6 +3,8 @@ package services
 import (
 	"fmt"
 
+	"github.com/getsentry/sentry-go"
+
 	"psychic-homily-backend/internal/config"
 
 	"github.com/resend/resend-go/v2"
@@ -81,6 +83,11 @@ func (s *EmailService) SendVerificationEmail(toEmail, token string) error {
 
 	_, err := s.client.Emails.Send(params)
 	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "email")
+			scope.SetTag("email_type", "verification")
+			sentry.CaptureException(err)
+		})
 		return fmt.Errorf("failed to send verification email: %w", err)
 	}
 
@@ -134,6 +141,11 @@ func (s *EmailService) SendMagicLinkEmail(toEmail, token string) error {
 
 	_, err := s.client.Emails.Send(params)
 	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "email")
+			scope.SetTag("email_type", "magic_link")
+			sentry.CaptureException(err)
+		})
 		return fmt.Errorf("failed to send magic link email: %w", err)
 	}
 
@@ -187,6 +199,11 @@ func (s *EmailService) SendAccountRecoveryEmail(toEmail, token string, daysRemai
 
 	_, err := s.client.Emails.Send(params)
 	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "email")
+			scope.SetTag("email_type", "account_recovery")
+			sentry.CaptureException(err)
+		})
 		return fmt.Errorf("failed to send account recovery email: %w", err)
 	}
 

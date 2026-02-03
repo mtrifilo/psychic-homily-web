@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/getsentry/sentry-go"
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
@@ -267,19 +268,28 @@ func (s *DiscordService) sendWebhook(embed DiscordEmbed) {
 
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("[Discord] Failed to marshal payload: %v", err)
+		sentry.CaptureException(fmt.Errorf("discord webhook marshal failed: %w", err))
 		return
 	}
 
 	resp, err := s.httpClient.Post(s.webhookURL, "application/json", bytes.NewBuffer(jsonPayload))
 	if err != nil {
-		log.Printf("[Discord] Failed to send webhook: %v", err)
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "discord")
+			scope.SetExtra("embed_title", embed.Title)
+			sentry.CaptureException(fmt.Errorf("discord webhook failed: %w", err))
+		})
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Printf("[Discord] Webhook returned non-2xx status: %d", resp.StatusCode)
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "discord")
+			scope.SetExtra("status_code", resp.StatusCode)
+			scope.SetExtra("embed_title", embed.Title)
+			sentry.CaptureMessage(fmt.Sprintf("Discord webhook returned %d", resp.StatusCode))
+		})
 	}
 }
 

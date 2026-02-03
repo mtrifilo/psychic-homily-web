@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
+import * as Sentry from '@sentry/nextjs'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -144,7 +145,11 @@ export async function POST(
       artist,
     })
   } catch (error) {
-    console.error('Error updating artist Spotify URL:', error)
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'admin-spotify', operation: 'update' },
+      extra: { artistId },
+    })
     return NextResponse.json(
       { error: 'Failed to update artist' },
       { status: 500 }
@@ -205,7 +210,11 @@ export async function DELETE(
       artist,
     })
   } catch (error) {
-    console.error('Error clearing artist Spotify URL:', error)
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'admin-spotify', operation: 'clear' },
+      extra: { artistId },
+    })
     return NextResponse.json(
       { error: 'Failed to clear Spotify URL' },
       { status: 500 }

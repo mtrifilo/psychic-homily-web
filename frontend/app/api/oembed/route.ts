@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import * as Sentry from '@sentry/nextjs'
 
 interface OEmbedResponse {
   html?: string
@@ -80,6 +81,11 @@ export async function GET(request: NextRequest) {
     })
 
     if (!response.ok) {
+      Sentry.captureMessage(`oEmbed request failed: ${response.status}`, {
+        level: 'warning',
+        tags: { service: 'oembed', provider },
+        extra: { url, status: response.status },
+      })
       return NextResponse.json(
         { error: `oEmbed request failed with status ${response.status}` },
         { status: response.status }
@@ -94,7 +100,11 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('oEmbed fetch error:', error)
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'oembed', provider },
+      extra: { url },
+    })
     return NextResponse.json(
       { error: 'Failed to fetch oEmbed data' },
       { status: 500 }

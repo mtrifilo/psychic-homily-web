@@ -1,6 +1,7 @@
 import { MetadataRoute } from 'next'
 import { getBlogSlugs } from '@/lib/blog'
 import { getMixSlugs } from '@/lib/mixes'
+import * as Sentry from '@sentry/nextjs'
 
 const BASE_URL = 'https://psychichomily.com'
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.psychichomily.com'
@@ -28,8 +29,15 @@ async function fetchShows(): Promise<ShowResponse[]> {
     if (res.ok) {
       return res.json()
     }
-  } catch {
-    console.error('Failed to fetch shows for sitemap')
+    Sentry.captureMessage(`Sitemap: shows fetch returned ${res.status}`, {
+      level: 'error',
+      tags: { service: 'sitemap', resource: 'shows' },
+    })
+  } catch (error) {
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'sitemap', resource: 'shows' },
+    })
   }
   return []
 }
@@ -42,8 +50,15 @@ async function fetchVenues(): Promise<{ venues: VenueResponse[] }> {
     if (res.ok) {
       return res.json()
     }
-  } catch {
-    console.error('Failed to fetch venues for sitemap')
+    Sentry.captureMessage(`Sitemap: venues fetch returned ${res.status}`, {
+      level: 'error',
+      tags: { service: 'sitemap', resource: 'venues' },
+    })
+  } catch (error) {
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'sitemap', resource: 'venues' },
+    })
   }
   return { venues: [] }
 }
@@ -56,8 +71,15 @@ async function fetchArtists(): Promise<{ artists: ArtistResponse[] }> {
     if (res.ok) {
       return res.json()
     }
-  } catch {
-    console.error('Failed to fetch artists for sitemap')
+    Sentry.captureMessage(`Sitemap: artists fetch returned ${res.status}`, {
+      level: 'error',
+      tags: { service: 'sitemap', resource: 'artists' },
+    })
+  } catch (error) {
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'sitemap', resource: 'artists' },
+    })
   }
   return { artists: [] }
 }
