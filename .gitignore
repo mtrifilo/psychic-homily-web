@@ -85,3 +85,4 @@ Thumbs.db
 
 # Local development documentation (contains sensitive connection info)
 dev-docs/
+cli/ph-admin
