@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useCookieConsent } from '@/lib/context/CookieConsentContext'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -11,9 +11,22 @@ import {
   posthog,
 } from '@/lib/posthog'
 
-export function PostHogProvider({ children }: { children: React.ReactNode }) {
+// Separate component for search params tracking to allow Suspense boundary
+function PostHogPageView() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const { canUseAnalytics } = useCookieConsent()
+
+  // Track pageviews
+  useEffect(() => {
+    if (!canUseAnalytics) return
+    posthog.capture('$pageview', { $current_url: window.location.href })
+  }, [pathname, searchParams, canUseAnalytics])
+
+  return null
+}
+
+export function PostHogProvider({ children }: { children: React.ReactNode }) {
   const { canUseAnalytics, isLoaded } = useCookieConsent()
   const { user, isAuthenticated } = useAuthContext()
   const prevConsent = useRef<boolean | null>(null)
@@ -30,12 +43,6 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
     canUseAnalytics ? optInPostHog() : optOutPostHog()
   }, [canUseAnalytics, isLoaded])
 
-  // Track pageviews
-  useEffect(() => {
-    if (!canUseAnalytics) return
-    posthog.capture('$pageview', { $current_url: window.location.href })
-  }, [pathname, searchParams, canUseAnalytics])
-
   // Identify authenticated users
   useEffect(() => {
     if (!canUseAnalytics) return
@@ -49,5 +56,12 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isAuthenticated, user, canUseAnalytics])
 
-  return <>{children}</>
+  return (
+    <>
+      <Suspense fallback={null}>
+        <PostHogPageView />
+      </Suspense>
+      {children}
+    </>
+  )
 }
