@@ -12,7 +12,9 @@ import {
   Check,
   AlertCircle,
 } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useArtist } from '@/lib/hooks/useArtists'
+import { queryKeys } from '@/lib/queryClient'
 import { useIsAuthenticated } from '@/lib/hooks/useAuth'
 import {
   useDiscoverMusic,
@@ -33,6 +35,7 @@ interface ArtistDetailProps {
 }
 
 export function ArtistDetail({ artistId }: ArtistDetailProps) {
+  const queryClient = useQueryClient()
   const { data: artist, isLoading, error } = useArtist({ artistId })
   const { user, isAuthenticated } = useIsAuthenticated()
   const isAdmin = isAuthenticated && user?.is_admin
@@ -72,6 +75,10 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
     setFeedback(null)
     discoverMusic.mutate(artist.id, {
       onSuccess: data => {
+        // Invalidate using the original artistId (slug) to refresh the UI
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.artists.detail(artistId),
+        })
         const platformName = data.platform
           ? formatPlatformName(data.platform)
           : 'music'
@@ -111,6 +118,9 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
       { artistId: artist.id, bandcampUrl: manualUrl.trim() },
       {
         onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.artists.detail(artistId),
+          })
           setFeedback({ type: 'success', message: 'Bandcamp URL saved' })
           setShowManualInput(null)
           setManualUrl('')
@@ -133,6 +143,9 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
       { artistId: artist.id, spotifyUrl: manualUrl.trim() },
       {
         onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.artists.detail(artistId),
+          })
           setFeedback({ type: 'success', message: 'Spotify URL saved' })
           setShowManualInput(null)
           setManualUrl('')
@@ -152,6 +165,9 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
     setFeedback(null)
     clearBandcamp.mutate(artist.id, {
       onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.artists.detail(artistId),
+        })
         setFeedback({ type: 'success', message: 'Bandcamp URL cleared' })
         setShowManualInput(null)
       },
@@ -169,6 +185,9 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
     setFeedback(null)
     clearSpotify.mutate(artist.id, {
       onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.artists.detail(artistId),
+        })
         setFeedback({ type: 'success', message: 'Spotify URL cleared' })
         setShowManualInput(null)
       },

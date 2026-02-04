@@ -48,8 +48,8 @@ To distinguish between Stage and Production notifications, use **separate Discor
 
 | Environment | Discord Channel | Webhook Name |
 |-------------|-----------------|--------------|
-| Stage | `#stage-alerts` | Psychic Homily Stage |
-| Production | `#production-alerts` | Psychic Homily Production |
+| Stage | `#alerts-stage` | Psychic Homily Stage |
+| Production | `#alerts-production` | Psychic Homily Production |
 
 This way, you always know which environment generated a notification at a glance.
 
@@ -65,7 +65,7 @@ This way, you always know which environment generated a notification at a glance
 Create a separate webhook for each environment:
 
 1. Open your Discord server
-2. Create channels for alerts (e.g., `#stage-alerts`, `#production-alerts`)
+2. Create channels for alerts (e.g., `#alerts-stage`, `#alerts-production`)
 3. For each channel:
    - Go to **Edit Channel** → **Integrations** → **Webhooks**
    - Click **New Webhook**
@@ -73,20 +73,21 @@ Create a separate webhook for each environment:
    - **Avatar**: Optionally upload a custom icon
    - Click **Copy Webhook URL**
 
-### Coolify Configuration
+### Railway Configuration
 
-Environment variables are configured in Coolify for each backend application:
+Environment variables are configured in Railway for each backend service:
 
-1. Open Coolify dashboard
-2. Go to **Projects** → Select your project (e.g., `psychic-homily-stage`)
-3. Click on the backend application
-4. Go to **Environment Variables**
-5. Add:
+1. Open Railway dashboard: https://railway.app
+2. Select the **psychic-homily** project
+3. Switch to the appropriate environment (Stage or Production)
+4. Click on the backend service
+5. Go to **Variables** tab
+6. Add:
    ```
    DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN
    DISCORD_NOTIFICATIONS_ENABLED=true
    ```
-6. Click **Save** — Coolify will automatically redeploy with the new configuration
+7. Click **Deploy** or wait for automatic redeploy
 
 Repeat for each environment (Stage, Production) with their respective webhook URLs.
 
@@ -298,8 +299,8 @@ Each environment should have its own webhook pointing to a dedicated channel:
 
 | Environment | Channel | Purpose |
 |-------------|---------|---------|
-| Stage | `#stage-alerts` | Test notifications, catch issues before production |
-| Production | `#production-alerts` | Real user activity monitoring |
+| Stage | `#alerts-stage` | Test notifications, catch issues before production |
+| Production | `#alerts-production` | Real user activity monitoring |
 
 **Recommended channel settings:**
 - Restrict channel access to admins only
@@ -344,10 +345,10 @@ func (s *DiscordService) NotifyShowRejected(show *ShowResponse, reason string)
 
 ### Notifications Not Appearing
 
-1. **Check environment variables in Coolify**: Ensure both `DISCORD_WEBHOOK_URL` and `DISCORD_NOTIFICATIONS_ENABLED=true` are set in the application's environment variables
-2. **Verify the deployment**: After adding/changing environment variables, ensure Coolify has redeployed the application
+1. **Check environment variables in Railway**: Ensure both `DISCORD_WEBHOOK_URL` and `DISCORD_NOTIFICATIONS_ENABLED=true` are set in the service's Variables tab
+2. **Verify the deployment**: After adding/changing environment variables, ensure Railway has redeployed the service
 3. **Check webhook URL**: Verify the URL is correct and the webhook hasn't been deleted in Discord
-4. **Check container logs in Coolify**: Look for `[Discord]` prefixed log messages indicating errors
+4. **Check service logs in Railway**: Use `railway logs` or the Railway dashboard to look for Discord-related error messages
 5. **Test webhook directly**:
    ```bash
    curl -X POST "YOUR_WEBHOOK_URL" \
