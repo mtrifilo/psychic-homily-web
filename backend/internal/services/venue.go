@@ -316,7 +316,8 @@ func (venueService *VenueService) SearchVenues(query string) ([]*VenueDetailResp
 // City and state are required - this function will return an error if they're empty.
 // If isAdmin is true, new venues are automatically verified.
 // If isAdmin is false, new venues require admin approval (verified = false).
-func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*models.Venue, error) {
+// Returns the venue and a boolean indicating if it was newly created.
+func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*models.Venue, bool, error) {
 	// Use provided db or fall back to service's db
 	query := db
 	if query == nil {
@@ -324,18 +325,18 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 	}
 
 	if query == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, false, fmt.Errorf("database not initialized")
 	}
 
 	// Validate required fields
 	if name == "" {
-		return nil, fmt.Errorf("venue name is required")
+		return nil, false, fmt.Errorf("venue name is required")
 	}
 	if city == "" {
-		return nil, fmt.Errorf("venue city is required")
+		return nil, false, fmt.Errorf("venue city is required")
 	}
 	if state == "" {
-		return nil, fmt.Errorf("venue state is required")
+		return nil, false, fmt.Errorf("venue state is required")
 	}
 
 	// Check if venue already exists by name and city
@@ -343,10 +344,10 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 	err := query.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", name, city).First(&venue).Error
 
 	if err == nil {
-		// Venue exists, return it
-		return &venue, nil
+		// Venue exists, return it (not newly created)
+		return &venue, false, nil
 	} else if err != gorm.ErrRecordNotFound {
-		return nil, fmt.Errorf("failed to check existing venue: %w", err)
+		return nil, false, fmt.Errorf("failed to check existing venue: %w", err)
 	}
 
 	// Venue doesn't exist, create it - verified if created by admin, unverified otherwise
@@ -361,10 +362,10 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 	}
 
 	if err := query.Create(&venue).Error; err != nil {
-		return nil, fmt.Errorf("failed to create venue: %w", err)
+		return nil, false, fmt.Errorf("failed to create venue: %w", err)
 	}
 
-	return &venue, nil
+	return &venue, true, nil // true = newly created
 }
 
 // VerifyVenue marks a venue as verified by an admin.

@@ -98,13 +98,14 @@ type ShowResponse struct {
 
 // VenueResponse represents venue data in show responses
 type VenueResponse struct {
-	ID       uint    `json:"id"`
-	Slug     string  `json:"slug"`
-	Name     string  `json:"name"`
-	Address  *string `json:"address"`
-	City     string  `json:"city"`
-	State    string  `json:"state"`
-	Verified bool    `json:"verified"` // Admin-verified as legitimate venue
+	ID         uint    `json:"id"`
+	Slug       string  `json:"slug"`
+	Name       string  `json:"name"`
+	Address    *string `json:"address"`
+	City       string  `json:"city"`
+	State      string  `json:"state"`
+	Verified   bool    `json:"verified"`    // Admin-verified as legitimate venue
+	IsNewVenue *bool   `json:"is_new_venue"` // True if venue was created during this show submission
 }
 
 // ShowArtistSocials represents social media links for artists in show responses
@@ -1137,6 +1138,7 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 	for _, requestVenue := range requestVenues {
 		var venue *models.Venue
 		var err error
+		isNewVenue := false
 
 		// If ID is provided, try to find existing venue by ID
 		if requestVenue.ID != nil {
@@ -1156,7 +1158,7 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 				addressPtr = &requestVenue.Address
 			}
 
-			venue, err = venueService.FindOrCreateVenue(
+			venue, isNewVenue, err = venueService.FindOrCreateVenue(
 				requestVenue.Name,
 				requestVenue.City,
 				requestVenue.State,
@@ -1179,13 +1181,20 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 			return nil, fmt.Errorf("failed to create show-venue association: %w", err)
 		}
 
+		venueSlug := ""
+		if venue.Slug != nil {
+			venueSlug = *venue.Slug
+		}
+
 		venues = append(venues, VenueResponse{
-			ID:       venue.ID,
-			Name:     venue.Name,
-			Address:  venue.Address,
-			City:     venue.City,
-			State:    venue.State,
-			Verified: venue.Verified,
+			ID:         venue.ID,
+			Slug:       venueSlug,
+			Name:       venue.Name,
+			Address:    venue.Address,
+			City:       venue.City,
+			State:      venue.State,
+			Verified:   venue.Verified,
+			IsNewVenue: &isNewVenue,
 		})
 	}
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"psychic-homily-backend/internal/api/middleware"
+	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
 
@@ -14,12 +15,14 @@ import (
 )
 
 type VenueHandler struct {
-	venueService *services.VenueService
+	venueService   *services.VenueService
+	discordService *services.DiscordService
 }
 
-func NewVenueHandler() *VenueHandler {
+func NewVenueHandler(cfg *config.Config) *VenueHandler {
 	return &VenueHandler{
-		venueService: services.NewVenueService(),
+		venueService:   services.NewVenueService(),
+		discordService: services.NewDiscordService(cfg),
 	}
 }
 
@@ -419,6 +422,17 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 			fmt.Sprintf("Failed to create pending edit: %s (request_id: %s)", err.Error(), requestID),
 		)
 	}
+
+	// Send Discord notification for pending venue edit
+	submitterEmail := ""
+	if user.Email != nil {
+		submitterEmail = *user.Email
+	}
+	venueName := ""
+	if pendingEdit.Venue != nil {
+		venueName = pendingEdit.Venue.Name
+	}
+	h.discordService.NotifyPendingVenueEdit(pendingEdit.ID, pendingEdit.VenueID, venueName, submitterEmail)
 
 	return &UpdateVenueResponse{
 		Body: struct {

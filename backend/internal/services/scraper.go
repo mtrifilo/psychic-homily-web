@@ -235,7 +235,7 @@ func (s *ScraperService) createShowFromEvent(event *ScrapedEvent, eventDate time
 
 		// Find or create the venue
 		address := venueConfig.Address
-		venue, err := s.venueService.FindOrCreateVenue(
+		venue, _, err := s.venueService.FindOrCreateVenue(
 			venueConfig.Name,
 			venueConfig.City,
 			venueConfig.State,

@@ -70,7 +70,7 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 
 	setupShowRoutes(api, protectedGroup, cfg)
 	setupArtistRoutes(api, protectedGroup)
-	setupVenueRoutes(api, protectedGroup)
+	setupVenueRoutes(api, protectedGroup, cfg)
 	setupSavedShowRoutes(protectedGroup)
 	setupFavoriteVenueRoutes(protectedGroup)
 	setupShowReportRoutes(protectedGroup, cfg)
@@ -231,8 +231,8 @@ func setupArtistRoutes(api huma.API, protected *huma.Group) {
 	// Note: Add protected artist endpoints here if needed in the future
 }
 
-func setupVenueRoutes(api huma.API, protected *huma.Group) {
-	venueHandler := handlers.NewVenueHandler()
+func setupVenueRoutes(api huma.API, protected *huma.Group, cfg *config.Config) {
+	venueHandler := handlers.NewVenueHandler(cfg)
 
 	// Public venue endpoints - registered on main API without middleware
 	// Note: Static routes must come before parameterized routes

@@ -39,6 +39,7 @@ User Action → Handler → Discord Service → Discord Webhook → Discord Chan
 | New show submission | Blue | `0x0066FF` |
 | Status change | Orange | `0xFFA500` |
 | Show rejected | Red | `0xFF0000` |
+| Venue needs verification | Purple | `0x9B59B6` |
 
 ## Configuration
 
@@ -166,6 +167,37 @@ Fields:
   - Actions: [View Admin Panel](https://psychichomily.com/admin)  ← Clickable link!
 ```
 
+### New Unverified Venue
+
+Sent when a non-admin user submits a show with a new venue name.
+
+```
+Title: "New Venue: The Rebel Lounge"
+Description: Needs verification
+Color: Purple
+Fields:
+  - Venue ID: 123
+  - Location: Phoenix, AZ
+  - Submitted By: jo***@example.com
+  - Address: 2303 E Indian School Rd (if provided)
+  - Actions: [Review Venues](https://psychichomily.com/admin?tab=venues)  ← Clickable link!
+```
+
+### Pending Venue Edit
+
+Sent when a non-admin user submits changes to an existing venue for review.
+
+```
+Title: "Venue Edit: The Rebel Lounge"
+Description: Pending review
+Color: Purple
+Fields:
+  - Venue ID: 123
+  - Edit ID: 456
+  - Submitted By: jo***@example.com
+  - Actions: [Review Venue Edits](https://psychichomily.com/admin?tab=venue-edits)  ← Clickable link!
+```
+
 ## Action Links
 
 The notification system includes clickable links that allow admins to quickly navigate to the relevant page:
@@ -176,6 +208,8 @@ The notification system includes clickable links that allow admins to quickly na
 | Status → Pending | "Review Pending Shows" | `/admin` - Admin panel with pending shows |
 | Show Approved | "View on Calendar" | `/` - Main calendar page |
 | Show Rejected | "View Admin Panel" | `/admin` - Admin panel |
+| New Unverified Venue | "Review Venues" | `/admin?tab=venues` - Admin venues tab |
+| Pending Venue Edit | "Review Venue Edits" | `/admin?tab=venue-edits` - Admin venue edits tab |
 
 These links use the `FRONTEND_URL` environment variable (shared with email configuration) to generate the correct URLs for your environment (localhost, staging, or production).
 
@@ -316,8 +350,9 @@ Each environment should have its own webhook pointing to a dedicated channel:
 | `internal/config/config.go` | Discord configuration struct and env loading |
 | `internal/services/discord.go` | Discord service with all notification methods |
 | `internal/api/handlers/auth.go` | Calls `NotifyNewUser` on registration |
-| `internal/api/handlers/show.go` | Calls `NotifyNewShow` and `NotifyShowStatusChange` |
+| `internal/api/handlers/show.go` | Calls `NotifyNewShow`, `NotifyShowStatusChange`, and `NotifyNewVenue` |
 | `internal/api/handlers/admin.go` | Calls `NotifyShowApproved` and `NotifyShowRejected` |
+| `internal/api/handlers/venue.go` | Calls `NotifyPendingVenueEdit` for non-admin venue edits |
 
 ### Service Methods
 
@@ -339,6 +374,15 @@ func (s *DiscordService) NotifyShowApproved(show *ShowResponse)
 
 // Send notification for show rejection
 func (s *DiscordService) NotifyShowRejected(show *ShowResponse, reason string)
+
+// Send notification for show report
+func (s *DiscordService) NotifyShowReport(report *models.ShowReport, reporterEmail string)
+
+// Send notification for new unverified venue
+func (s *DiscordService) NotifyNewVenue(venueID uint, venueName, city, state string, address *string, submitterEmail string)
+
+// Send notification for pending venue edit
+func (s *DiscordService) NotifyPendingVenueEdit(editID, venueID uint, venueName, submitterEmail string)
 ```
 
 ## Troubleshooting

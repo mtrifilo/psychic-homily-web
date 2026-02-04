@@ -369,6 +369,13 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 		}
 	}
 
+	// Notify about any newly created unverified venues
+	for _, venue := range show.Venues {
+		if venue.IsNewVenue != nil && *venue.IsNewVenue && !venue.Verified {
+			h.discordService.NotifyNewVenue(venue.ID, venue.Name, venue.City, venue.State, venue.Address, submitterEmail)
+		}
+	}
+
 	// Auto-save the show to the submitter's personal list
 	if submittedByUserID != nil {
 		if err := h.savedShowService.SaveShow(*submittedByUserID, show.ID); err != nil {

@@ -20,6 +20,7 @@ const (
 	ColorBlue   = 0x0066FF // New show submissions
 	ColorOrange = 0xFFA500 // Status changes (unpublish/publish/make-private)
 	ColorRed    = 0xFF0000 // Show rejected
+	ColorPurple = 0x9B59B6 // Venue needs verification
 )
 
 // DiscordEmbed represents a Discord embed object
@@ -255,6 +256,69 @@ func (s *DiscordService) NotifyShowReport(report *models.ShowReport, reporterEma
 		Color:     ColorOrange,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Fields:    fields,
+	}
+
+	go s.sendWebhook(embed)
+}
+
+// NotifyNewVenue sends a notification when a new unverified venue is created
+func (s *DiscordService) NotifyNewVenue(venueID uint, venueName, city, state string, address *string, submitterEmail string) {
+	if !s.IsConfigured() {
+		return
+	}
+
+	location := city
+	if state != "" {
+		location = fmt.Sprintf("%s, %s", city, state)
+	}
+
+	fields := []DiscordEmbedField{
+		{Name: "Venue ID", Value: fmt.Sprintf("%d", venueID), Inline: true},
+		{Name: "Location", Value: location, Inline: true},
+		{Name: "Submitted By", Value: hashEmail(submitterEmail), Inline: true},
+	}
+
+	if address != nil && *address != "" {
+		fields = append(fields, DiscordEmbedField{Name: "Address", Value: *address, Inline: false})
+	}
+
+	// Add action link
+	actions := fmt.Sprintf("[Review Venues](%s/admin?tab=venues)", s.frontendURL)
+	fields = append(fields, DiscordEmbedField{Name: "Actions", Value: actions, Inline: false})
+
+	embed := DiscordEmbed{
+		Title:       fmt.Sprintf("New Venue: %s", venueName),
+		Description: "Needs verification",
+		Color:       ColorPurple,
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		Fields:      fields,
+	}
+
+	go s.sendWebhook(embed)
+}
+
+// NotifyPendingVenueEdit sends a notification when a user submits a venue edit for review
+func (s *DiscordService) NotifyPendingVenueEdit(editID, venueID uint, venueName, submitterEmail string) {
+	if !s.IsConfigured() {
+		return
+	}
+
+	fields := []DiscordEmbedField{
+		{Name: "Venue ID", Value: fmt.Sprintf("%d", venueID), Inline: true},
+		{Name: "Edit ID", Value: fmt.Sprintf("%d", editID), Inline: true},
+		{Name: "Submitted By", Value: hashEmail(submitterEmail), Inline: true},
+	}
+
+	// Add action link
+	actions := fmt.Sprintf("[Review Venue Edits](%s/admin?tab=venue-edits)", s.frontendURL)
+	fields = append(fields, DiscordEmbedField{Name: "Actions", Value: actions, Inline: false})
+
+	embed := DiscordEmbed{
+		Title:       fmt.Sprintf("Venue Edit: %s", venueName),
+		Description: "Pending review",
+		Color:       ColorPurple,
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		Fields:      fields,
 	}
 
 	go s.sendWebhook(embed)
