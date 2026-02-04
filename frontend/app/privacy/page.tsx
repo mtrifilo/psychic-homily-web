@@ -7,7 +7,7 @@ export const metadata: Metadata = {
 }
 
 export default function PrivacyPolicyPage() {
-  const lastUpdated = 'January 31, 2026'
+  const lastUpdated = 'February 3, 2026'
   const effectiveDate = 'January 31, 2026'
 
   return (
@@ -41,6 +41,7 @@ export default function PrivacyPolicyPage() {
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
               <li><strong>Account Information:</strong> Email address, username, password (stored securely as a hash), first name, last name, profile photo/avatar URL, and bio.</li>
               <li><strong>User-Generated Content:</strong> Shows you save to your collection, show submissions, and any other content you create on the platform.</li>
+              <li><strong>Uploaded Content:</strong> Images you upload (such as show flyers) for AI-assisted show creation. These images are processed to extract event details and are not stored permanently.</li>
               <li><strong>Preferences:</strong> Theme settings, timezone, language preference, and notification preferences.</li>
               <li><strong>Communications:</strong> Information you provide when contacting me for support or feedback.</li>
             </ul>
@@ -92,6 +93,7 @@ export default function PrivacyPolicyPage() {
               <li><strong>Resend:</strong> Email delivery service. I share your email address to send transactional and notification emails. <Link href="https://resend.com/legal/privacy-policy" className="underline hover:text-muted-foreground">Resend Privacy Policy</Link></li>
               <li><strong>Railway:</strong> Cloud hosting provider where the application and database are hosted. <Link href="https://railway.app/legal/privacy" className="underline hover:text-muted-foreground">Railway Privacy Policy</Link></li>
               <li><strong>Google Cloud Storage:</strong> Used for backup storage. <Link href="https://cloud.google.com/terms/cloud-privacy-notice" className="underline hover:text-muted-foreground">Google Cloud Privacy Notice</Link></li>
+              <li><strong>Anthropic (Claude AI):</strong> I use AI to help extract show details from uploaded flyer images and to discover music links for artists. Uploaded images and artist names may be processed by Anthropic&apos;s Claude API. No personal user information is sent to Anthropic. <Link href="https://www.anthropic.com/privacy" className="underline hover:text-muted-foreground">Anthropic Privacy Policy</Link></li>
             </ul>
 
             <h3 className="text-lg font-medium mt-4 mb-2">4.2 Authentication Providers</h3>
