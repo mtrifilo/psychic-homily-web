@@ -8,7 +8,7 @@ import path from 'path';
  */
 
 // Venue configurations
-const VENUES = {
+export const VENUES = {
   'valley-bar': {
     name: 'Valley Bar',
     url: 'https://www.valleybarphx.com/calendar/',
@@ -63,18 +63,23 @@ const LOWERCASE_WORDS = new Set(['a', 'an', 'the', 'and', 'but', 'or', 'for', 'n
 const UPPERCASE_PATTERNS = [/^(dj|mc|vs\.?|ft\.?|feat\.?)$/i, /^[A-Z]{2,4}$/]; // DJ, MC, VS, FT, state abbreviations
 
 /**
- * Convert ALL CAPS text to Title Case
+ * Convert text to Title Case
  * "ARMAND HAMMER" -> "Armand Hammer"
  * "DJ SHADOW" -> "DJ Shadow"
  * "THE NEW PORNOGRAPHERS" -> "The New Pornographers"
+ * "graham hunt" -> "Graham Hunt"
+ * @param {string} str - Input string
+ * @param {boolean} force - Force title case even if already mixed case (for artist names)
  */
-function toTitleCase(str) {
+function toTitleCase(str, force = false) {
   if (!str) return str;
 
-  // If it's not mostly uppercase, return as-is (already formatted)
-  const upperCount = (str.match(/[A-Z]/g) || []).length;
-  const lowerCount = (str.match(/[a-z]/g) || []).length;
-  if (lowerCount > upperCount) return str;
+  // If not forcing, skip strings that appear already formatted (mixed case)
+  if (!force) {
+    const upperCount = (str.match(/[A-Z]/g) || []).length;
+    const lowerCount = (str.match(/[a-z]/g) || []).length;
+    if (lowerCount > upperCount) return str;
+  }
 
   return str
     .toLowerCase()
@@ -102,11 +107,71 @@ function toTitleCase(str) {
 }
 
 /**
+ * Quick preview of events - extracts basic info without visiting detail pages
+ * @param {string} venueSlug - Key from VENUES config (e.g., 'valley-bar')
+ * @returns {Promise<Array>} - Array of preview event objects (id, title, date, venue)
+ */
+export async function previewEvents(venueSlug) {
+  const venue = VENUES[venueSlug];
+  if (!venue) {
+    throw new Error(`Unknown venue: ${venueSlug}. Available: ${Object.keys(VENUES).join(', ')}`);
+  }
+
+  console.log(`\nFetching event list from ${venue.name}...`);
+
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+
+  try {
+    await page.goto(venue.url, {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000,
+    });
+
+    // Wait for the all_events variable
+    await page.waitForFunction(() => typeof all_events !== 'undefined', {
+      timeout: 30000,
+      polling: 500,
+    });
+
+    // Extract basic event info only
+    const events = await page.evaluate(() => {
+      if (typeof all_events !== 'undefined') {
+        return all_events.map(e => ({
+          id: e.id,
+          title: e.title,
+          date: e.start,
+          venue: e.venue,
+        }));
+      }
+      return [];
+    });
+
+    // Process the titles
+    const previewEvents = events.map(e => ({
+      id: e.id,
+      title: toTitleCase(decodeHtmlEntities(e.title)),
+      date: e.date,
+      venue: stripHtml(e.venue) || venue.name,
+    }));
+
+    console.log(`  ✓ Found ${previewEvents.length} events\n`);
+    return previewEvents;
+  } finally {
+    await browser.close();
+  }
+}
+
+/**
  * Scrape a TicketWeb-powered venue calendar
  * @param {string} venueSlug - Key from VENUES config (e.g., 'valley-bar')
+ * @param {Object} options - Scraping options
+ * @param {Array<string>} options.eventIds - Optional list of event IDs to scrape (null = all)
  * @returns {Promise<Array>} - Array of processed event objects
  */
-export async function scrapeTicketWebVenue(venueSlug) {
+export async function scrapeTicketWebVenue(venueSlug, options = {}) {
+  const { eventIds = null } = options;
+
   const venue = VENUES[venueSlug];
   if (!venue) {
     throw new Error(`Unknown venue: ${venueSlug}. Available: ${Object.keys(VENUES).join(', ')}`);
@@ -157,7 +222,7 @@ export async function scrapeTicketWebVenue(venueSlug) {
 
     // Extract all events
     console.log('  Extracting events...');
-    const events = await page.evaluate(() => {
+    let events = await page.evaluate(() => {
       if (typeof all_events !== 'undefined') {
         return all_events;
       }
@@ -170,6 +235,13 @@ export async function scrapeTicketWebVenue(venueSlug) {
     }
 
     console.log(`  Found ${events.length} raw events`);
+
+    // Filter events if eventIds provided
+    if (eventIds && eventIds.length > 0) {
+      const eventIdSet = new Set(eventIds);
+      events = events.filter(e => eventIdSet.has(e.id));
+      console.log(`  Filtered to ${events.length} selected events`);
+    }
 
     // Get ticket links from event dialogs
     console.log('  Extracting ticket links...');
@@ -209,10 +281,10 @@ export async function scrapeTicketWebVenue(venueSlug) {
       const event = events[i];
       const eventUrl = eventUrls[event.id];
 
-      // Progress indicator every 10 events
-      if ((i + 1) % 10 === 0 || i === events.length - 1) {
-        process.stdout.write(`  Progress: ${i + 1}/${events.length}\r`);
-      }
+      // Show progress for each event with title (truncate long titles)
+      const title = decodeHtmlEntities(event.title);
+      const displayTitle = title.length > 40 ? title.slice(0, 37) + '...' : title;
+      process.stdout.write(`  [${i + 1}/${events.length}] ${displayTitle}`.padEnd(60) + '\r');
 
       let artists = [];
 
@@ -231,8 +303,8 @@ export async function scrapeTicketWebVenue(venueSlug) {
             return artistList;
           });
 
-          // Apply title case to artist names
-          artists = artists.map(name => toTitleCase(name));
+          // Apply title case to artist names (force=true to fix inconsistent casing)
+          artists = artists.map(name => toTitleCase(name, true));
 
           await detailPage.close();
         } catch (err) {
@@ -326,6 +398,7 @@ function parseArgs() {
     all: false,
     output: null,
     help: false,
+    interactive: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -336,6 +409,8 @@ function parseArgs() {
       result.output = args[++i];
     } else if (arg === '--help' || arg === '-h') {
       result.help = true;
+    } else if (arg === '--interactive' || arg === '-i') {
+      result.interactive = true;
     } else if (!arg.startsWith('-')) {
       result.venue = arg;
     }
@@ -352,10 +427,12 @@ if (options.help) {
   console.log('=======================\n');
   console.log('Usage:');
   console.log('  node scrape-ticketweb-venue.js <venue-slug>              Scrape a specific venue');
+  console.log('  node scrape-ticketweb-venue.js <venue-slug> -i           Interactive mode (select events)');
   console.log('  node scrape-ticketweb-venue.js --all                     Scrape all venues');
   console.log('  node scrape-ticketweb-venue.js --all --output ./output   Scrape and save to directory\n');
   console.log('Options:');
-  console.log('  --all, -a           Scrape all configured venues');
+  console.log('  --interactive, -i   Interactive mode: preview events and select which to scrape');
+  console.log('  --all               Scrape all configured venues');
   console.log('  --output, -o <dir>  Output directory for JSON file');
   console.log('  --help, -h          Show this help message\n');
   console.log('Available venues:');
@@ -395,8 +472,63 @@ if (options.all) {
       console.error('Scraping failed:', err);
       process.exit(1);
     });
+} else if (options.interactive && options.venue && VENUES[options.venue]) {
+  // Interactive mode: preview then select events
+  (async () => {
+    try {
+      // 1. Quick preview
+      const preview = await previewEvents(options.venue);
+
+      if (preview.length === 0) {
+        console.log('No events found.');
+        process.exit(0);
+      }
+
+      // 2. Checkbox selection
+      const { checkbox } = await import('@inquirer/prompts');
+      const selected = await checkbox({
+        message: 'Select events to scrape (space to toggle, enter to confirm):',
+        choices: preview.map(e => ({
+          name: `${e.date} - ${e.title}`,
+          value: e.id,
+        })),
+        pageSize: 15,
+      });
+
+      if (selected.length === 0) {
+        console.log('\nNo events selected. Exiting.');
+        process.exit(0);
+      }
+
+      console.log(`\nSelected ${selected.length} events for full scraping...`);
+
+      // 3. Full scrape of selected only
+      const events = await scrapeTicketWebVenue(options.venue, { eventIds: selected });
+
+      // 4. Output results
+      console.log('\n' + '='.repeat(80));
+      console.log(`\nScraped events from ${VENUES[options.venue].name}:\n`);
+      events.forEach((event, i) => {
+        console.log(`${i + 1}. ${event.title}`);
+        console.log(`   Date: ${event.date} | Doors: ${event.doorsTime || 'N/A'} | Show: ${event.showTime || 'N/A'}`);
+        console.log(`   Artists: ${event.artists.join(', ')}`);
+        console.log(`   Tickets: ${event.ticketUrl || 'N/A'}`);
+        console.log('');
+      });
+      console.log(`Total: ${events.length} events`);
+
+      // Write to file if output directory specified
+      if (options.output) {
+        const filepath = writeEventsToFile(events, options.output);
+        console.log(`\nEvents written to: ${filepath}`);
+      }
+    } catch (err) {
+      console.error('Scraping failed:', err);
+      process.exit(1);
+    }
+  })();
 } else if (options.venue && VENUES[options.venue]) {
-  // Scrape specific venue
+  // Scrape specific venue (all events)
   scrapeTicketWebVenue(options.venue)
     .then(events => {
       console.log('\n' + '='.repeat(80));
@@ -424,6 +556,7 @@ if (options.all) {
   console.log('=======================\n');
   console.log('Usage:');
   console.log('  node scrape-ticketweb-venue.js <venue-slug>              Scrape a specific venue');
+  console.log('  node scrape-ticketweb-venue.js <venue-slug> -i           Interactive mode (select events)');
   console.log('  node scrape-ticketweb-venue.js --all                     Scrape all venues');
   console.log('  node scrape-ticketweb-venue.js --all --output ./output   Scrape and save to directory\n');
   console.log('Available venues:');

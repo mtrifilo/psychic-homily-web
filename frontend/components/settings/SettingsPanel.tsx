@@ -22,6 +22,7 @@ import {
 import { ChangePassword } from '@/components/settings/change-password'
 import { DeleteAccountDialog } from '@/components/settings/delete-account-dialog'
 import { OAuthAccounts } from '@/components/settings/oauth-accounts'
+import { APITokenManagement } from '@/components/settings/api-token-management'
 
 export function SettingsPanel() {
   const { user } = useAuthContext()
@@ -280,7 +281,10 @@ export function SettingsPanel() {
         </CardContent>
       </Card>
 
-      {/* CLI Token Section (Admin Only) */}
+      {/* API Token Management (Admin Only) */}
+      {user?.is_admin && <APITokenManagement />}
+
+      {/* CLI Token Section (Admin Only) - Quick 24-hour tokens */}
       {user?.is_admin && (
         <Card>
           <CardHeader>
@@ -289,7 +293,7 @@ export function SettingsPanel() {
               <CardTitle className="text-lg">CLI Authentication</CardTitle>
             </div>
             <CardDescription>
-              Generate a token to authenticate the admin CLI tool
+              Generate a short-lived token for the admin CLI tool
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -298,10 +302,10 @@ export function SettingsPanel() {
                 <div className="flex flex-col gap-4">
                   <div className="space-y-1">
                     <p className="text-sm font-medium text-foreground">
-                      Admin CLI Token
+                      Quick CLI Token (24 hours)
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      Generate a token to use with the admin CLI for exporting and importing shows between environments. Tokens expire after 24 hours.
+                      Generate a short-lived token for quick CLI sessions. For long-running automations, use API Tokens above.
                     </p>
                   </div>
 

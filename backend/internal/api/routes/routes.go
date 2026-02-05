@@ -325,6 +325,22 @@ func setupAdminRoutes(protected *huma.Group, cfg *config.Config) {
 	// Admin artist management endpoints
 	huma.Patch(protected, "/admin/artists/{artist_id}/bandcamp", artistHandler.UpdateArtistBandcampHandler)
 	huma.Patch(protected, "/admin/artists/{artist_id}/spotify", artistHandler.UpdateArtistSpotifyHandler)
+
+	// Admin scraper import endpoint (for local scraper app)
+	huma.Post(protected, "/admin/scraper/import", adminHandler.ScraperImportHandler)
+
+	// Admin API token management endpoints
+	huma.Post(protected, "/admin/tokens", adminHandler.CreateAPITokenHandler)
+	huma.Get(protected, "/admin/tokens", adminHandler.ListAPITokensHandler)
+	huma.Delete(protected, "/admin/tokens/{token_id}", adminHandler.RevokeAPITokenHandler)
+
+	// Admin data export endpoints (for syncing local data to Stage/Production)
+	huma.Get(protected, "/admin/export/shows", adminHandler.ExportShowsHandler)
+	huma.Get(protected, "/admin/export/artists", adminHandler.ExportArtistsHandler)
+	huma.Get(protected, "/admin/export/venues", adminHandler.ExportVenuesHandler)
+
+	// Admin data import endpoint (for syncing local data to Stage/Production)
+	huma.Post(protected, "/admin/data/import", adminHandler.DataImportHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON

@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "scrape": "node scrape-ticketweb-venue.js --all",
-    "scrape:valley-bar": "node scrape-ticketweb-venue.js valley-bar",
-    "scrape:crescent": "node scrape-ticketweb-venue.js crescent-ballroom"
+    "import": "bun scrape-and-import.js",
+    "scrape": "bun scrape-ticketweb-venue.js --all",
+    "scrape:valley-bar": "bun scrape-ticketweb-venue.js valley-bar",
+    "scrape:crescent": "bun scrape-ticketweb-venue.js crescent-ballroom"
   },
   "dependencies": {
+    "@inquirer/prompts": "^7.0.0",
     "playwright": "^1.40.0"
   }
 }

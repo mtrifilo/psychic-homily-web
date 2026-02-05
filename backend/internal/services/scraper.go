@@ -53,13 +53,16 @@ type ImportResult struct {
 }
 
 // VenueConfig maps venue slugs to their database info
-// This should be configured based on known venues
+// NOTE: When adding venues, also update:
+//   - scraper/src/lib/config.ts (frontend config)
+//   - scraper/src/server/index.ts (scraper server config)
 var VenueConfig = map[string]struct {
 	Name    string
 	City    string
 	State   string
 	Address string
 }{
+	// Phoenix, AZ - Stateside Presents venues
 	"valley-bar": {
 		Name:    "Valley Bar",
 		City:    "Phoenix",
@@ -72,6 +75,34 @@ var VenueConfig = map[string]struct {
 		State:   "AZ",
 		Address: "308 N 2nd Ave",
 	},
+	"the-van-buren": {
+		Name:    "The Van Buren",
+		City:    "Phoenix",
+		State:   "AZ",
+		Address: "401 W Van Buren St",
+	},
+	"celebrity-theatre": {
+		Name:    "Celebrity Theatre",
+		City:    "Phoenix",
+		State:   "AZ",
+		Address: "440 N 32nd St",
+	},
+	"arizona-financial-theatre": {
+		Name:    "Arizona Financial Theatre",
+		City:    "Phoenix",
+		State:   "AZ",
+		Address: "400 W Washington St",
+	},
+
+	// NOTE: Add more venues here as you implement scrapers for them.
+	// Example venues from other cities:
+	//
+	// Denver, CO
+	// "gothic-theatre": { Name: "Gothic Theatre", City: "Denver", State: "CO", Address: "3263 S Broadway" },
+	// "bluebird-theater": { Name: "Bluebird Theater", City: "Denver", State: "CO", Address: "3317 E Colfax Ave" },
+	//
+	// Austin, TX
+	// "mohawk": { Name: "Mohawk", City: "Austin", State: "TX", Address: "912 Red River St" },
 }
 
 // ImportFromJSON imports events from a JSON file
@@ -409,4 +440,35 @@ func (s *ScraperService) ImportFromJSONWithDB(filepath string, dryRun bool, data
 	}()
 
 	return s.ImportFromJSON(filepath, dryRun)
+}
+
+// ImportEvents imports events from an array of ScrapedEvent objects
+// This is used by the HTTP API endpoint for importing scraped data directly
+func (s *ScraperService) ImportEvents(events []ScrapedEvent, dryRun bool) (*ImportResult, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	result := &ImportResult{
+		Total:    len(events),
+		Messages: make([]string, 0),
+	}
+
+	for _, event := range events {
+		msg, status := s.importEvent(&event, dryRun)
+		result.Messages = append(result.Messages, msg)
+
+		switch status {
+		case "imported":
+			result.Imported++
+		case "duplicate":
+			result.Duplicates++
+		case "rejected":
+			result.Rejected++
+		case "error":
+			result.Errors++
+		}
+	}
+
+	return result, nil
 }

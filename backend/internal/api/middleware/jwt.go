@@ -104,13 +104,20 @@ func JWTMiddleware(jwtService *services.JWTService) func(http.Handler) http.Hand
 	}
 }
 
-// HumaJWTMiddleware validates JWT tokens (Huma middleware version)
+// APITokenPrefix is the prefix for API tokens (used to identify token type)
+const APITokenPrefix = "phk_"
+
+// HumaJWTMiddleware validates JWT tokens or API tokens (Huma middleware version)
+// API tokens are identified by the "phk_" prefix and validated separately
 func HumaJWTMiddleware(jwtService *services.JWTService, sessionConfig ...config.SessionConfig) func(ctx huma.Context, next func(huma.Context)) {
 	// Get session config if provided (for clearing cookies on auth failure)
 	var sessConfig *config.SessionConfig
 	if len(sessionConfig) > 0 {
 		sessConfig = &sessionConfig[0]
 	}
+
+	// Create API token service for API token validation
+	apiTokenService := services.NewAPITokenService()
 
 	return func(ctx huma.Context, next func(huma.Context)) {
 		url := ctx.URL()
@@ -162,30 +169,51 @@ func HumaJWTMiddleware(jwtService *services.JWTService, sessionConfig ...config.
 			"source", tokenSource,
 		)
 
-		// Validate token
-		user, err := jwtService.ValidateToken(token)
-		if err != nil {
-			errorCode := autherrors.CodeTokenInvalid
-			message := "Invalid token"
+		var user *models.User
 
-			// Check if it's an expiration error
-			if strings.Contains(err.Error(), "expired") {
-				errorCode = autherrors.CodeTokenExpired
-				message = "Your session has expired. Please log in again."
+		// Check if this is an API token (starts with "phk_")
+		if strings.HasPrefix(token, APITokenPrefix) {
+			// Validate API token
+			apiUser, _, err := apiTokenService.ValidateToken(token)
+			if err != nil {
+				logger.AuthWarn(ctx.Context(), "huma_api_token_validation_failed",
+					"error", err.Error(),
+				)
+				writeHumaJWTError(ctx, requestID, autherrors.CodeTokenInvalid, err.Error(), nil)
+				return
 			}
 
-			logger.AuthWarn(ctx.Context(), "huma_jwt_validation_failed",
-				"error", err.Error(),
-				"error_code", errorCode,
+			user = apiUser
+			logger.AuthInfo(ctx.Context(), "huma_api_token_validation_success",
+				"user_id", user.ID,
 			)
-			// Clear the invalid cookie if we have session config
-			writeHumaJWTError(ctx, requestID, errorCode, message, sessConfig)
-			return
-		}
+		} else {
+			// Validate JWT token
+			jwtUser, err := jwtService.ValidateToken(token)
+			if err != nil {
+				errorCode := autherrors.CodeTokenInvalid
+				message := "Invalid token"
 
-		logger.AuthInfo(ctx.Context(), "huma_jwt_validation_success",
-			"user_id", user.ID,
-		)
+				// Check if it's an expiration error
+				if strings.Contains(err.Error(), "expired") {
+					errorCode = autherrors.CodeTokenExpired
+					message = "Your session has expired. Please log in again."
+				}
+
+				logger.AuthWarn(ctx.Context(), "huma_jwt_validation_failed",
+					"error", err.Error(),
+					"error_code", errorCode,
+				)
+				// Clear the invalid cookie if we have session config
+				writeHumaJWTError(ctx, requestID, errorCode, message, sessConfig)
+				return
+			}
+
+			user = jwtUser
+			logger.AuthInfo(ctx.Context(), "huma_jwt_validation_success",
+				"user_id", user.ID,
+			)
+		}
 
 		// Store user in context for handlers to access
 		ctxWithUser := huma.WithValue(ctx, UserContextKey, user)

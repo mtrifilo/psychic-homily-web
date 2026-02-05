@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -21,6 +22,9 @@ type AdminHandler struct {
 	venueService          *services.VenueService
 	discordService        *services.DiscordService
 	musicDiscoveryService *services.MusicDiscoveryService
+	scraperService        *services.ScraperService
+	apiTokenService       *services.APITokenService
+	dataSyncService       *services.DataSyncService
 }
 
 // NewAdminHandler creates a new admin handler
@@ -30,6 +34,9 @@ func NewAdminHandler(cfg *config.Config) *AdminHandler {
 		venueService:          services.NewVenueService(),
 		discordService:        services.NewDiscordService(cfg),
 		musicDiscoveryService: services.NewMusicDiscoveryService(cfg),
+		scraperService:        services.NewScraperService(),
+		apiTokenService:       services.NewAPITokenService(),
+		dataSyncService:       services.NewDataSyncService(),
 	}
 }
 
@@ -1184,5 +1191,580 @@ func (h *AdminHandler) BulkImportConfirmHandler(ctx context.Context, req *BulkIm
 			ErrorCount:   errorCount,
 		},
 	}, nil
+}
+
+// ============================================================================
+// Scraper Import Handlers (for local scraper app)
+// ============================================================================
+
+// ScraperImportEventInput represents a single scraped event for import
+type ScraperImportEventInput struct {
+	ID        string   `json:"id" doc:"External event ID from the venue's system"`
+	Title     string   `json:"title" doc:"Event title"`
+	Date      string   `json:"date" doc:"Event date in ISO format (YYYY-MM-DD)"`
+	Venue     string   `json:"venue" doc:"Venue name"`
+	VenueSlug string   `json:"venueSlug" doc:"Venue identifier (e.g., valley-bar)"`
+	ImageURL  *string  `json:"imageUrl,omitempty" doc:"Event image URL"`
+	DoorsTime *string  `json:"doorsTime,omitempty" doc:"Doors time (e.g., 6:30 pm)"`
+	ShowTime  *string  `json:"showTime,omitempty" doc:"Show time (e.g., 7:00 pm)"`
+	TicketURL *string  `json:"ticketUrl,omitempty" doc:"Ticket purchase URL"`
+	Artists   []string `json:"artists" doc:"List of artist names"`
+	ScrapedAt string   `json:"scrapedAt" doc:"When the event was scraped (ISO timestamp)"`
+}
+
+// ScraperImportRequest represents the HTTP request for importing scraped events
+type ScraperImportRequest struct {
+	Body struct {
+		Events []ScraperImportEventInput `json:"events" validate:"required,min=1" doc:"Array of scraped events to import"`
+		DryRun bool                      `json:"dryRun" doc:"If true, preview import without persisting"`
+	}
+}
+
+// ScraperImportResponse represents the HTTP response for importing scraped events
+type ScraperImportResponse struct {
+	Body services.ImportResult `json:"body"`
+}
+
+// ScraperImportHandler handles POST /admin/scraper/import
+func (h *AdminHandler) ScraperImportHandler(ctx context.Context, req *ScraperImportRequest) (*ScraperImportResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	if len(req.Body.Events) == 0 {
+		return nil, huma.Error400BadRequest("At least one event is required")
+	}
+
+	if len(req.Body.Events) > 100 {
+		return nil, huma.Error400BadRequest("Maximum 100 events can be imported at once")
+	}
+
+	logger.FromContext(ctx).Debug("admin_scraper_import_attempt",
+		"event_count", len(req.Body.Events),
+		"dry_run", req.Body.DryRun,
+		"admin_id", user.ID,
+	)
+
+	// Convert input events to ScrapedEvent format
+	events := make([]services.ScrapedEvent, len(req.Body.Events))
+	for i, e := range req.Body.Events {
+		events[i] = services.ScrapedEvent{
+			ID:        e.ID,
+			Title:     e.Title,
+			Date:      e.Date,
+			Venue:     e.Venue,
+			VenueSlug: e.VenueSlug,
+			ImageURL:  e.ImageURL,
+			DoorsTime: e.DoorsTime,
+			ShowTime:  e.ShowTime,
+			TicketURL: e.TicketURL,
+			Artists:   e.Artists,
+			ScrapedAt: e.ScrapedAt,
+		}
+	}
+
+	// Import events
+	result, err := h.scraperService.ImportEvents(events, req.Body.DryRun)
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_scraper_import_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to import events (request_id: %s)", requestID),
+		)
+	}
+
+	action := "imported"
+	if req.Body.DryRun {
+		action = "previewed"
+	}
+
+	logger.FromContext(ctx).Info("admin_scraper_import_success",
+		"action", action,
+		"total", result.Total,
+		"imported", result.Imported,
+		"duplicates", result.Duplicates,
+		"rejected", result.Rejected,
+		"errors", result.Errors,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &ScraperImportResponse{Body: *result}, nil
+}
+
+// ============================================================================
+// API Token Management Handlers
+// ============================================================================
+
+// CreateAPITokenRequest represents the HTTP request for creating an API token
+type CreateAPITokenRequest struct {
+	Body struct {
+		Description    string `json:"description" doc:"Optional description for the token (e.g., 'Mike laptop scraper')"`
+		ExpirationDays int    `json:"expiration_days" doc:"Token expiration in days (default: 90, max: 365)"`
+	}
+}
+
+// CreateAPITokenResponse represents the HTTP response for creating an API token
+type CreateAPITokenResponse struct {
+	Body services.APITokenCreateResponse `json:"body"`
+}
+
+// CreateAPITokenHandler handles POST /admin/tokens
+func (h *AdminHandler) CreateAPITokenHandler(ctx context.Context, req *CreateAPITokenRequest) (*CreateAPITokenResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Validate expiration days
+	expirationDays := req.Body.ExpirationDays
+	if expirationDays <= 0 {
+		expirationDays = 90 // Default
+	}
+	if expirationDays > 365 {
+		return nil, huma.Error400BadRequest("Token expiration cannot exceed 365 days")
+	}
+
+	logger.FromContext(ctx).Debug("admin_create_token_attempt",
+		"admin_id", user.ID,
+		"expiration_days", expirationDays,
+	)
+
+	// Create description pointer
+	var description *string
+	if req.Body.Description != "" {
+		description = &req.Body.Description
+	}
+
+	// Create the token
+	tokenResponse, err := h.apiTokenService.CreateToken(user.ID, description, expirationDays)
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_create_token_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to create token (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Info("admin_create_token_success",
+		"token_id", tokenResponse.ID,
+		"admin_id", user.ID,
+		"expires_at", tokenResponse.ExpiresAt,
+		"request_id", requestID,
+	)
+
+	return &CreateAPITokenResponse{Body: *tokenResponse}, nil
+}
+
+// ListAPITokensRequest represents the HTTP request for listing API tokens
+type ListAPITokensRequest struct{}
+
+// ListAPITokensResponse represents the HTTP response for listing API tokens
+type ListAPITokensResponse struct {
+	Body struct {
+		Tokens []services.APITokenResponse `json:"tokens"`
+	}
+}
+
+// ListAPITokensHandler handles GET /admin/tokens
+func (h *AdminHandler) ListAPITokensHandler(ctx context.Context, req *ListAPITokensRequest) (*ListAPITokensResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	logger.FromContext(ctx).Debug("admin_list_tokens_attempt",
+		"admin_id", user.ID,
+	)
+
+	tokens, err := h.apiTokenService.ListTokens(user.ID)
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_list_tokens_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to list tokens (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("admin_list_tokens_success",
+		"count", len(tokens),
+		"admin_id", user.ID,
+	)
+
+	return &ListAPITokensResponse{
+		Body: struct {
+			Tokens []services.APITokenResponse `json:"tokens"`
+		}{
+			Tokens: tokens,
+		},
+	}, nil
+}
+
+// RevokeAPITokenRequest represents the HTTP request for revoking an API token
+type RevokeAPITokenRequest struct {
+	TokenID string `path:"token_id" validate:"required" doc:"Token ID to revoke"`
+}
+
+// RevokeAPITokenResponse represents the HTTP response for revoking an API token
+type RevokeAPITokenResponse struct {
+	Body struct {
+		Message string `json:"message"`
+	}
+}
+
+// RevokeAPITokenHandler handles DELETE /admin/tokens/{token_id}
+func (h *AdminHandler) RevokeAPITokenHandler(ctx context.Context, req *RevokeAPITokenRequest) (*RevokeAPITokenResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Parse token ID
+	tokenID, err := strconv.ParseUint(req.TokenID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid token ID")
+	}
+
+	logger.FromContext(ctx).Debug("admin_revoke_token_attempt",
+		"token_id", tokenID,
+		"admin_id", user.ID,
+	)
+
+	err = h.apiTokenService.RevokeToken(user.ID, uint(tokenID))
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_revoke_token_failed",
+			"token_id", tokenID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error404NotFound(err.Error())
+	}
+
+	logger.FromContext(ctx).Info("admin_revoke_token_success",
+		"token_id", tokenID,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &RevokeAPITokenResponse{
+		Body: struct {
+			Message string `json:"message"`
+		}{
+			Message: "Token revoked successfully",
+		},
+	}, nil
+}
+
+// ============================================================================
+// Data Export/Import Handlers (for syncing local data to Stage/Production)
+// ============================================================================
+
+// ExportShowsRequest represents the HTTP request for exporting shows
+type ExportShowsRequest struct {
+	Limit    int    `query:"limit" default:"50" doc:"Number of shows to return (max 200)"`
+	Offset   int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Status   string `query:"status" doc:"Filter by status: approved, pending, rejected, all"`
+	FromDate string `query:"from_date" doc:"Filter shows from this date (YYYY-MM-DD)"`
+	City     string `query:"city" doc:"Filter by city"`
+	State    string `query:"state" doc:"Filter by state"`
+}
+
+// ExportShowsResponse represents the HTTP response for exporting shows
+type ExportShowsResponse struct {
+	Body services.ExportShowsResult `json:"body"`
+}
+
+// ExportShowsHandler handles GET /admin/export/shows
+func (h *AdminHandler) ExportShowsHandler(ctx context.Context, req *ExportShowsRequest) (*ExportShowsResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Build params
+	params := services.ExportShowsParams{
+		Limit:  req.Limit,
+		Offset: req.Offset,
+		Status: req.Status,
+		City:   req.City,
+		State:  req.State,
+	}
+
+	// Parse date filter
+	if req.FromDate != "" {
+		fromDate, err := parseDate(req.FromDate)
+		if err != nil {
+			return nil, huma.Error400BadRequest("Invalid from_date format, expected YYYY-MM-DD")
+		}
+		params.FromDate = &fromDate
+	}
+
+	logger.FromContext(ctx).Debug("admin_export_shows_attempt",
+		"limit", params.Limit,
+		"offset", params.Offset,
+		"status", params.Status,
+	)
+
+	result, err := h.dataSyncService.ExportShows(params)
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_export_shows_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to export shows (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("admin_export_shows_success",
+		"count", len(result.Shows),
+		"total", result.Total,
+	)
+
+	return &ExportShowsResponse{Body: *result}, nil
+}
+
+// ExportArtistsRequest represents the HTTP request for exporting artists
+type ExportArtistsRequest struct {
+	Limit  int    `query:"limit" default:"50" doc:"Number of artists to return (max 200)"`
+	Offset int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Search string `query:"search" doc:"Search by name"`
+}
+
+// ExportArtistsResponse represents the HTTP response for exporting artists
+type ExportArtistsResponse struct {
+	Body services.ExportArtistsResult `json:"body"`
+}
+
+// ExportArtistsHandler handles GET /admin/export/artists
+func (h *AdminHandler) ExportArtistsHandler(ctx context.Context, req *ExportArtistsRequest) (*ExportArtistsResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	params := services.ExportArtistsParams{
+		Limit:  req.Limit,
+		Offset: req.Offset,
+		Search: req.Search,
+	}
+
+	logger.FromContext(ctx).Debug("admin_export_artists_attempt",
+		"limit", params.Limit,
+		"offset", params.Offset,
+		"search", params.Search,
+	)
+
+	result, err := h.dataSyncService.ExportArtists(params)
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_export_artists_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to export artists (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("admin_export_artists_success",
+		"count", len(result.Artists),
+		"total", result.Total,
+	)
+
+	return &ExportArtistsResponse{Body: *result}, nil
+}
+
+// ExportVenuesRequest represents the HTTP request for exporting venues
+type ExportVenuesRequest struct {
+	Limit    int    `query:"limit" default:"50" doc:"Number of venues to return (max 200)"`
+	Offset   int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Search   string `query:"search" doc:"Search by name"`
+	Verified string `query:"verified" doc:"Filter by verified status: true, false, or empty for all"`
+	City     string `query:"city" doc:"Filter by city"`
+	State    string `query:"state" doc:"Filter by state"`
+}
+
+// ExportVenuesResponse represents the HTTP response for exporting venues
+type ExportVenuesResponse struct {
+	Body services.ExportVenuesResult `json:"body"`
+}
+
+// ExportVenuesHandler handles GET /admin/export/venues
+func (h *AdminHandler) ExportVenuesHandler(ctx context.Context, req *ExportVenuesRequest) (*ExportVenuesResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	params := services.ExportVenuesParams{
+		Limit:  req.Limit,
+		Offset: req.Offset,
+		Search: req.Search,
+		City:   req.City,
+		State:  req.State,
+	}
+
+	// Parse verified filter
+	if req.Verified == "true" {
+		verified := true
+		params.Verified = &verified
+	} else if req.Verified == "false" {
+		verified := false
+		params.Verified = &verified
+	}
+
+	logger.FromContext(ctx).Debug("admin_export_venues_attempt",
+		"limit", params.Limit,
+		"offset", params.Offset,
+		"search", params.Search,
+	)
+
+	result, err := h.dataSyncService.ExportVenues(params)
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_export_venues_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to export venues (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("admin_export_venues_success",
+		"count", len(result.Venues),
+		"total", result.Total,
+	)
+
+	return &ExportVenuesResponse{Body: *result}, nil
+}
+
+// DataImportRequest represents the HTTP request for importing data
+type DataImportRequest struct {
+	Body services.DataImportRequest `json:"body"`
+}
+
+// DataImportResponse represents the HTTP response for importing data
+type DataImportResponse struct {
+	Body services.DataImportResult `json:"body"`
+}
+
+// DataImportHandler handles POST /admin/data/import
+func (h *AdminHandler) DataImportHandler(ctx context.Context, req *DataImportRequest) (*DataImportResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Validate limits
+	totalItems := len(req.Body.Shows) + len(req.Body.Artists) + len(req.Body.Venues)
+	if totalItems == 0 {
+		return nil, huma.Error400BadRequest("At least one show, artist, or venue is required")
+	}
+	if totalItems > 500 {
+		return nil, huma.Error400BadRequest("Maximum 500 total items can be imported at once")
+	}
+
+	logger.FromContext(ctx).Debug("admin_data_import_attempt",
+		"shows", len(req.Body.Shows),
+		"artists", len(req.Body.Artists),
+		"venues", len(req.Body.Venues),
+		"dry_run", req.Body.DryRun,
+		"admin_id", user.ID,
+	)
+
+	result, err := h.dataSyncService.ImportData(req.Body)
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_data_import_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to import data (request_id: %s)", requestID),
+		)
+	}
+
+	action := "imported"
+	if req.Body.DryRun {
+		action = "previewed"
+	}
+
+	logger.FromContext(ctx).Info("admin_data_import_success",
+		"action", action,
+		"shows_imported", result.Shows.Imported,
+		"artists_imported", result.Artists.Imported,
+		"venues_imported", result.Venues.Imported,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &DataImportResponse{Body: *result}, nil
+}
+
+// parseDate parses a date string in YYYY-MM-DD format
+func parseDate(dateStr string) (time.Time, error) {
+	return time.Parse("2006-01-02", dateStr)
 }
 

@@ -1054,3 +1054,116 @@ export const useGenerateCLIToken = () => {
     },
   })
 }
+
+// ============================================================================
+// API Token Management (Admin only - for scraper app)
+// ============================================================================
+
+// API Token types
+export interface APIToken {
+  id: number
+  description: string | null
+  scope: string
+  created_at: string
+  expires_at: string
+  last_used_at: string | null
+  is_expired: boolean
+}
+
+interface APITokenListResponse {
+  tokens: APIToken[]
+}
+
+interface APITokenCreateRequest {
+  description?: string
+  expiration_days?: number
+}
+
+interface APITokenCreateResponse {
+  id: number
+  token: string // Plaintext token - only shown once
+  description: string | null
+  scope: string
+  created_at: string
+  expires_at: string
+}
+
+interface APITokenRevokeResponse {
+  message: string
+}
+
+// List API tokens query (admin only)
+export const useAPITokens = () => {
+  return useQuery({
+    queryKey: ['admin', 'api-tokens'],
+    queryFn: async (): Promise<APITokenListResponse> => {
+      authLogger.debug('Fetching API tokens')
+
+      const response = await apiRequest<APITokenListResponse>(
+        API_ENDPOINTS.ADMIN.TOKENS.LIST,
+        {
+          method: 'GET',
+          credentials: 'include',
+        }
+      )
+
+      return response
+    },
+    staleTime: 30 * 1000, // 30 seconds - tokens change infrequently
+  })
+}
+
+// Create API token mutation (admin only)
+export const useCreateAPIToken = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (
+      request: APITokenCreateRequest
+    ): Promise<APITokenCreateResponse> => {
+      authLogger.debug('Creating API token')
+
+      const response = await apiRequest<APITokenCreateResponse>(
+        API_ENDPOINTS.ADMIN.TOKENS.CREATE,
+        {
+          method: 'POST',
+          body: JSON.stringify(request),
+          credentials: 'include',
+        }
+      )
+
+      return response
+    },
+    onSuccess: () => {
+      authLogger.info('API token created successfully')
+      // Invalidate tokens list to refetch
+      queryClient.invalidateQueries({ queryKey: ['admin', 'api-tokens'] })
+    },
+  })
+}
+
+// Revoke API token mutation (admin only)
+export const useRevokeAPIToken = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (tokenId: number): Promise<APITokenRevokeResponse> => {
+      authLogger.debug('Revoking API token', { tokenId })
+
+      const response = await apiRequest<APITokenRevokeResponse>(
+        API_ENDPOINTS.ADMIN.TOKENS.REVOKE(tokenId),
+        {
+          method: 'DELETE',
+          credentials: 'include',
+        }
+      )
+
+      return response
+    },
+    onSuccess: (data) => {
+      authLogger.info('API token revoked successfully', { message: data.message })
+      // Invalidate tokens list to refetch
+      queryClient.invalidateQueries({ queryKey: ['admin', 'api-tokens'] })
+    },
+  })
+}

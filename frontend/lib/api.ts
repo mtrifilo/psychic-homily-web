@@ -178,6 +178,15 @@ export const API_ENDPOINTS = {
       RESOLVE: (reportId: string | number) =>
         `${API_BASE_URL}/admin/reports/${reportId}/resolve`,
     },
+    TOKENS: {
+      LIST: `${API_BASE_URL}/admin/tokens`,
+      CREATE: `${API_BASE_URL}/admin/tokens`,
+      REVOKE: (tokenId: string | number) =>
+        `${API_BASE_URL}/admin/tokens/${tokenId}`,
+    },
+    SCRAPER: {
+      IMPORT: `${API_BASE_URL}/admin/scraper/import`,
+    },
   },
 
   // System endpoints
