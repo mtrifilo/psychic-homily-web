@@ -110,15 +110,27 @@ export function EventPreview({
     }
   }
 
-  // Auto-preview all venues in parallel on mount
-  const autoPreviewedRef = useRef(false)
+  // Auto-preview venues when entering step or when venues change
+  const autoPreviewedSlugsRef = useRef<Set<string>>(new Set())
   useEffect(() => {
-    if (autoPreviewedRef.current) return
-    const unpreviewed = venues.filter(v => !previewEvents[v.slug])
+    // Prune stale slugs that are no longer in the venue list
+    const currentSlugs = new Set(venues.map(v => v.slug))
+    for (const slug of autoPreviewedSlugsRef.current) {
+      if (!currentSlugs.has(slug)) {
+        autoPreviewedSlugsRef.current.delete(slug)
+      }
+    }
+
+    const unpreviewed = venues.filter(
+      v => !previewEvents[v.slug] && !autoPreviewedSlugsRef.current.has(v.slug)
+    )
     if (unpreviewed.length === 0) return
-    autoPreviewedRef.current = true
+
+    for (const v of unpreviewed) {
+      autoPreviewedSlugsRef.current.add(v.slug)
+    }
     previewAllParallel()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [venues]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const retryVenue = async (venue: VenueConfig) => {
     setErrors(prev => ({ ...prev, [venue.slug]: '' }))

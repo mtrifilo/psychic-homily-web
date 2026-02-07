@@ -67,6 +67,12 @@ export interface ShowResponse {
   // Status flags (admin-controlled)
   is_sold_out: boolean
   is_cancelled: boolean
+  // Discovery source fields
+  source?: string
+  source_venue?: string
+  scraped_at?: string
+  // Duplicate detection context
+  duplicate_of_show_id?: number
 }
 
 // Orphaned artist returned when a show edit removes an artist's only association

@@ -68,7 +68,7 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	// Setup passkey routes (some public, some protected) - with rate limiting
 	setupPasskeyRoutes(router, api, protectedGroup, jwtService, cfg)
 
-	setupShowRoutes(api, protectedGroup, cfg)
+	setupShowRoutes(api, protectedGroup, cfg, jwtService)
 	setupArtistRoutes(api, protectedGroup)
 	setupVenueRoutes(api, protectedGroup, cfg)
 	setupSavedShowRoutes(protectedGroup)
@@ -190,7 +190,7 @@ func setupPasskeyRoutes(router *chi.Mux, api huma.API, protected *huma.Group, jw
 }
 
 // SetupShowRoutes configures all show-related endpoints
-func setupShowRoutes(api huma.API, protected *huma.Group, cfg *config.Config) {
+func setupShowRoutes(api huma.API, protected *huma.Group, cfg *config.Config, jwtService *services.JWTService) {
 	showHandler := handlers.NewShowHandler(cfg)
 
 	// Public show endpoints - registered on main API without middleware
@@ -198,7 +198,11 @@ func setupShowRoutes(api huma.API, protected *huma.Group, cfg *config.Config) {
 	huma.Get(api, "/shows", showHandler.GetShowsHandler)
 	huma.Get(api, "/shows/cities", showHandler.GetShowCitiesHandler)
 	huma.Get(api, "/shows/upcoming", showHandler.GetUpcomingShowsHandler)
-	huma.Get(api, "/shows/{show_id}", showHandler.GetShowHandler)
+
+	// Show detail with optional auth for access control on non-approved shows
+	optionalAuthGroup := huma.NewGroup(api, "")
+	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(jwtService))
+	huma.Get(optionalAuthGroup, "/shows/{show_id}", showHandler.GetShowHandler)
 
 	// Export endpoint - only register in development environment
 	if os.Getenv("ENVIRONMENT") == "development" {

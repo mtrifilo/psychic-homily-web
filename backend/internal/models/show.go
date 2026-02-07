@@ -44,6 +44,9 @@ type Show struct {
 	SourceEventID *string    `gorm:"column:source_event_id"` // External event ID for deduplication
 	ScrapedAt     *time.Time `gorm:"column:scraped_at"`      // When the event was scraped
 
+	// Duplicate detection (for discovery imports flagged as potential duplicates)
+	DuplicateOfShowID *uint `gorm:"column:duplicate_of_show_id"`
+
 	// Status flags (admin-controlled)
 	IsSoldOut   bool `gorm:"column:is_sold_out;not null;default:false"`
 	IsCancelled bool `gorm:"column:is_cancelled;not null;default:false"`

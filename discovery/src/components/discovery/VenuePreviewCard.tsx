@@ -5,6 +5,7 @@ import { ListSkeleton } from '../shared/LoadingSkeleton'
 import { EmptyState } from '../shared/EmptyState'
 import { EventList } from './EventList'
 import type { VenueConfig, PreviewEvent, ImportStatusMap } from '../../lib/types'
+import { getLocalDateString } from '../../lib/dates'
 
 interface VenuePreviewCardProps {
   venue: VenueConfig
@@ -37,7 +38,7 @@ export function VenuePreviewCard({
   const selectable = !!selectedIds && !!onToggle
 
   // Count future events for selection display
-  const today = new Date().toISOString().split('T')[0]
+  const today = getLocalDateString()
   const futureEventCount = events?.filter(e => e.date >= today).length ?? 0
 
   return (

@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 import type { VenueConfig, PreviewEvent, ScrapedEvent, ImportStatusMap } from '../lib/types'
+import { getLocalDateString } from '../lib/dates'
 
-export type WizardStep = 'venues' | 'preview' | 'select' | 'import' | 'settings' | 'data-export'
+export type WizardStep = 'venues' | 'preview' | 'import' | 'settings' | 'data-export'
 
 interface WizardState {
   step: WizardStep
@@ -70,9 +71,11 @@ export function WizardProvider({ children }: { children: ReactNode }) {
 
   const selectAllEvents = useCallback((venueSlug: string) => {
     const events = previewEvents[venueSlug] || []
+    const today = getLocalDateString()
+    const futureEvents = events.filter(e => e.date >= today)
     setSelectedEventIds(prev => ({
       ...prev,
-      [venueSlug]: new Set(events.map(e => e.id)),
+      [venueSlug]: new Set(futureEvents.map(e => e.id)),
     }))
   }, [previewEvents])
 
@@ -84,7 +87,11 @@ export function WizardProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const addScrapedEvents = useCallback((events: ScrapedEvent[]) => {
-    setScrapedEvents(prev => [...prev, ...events])
+    setScrapedEvents(prev => {
+      const existingIds = new Set(prev.map(e => e.id))
+      const newEvents = events.filter(e => !existingIds.has(e.id))
+      return [...prev, ...newEvents]
+    })
   }, [])
 
   const startOver = useCallback(() => {

@@ -1,0 +1,1 @@
+ALTER TABLE shows ADD COLUMN duplicate_of_show_id INTEGER REFERENCES shows(id) ON DELETE SET NULL;

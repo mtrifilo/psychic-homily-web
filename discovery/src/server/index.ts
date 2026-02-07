@@ -178,19 +178,23 @@ const server = Bun.serve({
   },
 })
 
-console.log(`
-╔═══════════════════════════════════════════════════════════╗
-║           Psychic Homily Discovery Server                 ║
-║                                                           ║
-║  Running on http://localhost:${PORT}                        ║
-║                                                           ║
-║  Endpoints:                                               ║
-║    GET  /discovery/venues          - List venues          ║
-║    GET  /discovery/preview/:slug   - Preview events       ║
-║    POST /discovery/preview-batch   - Parallel preview     ║
-║    POST /discovery/scrape/:slug    - Scrape events        ║
-║    GET  /discovery/health          - Health check         ║
-║                                                           ║
-║  Configured venues: ${Object.keys(VENUES).length}                                  ║
-╚═══════════════════════════════════════════════════════════╝
-`)
+const bannerLines = [
+  `           Psychic Homily Discovery Server`,
+  ``,
+  `  Running on http://localhost:${PORT}`,
+  ``,
+  `  Endpoints:`,
+  `    GET  /discovery/venues          - List venues`,
+  `    GET  /discovery/preview/:slug   - Preview events`,
+  `    POST /discovery/preview-batch   - Parallel preview`,
+  `    POST /discovery/scrape/:slug    - Scrape events`,
+  `    GET  /discovery/health          - Health check`,
+  ``,
+  `  Configured venues: ${Object.keys(VENUES).length}`,
+]
+const width = 59
+console.log(`\n╔${'═'.repeat(width)}╗`)
+for (const line of bannerLines) {
+  console.log(`║${line.padEnd(width)}║`)
+}
+console.log(`╚${'═'.repeat(width)}╝\n`)

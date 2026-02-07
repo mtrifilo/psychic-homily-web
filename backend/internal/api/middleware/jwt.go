@@ -222,6 +222,69 @@ func HumaJWTMiddleware(jwtService *services.JWTService, sessionConfig ...config.
 	}
 }
 
+// OptionalHumaJWTMiddleware extracts user from JWT/API token if present,
+// but allows unauthenticated requests to proceed without user context.
+// Use this for endpoints that are public but behave differently for authenticated users.
+func OptionalHumaJWTMiddleware(jwtService *services.JWTService) func(ctx huma.Context, next func(huma.Context)) {
+	apiTokenService := services.NewAPITokenService()
+
+	return func(ctx huma.Context, next func(huma.Context)) {
+		var token string
+
+		// Try Authorization header
+		authHeader := ctx.Header("Authorization")
+		if authHeader != "" {
+			tokenParts := strings.Split(authHeader, " ")
+			if len(tokenParts) == 2 && tokenParts[0] == "Bearer" {
+				token = tokenParts[1]
+			}
+		}
+
+		// Try cookie
+		if token == "" {
+			if cookie := ctx.Header("Cookie"); cookie != "" {
+				req := &http.Request{Header: http.Header{"Cookie": []string{cookie}}}
+				if c, err := req.Cookie("auth_token"); err == nil && c.Value != "" {
+					token = c.Value
+				}
+			}
+		}
+
+		// No token — continue without user context
+		if token == "" {
+			next(ctx)
+			return
+		}
+
+		var user *models.User
+
+		if strings.HasPrefix(token, APITokenPrefix) {
+			apiUser, _, err := apiTokenService.ValidateToken(token)
+			if err != nil {
+				logger.AuthDebug(ctx.Context(), "optional_auth_api_token_invalid",
+					"error", err.Error(),
+				)
+				next(ctx)
+				return
+			}
+			user = apiUser
+		} else {
+			jwtUser, err := jwtService.ValidateToken(token)
+			if err != nil {
+				logger.AuthDebug(ctx.Context(), "optional_auth_jwt_invalid",
+					"error", err.Error(),
+				)
+				next(ctx)
+				return
+			}
+			user = jwtUser
+		}
+
+		ctxWithUser := huma.WithValue(ctx, UserContextKey, user)
+		next(ctxWithUser)
+	}
+}
+
 // GetUserFromContext extracts user from request context
 func GetUserFromContext(ctx context.Context) *models.User {
 	if user, ok := ctx.Value(UserContextKey).(*models.User); ok {

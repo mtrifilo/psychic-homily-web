@@ -1323,6 +1323,7 @@ func (h *AdminHandler) DiscoveryImportHandler(ctx context.Context, req *Discover
 		"imported", result.Imported,
 		"duplicates", result.Duplicates,
 		"rejected", result.Rejected,
+		"pending_review", result.PendingReview,
 		"errors", result.Errors,
 		"admin_id", user.ID,
 		"request_id", requestID,

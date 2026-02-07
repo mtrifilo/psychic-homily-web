@@ -438,6 +438,22 @@ func (h *ShowHandler) GetShowHandler(ctx context.Context, req *GetShowRequest) (
 		)
 	}
 
+	// Access control: non-approved shows require authorization
+	if show.Status != "approved" {
+		user := middleware.GetUserFromContext(ctx)
+		isAdmin := user != nil && user.IsAdmin
+		isSubmitter := user != nil && show.SubmittedBy != nil && *show.SubmittedBy == user.ID
+
+		if !isAdmin && !isSubmitter {
+			logger.FromContext(ctx).Warn("show_access_denied",
+				"show_id", show.ID,
+				"status", show.Status,
+				"request_id", requestID,
+			)
+			return nil, huma.Error404NotFound("Show not found")
+		}
+	}
+
 	logger.FromContext(ctx).Debug("show_get_success",
 		"show_id", show.ID,
 		"slug", show.Slug,

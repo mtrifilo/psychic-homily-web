@@ -89,14 +89,16 @@ function extractDate(startDate: string | undefined): string {
 
 /**
  * Extract time (e.g. "8:00 PM") from an ISO 8601 datetime string.
+ * Parses the time directly from the string to avoid timezone conversion —
+ * the time before the offset in ISO 8601 is already the local event time.
  */
 function extractTime(isoDate: string | undefined): string | undefined {
   if (!isoDate) return undefined
-  const dateObj = new Date(isoDate)
-  if (isNaN(dateObj.getTime())) return undefined
+  const match = isoDate.match(/T(\d{2}):(\d{2})/)
+  if (!match) return undefined
 
-  const hours = dateObj.getHours()
-  const minutes = dateObj.getMinutes()
+  const hours = parseInt(match[1], 10)
+  const minutes = parseInt(match[2], 10)
   const ampm = hours >= 12 ? 'PM' : 'AM'
   const h = hours % 12 || 12
   const m = minutes.toString().padStart(2, '0')

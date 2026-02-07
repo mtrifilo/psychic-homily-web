@@ -4,6 +4,7 @@ import { Badge } from '../ui/badge'
 import { EmptyState } from '../shared/EmptyState'
 import { Calendar } from 'lucide-react'
 import type { PreviewEvent, ImportStatusMap } from '../../lib/types'
+import { getLocalDateString } from '../../lib/dates'
 
 interface EventListProps {
   events: PreviewEvent[]
@@ -14,7 +15,7 @@ interface EventListProps {
 
 export function EventList({ events, selectedIds, importStatuses, onToggle }: EventListProps) {
   // Filter to only show future events
-  const today = new Date().toISOString().split('T')[0]
+  const today = getLocalDateString()
   const futureEvents = events.filter(e => e.date >= today)
 
   if (futureEvents.length === 0) {

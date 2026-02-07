@@ -162,6 +162,13 @@ export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
               />
               <StatCard label="Duplicates" value={result.duplicates} color="blue" />
               <StatCard label="Rejected" value={result.rejected} color="amber" />
+              {result.pending_review > 0 && (
+                <StatCard
+                  label={isDryRun ? 'Would Flag' : 'Flagged'}
+                  value={result.pending_review}
+                  color="amber"
+                />
+              )}
               {result.errors > 0 && (
                 <StatCard label="Errors" value={result.errors} color="red" />
               )}
@@ -180,6 +187,8 @@ export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
                             ? 'text-green-600'
                             : msg.startsWith('DUPLICATE')
                             ? 'text-blue-600'
+                            : msg.startsWith('FLAGGED FOR REVIEW') || msg.startsWith('WOULD FLAG FOR REVIEW')
+                            ? 'text-amber-600'
                             : msg.startsWith('REJECTED')
                             ? 'text-amber-600'
                             : msg.startsWith('ERROR') || msg.startsWith('SKIP')

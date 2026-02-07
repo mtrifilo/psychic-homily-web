@@ -45,12 +45,13 @@ type DiscoveredEvent struct {
 
 // ImportResult contains statistics about the import operation
 type ImportResult struct {
-	Total      int      `json:"total"`       // Total events processed
-	Imported   int      `json:"imported"`    // Successfully imported
-	Duplicates int      `json:"duplicates"`  // Skipped due to deduplication
-	Rejected   int      `json:"rejected"`    // Skipped due to matching rejected shows
-	Errors     int      `json:"errors"`      // Failed to import
-	Messages   []string `json:"messages"`    // Detailed messages for each event
+	Total         int      `json:"total"`          // Total events processed
+	Imported      int      `json:"imported"`       // Successfully imported
+	Duplicates    int      `json:"duplicates"`     // Skipped due to deduplication
+	Rejected      int      `json:"rejected"`       // Skipped due to matching rejected shows
+	PendingReview int      `json:"pending_review"` // Flagged as potential duplicates for admin review
+	Errors        int      `json:"errors"`         // Failed to import
+	Messages      []string `json:"messages"`       // Detailed messages for each event
 }
 
 // VenueConfig maps venue slugs to their database info
@@ -150,12 +151,37 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*Import
 			result.Duplicates++
 		case "rejected":
 			result.Rejected++
+		case "pending_review":
+			result.PendingReview++
 		case "error":
 			result.Errors++
 		}
 	}
 
 	return result, nil
+}
+
+// checkHeadlinerDuplicate checks if there's an existing non-rejected show with the same
+// headliner at the same venue on the same date. Returns the matching show or nil.
+func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName string, eventDate time.Time) *models.Show {
+	startOfDay := time.Date(eventDate.Year(), eventDate.Month(), eventDate.Day(), 0, 0, 0, 0, time.UTC)
+	endOfDay := startOfDay.Add(24 * time.Hour)
+
+	var existingShow models.Show
+	err := s.db.
+		Joins("JOIN show_artists ON shows.id = show_artists.show_id").
+		Joins("JOIN artists ON show_artists.artist_id = artists.id").
+		Joins("JOIN show_venues ON shows.id = show_venues.show_id").
+		Joins("JOIN venues ON show_venues.venue_id = venues.id").
+		Where("LOWER(artists.name) = LOWER(?) AND show_artists.set_type = ?", headlinerName, "headliner").
+		Where("LOWER(venues.name) = LOWER(?)", venueName).
+		Where("shows.event_date >= ? AND shows.event_date < ?", startOfDay, endOfDay).
+		Where("shows.status NOT IN ?", []models.ShowStatus{models.ShowStatusRejected, models.ShowStatusPrivate}).
+		First(&existingShow).Error
+	if err != nil {
+		return nil
+	}
+	return &existingShow
 }
 
 // importEvent imports a single scraped event
@@ -203,14 +229,30 @@ func (s *DiscoveryService) importEvent(event *DiscoveredEvent, dryRun bool) (str
 			event.Title, rejectedShow.ID, venueConfig.Name, eventDate.Format("2006-01-02")), "rejected"
 	}
 
+	// Check for potential duplicate (same headliner + venue + date as an existing show)
+	var duplicateOfShowID *uint
+	if len(event.Artists) > 0 {
+		if dupShow := s.checkHeadlinerDuplicate(event.Artists[0], venueConfig.Name, eventDate); dupShow != nil {
+			duplicateOfShowID = &dupShow.ID
+			if dryRun {
+				return fmt.Sprintf("WOULD FLAG FOR REVIEW: %s at %s on %s (potential duplicate of show #%d: %s)",
+					event.Title, venueConfig.Name, eventDate.Format("2006-01-02 15:04"), dupShow.ID, dupShow.Title), "pending_review"
+			}
+		}
+	}
+
 	if dryRun {
 		return fmt.Sprintf("WOULD IMPORT: %s at %s on %s", event.Title, venueConfig.Name, eventDate.Format("2006-01-02 15:04")), "imported"
 	}
 
 	// Create the show
-	err = s.createShowFromEvent(event, eventDate, venueConfig)
+	err = s.createShowFromEvent(event, eventDate, venueConfig, duplicateOfShowID)
 	if err != nil {
 		return fmt.Sprintf("ERROR: Failed to create show: %v", err), "error"
+	}
+
+	if duplicateOfShowID != nil {
+		return fmt.Sprintf("FLAGGED FOR REVIEW: %s at %s on %s", event.Title, venueConfig.Name, eventDate.Format("2006-01-02 15:04")), "pending_review"
 	}
 
 	return fmt.Sprintf("IMPORTED: %s at %s on %s", event.Title, venueConfig.Name, eventDate.Format("2006-01-02 15:04")), "imported"
@@ -222,7 +264,7 @@ func (s *DiscoveryService) createShowFromEvent(event *DiscoveredEvent, eventDate
 	City    string
 	State   string
 	Address string
-}) error {
+}, duplicateOfShowID *uint) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Parse scraped_at timestamp
 		scrapedAt, err := time.Parse(time.RFC3339, event.ScrapedAt)
@@ -248,17 +290,23 @@ func (s *DiscoveryService) createShowFromEvent(event *DiscoveredEvent, eventDate
 		}
 
 		// Create the show
+		status := models.ShowStatusApproved
+		if duplicateOfShowID != nil {
+			status = models.ShowStatusPending
+		}
+
 		show := &models.Show{
-			Title:         event.Title,
-			EventDate:     eventDate.UTC(),
-			City:          &venueConfig.City,
-			State:         &venueConfig.State,
-			Description:   description,
-			Status:        models.ShowStatusApproved,
-			Source:        models.ShowSourceDiscovery,
-			SourceVenue:   &event.VenueSlug,
-			SourceEventID: &event.ID,
-			ScrapedAt:     &scrapedAt,
+			Title:             event.Title,
+			EventDate:         eventDate.UTC(),
+			City:              &venueConfig.City,
+			State:             &venueConfig.State,
+			Description:       description,
+			Status:            status,
+			Source:            models.ShowSourceDiscovery,
+			SourceVenue:       &event.VenueSlug,
+			SourceEventID:     &event.ID,
+			ScrapedAt:         &scrapedAt,
+			DuplicateOfShowID: duplicateOfShowID,
 		}
 
 		if err := tx.Create(show).Error; err != nil {
@@ -553,6 +601,8 @@ func (s *DiscoveryService) ImportEvents(events []DiscoveredEvent, dryRun bool) (
 			result.Duplicates++
 		case "rejected":
 			result.Rejected++
+		case "pending_review":
+			result.PendingReview++
 		case "error":
 			result.Errors++
 		}

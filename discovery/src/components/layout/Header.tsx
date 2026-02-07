@@ -9,7 +9,7 @@ export function Header() {
   const { hasToken } = useSettings()
 
   // Discovery steps are venues, preview, select, import
-  const isDiscoveryStep = ['venues', 'preview', 'select', 'import'].includes(step)
+  const isDiscoveryStep = ['venues', 'preview', 'import'].includes(step)
 
   return (
     <header className="bg-card border-b px-6 py-4">

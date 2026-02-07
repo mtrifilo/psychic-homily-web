@@ -9,6 +9,7 @@ import {
   CheckCircle,
   XCircle,
   AlertTriangle,
+  Radar,
 } from 'lucide-react'
 import type { ShowResponse } from '@/lib/types/show'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -73,6 +74,15 @@ export function PendingShowCard({ show }: PendingShowCardProps) {
                 >
                   Pending Review
                 </Badge>
+                {show.source === 'discovery' && (
+                  <Badge
+                    variant="outline"
+                    className="text-blue-500 border-blue-500/50 gap-1"
+                  >
+                    <Radar className="h-3 w-3" />
+                    Discovery Import
+                  </Badge>
+                )}
                 {hasUnverifiedVenue && (
                   <Badge
                     variant="outline"
@@ -83,6 +93,11 @@ export function PendingShowCard({ show }: PendingShowCardProps) {
                   </Badge>
                 )}
               </div>
+              {show.duplicate_of_show_id && (
+                <p className="text-xs text-blue-500 mt-1">
+                  Potential duplicate of show #{show.duplicate_of_show_id}
+                </p>
+              )}
             </div>
           </div>
         </CardHeader>

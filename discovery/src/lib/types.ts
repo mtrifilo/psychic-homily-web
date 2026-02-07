@@ -44,6 +44,7 @@ export interface ImportResult {
   imported: number
   duplicates: number
   rejected: number
+  pending_review: number
   errors: number
   messages: string[]
 }

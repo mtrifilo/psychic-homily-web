@@ -94,6 +94,9 @@ type ShowResponse struct {
 	Source      string     `json:"source,omitempty"`       // "user" or "discovery"
 	SourceVenue *string    `json:"source_venue,omitempty"` // Venue slug for scraped shows
 	ScrapedAt   *time.Time `json:"scraped_at,omitempty"`   // When the show was scraped
+
+	// Duplicate detection context
+	DuplicateOfShowID *uint `json:"duplicate_of_show_id,omitempty"` // ID of show this may duplicate
 }
 
 // VenueResponse represents venue data in show responses
@@ -275,19 +278,25 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *CreateS
 		venueNames = append(venueNames, venue.Name)
 	}
 
-	// Check for conflicts: same headliner + same venue + same date
+	// Compute date window for same-day matching (matches discovery import logic)
+	eventDate := req.EventDate.UTC()
+	startOfDay := time.Date(eventDate.Year(), eventDate.Month(), eventDate.Day(), 0, 0, 0, 0, time.UTC)
+	endOfDay := startOfDay.Add(24 * time.Hour)
+
+	// Check for conflicts: same headliner + same venue + same day (case-insensitive)
 	for _, headlinerName := range headlinerNames {
 		for _, venueName := range venueNames {
 			var existingShows []models.Show
 
-			// Query for shows on the same date with the same headliner and venue
+			// Query for shows on the same day with the same headliner and venue
 			err := tx.Table("shows").
 				Joins("JOIN show_artists ON shows.id = show_artists.show_id").
 				Joins("JOIN artists ON show_artists.artist_id = artists.id").
 				Joins("JOIN show_venues ON shows.id = show_venues.show_id").
 				Joins("JOIN venues ON show_venues.venue_id = venues.id").
-				Where("artists.name = ? AND venues.name = ? AND shows.event_date = ? AND show_artists.set_type = ?",
-					headlinerName, venueName, req.EventDate.UTC(), "headliner").
+				Where("LOWER(artists.name) = LOWER(?) AND LOWER(venues.name) = LOWER(?) AND show_artists.set_type = ?",
+					headlinerName, venueName, "headliner").
+				Where("shows.event_date >= ? AND shows.event_date < ?", startOfDay, endOfDay).
 				Find(&existingShows).Error
 
 			if err != nil {
@@ -1463,11 +1472,12 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 		Artists:         artists,
 		CreatedAt:       show.CreatedAt,
 		UpdatedAt:       show.UpdatedAt,
-		IsSoldOut:       show.IsSoldOut,
-		IsCancelled:     show.IsCancelled,
-		Source:          string(show.Source),
-		SourceVenue:     show.SourceVenue,
-		ScrapedAt:       show.ScrapedAt,
+		IsSoldOut:         show.IsSoldOut,
+		IsCancelled:       show.IsCancelled,
+		Source:            string(show.Source),
+		SourceVenue:       show.SourceVenue,
+		ScrapedAt:         show.ScrapedAt,
+		DuplicateOfShowID: show.DuplicateOfShowID,
 	}
 }
 
