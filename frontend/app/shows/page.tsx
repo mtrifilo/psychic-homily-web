@@ -23,7 +23,7 @@ function ShowListFallback() {
 
 export default function ShowsPage() {
   return (
-    <div className="flex min-h-screen items-start justify-center bg-background">
+    <div className="flex items-start justify-center">
       <main className="w-full max-w-4xl px-4 py-8 md:px-8">
         <h1 className="text-3xl font-bold text-center mb-8">Upcoming Shows</h1>
         <Suspense fallback={<ShowListFallback />}>

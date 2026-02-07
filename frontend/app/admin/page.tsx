@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
-import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users } from 'lucide-react'
+import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard } from 'lucide-react'
 import { usePendingVenueEdits } from '@/lib/hooks/useAdminVenueEdits'
 import { useUnverifiedVenues } from '@/lib/hooks/useAdminVenues'
 import { usePendingReports } from '@/lib/hooks/useAdminReports'
@@ -52,6 +52,14 @@ const AuditLogPage = dynamic(() => import('./audit-log/page'), {
   ),
 })
 
+const DashboardPage = dynamic(() => import('./dashboard/page'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
 const UsersPage = dynamic(() => import('./users/page'), {
   loading: () => (
     <div className="flex items-center justify-center py-12">
@@ -61,7 +69,7 @@ const UsersPage = dynamic(() => import('./users/page'), {
 })
 
 export default function AdminPage() {
-  const [activeTab, setActiveTab] = useState('pending-venue-edits')
+  const [activeTab, setActiveTab] = useState('dashboard')
 
   const {
     data: venueEditsData,
@@ -92,6 +100,10 @@ export default function AdminPage() {
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="mb-6">
+            <TabsTrigger value="dashboard" className="gap-2">
+              <LayoutDashboard className="h-4 w-4" />
+              Dashboard
+            </TabsTrigger>
             <TabsTrigger value="pending-venue-edits" className="gap-2">
               <MapPin className="h-4 w-4" />
               Venue Edits
@@ -135,6 +147,10 @@ export default function AdminPage() {
               Audit Log
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="dashboard" className="space-y-4">
+            <DashboardPage />
+          </TabsContent>
 
           <TabsContent value="pending-venue-edits" className="space-y-4">
             <VenueEditsPage />

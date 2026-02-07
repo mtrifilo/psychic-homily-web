@@ -27,6 +27,7 @@ type AdminHandler struct {
 	dataSyncService       *services.DataSyncService
 	auditLogService       *services.AuditLogService
 	userService           *services.UserService
+	adminStatsService     *services.AdminStatsService
 }
 
 // NewAdminHandler creates a new admin handler
@@ -41,6 +42,7 @@ func NewAdminHandler(cfg *config.Config) *AdminHandler {
 		dataSyncService:       services.NewDataSyncService(),
 		auditLogService:       services.NewAuditLogService(),
 		userService:           services.NewUserService(),
+		adminStatsService:     services.NewAdminStatsService(),
 	}
 }
 
@@ -1947,6 +1949,54 @@ func (h *AdminHandler) GetAdminUsersHandler(ctx context.Context, req *GetAdminUs
 			Total: total,
 		},
 	}, nil
+}
+
+// ============================================================================
+// Admin Dashboard Stats Handler
+// ============================================================================
+
+// GetAdminStatsRequest represents the HTTP request for getting admin dashboard stats
+type GetAdminStatsRequest struct{}
+
+// GetAdminStatsResponse represents the HTTP response for admin dashboard stats
+type GetAdminStatsResponse struct {
+	Body services.AdminDashboardStats
+}
+
+// GetAdminStatsHandler handles GET /admin/stats
+func (h *AdminHandler) GetAdminStatsHandler(ctx context.Context, req *GetAdminStatsRequest) (*GetAdminStatsResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	logger.FromContext(ctx).Debug("admin_stats_attempt",
+		"admin_id", user.ID,
+	)
+
+	stats, err := h.adminStatsService.GetDashboardStats()
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_stats_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get dashboard stats (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("admin_stats_success",
+		"admin_id", user.ID,
+	)
+
+	return &GetAdminStatsResponse{Body: *stats}, nil
 }
 
 // parseDate parses a date string in YYYY-MM-DD format

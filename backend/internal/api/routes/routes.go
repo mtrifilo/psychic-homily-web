@@ -296,6 +296,9 @@ func setupAdminRoutes(protected *huma.Group, cfg *config.Config) {
 	artistHandler := handlers.NewArtistHandler()
 	auditLogHandler := handlers.NewAuditLogHandler()
 
+	// Admin dashboard stats endpoint
+	huma.Get(protected, "/admin/stats", adminHandler.GetAdminStatsHandler)
+
 	// Admin show listing endpoint (for CLI export)
 	huma.Get(protected, "/admin/shows", adminHandler.GetAdminShowsHandler)
 

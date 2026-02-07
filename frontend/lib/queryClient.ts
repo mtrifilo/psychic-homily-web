@@ -132,6 +132,7 @@ export const queryKeys = {
 
   // Admin queries
   admin: {
+    stats: ['admin', 'stats'] as const,
     pendingVenueEdits: (limit: number, offset: number) =>
       ['admin', 'venues', 'pendingEdits', { limit, offset }] as const,
     unverifiedVenues: (limit: number, offset: number) =>

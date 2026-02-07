@@ -190,6 +190,7 @@ export const API_ENDPOINTS = {
     USERS: {
       LIST: `${API_BASE_URL}/admin/users`,
     },
+    STATS: `${API_BASE_URL}/admin/stats`,
     DISCOVERY: {
       IMPORT: `${API_BASE_URL}/admin/discovery/import`,
     },
