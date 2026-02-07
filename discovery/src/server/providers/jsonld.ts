@@ -2,6 +2,10 @@ import type { DiscoveredEvent, PreviewEvent, DiscoveryProvider } from './types'
 
 // Venue configurations for JSON-LD provider
 const VENUES: Record<string, { name: string; url: string }> = {
+  'the-van-buren': {
+    name: 'The Van Buren',
+    url: 'https://thevanburenphx.com/shows',
+  },
   'arizona-financial-theatre': {
     name: 'Arizona Financial Theatre',
     url: 'https://www.arizonafinancialtheatre.com/shows',

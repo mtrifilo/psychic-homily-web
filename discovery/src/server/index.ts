@@ -10,7 +10,7 @@ const VENUES: Record<string, { name: string; providerType: string; city: string;
   // Phoenix, AZ - Stateside Presents venues (TicketWeb)
   'valley-bar': { name: 'Valley Bar', providerType: 'ticketweb', city: 'Phoenix', state: 'AZ' },
   'crescent-ballroom': { name: 'Crescent Ballroom', providerType: 'ticketweb', city: 'Phoenix', state: 'AZ' },
-  'the-van-buren': { name: 'The Van Buren', providerType: 'ticketweb', city: 'Phoenix', state: 'AZ' },
+  'the-van-buren': { name: 'The Van Buren', providerType: 'jsonld', city: 'Phoenix', state: 'AZ' },
   'celebrity-theatre': { name: 'Celebrity Theatre', providerType: 'ticketweb', city: 'Phoenix', state: 'AZ' },
   'arizona-financial-theatre': { name: 'Arizona Financial Theatre', providerType: 'jsonld', city: 'Phoenix', state: 'AZ' },
 

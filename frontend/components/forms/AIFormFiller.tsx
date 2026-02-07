@@ -9,10 +9,15 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   ImageIcon,
 } from 'lucide-react'
 import { useShowExtraction } from '@/lib/hooks/useShowExtraction'
-import type { ExtractedShowData } from '@/lib/types/extraction'
+import type {
+  ExtractedShowData,
+  MatchSuggestion,
+  VenueMatchSuggestion,
+} from '@/lib/types/extraction'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -168,6 +173,60 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
 
   const canExtract = textInput.trim().length > 0 || imageFile !== null
 
+  const acceptArtistSuggestion = (
+    artistIndex: number,
+    suggestion: MatchSuggestion
+  ) => {
+    if (!extractionResult) return
+    const updatedArtists = extractionResult.artists.map((artist, i) => {
+      if (i !== artistIndex) return artist
+      return {
+        ...artist,
+        matched_id: suggestion.id,
+        matched_name: suggestion.name,
+        matched_slug: suggestion.slug,
+        suggestions: undefined,
+      }
+    })
+    const updated = { ...extractionResult, artists: updatedArtists }
+    setExtractionResult(updated)
+    onExtracted(updated)
+  }
+
+  const acceptVenueSuggestion = (suggestion: VenueMatchSuggestion) => {
+    if (!extractionResult?.venue) return
+    const updatedVenue = {
+      ...extractionResult.venue,
+      matched_id: suggestion.id,
+      matched_name: suggestion.name,
+      matched_slug: suggestion.slug,
+      city: suggestion.city,
+      state: suggestion.state,
+      suggestions: undefined,
+    }
+    const updated = { ...extractionResult, venue: updatedVenue }
+    setExtractionResult(updated)
+    onExtracted(updated)
+  }
+
+  const dismissSuggestions = (type: 'artist' | 'venue', index?: number) => {
+    if (!extractionResult) return
+    if (type === 'artist' && index !== undefined) {
+      const updatedArtists = extractionResult.artists.map((artist, i) => {
+        if (i !== index) return artist
+        return { ...artist, suggestions: undefined }
+      })
+      const updated = { ...extractionResult, artists: updatedArtists }
+      setExtractionResult(updated)
+    } else if (type === 'venue' && extractionResult.venue) {
+      const updated = {
+        ...extractionResult,
+        venue: { ...extractionResult.venue, suggestions: undefined },
+      }
+      setExtractionResult(updated)
+    }
+  }
+
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-sm mb-4 py-0">
       <CardHeader
@@ -296,41 +355,121 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
               <div className="text-sm text-muted-foreground space-y-1">
                 {/* Artists */}
                 {extractionResult.artists.length > 0 && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span>Artists:</span>
-                    {extractionResult.artists.map((artist, i) => (
-                      <Badge
-                        key={i}
-                        variant={artist.matched_id ? 'default' : 'secondary'}
-                        className="text-xs"
-                      >
-                        {artist.matched_name || artist.name}
-                        {artist.matched_id && (
-                          <CheckCircle2 className="h-3 w-3 ml-1" />
-                        )}
-                      </Badge>
-                    ))}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span>Artists:</span>
+                      {extractionResult.artists.map((artist, i) => (
+                        <Badge
+                          key={i}
+                          variant={artist.matched_id ? 'default' : 'secondary'}
+                          className={`text-xs ${
+                            !artist.matched_id && artist.suggestions?.length
+                              ? 'border-amber-500 text-amber-700 dark:text-amber-400'
+                              : ''
+                          }`}
+                        >
+                          {artist.matched_name || artist.name}
+                          {artist.matched_id ? (
+                            <CheckCircle2 className="h-3 w-3 ml-1" />
+                          ) : artist.suggestions?.length ? (
+                            <AlertTriangle className="h-3 w-3 ml-1" />
+                          ) : null}
+                        </Badge>
+                      ))}
+                    </div>
+                    {/* Artist suggestions */}
+                    {extractionResult.artists.map(
+                      (artist, i) =>
+                        !artist.matched_id &&
+                        artist.suggestions &&
+                        artist.suggestions.length > 0 && (
+                          <div
+                            key={`suggestion-${i}`}
+                            className="ml-4 flex items-center gap-1.5 flex-wrap text-xs"
+                          >
+                            <span className="text-amber-600 dark:text-amber-400">
+                              Did you mean:
+                            </span>
+                            {artist.suggestions.map(s => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                className="rounded-md border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 text-xs hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors"
+                                onClick={() => acceptArtistSuggestion(i, s)}
+                              >
+                                {s.name}
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              className="rounded-md border border-input px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted transition-colors"
+                              onClick={() => dismissSuggestions('artist', i)}
+                            >
+                              Keep as new
+                            </button>
+                          </div>
+                        )
+                    )}
                   </div>
                 )}
 
                 {/* Venue */}
                 {extractionResult.venue && (
-                  <div className="flex items-center gap-2">
-                    <span>Venue:</span>
-                    <Badge
-                      variant={
-                        extractionResult.venue.matched_id
-                          ? 'default'
-                          : 'secondary'
-                      }
-                      className="text-xs"
-                    >
-                      {extractionResult.venue.matched_name ||
-                        extractionResult.venue.name}
-                      {extractionResult.venue.matched_id && (
-                        <CheckCircle2 className="h-3 w-3 ml-1" />
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span>Venue:</span>
+                      <Badge
+                        variant={
+                          extractionResult.venue.matched_id
+                            ? 'default'
+                            : 'secondary'
+                        }
+                        className={`text-xs ${
+                          !extractionResult.venue.matched_id &&
+                          extractionResult.venue.suggestions?.length
+                            ? 'border-amber-500 text-amber-700 dark:text-amber-400'
+                            : ''
+                        }`}
+                      >
+                        {extractionResult.venue.matched_name ||
+                          extractionResult.venue.name}
+                        {extractionResult.venue.matched_id ? (
+                          <CheckCircle2 className="h-3 w-3 ml-1" />
+                        ) : extractionResult.venue.suggestions?.length ? (
+                          <AlertTriangle className="h-3 w-3 ml-1" />
+                        ) : null}
+                      </Badge>
+                    </div>
+                    {/* Venue suggestions */}
+                    {!extractionResult.venue.matched_id &&
+                      extractionResult.venue.suggestions &&
+                      extractionResult.venue.suggestions.length > 0 && (
+                        <div className="ml-4 flex items-center gap-1.5 flex-wrap text-xs">
+                          <span className="text-amber-600 dark:text-amber-400">
+                            Did you mean:
+                          </span>
+                          {extractionResult.venue.suggestions.map(s => (
+                            <button
+                              key={s.id}
+                              type="button"
+                              className="rounded-md border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 text-xs hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors"
+                              onClick={() => acceptVenueSuggestion(s)}
+                            >
+                              {s.name}
+                              <span className="text-muted-foreground ml-1">
+                                ({s.city}, {s.state})
+                              </span>
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            className="rounded-md border border-input px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted transition-colors"
+                            onClick={() => dismissSuggestions('venue')}
+                          >
+                            Keep as new
+                          </button>
+                        </div>
                       )}
-                    </Badge>
                   </div>
                 )}
 

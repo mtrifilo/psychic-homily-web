@@ -25,8 +25,8 @@ export const VENUES: VenueConfig[] = [
   {
     slug: 'the-van-buren',
     name: 'The Van Buren',
-    providerType: 'ticketweb',
-    url: 'https://thevanburenphx.com/calendar/',
+    providerType: 'jsonld',
+    url: 'https://thevanburenphx.com/shows',
     city: 'Phoenix',
     state: 'AZ',
   },

@@ -228,7 +228,8 @@ func setupArtistRoutes(api huma.API, protected *huma.Group) {
 	huma.Get(api, "/artists/{artist_id}", artistHandler.GetArtistHandler)
 	huma.Get(api, "/artists/{artist_id}/shows", artistHandler.GetArtistShowsHandler)
 
-	// Note: Add protected artist endpoints here if needed in the future
+	// Protected artist endpoints
+	huma.Delete(protected, "/artists/{artist_id}", artistHandler.DeleteArtistHandler)
 }
 
 func setupVenueRoutes(api huma.API, protected *huma.Group, cfg *config.Config) {

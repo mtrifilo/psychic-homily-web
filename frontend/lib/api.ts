@@ -110,6 +110,7 @@ export const API_ENDPOINTS = {
     SEARCH: `${API_BASE_URL}/artists/search`,
     GET: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}`,
     SHOWS: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}/shows`,
+    DELETE: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}`,
   },
   VENUES: {
     LIST: `${API_BASE_URL}/venues`,

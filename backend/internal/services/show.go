@@ -432,19 +432,28 @@ func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*
 	return s.GetShow(showID)
 }
 
+// OrphanedArtist represents an artist that has no remaining show associations
+// after a show update replaced its artist list
+type OrphanedArtist struct {
+	ID   uint   `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
 // UpdateShowWithRelations updates a show including its artist and venue associations.
 // If venues or artists slices are provided (non-nil), they replace the existing associations.
 // If nil, the existing associations are preserved.
 // If isAdmin is true, new venues created during update are automatically verified.
+// Returns the updated show response and any artists that became orphaned (0 shows).
 func (s *ShowService) UpdateShowWithRelations(
 	showID uint,
 	updates map[string]interface{},
 	venues []CreateShowVenue,
 	artists []CreateShowArtist,
 	isAdmin bool,
-) (*ShowResponse, error) {
+) (*ShowResponse, []OrphanedArtist, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, nil, fmt.Errorf("database not initialized")
 	}
 
 	// Handle event_date conversion to UTC if present
@@ -453,6 +462,7 @@ func (s *ShowService) UpdateShowWithRelations(
 	}
 
 	var response *ShowResponse
+	var orphanedArtists []OrphanedArtist
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// First, verify the show exists
 		var show models.Show
@@ -493,6 +503,16 @@ func (s *ShowService) UpdateShowWithRelations(
 		// Update artist associations if artists are provided
 		var artistResponses []ArtistResponse
 		if artists != nil {
+			// Capture old artist IDs before deleting associations
+			var oldShowArtists []models.ShowArtist
+			if err := tx.Where("show_id = ?", showID).Find(&oldShowArtists).Error; err != nil {
+				return fmt.Errorf("failed to fetch old show artists: %w", err)
+			}
+			oldArtistIDs := make(map[uint]bool)
+			for _, sa := range oldShowArtists {
+				oldArtistIDs[sa.ArtistID] = true
+			}
+
 			// Delete existing show-artist associations
 			if err := tx.Where("show_id = ?", showID).Delete(&models.ShowArtist{}).Error; err != nil {
 				return fmt.Errorf("failed to delete existing show artists: %w", err)
@@ -503,6 +523,37 @@ func (s *ShowService) UpdateShowWithRelations(
 			artistResponses, err = s.associateArtists(tx, showID, artists)
 			if err != nil {
 				return fmt.Errorf("failed to associate artists: %w", err)
+			}
+
+			// Build set of new artist IDs
+			newArtistIDs := make(map[uint]bool)
+			for _, ar := range artistResponses {
+				newArtistIDs[ar.ID] = true
+			}
+
+			// Check which old artists are no longer associated with ANY show
+			for oldID := range oldArtistIDs {
+				if newArtistIDs[oldID] {
+					continue // still associated with this show
+				}
+				var count int64
+				if err := tx.Model(&models.ShowArtist{}).Where("artist_id = ?", oldID).Count(&count).Error; err != nil {
+					return fmt.Errorf("failed to count artist associations: %w", err)
+				}
+				if count == 0 {
+					var artist models.Artist
+					if err := tx.First(&artist, oldID).Error; err == nil {
+						slug := ""
+						if artist.Slug != nil {
+							slug = *artist.Slug
+						}
+						orphanedArtists = append(orphanedArtists, OrphanedArtist{
+							ID:   artist.ID,
+							Name: artist.Name,
+							Slug: slug,
+						})
+					}
+				}
 			}
 		}
 
@@ -590,10 +641,10 @@ func (s *ShowService) UpdateShowWithRelations(
 	})
 
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return response, nil
+	return response, orphanedArtists, nil
 }
 
 // encodeCursor creates a cursor from event_date and show ID
@@ -1248,6 +1299,15 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 				if err := tx.Create(&artist).Error; err != nil {
 					return nil, fmt.Errorf("failed to create artist %s: %w", requestArtist.Name, err)
 				}
+				// Generate slug for the new artist
+				baseSlug := utils.GenerateArtistSlug(artist.Name)
+				slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
+					var count int64
+					tx.Model(&models.Artist{}).Where("slug = ?", candidate).Count(&count)
+					return count > 0
+				})
+				tx.Model(&artist).Update("slug", slug)
+				artist.Slug = &slug
 				isNewArtist = true
 			} else if err != nil {
 				return nil, fmt.Errorf("failed to find artist %s: %w", requestArtist.Name, err)
@@ -1289,8 +1349,13 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 			Website:    artist.Social.Website,
 		}
 
+		artistSlug := ""
+		if artist.Slug != nil {
+			artistSlug = *artist.Slug
+		}
 		artists = append(artists, ArtistResponse{
 			ID:               artist.ID,
+			Slug:             artistSlug,
 			Name:             artist.Name,
 			State:            artist.State,
 			City:             artist.City,

@@ -292,7 +292,7 @@ func (venueService *VenueService) SearchVenues(query string) ([]*VenueDetailResp
 	} else {
 		err = venueService.db.
 			Select("venues.*, similarity(name, ?) as sim_score", query).
-			Where("name ILIKE ?", "%"+query+"%").
+			Where("name ILIKE ? OR name % ?", "%"+query+"%", query).
 			Order("sim_score DESC, name ASC").
 			Limit(10).
 			Find(&venues).Error
@@ -344,15 +344,34 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 	err := query.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", name, city).First(&venue).Error
 
 	if err == nil {
-		// Venue exists, return it (not newly created)
+		// Venue exists — backfill slug if missing
+		if venue.Slug == nil {
+			baseSlug := utils.GenerateVenueSlug(venue.Name, venue.City, venue.State)
+			slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
+				var count int64
+				query.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+				return count > 0
+			})
+			venue.Slug = &slug
+			query.Model(&venue).Update("slug", slug)
+		}
 		return &venue, false, nil
 	} else if err != gorm.ErrRecordNotFound {
 		return nil, false, fmt.Errorf("failed to check existing venue: %w", err)
 	}
 
 	// Venue doesn't exist, create it - verified if created by admin, unverified otherwise
+	// Generate unique slug
+	baseSlug := utils.GenerateVenueSlug(name, city, state)
+	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
+		var count int64
+		query.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+		return count > 0
+	})
+
 	venue = models.Venue{
 		Name:     name,
+		Slug:     &slug,
 		Address:  address,
 		City:     city,
 		State:    state,
@@ -389,8 +408,20 @@ func (s *VenueService) VerifyVenue(venueID uint) (*VenueDetailResponse, error) {
 		return s.buildVenueResponse(&venue), nil
 	}
 
-	// Update verified status
-	if err := s.db.Model(&venue).Update("verified", true).Error; err != nil {
+	// Generate slug if missing
+	updates := map[string]interface{}{"verified": true}
+	if venue.Slug == nil {
+		baseSlug := utils.GenerateVenueSlug(venue.Name, venue.City, venue.State)
+		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
+			var count int64
+			s.db.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+			return count > 0
+		})
+		updates["slug"] = slug
+	}
+
+	// Update verified status (and slug if generated)
+	if err := s.db.Model(&venue).Updates(updates).Error; err != nil {
 		return nil, fmt.Errorf("failed to verify venue: %w", err)
 	}
 

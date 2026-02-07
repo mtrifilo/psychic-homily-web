@@ -8,6 +8,8 @@ import type {
   ExtractedShowData,
   ExtractedArtist,
   ExtractedVenue,
+  MatchSuggestion,
+  VenueMatchSuggestion,
 } from '@/lib/types/extraction'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
@@ -151,6 +153,15 @@ async function matchArtists(
         result.matched_id = exactMatch.id
         result.matched_name = exactMatch.name
         result.matched_slug = exactMatch.slug
+      } else {
+        // No exact match — include top 3 results as suggestions
+        result.suggestions = searchResult.artists.slice(0, 3).map(
+          (a): MatchSuggestion => ({
+            id: a.id,
+            name: a.name,
+            slug: a.slug,
+          })
+        )
       }
     }
 
@@ -191,6 +202,17 @@ async function matchVenue(
       // Use database city/state if we matched
       result.city = exactMatch.city
       result.state = exactMatch.state
+    } else {
+      // No exact match — include top 3 results as suggestions
+      result.suggestions = searchResult.venues.slice(0, 3).map(
+        (v): VenueMatchSuggestion => ({
+          id: v.id,
+          name: v.name,
+          slug: v.slug,
+          city: v.city,
+          state: v.state,
+        })
+      )
     }
   }
 
@@ -418,9 +440,14 @@ export async function POST(request: NextRequest) {
 
     // Track match statistics for warnings
     const matchedArtistCount = matchedArtists.filter(a => a.matched_id).length
-    const newArtistCount = matchedArtists.length - matchedArtistCount
-    if (newArtistCount > 0 && matchedArtistCount > 0) {
-      warnings.push(`Found ${matchedArtistCount} existing artist${matchedArtistCount !== 1 ? 's' : ''}, ${newArtistCount} new`)
+    const suggestedArtistCount = matchedArtists.filter(a => !a.matched_id && a.suggestions?.length).length
+    const newArtistCount = matchedArtists.length - matchedArtistCount - suggestedArtistCount
+    if (newArtistCount > 0 || suggestedArtistCount > 0) {
+      const parts: string[] = []
+      if (matchedArtistCount > 0) parts.push(`${matchedArtistCount} matched`)
+      if (suggestedArtistCount > 0) parts.push(`${suggestedArtistCount} with suggestions`)
+      if (newArtistCount > 0) parts.push(`${newArtistCount} new`)
+      warnings.push(`Artists: ${parts.join(', ')}`)
     }
 
     // Extract and match venue
@@ -428,7 +455,11 @@ export async function POST(request: NextRequest) {
     const matchedVenue = await matchVenue(rawVenue)
 
     if (matchedVenue && !matchedVenue.matched_id) {
-      warnings.push(`Venue "${matchedVenue.name}" will be created as new`)
+      if (matchedVenue.suggestions?.length) {
+        warnings.push(`Venue "${matchedVenue.name}" not found — similar venues available`)
+      } else {
+        warnings.push(`Venue "${matchedVenue.name}" will be created as new`)
+      }
     }
 
     // Build the extracted data

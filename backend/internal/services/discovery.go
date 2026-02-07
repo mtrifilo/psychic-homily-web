@@ -11,6 +11,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/utils"
 )
 
 // DiscoveryService handles importing discovered event data into the database
@@ -311,6 +312,14 @@ func (s *DiscoveryService) createShowFromEvent(event *DiscoveredEvent, eventDate
 				if err := tx.Create(&artist).Error; err != nil {
 					return fmt.Errorf("failed to create artist %s: %w", artistName, err)
 				}
+				// Generate slug for the new artist
+				baseSlug := utils.GenerateArtistSlug(artist.Name)
+				artistSlug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
+					var count int64
+					tx.Model(&models.Artist{}).Where("slug = ?", candidate).Count(&count)
+					return count > 0
+				})
+				tx.Model(&artist).Update("slug", artistSlug)
 			} else if err != nil {
 				return fmt.Errorf("failed to find artist %s: %w", artistName, err)
 			}
@@ -332,6 +341,19 @@ func (s *DiscoveryService) createShowFromEvent(event *DiscoveredEvent, eventDate
 				return fmt.Errorf("failed to create show-artist association: %w", err)
 			}
 		}
+
+		// Generate slug for the show
+		headlinerName := ""
+		if len(artistNames) > 0 {
+			headlinerName = artistNames[0]
+		}
+		baseShowSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueConfig.Name)
+		showSlug := utils.GenerateUniqueSlug(baseShowSlug, func(candidate string) bool {
+			var count int64
+			tx.Model(&models.Show{}).Where("slug = ?", candidate).Count(&count)
+			return count > 0
+		})
+		tx.Model(show).Update("slug", showSlug)
 
 		return nil
 	})

@@ -5,7 +5,7 @@ import { apiRequest, API_ENDPOINTS } from '../api'
 import { createInvalidateQueries } from '../queryClient'
 import { showLogger } from '../utils/showLogger'
 import { ShowError } from '../errors'
-import type { ShowResponse } from '../types/show'
+import type { ShowResponse, OrphanedArtist } from '../types/show'
 
 /**
  * Venue data for show update requests
@@ -50,11 +50,12 @@ export interface ShowUpdate {
 }
 
 /**
- * Extended show response with optional error fields
+ * Extended show response with optional error fields and orphaned artists
  */
-interface ShowUpdateResponse extends ShowResponse {
+export interface ShowUpdateResponse extends ShowResponse {
   error_code?: string
   request_id?: string
+  orphaned_artists?: OrphanedArtist[]
 }
 
 /**
@@ -72,7 +73,7 @@ export function useShowUpdate() {
     }: {
       showId: number
       updates: ShowUpdate
-    }): Promise<ShowResponse> => {
+    }): Promise<ShowUpdateResponse> => {
       const updateFields = Object.keys(updates).filter(
         key => updates[key as keyof ShowUpdate] !== undefined
       )

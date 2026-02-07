@@ -11,10 +11,6 @@ const VENUES: Record<string, { name: string; url: string }> = {
     name: 'Crescent Ballroom',
     url: 'https://www.crescentphx.com/calendar/',
   },
-  'the-van-buren': {
-    name: 'The Van Buren',
-    url: 'https://thevanburenphx.com/calendar/',
-  },
   'celebrity-theatre': {
     name: 'Celebrity Theatre',
     url: 'https://www.celebritytheatre.com/events/',

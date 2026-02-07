@@ -199,9 +199,15 @@ type UpdateShowRequest struct {
 	}
 }
 
+// UpdateShowResponseBody represents the HTTP response body for updating a show
+type UpdateShowResponseBody struct {
+	services.ShowResponse
+	OrphanedArtists []services.OrphanedArtist `json:"orphaned_artists,omitempty" doc:"Artists that became orphaned (0 shows) after this update"`
+}
+
 // UpdateShowResponse represents the HTTP response for updating a show
 type UpdateShowResponse struct {
-	Body services.ShowResponse `json:"body"`
+	Body UpdateShowResponseBody `json:"body"`
 }
 
 // DeleteShowRequest represents the HTTP request for deleting a show
@@ -707,7 +713,7 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	)
 
 	// Update show using service with relations support (pass admin status for venue verification)
-	show, err := h.showService.UpdateShowWithRelations(uint(showID), updates, serviceVenues, serviceArtists, isAdmin)
+	show, orphanedArtists, err := h.showService.UpdateShowWithRelations(uint(showID), updates, serviceVenues, serviceArtists, isAdmin)
 	if err != nil {
 		showErr := showerrors.ErrShowUpdateFailed(uint(showID), err)
 		logger.FromContext(ctx).Error("show_update_failed",
@@ -726,10 +732,14 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		"title", show.Title,
 		"venue_count", len(show.Venues),
 		"artist_count", len(show.Artists),
+		"orphaned_artists", len(orphanedArtists),
 		"request_id", requestID,
 	)
 
-	return &UpdateShowResponse{Body: *show}, nil
+	return &UpdateShowResponse{Body: UpdateShowResponseBody{
+		ShowResponse:    *show,
+		OrphanedArtists: orphanedArtists,
+	}}, nil
 }
 
 // DeleteShowHandler handles DELETE /shows/{show_id}

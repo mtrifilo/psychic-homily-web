@@ -69,6 +69,13 @@ export interface ShowResponse {
   is_cancelled: boolean
 }
 
+// Orphaned artist returned when a show edit removes an artist's only association
+export interface OrphanedArtist {
+  id: number
+  name: string
+  slug: string
+}
+
 export interface CursorPaginationMeta {
   next_cursor: string | null
   has_more: boolean

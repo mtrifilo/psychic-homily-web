@@ -17,6 +17,23 @@ export interface ExtractShowRequest {
 }
 
 /**
+ * A close-but-not-exact match suggestion from the database
+ */
+export interface MatchSuggestion {
+  id: number
+  name: string
+  slug: string
+}
+
+/**
+ * Venue match suggestion with location info
+ */
+export interface VenueMatchSuggestion extends MatchSuggestion {
+  city: string
+  state: string
+}
+
+/**
  * Extracted artist with optional database match
  */
 export interface ExtractedArtist {
@@ -30,6 +47,8 @@ export interface ExtractedArtist {
   matched_name?: string
   /** Slug from database if matched */
   matched_slug?: string
+  /** Close matches when no exact match found */
+  suggestions?: MatchSuggestion[]
 }
 
 /**
@@ -48,6 +67,8 @@ export interface ExtractedVenue {
   matched_name?: string
   /** Slug from database if matched */
   matched_slug?: string
+  /** Close matches when no exact match found */
+  suggestions?: VenueMatchSuggestion[]
 }
 
 /**

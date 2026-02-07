@@ -439,3 +439,62 @@ func isValidSpotifyURL(url string) bool {
 	}
 	return true
 }
+
+// ============================================================================
+// Delete Artist
+// ============================================================================
+
+// DeleteArtistRequest represents the request for deleting an artist
+type DeleteArtistRequest struct {
+	ArtistID string `path:"artist_id" validate:"required" doc:"Artist ID"`
+}
+
+// DeleteArtistHandler handles DELETE /artists/{artist_id}
+// Only deletes artists with 0 show associations. Returns 409 Conflict if artist still has shows.
+func (h *ArtistHandler) DeleteArtistHandler(ctx context.Context, req *DeleteArtistRequest) (*struct{}, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Get authenticated user from context
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	// Parse artist ID
+	artistID, err := strconv.ParseUint(req.ArtistID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid artist ID")
+	}
+
+	logger.FromContext(ctx).Debug("delete_artist_attempt",
+		"artist_id", artistID,
+		"user_id", user.ID,
+		"request_id", requestID,
+	)
+
+	err = h.artistService.DeleteArtist(uint(artistID))
+	if err != nil {
+		if strings.Contains(err.Error(), "artist not found") {
+			return nil, huma.Error404NotFound("Artist not found")
+		}
+		if strings.Contains(err.Error(), "cannot delete artist") {
+			return nil, huma.Error409Conflict(err.Error())
+		}
+		logger.FromContext(ctx).Error("delete_artist_failed",
+			"artist_id", artistID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to delete artist (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Info("artist_deleted",
+		"artist_id", artistID,
+		"user_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return nil, nil
+}

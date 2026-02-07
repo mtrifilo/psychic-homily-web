@@ -18,19 +18,24 @@ import {
   EyeOff,
 } from 'lucide-react'
 import { useShowSubmit, type ShowSubmission } from '@/lib/hooks/useShowSubmit'
-import { useShowUpdate, type ShowUpdate } from '@/lib/hooks/useShowUpdate'
+import {
+  useShowUpdate,
+  type ShowUpdate,
+  type ShowUpdateResponse,
+} from '@/lib/hooks/useShowUpdate'
 import {
   combineDateTimeToUTC,
   parseISOToDateAndTime,
 } from '@/lib/utils/timeUtils'
 import type { Venue } from '@/lib/types/venue'
-import type { ShowResponse, VenueResponse } from '@/lib/types/show'
+import type { ShowResponse, VenueResponse, OrphanedArtist } from '@/lib/types/show'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { FormField, ArtistInput, VenueInput } from '@/components/forms'
+import { OrphanedArtistsDialog } from '@/components/forms/OrphanedArtistsDialog'
 import { useAuthContext } from '@/lib/context/AuthContext'
 
 // Form validation schema
@@ -160,6 +165,8 @@ export function ShowForm({
   const updateMutation = useShowUpdate()
   const [showSuccess, setShowSuccess] = useState(false)
   const [isPrivateShow, setIsPrivateShow] = useState(false)
+  const [orphanedArtists, setOrphanedArtists] = useState<OrphanedArtist[]>([])
+  const [showOrphanDialog, setShowOrphanDialog] = useState(false)
 
   // Track selected venue for editability checks
   // Initialize from prefilledVenue, initialData (for edit mode), or null for create mode
@@ -252,11 +259,19 @@ export function ShowForm({
         updateMutation.mutate(
           { showId: initialData.id, updates },
           {
-            onSuccess: () => {
+            onSuccess: (data: ShowUpdateResponse) => {
               setShowSuccess(true)
-              setTimeout(() => {
-                onSuccess?.()
-              }, 1500)
+              if (
+                data.orphaned_artists &&
+                data.orphaned_artists.length > 0
+              ) {
+                setOrphanedArtists(data.orphaned_artists)
+                setShowOrphanDialog(true)
+              } else {
+                setTimeout(() => {
+                  onSuccess?.()
+                }, 1500)
+              }
             },
           }
         )
@@ -760,6 +775,17 @@ export function ShowForm({
           )}
         </form.Subscribe>
       </div>
+
+      {isEditMode && (
+        <OrphanedArtistsDialog
+          open={showOrphanDialog}
+          onOpenChange={setShowOrphanDialog}
+          artists={orphanedArtists}
+          onComplete={() => {
+            onSuccess?.()
+          }}
+        />
+      )}
     </form>
   )
 }

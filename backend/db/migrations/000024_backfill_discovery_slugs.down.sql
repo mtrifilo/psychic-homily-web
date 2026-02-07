@@ -1,0 +1,1 @@
+-- No-op: slugs are additive and safe to keep

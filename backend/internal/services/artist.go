@@ -306,7 +306,7 @@ func (s *ArtistService) SearchArtists(query string) ([]*ArtistDetailResponse, er
 		// Uses idx_artists_name_trgm for efficient pattern matching
 		err = s.db.
 			Select("artists.*, similarity(name, ?) as sim_score", query).
-			Where("name ILIKE ?", "%"+query+"%").
+			Where("name ILIKE ? OR name % ?", "%"+query+"%", query).
 			Order("sim_score DESC, name ASC").
 			Limit(10).
 			Find(&artists).Error
