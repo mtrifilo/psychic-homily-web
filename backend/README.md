@@ -669,46 +669,46 @@ The API uses PostgreSQL with the following main tables:
 
 ## Development
 
-## Venue Scraper
+## Venue Discovery
 
-The project includes an automated venue scraper that imports show data from venue calendars.
+The project includes an automated venue discovery system that imports show data from venue calendars.
 
 ### Components
 
-- **Node.js Scraper** (`scripts/venue-scraper/`) - Playwright-based scraper for TicketWeb venues
-- **Go Importer** (`cmd/scrape-import/`) - CLI tool to import scraped JSON into the database
-- **Systemd Timer** (`deploy/scraper/`) - Weekly scheduled runs on the server
+- **Node.js Discovery** (`discovery/`) - Playwright-based discovery tool for TicketWeb venues
+- **Go Importer** (`cmd/discovery-import/`) - CLI tool to import discovered JSON into the database
+- **Systemd Timer** (`deploy/discovery/`) - Weekly scheduled runs on the server
 
 ### Usage
 
 ```bash
-# Run scraper and import (from project root)
-cd scripts/venue-scraper
-./run-scraper.sh
+# Run discovery and import (from project root)
+cd discovery
+./run-discovery.sh
 
 # Dry run (no database changes)
-./run-scraper.sh --dry-run
+./run-discovery.sh --dry-run
 
 # Import only (if you have JSON files)
 cd backend
-go build -o ./scrape-import ./cmd/scrape-import
-./scrape-import -input ../scripts/venue-scraper/output/scraped-events-*.json -dry-run
+go build -o ./discovery-import ./cmd/discovery-import
+./discovery-import -input ../discovery/output/discovered-events-*.json -dry-run
 ```
 
 ### Server Deployment
 
 ```bash
 # Install systemd timer
-sudo cp deploy/scraper/scraper.* /etc/systemd/system/
+sudo cp deploy/discovery/discovery.* /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now scraper.timer
+sudo systemctl enable --now discovery.timer
 
 # Manual run
-sudo systemctl start scraper.service
-journalctl -u scraper.service -f
+sudo systemctl start discovery.service
+journalctl -u discovery.service -f
 ```
 
-See `docs/venue-scraper-design.md` for detailed documentation.
+See `docs/venue-discovery-design.md` for detailed documentation.
 
 ---
 
@@ -719,8 +719,8 @@ backend/
 ├── cmd/
 │   ├── server/
 │   │   └── main.go              # Application entry point
-│   └── scrape-import/
-│       └── main.go              # Venue scraper importer CLI
+│   └── discovery-import/
+│       └── main.go              # Venue discovery importer CLI
 ├── internal/
 │   ├── api/
 │   │   ├── handlers/            # HTTP handlers
@@ -740,9 +740,9 @@ backend/
 │   ├── update-production.sh     # Update production
 │   └── verify-gcs-backups.sh    # Verify backup integrity
 ├── docs/                        # Documentation
-│   └── venue-scraper-design.md  # Venue scraper architecture
+│   └── venue-discovery-design.md # Venue discovery architecture
 ├── deploy/                      # Deployment configurations
-│   └── scraper/                 # Systemd units for venue scraper
+│   └── discovery/               # Systemd units for venue discovery
 ├── Dockerfile                   # Docker image definition
 ├── docker-compose.yml           # Docker Compose configuration
 ├── docker-compose.prod.yml      # Production Docker Compose

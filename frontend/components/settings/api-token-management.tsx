@@ -209,7 +209,7 @@ export function APITokenManagement() {
                 <DialogDescription>
                   {newToken
                     ? 'Copy your token now. It will not be shown again.'
-                    : 'Create a long-lived API token for the scraper app or other tools.'
+                    : 'Create a long-lived API token for the discovery app or other tools.'
                   }
                 </DialogDescription>
               </DialogHeader>
@@ -250,7 +250,7 @@ export function APITokenManagement() {
                     <Label htmlFor="description">Description (optional)</Label>
                     <Input
                       id="description"
-                      placeholder="e.g., Scraper App on Mike's laptop"
+                      placeholder="e.g., Discovery App on Mike's laptop"
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                     />
@@ -299,7 +299,7 @@ export function APITokenManagement() {
           </Dialog>
         </div>
         <CardDescription>
-          Long-lived tokens for the local scraper app and other admin tools
+          Long-lived tokens for the local discovery app and other admin tools
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -320,7 +320,7 @@ export function APITokenManagement() {
                 No API tokens yet
               </p>
               <p className="text-xs text-muted-foreground">
-                Create a token to use with the local scraper app
+                Create a token to use with the local discovery app
               </p>
             </div>
           ) : (
@@ -343,7 +343,7 @@ export function APITokenManagement() {
               <div className="space-y-1">
                 <p className="text-sm font-medium text-foreground">Token Usage</p>
                 <p className="text-xs text-muted-foreground">
-                  Use these tokens with the local scraper app. Set the token in the app&apos;s settings,
+                  Use these tokens with the local discovery app. Set the token in the app&apos;s settings,
                   and it will be used for all API requests. Tokens are valid for up to 365 days.
                 </p>
               </div>

@@ -16,8 +16,8 @@ const (
 type ShowSource string
 
 const (
-	ShowSourceUser    ShowSource = "user"    // Manually submitted by a user
-	ShowSourceScraper ShowSource = "scraper" // Automatically imported from a scraper
+	ShowSourceUser      ShowSource = "user"      // Manually submitted by a user
+	ShowSourceDiscovery ShowSource = "discovery" // Automatically imported from the discovery app
 )
 
 type Show struct {
@@ -38,7 +38,7 @@ type Show struct {
 	SubmittedBy     *uint      `gorm:"column:submitted_by"`
 	RejectionReason *string    `gorm:"column:rejection_reason"`
 
-	// Source tracking fields (for scraped shows)
+	// Source tracking fields (for discovered shows)
 	Source        ShowSource `gorm:"type:show_source;not null;default:'user'"`
 	SourceVenue   *string    `gorm:"column:source_venue"`   // e.g., 'valley-bar', 'crescent-ballroom'
 	SourceEventID *string    `gorm:"column:source_event_id"` // External event ID for deduplication

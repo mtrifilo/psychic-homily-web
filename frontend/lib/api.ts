@@ -184,8 +184,14 @@ export const API_ENDPOINTS = {
       REVOKE: (tokenId: string | number) =>
         `${API_BASE_URL}/admin/tokens/${tokenId}`,
     },
-    SCRAPER: {
-      IMPORT: `${API_BASE_URL}/admin/scraper/import`,
+    AUDIT_LOGS: {
+      LIST: `${API_BASE_URL}/admin/audit-logs`,
+    },
+    USERS: {
+      LIST: `${API_BASE_URL}/admin/users`,
+    },
+    DISCOVERY: {
+      IMPORT: `${API_BASE_URL}/admin/discovery/import`,
     },
   },
 

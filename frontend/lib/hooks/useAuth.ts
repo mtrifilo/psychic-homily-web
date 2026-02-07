@@ -1056,7 +1056,7 @@ export const useGenerateCLIToken = () => {
 }
 
 // ============================================================================
-// API Token Management (Admin only - for scraper app)
+// API Token Management (Admin only - for discovery app)
 // ============================================================================
 
 // API Token types

@@ -22,9 +22,11 @@ type AdminHandler struct {
 	venueService          *services.VenueService
 	discordService        *services.DiscordService
 	musicDiscoveryService *services.MusicDiscoveryService
-	scraperService        *services.ScraperService
+	discoveryService      *services.DiscoveryService
 	apiTokenService       *services.APITokenService
 	dataSyncService       *services.DataSyncService
+	auditLogService       *services.AuditLogService
+	userService           *services.UserService
 }
 
 // NewAdminHandler creates a new admin handler
@@ -34,9 +36,11 @@ func NewAdminHandler(cfg *config.Config) *AdminHandler {
 		venueService:          services.NewVenueService(),
 		discordService:        services.NewDiscordService(cfg),
 		musicDiscoveryService: services.NewMusicDiscoveryService(cfg),
-		scraperService:        services.NewScraperService(),
+		discoveryService:      services.NewDiscoveryService(),
 		apiTokenService:       services.NewAPITokenService(),
 		dataSyncService:       services.NewDataSyncService(),
+		auditLogService:       services.NewAuditLogService(),
+		userService:           services.NewUserService(),
 	}
 }
 
@@ -281,6 +285,11 @@ func (h *AdminHandler) ApproveShowHandler(ctx context.Context, req *ApproveShowR
 	// Send Discord notification for show approval
 	h.discordService.NotifyShowApproved(show)
 
+	// Audit log
+	h.auditLogService.LogAction(user.ID, "approve_show", "show", uint(showID), map[string]interface{}{
+		"verify_venues": req.Body.VerifyVenues,
+	})
+
 	return &ApproveShowResponse{Body: *show}, nil
 }
 
@@ -336,6 +345,11 @@ func (h *AdminHandler) RejectShowHandler(ctx context.Context, req *RejectShowReq
 	// Send Discord notification for show rejection
 	h.discordService.NotifyShowRejected(show, req.Body.Reason)
 
+	// Audit log
+	h.auditLogService.LogAction(user.ID, "reject_show", "show", uint(showID), map[string]interface{}{
+		"reason": req.Body.Reason,
+	})
+
 	return &RejectShowResponse{Body: *show}, nil
 }
 
@@ -382,6 +396,9 @@ func (h *AdminHandler) VerifyVenueHandler(ctx context.Context, req *VerifyVenueR
 		"admin_id", user.ID,
 		"request_id", requestID,
 	)
+
+	// Audit log
+	h.auditLogService.LogAction(user.ID, "verify_venue", "venue", uint(venueID), nil)
 
 	return &VerifyVenueResponse{Body: *venue}, nil
 }
@@ -575,6 +592,11 @@ func (h *AdminHandler) ApproveVenueEditHandler(ctx context.Context, req *Approve
 		"request_id", requestID,
 	)
 
+	// Audit log
+	h.auditLogService.LogAction(user.ID, "approve_venue_edit", "venue_edit", uint(editID), map[string]interface{}{
+		"venue_id": venue.ID,
+	})
+
 	return &ApproveVenueEditResponse{Body: *venue}, nil
 }
 
@@ -639,6 +661,11 @@ func (h *AdminHandler) RejectVenueEditHandler(ctx context.Context, req *RejectVe
 		"admin_id", user.ID,
 		"request_id", requestID,
 	)
+
+	// Audit log
+	h.auditLogService.LogAction(user.ID, "reject_venue_edit", "venue_edit", uint(editID), map[string]interface{}{
+		"reason": req.Body.Reason,
+	})
 
 	return &RejectVenueEditResponse{Body: *edit}, nil
 }
@@ -1194,11 +1221,11 @@ func (h *AdminHandler) BulkImportConfirmHandler(ctx context.Context, req *BulkIm
 }
 
 // ============================================================================
-// Scraper Import Handlers (for local scraper app)
+// Discovery Import Handlers (for local discovery app)
 // ============================================================================
 
-// ScraperImportEventInput represents a single scraped event for import
-type ScraperImportEventInput struct {
+// DiscoveryImportEventInput represents a single discovered event for import
+type DiscoveryImportEventInput struct {
 	ID        string   `json:"id" doc:"External event ID from the venue's system"`
 	Title     string   `json:"title" doc:"Event title"`
 	Date      string   `json:"date" doc:"Event date in ISO format (YYYY-MM-DD)"`
@@ -1212,21 +1239,21 @@ type ScraperImportEventInput struct {
 	ScrapedAt string   `json:"scrapedAt" doc:"When the event was scraped (ISO timestamp)"`
 }
 
-// ScraperImportRequest represents the HTTP request for importing scraped events
-type ScraperImportRequest struct {
+// DiscoveryImportRequest represents the HTTP request for importing discovered events
+type DiscoveryImportRequest struct {
 	Body struct {
-		Events []ScraperImportEventInput `json:"events" validate:"required,min=1" doc:"Array of scraped events to import"`
+		Events []DiscoveryImportEventInput `json:"events" validate:"required,min=1" doc:"Array of discovered events to import"`
 		DryRun bool                      `json:"dryRun" doc:"If true, preview import without persisting"`
 	}
 }
 
-// ScraperImportResponse represents the HTTP response for importing scraped events
-type ScraperImportResponse struct {
+// DiscoveryImportResponse represents the HTTP response for importing discovered events
+type DiscoveryImportResponse struct {
 	Body services.ImportResult `json:"body"`
 }
 
-// ScraperImportHandler handles POST /admin/scraper/import
-func (h *AdminHandler) ScraperImportHandler(ctx context.Context, req *ScraperImportRequest) (*ScraperImportResponse, error) {
+// DiscoveryImportHandler handles POST /admin/discovery/import
+func (h *AdminHandler) DiscoveryImportHandler(ctx context.Context, req *DiscoveryImportRequest) (*DiscoveryImportResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
 	// Verify admin access
@@ -1247,16 +1274,16 @@ func (h *AdminHandler) ScraperImportHandler(ctx context.Context, req *ScraperImp
 		return nil, huma.Error400BadRequest("Maximum 100 events can be imported at once")
 	}
 
-	logger.FromContext(ctx).Debug("admin_scraper_import_attempt",
+	logger.FromContext(ctx).Debug("admin_discovery_import_attempt",
 		"event_count", len(req.Body.Events),
 		"dry_run", req.Body.DryRun,
 		"admin_id", user.ID,
 	)
 
-	// Convert input events to ScrapedEvent format
-	events := make([]services.ScrapedEvent, len(req.Body.Events))
+	// Convert input events to DiscoveredEvent format
+	events := make([]services.DiscoveredEvent, len(req.Body.Events))
 	for i, e := range req.Body.Events {
-		events[i] = services.ScrapedEvent{
+		events[i] = services.DiscoveredEvent{
 			ID:        e.ID,
 			Title:     e.Title,
 			Date:      e.Date,
@@ -1272,9 +1299,9 @@ func (h *AdminHandler) ScraperImportHandler(ctx context.Context, req *ScraperImp
 	}
 
 	// Import events
-	result, err := h.scraperService.ImportEvents(events, req.Body.DryRun)
+	result, err := h.discoveryService.ImportEvents(events, req.Body.DryRun)
 	if err != nil {
-		logger.FromContext(ctx).Error("admin_scraper_import_failed",
+		logger.FromContext(ctx).Error("admin_discovery_import_failed",
 			"error", err.Error(),
 			"request_id", requestID,
 		)
@@ -1288,7 +1315,7 @@ func (h *AdminHandler) ScraperImportHandler(ctx context.Context, req *ScraperImp
 		action = "previewed"
 	}
 
-	logger.FromContext(ctx).Info("admin_scraper_import_success",
+	logger.FromContext(ctx).Info("admin_discovery_import_success",
 		"action", action,
 		"total", result.Total,
 		"imported", result.Imported,
@@ -1299,7 +1326,85 @@ func (h *AdminHandler) ScraperImportHandler(ctx context.Context, req *ScraperImp
 		"request_id", requestID,
 	)
 
-	return &ScraperImportResponse{Body: *result}, nil
+	return &DiscoveryImportResponse{Body: *result}, nil
+}
+
+// ============================================================================
+// Discovery Check Handlers (check if events already exist)
+// ============================================================================
+
+// DiscoveryCheckEventInput represents a single event to check
+type DiscoveryCheckEventInput struct {
+	ID        string `json:"id" doc:"External event ID from the venue's system"`
+	VenueSlug string `json:"venueSlug" doc:"Venue identifier (e.g., valley-bar)"`
+}
+
+// DiscoveryCheckRequest represents the HTTP request for checking discovered events
+type DiscoveryCheckRequest struct {
+	Body struct {
+		Events []DiscoveryCheckEventInput `json:"events" validate:"required,min=1" doc:"Array of events to check"`
+	}
+}
+
+// DiscoveryCheckResponse represents the HTTP response for checking discovered events
+type DiscoveryCheckResponse struct {
+	Body services.CheckEventsResult `json:"body"`
+}
+
+// DiscoveryCheckHandler handles POST /admin/discovery/check
+func (h *AdminHandler) DiscoveryCheckHandler(ctx context.Context, req *DiscoveryCheckRequest) (*DiscoveryCheckResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	if len(req.Body.Events) == 0 {
+		return nil, huma.Error400BadRequest("At least one event is required")
+	}
+
+	if len(req.Body.Events) > 200 {
+		return nil, huma.Error400BadRequest("Maximum 200 events can be checked at once")
+	}
+
+	logger.FromContext(ctx).Debug("admin_discovery_check_attempt",
+		"event_count", len(req.Body.Events),
+		"admin_id", user.ID,
+	)
+
+	// Convert input to service types
+	events := make([]services.CheckEventInput, len(req.Body.Events))
+	for i, e := range req.Body.Events {
+		events[i] = services.CheckEventInput{
+			ID:        e.ID,
+			VenueSlug: e.VenueSlug,
+		}
+	}
+
+	result, err := h.discoveryService.CheckEvents(events)
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_discovery_check_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to check events (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("admin_discovery_check_success",
+		"checked", len(req.Body.Events),
+		"found", len(result.Events),
+		"admin_id", user.ID,
+	)
+
+	return &DiscoveryCheckResponse{Body: *result}, nil
 }
 
 // ============================================================================
@@ -1309,7 +1414,7 @@ func (h *AdminHandler) ScraperImportHandler(ctx context.Context, req *ScraperImp
 // CreateAPITokenRequest represents the HTTP request for creating an API token
 type CreateAPITokenRequest struct {
 	Body struct {
-		Description    string `json:"description" doc:"Optional description for the token (e.g., 'Mike laptop scraper')"`
+		Description    string `json:"description" doc:"Optional description for the token (e.g., 'Mike laptop discovery')"`
 		ExpirationDays int    `json:"expiration_days" doc:"Token expiration in days (default: 90, max: 365)"`
 	}
 }
@@ -1761,6 +1866,87 @@ func (h *AdminHandler) DataImportHandler(ctx context.Context, req *DataImportReq
 	)
 
 	return &DataImportResponse{Body: *result}, nil
+}
+
+// ============================================================================
+// Admin User List Handlers
+// ============================================================================
+
+// GetAdminUsersRequest represents the HTTP request for listing users
+type GetAdminUsersRequest struct {
+	Limit  int    `query:"limit" default:"50" doc:"Number of users to return (max 100)"`
+	Offset int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Search string `query:"search" doc:"Search by email or username"`
+}
+
+// GetAdminUsersResponse represents the HTTP response for listing users
+type GetAdminUsersResponse struct {
+	Body struct {
+		Users []*services.AdminUserResponse `json:"users"`
+		Total int64                         `json:"total"`
+	}
+}
+
+// GetAdminUsersHandler handles GET /admin/users
+func (h *AdminHandler) GetAdminUsersHandler(ctx context.Context, req *GetAdminUsersRequest) (*GetAdminUsersResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Validate limit
+	limit := req.Limit
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	logger.FromContext(ctx).Debug("admin_users_list_attempt",
+		"limit", limit,
+		"offset", req.Offset,
+		"search", req.Search,
+	)
+
+	// Build filters
+	filters := services.AdminUserFilters{
+		Search: req.Search,
+	}
+
+	// Get users
+	users, total, err := h.userService.ListUsers(limit, req.Offset, filters)
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_users_list_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get users (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("admin_users_list_success",
+		"count", len(users),
+		"total", total,
+	)
+
+	return &GetAdminUsersResponse{
+		Body: struct {
+			Users []*services.AdminUserResponse `json:"users"`
+			Total int64                         `json:"total"`
+		}{
+			Users: users,
+			Total: total,
+		},
+	}, nil
 }
 
 // parseDate parses a date string in YYYY-MM-DD format

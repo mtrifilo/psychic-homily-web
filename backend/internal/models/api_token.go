@@ -5,7 +5,7 @@ import (
 )
 
 // APIToken represents a long-lived API token for authentication
-// Used by the local scraper app and other admin tools
+// Used by the local discovery app and other admin tools
 type APIToken struct {
 	ID          uint       `json:"id" gorm:"primaryKey"`
 	UserID      uint       `json:"user_id" gorm:"not null"`

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
-import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag } from 'lucide-react'
+import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users } from 'lucide-react'
 import { usePendingVenueEdits } from '@/lib/hooks/useAdminVenueEdits'
 import { useUnverifiedVenues } from '@/lib/hooks/useAdminVenues'
 import { usePendingReports } from '@/lib/hooks/useAdminReports'
@@ -37,6 +37,22 @@ const UnverifiedVenuesPage = dynamic(() => import('./unverified-venues/page'), {
 })
 
 const ReportsPage = dynamic(() => import('./reports/page'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
+const AuditLogPage = dynamic(() => import('./audit-log/page'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
+const UsersPage = dynamic(() => import('./users/page'), {
   loading: () => (
     <div className="flex items-center justify-center py-12">
       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -110,6 +126,14 @@ export default function AdminPage() {
               <Upload className="h-4 w-4" />
               Import Show
             </TabsTrigger>
+            <TabsTrigger value="users" className="gap-2">
+              <Users className="h-4 w-4" />
+              Users
+            </TabsTrigger>
+            <TabsTrigger value="audit-log" className="gap-2">
+              <ScrollText className="h-4 w-4" />
+              Audit Log
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="pending-venue-edits" className="space-y-4">
@@ -126,6 +150,14 @@ export default function AdminPage() {
 
           <TabsContent value="import-show" className="space-y-4">
             <ShowImportPanel />
+          </TabsContent>
+
+          <TabsContent value="users" className="space-y-4">
+            <UsersPage />
+          </TabsContent>
+
+          <TabsContent value="audit-log" className="space-y-4">
+            <AuditLogPage />
           </TabsContent>
         </Tabs>
       </div>

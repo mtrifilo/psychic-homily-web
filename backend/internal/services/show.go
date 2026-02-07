@@ -90,8 +90,8 @@ type ShowResponse struct {
 	IsSoldOut   bool `json:"is_sold_out"`
 	IsCancelled bool `json:"is_cancelled"`
 
-	// Source tracking (for admin view to identify scraped shows)
-	Source      string     `json:"source,omitempty"`       // "user" or "scraper"
+	// Source tracking (for admin view to identify discovered shows)
+	Source      string     `json:"source,omitempty"`       // "user" or "discovery"
 	SourceVenue *string    `json:"source_venue,omitempty"` // Venue slug for scraped shows
 	ScrapedAt   *time.Time `json:"scraped_at,omitempty"`   // When the show was scraped
 }

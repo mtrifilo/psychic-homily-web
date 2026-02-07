@@ -294,6 +294,7 @@ func setupShowReportRoutes(protected *huma.Group, cfg *config.Config) {
 func setupAdminRoutes(protected *huma.Group, cfg *config.Config) {
 	adminHandler := handlers.NewAdminHandler(cfg)
 	artistHandler := handlers.NewArtistHandler()
+	auditLogHandler := handlers.NewAuditLogHandler()
 
 	// Admin show listing endpoint (for CLI export)
 	huma.Get(protected, "/admin/shows", adminHandler.GetAdminShowsHandler)
@@ -326,8 +327,9 @@ func setupAdminRoutes(protected *huma.Group, cfg *config.Config) {
 	huma.Patch(protected, "/admin/artists/{artist_id}/bandcamp", artistHandler.UpdateArtistBandcampHandler)
 	huma.Patch(protected, "/admin/artists/{artist_id}/spotify", artistHandler.UpdateArtistSpotifyHandler)
 
-	// Admin scraper import endpoint (for local scraper app)
-	huma.Post(protected, "/admin/scraper/import", adminHandler.ScraperImportHandler)
+	// Admin discovery endpoints (for local discovery app)
+	huma.Post(protected, "/admin/discovery/import", adminHandler.DiscoveryImportHandler)
+	huma.Post(protected, "/admin/discovery/check", adminHandler.DiscoveryCheckHandler)
 
 	// Admin API token management endpoints
 	huma.Post(protected, "/admin/tokens", adminHandler.CreateAPITokenHandler)
@@ -341,6 +343,12 @@ func setupAdminRoutes(protected *huma.Group, cfg *config.Config) {
 
 	// Admin data import endpoint (for syncing local data to Stage/Production)
 	huma.Post(protected, "/admin/data/import", adminHandler.DataImportHandler)
+
+	// Admin audit log endpoint
+	huma.Get(protected, "/admin/audit-logs", auditLogHandler.GetAuditLogsHandler)
+
+	// Admin user list endpoint
+	huma.Get(protected, "/admin/users", adminHandler.GetAdminUsersHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON

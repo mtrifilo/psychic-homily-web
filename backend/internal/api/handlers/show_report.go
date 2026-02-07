@@ -18,6 +18,7 @@ type ShowReportHandler struct {
 	showReportService *services.ShowReportService
 	discordService    *services.DiscordService
 	userService       *services.UserService
+	auditLogService   *services.AuditLogService
 }
 
 // NewShowReportHandler creates a new show report handler
@@ -26,6 +27,7 @@ func NewShowReportHandler(cfg *config.Config) *ShowReportHandler {
 		showReportService: services.NewShowReportService(),
 		discordService:    services.NewDiscordService(cfg),
 		userService:       services.NewUserService(),
+		auditLogService:   services.NewAuditLogService(),
 	}
 }
 
@@ -294,6 +296,13 @@ func (h *ShowReportHandler) DismissReportHandler(ctx context.Context, req *Dismi
 		"request_id", requestID,
 	)
 
+	// Audit log
+	metadata := map[string]interface{}{"show_id": report.ShowID}
+	if req.Body.Notes != nil {
+		metadata["notes"] = *req.Body.Notes
+	}
+	h.auditLogService.LogAction(user.ID, "dismiss_report", "show_report", uint(reportID), metadata)
+
 	return &DismissReportResponse{Body: *report}, nil
 }
 
@@ -361,6 +370,20 @@ func (h *ShowReportHandler) ResolveReportHandler(ctx context.Context, req *Resol
 		"admin_id", user.ID,
 		"request_id", requestID,
 	)
+
+	// Audit log
+	auditAction := "resolve_report"
+	if setShowFlag {
+		auditAction = "resolve_report_with_flag"
+	}
+	auditMeta := map[string]interface{}{
+		"show_id":       report.ShowID,
+		"set_show_flag": setShowFlag,
+	}
+	if req.Body.Notes != nil {
+		auditMeta["notes"] = *req.Body.Notes
+	}
+	h.auditLogService.LogAction(user.ID, auditAction, "show_report", uint(reportID), auditMeta)
 
 	return &ResolveReportResponse{Body: *report}, nil
 }

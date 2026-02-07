@@ -136,6 +136,10 @@ export const queryKeys = {
       ['admin', 'venues', 'pendingEdits', { limit, offset }] as const,
     unverifiedVenues: (limit: number, offset: number) =>
       ['admin', 'venues', 'unverified', { limit, offset }] as const,
+    auditLogs: (limit: number, offset: number) =>
+      ['admin', 'auditLogs', { limit, offset }] as const,
+    users: (limit: number, offset: number, search: string) =>
+      ['admin', 'users', { limit, offset, search }] as const,
   },
 
   // Artist queries
@@ -219,4 +223,12 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate show reports queries
   showReports: () =>
     queryClient.invalidateQueries({ queryKey: ['showReports'] }),
+
+  // Invalidate audit logs queries
+  auditLogs: () =>
+    queryClient.invalidateQueries({ queryKey: ['admin', 'auditLogs'] }),
+
+  // Invalidate admin users queries
+  adminUsers: () =>
+    queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
 })

@@ -19,6 +19,158 @@ const (
 	AccountLockDuration    = 15 * time.Minute
 )
 
+// AdminUserFilters contains filter criteria for listing users
+type AdminUserFilters struct {
+	Search string // ILIKE match on email or username
+}
+
+// UserSubmissionStats contains show submission counts by status
+type UserSubmissionStats struct {
+	Approved int64 `json:"approved"`
+	Pending  int64 `json:"pending"`
+	Rejected int64 `json:"rejected"`
+	Total    int64 `json:"total"`
+}
+
+// AdminUserResponse is the response type for the admin user list
+type AdminUserResponse struct {
+	ID              uint                `json:"id"`
+	Email           *string             `json:"email"`
+	Username        *string             `json:"username"`
+	FirstName       *string             `json:"first_name"`
+	LastName        *string             `json:"last_name"`
+	AvatarURL       *string             `json:"avatar_url"`
+	IsActive        bool                `json:"is_active"`
+	IsAdmin         bool                `json:"is_admin"`
+	EmailVerified   bool                `json:"email_verified"`
+	AuthMethods     []string            `json:"auth_methods"`
+	SubmissionStats UserSubmissionStats  `json:"submission_stats"`
+	CreatedAt       time.Time           `json:"created_at"`
+	DeletedAt       *time.Time          `json:"deleted_at,omitempty"`
+}
+
+// ListUsers returns a paginated list of users for the admin console
+func (s *UserService) ListUsers(limit, offset int, filters AdminUserFilters) ([]*AdminUserResponse, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	// Base query
+	query := s.db.Model(&models.User{})
+
+	// Apply search filter
+	if filters.Search != "" {
+		searchPattern := "%" + filters.Search + "%"
+		query = query.Where("(email ILIKE ? OR username ILIKE ?)", searchPattern, searchPattern)
+	}
+
+	// Get total count
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count users: %w", err)
+	}
+
+	// Fetch users with OAuth accounts preloaded
+	var users []models.User
+	if err := query.
+		Preload("OAuthAccounts").
+		Order("created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&users).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to list users: %w", err)
+	}
+
+	if len(users) == 0 {
+		return []*AdminUserResponse{}, total, nil
+	}
+
+	// Collect user IDs for batch queries
+	userIDs := make([]uint, len(users))
+	for i, u := range users {
+		userIDs[i] = u.ID
+	}
+
+	// Batch load passkey counts
+	type passkeyCount struct {
+		UserID uint
+		Count  int64
+	}
+	var passkeyCounts []passkeyCount
+	s.db.Model(&models.WebAuthnCredential{}).
+		Select("user_id, COUNT(*) as count").
+		Where("user_id IN ?", userIDs).
+		Group("user_id").
+		Scan(&passkeyCounts)
+
+	passkeyMap := make(map[uint]int64, len(passkeyCounts))
+	for _, pc := range passkeyCounts {
+		passkeyMap[pc.UserID] = pc.Count
+	}
+
+	// Batch load show stats
+	type showStat struct {
+		SubmittedBy uint
+		Status      string
+		Count       int64
+	}
+	var showStats []showStat
+	s.db.Model(&models.Show{}).
+		Select("submitted_by, status, COUNT(*) as count").
+		Where("submitted_by IN ?", userIDs).
+		Group("submitted_by, status").
+		Scan(&showStats)
+
+	statsMap := make(map[uint]UserSubmissionStats, len(users))
+	for _, ss := range showStats {
+		stats := statsMap[ss.SubmittedBy]
+		switch ss.Status {
+		case "approved":
+			stats.Approved = ss.Count
+		case "pending":
+			stats.Pending = ss.Count
+		case "rejected":
+			stats.Rejected = ss.Count
+		}
+		stats.Total += ss.Count
+		statsMap[ss.SubmittedBy] = stats
+	}
+
+	// Build response
+	result := make([]*AdminUserResponse, len(users))
+	for i, u := range users {
+		// Derive auth methods
+		var authMethods []string
+		if u.PasswordHash != nil && *u.PasswordHash != "" {
+			authMethods = append(authMethods, "password")
+		}
+		for _, oauth := range u.OAuthAccounts {
+			authMethods = append(authMethods, oauth.Provider)
+		}
+		if passkeyMap[u.ID] > 0 {
+			authMethods = append(authMethods, "passkey")
+		}
+
+		result[i] = &AdminUserResponse{
+			ID:              u.ID,
+			Email:           u.Email,
+			Username:        u.Username,
+			FirstName:       u.FirstName,
+			LastName:        u.LastName,
+			AvatarURL:       u.AvatarURL,
+			IsActive:        u.IsActive,
+			IsAdmin:         u.IsAdmin,
+			EmailVerified:   u.EmailVerified,
+			AuthMethods:     authMethods,
+			SubmissionStats: statsMap[u.ID],
+			CreatedAt:       u.CreatedAt,
+			DeletedAt:       u.DeletedAt,
+		}
+	}
+
+	return result, total, nil
+}
+
 // UserService handles user-related business logic
 type UserService struct {
 	db *gorm.DB
