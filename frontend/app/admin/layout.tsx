@@ -29,7 +29,7 @@ export default function AdminLayout({
   // Show loading state while checking auth
   if (isLoading) {
     return (
-      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-background">
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     )
@@ -43,7 +43,7 @@ export default function AdminLayout({
   // Don't render if not admin (will redirect)
   if (!user?.is_admin) {
     return (
-      <div className="flex min-h-[calc(100vh-64px)] flex-col items-center justify-center bg-background px-4">
+      <div className="flex min-h-[calc(100vh-64px)] flex-col items-center justify-center px-4">
         <div className="rounded-full bg-destructive/10 p-3 mb-4">
           <Shield className="h-6 w-6 text-destructive" />
         </div>

@@ -65,7 +65,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
         description: post.frontmatter.description || post.excerpt,
         slug,
       })} />
-      <div className="flex min-h-screen items-start justify-center bg-background">
+      <div className="flex min-h-screen items-start justify-center">
         <article className="w-full max-w-3xl px-4 py-8 md:px-8">
           <header className="mb-8">
             <h1 className="text-3xl font-bold leading-tight mb-3">

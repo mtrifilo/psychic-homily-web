@@ -7,11 +7,11 @@ export const metadata: Metadata = {
 }
 
 export default function PrivacyPolicyPage() {
-  const lastUpdated = 'February 3, 2026'
+  const lastUpdated = 'February 7, 2026'
   const effectiveDate = 'January 31, 2026'
 
   return (
-    <div className="flex min-h-screen items-start justify-center bg-background">
+    <div className="flex min-h-screen items-start justify-center">
       <main className="w-full max-w-3xl px-4 py-8 md:px-8">
         <h1 className="text-3xl font-bold text-center mb-2">Privacy Policy</h1>
         <p className="text-center text-muted-foreground mb-8">
@@ -94,6 +94,7 @@ export default function PrivacyPolicyPage() {
               <li><strong>Railway:</strong> Cloud hosting provider where the application and database are hosted. <Link href="https://railway.app/legal/privacy" className="underline hover:text-muted-foreground">Railway Privacy Policy</Link></li>
               <li><strong>Google Cloud Storage:</strong> Used for backup storage. <Link href="https://cloud.google.com/terms/cloud-privacy-notice" className="underline hover:text-muted-foreground">Google Cloud Privacy Notice</Link></li>
               <li><strong>Anthropic (Claude AI):</strong> I use AI to help extract show details from uploaded flyer images and to discover music links for artists. Uploaded images and artist names may be processed by Anthropic&apos;s Claude API. No personal user information is sent to Anthropic. <Link href="https://www.anthropic.com/privacy" className="underline hover:text-muted-foreground">Anthropic Privacy Policy</Link></li>
+              <li><strong>PostHog:</strong> I use PostHog for privacy-friendly product analytics, including page views and session recordings (with all inputs masked). PostHog is only activated after you consent to analytics cookies via the cookie banner. If you decline or revoke consent, no data is sent to PostHog. <Link href="https://posthog.com/privacy" className="underline hover:text-muted-foreground">PostHog Privacy Policy</Link></li>
             </ul>
 
             <h3 className="text-lg font-medium mt-4 mb-2">4.2 Authentication Providers</h3>
@@ -193,6 +194,7 @@ export default function PrivacyPolicyPage() {
             <ul className="list-disc pl-6 space-y-2 text-foreground/90">
               <li><strong>Essential Cookies:</strong> Required for authentication and security. These cannot be disabled without breaking core functionality.</li>
               <li><strong>Preference Cookies:</strong> Remember your settings like theme preference. These improve your experience but are not strictly necessary.</li>
+              <li><strong>Analytics Cookies:</strong> With your consent, I use PostHog to collect anonymized usage data such as page views and session recordings (with all inputs masked). These cookies are only set after you accept analytics via the cookie consent banner. You can change your preference at any time through the cookie preferences link in the footer.</li>
             </ul>
 
             <h3 className="text-lg font-medium mt-4 mb-2">7.2 Third-Party Cookies</h3>

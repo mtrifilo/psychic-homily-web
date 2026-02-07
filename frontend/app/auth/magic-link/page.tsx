@@ -43,7 +43,7 @@ function MagicLinkContent() {
   // No token provided
   if (!token) {
     return (
-      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-background px-4 py-12">
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
         <Card className="w-full max-w-md border-border/50 bg-card/50 backdrop-blur-sm">
           <CardHeader className="text-center">
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
@@ -67,7 +67,7 @@ function MagicLinkContent() {
   // Loading state
   if (verifyMagicLink.isPending || (!verifyMagicLink.isError && !verifyMagicLink.isSuccess)) {
     return (
-      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-background px-4 py-12">
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
         <Card className="w-full max-w-md border-border/50 bg-card/50 backdrop-blur-sm">
           <CardHeader className="text-center">
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
@@ -86,7 +86,7 @@ function MagicLinkContent() {
   // Success state
   if (verifyMagicLink.isSuccess) {
     return (
-      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-background px-4 py-12">
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
         <Card className="w-full max-w-md border-border/50 bg-card/50 backdrop-blur-sm">
           <CardHeader className="text-center">
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10">
@@ -104,7 +104,7 @@ function MagicLinkContent() {
 
   // Error state
   return (
-    <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-background px-4 py-12">
+    <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
       <Card className="w-full max-w-md border-border/50 bg-card/50 backdrop-blur-sm">
         <CardHeader className="text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
@@ -128,7 +128,7 @@ function MagicLinkContent() {
 // Loading fallback for Suspense
 function MagicLinkLoading() {
   return (
-    <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-background px-4 py-12">
+    <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
       <Card className="w-full max-w-md border-border/50 bg-card/50 backdrop-blur-sm">
         <CardHeader className="text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">

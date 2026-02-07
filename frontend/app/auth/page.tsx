@@ -528,7 +528,7 @@ function AuthPageContent() {
   // Show loading state while checking auth
   if (isLoading) {
     return (
-      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-background">
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     )
@@ -540,7 +540,7 @@ function AuthPageContent() {
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-background px-4 py-12">
+    <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="mb-8 text-center">
@@ -627,7 +627,7 @@ function AuthPageContent() {
 export default function AuthPage() {
   return (
     <Suspense fallback={
-      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-background">
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     }>

@@ -25,7 +25,7 @@ import type { ExtractedShowData } from '@/lib/types/extraction'
 
 function EmailVerificationRequired() {
   return (
-    <div className="min-h-[calc(100vh-64px)] bg-background px-4 py-8">
+    <div className="min-h-[calc(100vh-64px)] px-4 py-8">
       <div className="mx-auto max-w-lg">
         {/* Header */}
         <div className="mb-8 text-center">
@@ -100,7 +100,7 @@ export default function SubmissionsPage() {
   // Show loading state while checking auth
   if (isLoading) {
     return (
-      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-background">
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     )
@@ -120,7 +120,7 @@ export default function SubmissionsPage() {
   }
 
   return (
-    <div className="min-h-[calc(100vh-64px)] bg-background px-4 py-8">
+    <div className="min-h-[calc(100vh-64px)] px-4 py-8">
       <div className="mx-auto max-w-lg">
         {/* Header */}
         <div className="mb-8 text-center">

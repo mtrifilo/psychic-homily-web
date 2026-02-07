@@ -11,7 +11,7 @@ export default function TermsOfServicePage() {
   const effectiveDate = 'January 31, 2026'
 
   return (
-    <div className="flex min-h-screen items-start justify-center bg-background">
+    <div className="flex min-h-screen items-start justify-center">
       <main className="w-full max-w-3xl px-4 py-8 md:px-8">
         <h1 className="text-3xl font-bold text-center mb-2">Terms of Service</h1>
         <p className="text-center text-muted-foreground mb-8">

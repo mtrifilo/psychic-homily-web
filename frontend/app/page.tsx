@@ -67,7 +67,7 @@ export default function Home() {
   const latestMix = allMixes[0]
 
   return (
-    <div className="flex min-h-screen items-start justify-center bg-background">
+    <div className="flex min-h-screen items-start justify-center">
       <main className="w-full max-w-4xl px-4 py-8 md:px-8">
         {/* Upcoming Shows Section */}
         <section className="mb-14">

@@ -26,7 +26,7 @@ export default function DJSetsPage() {
   const mixes = getAllMixes()
 
   return (
-    <div className="flex min-h-screen items-start justify-center bg-background">
+    <div className="flex min-h-screen items-start justify-center">
       <main className="w-full max-w-3xl px-4 py-8 md:px-8">
         <h1 className="text-3xl font-bold text-center mb-8">DJ Sets</h1>
 

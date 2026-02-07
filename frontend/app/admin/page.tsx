@@ -94,7 +94,7 @@ export default function AdminPage() {
   } = usePendingReports()
 
   return (
-    <div className="min-h-[calc(100vh-64px)] bg-background px-4 py-8">
+    <div className="min-h-[calc(100vh-64px)] px-4 py-8">
       <div className="mx-auto max-w-4xl">
         {/* Header */}
         <div className="mb-8">

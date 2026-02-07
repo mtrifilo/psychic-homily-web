@@ -26,7 +26,7 @@ function VerifyEmailContent() {
   // No token provided
   if (!token) {
     return (
-      <div className="min-h-[calc(100vh-64px)] bg-background px-4 py-8">
+      <div className="min-h-[calc(100vh-64px)] px-4 py-8">
         <div className="mx-auto max-w-md">
           <Card className="border-amber-500/20 bg-amber-500/5">
             <CardHeader className="text-center">
@@ -57,7 +57,7 @@ function VerifyEmailContent() {
   // Loading state
   if (confirmVerification.isPending) {
     return (
-      <div className="min-h-[calc(100vh-64px)] bg-background px-4 py-8">
+      <div className="min-h-[calc(100vh-64px)] px-4 py-8">
         <div className="mx-auto max-w-md">
           <Card>
             <CardHeader className="text-center">
@@ -78,7 +78,7 @@ function VerifyEmailContent() {
   // Error state
   if (confirmVerification.isError) {
     return (
-      <div className="min-h-[calc(100vh-64px)] bg-background px-4 py-8">
+      <div className="min-h-[calc(100vh-64px)] px-4 py-8">
         <div className="mx-auto max-w-md">
           <Card className="border-destructive/20 bg-destructive/5">
             <CardHeader className="text-center">
@@ -109,7 +109,7 @@ function VerifyEmailContent() {
   // Success state
   if (confirmVerification.isSuccess) {
     return (
-      <div className="min-h-[calc(100vh-64px)] bg-background px-4 py-8">
+      <div className="min-h-[calc(100vh-64px)] px-4 py-8">
         <div className="mx-auto max-w-md">
           <Card className="border-emerald-500/20 bg-emerald-500/5">
             <CardHeader className="text-center">
@@ -148,7 +148,7 @@ function VerifyEmailContent() {
 
   // Default/initial state (shouldn't normally be visible)
   return (
-    <div className="min-h-[calc(100vh-64px)] bg-background px-4 py-8">
+    <div className="min-h-[calc(100vh-64px)] px-4 py-8">
       <div className="mx-auto max-w-md">
         <Card>
           <CardHeader className="text-center">
@@ -168,7 +168,7 @@ function VerifyEmailContent() {
 
 function VerifyEmailLoading() {
   return (
-    <div className="min-h-[calc(100vh-64px)] bg-background px-4 py-8">
+    <div className="min-h-[calc(100vh-64px)] px-4 py-8">
       <div className="mx-auto max-w-md">
         <Card>
           <CardHeader className="text-center">
