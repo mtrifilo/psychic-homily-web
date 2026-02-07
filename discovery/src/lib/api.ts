@@ -24,7 +24,7 @@ export function getSettings(): AppSettings {
     productionToken: '',
     localToken: '',
     targetEnvironment: 'stage',
-    stageUrl: 'https://api-stage.psychichomily.com',
+    stageUrl: 'https://stage.api.psychichomily.com',
     productionUrl: 'https://api.psychichomily.com',
   }
 

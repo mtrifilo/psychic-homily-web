@@ -212,24 +212,37 @@ export const ticketwebProvider: DiscoveryProvider = {
 
         // Fetch artist list from detail page
         if (eventUrl) {
+          let detailPage: Awaited<ReturnType<typeof browser.newPage>> | null = null
           try {
-            const detailPage = await browser.newPage()
-            await detailPage.goto(eventUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+            detailPage = await browser.newPage()
 
-            artists = await detailPage.evaluate(() => {
-              const artistList: string[] = []
-              document.querySelectorAll('.artist-list .row h4 a').forEach((a) => {
-                const name = a.textContent?.trim()
-                if (name) artistList.push(name)
-              })
-              return artistList
-            })
+            // Race the page load against an absolute timeout
+            const timeoutMs = 20000
+            const result = await Promise.race([
+              (async () => {
+                await detailPage!.goto(eventUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+                return await detailPage!.evaluate(() => {
+                  const artistList: string[] = []
+                  document.querySelectorAll('.artist-list .row h4 a').forEach((a) => {
+                    const name = a.textContent?.trim()
+                    if (name) artistList.push(name)
+                  })
+                  return artistList
+                })
+              })(),
+              new Promise<null>((_, reject) =>
+                setTimeout(() => reject(new Error('Detail page timeout')), timeoutMs)
+              ),
+            ])
 
-            artists = artists.map(name => toTitleCase(name, true))
-            await detailPage.close()
-          } catch {
-            // Fall back to title parsing
+            if (result) {
+              artists = result.map(name => toTitleCase(name, true))
+            }
+          } catch (err) {
+            console.warn(`[ticketweb] Failed to fetch detail page for event ${event.id}:`, err instanceof Error ? err.message : err)
             artists = []
+          } finally {
+            try { await detailPage?.close() } catch { /* ignore close errors */ }
           }
         }
 
