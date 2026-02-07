@@ -1,6 +1,5 @@
 import { VenueSelector } from './components/VenueSelector'
 import { EventPreview } from './components/EventPreview'
-import { EventSelector } from './components/EventSelector'
 import { ImportPanel } from './components/ImportPanel'
 import { Settings } from './components/Settings'
 import { DataExport } from './components/DataExport'
@@ -62,27 +61,17 @@ export default function App() {
         {step === 'preview' && (
           <EventPreview
             venues={selectedVenues}
-            onPreviewComplete={handlePreviewComplete}
-            onSetImportStatuses={setImportStatuses}
-            onBack={() => setStep('venues')}
-            onNext={() => setStep('select')}
-            previewEvents={previewEvents}
-          />
-        )}
-
-        {step === 'select' && (
-          <EventSelector
-            venues={selectedVenues}
             previewEvents={previewEvents}
             selectedEventIds={selectedEventIds}
             importStatuses={importStatuses}
+            onPreviewComplete={handlePreviewComplete}
+            onSetImportStatuses={setImportStatuses}
             onToggle={toggleEvent}
             onSelectAll={selectAllEvents}
             onSelectNone={clearEventSelection}
             onScrapeComplete={addScrapedEvents}
-            onBack={() => setStep('preview')}
+            onBack={() => setStep('venues')}
             onNext={() => setStep('import')}
-            scrapedEvents={scrapedEvents}
           />
         )}
 
@@ -90,7 +79,7 @@ export default function App() {
           <ImportPanel
             events={scrapedEvents}
             settings={settings}
-            onBack={() => setStep('select')}
+            onBack={() => setStep('preview')}
             onStartOver={startOver}
           />
         )}

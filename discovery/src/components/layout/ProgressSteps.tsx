@@ -29,21 +29,14 @@ const STEPS: StepConfig[] = [
   },
   {
     id: 'preview',
-    label: '2. Preview',
+    label: '2. Preview & Select',
     canNavigate: ({ selectedVenues }) => selectedVenues > 0,
-    isComplete: ({ previewedVenues, currentStep }) =>
-      previewedVenues > 0 && currentStep !== 'preview',
-  },
-  {
-    id: 'select',
-    label: '3. Select',
-    canNavigate: ({ previewedVenues }) => previewedVenues > 0,
     isComplete: ({ scrapedEvents, currentStep }) =>
-      scrapedEvents > 0 && currentStep !== 'select',
+      scrapedEvents > 0 && currentStep !== 'preview',
   },
   {
     id: 'import',
-    label: '4. Import',
+    label: '3. Import',
     canNavigate: ({ scrapedEvents }) => scrapedEvents > 0,
     isComplete: () => false,
   },

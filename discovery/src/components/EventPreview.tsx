@@ -1,16 +1,23 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from './ui/button'
 import { Badge } from './ui/badge'
 import { VenuePreviewCard } from './discovery/VenuePreviewCard'
 import { LoadingSpinner } from './shared/LoadingSpinner'
-import { previewVenueEvents, previewVenueEventsBatch, checkImportStatus } from '../lib/api'
-import type { VenueConfig, PreviewEvent, ImportStatusMap } from '../lib/types'
+import { ErrorAlert } from './shared/ErrorAlert'
+import { previewVenueEvents, previewVenueEventsBatch, checkImportStatus, scrapeVenueEvents } from '../lib/api'
+import type { VenueConfig, PreviewEvent, ScrapedEvent, ImportStatusMap } from '../lib/types'
 
 interface Props {
   venues: VenueConfig[]
   previewEvents: Record<string, PreviewEvent[]>
+  selectedEventIds: Record<string, Set<string>>
+  importStatuses: ImportStatusMap
   onPreviewComplete: (venueSlug: string, events: PreviewEvent[]) => void
   onSetImportStatuses: (statuses: ImportStatusMap) => void
+  onToggle: (venueSlug: string, eventId: string) => void
+  onSelectAll: (venueSlug: string) => void
+  onSelectNone: (venueSlug: string) => void
+  onScrapeComplete: (events: ScrapedEvent[]) => void
   onBack: () => void
   onNext: () => void
 }
@@ -18,8 +25,14 @@ interface Props {
 export function EventPreview({
   venues,
   previewEvents,
+  selectedEventIds,
+  importStatuses,
   onPreviewComplete,
   onSetImportStatuses,
+  onToggle,
+  onSelectAll,
+  onSelectNone,
+  onScrapeComplete,
   onBack,
   onNext,
 }: Props) {
@@ -27,6 +40,27 @@ export function EventPreview({
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [batchLoading, setBatchLoading] = useState(false)
   const [batchProgress, setBatchProgress] = useState({ completed: 0, total: 0 })
+  const [scraping, setScraping] = useState(false)
+  const [scrapeProgress, setScrapeProgress] = useState('')
+  const [scrapeError, setScrapeError] = useState('')
+
+  // Check import statuses in the background whenever previews change
+  const checkedSlugsRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const newSlugs = Object.keys(previewEvents).filter(s => !checkedSlugsRef.current.has(s))
+    if (newSlugs.length === 0) return
+
+    newSlugs.forEach(s => checkedSlugsRef.current.add(s))
+
+    const events = newSlugs.flatMap(venueSlug =>
+      (previewEvents[venueSlug] || []).map(e => ({ id: e.id, venueSlug }))
+    )
+    if (events.length === 0) return
+
+    checkImportStatus(events)
+      .then(statuses => onSetImportStatuses(statuses))
+      .catch(() => {}) // Non-critical
+  }, [previewEvents, onSetImportStatuses])
 
   const previewVenue = async (venue: VenueConfig) => {
     setLoading(prev => ({ ...prev, [venue.slug]: true }))
@@ -88,30 +122,34 @@ export function EventPreview({
     }
   }
 
-  const [checkingStatus, setCheckingStatus] = useState(false)
+  const scrapeSelected = async () => {
+    setScraping(true)
+    setScrapeError('')
 
-  const handleNext = async () => {
-    // Check import status for all previewed events before navigating
-    const allEvents = Object.entries(previewEvents).flatMap(([venueSlug, events]) =>
-      events.map(e => ({ id: e.id, venueSlug }))
-    )
+    try {
+      for (const venue of venues) {
+        const ids = Array.from(selectedEventIds[venue.slug] || new Set())
+        if (ids.length === 0) continue
 
-    if (allEvents.length > 0) {
-      setCheckingStatus(true)
-      try {
-        const statuses = await checkImportStatus(allEvents)
-        onSetImportStatuses(statuses)
-      } catch {
-        // Non-critical — continue without badges
-      } finally {
-        setCheckingStatus(false)
+        setScrapeProgress(`Scraping ${venue.name}...`)
+        const events = await scrapeVenueEvents(venue.slug, ids)
+        onScrapeComplete(events)
       }
-    }
 
-    onNext()
+      setScrapeProgress('')
+      onNext()
+    } catch (err) {
+      setScrapeError(err instanceof Error ? err.message : 'Failed to scrape events')
+    } finally {
+      setScraping(false)
+      setScrapeProgress('')
+    }
   }
 
-  const allPreviewed = venues.every(v => previewEvents[v.slug])
+  const totalSelected = Object.values(selectedEventIds).reduce(
+    (sum, set) => sum + set.size,
+    0
+  )
   const totalEvents = Object.values(previewEvents).reduce(
     (sum, events) => sum + events.length,
     0
@@ -124,15 +162,15 @@ export function EventPreview({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-foreground">Preview Events</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            Quick scan of upcoming events at each venue
+          <h2 className="text-lg font-semibold text-foreground">Preview & Select Events</h2>
+          <div className="text-sm text-muted-foreground mt-1">
+            Preview venues, then select events to scrape
             {previewedCount > 0 && (
               <Badge variant="secondary" className="ml-2">
                 {previewedCount}/{venues.length} loaded
               </Badge>
             )}
-          </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {failedCount > 0 && (
@@ -142,12 +180,12 @@ export function EventPreview({
           )}
           <Button
             onClick={previewAllParallel}
-            disabled={allPreviewed || batchLoading}
+            disabled={venues.length === previewedCount || batchLoading}
           >
             {batchLoading && <LoadingSpinner size="sm" className="mr-2" />}
             {batchLoading
               ? `Previewing (${batchProgress.completed}/${batchProgress.total})...`
-              : allPreviewed
+              : venues.length === previewedCount
               ? 'All Previewed'
               : `Preview All (${pendingCount})`}
           </Button>
@@ -170,6 +208,16 @@ export function EventPreview({
         </div>
       )}
 
+      {scrapeError && (
+        <ErrorAlert
+          message={scrapeError}
+          onRetry={() => {
+            setScrapeError('')
+            scrapeSelected()
+          }}
+        />
+      )}
+
       <div className="space-y-4">
         {venues.map(venue => (
           <VenuePreviewCard
@@ -180,6 +228,11 @@ export function EventPreview({
             error={errors[venue.slug]}
             onPreview={() => previewVenue(venue)}
             onRetry={() => retryVenue(venue)}
+            selectedIds={selectedEventIds[venue.slug]}
+            importStatuses={importStatuses}
+            onToggle={(eventId) => onToggle(venue.slug, eventId)}
+            onSelectAll={() => onSelectAll(venue.slug)}
+            onSelectNone={() => onSelectNone(venue.slug)}
           />
         ))}
       </div>
@@ -188,9 +241,12 @@ export function EventPreview({
         <Button variant="ghost" onClick={onBack}>
           Back
         </Button>
-        <Button onClick={handleNext} disabled={totalEvents === 0 || checkingStatus}>
-          {checkingStatus && <LoadingSpinner size="sm" className="mr-2" />}
-          {checkingStatus ? 'Checking status...' : `Select Events (${totalEvents} available)`}
+        <Button
+          onClick={scrapeSelected}
+          disabled={scraping || totalSelected === 0}
+        >
+          {scraping && <LoadingSpinner size="sm" className="mr-2" />}
+          {scraping ? scrapeProgress || 'Scraping...' : `Scrape ${totalSelected} Events`}
         </Button>
       </div>
     </div>

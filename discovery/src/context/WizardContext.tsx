@@ -48,10 +48,10 @@ export function WizardProvider({ children }: { children: ReactNode }) {
 
   const handlePreviewComplete = useCallback((venueSlug: string, events: PreviewEvent[]) => {
     setPreviewEvents(prev => ({ ...prev, [venueSlug]: events }))
-    // Pre-select all events by default
+    // Default to none selected — user picks what to scrape
     setSelectedEventIds(prev => ({
       ...prev,
-      [venueSlug]: new Set(events.map(e => e.id)),
+      [venueSlug]: new Set<string>(),
     }))
   }, [])
 

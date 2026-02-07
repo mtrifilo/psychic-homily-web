@@ -2,10 +2,11 @@
 
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
-import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard } from 'lucide-react'
+import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock } from 'lucide-react'
 import { usePendingVenueEdits } from '@/lib/hooks/useAdminVenueEdits'
 import { useUnverifiedVenues } from '@/lib/hooks/useAdminVenues'
 import { usePendingReports } from '@/lib/hooks/useAdminReports'
+import { usePendingShows } from '@/lib/hooks/useAdminShows'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 // Dynamic imports for heavy components - only loaded when their tab is active
@@ -52,6 +53,14 @@ const AuditLogPage = dynamic(() => import('./audit-log/page'), {
   ),
 })
 
+const PendingShowsPage = dynamic(() => import('./pending-shows/page'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
 const DashboardPage = dynamic(() => import('./dashboard/page'), {
   loading: () => (
     <div className="flex items-center justify-center py-12">
@@ -71,6 +80,9 @@ const UsersPage = dynamic(() => import('./users/page'), {
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('dashboard')
 
+  const {
+    data: pendingShowsData,
+  } = usePendingShows()
   const {
     data: venueEditsData,
   } = usePendingVenueEdits()
@@ -103,6 +115,16 @@ export default function AdminPage() {
             <TabsTrigger value="dashboard" className="gap-2">
               <LayoutDashboard className="h-4 w-4" />
               Dashboard
+            </TabsTrigger>
+            <TabsTrigger value="pending-shows" className="gap-2">
+              <Clock className="h-4 w-4" />
+              Pending Shows
+              {pendingShowsData?.total !== undefined &&
+                pendingShowsData.total > 0 && (
+                  <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-medium text-white">
+                    {pendingShowsData.total}
+                  </span>
+                )}
             </TabsTrigger>
             <TabsTrigger value="pending-venue-edits" className="gap-2">
               <MapPin className="h-4 w-4" />
@@ -150,6 +172,10 @@ export default function AdminPage() {
 
           <TabsContent value="dashboard" className="space-y-4">
             <DashboardPage />
+          </TabsContent>
+
+          <TabsContent value="pending-shows" className="space-y-4">
+            <PendingShowsPage />
           </TabsContent>
 
           <TabsContent value="pending-venue-edits" className="space-y-4">

@@ -199,52 +199,46 @@ export const ticketwebProvider: DiscoveryProvider = {
         return urls
       })
 
+      // Fetch artist lists from detail pages using HTTP (much faster than Playwright)
+      const artistsByEventId: Record<string, string[]> = {}
+      const detailFetches = events
+        .filter((e: any) => eventUrls[e.id])
+        .map(async (event: any) => {
+          try {
+            const controller = new AbortController()
+            const timeout = setTimeout(() => controller.abort(), 10000)
+            const response = await fetch(eventUrls[event.id], { signal: controller.signal })
+            clearTimeout(timeout)
+            const html = await response.text()
+            // Parse artist names from .artist-list .row h4 a elements
+            const artistMatches = html.matchAll(/<div[^>]*class="[^"]*artist-list[^"]*"[\s\S]*?<\/div>\s*<\/div>/gi)
+            const artists: string[] = []
+            for (const block of artistMatches) {
+              const nameMatches = block[0].matchAll(/<h4[^>]*>\s*<a[^>]*>([^<]+)<\/a>/gi)
+              for (const m of nameMatches) {
+                const name = m[1].trim()
+                if (name) artists.push(name)
+              }
+            }
+            if (artists.length > 0) {
+              artistsByEventId[event.id] = artists.map(name => toTitleCase(name, true))
+            }
+          } catch (err) {
+            console.warn(`[ticketweb] Failed to fetch detail page for event ${event.id}:`, err instanceof Error ? err.message : err)
+          }
+        })
+
+      await Promise.all(detailFetches)
+
       // Process each event
       const scrapedEvents: DiscoveredEvent[] = []
 
       for (let i = 0; i < events.length; i++) {
         const event = events[i]
-        const eventUrl = eventUrls[event.id]
 
-        console.log(`[ticketweb] [${i + 1}/${events.length}] Scraping: ${decodeHtmlEntities(event.title).slice(0, 40)}...`)
+        console.log(`[ticketweb] [${i + 1}/${events.length}] Processing: ${decodeHtmlEntities(event.title).slice(0, 40)}...`)
 
-        let artists: string[] = []
-
-        // Fetch artist list from detail page
-        if (eventUrl) {
-          let detailPage: Awaited<ReturnType<typeof browser.newPage>> | null = null
-          try {
-            detailPage = await browser.newPage()
-
-            // Race the page load against an absolute timeout
-            const timeoutMs = 20000
-            const result = await Promise.race([
-              (async () => {
-                await detailPage!.goto(eventUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
-                return await detailPage!.evaluate(() => {
-                  const artistList: string[] = []
-                  document.querySelectorAll('.artist-list .row h4 a').forEach((a) => {
-                    const name = a.textContent?.trim()
-                    if (name) artistList.push(name)
-                  })
-                  return artistList
-                })
-              })(),
-              new Promise<null>((_, reject) =>
-                setTimeout(() => reject(new Error('Detail page timeout')), timeoutMs)
-              ),
-            ])
-
-            if (result) {
-              artists = result.map(name => toTitleCase(name, true))
-            }
-          } catch (err) {
-            console.warn(`[ticketweb] Failed to fetch detail page for event ${event.id}:`, err instanceof Error ? err.message : err)
-            artists = []
-          } finally {
-            try { await detailPage?.close() } catch { /* ignore close errors */ }
-          }
-        }
+        let artists = artistsByEventId[event.id] || []
 
         // Fall back to title if no artists found
         if (artists.length === 0) {

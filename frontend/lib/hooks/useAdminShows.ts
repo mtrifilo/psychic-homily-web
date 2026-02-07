@@ -102,6 +102,8 @@ export function useApproveShow() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'shows', 'pending'] })
       // Invalidate public shows list since a show was approved
       invalidateQueries.shows()
+      // Invalidate admin stats (dashboard counts)
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] })
     },
   })
 }
@@ -132,6 +134,8 @@ export function useRejectShow() {
     onSuccess: () => {
       // Invalidate pending shows list
       queryClient.invalidateQueries({ queryKey: ['admin', 'shows', 'pending'] })
+      // Invalidate admin stats (dashboard counts)
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] })
     },
   })
 }

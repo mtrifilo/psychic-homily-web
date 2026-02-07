@@ -1,10 +1,10 @@
 import { RefreshCw, AlertCircle } from 'lucide-react'
-import { cn } from '../../lib/utils'
 import { Button } from '../ui/button'
 import { LoadingSpinner } from '../shared/LoadingSpinner'
 import { ListSkeleton } from '../shared/LoadingSkeleton'
 import { EmptyState } from '../shared/EmptyState'
-import type { VenueConfig, PreviewEvent } from '../../lib/types'
+import { EventList } from './EventList'
+import type { VenueConfig, PreviewEvent, ImportStatusMap } from '../../lib/types'
 
 interface VenuePreviewCardProps {
   venue: VenueConfig
@@ -13,6 +13,11 @@ interface VenuePreviewCardProps {
   error?: string
   onPreview: () => void
   onRetry?: () => void
+  selectedIds?: Set<string>
+  importStatuses?: ImportStatusMap
+  onToggle?: (eventId: string) => void
+  onSelectAll?: () => void
+  onSelectNone?: () => void
 }
 
 export function VenuePreviewCard({
@@ -22,8 +27,18 @@ export function VenuePreviewCard({
   error,
   onPreview,
   onRetry,
+  selectedIds,
+  importStatuses = {},
+  onToggle,
+  onSelectAll,
+  onSelectNone,
 }: VenuePreviewCardProps) {
   const hasEvents = events && events.length > 0
+  const selectable = !!selectedIds && !!onToggle
+
+  // Count future events for selection display
+  const today = new Date().toISOString().split('T')[0]
+  const futureEventCount = events?.filter(e => e.date >= today).length ?? 0
 
   return (
     <div className="bg-card rounded-lg border overflow-hidden">
@@ -36,30 +51,56 @@ export function VenuePreviewCard({
           </span>
           {hasEvents && (
             <span className="text-sm text-muted-foreground">
-              {events.length} events
+              {selectable
+                ? `${selectedIds!.size}/${futureEventCount} selected`
+                : `${events.length} events`
+              }
             </span>
           )}
         </div>
-        <Button
-          variant={events ? 'ghost' : 'secondary'}
-          size="sm"
-          onClick={onPreview}
-          disabled={loading}
-        >
-          {loading ? (
-            <>
-              <LoadingSpinner size="sm" />
-              Loading...
-            </>
-          ) : events ? (
-            <>
-              <RefreshCw className="h-4 w-4" />
-              Refresh
-            </>
-          ) : (
-            'Preview'
+        <div className="flex items-center gap-2">
+          {selectable && hasEvents && (
+            <div className="flex gap-2">
+              <Button
+                variant="link"
+                size="sm"
+                onClick={onSelectAll}
+                className="px-0"
+              >
+                All
+              </Button>
+              <span className="text-muted-foreground">|</span>
+              <Button
+                variant="link"
+                size="sm"
+                onClick={onSelectNone}
+                className="px-0 text-muted-foreground"
+              >
+                None
+              </Button>
+            </div>
           )}
-        </Button>
+          <Button
+            variant={events ? 'ghost' : 'secondary'}
+            size="sm"
+            onClick={onPreview}
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <LoadingSpinner size="sm" />
+                Loading...
+              </>
+            ) : events ? (
+              <>
+                <RefreshCw className="h-4 w-4" />
+                Refresh
+              </>
+            ) : (
+              'Preview'
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Error state */}
@@ -84,8 +125,20 @@ export function VenuePreviewCard({
         </div>
       )}
 
-      {/* Events table */}
-      {hasEvents && (
+      {/* Events list with checkboxes (selectable mode) */}
+      {selectable && hasEvents && (
+        <div className="max-h-80 overflow-y-auto">
+          <EventList
+            events={events}
+            selectedIds={selectedIds!}
+            importStatuses={importStatuses}
+            onToggle={onToggle!}
+          />
+        </div>
+      )}
+
+      {/* Events table (read-only mode) */}
+      {!selectable && hasEvents && (
         <div className="max-h-64 overflow-y-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 sticky top-0">
