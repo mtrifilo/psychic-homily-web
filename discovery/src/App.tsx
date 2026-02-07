@@ -31,7 +31,7 @@ export default function App() {
   const { settings, updateSettings } = useSettings()
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen">
       <Header />
       <ProgressSteps />
 

@@ -516,10 +516,15 @@ func (s *ShowService) UpdateShowWithRelations(
 			for _, sv := range showVenues {
 				var venue models.Venue
 				if err := tx.First(&venue, sv.VenueID).Error; err == nil {
+					// Hide address for unverified venues
+					var addr *string
+					if venue.Verified {
+						addr = venue.Address
+					}
 					venueResponses = append(venueResponses, VenueResponse{
 						ID:       venue.ID,
 						Name:     venue.Name,
-						Address:  venue.Address,
+						Address:  addr,
 						City:     venue.City,
 						State:    venue.State,
 						Verified: venue.Verified,
@@ -887,13 +892,17 @@ func (s *ShowService) ApproveShow(showID uint, verifyVenues bool) (*ShowResponse
 			return fmt.Errorf("failed to get show: %w", err)
 		}
 
-		// Verify the show is pending
-		if show.Status != models.ShowStatusPending {
-			return fmt.Errorf("show is not pending (current status: %s)", show.Status)
+		// Verify the show is pending or rejected
+		if show.Status != models.ShowStatusPending && show.Status != models.ShowStatusRejected {
+			return fmt.Errorf("show cannot be approved (current status: %s)", show.Status)
 		}
 
-		// Update show status to approved
-		if err := tx.Model(&show).Update("status", models.ShowStatusApproved).Error; err != nil {
+		// Update show status to approved (clear rejection reason if previously rejected)
+		updates := map[string]interface{}{
+			"status":           models.ShowStatusApproved,
+			"rejection_reason": "",
+		}
+		if err := tx.Model(&show).Updates(updates).Error; err != nil {
 			return fmt.Errorf("failed to approve show: %w", err)
 		}
 
@@ -1186,11 +1195,17 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 			venueSlug = *venue.Slug
 		}
 
+		// Hide address for unverified venues
+		var venueAddr *string
+		if venue.Verified {
+			venueAddr = venue.Address
+		}
+
 		venues = append(venues, VenueResponse{
 			ID:         venue.ID,
 			Slug:       venueSlug,
 			Name:       venue.Name,
-			Address:    venue.Address,
+			Address:    venueAddr,
 			City:       venue.City,
 			State:      venue.State,
 			Verified:   venue.Verified,
@@ -1298,11 +1313,16 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 		if venue.Slug != nil {
 			venueSlug = *venue.Slug
 		}
+		// Hide address for unverified venues
+		var address *string
+		if venue.Verified {
+			address = venue.Address
+		}
 		venues[i] = VenueResponse{
 			ID:       venue.ID,
 			Slug:     venueSlug,
 			Name:     venue.Name,
-			Address:  venue.Address,
+			Address:  address,
 			City:     venue.City,
 			State:    venue.State,
 			Verified: venue.Verified,

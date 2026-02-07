@@ -110,6 +110,16 @@ export function EventPreview({
     }
   }
 
+  // Auto-preview all venues in parallel on mount
+  const autoPreviewedRef = useRef(false)
+  useEffect(() => {
+    if (autoPreviewedRef.current) return
+    const unpreviewed = venues.filter(v => !previewEvents[v.slug])
+    if (unpreviewed.length === 0) return
+    autoPreviewedRef.current = true
+    previewAllParallel()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const retryVenue = async (venue: VenueConfig) => {
     setErrors(prev => ({ ...prev, [venue.slug]: '' }))
     await previewVenue(venue)

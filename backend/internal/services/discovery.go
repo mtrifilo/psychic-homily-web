@@ -253,7 +253,7 @@ func (s *DiscoveryService) createShowFromEvent(event *DiscoveredEvent, eventDate
 			City:          &venueConfig.City,
 			State:         &venueConfig.State,
 			Description:   description,
-			Status:        models.ShowStatusPending,
+			Status:        models.ShowStatusApproved,
 			Source:        models.ShowSourceDiscovery,
 			SourceVenue:   &event.VenueSlug,
 			SourceEventID: &event.ID,

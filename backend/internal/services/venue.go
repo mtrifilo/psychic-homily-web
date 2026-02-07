@@ -408,14 +408,22 @@ func (s *VenueService) buildVenueResponse(venue *models.Venue) *VenueDetailRespo
 	if venue.Slug != nil {
 		slug = *venue.Slug
 	}
+	// Hide address and zipcode for unverified venues
+	var address *string
+	var zipcode *string
+	if venue.Verified {
+		address = venue.Address
+		zipcode = venue.Zipcode
+	}
+
 	return &VenueDetailResponse{
 		ID:          venue.ID,
 		Slug:        slug,
 		Name:        venue.Name,
-		Address:     venue.Address,
+		Address:     address,
 		City:        venue.City,
 		State:       venue.State,
-		Zipcode:     venue.Zipcode,
+		Zipcode:     zipcode,
 		Verified:    venue.Verified,
 		SubmittedBy: venue.SubmittedBy,
 		Social: SocialResponse{
