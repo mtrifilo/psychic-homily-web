@@ -33,16 +33,16 @@ type AdminHandler struct {
 // NewAdminHandler creates a new admin handler
 func NewAdminHandler(cfg *config.Config) *AdminHandler {
 	return &AdminHandler{
-		showService:           services.NewShowService(),
-		venueService:          services.NewVenueService(),
+		showService:           services.NewShowService(nil),
+		venueService:          services.NewVenueService(nil),
 		discordService:        services.NewDiscordService(cfg),
 		musicDiscoveryService: services.NewMusicDiscoveryService(cfg),
-		discoveryService:      services.NewDiscoveryService(),
-		apiTokenService:       services.NewAPITokenService(),
-		dataSyncService:       services.NewDataSyncService(),
-		auditLogService:       services.NewAuditLogService(),
-		userService:           services.NewUserService(),
-		adminStatsService:     services.NewAdminStatsService(),
+		discoveryService:      services.NewDiscoveryService(nil),
+		apiTokenService:       services.NewAPITokenService(nil),
+		dataSyncService:       services.NewDataSyncService(nil),
+		auditLogService:       services.NewAuditLogService(nil),
+		userService:           services.NewUserService(nil),
+		adminStatsService:     services.NewAdminStatsService(nil),
 	}
 }
 
@@ -92,7 +92,7 @@ type ApproveShowResponse struct {
 type RejectShowRequest struct {
 	ShowID string `path:"show_id" validate:"required" doc:"Show ID"`
 	Body   struct {
-		Reason string `json:"reason" validate:"required" doc:"Reason for rejecting the show"`
+		Reason string `json:"reason" validate:"required,max=1000" doc:"Reason for rejecting the show"`
 	}
 }
 
@@ -148,13 +148,18 @@ func (h *AdminHandler) GetPendingShowsHandler(ctx context.Context, req *GetPendi
 		limit = 100
 	}
 
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
 	logger.FromContext(ctx).Debug("admin_pending_shows_attempt",
 		"limit", limit,
-		"offset", req.Offset,
+		"offset", offset,
 	)
 
 	// Get pending shows
-	shows, total, err := h.showService.GetPendingShows(limit, req.Offset)
+	shows, total, err := h.showService.GetPendingShows(limit, offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_pending_shows_failed",
 			"error", err.Error(),
@@ -204,14 +209,19 @@ func (h *AdminHandler) GetRejectedShowsHandler(ctx context.Context, req *GetReje
 		limit = 100
 	}
 
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
 	logger.FromContext(ctx).Debug("admin_rejected_shows_attempt",
 		"limit", limit,
-		"offset", req.Offset,
+		"offset", offset,
 		"search", req.Search,
 	)
 
 	// Get rejected shows
-	shows, total, err := h.showService.GetRejectedShows(limit, req.Offset, req.Search)
+	shows, total, err := h.showService.GetRejectedShows(limit, offset, req.Search)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_rejected_shows_failed",
 			"error", err.Error(),
@@ -429,13 +439,18 @@ func (h *AdminHandler) GetUnverifiedVenuesHandler(ctx context.Context, req *GetU
 		limit = 100
 	}
 
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
 	logger.FromContext(ctx).Debug("admin_unverified_venues_attempt",
 		"limit", limit,
-		"offset", req.Offset,
+		"offset", offset,
 	)
 
 	// Get unverified venues
-	venues, total, err := h.venueService.GetUnverifiedVenues(limit, req.Offset)
+	venues, total, err := h.venueService.GetUnverifiedVenues(limit, offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_unverified_venues_failed",
 			"error", err.Error(),
@@ -506,13 +521,18 @@ func (h *AdminHandler) GetPendingVenueEditsHandler(ctx context.Context, req *Get
 		limit = 100
 	}
 
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
 	logger.FromContext(ctx).Debug("admin_pending_venue_edits_attempt",
 		"limit", limit,
-		"offset", req.Offset,
+		"offset", offset,
 	)
 
 	// Get pending venue edits
-	edits, total, err := h.venueService.GetPendingVenueEdits(limit, req.Offset)
+	edits, total, err := h.venueService.GetPendingVenueEdits(limit, offset)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_pending_venue_edits_failed",
 			"error", err.Error(),
@@ -606,7 +626,7 @@ func (h *AdminHandler) ApproveVenueEditHandler(ctx context.Context, req *Approve
 type RejectVenueEditRequest struct {
 	EditID string `path:"edit_id" validate:"required" doc:"Pending venue edit ID"`
 	Body   struct {
-		Reason string `json:"reason" validate:"required" doc:"Reason for rejecting the edit"`
+		Reason string `json:"reason" validate:"required,max=1000" doc:"Reason for rejecting the edit"`
 	}
 }
 
@@ -860,9 +880,14 @@ func (h *AdminHandler) GetAdminShowsHandler(ctx context.Context, req *GetAdminSh
 		limit = 100
 	}
 
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
 	logger.FromContext(ctx).Debug("admin_shows_list_attempt",
 		"limit", limit,
-		"offset", req.Offset,
+		"offset", offset,
 		"status", req.Status,
 		"from_date", req.FromDate,
 		"to_date", req.ToDate,
@@ -878,7 +903,7 @@ func (h *AdminHandler) GetAdminShowsHandler(ctx context.Context, req *GetAdminSh
 	}
 
 	// Get shows
-	shows, total, err := h.showService.GetAdminShows(limit, req.Offset, filters)
+	shows, total, err := h.showService.GetAdminShows(limit, offset, filters)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_shows_list_failed",
 			"error", err.Error(),
@@ -1631,10 +1656,15 @@ func (h *AdminHandler) ExportShowsHandler(ctx context.Context, req *ExportShowsR
 		return nil, huma.Error403Forbidden("Admin access required")
 	}
 
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
 	// Build params
 	params := services.ExportShowsParams{
 		Limit:  req.Limit,
-		Offset: req.Offset,
+		Offset: offset,
 		Status: req.Status,
 		City:   req.City,
 		State:  req.State,
@@ -1700,9 +1730,14 @@ func (h *AdminHandler) ExportArtistsHandler(ctx context.Context, req *ExportArti
 		return nil, huma.Error403Forbidden("Admin access required")
 	}
 
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
 	params := services.ExportArtistsParams{
 		Limit:  req.Limit,
-		Offset: req.Offset,
+		Offset: offset,
 		Search: req.Search,
 	}
 
@@ -1760,9 +1795,14 @@ func (h *AdminHandler) ExportVenuesHandler(ctx context.Context, req *ExportVenue
 		return nil, huma.Error403Forbidden("Admin access required")
 	}
 
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
 	params := services.ExportVenuesParams{
 		Limit:  req.Limit,
-		Offset: req.Offset,
+		Offset: offset,
 		Search: req.Search,
 		City:   req.City,
 		State:  req.State,
@@ -1913,9 +1953,14 @@ func (h *AdminHandler) GetAdminUsersHandler(ctx context.Context, req *GetAdminUs
 		limit = 100
 	}
 
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
 	logger.FromContext(ctx).Debug("admin_users_list_attempt",
 		"limit", limit,
-		"offset", req.Offset,
+		"offset", offset,
 		"search", req.Search,
 	)
 
@@ -1925,7 +1970,7 @@ func (h *AdminHandler) GetAdminUsersHandler(ctx context.Context, req *GetAdminUs
 	}
 
 	// Get users
-	users, total, err := h.userService.ListUsers(limit, req.Offset, filters)
+	users, total, err := h.userService.ListUsers(limit, offset, filters)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_users_list_failed",
 			"error", err.Error(),

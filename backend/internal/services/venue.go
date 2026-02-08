@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/utils"
 )
@@ -17,9 +18,12 @@ type VenueService struct {
 }
 
 // NewVenueService creates a new venue service
-func NewVenueService() *VenueService {
+func NewVenueService(database *gorm.DB) *VenueService {
+	if database == nil {
+		database = db.GetDB()
+	}
 	return &VenueService{
-		db: db.GetDB(),
+		db: database,
 	}
 }
 
@@ -119,7 +123,7 @@ func (s *VenueService) GetVenue(venueID uint) (*VenueDetailResponse, error) {
 	err := s.db.First(&venue, venueID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("venue not found")
+			return nil, apperrors.ErrVenueNotFound(venueID)
 		}
 		return nil, fmt.Errorf("failed to get venue: %w", err)
 	}
@@ -137,7 +141,7 @@ func (s *VenueService) GetVenueBySlug(slug string) (*VenueDetailResponse, error)
 	err := s.db.Where("slug = ?", slug).First(&venue).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("venue not found")
+			return nil, apperrors.ErrVenueNotFound(0)
 		}
 		return nil, fmt.Errorf("failed to get venue: %w", err)
 	}
@@ -194,7 +198,7 @@ func (s *VenueService) UpdateVenue(venueID uint, updates map[string]interface{})
 	err := s.db.First(&currentVenue, venueID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("venue not found")
+			return nil, apperrors.ErrVenueNotFound(venueID)
 		}
 		return nil, fmt.Errorf("failed to get venue: %w", err)
 	}
@@ -246,7 +250,7 @@ func (s *VenueService) DeleteVenue(venueID uint) error {
 	err := s.db.First(&venue, venueID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return fmt.Errorf("venue not found")
+			return apperrors.ErrVenueNotFound(venueID)
 		}
 		return fmt.Errorf("failed to get venue: %w", err)
 	}
@@ -259,7 +263,7 @@ func (s *VenueService) DeleteVenue(venueID uint) error {
 	}
 
 	if count > 0 {
-		return fmt.Errorf("cannot delete venue: associated with %d shows", count)
+		return apperrors.ErrVenueHasShows(venueID, count)
 	}
 
 	// Delete the venue
@@ -398,7 +402,7 @@ func (s *VenueService) VerifyVenue(venueID uint) (*VenueDetailResponse, error) {
 	err := s.db.First(&venue, venueID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("venue not found")
+			return nil, apperrors.ErrVenueNotFound(venueID)
 		}
 		return nil, fmt.Errorf("failed to get venue: %w", err)
 	}
@@ -585,7 +589,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 	var venue models.Venue
 	if err := s.db.First(&venue, venueID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, 0, fmt.Errorf("venue not found")
+			return nil, 0, apperrors.ErrVenueNotFound(venueID)
 		}
 		return nil, 0, fmt.Errorf("failed to get venue: %w", err)
 	}
@@ -651,49 +655,72 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 	// Fetch full show data
 	var shows []models.Show
 	if len(showIDs) > 0 {
-		if err := s.db.Preload("Artists").Where("id IN ?", showIDs).Order(orderDirection).Find(&shows).Error; err != nil {
+		if err := s.db.Where("id IN ?", showIDs).Order(orderDirection).Find(&shows).Error; err != nil {
 			return nil, 0, fmt.Errorf("failed to get shows: %w", err)
 		}
 	}
 
-	// Build responses
+	// Batch-load all ShowArtist records and collect artist IDs
+	allShowArtists := make(map[uint][]models.ShowArtist)
+	var allArtistIDs []uint
+	if len(shows) > 0 {
+		var showArtistRecords []models.ShowArtist
+		showIDsForArtists := make([]uint, len(shows))
+		for i, show := range shows {
+			showIDsForArtists[i] = show.ID
+		}
+		s.db.Where("show_id IN ?", showIDsForArtists).Order("position ASC").Find(&showArtistRecords)
+		for _, sa := range showArtistRecords {
+			allShowArtists[sa.ShowID] = append(allShowArtists[sa.ShowID], sa)
+			allArtistIDs = append(allArtistIDs, sa.ArtistID)
+		}
+	}
+
+	// Batch-fetch all artists in one query
+	artistMap := make(map[uint]*models.Artist)
+	if len(allArtistIDs) > 0 {
+		var allArtists []models.Artist
+		s.db.Where("id IN ?", allArtistIDs).Find(&allArtists)
+		for i := range allArtists {
+			artistMap[allArtists[i].ID] = &allArtists[i]
+		}
+	}
+
+	// Build responses using map lookup
 	responses := make([]*VenueShowResponse, len(shows))
 	for i, show := range shows {
-		// Get ordered artists
-		var showArtists []models.ShowArtist
-		s.db.Where("show_id = ?", show.ID).Order("position ASC").Find(&showArtists)
-
 		artists := make([]ArtistResponse, 0)
-		for _, sa := range showArtists {
-			var artist models.Artist
-			if err := s.db.First(&artist, sa.ArtistID).Error; err == nil {
-				isHeadliner := sa.SetType == "headliner"
-				isNewArtist := false
-				socials := ShowArtistSocials{
-					Instagram:  artist.Social.Instagram,
-					Facebook:   artist.Social.Facebook,
-					Twitter:    artist.Social.Twitter,
-					YouTube:    artist.Social.YouTube,
-					Spotify:    artist.Social.Spotify,
-					SoundCloud: artist.Social.SoundCloud,
-					Bandcamp:   artist.Social.Bandcamp,
-					Website:    artist.Social.Website,
-				}
-				var slug string
-				if artist.Slug != nil {
-					slug = *artist.Slug
-				}
-				artists = append(artists, ArtistResponse{
-					ID:          artist.ID,
-					Slug:        slug,
-					Name:        artist.Name,
-					State:       artist.State,
-					City:        artist.City,
-					IsHeadliner: &isHeadliner,
-					IsNewArtist: &isNewArtist,
-					Socials:     socials,
-				})
+		for _, sa := range allShowArtists[show.ID] {
+			artist, ok := artistMap[sa.ArtistID]
+			if !ok {
+				continue
 			}
+			isHeadliner := sa.SetType == "headliner"
+			isNewArtist := false
+			socials := ShowArtistSocials{
+				Instagram:  artist.Social.Instagram,
+				Facebook:   artist.Social.Facebook,
+				Twitter:    artist.Social.Twitter,
+				YouTube:    artist.Social.YouTube,
+				Spotify:    artist.Social.Spotify,
+				SoundCloud: artist.Social.SoundCloud,
+				Bandcamp:   artist.Social.Bandcamp,
+				Website:    artist.Social.Website,
+			}
+			var slug string
+			if artist.Slug != nil {
+				slug = *artist.Slug
+			}
+			artists = append(artists, ArtistResponse{
+				ID:          artist.ID,
+				Slug:        slug,
+				Name:        artist.Name,
+				State:       artist.State,
+				City:        artist.City,
+				IsHeadliner: &isHeadliner,
+				IsNewArtist: &isNewArtist,
+				Socials:     socials,
+			})
 		}
 
 		responses[i] = &VenueShowResponse{
@@ -882,7 +909,7 @@ func (s *VenueService) CreatePendingVenueEdit(venueID uint, userID uint, req *Ve
 	var venue models.Venue
 	if err := s.db.First(&venue, venueID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("venue not found")
+			return nil, apperrors.ErrVenueNotFound(venueID)
 		}
 		return nil, fmt.Errorf("failed to get venue: %w", err)
 	}
@@ -891,7 +918,7 @@ func (s *VenueService) CreatePendingVenueEdit(venueID uint, userID uint, req *Ve
 	var existingEdit models.PendingVenueEdit
 	err := s.db.Where("venue_id = ? AND submitted_by = ? AND status = ?", venueID, userID, models.VenueEditStatusPending).First(&existingEdit).Error
 	if err == nil {
-		return nil, fmt.Errorf("you already have a pending edit for this venue")
+		return nil, apperrors.ErrVenuePendingEditExists(venueID)
 	} else if err != gorm.ErrRecordNotFound {
 		return nil, fmt.Errorf("failed to check existing edits: %w", err)
 	}
@@ -1180,7 +1207,7 @@ func (s *VenueService) GetVenueModel(venueID uint) (*models.Venue, error) {
 	var venue models.Venue
 	if err := s.db.First(&venue, venueID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("venue not found")
+			return nil, apperrors.ErrVenueNotFound(venueID)
 		}
 		return nil, fmt.Errorf("failed to get venue: %w", err)
 	}

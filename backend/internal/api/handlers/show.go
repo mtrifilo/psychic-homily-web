@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -11,7 +12,7 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
-	showerrors "psychic-homily-backend/internal/errors"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
 )
@@ -22,15 +23,17 @@ type ShowHandler struct {
 	savedShowService      *services.SavedShowService
 	discordService        *services.DiscordService
 	musicDiscoveryService *services.MusicDiscoveryService
+	extractionService     *services.ExtractionService
 }
 
 // NewShowHandler creates a new show handler
 func NewShowHandler(cfg *config.Config) *ShowHandler {
 	return &ShowHandler{
-		showService:           services.NewShowService(),
-		savedShowService:      services.NewSavedShowService(),
+		showService:           services.NewShowService(nil),
+		savedShowService:      services.NewSavedShowService(nil),
 		discordService:        services.NewDiscordService(cfg),
 		musicDiscoveryService: services.NewMusicDiscoveryService(cfg),
+		extractionService:     services.NewExtractionService(nil, cfg),
 	}
 }
 
@@ -81,9 +84,40 @@ type CreateShowRequestBody struct {
 func (r *CreateShowRequestBody) Resolve(ctx huma.Context) []error {
 	var errors []error
 
-	// Validate venues - no preprocessing needed currently
+	// Validate text field lengths
+	if r.Title != nil && len(*r.Title) > 255 {
+		errors = append(errors, &huma.ErrorDetail{
+			Location: "body.title",
+			Message:  "Title must be 255 characters or fewer",
+			Value:    len(*r.Title),
+		})
+	}
+	if r.Description != nil && len(*r.Description) > 5000 {
+		errors = append(errors, &huma.ErrorDetail{
+			Location: "body.description",
+			Message:  "Description must be 5000 characters or fewer",
+			Value:    len(*r.Description),
+		})
+	}
+	if r.AgeRequirement != nil && len(*r.AgeRequirement) > 50 {
+		errors = append(errors, &huma.ErrorDetail{
+			Location: "body.age_requirement",
+			Message:  "Age requirement must be 50 characters or fewer",
+			Value:    len(*r.AgeRequirement),
+		})
+	}
+
+	// Validate price range
+	if r.Price != nil && (*r.Price < 0 || *r.Price > 10000) {
+		errors = append(errors, &huma.ErrorDetail{
+			Location: "body.price",
+			Message:  "Price must be between 0 and 10000",
+			Value:    *r.Price,
+		})
+	}
+
+	// Validate venues
 	for i := range r.Venues {
-		// Validate that either ID or Name is provided
 		venue := &r.Venues[i]
 		if (venue.ID == nil || *venue.ID == 0) && (venue.Name == nil || *venue.Name == "") {
 			errors = append(errors, &huma.ErrorDetail{
@@ -92,19 +126,32 @@ func (r *CreateShowRequestBody) Resolve(ctx huma.Context) []error {
 				Value:    venue,
 			})
 		}
+		if venue.Name != nil && len(*venue.Name) > 255 {
+			errors = append(errors, &huma.ErrorDetail{
+				Location: fmt.Sprintf("body.venues[%d].name", i),
+				Message:  "Venue name must be 255 characters or fewer",
+				Value:    len(*venue.Name),
+			})
+		}
 	}
 
 	// Preprocess and validate artists
 	for i := range r.Artists {
 		initializeArtist(&r.Artists[i])
 
-		// Validate that either ID or Name is provided
 		artist := &r.Artists[i]
 		if (artist.ID == nil || *artist.ID == 0) && (artist.Name == nil || *artist.Name == "") {
 			errors = append(errors, &huma.ErrorDetail{
 				Location: fmt.Sprintf("body.artists[%d]", i),
 				Message:  "Either 'id' or 'name' must be provided",
 				Value:    artist,
+			})
+		}
+		if artist.Name != nil && len(*artist.Name) > 255 {
+			errors = append(errors, &huma.ErrorDetail{
+				Location: fmt.Sprintf("body.artists[%d].name", i),
+				Message:  "Artist name must be 255 characters or fewer",
+				Value:    len(*artist.Name),
 			})
 		}
 	}
@@ -215,19 +262,14 @@ type DeleteShowRequest struct {
 	ShowID string `path:"show_id" validate:"required" doc:"Show ID"`
 }
 
-// AIProcessShowRequest represents the HTTP request for AI show processing (future)
+// AIProcessShowRequest represents the HTTP request for AI show processing
 type AIProcessShowRequest struct {
-	Body struct {
-		Text string `json:"text" validate:"required" doc:"Unstructured text to process"`
-	}
+	Body services.ExtractShowRequest
 }
 
 // AIProcessShowResponse represents the HTTP response for AI show processing
 type AIProcessShowResponse struct {
-	Body struct {
-		Message string `json:"message" doc:"Response message"`
-		Status  string `json:"status" doc:"Processing status"`
-	}
+	Body services.ExtractShowResponse
 }
 
 // CreateShowHandler handles POST /shows
@@ -343,7 +385,7 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	// Create show using service
 	show, err := h.showService.CreateShow(serviceReq)
 	if err != nil {
-		showErr := showerrors.ErrShowCreateFailed(err)
+		showErr := apperrors.ErrShowCreateFailed(err)
 		logger.FromContext(ctx).Error("show_create_failed",
 			"error", err.Error(),
 			"error_code", showErr.Code,
@@ -426,7 +468,7 @@ func (h *ShowHandler) GetShowHandler(ctx context.Context, req *GetShowRequest) (
 	}
 
 	if err != nil {
-		showErr := showerrors.ErrShowNotFound(0)
+		showErr := apperrors.ErrShowNotFound(0)
 		logger.FromContext(ctx).Warn("show_not_found",
 			"show_id_or_slug", req.ShowID,
 			"error", err.Error(),
@@ -623,9 +665,12 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequest) (*UpdateShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Get authenticated user from context for admin status
+	// Get authenticated user from context
 	user := middleware.GetUserFromContext(ctx)
-	isAdmin := user != nil && user.IsAdmin
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	isAdmin := user.IsAdmin
 
 	// Early debug log to confirm handler is called
 	logger.FromContext(ctx).Debug("show_update_handler_start",
@@ -641,7 +686,7 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	// Parse show ID
 	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
 	if err != nil {
-		showErr := showerrors.ErrShowInvalidID(req.ShowID)
+		showErr := apperrors.ErrShowInvalidID(req.ShowID)
 		logger.FromContext(ctx).Warn("show_update_invalid_id",
 			"show_id_str", req.ShowID,
 			"error_code", showErr.Code,
@@ -650,6 +695,51 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		return nil, huma.Error400BadRequest(
 			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
 		)
+	}
+
+	// Fetch show to check ownership
+	existingShow, err := h.showService.GetShow(uint(showID))
+	if err != nil {
+		showErr := apperrors.ErrShowNotFound(uint(showID))
+		logger.FromContext(ctx).Warn("show_update_not_found",
+			"show_id", showID,
+			"error", err.Error(),
+			"error_code", showErr.Code,
+			"request_id", requestID,
+		)
+		return nil, huma.Error404NotFound(
+			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
+		)
+	}
+
+	// Check authorization: user must be admin OR the show submitter
+	isOwner := existingShow.SubmittedBy != nil && *existingShow.SubmittedBy == user.ID
+	if !isAdmin && !isOwner {
+		showErr := apperrors.ErrShowUpdateUnauthorized(uint(showID))
+		logger.FromContext(ctx).Warn("show_update_unauthorized",
+			"show_id", showID,
+			"user_id", user.ID,
+			"submitted_by", existingShow.SubmittedBy,
+			"error_code", showErr.Code,
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden(
+			fmt.Sprintf("%s [%s]", showErr.Message, showErr.Code),
+		)
+	}
+
+	// Validate text field lengths
+	if req.Body.Title != nil && len(*req.Body.Title) > 255 {
+		return nil, huma.Error400BadRequest("Title must be 255 characters or fewer")
+	}
+	if req.Body.Description != nil && len(*req.Body.Description) > 5000 {
+		return nil, huma.Error400BadRequest("Description must be 5000 characters or fewer")
+	}
+	if req.Body.AgeRequirement != nil && len(*req.Body.AgeRequirement) > 50 {
+		return nil, huma.Error400BadRequest("Age requirement must be 50 characters or fewer")
+	}
+	if req.Body.Price != nil && (*req.Body.Price < 0 || *req.Body.Price > 10000) {
+		return nil, huma.Error400BadRequest("Price must be between 0 and 10000")
 	}
 
 	// Build updates map for basic show fields
@@ -731,7 +821,7 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	// Update show using service with relations support (pass admin status for venue verification)
 	show, orphanedArtists, err := h.showService.UpdateShowWithRelations(uint(showID), updates, serviceVenues, serviceArtists, isAdmin)
 	if err != nil {
-		showErr := showerrors.ErrShowUpdateFailed(uint(showID), err)
+		showErr := apperrors.ErrShowUpdateFailed(uint(showID), err)
 		logger.FromContext(ctx).Error("show_update_failed",
 			"show_id", showID,
 			"error", err.Error(),
@@ -771,7 +861,7 @@ func (h *ShowHandler) DeleteShowHandler(ctx context.Context, req *DeleteShowRequ
 	// Parse show ID
 	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
 	if err != nil {
-		showErr := showerrors.ErrShowInvalidID(req.ShowID)
+		showErr := apperrors.ErrShowInvalidID(req.ShowID)
 		logger.FromContext(ctx).Warn("show_delete_invalid_id",
 			"show_id_str", req.ShowID,
 			"error_code", showErr.Code,
@@ -791,7 +881,7 @@ func (h *ShowHandler) DeleteShowHandler(ctx context.Context, req *DeleteShowRequ
 	// Fetch show to check ownership
 	show, err := h.showService.GetShow(uint(showID))
 	if err != nil {
-		showErr := showerrors.ErrShowNotFound(uint(showID))
+		showErr := apperrors.ErrShowNotFound(uint(showID))
 		logger.FromContext(ctx).Warn("show_delete_not_found",
 			"show_id", showID,
 			"error", err.Error(),
@@ -806,7 +896,7 @@ func (h *ShowHandler) DeleteShowHandler(ctx context.Context, req *DeleteShowRequ
 	// Check authorization: user must be admin OR the show submitter
 	isOwner := show.SubmittedBy != nil && *show.SubmittedBy == user.ID
 	if !user.IsAdmin && !isOwner {
-		showErr := showerrors.ErrShowDeleteUnauthorized(uint(showID))
+		showErr := apperrors.ErrShowDeleteUnauthorized(uint(showID))
 		logger.FromContext(ctx).Warn("show_delete_unauthorized",
 			"show_id", showID,
 			"user_id", user.ID,
@@ -822,7 +912,7 @@ func (h *ShowHandler) DeleteShowHandler(ctx context.Context, req *DeleteShowRequ
 	// Delete show using service
 	err = h.showService.DeleteShow(uint(showID))
 	if err != nil {
-		showErr := showerrors.ErrShowDeleteFailed(uint(showID), err)
+		showErr := apperrors.ErrShowDeleteFailed(uint(showID), err)
 		logger.FromContext(ctx).Error("show_delete_failed",
 			"show_id", showID,
 			"error", err.Error(),
@@ -869,7 +959,7 @@ func (h *ShowHandler) UnpublishShowHandler(ctx context.Context, req *UnpublishSh
 	// Parse show ID
 	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
 	if err != nil {
-		showErr := showerrors.ErrShowInvalidID(req.ShowID)
+		showErr := apperrors.ErrShowInvalidID(req.ShowID)
 		logger.FromContext(ctx).Warn("show_unpublish_invalid_id",
 			"show_id_str", req.ShowID,
 			"error_code", showErr.Code,
@@ -895,16 +985,18 @@ func (h *ShowHandler) UnpublishShowHandler(ctx context.Context, req *UnpublishSh
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		// Check for specific error types
-		if err.Error() == "show not found" {
-			return nil, huma.Error404NotFound(
-				fmt.Sprintf("Show not found (request_id: %s)", requestID),
-			)
-		}
-		if err.Error() == "only the show submitter or an admin can unpublish this show" {
-			return nil, huma.Error403Forbidden(
-				fmt.Sprintf("Not authorized to unpublish this show (request_id: %s)", requestID),
-			)
+		var showErr *apperrors.ShowError
+		if errors.As(err, &showErr) {
+			switch showErr.Code {
+			case apperrors.CodeShowNotFound:
+				return nil, huma.Error404NotFound(
+					fmt.Sprintf("Show not found (request_id: %s)", requestID),
+				)
+			case apperrors.CodeShowUnpublishUnauthorized:
+				return nil, huma.Error403Forbidden(
+					fmt.Sprintf("Not authorized to unpublish this show (request_id: %s)", requestID),
+				)
+			}
 		}
 		return nil, huma.Error422UnprocessableEntity(
 			fmt.Sprintf("Failed to unpublish show: %s (request_id: %s)", err.Error(), requestID),
@@ -952,7 +1044,7 @@ func (h *ShowHandler) MakePrivateShowHandler(ctx context.Context, req *MakePriva
 	// Parse show ID
 	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
 	if err != nil {
-		showErr := showerrors.ErrShowInvalidID(req.ShowID)
+		showErr := apperrors.ErrShowInvalidID(req.ShowID)
 		logger.FromContext(ctx).Warn("show_make_private_invalid_id",
 			"show_id_str", req.ShowID,
 			"error_code", showErr.Code,
@@ -978,16 +1070,18 @@ func (h *ShowHandler) MakePrivateShowHandler(ctx context.Context, req *MakePriva
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		// Check for specific error types
-		if err.Error() == "show not found" {
-			return nil, huma.Error404NotFound(
-				fmt.Sprintf("Show not found (request_id: %s)", requestID),
-			)
-		}
-		if err.Error() == "only the show submitter or an admin can make this show private" {
-			return nil, huma.Error403Forbidden(
-				fmt.Sprintf("Not authorized to make this show private (request_id: %s)", requestID),
-			)
+		var showErr *apperrors.ShowError
+		if errors.As(err, &showErr) {
+			switch showErr.Code {
+			case apperrors.CodeShowNotFound:
+				return nil, huma.Error404NotFound(
+					fmt.Sprintf("Show not found (request_id: %s)", requestID),
+				)
+			case apperrors.CodeShowMakePrivateUnauthorized:
+				return nil, huma.Error403Forbidden(
+					fmt.Sprintf("Not authorized to make this show private (request_id: %s)", requestID),
+				)
+			}
 		}
 		return nil, huma.Error422UnprocessableEntity(
 			fmt.Sprintf("Failed to make show private: %s (request_id: %s)", err.Error(), requestID),
@@ -1037,7 +1131,7 @@ func (h *ShowHandler) PublishShowHandler(ctx context.Context, req *PublishShowRe
 	// Parse show ID
 	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
 	if err != nil {
-		showErr := showerrors.ErrShowInvalidID(req.ShowID)
+		showErr := apperrors.ErrShowInvalidID(req.ShowID)
 		logger.FromContext(ctx).Warn("show_publish_invalid_id",
 			"show_id_str", req.ShowID,
 			"error_code", showErr.Code,
@@ -1063,16 +1157,18 @@ func (h *ShowHandler) PublishShowHandler(ctx context.Context, req *PublishShowRe
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		// Check for specific error types
-		if err.Error() == "show not found" {
-			return nil, huma.Error404NotFound(
-				fmt.Sprintf("Show not found (request_id: %s)", requestID),
-			)
-		}
-		if err.Error() == "only the show submitter or an admin can publish this show" {
-			return nil, huma.Error403Forbidden(
-				fmt.Sprintf("Not authorized to publish this show (request_id: %s)", requestID),
-			)
+		var showErr *apperrors.ShowError
+		if errors.As(err, &showErr) {
+			switch showErr.Code {
+			case apperrors.CodeShowNotFound:
+				return nil, huma.Error404NotFound(
+					fmt.Sprintf("Show not found (request_id: %s)", requestID),
+				)
+			case apperrors.CodeShowPublishUnauthorized:
+				return nil, huma.Error403Forbidden(
+					fmt.Sprintf("Not authorized to publish this show (request_id: %s)", requestID),
+				)
+			}
 		}
 		return nil, huma.Error422UnprocessableEntity(
 			fmt.Sprintf("Failed to publish show: %s (request_id: %s)", err.Error(), requestID),
@@ -1096,19 +1192,51 @@ func (h *ShowHandler) PublishShowHandler(ctx context.Context, req *PublishShowRe
 	return &PublishShowResponse{Body: *show}, nil
 }
 
-// AIProcessShowHandler handles POST /shows/ai-process (future implementation)
+// AIProcessShowHandler handles POST /shows/ai-process
+// Accepts text, image (base64), or both, extracts show info via Claude AI,
+// and matches extracted artists/venues against the database.
 func (h *ShowHandler) AIProcessShowHandler(ctx context.Context, req *AIProcessShowRequest) (*AIProcessShowResponse, error) {
-	// TODO: Implement AI processing logic
-	// For now, return "Not Implemented" response
-	return &AIProcessShowResponse{
-		Body: struct {
-			Message string `json:"message" doc:"Response message"`
-			Status  string `json:"status" doc:"Processing status"`
-		}{
-			Message: "AI show processing is not yet implemented",
-			Status:  "not_implemented",
-		},
-	}, nil
+	requestID := logger.GetRequestID(ctx)
+
+	logger.FromContext(ctx).Debug("ai_process_show_attempt",
+		"type", req.Body.Type,
+		"has_text", req.Body.Text != "",
+		"has_image", req.Body.ImageData != "",
+		"request_id", requestID,
+	)
+
+	result, err := h.extractionService.ExtractShow(&req.Body)
+	if err != nil {
+		logger.FromContext(ctx).Error("ai_process_show_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return &AIProcessShowResponse{
+			Body: services.ExtractShowResponse{
+				Success: false,
+				Error:   "An unexpected error occurred. Please try again.",
+			},
+		}, nil
+	}
+
+	if result.Success {
+		artistCount := 0
+		if result.Data != nil {
+			artistCount = len(result.Data.Artists)
+		}
+		logger.FromContext(ctx).Info("ai_process_show_success",
+			"artist_count", artistCount,
+			"has_venue", result.Data != nil && result.Data.Venue != nil,
+			"request_id", requestID,
+		)
+	} else {
+		logger.FromContext(ctx).Warn("ai_process_show_error",
+			"error", result.Error,
+			"request_id", requestID,
+		)
+	}
+
+	return &AIProcessShowResponse{Body: *result}, nil
 }
 
 // ExportShowRequest represents the HTTP request for exporting a show
@@ -1147,7 +1275,7 @@ func (h *ShowHandler) ExportShowHandler(ctx context.Context, req *ExportShowRequ
 	// Parse show ID
 	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
 	if err != nil {
-		showErr := showerrors.ErrShowInvalidID(req.ShowID)
+		showErr := apperrors.ErrShowInvalidID(req.ShowID)
 		logger.FromContext(ctx).Warn("show_export_invalid_id",
 			"show_id_str", req.ShowID,
 			"error_code", showErr.Code,
@@ -1170,7 +1298,8 @@ func (h *ShowHandler) ExportShowHandler(ctx context.Context, req *ExportShowRequ
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		if err.Error() == "show not found" {
+		var showErr *apperrors.ShowError
+		if errors.As(err, &showErr) && showErr.Code == apperrors.CodeShowNotFound {
 			return nil, huma.Error404NotFound("Show not found")
 		}
 		return nil, huma.Error500InternalServerError(
@@ -1245,7 +1374,8 @@ func (h *ShowHandler) SetShowSoldOutHandler(ctx context.Context, req *SetShowSol
 	// Get the show to check ownership
 	show, err := h.showService.GetShow(uint(showID))
 	if err != nil {
-		if err.Error() == "show not found" {
+		var showErr *apperrors.ShowError
+		if errors.As(err, &showErr) && showErr.Code == apperrors.CodeShowNotFound {
 			return nil, huma.Error404NotFound("Show not found")
 		}
 		return nil, huma.Error500InternalServerError(
@@ -1327,7 +1457,8 @@ func (h *ShowHandler) SetShowCancelledHandler(ctx context.Context, req *SetShowC
 	// Get the show to check ownership
 	show, err := h.showService.GetShow(uint(showID))
 	if err != nil {
-		if err.Error() == "show not found" {
+		var showErr *apperrors.ShowError
+		if errors.As(err, &showErr) && showErr.Code == apperrors.CodeShowNotFound {
 			return nil, huma.Error404NotFound("Show not found")
 		}
 		return nil, huma.Error500InternalServerError(

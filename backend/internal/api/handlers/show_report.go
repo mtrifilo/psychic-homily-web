@@ -24,10 +24,10 @@ type ShowReportHandler struct {
 // NewShowReportHandler creates a new show report handler
 func NewShowReportHandler(cfg *config.Config) *ShowReportHandler {
 	return &ShowReportHandler{
-		showReportService: services.NewShowReportService(),
+		showReportService: services.NewShowReportService(nil),
 		discordService:    services.NewDiscordService(cfg),
-		userService:       services.NewUserService(),
-		auditLogService:   services.NewAuditLogService(),
+		userService:       services.NewUserService(nil),
+		auditLogService:   services.NewAuditLogService(nil),
 	}
 }
 

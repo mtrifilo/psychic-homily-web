@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import Anthropic from '@anthropic-ai/sdk'
+import * as Sentry from '@sentry/nextjs'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -51,7 +52,11 @@ async function getAuthenticatedUser(
     }
 
     return await response.json()
-  } catch {
+  } catch (error) {
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'discover-bandcamp', error_type: 'auth_fetch' },
+    })
     return null
   }
 }
@@ -65,7 +70,12 @@ async function getArtist(artistId: string): Promise<Artist | null> {
     }
 
     return await response.json()
-  } catch {
+  } catch (error) {
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'discover-bandcamp', error_type: 'artist_fetch' },
+      extra: { artistId },
+    })
     return null
   }
 }
@@ -95,6 +105,11 @@ async function updateArtistBandcamp(
 
     return await response.json()
   } catch (error) {
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'discover-bandcamp', error_type: 'artist_update' },
+      extra: { artistId, bandcampUrl },
+    })
     console.error('Error updating artist:', error)
     return null
   }
@@ -113,7 +128,12 @@ async function validateBandcampUrl(url: string): Promise<boolean> {
 
     const data = await response.json()
     return !!data.albumId
-  } catch {
+  } catch (error) {
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'discover-bandcamp', error_type: 'validation' },
+      extra: { url },
+    })
     return false
   }
 }
@@ -158,6 +178,10 @@ export async function POST(
   // Check if Anthropic API key is configured
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
+    Sentry.captureMessage('ANTHROPIC_API_KEY not configured', {
+      level: 'error',
+      tags: { service: 'discover-bandcamp', error_type: 'missing_config' },
+    })
     console.error('ANTHROPIC_API_KEY not configured')
     return NextResponse.json(
       { error: 'AI service not configured' },
@@ -265,6 +289,11 @@ export async function POST(
       artist: updatedArtist,
     })
   } catch (error) {
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'discover-bandcamp' },
+      extra: { artistId, artistName: artist.name },
+    })
     console.error('Bandcamp discovery error:', error)
 
     if (error instanceof Anthropic.APIError) {

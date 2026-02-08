@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import * as Sentry from '@sentry/nextjs'
 import { useRouter } from 'next/navigation'
 import {
   AlertTriangle,
@@ -93,8 +94,11 @@ export function DeleteAccountDialog({
         setDeletionDate(result.deletion_date)
         setStep('success')
       }
-    } catch {
-      // Error is handled by the mutation
+    } catch (error) {
+      Sentry.captureException(error, {
+        level: 'warning',
+        tags: { service: 'account-deletion' },
+      })
     }
   }
 

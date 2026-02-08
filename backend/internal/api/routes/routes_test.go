@@ -81,8 +81,8 @@ func TestSetupAuthRoutes(t *testing.T) {
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
 	// Use real services with test config
-	authService := services.NewAuthService(cfg)
-	jwtService := services.NewJWTService(cfg)
+	authService := services.NewAuthService(nil, cfg)
+	jwtService := services.NewJWTService(nil, cfg)
 
 	setupAuthRoutes(router, api, authService, jwtService, cfg)
 
@@ -213,8 +213,8 @@ func TestProtectedRoutes(t *testing.T) {
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	authService := services.NewAuthService(cfg)
-	jwtService := services.NewJWTService(cfg)
+	authService := services.NewAuthService(nil, cfg)
+	jwtService := services.NewJWTService(nil, cfg)
 
 	setupAuthRoutes(router, api, authService, jwtService, cfg)
 
@@ -275,8 +275,8 @@ func TestRouteMiddleware(t *testing.T) {
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	authService := services.NewAuthService(cfg)
-	jwtService := services.NewJWTService(cfg)
+	authService := services.NewAuthService(nil, cfg)
+	jwtService := services.NewJWTService(nil, cfg)
 
 	setupAuthRoutes(router, api, authService, jwtService, cfg)
 
@@ -310,8 +310,8 @@ func TestRouteErrorHandling(t *testing.T) {
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	authService := services.NewAuthService(cfg)
-	jwtService := services.NewJWTService(cfg)
+	authService := services.NewAuthService(nil, cfg)
+	jwtService := services.NewJWTService(nil, cfg)
 
 	setupAuthRoutes(router, api, authService, jwtService, cfg)
 
@@ -350,8 +350,8 @@ func TestRouteParameterExtraction(t *testing.T) {
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	authService := services.NewAuthService(cfg)
-	jwtService := services.NewJWTService(cfg)
+	authService := services.NewAuthService(nil, cfg)
+	jwtService := services.NewJWTService(nil, cfg)
 
 	setupAuthRoutes(router, api, authService, jwtService, cfg)
 
@@ -394,8 +394,8 @@ func TestRouteRegistration(t *testing.T) {
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	authService := services.NewAuthService(cfg)
-	jwtService := services.NewJWTService(cfg)
+	authService := services.NewAuthService(nil, cfg)
+	jwtService := services.NewJWTService(nil, cfg)
 
 	setupAuthRoutes(router, api, authService, jwtService, cfg)
 

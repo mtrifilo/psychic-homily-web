@@ -1,5 +1,6 @@
 import { Suspense } from 'react'
 import { Metadata } from 'next'
+import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
 import { ArtistDetail } from '@/components/artists'
 import { JsonLd } from '@/components/seo/JsonLd'
@@ -27,8 +28,19 @@ async function getArtist(slug: string): Promise<ArtistData | null> {
     if (res.ok) {
       return res.json()
     }
-  } catch {
-    // Fall through to null
+    if (res.status >= 500) {
+      Sentry.captureMessage(`Artist page fetch error: ${res.status}`, {
+        level: 'error',
+        tags: { service: 'artist-page' },
+        extra: { slug, status: res.status },
+      })
+    }
+  } catch (error) {
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'artist-page' },
+      extra: { slug },
+    })
   }
   return null
 }

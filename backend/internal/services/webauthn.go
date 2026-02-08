@@ -23,7 +23,11 @@ type WebAuthnService struct {
 }
 
 // NewWebAuthnService creates a new WebAuthn service
-func NewWebAuthnService(cfg *config.Config) (*WebAuthnService, error) {
+func NewWebAuthnService(database *gorm.DB, cfg *config.Config) (*WebAuthnService, error) {
+	if database == nil {
+		database = db.GetDB()
+	}
+
 	// Get RPID and origins from config
 	rpID := cfg.WebAuthn.RPID
 	if rpID == "" {
@@ -56,7 +60,7 @@ func NewWebAuthnService(cfg *config.Config) (*WebAuthnService, error) {
 
 	return &WebAuthnService{
 		webAuthn: w,
-		db:       db.GetDB(),
+		db:       database,
 		config:   cfg,
 	}, nil
 }

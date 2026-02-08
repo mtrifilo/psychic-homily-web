@@ -297,6 +297,69 @@ export async function exportVenues(params: {
   return response.json()
 }
 
+// Fetch shows from a remote environment (for existence checks)
+export async function fetchRemoteShows(
+  baseUrl: string,
+  token: string,
+  params: { limit?: number; offset?: number; status?: string }
+): Promise<ExportShowsResult> {
+  try {
+    const searchParams = new URLSearchParams()
+    if (params.limit) searchParams.set('limit', params.limit.toString())
+    if (params.offset) searchParams.set('offset', params.offset.toString())
+    if (params.status) searchParams.set('status', params.status)
+
+    const url = `${baseUrl}/admin/export/shows?${searchParams.toString()}`
+    const response = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+
+    if (!response.ok) {
+      return { shows: [], total: 0 }
+    }
+
+    return response.json()
+  } catch {
+    return { shows: [], total: 0 }
+  }
+}
+
+// Import data to a specific remote environment
+export async function importDataToEnv(
+  data: {
+    shows?: ExportedShow[]
+    artists?: ExportedArtist[]
+    venues?: ExportedVenue[]
+  },
+  dryRun: boolean,
+  env: 'stage' | 'production'
+): Promise<DataImportResult> {
+  const settings = getSettings()
+  const token = env === 'production' ? settings.productionToken : settings.stageToken
+  const baseUrl = env === 'production' ? settings.productionUrl : settings.stageUrl
+  const envLabel = env === 'production' ? 'Production' : 'Stage'
+
+  if (!token) {
+    throw new Error(`${envLabel} API token not configured. Go to Settings to add your token.`)
+  }
+
+  const response = await fetch(`${baseUrl}/admin/data/import`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({ ...data, dryRun }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || error.message || `Failed to import data to ${envLabel}`)
+  }
+
+  return response.json()
+}
+
 // Import data to remote backend (Stage or Production)
 export async function importData(
   data: {

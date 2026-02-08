@@ -1,10 +1,14 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
+	"gorm.io/gorm"
+
 	"psychic-homily-backend/internal/config"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -15,10 +19,10 @@ type JWTService struct {
 	userService *UserService
 }
 
-func NewJWTService(cfg *config.Config) *JWTService {
+func NewJWTService(database *gorm.DB, cfg *config.Config) *JWTService {
 	return &JWTService{
 		config:      cfg,
-		userService: NewUserService(),
+		userService: NewUserService(database),
 	}
 }
 
@@ -48,12 +52,15 @@ func (s *JWTService) ValidateToken(tokenString string) (*models.User, error) {
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("invalid token: %w", err)
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, apperrors.ErrTokenExpired(err)
+		}
+		return nil, apperrors.ErrTokenInvalid(err)
 	}
 
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 		userID := uint(claims["user_id"].(float64))
-		
+
 		// Fetch full user from database to get current admin status and other fields
 		// This ensures we always have the most up-to-date user information
 		user, err := s.userService.GetUserByID(userID)
@@ -64,7 +71,7 @@ func (s *JWTService) ValidateToken(tokenString string) (*models.User, error) {
 		return user, nil
 	}
 
-	return nil, fmt.Errorf("invalid token claims")
+	return nil, apperrors.ErrTokenInvalid(nil)
 }
 
 // RefreshToken creates a new token with extended expiry
@@ -75,6 +82,62 @@ func (s *JWTService) RefreshToken(tokenString string) (string, error) {
 	}
 
 	return s.CreateToken(user)
+}
+
+// ValidateTokenLenient validates a JWT but allows tokens that expired within a grace period.
+// This is used for token refresh — the client sends an expired token to get a new one.
+// The grace period prevents forcing re-login when the token expired recently.
+func (s *JWTService) ValidateTokenLenient(tokenString string, gracePeriod time.Duration) (*models.User, error) {
+	// First try strict validation (covers the case where token is still valid)
+	user, err := s.ValidateToken(tokenString)
+	if err == nil {
+		return user, nil
+	}
+
+	// If strict validation failed, try parsing without expiration validation
+	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
+	token, parseErr := parser.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(s.config.JWT.SecretKey), nil
+	})
+
+	if parseErr != nil {
+		return nil, apperrors.ErrTokenInvalid(parseErr)
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, apperrors.ErrTokenInvalid(nil)
+	}
+
+	// Manually check expiration with grace period
+	exp, ok := claims["exp"].(float64)
+	if !ok {
+		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("missing expiration claim"))
+	}
+
+	expTime := time.Unix(int64(exp), 0)
+	if time.Since(expTime) > gracePeriod {
+		return nil, apperrors.ErrTokenExpired(fmt.Errorf("token expired beyond grace period"))
+	}
+
+	// Validate issuer and audience manually
+	iss, _ := claims["iss"].(string)
+	aud, _ := claims["aud"].(string)
+	if iss != "psychic-homily-backend" || aud != "psychic-homily-users" {
+		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("invalid token issuer or audience"))
+	}
+
+	// Token is within grace period — extract user
+	userID := uint(claims["user_id"].(float64))
+	user, userErr := s.userService.GetUserByID(userID)
+	if userErr != nil {
+		return nil, fmt.Errorf("failed to get user: %w", userErr)
+	}
+
+	return user, nil
 }
 
 // VerificationTokenClaims holds the claims for email verification tokens

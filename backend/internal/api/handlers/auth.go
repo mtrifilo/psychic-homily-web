@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -54,6 +54,7 @@ type LoginResponse struct {
 	Body      struct {
 		Success   bool         `json:"success" example:"true" doc:"Success status"`
 		Message   string       `json:"message" example:"Login successful" doc:"Response message"`
+		Token     string       `json:"token,omitempty" example:"eyJhbGciOiJIUzI1NiIs..." doc:"JWT token for non-cookie clients (e.g. mobile apps)"`
 		ErrorCode string       `json:"error_code,omitempty" example:"INVALID_CREDENTIALS" doc:"Error code for programmatic handling"`
 		RequestID string       `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
 		User      *models.User `json:"user,omitempty" doc:"User information"`
@@ -84,31 +85,38 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 
 	user, err := h.userService.AuthenticateUserWithPassword(input.Body.Email, input.Body.Password)
 	if err != nil {
-		// Check if account is locked
-		if strings.HasPrefix(err.Error(), "account_locked:") {
-			// Parse remaining minutes from error
-			var minutes int
-			fmt.Sscanf(err.Error(), "account_locked:%d", &minutes)
-			message := fmt.Sprintf("Account temporarily locked due to too many failed login attempts. Please try again in %d minute(s).", minutes)
-			authErr := autherrors.ErrAccountLocked(message)
-			logger.AuthWarn(ctx, "login_account_locked",
-				"email_hash", logger.HashEmail(input.Body.Email),
-				"minutes_remaining", minutes,
-			)
-			resp.Body.Success = false
-			resp.Body.Message = authErr.UserMessage()
-			resp.Body.ErrorCode = autherrors.CodeAccountLocked
-			return resp, nil
+		var authErr *autherrors.AuthError
+		if errors.As(err, &authErr) {
+			switch authErr.Code {
+			case autherrors.CodeAccountLocked:
+				logger.AuthWarn(ctx, "login_account_locked",
+					"email_hash", logger.HashEmail(input.Body.Email),
+					"minutes_remaining", authErr.Minutes,
+				)
+				resp.Body.Success = false
+				resp.Body.Message = authErr.UserMessage()
+				resp.Body.ErrorCode = autherrors.CodeAccountLocked
+				return resp, nil
+			case autherrors.CodeInvalidCredentials:
+				logger.AuthWarn(ctx, "login_failed",
+					"email_hash", logger.HashEmail(input.Body.Email),
+					"error", err.Error(),
+				)
+				resp.Body.Success = false
+				resp.Body.Message = authErr.UserMessage()
+				resp.Body.ErrorCode = autherrors.ToExternalCode(autherrors.CodeInvalidCredentials)
+				return resp, nil
+			}
 		}
 
-		authErr := autherrors.ErrInvalidCredentials(err)
+		// Generic fallback for unexpected errors
 		logger.AuthWarn(ctx, "login_failed",
 			"email_hash", logger.HashEmail(input.Body.Email),
 			"error", err.Error(),
 		)
 		resp.Body.Success = false
-		resp.Body.Message = authErr.UserMessage()
-		resp.Body.ErrorCode = autherrors.ToExternalCode(autherrors.CodeInvalidCredentials)
+		resp.Body.Message = "Invalid email or password"
+		resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
 		return resp, nil
 	}
 
@@ -135,6 +143,7 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 
 	resp.Body.Success = true
 	resp.Body.Message = "Login successful"
+	resp.Body.Token = token
 	resp.Body.User = user
 
 	return resp, nil
@@ -360,7 +369,7 @@ func (h *AuthHandler) GetProfileHandler(ctx context.Context, input *struct{}) (*
 
 type RegisterRequest struct {
 	Body struct {
-		Email     string  `json:"email" example:"test@example.com" doc:"User email" validate:"required"`
+		Email     string  `json:"email" example:"test@example.com" doc:"User email" validate:"required,email"`
 		Password  string  `json:"password" example:"password" doc:"User password" validate:"required"`
 		FirstName *string `json:"first_name,omitempty" example:"John" doc:"User first name (optional)"`
 		LastName  *string `json:"last_name,omitempty" example:"Doe" doc:"User last name (optional)"`
@@ -372,6 +381,7 @@ type RegisterResponse struct {
 	Body      struct {
 		Success   bool         `json:"success" example:"true" doc:"Success status"`
 		Message   string       `json:"message" example:"Registration successful" doc:"Response message"`
+		Token     string       `json:"token,omitempty" example:"eyJhbGciOiJIUzI1NiIs..." doc:"JWT token for non-cookie clients (e.g. mobile apps)"`
 		ErrorCode string       `json:"error_code,omitempty" example:"USER_EXISTS" doc:"Error code for programmatic handling"`
 		RequestID string       `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
 		User      *models.User `json:"user,omitempty" doc:"User information"`
@@ -445,13 +455,15 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 
 	user, err := h.userService.CreateUserWithPassword(input.Body.Email, input.Body.Password, firstName, lastName)
 	if err != nil {
-		// Check if it's a duplicate email error
 		errorCode := autherrors.CodeUnknown
 		message := "Failed to create user"
-		if strings.Contains(err.Error(), "already exists") {
+
+		var authErr *autherrors.AuthError
+		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeUserExists {
 			errorCode = autherrors.CodeUserExists
-			message = autherrors.ToExternalMessage(errorCode)
+			message = authErr.UserMessage()
 		}
+
 		logger.AuthWarn(ctx, "register_failed",
 			"email_hash", logger.HashEmail(input.Body.Email),
 			"error", err.Error(),
@@ -487,6 +499,7 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 	h.discordService.NotifyNewUser(user)
 
 	resp.Body.Success = true
+	resp.Body.Token = token
 	resp.Body.User = user
 	resp.Body.Message = "Registration successful and you are now logged in"
 	return resp, nil
@@ -808,6 +821,7 @@ type VerifyMagicLinkResponse struct {
 	Body      struct {
 		Success   bool         `json:"success" example:"true" doc:"Success status"`
 		Message   string       `json:"message" example:"Login successful" doc:"Response message"`
+		Token     string       `json:"token,omitempty" example:"eyJhbGciOiJIUzI1NiIs..." doc:"JWT token for non-cookie clients"`
 		User      *models.User `json:"user,omitempty" doc:"User information"`
 		ErrorCode string       `json:"error_code,omitempty" example:"INVALID_TOKEN" doc:"Error code for programmatic handling"`
 		RequestID string       `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
@@ -898,6 +912,7 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 
 	resp.Body.Success = true
 	resp.Body.Message = "Login successful"
+	resp.Body.Token = token
 	resp.Body.User = user
 	return resp, nil
 }
@@ -993,16 +1008,19 @@ func (h *AuthHandler) ChangePasswordHandler(ctx context.Context, input *ChangePa
 
 	// Update password
 	if err := h.userService.UpdatePassword(contextUser.ID, input.Body.CurrentPassword, input.Body.NewPassword); err != nil {
-		// Check for specific error types
 		errorMessage := "Failed to change password"
 		errorCode := autherrors.CodeUnknown
 
-		if strings.Contains(err.Error(), "current password is incorrect") {
-			errorMessage = "Current password is incorrect"
-			errorCode = autherrors.CodeInvalidCredentials
-		} else if strings.Contains(err.Error(), "does not have a password set") {
-			errorMessage = "Cannot change password for OAuth-only accounts"
-			errorCode = autherrors.CodeValidationFailed
+		var authErr *autherrors.AuthError
+		if errors.As(err, &authErr) {
+			switch authErr.Code {
+			case autherrors.CodeInvalidCredentials:
+				errorMessage = "Current password is incorrect"
+				errorCode = autherrors.CodeInvalidCredentials
+			case autherrors.CodeNoPasswordSet:
+				errorMessage = authErr.UserMessage()
+				errorCode = autherrors.CodeNoPasswordSet
+			}
 		}
 
 		logger.AuthWarn(ctx, "change_password_failed",

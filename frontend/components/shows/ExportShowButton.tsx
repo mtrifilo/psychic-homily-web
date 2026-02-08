@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import * as Sentry from '@sentry/nextjs'
 import { Download, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { API_ENDPOINTS } from '@/lib/api'
@@ -42,6 +43,13 @@ export function ExportShowButton({
 
       if (!response.ok) {
         const errorText = await response.text()
+        if (response.status >= 500) {
+          Sentry.captureMessage(`Show export failed: ${response.status}`, {
+            level: 'error',
+            tags: { service: 'show-export' },
+            extra: { showId, status: response.status, errorText },
+          })
+        }
         console.error('Export failed:', response.status, errorText)
         if (response.status === 404) {
           alert('Export not available. Make sure ENVIRONMENT=development is set on the backend.')
@@ -72,6 +80,11 @@ export function ExportShowButton({
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
     } catch (error) {
+      Sentry.captureException(error, {
+        level: 'error',
+        tags: { service: 'show-export' },
+        extra: { showId },
+      })
       console.error('Export failed:', error)
       alert('Export failed. Check browser console for details.')
     } finally {

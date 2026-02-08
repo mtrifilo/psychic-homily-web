@@ -19,7 +19,7 @@ type AuditLogHandler struct {
 // NewAuditLogHandler creates a new audit log handler
 func NewAuditLogHandler() *AuditLogHandler {
 	return &AuditLogHandler{
-		auditLogService: services.NewAuditLogService(),
+		auditLogService: services.NewAuditLogService(nil),
 	}
 }
 

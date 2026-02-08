@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import * as Sentry from '@sentry/nextjs'
 import { startAuthentication, browserSupportsWebAuthn } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -86,8 +87,16 @@ export function PasskeyLoginButton({ onError, className }: PasskeyLoginButtonPro
           // User cancelled the operation
           return
         }
+        Sentry.captureException(error, {
+          level: 'error',
+          tags: { service: 'passkey-auth', error_type: 'login_failed' },
+        })
         onError?.(error.message)
       } else {
+        Sentry.captureException(error, {
+          level: 'error',
+          tags: { service: 'passkey-auth', error_type: 'login_failed' },
+        })
         onError?.('An unexpected error occurred')
       }
     } finally {

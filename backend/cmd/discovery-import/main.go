@@ -65,7 +65,10 @@ func main() {
 	}
 
 	// Load configuration and connect to database
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
 	if err := db.Connect(cfg); err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
@@ -85,7 +88,7 @@ func main() {
 	}
 
 	// Create discovery service
-	discoveryService := services.NewDiscoveryService()
+	discoveryService := services.NewDiscoveryService(nil)
 
 	// Process each file
 	totalResult := &services.ImportResult{

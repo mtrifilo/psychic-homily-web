@@ -18,6 +18,13 @@ export const queryKeys = {
       params ? (['export', 'venues', params] as const) : (['export', 'venues'] as const),
   },
 
+  // Remote queries (for existence checks)
+  remote: {
+    all: ['remote'] as const,
+    shows: (env: string, params?: Record<string, unknown>) =>
+      params ? (['remote', 'shows', env, params] as const) : (['remote', 'shows', env] as const),
+  },
+
   // Settings queries
   settings: {
     all: ['settings'] as const,

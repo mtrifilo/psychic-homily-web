@@ -26,8 +26,8 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	api.UseMiddleware(middleware.HumaRequestIDMiddleware)
 
 	// Create services
-	authService := services.NewAuthService(cfg)
-	jwtService := services.NewJWTService(cfg)
+	authService := services.NewAuthService(nil, cfg)
+	jwtService := services.NewJWTService(nil, cfg)
 
 	// Setup domain-specific routes
 	setupSystemRoutes(router, api)
@@ -38,11 +38,15 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	protectedGroup.UseMiddleware(middleware.HumaJWTMiddleware(jwtService, cfg.Session))
 
 	// Add protected auth routes
-	authHandler := handlers.NewAuthHandler(authService, jwtService, services.NewUserService(), cfg)
+	authHandler := handlers.NewAuthHandler(authService, jwtService, services.NewUserService(nil), cfg)
 	huma.Get(protectedGroup, "/auth/profile", authHandler.GetProfileHandler)
-	huma.Post(protectedGroup, "/auth/refresh", authHandler.RefreshTokenHandler)
 	huma.Post(protectedGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
 	huma.Post(protectedGroup, "/auth/change-password", authHandler.ChangePasswordHandler)
+
+	// Token refresh uses lenient middleware (accepts tokens expired within 7 days)
+	lenientGroup := huma.NewGroup(api, "")
+	lenientGroup.UseMiddleware(middleware.LenientHumaJWTMiddleware(jwtService, 7*24*time.Hour))
+	huma.Post(lenientGroup, "/auth/refresh", authHandler.RefreshTokenHandler)
 
 	// Account deletion endpoints
 	huma.Get(protectedGroup, "/auth/account/deletion-summary", authHandler.GetDeletionSummaryHandler)
@@ -82,7 +86,7 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 // setupAuthRoutes configures all authentication-related endpoints
 func setupAuthRoutes(router *chi.Mux, api huma.API, authService *services.AuthService,
 	jwtService *services.JWTService, cfg *config.Config) {
-	userService := services.NewUserService()
+	userService := services.NewUserService(nil)
 	authHandler := handlers.NewAuthHandler(authService, jwtService, userService, cfg)
 	oauthHTTPHandler := handlers.NewOAuthHTTPHandler(authService, cfg)
 
@@ -120,6 +124,10 @@ func setupAuthRoutes(router *chi.Mux, api huma.API, authService *services.AuthSe
 		huma.Post(rateLimitedAPI, "/auth/magic-link/send", authHandler.SendMagicLinkHandler)
 		huma.Post(rateLimitedAPI, "/auth/magic-link/verify", authHandler.VerifyMagicLinkHandler)
 
+		// Sign in with Apple (public, rate-limited)
+		appleAuthHandler := handlers.NewAppleAuthHandler(cfg)
+		huma.Post(rateLimitedAPI, "/auth/apple/callback", appleAuthHandler.AppleCallbackHandler)
+
 		// Account recovery endpoints (public, rate-limited)
 		huma.Post(rateLimitedAPI, "/auth/recover-account", authHandler.RecoverAccountHandler)
 		huma.Post(rateLimitedAPI, "/auth/recover-account/request", authHandler.RequestAccountRecoveryHandler)
@@ -145,14 +153,14 @@ func setupSystemRoutes(router *chi.Mux, api huma.API) {
 // setupPasskeyRoutes configures WebAuthn/passkey endpoints
 func setupPasskeyRoutes(router *chi.Mux, api huma.API, protected *huma.Group, jwtService *services.JWTService, cfg *config.Config) {
 	// Initialize WebAuthn service
-	webauthnService, err := services.NewWebAuthnService(cfg)
+	webauthnService, err := services.NewWebAuthnService(nil, cfg)
 	if err != nil {
 		// Log error but don't fail - passkeys are optional
 		// In production, you might want to handle this differently
 		return
 	}
 
-	userService := services.NewUserService()
+	userService := services.NewUserService(nil)
 	passkeyHandler := handlers.NewPasskeyHandler(webauthnService, jwtService, userService, cfg)
 
 	// Create rate limiter for passkey endpoints: 20 requests per minute per IP

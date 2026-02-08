@@ -28,9 +28,12 @@ type APITokenService struct {
 }
 
 // NewAPITokenService creates a new API token service
-func NewAPITokenService() *APITokenService {
+func NewAPITokenService(database *gorm.DB) *APITokenService {
+	if database == nil {
+		database = db.GetDB()
+	}
 	return &APITokenService{
-		db: db.GetDB(),
+		db: database,
 	}
 }
 

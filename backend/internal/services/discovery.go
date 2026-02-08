@@ -21,10 +21,13 @@ type DiscoveryService struct {
 }
 
 // NewDiscoveryService creates a new discovery service
-func NewDiscoveryService() *DiscoveryService {
+func NewDiscoveryService(database *gorm.DB) *DiscoveryService {
+	if database == nil {
+		database = db.GetDB()
+	}
 	return &DiscoveryService{
-		db:           db.GetDB(),
-		venueService: NewVenueService(),
+		db:           database,
+		venueService: NewVenueService(database),
 	}
 }
 

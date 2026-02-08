@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, MapPin, Pencil, X, Trash2 } from 'lucide-react'
 import { useShow } from '@/lib/hooks/useShows'
+import type { ApiError } from '@/lib/api'
 import { useSetShowSoldOut, useSetShowCancelled } from '@/lib/hooks/useAdminShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { ArtistResponse } from '@/lib/types/show'
@@ -96,8 +97,7 @@ export function ShowDetail({ showId }: ShowDetailProps) {
   if (error) {
     const errorMessage =
       error instanceof Error ? error.message : 'Failed to load show'
-    const is404 =
-      errorMessage.includes('not found') || errorMessage.includes('404')
+    const is404 = (error as ApiError).status === 404
 
     return (
       <div className="flex min-h-[60vh] items-center justify-center">

@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"hash/fnv"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -14,9 +16,17 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/utils"
 )
+
+// fnvHash produces a stable int64 hash for use as a pg_advisory_xact_lock key.
+func fnvHash(s string) int64 {
+	h := fnv.New64a()
+	h.Write([]byte(s))
+	return int64(h.Sum64())
+}
 
 // ShowService handles show-related business logic
 type ShowService struct {
@@ -24,9 +34,12 @@ type ShowService struct {
 }
 
 // NewShowService creates a new show service
-func NewShowService() *ShowService {
+func NewShowService(database *gorm.DB) *ShowService {
+	if database == nil {
+		database = db.GetDB()
+	}
 	return &ShowService{
-		db: db.GetDB(),
+		db: database,
 	}
 }
 
@@ -257,7 +270,9 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []CreateShowVenue,
 }
 
 // checkDuplicateHeadlinerConflicts checks if any headliners are already performing
-// at the same venue on the same date/time
+// at the same venue on the same date/time.
+// Uses pg_advisory_xact_lock to prevent race conditions where two concurrent
+// requests could both pass the check before either commits.
 func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *CreateShowRequest) error {
 	// Get all headliners from the request
 	var headlinerNames []string
@@ -282,6 +297,17 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *CreateS
 	eventDate := req.EventDate.UTC()
 	startOfDay := time.Date(eventDate.Year(), eventDate.Month(), eventDate.Day(), 0, 0, 0, 0, time.UTC)
 	endOfDay := startOfDay.Add(24 * time.Hour)
+
+	// Acquire advisory lock keyed on (headliner, venue, date) to serialize concurrent inserts.
+	// Uses FNV hash to produce a stable int64 lock key. Auto-released on transaction commit/rollback.
+	for _, headlinerName := range headlinerNames {
+		for _, venueName := range venueNames {
+			lockKey := fnvHash(strings.ToLower(headlinerName) + "|" + strings.ToLower(venueName) + "|" + startOfDay.Format("2006-01-02"))
+			if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", lockKey).Error; err != nil {
+				return fmt.Errorf("failed to acquire advisory lock: %w", err)
+			}
+		}
+	}
 
 	// Check for conflicts: same headliner + same venue + same day (case-insensitive)
 	for _, headlinerName := range headlinerNames {
@@ -323,7 +349,7 @@ func (s *ShowService) GetShow(showID uint) (*ShowResponse, error) {
 	err := s.db.Preload("Venues").Preload("Artists").First(&show, showID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("show not found")
+			return nil, apperrors.ErrShowNotFound(showID)
 		}
 		return nil, fmt.Errorf("failed to get show: %w", err)
 	}
@@ -341,7 +367,7 @@ func (s *ShowService) GetShowBySlug(slug string) (*ShowResponse, error) {
 	err := s.db.Preload("Venues").Preload("Artists").Where("slug = ?", slug).First(&show).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("show not found")
+			return nil, apperrors.ErrShowNotFound(0)
 		}
 		return nil, fmt.Errorf("failed to get show: %w", err)
 	}
@@ -477,7 +503,7 @@ func (s *ShowService) UpdateShowWithRelations(
 		var show models.Show
 		if err := tx.First(&show, showID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				return fmt.Errorf("show not found")
+				return apperrors.ErrShowNotFound(showID)
 			}
 			return fmt.Errorf("failed to find show: %w", err)
 		}
@@ -947,7 +973,7 @@ func (s *ShowService) ApproveShow(showID uint, verifyVenues bool) (*ShowResponse
 		var show models.Show
 		if err := tx.Preload("Venues").First(&show, showID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				return fmt.Errorf("show not found")
+				return apperrors.ErrShowNotFound(showID)
 			}
 			return fmt.Errorf("failed to get show: %w", err)
 		}
@@ -1005,7 +1031,7 @@ func (s *ShowService) RejectShow(showID uint, reason string) (*ShowResponse, err
 		var show models.Show
 		if err := tx.First(&show, showID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				return fmt.Errorf("show not found")
+				return apperrors.ErrShowNotFound(showID)
 			}
 			return fmt.Errorf("failed to get show: %w", err)
 		}
@@ -1053,7 +1079,7 @@ func (s *ShowService) UnpublishShow(showID uint, userID uint, isAdmin bool) (*Sh
 		var show models.Show
 		if err := tx.First(&show, showID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				return fmt.Errorf("show not found")
+				return apperrors.ErrShowNotFound(showID)
 			}
 			return fmt.Errorf("failed to get show: %w", err)
 		}
@@ -1066,7 +1092,7 @@ func (s *ShowService) UnpublishShow(showID uint, userID uint, isAdmin bool) (*Sh
 		// Check authorization: user must be the submitter or an admin
 		if !isAdmin {
 			if show.SubmittedBy == nil || *show.SubmittedBy != userID {
-				return fmt.Errorf("only the show submitter or an admin can unpublish this show")
+				return apperrors.ErrShowUnpublishUnauthorized(showID)
 			}
 		}
 
@@ -1104,7 +1130,7 @@ func (s *ShowService) MakePrivateShow(showID uint, userID uint, isAdmin bool) (*
 		var show models.Show
 		if err := tx.First(&show, showID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				return fmt.Errorf("show not found")
+				return apperrors.ErrShowNotFound(showID)
 			}
 			return fmt.Errorf("failed to get show: %w", err)
 		}
@@ -1117,7 +1143,7 @@ func (s *ShowService) MakePrivateShow(showID uint, userID uint, isAdmin bool) (*
 		// Check authorization: user must be the submitter or an admin
 		if !isAdmin {
 			if show.SubmittedBy == nil || *show.SubmittedBy != userID {
-				return fmt.Errorf("only the show submitter or an admin can make this show private")
+				return apperrors.ErrShowMakePrivateUnauthorized(showID)
 			}
 		}
 
@@ -1157,7 +1183,7 @@ func (s *ShowService) PublishShow(showID uint, userID uint, isAdmin bool) (*Show
 		var show models.Show
 		if err := tx.Preload("Venues").First(&show, showID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				return fmt.Errorf("show not found")
+				return apperrors.ErrShowNotFound(showID)
 			}
 			return fmt.Errorf("failed to get show: %w", err)
 		}
@@ -1170,7 +1196,7 @@ func (s *ShowService) PublishShow(showID uint, userID uint, isAdmin bool) (*Show
 		// Check authorization: user must be the submitter or an admin
 		if !isAdmin {
 			if show.SubmittedBy == nil || *show.SubmittedBy != userID {
-				return fmt.Errorf("only the show submitter or an admin can publish this show")
+				return apperrors.ErrShowPublishUnauthorized(showID)
 			}
 		}
 
@@ -1202,7 +1228,7 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 	var venues []VenueResponse
 
 	// Create venue service for venue operations
-	venueService := NewVenueService()
+	venueService := NewVenueService(s.db)
 
 	for _, requestVenue := range requestVenues {
 		var venue *models.Venue
@@ -1408,13 +1434,35 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 
 	// Get ordered artists from show_artists table
 	var showArtists []models.ShowArtist
-	s.db.Where("show_id = ?", show.ID).Order("position ASC").Find(&showArtists)
+	if err := s.db.Where("show_id = ?", show.ID).Order("position ASC").Find(&showArtists).Error; err != nil {
+		log.Printf("WARN buildShowResponse: failed to fetch show_artists for show_id=%d: %v", show.ID, err)
+	}
 
-	for _, sa := range showArtists {
-		// Find the artist
-		var artist models.Artist
-		if err := s.db.First(&artist, sa.ArtistID).Error; err == nil {
-			// Convert artist socials to response format
+	if len(showArtists) > 0 {
+		// Batch-fetch all artists in one query
+		artistIDs := make([]uint, len(showArtists))
+		for i, sa := range showArtists {
+			artistIDs[i] = sa.ArtistID
+		}
+
+		var allArtists []models.Artist
+		if err := s.db.Where("id IN ?", artistIDs).Find(&allArtists).Error; err != nil {
+			log.Printf("WARN buildShowResponse: failed to batch-fetch artists for show_id=%d: %v", show.ID, err)
+		}
+
+		// Build lookup map
+		artistMap := make(map[uint]*models.Artist, len(allArtists))
+		for i := range allArtists {
+			artistMap[allArtists[i].ID] = &allArtists[i]
+		}
+
+		// Iterate in position order
+		for _, sa := range showArtists {
+			artist, ok := artistMap[sa.ArtistID]
+			if !ok {
+				continue
+			}
+
 			socials := ShowArtistSocials{
 				Instagram:  artist.Social.Instagram,
 				Facebook:   artist.Social.Facebook,
@@ -1426,11 +1474,7 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 				Website:    artist.Social.Website,
 			}
 
-			// Determine if this artist is a headliner
 			isHeadliner := sa.SetType == "headliner"
-
-			// For existing shows, we can't determine if the artist was "new" at creation time
-			// So we'll set this to false for all existing artists
 			isNewArtist := false
 
 			artistSlug := ""
@@ -1561,7 +1605,7 @@ func (s *ShowService) ExportShowToMarkdown(showID uint) ([]byte, string, error) 
 	err := s.db.Preload("Venues").Preload("Artists").First(&show, showID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, "", fmt.Errorf("show not found")
+			return nil, "", apperrors.ErrShowNotFound(showID)
 		}
 		return nil, "", fmt.Errorf("failed to get show: %w", err)
 	}
@@ -2077,7 +2121,7 @@ func (s *ShowService) SetShowSoldOut(showID uint, isSoldOut bool) (*ShowResponse
 	var show models.Show
 	if err := s.db.First(&show, showID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("show not found")
+			return nil, apperrors.ErrShowNotFound(showID)
 		}
 		return nil, fmt.Errorf("failed to find show: %w", err)
 	}
@@ -2098,7 +2142,7 @@ func (s *ShowService) SetShowCancelled(showID uint, isCancelled bool) (*ShowResp
 	var show models.Show
 	if err := s.db.First(&show, showID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("show not found")
+			return nil, apperrors.ErrShowNotFound(showID)
 		}
 		return nil, fmt.Errorf("failed to find show: %w", err)
 	}

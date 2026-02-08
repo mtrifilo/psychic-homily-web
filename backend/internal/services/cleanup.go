@@ -27,7 +27,11 @@ type CleanupService struct {
 }
 
 // NewCleanupService creates a new cleanup service
-func NewCleanupService() *CleanupService {
+func NewCleanupService(database *gorm.DB) *CleanupService {
+	if database == nil {
+		database = db.GetDB()
+	}
+
 	interval := DefaultCleanupInterval
 
 	// Allow override via environment variable (for testing)
@@ -38,8 +42,8 @@ func NewCleanupService() *CleanupService {
 	}
 
 	return &CleanupService{
-		db:          db.GetDB(),
-		userService: NewUserService(),
+		db:          database,
+		userService: NewUserService(database),
 		interval:    interval,
 		stopCh:      make(chan struct{}),
 		logger:      slog.Default(),

@@ -17,6 +17,8 @@ const (
 	CodeShowDeleteFailed = "SHOW_DELETE_FAILED"
 	// CodeShowDeleteUnauthorized indicates user is not authorized to delete the show
 	CodeShowDeleteUnauthorized = "SHOW_DELETE_UNAUTHORIZED"
+	// CodeShowUpdateUnauthorized indicates user is not authorized to update the show
+	CodeShowUpdateUnauthorized = "SHOW_UPDATE_UNAUTHORIZED"
 	// CodeShowInvalidID indicates an invalid show ID
 	CodeShowInvalidID = "SHOW_INVALID_ID"
 	// CodeShowValidationFailed indicates validation failed
@@ -27,6 +29,12 @@ const (
 	CodeArtistRequired = "ARTIST_REQUIRED"
 	// CodeInvalidEventDate indicates an invalid event date
 	CodeInvalidEventDate = "INVALID_EVENT_DATE"
+	// CodeShowUnpublishUnauthorized indicates user is not authorized to unpublish the show
+	CodeShowUnpublishUnauthorized = "SHOW_UNPUBLISH_UNAUTHORIZED"
+	// CodeShowMakePrivateUnauthorized indicates user is not authorized to make the show private
+	CodeShowMakePrivateUnauthorized = "SHOW_MAKE_PRIVATE_UNAUTHORIZED"
+	// CodeShowPublishUnauthorized indicates user is not authorized to publish the show
+	CodeShowPublishUnauthorized = "SHOW_PUBLISH_UNAUTHORIZED"
 )
 
 // ShowError represents a show-related error with additional context.
@@ -121,6 +129,15 @@ func ErrShowDeleteUnauthorized(showID uint) *ShowError {
 	}
 }
 
+// ErrShowUpdateUnauthorized creates a show update unauthorized error.
+func ErrShowUpdateUnauthorized(showID uint) *ShowError {
+	return &ShowError{
+		Code:    CodeShowUpdateUnauthorized,
+		Message: "You are not authorized to update this show",
+		ShowID:  showID,
+	}
+}
+
 // ErrShowInvalidID creates an invalid show ID error.
 func ErrShowInvalidID(idStr string) *ShowError {
 	return NewShowError(CodeShowInvalidID, "Invalid show ID", fmt.Errorf("invalid ID: %s", idStr))
@@ -146,6 +163,33 @@ func ErrInvalidEventDate(message string) *ShowError {
 	return NewShowError(CodeInvalidEventDate, message, nil)
 }
 
+// ErrShowUnpublishUnauthorized creates a show unpublish unauthorized error.
+func ErrShowUnpublishUnauthorized(showID uint) *ShowError {
+	return &ShowError{
+		Code:    CodeShowUnpublishUnauthorized,
+		Message: "You are not authorized to unpublish this show",
+		ShowID:  showID,
+	}
+}
+
+// ErrShowMakePrivateUnauthorized creates a show make-private unauthorized error.
+func ErrShowMakePrivateUnauthorized(showID uint) *ShowError {
+	return &ShowError{
+		Code:    CodeShowMakePrivateUnauthorized,
+		Message: "You are not authorized to make this show private",
+		ShowID:  showID,
+	}
+}
+
+// ErrShowPublishUnauthorized creates a show publish unauthorized error.
+func ErrShowPublishUnauthorized(showID uint) *ShowError {
+	return &ShowError{
+		Code:    CodeShowPublishUnauthorized,
+		Message: "You are not authorized to publish this show",
+		ShowID:  showID,
+	}
+}
+
 // GetShowErrorMessage returns a user-friendly message for an error code.
 func GetShowErrorMessage(code string) string {
 	switch code {
@@ -159,6 +203,8 @@ func GetShowErrorMessage(code string) string {
 		return "Failed to delete show. Please try again."
 	case CodeShowDeleteUnauthorized:
 		return "You are not authorized to delete this show."
+	case CodeShowUpdateUnauthorized:
+		return "You are not authorized to update this show."
 	case CodeShowInvalidID:
 		return "Invalid show ID"
 	case CodeShowValidationFailed:
@@ -169,6 +215,12 @@ func GetShowErrorMessage(code string) string {
 		return "At least one artist is required"
 	case CodeInvalidEventDate:
 		return "Invalid event date"
+	case CodeShowUnpublishUnauthorized:
+		return "You are not authorized to unpublish this show."
+	case CodeShowMakePrivateUnauthorized:
+		return "You are not authorized to make this show private."
+	case CodeShowPublishUnauthorized:
+		return "You are not authorized to publish this show."
 	default:
 		return "An error occurred"
 	}

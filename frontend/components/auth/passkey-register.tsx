@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import * as Sentry from '@sentry/nextjs'
 import { startRegistration, browserSupportsWebAuthn } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -87,8 +88,16 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
           // User cancelled
           return
         }
+        Sentry.captureException(error, {
+          level: 'error',
+          tags: { service: 'passkey-auth', error_type: 'registration_failed' },
+        })
         onError?.(error.message)
       } else {
+        Sentry.captureException(error, {
+          level: 'error',
+          tags: { service: 'passkey-auth', error_type: 'registration_failed' },
+        })
         onError?.('An unexpected error occurred')
       }
     } finally {

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import * as Sentry from '@sentry/nextjs'
 import { Loader2, CheckCircle, ArrowLeft, Upload as UploadIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ImportDropZone } from './ImportDropZone'
@@ -41,6 +42,10 @@ export function ShowImportPanel() {
         setPreview(result)
         setState('preview')
       } catch (err) {
+        Sentry.captureException(err, {
+          level: 'error',
+          tags: { service: 'show-import', error_type: 'preview_failed' },
+        })
         setError(
           err instanceof Error ? err.message : 'Failed to parse markdown file'
         )
@@ -61,6 +66,10 @@ export function ShowImportPanel() {
       setImportedShowId(result.id)
       setState('success')
     } catch (err) {
+      Sentry.captureException(err, {
+        level: 'error',
+        tags: { service: 'show-import', error_type: 'import_failed' },
+      })
       setError(err instanceof Error ? err.message : 'Failed to import show')
     } finally {
       setIsImporting(false)

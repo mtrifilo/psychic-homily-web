@@ -1,11 +1,9 @@
-import { useState } from 'react'
-import { Button } from '../ui/button'
+import { useState, useEffect } from 'react'
 import { Badge } from '../ui/badge'
 import { LoadingSpinner } from '../shared/LoadingSpinner'
 import { ErrorAlert } from '../shared/ErrorAlert'
 import { ExportList } from './ExportList'
 import { useExportShows } from '../../lib/hooks/useExport'
-import { Lock } from 'lucide-react'
 import type { ExportedShow } from '../../lib/types'
 
 interface ShowsTabProps {
@@ -13,6 +11,8 @@ interface ShowsTabProps {
   onSelectionChange: (ids: Set<string>) => void
   onDataLoaded: (shows: ExportedShow[]) => void
   hasLocalToken: boolean
+  stageShowIds?: Set<string>
+  productionShowIds?: Set<string>
 }
 
 export function ShowsTab({
@@ -20,29 +20,25 @@ export function ShowsTab({
   onSelectionChange,
   onDataLoaded,
   hasLocalToken,
+  stageShowIds,
+  productionShowIds,
 }: ShowsTabProps) {
   const [showStatus, setShowStatus] = useState('approved')
-  const [enabled, setEnabled] = useState(false)
 
   const { data, isLoading, error, refetch } = useExportShows(
     { limit: 100, status: showStatus },
-    enabled && hasLocalToken
+    hasLocalToken
   )
 
   const shows = data?.shows || []
   const total = data?.total || 0
 
-  const handleLoad = () => {
-    setEnabled(true)
-    if (enabled) {
-      refetch()
-    }
-  }
-
   // Update parent when data loads
-  if (data?.shows) {
-    onDataLoaded(data.shows)
-  }
+  useEffect(() => {
+    if (data?.shows) {
+      onDataLoaded(data.shows)
+    }
+  }, [data?.shows, onDataLoaded])
 
   const handleToggle = (id: string) => {
     const next = new Set(selectedIds)
@@ -70,7 +66,6 @@ export function ShowsTab({
           value={showStatus}
           onChange={(e) => {
             setShowStatus(e.target.value)
-            setEnabled(false)
             onSelectionChange(new Set())
           }}
           disabled={!hasLocalToken}
@@ -80,15 +75,7 @@ export function ShowsTab({
           <option value="pending">Pending</option>
           <option value="all">All</option>
         </select>
-        <Button
-          onClick={handleLoad}
-          disabled={isLoading || !hasLocalToken}
-          title={!hasLocalToken ? 'Configure Local token in Settings first' : undefined}
-        >
-          {isLoading && <LoadingSpinner size="sm" />}
-          {!hasLocalToken && <Lock className="h-4 w-4" />}
-          {isLoading ? 'Loading...' : 'Load Shows'}
-        </Button>
+        {isLoading && <LoadingSpinner size="sm" />}
         {shows.length > 0 && (
           <span className="text-sm text-muted-foreground">
             {shows.length} of {total}
@@ -114,7 +101,13 @@ export function ShowsTab({
           onSelectAll={handleSelectAll}
           onClear={handleClear}
           emptyMessage="No shows loaded"
-          renderItem={(show) => <ShowListItem show={show} />}
+          renderItem={(show) => (
+            <ShowListItem
+              show={show}
+              stageShowIds={stageShowIds}
+              productionShowIds={productionShowIds}
+            />
+          )}
         />
       ) : (
         <div className="border rounded-lg bg-muted/30 py-8 px-4 text-center">
@@ -129,7 +122,7 @@ export function ShowsTab({
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Click <strong>Load Shows</strong> to fetch data from your local database
+              No shows found
             </p>
           )}
         </div>
@@ -143,7 +136,19 @@ function getShowId(show: ExportedShow): string {
   return `${show.title}-${show.eventDate}`
 }
 
-function ShowListItem({ show }: { show: ExportedShow }) {
+function ShowListItem({
+  show,
+  stageShowIds,
+  productionShowIds,
+}: {
+  show: ExportedShow
+  stageShowIds?: Set<string>
+  productionShowIds?: Set<string>
+}) {
+  const showKey = getShowId(show)
+  const onStage = stageShowIds?.has(showKey) ?? false
+  const onProd = productionShowIds?.has(showKey) ?? false
+
   return (
     <div className="flex items-start justify-between gap-2">
       <div className="min-w-0">
@@ -154,18 +159,28 @@ function ShowListItem({ show }: { show: ExportedShow }) {
           {show.artists.length} artist{show.artists.length !== 1 ? 's' : ''}
         </div>
       </div>
-      <Badge
-        variant={
-          show.status === 'approved'
-            ? 'default'
-            : show.status === 'pending'
-            ? 'secondary'
-            : 'outline'
-        }
-        className="shrink-0"
-      >
-        {show.status}
-      </Badge>
+      <div className="flex items-center gap-1.5 shrink-0">
+        {onStage && onProd && (
+          <Badge variant="outline" className="text-xs">Both</Badge>
+        )}
+        {onStage && !onProd && (
+          <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">Stage</Badge>
+        )}
+        {!onStage && onProd && (
+          <Badge variant="outline" className="text-xs text-green-600 border-green-300">Prod</Badge>
+        )}
+        <Badge
+          variant={
+            show.status === 'approved'
+              ? 'default'
+              : show.status === 'pending'
+              ? 'secondary'
+              : 'outline'
+          }
+        >
+          {show.status}
+        </Badge>
+      </div>
     </div>
   )
 }

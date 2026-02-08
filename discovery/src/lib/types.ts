@@ -181,3 +181,11 @@ export interface DataImportResult {
   artists: EntityImportStats
   venues: EntityImportStats
 }
+
+// Multi-target import types
+export type ImportTarget = 'stage' | 'production' | 'both'
+
+export interface CombinedImportResult {
+  stage?: DataImportResult
+  production?: DataImportResult
+}

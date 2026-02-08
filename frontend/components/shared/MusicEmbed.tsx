@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import * as Sentry from '@sentry/nextjs'
 import { ExternalLink, Loader2, Music } from 'lucide-react'
 
 interface MusicEmbedProps {
@@ -53,6 +54,11 @@ export function MusicEmbed({
             }
           }
         } catch (error) {
+          Sentry.captureException(error, {
+            level: 'error',
+            tags: { service: 'music-embed' },
+            extra: { bandcampAlbumUrl },
+          })
           console.error('Failed to fetch Bandcamp album ID:', error)
         }
       }

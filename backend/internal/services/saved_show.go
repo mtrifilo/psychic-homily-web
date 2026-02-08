@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 )
 
@@ -16,9 +17,12 @@ type SavedShowService struct {
 }
 
 // NewSavedShowService creates a new saved show service
-func NewSavedShowService() *SavedShowService {
+func NewSavedShowService(database *gorm.DB) *SavedShowService {
+	if database == nil {
+		database = db.GetDB()
+	}
 	return &SavedShowService{
-		db: db.GetDB(),
+		db: database,
 	}
 }
 
@@ -40,7 +44,7 @@ func (s *SavedShowService) SaveShow(userID, showID uint) error {
 	var show models.Show
 	if err := s.db.First(&show, showID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return fmt.Errorf("show not found")
+			return apperrors.ErrShowNotFound(showID)
 		}
 		return fmt.Errorf("failed to verify show: %w", err)
 	}
@@ -125,7 +129,7 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 
 	// Fetch shows with associations (no status filter - user can save any show)
 	var shows []models.Show
-	err = s.db.Preload("Venues").Preload("Artists").
+	err = s.db.Preload("Venues").
 		Where("id IN ?", showIDs).
 		Find(&shows).Error
 
@@ -139,11 +143,63 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 		showMap[shows[i].ID] = &shows[i]
 	}
 
+	// Batch-load all ShowArtist records for all shows
+	var allShowArtists []models.ShowArtist
+	if len(showIDs) > 0 {
+		s.db.Where("show_id IN ?", showIDs).Order("position ASC").Find(&allShowArtists)
+	}
+
+	// Collect all unique artist IDs
+	var allArtistIDs []uint
+	for _, sa := range allShowArtists {
+		allArtistIDs = append(allArtistIDs, sa.ArtistID)
+	}
+
+	// Batch-fetch all artists in one query
+	artistMap := make(map[uint]*models.Artist)
+	if len(allArtistIDs) > 0 {
+		var allArtists []models.Artist
+		s.db.Where("id IN ?", allArtistIDs).Find(&allArtists)
+		for i := range allArtists {
+			artistMap[allArtists[i].ID] = &allArtists[i]
+		}
+	}
+
+	// Build per-show artist response slices
+	artistsByShow := make(map[uint][]ArtistResponse)
+	for _, sa := range allShowArtists {
+		artist, ok := artistMap[sa.ArtistID]
+		if !ok {
+			continue
+		}
+		socials := ShowArtistSocials{
+			Instagram:  artist.Social.Instagram,
+			Facebook:   artist.Social.Facebook,
+			Twitter:    artist.Social.Twitter,
+			YouTube:    artist.Social.YouTube,
+			Spotify:    artist.Social.Spotify,
+			SoundCloud: artist.Social.SoundCloud,
+			Bandcamp:   artist.Social.Bandcamp,
+			Website:    artist.Social.Website,
+		}
+		isHeadliner := sa.SetType == "headliner"
+		isNewArtist := false
+		artistsByShow[sa.ShowID] = append(artistsByShow[sa.ShowID], ArtistResponse{
+			ID:          artist.ID,
+			Name:        artist.Name,
+			State:       artist.State,
+			City:        artist.City,
+			IsHeadliner: &isHeadliner,
+			IsNewArtist: &isNewArtist,
+			Socials:     socials,
+		})
+	}
+
 	// Build responses in the order of savedShows (saved_at DESC)
 	responses := make([]*SavedShowResponse, 0, len(shows))
 	for _, ss := range savedShows {
 		if show, ok := showMap[ss.ShowID]; ok {
-			showResp := s.buildShowResponse(show)
+			showResp := s.buildShowResponse(show, artistsByShow)
 			responses = append(responses, &SavedShowResponse{
 				ShowResponse: *showResp,
 				SavedAt:      ss.SavedAt,
@@ -155,8 +211,8 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 }
 
 // buildShowResponse builds a ShowResponse from a models.Show
-// This is a helper method that converts the database model to API response format
-func (s *SavedShowService) buildShowResponse(show *models.Show) *ShowResponse {
+// artistsByShow contains pre-loaded artist responses keyed by show ID
+func (s *SavedShowService) buildShowResponse(show *models.Show, artistsByShow map[uint][]ArtistResponse) *ShowResponse {
 	// Build venue responses
 	venues := make([]VenueResponse, len(show.Venues))
 	for i, venue := range show.Venues {
@@ -170,44 +226,7 @@ func (s *SavedShowService) buildShowResponse(show *models.Show) *ShowResponse {
 		}
 	}
 
-	// Build artist responses (need to get ordered artists)
-	artists := make([]ArtistResponse, 0, len(show.Artists))
-
-	// Get ordered artists from show_artists table
-	var showArtists []models.ShowArtist
-	s.db.Where("show_id = ?", show.ID).Order("position ASC").Find(&showArtists)
-
-	for _, sa := range showArtists {
-		// Find the artist
-		var artist models.Artist
-		if err := s.db.First(&artist, sa.ArtistID).Error; err == nil {
-			// Convert artist socials to response format
-			socials := ShowArtistSocials{
-				Instagram:  artist.Social.Instagram,
-				Facebook:   artist.Social.Facebook,
-				Twitter:    artist.Social.Twitter,
-				YouTube:    artist.Social.YouTube,
-				Spotify:    artist.Social.Spotify,
-				SoundCloud: artist.Social.SoundCloud,
-				Bandcamp:   artist.Social.Bandcamp,
-				Website:    artist.Social.Website,
-			}
-
-			// Determine if this artist is a headliner
-			isHeadliner := sa.SetType == "headliner"
-			isNewArtist := false
-
-			artists = append(artists, ArtistResponse{
-				ID:          artist.ID,
-				Name:        artist.Name,
-				State:       artist.State,
-				City:        artist.City,
-				IsHeadliner: &isHeadliner,
-				IsNewArtist: &isNewArtist,
-				Socials:     socials,
-			})
-		}
-	}
+	artists := artistsByShow[show.ID]
 
 	return &ShowResponse{
 		ID:              show.ID,

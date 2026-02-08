@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/middleware"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
 )
@@ -30,7 +32,7 @@ type ArtistHandler struct {
 
 func NewArtistHandler() *ArtistHandler {
 	return &ArtistHandler{
-		artistService: services.NewArtistService(),
+		artistService: services.NewArtistService(nil),
 	}
 }
 
@@ -121,7 +123,8 @@ func (h *ArtistHandler) GetArtistHandler(ctx context.Context, req *GetArtistRequ
 	}
 
 	if err != nil {
-		if err.Error() == "artist not found" {
+		var artistErr *apperrors.ArtistError
+		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
 			return nil, huma.Error404NotFound("Artist not found")
 		}
 		return nil, huma.Error500InternalServerError("Failed to fetch artist", err)
@@ -172,7 +175,8 @@ func (h *ArtistHandler) GetArtistShowsHandler(ctx context.Context, req *GetArtis
 		// Look up by slug to get the ID
 		artist, err := h.artistService.GetArtistBySlug(req.ArtistID)
 		if err != nil {
-			if err.Error() == "artist not found" {
+			var artistErr *apperrors.ArtistError
+			if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
 				return nil, huma.Error404NotFound("Artist not found")
 			}
 			return nil, huma.Error500InternalServerError("Failed to fetch artist", err)
@@ -182,7 +186,8 @@ func (h *ArtistHandler) GetArtistShowsHandler(ctx context.Context, req *GetArtis
 
 	shows, total, err := h.artistService.GetShowsForArtist(artistID, timezone, limit, timeFilter)
 	if err != nil {
-		if err.Error() == "artist not found" {
+		var artistErr *apperrors.ArtistError
+		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
 			return nil, huma.Error404NotFound("Artist not found")
 		}
 		return nil, huma.Error500InternalServerError("Failed to fetch shows", err)
@@ -284,7 +289,8 @@ func (h *ArtistHandler) UpdateArtistBandcampHandler(ctx context.Context, req *Up
 
 	artist, err := h.artistService.UpdateArtist(uint(artistID), updates)
 	if err != nil {
-		if err.Error() == "artist not found" {
+		var artistErr *apperrors.ArtistError
+		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
 			return nil, huma.Error404NotFound("Artist not found")
 		}
 		logger.FromContext(ctx).Error("admin_update_artist_bandcamp_failed",
@@ -408,7 +414,8 @@ func (h *ArtistHandler) UpdateArtistSpotifyHandler(ctx context.Context, req *Upd
 
 	artist, err := h.artistService.UpdateArtist(uint(artistID), updates)
 	if err != nil {
-		if err.Error() == "artist not found" {
+		var artistErr *apperrors.ArtistError
+		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
 			return nil, huma.Error404NotFound("Artist not found")
 		}
 		logger.FromContext(ctx).Error("admin_update_artist_spotify_failed",
@@ -474,11 +481,14 @@ func (h *ArtistHandler) DeleteArtistHandler(ctx context.Context, req *DeleteArti
 
 	err = h.artistService.DeleteArtist(uint(artistID))
 	if err != nil {
-		if strings.Contains(err.Error(), "artist not found") {
-			return nil, huma.Error404NotFound("Artist not found")
-		}
-		if strings.Contains(err.Error(), "cannot delete artist") {
-			return nil, huma.Error409Conflict(err.Error())
+		var artistErr *apperrors.ArtistError
+		if errors.As(err, &artistErr) {
+			switch artistErr.Code {
+			case apperrors.CodeArtistNotFound:
+				return nil, huma.Error404NotFound("Artist not found")
+			case apperrors.CodeArtistHasShows:
+				return nil, huma.Error409Conflict(artistErr.Message)
+			}
 		}
 		logger.FromContext(ctx).Error("delete_artist_failed",
 			"artist_id", artistID,

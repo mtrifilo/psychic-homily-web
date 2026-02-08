@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   Radar,
 } from 'lucide-react'
+import Link from 'next/link'
 import type { ShowResponse } from '@/lib/types/show'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -95,7 +96,14 @@ export function PendingShowCard({ show }: PendingShowCardProps) {
               </div>
               {show.duplicate_of_show_id && (
                 <p className="text-xs text-blue-500 mt-1">
-                  Potential duplicate of show #{show.duplicate_of_show_id}
+                  Potential duplicate of{' '}
+                  <Link
+                    href={`/shows/${show.duplicate_of_show_id}`}
+                    target="_blank"
+                    className="underline hover:text-blue-400"
+                  >
+                    show #{show.duplicate_of_show_id}
+                  </Link>
                 </p>
               )}
             </div>

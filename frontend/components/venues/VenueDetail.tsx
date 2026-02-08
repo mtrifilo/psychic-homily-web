@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, BadgeCheck, Pencil, Trash2, Loader2, ExternalLink } from 'lucide-react'
 import { useVenue } from '@/lib/hooks/useVenues'
+import type { ApiError } from '@/lib/api'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryClient'
@@ -84,7 +85,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
   if (error) {
     const errorMessage =
       error instanceof Error ? error.message : 'Failed to load venue'
-    const is404 = errorMessage.includes('not found') || errorMessage.includes('404')
+    const is404 = (error as ApiError).status === 404
 
     return (
       <div className="flex min-h-[60vh] items-center justify-center">

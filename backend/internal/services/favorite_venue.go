@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 )
 
@@ -16,9 +17,12 @@ type FavoriteVenueService struct {
 }
 
 // NewFavoriteVenueService creates a new favorite venue service
-func NewFavoriteVenueService() *FavoriteVenueService {
+func NewFavoriteVenueService(database *gorm.DB) *FavoriteVenueService {
+	if database == nil {
+		database = db.GetDB()
+	}
 	return &FavoriteVenueService{
-		db: db.GetDB(),
+		db: database,
 	}
 }
 
@@ -61,7 +65,7 @@ func (s *FavoriteVenueService) FavoriteVenue(userID, venueID uint) error {
 	var venue models.Venue
 	if err := s.db.First(&venue, venueID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return fmt.Errorf("venue not found")
+			return apperrors.ErrVenueNotFound(venueID)
 		}
 		return fmt.Errorf("failed to verify venue: %w", err)
 	}
@@ -340,6 +344,9 @@ func (s *FavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezo
 		}
 	}
 
+	// Batch-load all artists for all shows
+	artistsByShow := s.getOrderedArtistsForShows(showIDs)
+
 	// Build responses
 	responses := make([]*FavoriteVenueShowResponse, 0, len(shows))
 	for _, show := range shows {
@@ -354,8 +361,7 @@ func (s *FavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezo
 			}
 		}
 
-		// Get ordered artists from show_artists table
-		artists := s.getOrderedArtistsForShow(show.ID)
+		artists := artistsByShow[show.ID]
 
 		var slug string
 		if show.Slug != nil {
@@ -381,49 +387,72 @@ func (s *FavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezo
 	return responses, total, nil
 }
 
-// getOrderedArtistsForShow gets artists in their display order for a show
-func (s *FavoriteVenueService) getOrderedArtistsForShow(showID uint) []ArtistResponse {
+// getOrderedArtistsForShows batch-loads artists for multiple shows in display order
+func (s *FavoriteVenueService) getOrderedArtistsForShows(showIDs []uint) map[uint][]ArtistResponse {
+	result := make(map[uint][]ArtistResponse)
+	if len(showIDs) == 0 {
+		return result
+	}
+
+	// Batch-load all ShowArtist records
 	var showArtists []models.ShowArtist
-	s.db.Where("show_id = ?", showID).Order("position ASC").Find(&showArtists)
+	s.db.Where("show_id IN ?", showIDs).Order("position ASC").Find(&showArtists)
 
-	artists := make([]ArtistResponse, 0, len(showArtists))
+	// Collect all unique artist IDs
+	var allArtistIDs []uint
 	for _, sa := range showArtists {
-		var artist models.Artist
-		if err := s.db.First(&artist, sa.ArtistID).Error; err == nil {
-			socials := ShowArtistSocials{
-				Instagram:  artist.Social.Instagram,
-				Facebook:   artist.Social.Facebook,
-				Twitter:    artist.Social.Twitter,
-				YouTube:    artist.Social.YouTube,
-				Spotify:    artist.Social.Spotify,
-				SoundCloud: artist.Social.SoundCloud,
-				Bandcamp:   artist.Social.Bandcamp,
-				Website:    artist.Social.Website,
-			}
+		allArtistIDs = append(allArtistIDs, sa.ArtistID)
+	}
 
-			isHeadliner := sa.SetType == "headliner"
-			isNewArtist := false
-
-			var slug string
-			if artist.Slug != nil {
-				slug = *artist.Slug
-			}
-
-			artists = append(artists, ArtistResponse{
-				ID:               artist.ID,
-				Slug:             slug,
-				Name:             artist.Name,
-				State:            artist.State,
-				City:             artist.City,
-				IsHeadliner:      &isHeadliner,
-				IsNewArtist:      &isNewArtist,
-				BandcampEmbedURL: artist.BandcampEmbedURL,
-				Socials:          socials,
-			})
+	// Batch-fetch all artists in one query
+	artistMap := make(map[uint]*models.Artist)
+	if len(allArtistIDs) > 0 {
+		var allArtists []models.Artist
+		s.db.Where("id IN ?", allArtistIDs).Find(&allArtists)
+		for i := range allArtists {
+			artistMap[allArtists[i].ID] = &allArtists[i]
 		}
 	}
 
-	return artists
+	// Build per-show artist slices using map lookup
+	for _, sa := range showArtists {
+		artist, ok := artistMap[sa.ArtistID]
+		if !ok {
+			continue
+		}
+		socials := ShowArtistSocials{
+			Instagram:  artist.Social.Instagram,
+			Facebook:   artist.Social.Facebook,
+			Twitter:    artist.Social.Twitter,
+			YouTube:    artist.Social.YouTube,
+			Spotify:    artist.Social.Spotify,
+			SoundCloud: artist.Social.SoundCloud,
+			Bandcamp:   artist.Social.Bandcamp,
+			Website:    artist.Social.Website,
+		}
+
+		isHeadliner := sa.SetType == "headliner"
+		isNewArtist := false
+
+		var slug string
+		if artist.Slug != nil {
+			slug = *artist.Slug
+		}
+
+		result[sa.ShowID] = append(result[sa.ShowID], ArtistResponse{
+			ID:               artist.ID,
+			Slug:             slug,
+			Name:             artist.Name,
+			State:            artist.State,
+			City:             artist.City,
+			IsHeadliner:      &isHeadliner,
+			IsNewArtist:      &isNewArtist,
+			BandcampEmbedURL: artist.BandcampEmbedURL,
+			Socials:          socials,
+		})
+	}
+
+	return result
 }
 
 // GetFavoriteVenueIDs returns a set of venue IDs that a user has favorited

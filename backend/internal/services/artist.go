@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/utils"
 )
@@ -17,9 +18,12 @@ type ArtistService struct {
 }
 
 // NewArtistService creates a new artist service
-func NewArtistService() *ArtistService {
+func NewArtistService(database *gorm.DB) *ArtistService {
+	if database == nil {
+		database = db.GetDB()
+	}
 	return &ArtistService{
-		db: db.GetDB(),
+		db: database,
 	}
 }
 
@@ -121,7 +125,7 @@ func (s *ArtistService) GetArtist(artistID uint) (*ArtistDetailResponse, error) 
 	err := s.db.First(&artist, artistID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("artist not found")
+			return nil, apperrors.ErrArtistNotFound(artistID)
 		}
 		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
@@ -139,7 +143,7 @@ func (s *ArtistService) GetArtistByName(name string) (*ArtistDetailResponse, err
 	err := s.db.Where("LOWER(name) = LOWER(?)", name).First(&artist).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("artist not found")
+			return nil, apperrors.ErrArtistNotFound(0)
 		}
 		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
@@ -157,7 +161,7 @@ func (s *ArtistService) GetArtistBySlug(slug string) (*ArtistDetailResponse, err
 	err := s.db.Where("slug = ?", slug).First(&artist).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("artist not found")
+			return nil, apperrors.ErrArtistNotFound(0)
 		}
 		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
@@ -247,7 +251,7 @@ func (s *ArtistService) DeleteArtist(artistID uint) error {
 	err := s.db.First(&artist, artistID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return fmt.Errorf("artist not found")
+			return apperrors.ErrArtistNotFound(artistID)
 		}
 		return fmt.Errorf("failed to get artist: %w", err)
 	}
@@ -260,7 +264,7 @@ func (s *ArtistService) DeleteArtist(artistID uint) error {
 	}
 
 	if count > 0 {
-		return fmt.Errorf("cannot delete artist: associated with %d shows", count)
+		return apperrors.ErrArtistHasShows(artistID, count)
 	}
 
 	// Delete the artist
@@ -392,7 +396,7 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	var artist models.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, 0, fmt.Errorf("artist not found")
+			return nil, 0, apperrors.ErrArtistNotFound(artistID)
 		}
 		return nil, 0, fmt.Errorf("failed to get artist: %w", err)
 	}

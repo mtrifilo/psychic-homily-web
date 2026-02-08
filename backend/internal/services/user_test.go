@@ -25,7 +25,7 @@ import (
 
 // TestNewUserService tests the creation of a new UserService
 func TestNewUserService(t *testing.T) {
-	userService := NewUserService()
+	userService := NewUserService(nil)
 
 	assert.NotNil(t, userService)
 	// In test environment, database may be nil

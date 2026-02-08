@@ -2,12 +2,13 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
 
@@ -21,7 +22,7 @@ type VenueHandler struct {
 
 func NewVenueHandler(cfg *config.Config) *VenueHandler {
 	return &VenueHandler{
-		venueService:   services.NewVenueService(),
+		venueService:   services.NewVenueService(nil),
 		discordService: services.NewDiscordService(cfg),
 	}
 }
@@ -118,7 +119,8 @@ func (h *VenueHandler) GetVenueHandler(ctx context.Context, req *GetVenueRequest
 	}
 
 	if err != nil {
-		if err.Error() == "venue not found" {
+		var venueErr *apperrors.VenueError
+		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {
 			return nil, huma.Error404NotFound("Venue not found")
 		}
 		return nil, huma.Error500InternalServerError("Failed to fetch venue", err)
@@ -169,7 +171,8 @@ func (h *VenueHandler) GetVenueShowsHandler(ctx context.Context, req *GetVenueSh
 		// Look up by slug to get the ID
 		venue, err := h.venueService.GetVenueBySlug(req.VenueID)
 		if err != nil {
-			if err.Error() == "venue not found" {
+			var venueErr *apperrors.VenueError
+			if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {
 				return nil, huma.Error404NotFound("Venue not found")
 			}
 			return nil, huma.Error500InternalServerError("Failed to fetch venue", err)
@@ -179,7 +182,8 @@ func (h *VenueHandler) GetVenueShowsHandler(ctx context.Context, req *GetVenueSh
 
 	shows, total, err := h.venueService.GetShowsForVenue(venueID, timezone, limit, timeFilter)
 	if err != nil {
-		if err.Error() == "venue not found" {
+		var venueErr *apperrors.VenueError
+		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {
 			return nil, huma.Error404NotFound("Venue not found")
 		}
 		return nil, huma.Error500InternalServerError("Failed to fetch shows", err)
@@ -273,7 +277,8 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 	// Get the venue to check ownership
 	venue, err := h.venueService.GetVenueModel(uint(venueID))
 	if err != nil {
-		if err.Error() == "venue not found" {
+		var venueErr *apperrors.VenueError
+		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {
 			return nil, huma.Error404NotFound("Venue not found")
 		}
 		return nil, huma.Error500InternalServerError(
@@ -414,7 +419,8 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		)
 
 		// Check for conflict error (existing pending edit)
-		if err.Error() == "you already have a pending edit for this venue" {
+		var venueErr *apperrors.VenueError
+		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenuePendingEditExists {
 			return nil, huma.Error409Conflict("You already have a pending edit for this venue")
 		}
 
@@ -612,7 +618,8 @@ func (h *VenueHandler) DeleteVenueHandler(ctx context.Context, req *DeleteVenueR
 	// Get the venue to check ownership
 	venue, err := h.venueService.GetVenueModel(uint(venueID))
 	if err != nil {
-		if err.Error() == "venue not found" {
+		var venueErr *apperrors.VenueError
+		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {
 			return nil, huma.Error404NotFound("Venue not found")
 		}
 		return nil, huma.Error500InternalServerError(
@@ -650,8 +657,9 @@ func (h *VenueHandler) DeleteVenueHandler(ctx context.Context, req *DeleteVenueR
 		)
 
 		// Check if the error is due to associated shows
-		if strings.HasPrefix(err.Error(), "cannot delete venue:") {
-			return nil, huma.Error422UnprocessableEntity(err.Error())
+		var venueErr *apperrors.VenueError
+		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueHasShows {
+			return nil, huma.Error422UnprocessableEntity(venueErr.Message)
 		}
 
 		return nil, huma.Error500InternalServerError(

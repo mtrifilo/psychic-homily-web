@@ -29,6 +29,8 @@ const (
 	CodeUnknown = "UNKNOWN"
 	// CodeAccountLocked indicates the account is locked due to too many failed attempts
 	CodeAccountLocked = "ACCOUNT_LOCKED"
+	// CodeNoPasswordSet indicates the user has no password (OAuth-only account)
+	CodeNoPasswordSet = "NO_PASSWORD_SET"
 )
 
 // AuthError represents an authentication-related error with additional context.
@@ -37,6 +39,7 @@ type AuthError struct {
 	Message   string // User-facing message
 	Internal  error  // Original error (logged, not exposed to client)
 	RequestID string // Request ID for correlation
+	Minutes   int    // Lock duration in minutes (used with CodeAccountLocked)
 }
 
 // Error implements the error interface.
@@ -64,6 +67,7 @@ func (e *AuthError) WithRequestID(requestID string) *AuthError {
 		Message:   e.Message,
 		Internal:  e.Internal,
 		RequestID: requestID,
+		Minutes:   e.Minutes,
 	}
 }
 
@@ -124,6 +128,20 @@ func ErrAccountLocked(message string) *AuthError {
 	return NewAuthError(CodeAccountLocked, message, nil)
 }
 
+// ErrAccountLockedWithMinutes creates an account locked error with the remaining lock duration.
+func ErrAccountLockedWithMinutes(minutes int) *AuthError {
+	return &AuthError{
+		Code:    CodeAccountLocked,
+		Message: fmt.Sprintf("Account temporarily locked due to too many failed login attempts. Please try again in %d minute(s).", minutes),
+		Minutes: minutes,
+	}
+}
+
+// ErrNoPasswordSet creates an error for OAuth-only accounts that don't have a password.
+func ErrNoPasswordSet() *AuthError {
+	return NewAuthError(CodeNoPasswordSet, "Cannot change password for OAuth-only accounts", nil)
+}
+
 // ToExternalCode converts internal error codes to external (safe) codes.
 // This prevents leaking information like whether an email exists.
 func ToExternalCode(code string) string {
@@ -154,6 +172,8 @@ func ToExternalMessage(code string) string {
 		return "Validation failed"
 	case CodeAccountLocked:
 		return "Account temporarily locked. Please try again later."
+	case CodeNoPasswordSet:
+		return "Cannot change password for OAuth-only accounts"
 	default:
 		return "An error occurred"
 	}

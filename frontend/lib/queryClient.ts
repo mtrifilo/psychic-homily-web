@@ -57,13 +57,16 @@ function makeQueryClient() {
   // Create caches with global error handlers
   const queryCache = new QueryCache({
     onError: (error, query) => {
-      // When a session expires, clear all cached data
-      // The backend also clears the cookie via Set-Cookie header
+      // When a session expires, invalidate the profile query to update auth state.
+      // We intentionally DON'T call queryClient.clear() here — clearing causes all
+      // active queries to refetch, each getting 401, each triggering this handler
+      // again, creating an infinite cascade of clears and refetches.
       if (isSessionExpiredError(error)) {
-        // Don't clear the cache for the profile query itself to avoid infinite loops
         if (query.queryKey[0] !== 'auth' || query.queryKey[1] !== 'profile') {
-          // Clear all queries to force re-auth state check
-          browserQueryClient?.clear()
+          const profileState = browserQueryClient?.getQueryState(queryKeys.auth.profile)
+          if (profileState?.status !== 'error') {
+            browserQueryClient?.invalidateQueries({ queryKey: queryKeys.auth.profile })
+          }
         }
       }
     },
@@ -71,9 +74,13 @@ function makeQueryClient() {
 
   const mutationCache = new MutationCache({
     onError: error => {
-      // When a session expires during a mutation, clear cached data
+      // When a session expires during a mutation, invalidate profile to update
+      // auth state. Same rationale as above — don't clear the entire cache.
       if (isSessionExpiredError(error)) {
-        browserQueryClient?.clear()
+        const profileState = browserQueryClient?.getQueryState(queryKeys.auth.profile)
+        if (profileState?.status !== 'error') {
+          browserQueryClient?.invalidateQueries({ queryKey: queryKeys.auth.profile })
+        }
       }
     },
   })

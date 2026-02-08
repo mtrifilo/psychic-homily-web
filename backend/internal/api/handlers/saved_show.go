@@ -20,7 +20,7 @@ type SavedShowHandler struct {
 // NewSavedShowHandler creates a new saved show handler
 func NewSavedShowHandler() *SavedShowHandler {
 	return &SavedShowHandler{
-		savedShowService: services.NewSavedShowService(),
+		savedShowService: services.NewSavedShowService(nil),
 	}
 }
 

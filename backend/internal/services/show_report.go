@@ -16,9 +16,12 @@ type ShowReportService struct {
 }
 
 // NewShowReportService creates a new show report service
-func NewShowReportService() *ShowReportService {
+func NewShowReportService(database *gorm.DB) *ShowReportService {
+	if database == nil {
+		database = db.GetDB()
+	}
 	return &ShowReportService{
-		db: db.GetDB(),
+		db: database,
 	}
 }
 

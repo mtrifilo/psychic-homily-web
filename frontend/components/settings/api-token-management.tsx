@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import * as Sentry from '@sentry/nextjs'
 import { useAPITokens, useCreateAPIToken, useRevokeAPIToken, type APIToken } from '@/lib/hooks/useAuth'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -154,6 +155,10 @@ export function APITokenManagement() {
       setDescription('')
       setExpirationDays('90')
     } catch (error) {
+      Sentry.captureException(error, {
+        level: 'error',
+        tags: { service: 'api-tokens', error_type: 'create_failed' },
+      })
       console.error('Failed to create token:', error)
     }
   }
@@ -176,6 +181,11 @@ export function APITokenManagement() {
     try {
       await revokeToken.mutateAsync(tokenId)
     } catch (error) {
+      Sentry.captureException(error, {
+        level: 'error',
+        tags: { service: 'api-tokens', error_type: 'revoke_failed' },
+        extra: { tokenId },
+      })
       console.error('Failed to revoke token:', error)
     }
   }

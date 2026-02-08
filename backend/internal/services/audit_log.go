@@ -18,9 +18,12 @@ type AuditLogService struct {
 }
 
 // NewAuditLogService creates a new audit log service
-func NewAuditLogService() *AuditLogService {
+func NewAuditLogService(database *gorm.DB) *AuditLogService {
+	if database == nil {
+		database = db.GetDB()
+	}
 	return &AuditLogService{
-		db: db.GetDB(),
+		db: database,
 	}
 }
 

@@ -3,8 +3,10 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -79,10 +81,10 @@ func JWTMiddleware(jwtService *services.JWTService) func(http.Handler) http.Hand
 				errorCode := autherrors.CodeTokenInvalid
 				message := "Invalid token"
 
-				// Check if it's an expiration error
-				if strings.Contains(err.Error(), "expired") {
+				var authErr *autherrors.AuthError
+				if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTokenExpired {
 					errorCode = autherrors.CodeTokenExpired
-					message = "Your session has expired. Please log in again."
+					message = authErr.UserMessage()
 				}
 
 				logger.AuthWarn(ctx, "jwt_validation_failed",
@@ -117,7 +119,7 @@ func HumaJWTMiddleware(jwtService *services.JWTService, sessionConfig ...config.
 	}
 
 	// Create API token service for API token validation
-	apiTokenService := services.NewAPITokenService()
+	apiTokenService := services.NewAPITokenService(nil)
 
 	return func(ctx huma.Context, next func(huma.Context)) {
 		url := ctx.URL()
@@ -194,10 +196,10 @@ func HumaJWTMiddleware(jwtService *services.JWTService, sessionConfig ...config.
 				errorCode := autherrors.CodeTokenInvalid
 				message := "Invalid token"
 
-				// Check if it's an expiration error
-				if strings.Contains(err.Error(), "expired") {
+				var authErr *autherrors.AuthError
+				if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTokenExpired {
 					errorCode = autherrors.CodeTokenExpired
-					message = "Your session has expired. Please log in again."
+					message = authErr.UserMessage()
 				}
 
 				logger.AuthWarn(ctx.Context(), "huma_jwt_validation_failed",
@@ -222,11 +224,92 @@ func HumaJWTMiddleware(jwtService *services.JWTService, sessionConfig ...config.
 	}
 }
 
+// LenientHumaJWTMiddleware validates JWT tokens with a grace period for expired tokens.
+// This allows recently-expired tokens to reach the refresh endpoint so the client can
+// obtain a new token without forcing a full re-login.
+func LenientHumaJWTMiddleware(jwtService *services.JWTService, gracePeriod time.Duration) func(ctx huma.Context, next func(huma.Context)) {
+	return func(ctx huma.Context, next func(huma.Context)) {
+		url := ctx.URL()
+
+		var requestID string
+		if id, ok := ctx.Context().Value(logger.RequestIDContextKey).(string); ok {
+			requestID = id
+		}
+
+		logger.AuthDebug(ctx.Context(), "lenient_jwt_middleware_start",
+			"path", url.Path,
+		)
+
+		var token string
+		var tokenSource string
+
+		// Try Authorization header first
+		authHeader := ctx.Header("Authorization")
+		if authHeader != "" {
+			tokenParts := strings.Split(authHeader, " ")
+			if len(tokenParts) == 2 && tokenParts[0] == "Bearer" {
+				token = tokenParts[1]
+				tokenSource = "header"
+			}
+		}
+
+		// Fall back to cookie
+		if token == "" {
+			if cookie := ctx.Header("Cookie"); cookie != "" {
+				req := &http.Request{Header: http.Header{"Cookie": []string{cookie}}}
+				if c, err := req.Cookie("auth_token"); err == nil && c.Value != "" {
+					token = c.Value
+					tokenSource = "cookie"
+				}
+			}
+		}
+
+		if token == "" {
+			logger.AuthWarn(ctx.Context(), "lenient_jwt_token_missing",
+				"path", url.Path,
+			)
+			writeHumaJWTError(ctx, requestID, autherrors.CodeTokenMissing, "Authentication required", nil)
+			return
+		}
+
+		logger.AuthDebug(ctx.Context(), "lenient_jwt_token_found",
+			"source", tokenSource,
+		)
+
+		// Validate with grace period for expired tokens
+		user, err := jwtService.ValidateTokenLenient(token, gracePeriod)
+		if err != nil {
+			errorCode := autherrors.CodeTokenInvalid
+			message := "Invalid token"
+
+			var authErr *autherrors.AuthError
+			if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTokenExpired {
+				errorCode = autherrors.CodeTokenExpired
+				message = authErr.UserMessage()
+			}
+
+			logger.AuthWarn(ctx.Context(), "lenient_jwt_validation_failed",
+				"error", err.Error(),
+				"error_code", errorCode,
+			)
+			writeHumaJWTError(ctx, requestID, errorCode, message, nil)
+			return
+		}
+
+		logger.AuthInfo(ctx.Context(), "lenient_jwt_validation_success",
+			"user_id", user.ID,
+		)
+
+		ctxWithUser := huma.WithValue(ctx, UserContextKey, user)
+		next(ctxWithUser)
+	}
+}
+
 // OptionalHumaJWTMiddleware extracts user from JWT/API token if present,
 // but allows unauthenticated requests to proceed without user context.
 // Use this for endpoints that are public but behave differently for authenticated users.
 func OptionalHumaJWTMiddleware(jwtService *services.JWTService) func(ctx huma.Context, next func(huma.Context)) {
-	apiTokenService := services.NewAPITokenService()
+	apiTokenService := services.NewAPITokenService(nil)
 
 	return func(ctx huma.Context, next func(huma.Context)) {
 		var token string

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import * as Sentry from '@sentry/nextjs'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useSendVerificationEmail, useExportData, useGenerateCLIToken } from '@/lib/hooks/useAuth'
 import { Button } from '@/components/ui/button'
@@ -39,7 +40,10 @@ export function SettingsPanel() {
       await sendVerificationEmail.mutateAsync()
       setEmailSent(true)
     } catch (error) {
-      // Error handling is done in the mutation
+      Sentry.captureException(error, {
+        level: 'error',
+        tags: { service: 'settings', error_type: 'verification_email' },
+      })
       console.error('Failed to send verification email:', error)
     }
   }
@@ -60,6 +64,10 @@ export function SettingsPanel() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
     } catch (error) {
+      Sentry.captureException(error, {
+        level: 'error',
+        tags: { service: 'settings', error_type: 'data_export' },
+      })
       console.error('Failed to export data:', error)
     }
   }
@@ -70,6 +78,10 @@ export function SettingsPanel() {
       setCLIToken(response.token)
       setTokenCopied(false)
     } catch (error) {
+      Sentry.captureException(error, {
+        level: 'error',
+        tags: { service: 'settings', error_type: 'cli_token' },
+      })
       console.error('Failed to generate CLI token:', error)
     }
   }

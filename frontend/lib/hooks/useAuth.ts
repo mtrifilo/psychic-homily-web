@@ -186,10 +186,20 @@ export const useLogout = () => {
     mutationFn: async (): Promise<{ success: boolean; message: string }> => {
       authLogger.debug('Logout attempt')
 
-      return apiRequest(API_ENDPOINTS.AUTH.LOGOUT, {
-        method: 'POST',
-        credentials: 'include',
-      })
+      try {
+        return await apiRequest(API_ENDPOINTS.AUTH.LOGOUT, {
+          method: 'POST',
+          credentials: 'include',
+        })
+      } catch (error) {
+        // If the token is already expired/missing, the session is already gone —
+        // treat this as a successful logout rather than letting it cascade
+        // through error handlers that would clear the query cache repeatedly
+        if (error instanceof AuthError && error.shouldRedirectToLogin) {
+          return { success: true, message: 'Session already expired' }
+        }
+        throw error
+      }
     },
     onSuccess: () => {
       authLogger.logout()

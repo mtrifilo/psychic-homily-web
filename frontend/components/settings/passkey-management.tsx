@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import * as Sentry from '@sentry/nextjs'
 import { browserSupportsWebAuthn } from '@simplewebauthn/browser'
 import { Fingerprint, Trash2, Loader2, Shield, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -39,7 +40,11 @@ export function PasskeyManagement() {
       } else {
         setError(data.message || 'Failed to load passkeys')
       }
-    } catch {
+    } catch (error) {
+      Sentry.captureException(error, {
+        level: 'error',
+        tags: { service: 'passkey-management', error_type: 'fetch_failed' },
+      })
       setError('Failed to load passkeys')
     } finally {
       setIsLoading(false)
@@ -74,7 +79,12 @@ export function PasskeyManagement() {
       } else {
         setError(data.message || 'Failed to delete passkey')
       }
-    } catch {
+    } catch (error) {
+      Sentry.captureException(error, {
+        level: 'error',
+        tags: { service: 'passkey-management', error_type: 'delete_failed' },
+        extra: { credentialId },
+      })
       setError('Failed to delete passkey')
     } finally {
       setDeletingId(null)

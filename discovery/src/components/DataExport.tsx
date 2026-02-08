@@ -7,6 +7,7 @@ import { ShowsTab } from './export/ShowsTab'
 import { ArtistsTab } from './export/ArtistsTab'
 import { VenuesTab } from './export/VenuesTab'
 import { ImportSection } from './export/ImportSection'
+import { useRemoteShowExistence } from '../lib/hooks/useExport'
 import { useWizard } from '../context/WizardContext'
 import { AlertTriangle, ChevronDown, ChevronUp, Settings } from 'lucide-react'
 import type {
@@ -34,17 +35,19 @@ export function DataExport({ settings }: Props) {
   const [selectedArtistIds, setSelectedArtistIds] = useState<Set<string>>(new Set())
   const [selectedVenueIds, setSelectedVenueIds] = useState<Set<string>>(new Set())
 
-  const targetEnv =
-    settings.targetEnvironment === 'production' ? 'Production' : 'Stage'
   const hasLocalToken = Boolean(settings.localToken?.length)
-  const hasTargetToken =
-    settings.targetEnvironment === 'production'
-      ? Boolean(settings.productionToken?.length)
-      : Boolean(settings.stageToken?.length)
+  const hasStageToken = Boolean(settings.stageToken?.length)
+  const hasProductionToken = Boolean(settings.productionToken?.length)
 
   const missingTokens = []
   if (!hasLocalToken) missingTokens.push('Local')
-  if (!hasTargetToken) missingTokens.push(targetEnv)
+  if (!hasStageToken && !hasProductionToken) missingTokens.push('Stage or Production')
+
+  // Check which shows exist on remote environments
+  const { stageShowIds, productionShowIds } = useRemoteShowExistence(
+    settings,
+    shows.length > 0
+  )
 
   // Get selected data for import by filtering using IDs
   const selectedShows = shows.filter((s) =>
@@ -75,7 +78,7 @@ export function DataExport({ settings }: Props) {
         <div>
           <h2 className="text-lg font-semibold text-foreground">Data Export</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Load from local database, upload to {targetEnv}
+            Load from local database, upload to Stage or Production
           </p>
         </div>
         <Button
@@ -99,9 +102,9 @@ export function DataExport({ settings }: Props) {
           <p className="font-medium text-foreground">How it works:</p>
           <ol className="list-decimal list-inside space-y-1 ml-1">
             <li>Start your local Go backend (localhost:8080)</li>
-            <li>Load data using the buttons below</li>
+            <li>Shows auto-load from your local database</li>
             <li>Select items to upload</li>
-            <li>Preview (dry run) then import to {targetEnv}</li>
+            <li>Choose target (Stage, Production, or Both) then preview or import</li>
           </ol>
         </div>
       )}
@@ -162,6 +165,8 @@ export function DataExport({ settings }: Props) {
             onSelectionChange={setSelectedShowIds}
             onDataLoaded={handleShowsLoaded}
             hasLocalToken={hasLocalToken}
+            stageShowIds={stageShowIds}
+            productionShowIds={productionShowIds}
           />
         </TabsContent>
 
@@ -189,9 +194,7 @@ export function DataExport({ settings }: Props) {
         selectedShows={selectedShows}
         selectedArtists={selectedArtists}
         selectedVenues={selectedVenues}
-        targetEnv={targetEnv}
-        hasTargetToken={hasTargetToken}
-        isProduction={settings.targetEnvironment === 'production'}
+        settings={settings}
       />
     </div>
   )

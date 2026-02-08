@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useCallback, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useUpcomingShows, useShowCities } from '@/lib/hooks/useShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -309,18 +309,33 @@ export function ShowList() {
   const selectedState = searchParams.get('state')
 
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  const [cursor, setCursor] = useState<string | undefined>(undefined)
+  const [accumulatedShows, setAccumulatedShows] = useState<ShowResponse[]>([])
 
   const { data: citiesData, isLoading: citiesLoading, isFetching: citiesFetching } = useShowCities({
     timezone,
   })
 
-  const { data, isLoading, isFetching, error } = useUpcomingShows({
+  const { data, isLoading, isFetching, error, refetch } = useUpcomingShows({
     timezone,
+    cursor,
     city: selectedCity || undefined,
     state: selectedState || undefined,
   })
 
+  const handleLoadMore = useCallback(() => {
+    if (data?.pagination.next_cursor) {
+      // Accumulate current shows before loading next page
+      const currentShows = data.shows || []
+      setAccumulatedShows(prev => [...prev, ...currentShows])
+      setCursor(data.pagination.next_cursor!)
+    }
+  }, [data])
+
   const handleFilterChange = (city: string | null, state: string | null) => {
+    // Reset pagination on filter change
+    setCursor(undefined)
+    setAccumulatedShows([])
     const params = new URLSearchParams()
     if (city) params.set('city', city)
     if (state) params.set('state', state)
@@ -347,6 +362,9 @@ export function ShowList() {
     return (
       <div className="text-center py-12 text-destructive">
         <p>Failed to load shows. Please try again later.</p>
+        <Button variant="outline" className="mt-4" onClick={() => refetch()}>
+          Retry
+        </Button>
       </div>
     )
   }
@@ -371,42 +389,52 @@ export function ShowList() {
 
       {/* Dim content while fetching, don't hide it */}
       <div className={isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
-        {!data?.shows || data.shows.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            <p>
-              {selectedCity
-                ? `No upcoming shows in ${selectedCity}.`
-                : 'No upcoming shows at this time.'}
-            </p>
-            {selectedCity && (
-              <button
-                onClick={() => handleFilterChange(null, null)}
-                className="mt-4 text-primary hover:underline"
-              >
-                View all shows
-              </button>
-            )}
-          </div>
-        ) : (
-          <>
-            {data.shows.map(show => (
-              <ShowCard
-                key={show.id}
-                show={show}
-                isAdmin={isAdmin}
-                userId={user?.id}
-              />
-            ))}
-
-            {data.pagination.has_more && (
-              <div className="text-center py-6">
-                <p className="text-muted-foreground text-sm">
-                  More shows available...
+        {(() => {
+          const allShows = [...accumulatedShows, ...(data?.shows || [])]
+          if (allShows.length === 0) {
+            return (
+              <div className="text-center py-12 text-muted-foreground">
+                <p>
+                  {selectedCity
+                    ? `No upcoming shows in ${selectedCity}.`
+                    : 'No upcoming shows at this time.'}
                 </p>
+                {selectedCity && (
+                  <button
+                    onClick={() => handleFilterChange(null, null)}
+                    className="mt-4 text-primary hover:underline"
+                  >
+                    View all shows
+                  </button>
+                )}
               </div>
-            )}
-          </>
-        )}
+            )
+          }
+          return (
+            <>
+              {allShows.map(show => (
+                <ShowCard
+                  key={show.id}
+                  show={show}
+                  isAdmin={isAdmin}
+                  userId={user?.id}
+                />
+              ))}
+
+              {data?.pagination.has_more && (
+                <div className="text-center py-6">
+                  <Button
+                    variant="outline"
+                    onClick={handleLoadMore}
+                    disabled={isFetching}
+                  >
+                    {isFetching ? 'Loading...' : 'Load More'}
+                  </Button>
+                </div>
+              )}
+            </>
+          )
+        })()}
       </div>
     </section>
   )

@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 )
 
@@ -177,9 +178,12 @@ type UserService struct {
 }
 
 // NewUserService creates a new user service
-func NewUserService() *UserService {
+func NewUserService(database *gorm.DB) *UserService {
+	if database == nil {
+		database = db.GetDB()
+	}
 	return &UserService{
-		db: db.GetDB(),
+		db: database,
 	}
 }
 
@@ -239,7 +243,7 @@ func (s *UserService) CreateUserWithPassword(email, password, firstName, lastNam
 	}
 
 	if existingUser != nil {
-		return nil, fmt.Errorf("user already exists")
+		return nil, apperrors.ErrUserExists(email)
 	}
 
 	hashedPassword, err := s.HashPassword(password)
@@ -307,27 +311,27 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*mod
 		// This will always fail but takes the same time as a real verification
 		dummyHash := "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy" // bcrypt hash of "dummy"
 		bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte(password))
-		return nil, fmt.Errorf("invalid credentials")
+		return nil, apperrors.ErrInvalidCredentials(nil)
 	}
 
 	// Check if account is locked before password verification
 	if s.IsAccountLocked(user) {
 		remaining := s.GetLockTimeRemaining(user)
 		minutes := int(remaining.Minutes()) + 1 // Round up
-		return nil, fmt.Errorf("account_locked:%d", minutes)
+		return nil, apperrors.ErrAccountLockedWithMinutes(minutes)
 	}
 
 	if user.PasswordHash == nil {
 		// Also do dummy verification for OAuth-only accounts
 		dummyHash := "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
 		bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte(password))
-		return nil, fmt.Errorf("invalid credentials")
+		return nil, apperrors.ErrInvalidCredentials(nil)
 	}
 
 	if err := s.VerifyPassword(*user.PasswordHash, password); err != nil {
 		// Increment failed attempts on password failure
 		s.IncrementFailedAttempts(user.ID)
-		return nil, fmt.Errorf("invalid credentials")
+		return nil, apperrors.ErrInvalidCredentials(nil)
 	}
 
 	if !user.IsActive {
@@ -647,12 +651,12 @@ func (s *UserService) UpdatePassword(userID uint, currentPassword, newPassword s
 
 	// Check if user has a password (not OAuth-only)
 	if user.PasswordHash == nil {
-		return fmt.Errorf("user does not have a password set")
+		return apperrors.ErrNoPasswordSet()
 	}
 
 	// Verify current password
 	if err := s.VerifyPassword(*user.PasswordHash, currentPassword); err != nil {
-		return fmt.Errorf("current password is incorrect")
+		return apperrors.ErrInvalidCredentials(nil)
 	}
 
 	// Hash the new password
@@ -776,7 +780,7 @@ func (s *UserService) CreateUserWithoutPassword(email string) (*models.User, err
 	}
 
 	if existingUser != nil {
-		return nil, fmt.Errorf("user already exists")
+		return nil, apperrors.ErrUserExists(email)
 	}
 
 	tx := s.db.Begin()

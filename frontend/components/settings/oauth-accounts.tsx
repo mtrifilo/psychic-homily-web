@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import * as Sentry from '@sentry/nextjs'
 import { useOAuthAccounts, useUnlinkOAuthAccount } from '@/lib/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -67,8 +68,12 @@ export function OAuthAccounts() {
     try {
       await unlinkMutation.mutateAsync(unlinkProvider)
       setUnlinkProvider(null)
-    } catch {
-      // Error is handled by the mutation
+    } catch (error) {
+      Sentry.captureException(error, {
+        level: 'warning',
+        tags: { service: 'oauth-accounts' },
+        extra: { provider: unlinkProvider },
+      })
     }
   }
 

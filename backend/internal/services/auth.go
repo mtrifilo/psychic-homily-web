@@ -35,11 +35,14 @@ type AuthService struct {
 }
 
 // NewAuthService creates a new authentication service
-func NewAuthService(cfg *config.Config) *AuthService {
+func NewAuthService(database *gorm.DB, cfg *config.Config) *AuthService {
+	if database == nil {
+		database = db.GetDB()
+	}
 	return &AuthService{
-		db:          db.GetDB(),
-		userService: NewUserService(), // Call directly, no package prefix
-		jwtService:  NewJWTService(cfg),
+		db:          database,
+		userService: NewUserService(database),
+		jwtService:  NewJWTService(database, cfg),
 		oauthCompleter: &RealOAuthCompleter{},
 	}
 }

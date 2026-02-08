@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -70,6 +71,12 @@ const (
 	EnvWebAuthnRPID          = "WEBAUTHN_RP_ID"
 	EnvWebAuthnRPDisplayName = "WEBAUTHN_RP_NAME"
 	EnvWebAuthnRPOrigins     = "WEBAUTHN_RP_ORIGINS"
+
+	// Apple Sign In
+	EnvAppleBundleID = "APPLE_BUNDLE_ID"
+
+	// Anthropic AI
+	EnvAnthropicAPIKey = "ANTHROPIC_API_KEY"
 )
 
 // Config holds all configuration for the application
@@ -84,6 +91,18 @@ type Config struct {
 	Discord        DiscordConfig
 	MusicDiscovery MusicDiscoveryConfig
 	WebAuthn       WebAuthnConfig
+	Apple          AppleConfig
+	Anthropic      AnthropicConfig
+}
+
+// AppleConfig holds Sign in with Apple configuration
+type AppleConfig struct {
+	BundleID string // iOS app bundle ID for audience validation
+}
+
+// AnthropicConfig holds Anthropic API configuration
+type AnthropicConfig struct {
+	APIKey string
 }
 
 // DiscordConfig holds Discord webhook configuration for admin notifications
@@ -204,14 +223,14 @@ func (s SessionConfig) ClearAuthCookie() http.Cookie {
 }
 
 // Update your Load() function to make CORS configurable
-func Load() *Config {
+func Load() (*Config, error) {
 	// Debug: Check if OAUTH_SECRET_KEY is being loaded
 	oauthSecretKey := GetEnv(EnvOAuthSecretKey, "your-secret-key-here")
 
 	// Get CORS origins from environment or use defaults
 	corsOrigins := getCORSOrigins()
 
-	return &Config{
+	cfg := &Config{
 		Server: ServerConfig{
 			Addr: GetEnv(EnvAPIAddr, "localhost:8080"),
 		},
@@ -264,7 +283,19 @@ func Load() *Config {
 			RPDisplayName: GetEnv(EnvWebAuthnRPDisplayName, "Psychic Homily"),
 			RPOrigins:     getWebAuthnOrigins(),
 		},
+		Apple: AppleConfig{
+			BundleID: GetEnv(EnvAppleBundleID, "com.psychichomily.ios"),
+		},
+		Anthropic: AnthropicConfig{
+			APIKey: GetEnv(EnvAnthropicAPIKey, ""),
+		},
 	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("configuration validation failed: %w", err)
+	}
+
+	return cfg, nil
 }
 
 // getFrontendURL returns the frontend URL based on environment
@@ -349,6 +380,33 @@ func getWebAuthnOrigins() []string {
 
 	// Default to frontend URL
 	return []string{getFrontendURL()}
+}
+
+// placeholderSecrets contains default placeholder values that must not be used in production.
+var placeholderSecrets = []string{
+	"your-secret-key-here",
+	"your-secret-key-change-in-production",
+	"your-super-secret-jwt-key-32-chars-minimum",
+}
+
+// Validate checks that security-critical secrets are not placeholder defaults.
+// Only enforced when ENVIRONMENT is set and is not "development".
+func (c *Config) Validate() error {
+	env := os.Getenv(EnvEnvironment)
+	if env == "" || env == EnvDevelopment {
+		return nil
+	}
+
+	for _, placeholder := range placeholderSecrets {
+		if c.JWT.SecretKey == placeholder {
+			return fmt.Errorf("JWT_SECRET_KEY is using a placeholder default; set a unique secret for %s", env)
+		}
+		if c.OAuth.SecretKey == placeholder {
+			return fmt.Errorf("OAUTH_SECRET_KEY is using a placeholder default; set a unique secret for %s", env)
+		}
+	}
+
+	return nil
 }
 
 // Helper function for environment variable parsing

@@ -40,7 +40,10 @@ func main() {
 	}
 
 	// Load configuration
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
 
 	// Initialize structured logger
 	// Use JSON format in production, text format with debug in development
@@ -145,7 +148,7 @@ func main() {
 	_ = routes.SetupRoutes(router, cfg)
 
 	// Start account cleanup service (background job for permanent deletion)
-	cleanupService := services.NewCleanupService()
+	cleanupService := services.NewCleanupService(nil)
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	cleanupService.Start(cleanupCtx)
 

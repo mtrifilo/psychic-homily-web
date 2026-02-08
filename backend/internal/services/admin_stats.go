@@ -15,9 +15,12 @@ type AdminStatsService struct {
 }
 
 // NewAdminStatsService creates a new admin stats service
-func NewAdminStatsService() *AdminStatsService {
+func NewAdminStatsService(database *gorm.DB) *AdminStatsService {
+	if database == nil {
+		database = db.GetDB()
+	}
 	return &AdminStatsService{
-		db: db.GetDB(),
+		db: database,
 	}
 }
 
