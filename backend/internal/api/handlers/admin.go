@@ -10,7 +10,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/middleware"
-	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
@@ -31,18 +30,29 @@ type AdminHandler struct {
 }
 
 // NewAdminHandler creates a new admin handler
-func NewAdminHandler(cfg *config.Config) *AdminHandler {
+func NewAdminHandler(
+	showService *services.ShowService,
+	venueService *services.VenueService,
+	discordService *services.DiscordService,
+	musicDiscoveryService *services.MusicDiscoveryService,
+	discoveryService *services.DiscoveryService,
+	apiTokenService *services.APITokenService,
+	dataSyncService *services.DataSyncService,
+	auditLogService *services.AuditLogService,
+	userService *services.UserService,
+	adminStatsService *services.AdminStatsService,
+) *AdminHandler {
 	return &AdminHandler{
-		showService:           services.NewShowService(nil),
-		venueService:          services.NewVenueService(nil),
-		discordService:        services.NewDiscordService(cfg),
-		musicDiscoveryService: services.NewMusicDiscoveryService(cfg),
-		discoveryService:      services.NewDiscoveryService(nil),
-		apiTokenService:       services.NewAPITokenService(nil),
-		dataSyncService:       services.NewDataSyncService(nil),
-		auditLogService:       services.NewAuditLogService(nil),
-		userService:           services.NewUserService(nil),
-		adminStatsService:     services.NewAdminStatsService(nil),
+		showService:           showService,
+		venueService:          venueService,
+		discordService:        discordService,
+		musicDiscoveryService: musicDiscoveryService,
+		discoveryService:      discoveryService,
+		apiTokenService:       apiTokenService,
+		dataSyncService:       dataSyncService,
+		auditLogService:       auditLogService,
+		userService:           userService,
+		adminStatsService:     adminStatsService,
 	}
 }
 

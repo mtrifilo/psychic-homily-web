@@ -17,6 +17,7 @@ import {
   useFavoriteVenueShows,
 } from '@/lib/hooks/useFavoriteVenues'
 import { useVenueShows } from '@/lib/hooks/useVenues'
+import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { FavoriteVenueButton } from './FavoriteVenueButton'
 import type {
@@ -254,7 +255,8 @@ function VenueCardExpandable({ venue }: VenueCardExpandableProps) {
 }
 
 function ChronologicalView() {
-  const { data, isLoading, error } = useFavoriteVenueShows()
+  const { isAuthenticated } = useAuthContext()
+  const { data, isLoading, error } = useFavoriteVenueShows({ enabled: isAuthenticated })
 
   if (isLoading) {
     return (
@@ -293,7 +295,8 @@ function ChronologicalView() {
 }
 
 function ByVenueView() {
-  const { data, isLoading, error } = useFavoriteVenues()
+  const { isAuthenticated } = useAuthContext()
+  const { data, isLoading, error } = useFavoriteVenues({ enabled: isAuthenticated })
 
   if (isLoading) {
     return (
@@ -327,8 +330,9 @@ function ByVenueView() {
 }
 
 export function FavoriteVenuesTab() {
+  const { isAuthenticated } = useAuthContext()
   const [viewMode, setViewMode] = useState<ViewMode>('byVenue')
-  const { data: venuesData, isLoading: venuesLoading } = useFavoriteVenues()
+  const { data: venuesData, isLoading: venuesLoading } = useFavoriteVenues({ enabled: isAuthenticated })
 
   // Load view mode from localStorage on mount
   useEffect(() => {

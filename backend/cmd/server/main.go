@@ -73,6 +73,7 @@ func main() {
 	if err := db.Connect(cfg); err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
+	database := db.GetDB()
 
 	// Setup Goth authentication
 	if err := auth.SetupGoth(cfg); err != nil {
@@ -121,12 +122,13 @@ func main() {
 	// CORS middleware with dynamic origin validation
 	corsMiddleware := cors.New(cors.Options{
 		AllowOriginFunc: func(r *http.Request, origin string) bool {
-			// Check explicit allowed origins
+			// Check explicit allowed origins (from CORS_ALLOWED_ORIGINS or env defaults)
 			if allowedOriginsMap[origin] {
 				return true
 			}
-			// Allow Vercel preview deployments (*.vercel.app)
-			if strings.HasSuffix(origin, ".vercel.app") {
+			// Allow Vercel preview deployments only in non-production environments.
+			// For production, add specific preview URLs to CORS_ALLOWED_ORIGINS instead.
+			if !isProduction && strings.HasSuffix(origin, ".vercel.app") {
 				return true
 			}
 			return false
@@ -144,13 +146,15 @@ func main() {
 	// Adds headers like X-Content-Type-Options, X-Frame-Options, CSP, HSTS (in production)
 	router.Use(middleware.SecurityHeaders)
 
+	// Create service container (all services instantiated once)
+	sc := services.NewServiceContainer(database, cfg)
+
 	// Setup routes
-	_ = routes.SetupRoutes(router, cfg)
+	_ = routes.SetupRoutes(router, sc, cfg)
 
 	// Start account cleanup service (background job for permanent deletion)
-	cleanupService := services.NewCleanupService(nil)
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
-	cleanupService.Start(cleanupCtx)
+	sc.Cleanup.Start(cleanupCtx)
 
 	// Create HTTP server
 	srv := &http.Server{
@@ -178,7 +182,7 @@ func main() {
 
 	// Stop cleanup service
 	cleanupCancel()
-	cleanupService.Stop()
+	sc.Cleanup.Stop()
 
 	// Graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

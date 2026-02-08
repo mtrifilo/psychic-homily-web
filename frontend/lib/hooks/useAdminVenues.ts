@@ -11,9 +11,11 @@ import type { Venue, UnverifiedVenuesResponse } from '../types/venue'
 export function useUnverifiedVenues(options?: {
   limit?: number
   offset?: number
+  enabled?: boolean
 }) {
   const limit = options?.limit ?? 50
   const offset = options?.offset ?? 0
+  const enabled = options?.enabled ?? true
 
   return useQuery({
     queryKey: queryKeys.admin.unverifiedVenues(limit, offset),
@@ -26,6 +28,7 @@ export function useUnverifiedVenues(options?: {
         `${API_ENDPOINTS.ADMIN.VENUES.UNVERIFIED}?${params}`
       )
     },
+    enabled,
     staleTime: 30 * 1000, // 30 seconds - shorter for admin data
   })
 }

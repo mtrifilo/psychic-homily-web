@@ -11,6 +11,7 @@ import {
   Music,
 } from 'lucide-react'
 import { useUnverifiedVenues, useVerifyVenue } from '@/lib/hooks/useAdminVenues'
+import { useAuthContext } from '@/lib/context/AuthContext'
 import type { UnverifiedVenue } from '@/lib/types/venue'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -210,7 +211,8 @@ function UnverifiedVenueCard({ venue }: UnverifiedVenueCardProps) {
 }
 
 export default function UnverifiedVenuesPage() {
-  const { data, isLoading, error } = useUnverifiedVenues()
+  const { user } = useAuthContext()
+  const { data, isLoading, error } = useUnverifiedVenues({ enabled: !!user?.is_admin })
 
   return (
     <div className="space-y-4">

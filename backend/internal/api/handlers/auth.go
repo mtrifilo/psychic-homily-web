@@ -27,16 +27,23 @@ type AuthHandler struct {
 }
 
 // NewAuthHandler creates a new authentication handler
-func NewAuthHandler(authService *services.AuthService, jwtService *services.JWTService,
-	userService *services.UserService, config *config.Config) *AuthHandler {
+func NewAuthHandler(
+	authService *services.AuthService,
+	jwtService *services.JWTService,
+	userService *services.UserService,
+	emailService *services.EmailService,
+	discordService *services.DiscordService,
+	passwordValidator *services.PasswordValidator,
+	cfg *config.Config,
+) *AuthHandler {
 	return &AuthHandler{
 		authService:       authService,
 		jwtService:        jwtService,
 		userService:       userService,
-		emailService:      services.NewEmailService(config),
-		discordService:    services.NewDiscordService(config),
-		passwordValidator: services.NewPasswordValidator(),
-		config:            config,
+		emailService:      emailService,
+		discordService:    discordService,
+		passwordValidator: passwordValidator,
+		config:            cfg,
 	}
 }
 

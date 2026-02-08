@@ -76,6 +76,7 @@ export function PasskeyLoginButton({ onError, className }: PasskeyLoginButtonPro
           first_name: finishData.user.first_name,
           last_name: finishData.user.last_name,
           email_verified: finishData.user.email_verified,
+          is_admin: finishData.user.is_admin,
         })
       }
 

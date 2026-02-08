@@ -409,7 +409,8 @@ function SavedShowsList({
   currentUserId?: number
   isAdmin?: boolean
 }) {
-  const { data, isLoading, error } = useSavedShows()
+  const { isAuthenticated } = useAuthContext()
+  const { data, isLoading, error } = useSavedShows({ enabled: isAuthenticated })
 
   if (isLoading) {
     return (
@@ -469,7 +470,8 @@ function MySubmissionsList({
   currentUserId?: number
   isAdmin?: boolean
 }) {
-  const { data, isLoading, error } = useMySubmissions()
+  const { isAuthenticated } = useAuthContext()
+  const { data, isLoading, error } = useMySubmissions({ enabled: isAuthenticated })
 
   if (isLoading) {
     return (

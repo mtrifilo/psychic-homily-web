@@ -18,9 +18,9 @@ type FavoriteVenueHandler struct {
 }
 
 // NewFavoriteVenueHandler creates a new favorite venue handler
-func NewFavoriteVenueHandler() *FavoriteVenueHandler {
+func NewFavoriteVenueHandler(favoriteVenueService *services.FavoriteVenueService) *FavoriteVenueHandler {
 	return &FavoriteVenueHandler{
-		favoriteVenueService: services.NewFavoriteVenueService(nil),
+		favoriteVenueService: favoriteVenueService,
 	}
 }
 

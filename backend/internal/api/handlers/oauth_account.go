@@ -16,9 +16,9 @@ type OAuthAccountHandler struct {
 }
 
 // NewOAuthAccountHandler creates a new OAuth account handler
-func NewOAuthAccountHandler() *OAuthAccountHandler {
+func NewOAuthAccountHandler(userService *services.UserService) *OAuthAccountHandler {
 	return &OAuthAccountHandler{
-		userService: services.NewUserService(nil),
+		userService: userService,
 	}
 }
 

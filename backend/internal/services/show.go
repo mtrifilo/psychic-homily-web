@@ -1680,10 +1680,22 @@ func (s *ShowService) ExportShowToMarkdown(showID uint) ([]byte, string, error) 
 		frontmatter.Venues = append(frontmatter.Venues, venueData)
 	}
 
+	// Batch-fetch all artists
+	artistIDs := make([]uint, len(showArtists))
+	for i, sa := range showArtists {
+		artistIDs[i] = sa.ArtistID
+	}
+	var allArtists []models.Artist
+	s.db.Where("id IN ?", artistIDs).Find(&allArtists)
+	artistMap := make(map[uint]*models.Artist, len(allArtists))
+	for i := range allArtists {
+		artistMap[allArtists[i].ID] = &allArtists[i]
+	}
+
 	// Build artists in order
 	for _, sa := range showArtists {
-		var artist models.Artist
-		if err := s.db.First(&artist, sa.ArtistID).Error; err != nil {
+		artist, ok := artistMap[sa.ArtistID]
+		if !ok {
 			continue
 		}
 

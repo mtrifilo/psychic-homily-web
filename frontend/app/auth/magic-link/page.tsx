@@ -29,6 +29,7 @@ function MagicLinkContent() {
               first_name: data.user.first_name,
               last_name: data.user.last_name,
               email_verified: true,
+              is_admin: data.user.is_admin,
             })
           }
           // Redirect after short delay to show success message

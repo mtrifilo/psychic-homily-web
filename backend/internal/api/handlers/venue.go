@@ -7,7 +7,6 @@ import (
 	"strconv"
 
 	"psychic-homily-backend/internal/api/middleware"
-	"psychic-homily-backend/internal/config"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
@@ -20,10 +19,10 @@ type VenueHandler struct {
 	discordService *services.DiscordService
 }
 
-func NewVenueHandler(cfg *config.Config) *VenueHandler {
+func NewVenueHandler(venueService *services.VenueService, discordService *services.DiscordService) *VenueHandler {
 	return &VenueHandler{
-		venueService:   services.NewVenueService(nil),
-		discordService: services.NewDiscordService(cfg),
+		venueService:   venueService,
+		discordService: discordService,
 	}
 }
 

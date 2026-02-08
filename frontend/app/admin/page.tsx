@@ -7,6 +7,7 @@ import { usePendingVenueEdits } from '@/lib/hooks/useAdminVenueEdits'
 import { useUnverifiedVenues } from '@/lib/hooks/useAdminVenues'
 import { usePendingReports } from '@/lib/hooks/useAdminReports'
 import { usePendingShows } from '@/lib/hooks/useAdminShows'
+import { useAuthContext } from '@/lib/context/AuthContext'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 // Dynamic imports for heavy components - only loaded when their tab is active
@@ -79,16 +80,18 @@ const UsersPage = dynamic(() => import('./users/page'), {
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('dashboard')
+  const { user } = useAuthContext()
+  const isAdmin = !!user?.is_admin
 
   const {
     data: pendingShowsData,
-  } = usePendingShows()
+  } = usePendingShows({ enabled: isAdmin })
   const {
     data: venueEditsData,
   } = usePendingVenueEdits()
   const {
     data: unverifiedVenuesData,
-  } = useUnverifiedVenues()
+  } = useUnverifiedVenues({ enabled: isAdmin })
   const {
     data: reportsData,
   } = usePendingReports()

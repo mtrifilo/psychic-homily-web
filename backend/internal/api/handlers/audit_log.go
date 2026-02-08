@@ -17,9 +17,9 @@ type AuditLogHandler struct {
 }
 
 // NewAuditLogHandler creates a new audit log handler
-func NewAuditLogHandler() *AuditLogHandler {
+func NewAuditLogHandler(auditLogService *services.AuditLogService) *AuditLogHandler {
 	return &AuditLogHandler{
-		auditLogService: services.NewAuditLogService(nil),
+		auditLogService: auditLogService,
 	}
 }
 

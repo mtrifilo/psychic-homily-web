@@ -22,6 +22,18 @@ const (
 	// APIRequestsPerMinute is the rate limit for general API endpoints
 	// Provides basic protection against abuse
 	APIRequestsPerMinute = 100
+
+	// ShowCreateRequestsPerHour is the rate limit for show creation
+	// Prevents flooding the admin approval queue
+	ShowCreateRequestsPerHour = 10
+
+	// AIProcessRequestsPerMinute is the rate limit for AI show processing
+	// Calls external Anthropic API — expensive operation
+	AIProcessRequestsPerMinute = 5
+
+	// ReportRequestsPerMinute is the rate limit for show report submissions
+	// Prevents spamming admins with reports
+	ReportRequestsPerMinute = 5
 )
 
 // RateLimitAuthEndpoints creates a strict rate limiter for authentication endpoints

@@ -20,10 +20,10 @@ type AppleAuthHandler struct {
 }
 
 // NewAppleAuthHandler creates a new Apple auth handler
-func NewAppleAuthHandler(cfg *config.Config) *AppleAuthHandler {
+func NewAppleAuthHandler(appleAuthService *services.AppleAuthService, discordService *services.DiscordService, cfg *config.Config) *AppleAuthHandler {
 	return &AppleAuthHandler{
-		appleAuthService: services.NewAppleAuthService(nil, cfg),
-		discordService:   services.NewDiscordService(cfg),
+		appleAuthService: appleAuthService,
+		discordService:   discordService,
 		config:           cfg,
 	}
 }

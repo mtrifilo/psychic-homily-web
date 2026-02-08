@@ -184,14 +184,20 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 		}
 		isHeadliner := sa.SetType == "headliner"
 		isNewArtist := false
+		var slug string
+		if artist.Slug != nil {
+			slug = *artist.Slug
+		}
 		artistsByShow[sa.ShowID] = append(artistsByShow[sa.ShowID], ArtistResponse{
-			ID:          artist.ID,
-			Name:        artist.Name,
-			State:       artist.State,
-			City:        artist.City,
-			IsHeadliner: &isHeadliner,
-			IsNewArtist: &isNewArtist,
-			Socials:     socials,
+			ID:               artist.ID,
+			Slug:             slug,
+			Name:             artist.Name,
+			State:            artist.State,
+			City:             artist.City,
+			IsHeadliner:      &isHeadliner,
+			IsNewArtist:      &isNewArtist,
+			BandcampEmbedURL: artist.BandcampEmbedURL,
+			Socials:          socials,
 		})
 	}
 
@@ -216,8 +222,13 @@ func (s *SavedShowService) buildShowResponse(show *models.Show, artistsByShow ma
 	// Build venue responses
 	venues := make([]VenueResponse, len(show.Venues))
 	for i, venue := range show.Venues {
+		var venueSlug string
+		if venue.Slug != nil {
+			venueSlug = *venue.Slug
+		}
 		venues[i] = VenueResponse{
 			ID:       venue.ID,
+			Slug:     venueSlug,
 			Name:     venue.Name,
 			Address:  venue.Address,
 			City:     venue.City,
@@ -228,22 +239,33 @@ func (s *SavedShowService) buildShowResponse(show *models.Show, artistsByShow ma
 
 	artists := artistsByShow[show.ID]
 
+	showSlug := ""
+	if show.Slug != nil {
+		showSlug = *show.Slug
+	}
 	return &ShowResponse{
-		ID:              show.ID,
-		Title:           show.Title,
-		EventDate:       show.EventDate,
-		City:            show.City,
-		State:           show.State,
-		Price:           show.Price,
-		AgeRequirement:  show.AgeRequirement,
-		Description:     show.Description,
-		Status:          string(show.Status),
-		SubmittedBy:     show.SubmittedBy,
-		RejectionReason: show.RejectionReason,
-		Venues:          venues,
-		Artists:         artists,
-		CreatedAt:       show.CreatedAt,
-		UpdatedAt:       show.UpdatedAt,
+		ID:                show.ID,
+		Slug:              showSlug,
+		Title:             show.Title,
+		EventDate:         show.EventDate,
+		City:              show.City,
+		State:             show.State,
+		Price:             show.Price,
+		AgeRequirement:    show.AgeRequirement,
+		Description:       show.Description,
+		Status:            string(show.Status),
+		SubmittedBy:       show.SubmittedBy,
+		RejectionReason:   show.RejectionReason,
+		Venues:            venues,
+		Artists:           artists,
+		CreatedAt:         show.CreatedAt,
+		UpdatedAt:         show.UpdatedAt,
+		IsSoldOut:         show.IsSoldOut,
+		IsCancelled:       show.IsCancelled,
+		Source:            string(show.Source),
+		SourceVenue:       show.SourceVenue,
+		ScrapedAt:         show.ScrapedAt,
+		DuplicateOfShowID: show.DuplicateOfShowID,
 	}
 }
 

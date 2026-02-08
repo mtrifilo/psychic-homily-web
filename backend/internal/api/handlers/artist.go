@@ -30,9 +30,9 @@ type ArtistHandler struct {
 	artistService *services.ArtistService
 }
 
-func NewArtistHandler() *ArtistHandler {
+func NewArtistHandler(artistService *services.ArtistService) *ArtistHandler {
 	return &ArtistHandler{
-		artistService: services.NewArtistService(nil),
+		artistService: artistService,
 	}
 }
 

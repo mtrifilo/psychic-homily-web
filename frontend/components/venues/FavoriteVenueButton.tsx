@@ -20,7 +20,7 @@ export function FavoriteVenueButton({
   showLabel = false,
 }: FavoriteVenueButtonProps) {
   const { isAuthenticated } = useAuthContext()
-  const { isFavorited, isLoading, toggle, error } = useFavoriteVenueToggle(venueId)
+  const { isFavorited, isLoading, toggle, error } = useFavoriteVenueToggle(venueId, isAuthenticated)
   const [showError, setShowError] = useState(false)
 
   // Don't render if not authenticated

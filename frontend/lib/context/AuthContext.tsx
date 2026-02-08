@@ -86,6 +86,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const setUser = useCallback((newUser: User | null) => {
     setUserOverride(newUser)
+    setErrorOverride(null)
   }, [])
 
   const setError = useCallback((newError: string | null) => {

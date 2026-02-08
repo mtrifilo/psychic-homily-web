@@ -4,13 +4,16 @@ import { useState } from 'react'
 import { Clock, Loader2, Inbox, XCircle } from 'lucide-react'
 import { usePendingShows, useRejectedShows } from '@/lib/hooks/useAdminShows'
 import { PendingShowCard, RejectedShowCard } from '@/components/admin'
+import { useAuthContext } from '@/lib/context/AuthContext'
 
 type ShowView = 'pending' | 'rejected'
 
 export default function PendingShowsPage() {
   const [view, setView] = useState<ShowView>('pending')
-  const { data: pendingData, isLoading: pendingLoading, error: pendingError } = usePendingShows()
-  const { data: rejectedData, isLoading: rejectedLoading, error: rejectedError } = useRejectedShows()
+  const { user } = useAuthContext()
+  const isAdmin = !!user?.is_admin
+  const { data: pendingData, isLoading: pendingLoading, error: pendingError } = usePendingShows({ enabled: isAdmin })
+  const { data: rejectedData, isLoading: rejectedLoading, error: rejectedError } = useRejectedShows({ enabled: isAdmin })
 
   const isLoading = view === 'pending' ? pendingLoading : rejectedLoading
   const error = view === 'pending' ? pendingError : rejectedError

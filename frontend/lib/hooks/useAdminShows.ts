@@ -24,9 +24,10 @@ export const adminQueryKeys = {
 /**
  * Hook for fetching pending shows (admin only)
  */
-export function usePendingShows(options?: { limit?: number; offset?: number }) {
+export function usePendingShows(options?: { limit?: number; offset?: number; enabled?: boolean }) {
   const limit = options?.limit ?? 50
   const offset = options?.offset ?? 0
+  const enabled = options?.enabled ?? true
 
   return useQuery({
     queryKey: adminQueryKeys.pendingShows(limit, offset),
@@ -39,6 +40,7 @@ export function usePendingShows(options?: { limit?: number; offset?: number }) {
         `${API_ENDPOINTS.ADMIN.SHOWS.PENDING}?${params}`
       )
     },
+    enabled,
     staleTime: 30 * 1000, // 30 seconds - shorter for admin data
   })
 }
@@ -50,10 +52,12 @@ export function useRejectedShows(options?: {
   limit?: number
   offset?: number
   search?: string
+  enabled?: boolean
 }) {
   const limit = options?.limit ?? 50
   const offset = options?.offset ?? 0
   const search = options?.search
+  const enabled = options?.enabled ?? true
 
   return useQuery({
     queryKey: adminQueryKeys.rejectedShows(limit, offset, search),
@@ -69,6 +73,7 @@ export function useRejectedShows(options?: {
         `${API_ENDPOINTS.ADMIN.SHOWS.REJECTED}?${params}`
       )
     },
+    enabled,
     staleTime: 30 * 1000, // 30 seconds - shorter for admin data
   })
 }

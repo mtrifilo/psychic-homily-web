@@ -20,7 +20,7 @@ export function SaveButton({
   showLabel = false,
 }: SaveButtonProps) {
   const { isAuthenticated } = useAuthContext()
-  const { isSaved, isLoading, toggle, error } = useSaveShowToggle(showId)
+  const { isSaved, isLoading, toggle, error } = useSaveShowToggle(showId, isAuthenticated)
   const [showError, setShowError] = useState(false)
 
   // Don't render if not authenticated

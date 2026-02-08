@@ -8,6 +8,7 @@ import type { MySubmissionsResponse } from '../types/show'
 interface UseMySubmissionsOptions {
   limit?: number
   offset?: number
+  enabled?: boolean
 }
 
 /**
@@ -16,7 +17,7 @@ interface UseMySubmissionsOptions {
  * Requires authentication
  */
 export const useMySubmissions = (options: UseMySubmissionsOptions = {}) => {
-  const { limit = 50, offset = 0 } = options
+  const { limit = 50, offset = 0, enabled = true } = options
 
   const params = new URLSearchParams()
   params.set('limit', limit.toString())
@@ -31,6 +32,7 @@ export const useMySubmissions = (options: UseMySubmissionsOptions = {}) => {
         method: 'GET',
       })
     },
+    enabled,
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }

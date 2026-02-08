@@ -13,6 +13,7 @@ import type {
 interface UseFavoriteVenuesOptions {
   limit?: number
   offset?: number
+  enabled?: boolean
 }
 
 /**
@@ -20,7 +21,7 @@ interface UseFavoriteVenuesOptions {
  * Requires authentication
  */
 export const useFavoriteVenues = (options: UseFavoriteVenuesOptions = {}) => {
-  const { limit = 50, offset = 0 } = options
+  const { limit = 50, offset = 0, enabled = true } = options
 
   const params = new URLSearchParams()
   params.set('limit', limit.toString())
@@ -35,6 +36,7 @@ export const useFavoriteVenues = (options: UseFavoriteVenuesOptions = {}) => {
         method: 'GET',
       })
     },
+    enabled,
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }
@@ -43,7 +45,7 @@ export const useFavoriteVenues = (options: UseFavoriteVenuesOptions = {}) => {
  * Hook to check if a specific venue is favorited
  * Requires authentication
  */
-export const useIsVenueFavorited = (venueId: number | string | null) => {
+export const useIsVenueFavorited = (venueId: number | string | null, isAuthenticated: boolean) => {
   return useQuery({
     queryKey: queryKeys.favoriteVenues.check(String(venueId)),
     queryFn: async (): Promise<CheckFavoritedResponse> => {
@@ -54,7 +56,7 @@ export const useIsVenueFavorited = (venueId: number | string | null) => {
         }
       )
     },
-    enabled: Boolean(venueId),
+    enabled: Boolean(venueId) && isAuthenticated,
     staleTime: 30 * 1000, // 30 seconds (shorter since favorite state can change)
   })
 }
@@ -119,9 +121,9 @@ export const useUnfavoriteVenue = () => {
  * Combined hook that provides favorite/unfavorite toggle functionality
  * Includes optimistic updates for better UX
  */
-export const useFavoriteVenueToggle = (venueId: number) => {
+export const useFavoriteVenueToggle = (venueId: number, isAuthenticated: boolean) => {
   const queryClient = useQueryClient()
-  const { data: favoritedStatus } = useIsVenueFavorited(venueId)
+  const { data: favoritedStatus } = useIsVenueFavorited(venueId, isAuthenticated)
   const favoriteVenue = useFavoriteVenue()
   const unfavoriteVenue = useUnfavoriteVenue()
 
@@ -163,6 +165,7 @@ interface UseFavoriteVenueShowsOptions {
   timezone?: string
   limit?: number
   offset?: number
+  enabled?: boolean
 }
 
 /**
@@ -176,6 +179,7 @@ export const useFavoriteVenueShows = (
     timezone = Intl.DateTimeFormat().resolvedOptions().timeZone,
     limit = 50,
     offset = 0,
+    enabled = true,
   } = options
 
   const params = new URLSearchParams()
@@ -192,6 +196,7 @@ export const useFavoriteVenueShows = (
         method: 'GET',
       })
     },
+    enabled,
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }

@@ -467,15 +467,56 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 		}
 	}
 
+	// Batch-load all ShowVenue records
+	showIDsList := make([]uint, len(shows))
+	for i, show := range shows {
+		showIDsList[i] = show.ID
+	}
+
+	var allShowVenues []models.ShowVenue
+	s.db.Where("show_id IN ?", showIDsList).Find(&allShowVenues)
+
+	// Batch-fetch all venue models
+	venueIDs := make([]uint, 0, len(allShowVenues))
+	showVenueMap := make(map[uint]uint) // showID -> venueID
+	for _, sv := range allShowVenues {
+		showVenueMap[sv.ShowID] = sv.VenueID
+		venueIDs = append(venueIDs, sv.VenueID)
+	}
+	venueMap := make(map[uint]*models.Venue)
+	if len(venueIDs) > 0 {
+		var venues []models.Venue
+		s.db.Where("id IN ?", venueIDs).Find(&venues)
+		for i := range venues {
+			venueMap[venues[i].ID] = &venues[i]
+		}
+	}
+
+	// Batch-load all ShowArtist records
+	var allShowArtists []models.ShowArtist
+	s.db.Where("show_id IN ?", showIDsList).Order("position ASC").Find(&allShowArtists)
+	showArtistsMap := make(map[uint][]models.ShowArtist)
+	var allArtistIDs []uint
+	for _, sa := range allShowArtists {
+		showArtistsMap[sa.ShowID] = append(showArtistsMap[sa.ShowID], sa)
+		allArtistIDs = append(allArtistIDs, sa.ArtistID)
+	}
+	artistMap := make(map[uint]*models.Artist)
+	if len(allArtistIDs) > 0 {
+		var artists []models.Artist
+		s.db.Where("id IN ?", allArtistIDs).Find(&artists)
+		for i := range artists {
+			artistMap[artists[i].ID] = &artists[i]
+		}
+	}
+
 	// Build responses
 	responses := make([]*ArtistShowResponse, len(shows))
 	for i, show := range shows {
-		// Get venue for this show
-		var showVenue models.ShowVenue
+		// Look up venue for this show
 		var venue *ArtistShowVenueResponse
-		if err := s.db.Where("show_id = ?", show.ID).First(&showVenue).Error; err == nil {
-			var venueModel models.Venue
-			if err := s.db.First(&venueModel, showVenue.VenueID).Error; err == nil {
+		if venueID, ok := showVenueMap[show.ID]; ok {
+			if venueModel, ok := venueMap[venueID]; ok {
 				var venueSlug string
 				if venueModel.Slug != nil {
 					venueSlug = *venueModel.Slug
@@ -490,14 +531,10 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 			}
 		}
 
-		// Get ordered artists for this show
-		var showArtists []models.ShowArtist
-		s.db.Where("show_id = ?", show.ID).Order("position ASC").Find(&showArtists)
-
+		// Look up ordered artists for this show
 		artists := make([]ArtistShowArtist, 0)
-		for _, sa := range showArtists {
-			var artistModel models.Artist
-			if err := s.db.First(&artistModel, sa.ArtistID).Error; err == nil {
+		for _, sa := range showArtistsMap[show.ID] {
+			if artistModel, ok := artistMap[sa.ArtistID]; ok {
 				var artistSlug string
 				if artistModel.Slug != nil {
 					artistSlug = *artistModel.Slug

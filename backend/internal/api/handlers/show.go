@@ -11,7 +11,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/middleware"
-	"psychic-homily-backend/internal/config"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
@@ -27,13 +26,19 @@ type ShowHandler struct {
 }
 
 // NewShowHandler creates a new show handler
-func NewShowHandler(cfg *config.Config) *ShowHandler {
+func NewShowHandler(
+	showService *services.ShowService,
+	savedShowService *services.SavedShowService,
+	discordService *services.DiscordService,
+	musicDiscoveryService *services.MusicDiscoveryService,
+	extractionService *services.ExtractionService,
+) *ShowHandler {
 	return &ShowHandler{
-		showService:           services.NewShowService(nil),
-		savedShowService:      services.NewSavedShowService(nil),
-		discordService:        services.NewDiscordService(cfg),
-		musicDiscoveryService: services.NewMusicDiscoveryService(cfg),
-		extractionService:     services.NewExtractionService(nil, cfg),
+		showService:           showService,
+		savedShowService:      savedShowService,
+		discordService:        discordService,
+		musicDiscoveryService: musicDiscoveryService,
+		extractionService:     extractionService,
 	}
 }
 

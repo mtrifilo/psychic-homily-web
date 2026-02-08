@@ -8,7 +8,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/middleware"
-	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
 )
@@ -22,12 +21,17 @@ type ShowReportHandler struct {
 }
 
 // NewShowReportHandler creates a new show report handler
-func NewShowReportHandler(cfg *config.Config) *ShowReportHandler {
+func NewShowReportHandler(
+	showReportService *services.ShowReportService,
+	discordService *services.DiscordService,
+	userService *services.UserService,
+	auditLogService *services.AuditLogService,
+) *ShowReportHandler {
 	return &ShowReportHandler{
-		showReportService: services.NewShowReportService(nil),
-		discordService:    services.NewDiscordService(cfg),
-		userService:       services.NewUserService(nil),
-		auditLogService:   services.NewAuditLogService(nil),
+		showReportService: showReportService,
+		discordService:    discordService,
+		userService:       userService,
+		auditLogService:   auditLogService,
 	}
 }
 

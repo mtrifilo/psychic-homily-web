@@ -19,33 +19,29 @@ import (
 )
 
 // SetupRoutes configures all API routes
-func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
+func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Config) huma.API {
 	api := humachi.New(router, huma.DefaultConfig("Psychic Homily", "1.0.0"))
 
 	// Add request ID middleware to all Huma routes
 	api.UseMiddleware(middleware.HumaRequestIDMiddleware)
 
-	// Create services
-	authService := services.NewAuthService(nil, cfg)
-	jwtService := services.NewJWTService(nil, cfg)
-
 	// Setup domain-specific routes
 	setupSystemRoutes(router, api)
-	setupAuthRoutes(router, api, authService, jwtService, cfg)
+	setupAuthRoutes(router, api, sc, cfg)
 
 	// Create a protected group that will require authentication
 	protectedGroup := huma.NewGroup(api, "")
-	protectedGroup.UseMiddleware(middleware.HumaJWTMiddleware(jwtService, cfg.Session))
+	protectedGroup.UseMiddleware(middleware.HumaJWTMiddleware(sc.JWT, cfg.Session))
 
 	// Add protected auth routes
-	authHandler := handlers.NewAuthHandler(authService, jwtService, services.NewUserService(nil), cfg)
+	authHandler := handlers.NewAuthHandler(sc.Auth, sc.JWT, sc.User, sc.Email, sc.Discord, sc.PasswordValidator, cfg)
 	huma.Get(protectedGroup, "/auth/profile", authHandler.GetProfileHandler)
 	huma.Post(protectedGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
 	huma.Post(protectedGroup, "/auth/change-password", authHandler.ChangePasswordHandler)
 
 	// Token refresh uses lenient middleware (accepts tokens expired within 7 days)
 	lenientGroup := huma.NewGroup(api, "")
-	lenientGroup.UseMiddleware(middleware.LenientHumaJWTMiddleware(jwtService, 7*24*time.Hour))
+	lenientGroup.UseMiddleware(middleware.LenientHumaJWTMiddleware(sc.JWT, 7*24*time.Hour))
 	huma.Post(lenientGroup, "/auth/refresh", authHandler.RefreshTokenHandler)
 
 	// Account deletion endpoints
@@ -59,7 +55,7 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	huma.Post(protectedGroup, "/auth/cli-token", authHandler.GenerateCLITokenHandler)
 
 	// OAuth account management endpoints
-	oauthAccountHandler := handlers.NewOAuthAccountHandler()
+	oauthAccountHandler := handlers.NewOAuthAccountHandler(sc.User)
 	huma.Get(protectedGroup, "/auth/oauth/accounts", oauthAccountHandler.GetOAuthAccountsHandler)
 	huma.Delete(protectedGroup, "/auth/oauth/accounts/{provider}", oauthAccountHandler.UnlinkOAuthAccountHandler)
 
@@ -70,25 +66,23 @@ func SetupRoutes(router *chi.Mux, cfg *config.Config) huma.API {
 	// These are registered in setupAuthRoutes with rate limiting
 
 	// Setup passkey routes (some public, some protected) - with rate limiting
-	setupPasskeyRoutes(router, api, protectedGroup, jwtService, cfg)
+	setupPasskeyRoutes(router, api, protectedGroup, sc, cfg)
 
-	setupShowRoutes(api, protectedGroup, cfg, jwtService)
-	setupArtistRoutes(api, protectedGroup)
-	setupVenueRoutes(api, protectedGroup, cfg)
-	setupSavedShowRoutes(protectedGroup)
-	setupFavoriteVenueRoutes(protectedGroup)
-	setupShowReportRoutes(protectedGroup, cfg)
-	setupAdminRoutes(protectedGroup, cfg)
+	setupShowRoutes(router, api, protectedGroup, sc, cfg)
+	setupArtistRoutes(api, protectedGroup, sc)
+	setupVenueRoutes(api, protectedGroup, sc)
+	setupSavedShowRoutes(protectedGroup, sc)
+	setupFavoriteVenueRoutes(protectedGroup, sc)
+	setupShowReportRoutes(router, protectedGroup, sc, cfg)
+	setupAdminRoutes(protectedGroup, sc)
 
 	return api
 }
 
 // setupAuthRoutes configures all authentication-related endpoints
-func setupAuthRoutes(router *chi.Mux, api huma.API, authService *services.AuthService,
-	jwtService *services.JWTService, cfg *config.Config) {
-	userService := services.NewUserService(nil)
-	authHandler := handlers.NewAuthHandler(authService, jwtService, userService, cfg)
-	oauthHTTPHandler := handlers.NewOAuthHTTPHandler(authService, cfg)
+func setupAuthRoutes(router *chi.Mux, api huma.API, sc *services.ServiceContainer, cfg *config.Config) {
+	authHandler := handlers.NewAuthHandler(sc.Auth, sc.JWT, sc.User, sc.Email, sc.Discord, sc.PasswordValidator, cfg)
+	oauthHTTPHandler := handlers.NewOAuthHTTPHandler(sc.Auth, cfg)
 
 	// Create rate limiter for auth endpoints: 10 requests per minute per IP
 	// This helps prevent:
@@ -125,7 +119,7 @@ func setupAuthRoutes(router *chi.Mux, api huma.API, authService *services.AuthSe
 		huma.Post(rateLimitedAPI, "/auth/magic-link/verify", authHandler.VerifyMagicLinkHandler)
 
 		// Sign in with Apple (public, rate-limited)
-		appleAuthHandler := handlers.NewAppleAuthHandler(cfg)
+		appleAuthHandler := handlers.NewAppleAuthHandler(sc.AppleAuth, sc.Discord, cfg)
 		huma.Post(rateLimitedAPI, "/auth/apple/callback", appleAuthHandler.AppleCallbackHandler)
 
 		// Account recovery endpoints (public, rate-limited)
@@ -151,17 +145,13 @@ func setupSystemRoutes(router *chi.Mux, api huma.API) {
 }
 
 // setupPasskeyRoutes configures WebAuthn/passkey endpoints
-func setupPasskeyRoutes(router *chi.Mux, api huma.API, protected *huma.Group, jwtService *services.JWTService, cfg *config.Config) {
-	// Initialize WebAuthn service
-	webauthnService, err := services.NewWebAuthnService(nil, cfg)
-	if err != nil {
-		// Log error but don't fail - passkeys are optional
-		// In production, you might want to handle this differently
+func setupPasskeyRoutes(router *chi.Mux, api huma.API, protected *huma.Group, sc *services.ServiceContainer, cfg *config.Config) {
+	if sc.WebAuthn == nil {
+		// WebAuthn service failed to initialize - passkeys are optional
 		return
 	}
 
-	userService := services.NewUserService(nil)
-	passkeyHandler := handlers.NewPasskeyHandler(webauthnService, jwtService, userService, cfg)
+	passkeyHandler := handlers.NewPasskeyHandler(sc.WebAuthn, sc.JWT, sc.User, cfg)
 
 	// Create rate limiter for passkey endpoints: 20 requests per minute per IP
 	// Slightly more lenient than auth due to multi-step WebAuthn flow
@@ -197,9 +187,9 @@ func setupPasskeyRoutes(router *chi.Mux, api huma.API, protected *huma.Group, jw
 	huma.Delete(protected, "/auth/passkey/credentials/{credential_id}", passkeyHandler.DeleteCredentialHandler)
 }
 
-// SetupShowRoutes configures all show-related endpoints
-func setupShowRoutes(api huma.API, protected *huma.Group, cfg *config.Config, jwtService *services.JWTService) {
-	showHandler := handlers.NewShowHandler(cfg)
+// setupShowRoutes configures all show-related endpoints
+func setupShowRoutes(router *chi.Mux, api huma.API, protected *huma.Group, sc *services.ServiceContainer, cfg *config.Config) {
+	showHandler := handlers.NewShowHandler(sc.Show, sc.SavedShow, sc.Discord, sc.MusicDiscovery, sc.Extraction)
 
 	// Public show endpoints - registered on main API without middleware
 	// Note: Static routes must come before parameterized routes
@@ -209,7 +199,7 @@ func setupShowRoutes(api huma.API, protected *huma.Group, cfg *config.Config, jw
 
 	// Show detail with optional auth for access control on non-approved shows
 	optionalAuthGroup := huma.NewGroup(api, "")
-	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(jwtService))
+	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(sc.JWT))
 	huma.Get(optionalAuthGroup, "/shows/{show_id}", showHandler.GetShowHandler)
 
 	// Export endpoint - only register in development environment
@@ -217,8 +207,37 @@ func setupShowRoutes(api huma.API, protected *huma.Group, cfg *config.Config, jw
 		huma.Get(api, "/shows/{show_id}/export", showHandler.ExportShowHandler)
 	}
 
-	// Protected show endpoints - registered on protected group with middleware
-	huma.Post(protected, "/shows", showHandler.CreateShowHandler)
+	// Rate-limited show creation: 10 requests per hour per IP
+	// Prevents flooding the admin approval queue
+	router.Group(func(r chi.Router) {
+		r.Use(httprate.Limit(
+			middleware.ShowCreateRequestsPerHour,
+			time.Hour,
+			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithLimitHandler(rateLimitHandler),
+		))
+		showCreateAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Show Create", "1.0.0"))
+		showCreateAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
+		showCreateAPI.UseMiddleware(middleware.HumaJWTMiddleware(sc.JWT, cfg.Session))
+		huma.Post(showCreateAPI, "/shows", showHandler.CreateShowHandler)
+	})
+
+	// Rate-limited AI processing: 5 requests per minute per IP
+	// Calls external Anthropic API — expensive operation
+	router.Group(func(r chi.Router) {
+		r.Use(httprate.Limit(
+			middleware.AIProcessRequestsPerMinute,
+			time.Minute,
+			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithLimitHandler(rateLimitHandler),
+		))
+		aiProcessAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily AI Process", "1.0.0"))
+		aiProcessAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
+		aiProcessAPI.UseMiddleware(middleware.HumaJWTMiddleware(sc.JWT, cfg.Session))
+		huma.Post(aiProcessAPI, "/shows/ai-process", showHandler.AIProcessShowHandler)
+	})
+
+	// Protected show endpoints (no additional rate limiting needed)
 	huma.Put(protected, "/shows/{show_id}", showHandler.UpdateShowHandler)
 	huma.Delete(protected, "/shows/{show_id}", showHandler.DeleteShowHandler)
 	huma.Post(protected, "/shows/{show_id}/unpublish", showHandler.UnpublishShowHandler)
@@ -227,11 +246,10 @@ func setupShowRoutes(api huma.API, protected *huma.Group, cfg *config.Config, jw
 	huma.Post(protected, "/shows/{show_id}/sold-out", showHandler.SetShowSoldOutHandler)
 	huma.Post(protected, "/shows/{show_id}/cancelled", showHandler.SetShowCancelledHandler)
 	huma.Get(protected, "/shows/my-submissions", showHandler.GetMySubmissionsHandler)
-	huma.Post(protected, "/shows/ai-process", showHandler.AIProcessShowHandler)
 }
 
-func setupArtistRoutes(api huma.API, protected *huma.Group) {
-	artistHandler := handlers.NewArtistHandler()
+func setupArtistRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
+	artistHandler := handlers.NewArtistHandler(sc.Artist)
 
 	// Public artist endpoints - registered on main API without middleware
 	// Note: Static routes must come before parameterized routes
@@ -244,8 +262,8 @@ func setupArtistRoutes(api huma.API, protected *huma.Group) {
 	huma.Delete(protected, "/artists/{artist_id}", artistHandler.DeleteArtistHandler)
 }
 
-func setupVenueRoutes(api huma.API, protected *huma.Group, cfg *config.Config) {
-	venueHandler := handlers.NewVenueHandler(cfg)
+func setupVenueRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
+	venueHandler := handlers.NewVenueHandler(sc.Venue, sc.Discord)
 
 	// Public venue endpoints - registered on main API without middleware
 	// Note: Static routes must come before parameterized routes
@@ -264,8 +282,8 @@ func setupVenueRoutes(api huma.API, protected *huma.Group, cfg *config.Config) {
 
 // setupSavedShowRoutes configures saved show endpoints (user's personal "My List")
 // All endpoints require authentication via protected group
-func setupSavedShowRoutes(protected *huma.Group) {
-	savedShowHandler := handlers.NewSavedShowHandler()
+func setupSavedShowRoutes(protected *huma.Group, sc *services.ServiceContainer) {
+	savedShowHandler := handlers.NewSavedShowHandler(sc.SavedShow)
 
 	// Protected saved show endpoints
 	huma.Post(protected, "/saved-shows/{show_id}", savedShowHandler.SaveShowHandler)
@@ -276,8 +294,8 @@ func setupSavedShowRoutes(protected *huma.Group) {
 
 // setupFavoriteVenueRoutes configures favorite venue endpoints
 // All endpoints require authentication via protected group
-func setupFavoriteVenueRoutes(protected *huma.Group) {
-	favoriteVenueHandler := handlers.NewFavoriteVenueHandler()
+func setupFavoriteVenueRoutes(protected *huma.Group, sc *services.ServiceContainer) {
+	favoriteVenueHandler := handlers.NewFavoriteVenueHandler(sc.FavoriteVenue)
 
 	// Protected favorite venue endpoints
 	huma.Post(protected, "/favorite-venues/{venue_id}", favoriteVenueHandler.FavoriteVenueHandler)
@@ -289,11 +307,25 @@ func setupFavoriteVenueRoutes(protected *huma.Group) {
 
 // setupShowReportRoutes configures show report endpoints
 // All endpoints require authentication via protected group
-func setupShowReportRoutes(protected *huma.Group, cfg *config.Config) {
-	showReportHandler := handlers.NewShowReportHandler(cfg)
+func setupShowReportRoutes(router *chi.Mux, protected *huma.Group, sc *services.ServiceContainer, cfg *config.Config) {
+	showReportHandler := handlers.NewShowReportHandler(sc.ShowReport, sc.Discord, sc.User, sc.AuditLog)
 
-	// User endpoints for reporting shows
-	huma.Post(protected, "/shows/{show_id}/report", showReportHandler.ReportShowHandler)
+	// Rate-limited report submission: 5 requests per minute per IP
+	// Prevents spamming admins with reports
+	router.Group(func(r chi.Router) {
+		r.Use(httprate.Limit(
+			middleware.ReportRequestsPerMinute,
+			time.Minute,
+			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithLimitHandler(rateLimitHandler),
+		))
+		reportAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Reports", "1.0.0"))
+		reportAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
+		reportAPI.UseMiddleware(middleware.HumaJWTMiddleware(sc.JWT, cfg.Session))
+		huma.Post(reportAPI, "/shows/{show_id}/report", showReportHandler.ReportShowHandler)
+	})
+
+	// Protected report endpoints (no additional rate limiting)
 	huma.Get(protected, "/shows/{show_id}/my-report", showReportHandler.GetMyReportHandler)
 
 	// Admin endpoints for managing reports
@@ -304,10 +336,13 @@ func setupShowReportRoutes(protected *huma.Group, cfg *config.Config) {
 
 // setupAdminRoutes configures admin-only endpoints
 // Note: Admin check is performed inside handlers, JWT auth is required via protected group
-func setupAdminRoutes(protected *huma.Group, cfg *config.Config) {
-	adminHandler := handlers.NewAdminHandler(cfg)
-	artistHandler := handlers.NewArtistHandler()
-	auditLogHandler := handlers.NewAuditLogHandler()
+func setupAdminRoutes(protected *huma.Group, sc *services.ServiceContainer) {
+	adminHandler := handlers.NewAdminHandler(
+		sc.Show, sc.Venue, sc.Discord, sc.MusicDiscovery, sc.Discovery,
+		sc.APIToken, sc.DataSync, sc.AuditLog, sc.User, sc.AdminStats,
+	)
+	artistHandler := handlers.NewArtistHandler(sc.Artist)
+	auditLogHandler := handlers.NewAuditLogHandler(sc.AuditLog)
 
 	// Admin dashboard stats endpoint
 	huma.Get(protected, "/admin/stats", adminHandler.GetAdminStatsHandler)

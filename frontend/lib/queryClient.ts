@@ -32,8 +32,10 @@ const defaultQueryOptions: DefaultOptions = {
     refetchOnReconnect: true,
   },
   mutations: {
-    // Retry mutations once on failure
-    retry: 1,
+    // Don't retry mutations by default — auth mutations (login, register,
+    // password change) and other non-idempotent operations shouldn't silently
+    // retry. Individual mutations can opt into retry if needed.
+    retry: 0,
   },
 }
 
@@ -47,8 +49,10 @@ function isSessionExpiredError(error: unknown): boolean {
   return (
     apiError?.code === AuthErrorCode.TOKEN_EXPIRED ||
     apiError?.code === AuthErrorCode.TOKEN_INVALID ||
+    apiError?.code === AuthErrorCode.TOKEN_MISSING ||
     apiError?.error_code === AuthErrorCode.TOKEN_EXPIRED ||
-    apiError?.error_code === AuthErrorCode.TOKEN_INVALID
+    apiError?.error_code === AuthErrorCode.TOKEN_INVALID ||
+    apiError?.error_code === AuthErrorCode.TOKEN_MISSING
   )
 }
 

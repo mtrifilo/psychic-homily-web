@@ -18,9 +18,9 @@ type SavedShowHandler struct {
 }
 
 // NewSavedShowHandler creates a new saved show handler
-func NewSavedShowHandler() *SavedShowHandler {
+func NewSavedShowHandler(savedShowService *services.SavedShowService) *SavedShowHandler {
 	return &SavedShowHandler{
-		savedShowService: services.NewSavedShowService(nil),
+		savedShowService: savedShowService,
 	}
 }
 

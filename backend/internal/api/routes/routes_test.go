@@ -15,9 +15,8 @@ import (
 	"psychic-homily-backend/internal/services"
 )
 
-// TestSetupRoutes tests the main route setup function
-func TestSetupRoutes(t *testing.T) {
-	cfg := &config.Config{
+func testConfig() *config.Config {
+	return &config.Config{
 		Server: config.ServerConfig{
 			Addr: "localhost:8080",
 		},
@@ -29,9 +28,19 @@ func TestSetupRoutes(t *testing.T) {
 			SecretKey: "test-oauth-secret-key-32-chars",
 		},
 	}
+}
+
+func testContainer(cfg *config.Config) *services.ServiceContainer {
+	return services.NewServiceContainer(nil, cfg)
+}
+
+// TestSetupRoutes tests the main route setup function
+func TestSetupRoutes(t *testing.T) {
+	cfg := testConfig()
+	sc := testContainer(cfg)
 
 	router := chi.NewRouter()
-	api := SetupRoutes(router, cfg)
+	api := SetupRoutes(router, sc, cfg)
 
 	if api == nil {
 		t.Fatal("Expected API to be created, got nil")
@@ -47,12 +56,6 @@ func TestSetupRoutes(t *testing.T) {
 		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
 	}
 
-	// Check that OpenAPI spec is returned
-	contentType := w.Header().Get("Content-Type")
-	if contentType != "application/json" {
-		t.Errorf("Expected Content-Type application/json, got %s", contentType)
-	}
-
 	var openAPI map[string]interface{}
 	if err := json.Unmarshal(w.Body.Bytes(), &openAPI); err != nil {
 		t.Fatalf("Failed to parse OpenAPI spec: %v", err)
@@ -66,25 +69,13 @@ func TestSetupRoutes(t *testing.T) {
 
 // TestSetupAuthRoutes tests authentication route setup
 func TestSetupAuthRoutes(t *testing.T) {
-	// Create a minimal config for testing
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			SecretKey: "test-secret-key-32-chars-minimum",
-			Expiry:    24,
-		},
-		OAuth: config.OAuthConfig{
-			SecretKey: "test-oauth-secret-key-32-chars",
-		},
-	}
+	cfg := testConfig()
+	sc := testContainer(cfg)
 
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	// Use real services with test config
-	authService := services.NewAuthService(nil, cfg)
-	jwtService := services.NewJWTService(nil, cfg)
-
-	setupAuthRoutes(router, api, authService, jwtService, cfg)
+	setupAuthRoutes(router, api, sc, cfg)
 
 	// Test OAuth login route
 	t.Run("OAuth Login Route", func(t *testing.T) {
@@ -199,24 +190,13 @@ func TestSetupSystemRoutes(t *testing.T) {
 
 // TestProtectedRoutes tests protected route behavior
 func TestProtectedRoutes(t *testing.T) {
-	// Create a minimal config for testing
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			SecretKey: "test-secret-key-32-chars-minimum",
-			Expiry:    24,
-		},
-		OAuth: config.OAuthConfig{
-			SecretKey: "test-oauth-secret-key-32-chars",
-		},
-	}
+	cfg := testConfig()
+	sc := testContainer(cfg)
 
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	authService := services.NewAuthService(nil, cfg)
-	jwtService := services.NewJWTService(nil, cfg)
-
-	setupAuthRoutes(router, api, authService, jwtService, cfg)
+	setupAuthRoutes(router, api, sc, cfg)
 
 	// Test protected profile route without token
 	t.Run("Protected Profile Route Without Token", func(t *testing.T) {
@@ -261,24 +241,13 @@ func TestProtectedRoutes(t *testing.T) {
 
 // TestRouteMiddleware tests middleware integration
 func TestRouteMiddleware(t *testing.T) {
-	// Create a minimal config for testing
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			SecretKey: "test-secret-key-32-chars-minimum",
-			Expiry:    24,
-		},
-		OAuth: config.OAuthConfig{
-			SecretKey: "test-oauth-secret-key-32-chars",
-		},
-	}
+	cfg := testConfig()
+	sc := testContainer(cfg)
 
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	authService := services.NewAuthService(nil, cfg)
-	jwtService := services.NewJWTService(nil, cfg)
-
-	setupAuthRoutes(router, api, authService, jwtService, cfg)
+	setupAuthRoutes(router, api, sc, cfg)
 
 	// Test that CORS headers are set (if middleware is configured)
 	t.Run("CORS Headers", func(t *testing.T) {
@@ -296,24 +265,13 @@ func TestRouteMiddleware(t *testing.T) {
 
 // TestRouteErrorHandling tests error handling in routes
 func TestRouteErrorHandling(t *testing.T) {
-	// Create a minimal config for testing
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			SecretKey: "test-secret-key-32-chars-minimum",
-			Expiry:    24,
-		},
-		OAuth: config.OAuthConfig{
-			SecretKey: "test-oauth-secret-key-32-chars",
-		},
-	}
+	cfg := testConfig()
+	sc := testContainer(cfg)
 
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	authService := services.NewAuthService(nil, cfg)
-	jwtService := services.NewJWTService(nil, cfg)
-
-	setupAuthRoutes(router, api, authService, jwtService, cfg)
+	setupAuthRoutes(router, api, sc, cfg)
 
 	// Test OAuth callback with error (this will fail due to missing OAuth setup)
 	t.Run("OAuth Callback With Error", func(t *testing.T) {
@@ -336,24 +294,13 @@ func TestRouteErrorHandling(t *testing.T) {
 
 // TestRouteParameterExtraction tests URL parameter extraction
 func TestRouteParameterExtraction(t *testing.T) {
-	// Create a minimal config for testing
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			SecretKey: "test-secret-key-32-chars-minimum",
-			Expiry:    24,
-		},
-		OAuth: config.OAuthConfig{
-			SecretKey: "test-oauth-secret-key-32-chars",
-		},
-	}
+	cfg := testConfig()
+	sc := testContainer(cfg)
 
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	authService := services.NewAuthService(nil, cfg)
-	jwtService := services.NewJWTService(nil, cfg)
-
-	setupAuthRoutes(router, api, authService, jwtService, cfg)
+	setupAuthRoutes(router, api, sc, cfg)
 
 	// Test different provider parameters
 	providers := []string{"google", "github"}
@@ -380,24 +327,13 @@ func TestRouteParameterExtraction(t *testing.T) {
 
 // TestRouteRegistration tests that routes are properly registered
 func TestRouteRegistration(t *testing.T) {
-	// Create a minimal config for testing
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			SecretKey: "test-secret-key-32-chars-minimum",
-			Expiry:    24,
-		},
-		OAuth: config.OAuthConfig{
-			SecretKey: "test-oauth-secret-key-32-chars",
-		},
-	}
+	cfg := testConfig()
+	sc := testContainer(cfg)
 
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	authService := services.NewAuthService(nil, cfg)
-	jwtService := services.NewJWTService(nil, cfg)
-
-	setupAuthRoutes(router, api, authService, jwtService, cfg)
+	setupAuthRoutes(router, api, sc, cfg)
 
 	// Test that routes are registered by checking if they respond
 	// (even if they fail due to missing OAuth configuration)

@@ -12,6 +12,7 @@ import type {
 interface UseSavedShowsOptions {
   limit?: number
   offset?: number
+  enabled?: boolean
 }
 
 /**
@@ -19,7 +20,7 @@ interface UseSavedShowsOptions {
  * Requires authentication
  */
 export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
-  const { limit = 50, offset = 0 } = options
+  const { limit = 50, offset = 0, enabled = true } = options
 
   const params = new URLSearchParams()
   params.set('limit', limit.toString())
@@ -34,6 +35,7 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
         method: 'GET',
       })
     },
+    enabled,
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }
@@ -42,7 +44,7 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
  * Hook to check if a specific show is saved
  * Requires authentication
  */
-export const useIsShowSaved = (showId: number | string | null) => {
+export const useIsShowSaved = (showId: number | string | null, isAuthenticated: boolean) => {
   return useQuery({
     queryKey: queryKeys.savedShows.check(String(showId)),
     queryFn: async (): Promise<CheckSavedResponse> => {
@@ -53,7 +55,7 @@ export const useIsShowSaved = (showId: number | string | null) => {
         }
       )
     },
-    enabled: Boolean(showId),
+    enabled: Boolean(showId) && isAuthenticated,
     staleTime: 30 * 1000, // 30 seconds (shorter since save state can change)
   })
 }
@@ -118,9 +120,9 @@ export const useUnsaveShow = () => {
  * Combined hook that provides save/unsave toggle functionality
  * Includes optimistic updates for better UX
  */
-export const useSaveShowToggle = (showId: number) => {
+export const useSaveShowToggle = (showId: number, isAuthenticated: boolean) => {
   const queryClient = useQueryClient()
-  const { data: savedStatus } = useIsShowSaved(showId)
+  const { data: savedStatus } = useIsShowSaved(showId, isAuthenticated)
   const saveShow = useSaveShow()
   const unsaveShow = useUnsaveShow()
 
