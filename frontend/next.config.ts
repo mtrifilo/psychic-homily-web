@@ -15,6 +15,41 @@ const nextConfig: NextConfig = {
       '@tanstack/react-query',
     ],
   },
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          // Prevent clickjacking — page cannot be embedded in frames
+          { key: 'X-Frame-Options', value: 'DENY' },
+          // Prevent MIME type sniffing — browser must respect Content-Type
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          // Limit referrer info sent to other origins
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          // Disable browser features the app doesn't use
+          { key: 'Permissions-Policy', value: 'geolocation=(), microphone=(), camera=(), payment=(), usb=()' },
+          // Prevent Adobe cross-domain policy requests
+          { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
+          // CSP: Next.js requires 'unsafe-inline' for scripts without nonce middleware.
+          // Still provides value via frame-ancestors, base-uri, form-action, and connect-src restrictions.
+          {
+            key: 'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline'",
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data: blob:",
+              "font-src 'self'",
+              "connect-src 'self' https://api.psychichomily.com https://app.posthog.com",
+              "frame-ancestors 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+            ].join('; '),
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default withSentryConfig(nextConfig, {

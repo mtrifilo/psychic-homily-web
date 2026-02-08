@@ -390,13 +390,26 @@ var placeholderSecrets = []string{
 }
 
 // Validate checks that security-critical secrets are not placeholder defaults.
-// Only enforced when ENVIRONMENT is set and is not "development".
+// Skips validation only for explicit "development" environment or local database URLs.
 func (c *Config) Validate() error {
 	env := os.Getenv(EnvEnvironment)
-	if env == "" || env == EnvDevelopment {
+
+	// Explicit development mode — skip validation
+	if env == EnvDevelopment {
 		return nil
 	}
 
+	// ENVIRONMENT not set: check if we appear to be in a deployed context.
+	// A non-localhost DATABASE_URL without an explicit ENVIRONMENT is a misconfiguration.
+	if env == "" {
+		dbURL := os.Getenv(EnvDatabaseURL)
+		if dbURL == "" || strings.Contains(dbURL, "localhost") || strings.Contains(dbURL, "127.0.0.1") {
+			return nil // Appears to be local development
+		}
+		return fmt.Errorf("ENVIRONMENT is not set but DATABASE_URL points to a remote host; set ENVIRONMENT explicitly (production, stage, or development)")
+	}
+
+	// For production/stage, ensure secrets are not placeholders
 	for _, placeholder := range placeholderSecrets {
 		if c.JWT.SecretKey == placeholder {
 			return fmt.Errorf("JWT_SECRET_KEY is using a placeholder default; set a unique secret for %s", env)
@@ -409,14 +422,12 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// Helper function for environment variable parsing
+// GetEnv returns the value of an environment variable, or the default if unset.
+// Default values are not logged to avoid leaking secrets.
 func GetEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
 	}
-
-	log.Printf("Environment variable %s is not set. Falling back to default value: %s", key, defaultValue)
-
 	return defaultValue
 }
 
@@ -426,16 +437,11 @@ func GetEnv(key, defaultValue string) string {
 func getEnvAsInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		intValue, err := strconv.Atoi(value)
-
 		if err == nil {
 			return intValue
 		}
-
-		log.Printf("Environment variable %s is not a valid integer. Falling back to default value: %d", key, defaultValue)
+		log.Printf("Environment variable %s has invalid integer value, using default", key)
 	}
-
-	log.Printf("Environment variable %s is not set. Falling back to default value: %d", key, defaultValue)
-
 	return defaultValue
 }
 
@@ -448,8 +454,7 @@ func getEnvAsBool(key string, defaultValue bool) bool {
 		if err == nil {
 			return boolValue
 		}
-		log.Printf("Environment variable %s is not a valid boolean. Falling back to default value: %t", key, defaultValue)
+		log.Printf("Environment variable %s has invalid boolean value, using default", key)
 	}
-	log.Printf("Environment variable %s is not set. Falling back to default value: %t", key, defaultValue)
 	return defaultValue
 }

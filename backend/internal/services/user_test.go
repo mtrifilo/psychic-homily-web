@@ -195,19 +195,25 @@ func (suite *UserServiceIntegrationTestSuite) SetupSuite() {
 	suite.db = db
 
 	// Run migrations
-	migrationSQL, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", "000001_create_initial_schema.up.sql"))
-	if err != nil {
-		suite.T().Fatalf("failed to read migration file: %v", err)
-	}
-
 	sqlDB, err := db.DB()
 	if err != nil {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
 
-	_, err = sqlDB.Exec(string(migrationSQL))
-	if err != nil {
-		suite.T().Fatalf("failed to run migrations: %v", err)
+	migrations := []string{
+		"000001_create_initial_schema.up.sql",
+		"000012_add_user_deletion_fields.up.sql",
+		"000014_add_account_lockout.up.sql",
+	}
+	for _, m := range migrations {
+		migrationSQL, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", m))
+		if err != nil {
+			suite.T().Fatalf("failed to read migration file %s: %v", m, err)
+		}
+		_, err = sqlDB.Exec(string(migrationSQL))
+		if err != nil {
+			suite.T().Fatalf("failed to run migration %s: %v", m, err)
+		}
 	}
 
 	// Create UserService

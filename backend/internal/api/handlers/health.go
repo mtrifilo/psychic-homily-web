@@ -52,7 +52,16 @@ func checkDatabaseHealth(ctx context.Context) ComponentHealth {
 	start := time.Now()
 
 	// Get the underlying sql.DB from GORM
-	sqlDB, err := db.GetDB().DB()
+	gormDB := db.GetDB()
+	if gormDB == nil {
+		return ComponentHealth{
+			Status:  "unhealthy",
+			Latency: time.Since(start).String(),
+			Error:   "database not initialized",
+		}
+	}
+
+	sqlDB, err := gormDB.DB()
 	if err != nil {
 		return ComponentHealth{
 			Status:  "unhealthy",

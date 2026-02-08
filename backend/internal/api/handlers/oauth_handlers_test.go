@@ -213,6 +213,7 @@ func TestOAuthLoginHTTPHandler_NoProvider(t *testing.T) {
 
 func TestOAuthCallbackHTTPHandler_Success(t *testing.T) {
 	email := "user@example.com"
+	emptyEmail := ""
 	tests := []struct {
 		name           string
 		provider       string
@@ -248,7 +249,7 @@ func TestOAuthCallbackHTTPHandler_Success(t *testing.T) {
 			provider: "google",
 			user: &models.User{
 				ID:    3,
-				Email: &email,
+				Email: &emptyEmail,
 			},
 			token:          "jwt-token-789",
 			expectedStatus: http.StatusOK,

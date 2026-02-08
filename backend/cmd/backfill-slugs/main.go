@@ -25,7 +25,7 @@ func main() {
 	}
 
 	// Initialize database
-	if err := db.InitDB(cfg.DatabaseURL); err != nil {
+	if err := db.Connect(cfg); err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
 
