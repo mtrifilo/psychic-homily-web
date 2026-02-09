@@ -6,7 +6,11 @@ import { VenueDetail } from '@/components/venues'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicVenueSchema } from '@/lib/seo/jsonld'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.psychichomily.com'
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (process.env.NODE_ENV === 'development'
+    ? 'http://localhost:8080'
+    : 'https://api.psychichomily.com')
 
 interface VenuePageProps {
   params: Promise<{ slug: string }>

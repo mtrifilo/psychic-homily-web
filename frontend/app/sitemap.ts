@@ -4,7 +4,11 @@ import { getMixSlugs } from '@/lib/mixes'
 import * as Sentry from '@sentry/nextjs'
 
 const BASE_URL = 'https://psychichomily.com'
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.psychichomily.com'
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (process.env.NODE_ENV === 'development'
+    ? 'http://localhost:8080'
+    : 'https://api.psychichomily.com')
 
 interface ShowResponse {
   slug?: string

@@ -6,7 +6,11 @@ import { ArtistDetail } from '@/components/artists'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicGroupSchema } from '@/lib/seo/jsonld'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.psychichomily.com'
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (process.env.NODE_ENV === 'development'
+    ? 'http://localhost:8080'
+    : 'https://api.psychichomily.com')
 
 interface ArtistPageProps {
   params: Promise<{ slug: string }>
