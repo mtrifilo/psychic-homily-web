@@ -1,6 +1,9 @@
 import { test, expect } from '../fixtures'
 
 test.describe('Save/unsave a show', () => {
+  // Tests share DB state (same user saving/unsaving the same show),
+  // so they must not run in parallel
+  test.describe.configure({ mode: 'serial' })
   test('save button is hidden when not authenticated', async ({ page }) => {
     await page.goto('/shows')
     await expect(page.locator('article').first()).toBeVisible({

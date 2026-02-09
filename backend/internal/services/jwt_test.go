@@ -481,6 +481,248 @@ func TestJWTService_Integration(t *testing.T) {
 }
 
 // =============================================================================
+// VERIFICATION TOKEN TESTS
+// =============================================================================
+
+func TestJWTService_VerificationToken(t *testing.T) {
+	secretKey := "test-secret-key-verification"
+	cfg := &config.Config{
+		JWT: config.JWTConfig{
+			SecretKey: secretKey,
+			Expiry:    24,
+		},
+	}
+	jwtService := NewJWTService(nil, cfg)
+
+	t.Run("CreateAndValidate_Success", func(t *testing.T) {
+		token, err := jwtService.CreateVerificationToken(123, "verify@example.com")
+		require.NoError(t, err)
+		assert.NotEmpty(t, token)
+
+		claims, err := jwtService.ValidateVerificationToken(token)
+		require.NoError(t, err)
+		assert.Equal(t, uint(123), claims.UserID)
+		assert.Equal(t, "verify@example.com", claims.Email)
+		assert.Equal(t, "email-verification", claims.Subject)
+		assert.Equal(t, "psychic-homily-backend", claims.Issuer)
+	})
+
+	t.Run("Validate_ExpiredToken", func(t *testing.T) {
+		// Create a token that's already expired
+		claims := VerificationTokenClaims{
+			UserID: 456,
+			Email:  "expired@example.com",
+			RegisteredClaims: jwt.RegisteredClaims{
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(-1 * time.Hour)),
+				IssuedAt:  jwt.NewNumericDate(time.Now().Add(-25 * time.Hour)),
+				Issuer:    "psychic-homily-backend",
+				Subject:   "email-verification",
+			},
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		tokenStr, err := token.SignedString([]byte(secretKey))
+		require.NoError(t, err)
+
+		_, err = jwtService.ValidateVerificationToken(tokenStr)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid verification token")
+	})
+
+	t.Run("Validate_WrongSubject", func(t *testing.T) {
+		// Create a token with wrong subject
+		claims := VerificationTokenClaims{
+			UserID: 789,
+			Email:  "wrong@example.com",
+			RegisteredClaims: jwt.RegisteredClaims{
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
+				Issuer:    "psychic-homily-backend",
+				Subject:   "magic-link", // wrong subject
+			},
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		tokenStr, err := token.SignedString([]byte(secretKey))
+		require.NoError(t, err)
+
+		_, err = jwtService.ValidateVerificationToken(tokenStr)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid token type")
+	})
+
+	t.Run("Validate_InvalidToken", func(t *testing.T) {
+		_, err := jwtService.ValidateVerificationToken("not-a-token")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid verification token")
+	})
+
+	t.Run("Validate_WrongSecret", func(t *testing.T) {
+		otherCfg := &config.Config{JWT: config.JWTConfig{SecretKey: "other-key", Expiry: 24}}
+		otherService := NewJWTService(nil, otherCfg)
+		token, err := otherService.CreateVerificationToken(123, "wrong-key@example.com")
+		require.NoError(t, err)
+
+		_, err = jwtService.ValidateVerificationToken(token)
+		assert.Error(t, err)
+	})
+}
+
+// =============================================================================
+// MAGIC LINK TOKEN TESTS
+// =============================================================================
+
+func TestJWTService_MagicLinkToken(t *testing.T) {
+	secretKey := "test-secret-key-magiclink"
+	cfg := &config.Config{
+		JWT: config.JWTConfig{
+			SecretKey: secretKey,
+			Expiry:    24,
+		},
+	}
+	jwtService := NewJWTService(nil, cfg)
+
+	t.Run("CreateAndValidate_Success", func(t *testing.T) {
+		token, err := jwtService.CreateMagicLinkToken(123, "magic@example.com")
+		require.NoError(t, err)
+		assert.NotEmpty(t, token)
+
+		claims, err := jwtService.ValidateMagicLinkToken(token)
+		require.NoError(t, err)
+		assert.Equal(t, uint(123), claims.UserID)
+		assert.Equal(t, "magic@example.com", claims.Email)
+		assert.Equal(t, "magic-link", claims.Subject)
+		assert.Equal(t, "psychic-homily-backend", claims.Issuer)
+	})
+
+	t.Run("Validate_ExpiredToken", func(t *testing.T) {
+		claims := MagicLinkTokenClaims{
+			UserID: 456,
+			Email:  "expired@example.com",
+			RegisteredClaims: jwt.RegisteredClaims{
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(-1 * time.Hour)),
+				IssuedAt:  jwt.NewNumericDate(time.Now().Add(-2 * time.Hour)),
+				Issuer:    "psychic-homily-backend",
+				Subject:   "magic-link",
+			},
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		tokenStr, err := token.SignedString([]byte(secretKey))
+		require.NoError(t, err)
+
+		_, err = jwtService.ValidateMagicLinkToken(tokenStr)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid magic link token")
+	})
+
+	t.Run("Validate_WrongSubject", func(t *testing.T) {
+		claims := MagicLinkTokenClaims{
+			UserID: 789,
+			Email:  "wrong@example.com",
+			RegisteredClaims: jwt.RegisteredClaims{
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
+				Issuer:    "psychic-homily-backend",
+				Subject:   "email-verification", // wrong subject
+			},
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		tokenStr, err := token.SignedString([]byte(secretKey))
+		require.NoError(t, err)
+
+		_, err = jwtService.ValidateMagicLinkToken(tokenStr)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid token type")
+	})
+
+	t.Run("Validate_InvalidToken", func(t *testing.T) {
+		_, err := jwtService.ValidateMagicLinkToken("garbage")
+		assert.Error(t, err)
+	})
+}
+
+// =============================================================================
+// ACCOUNT RECOVERY TOKEN TESTS
+// =============================================================================
+
+func TestJWTService_AccountRecoveryToken(t *testing.T) {
+	secretKey := "test-secret-key-recovery"
+	cfg := &config.Config{
+		JWT: config.JWTConfig{
+			SecretKey: secretKey,
+			Expiry:    24,
+		},
+	}
+	jwtService := NewJWTService(nil, cfg)
+
+	t.Run("CreateAndValidate_Success", func(t *testing.T) {
+		token, err := jwtService.CreateAccountRecoveryToken(123, "recover@example.com")
+		require.NoError(t, err)
+		assert.NotEmpty(t, token)
+
+		claims, err := jwtService.ValidateAccountRecoveryToken(token)
+		require.NoError(t, err)
+		assert.Equal(t, uint(123), claims.UserID)
+		assert.Equal(t, "recover@example.com", claims.Email)
+		assert.Equal(t, "account-recovery", claims.Subject)
+		assert.Equal(t, "psychic-homily-backend", claims.Issuer)
+	})
+
+	t.Run("Validate_ExpiredToken", func(t *testing.T) {
+		claims := AccountRecoveryTokenClaims{
+			UserID: 456,
+			Email:  "expired@example.com",
+			RegisteredClaims: jwt.RegisteredClaims{
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(-1 * time.Hour)),
+				IssuedAt:  jwt.NewNumericDate(time.Now().Add(-2 * time.Hour)),
+				Issuer:    "psychic-homily-backend",
+				Subject:   "account-recovery",
+			},
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		tokenStr, err := token.SignedString([]byte(secretKey))
+		require.NoError(t, err)
+
+		_, err = jwtService.ValidateAccountRecoveryToken(tokenStr)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid account recovery token")
+	})
+
+	t.Run("Validate_WrongSubject", func(t *testing.T) {
+		claims := AccountRecoveryTokenClaims{
+			UserID: 789,
+			Email:  "wrong@example.com",
+			RegisteredClaims: jwt.RegisteredClaims{
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
+				Issuer:    "psychic-homily-backend",
+				Subject:   "magic-link", // wrong subject
+			},
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		tokenStr, err := token.SignedString([]byte(secretKey))
+		require.NoError(t, err)
+
+		_, err = jwtService.ValidateAccountRecoveryToken(tokenStr)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid token type")
+	})
+
+	t.Run("Validate_InvalidToken", func(t *testing.T) {
+		_, err := jwtService.ValidateAccountRecoveryToken("garbage")
+		assert.Error(t, err)
+	})
+
+	t.Run("Validate_WrongSecret", func(t *testing.T) {
+		otherCfg := &config.Config{JWT: config.JWTConfig{SecretKey: "other-key", Expiry: 24}}
+		otherService := NewJWTService(nil, otherCfg)
+		token, err := otherService.CreateAccountRecoveryToken(123, "wrong-key@example.com")
+		require.NoError(t, err)
+
+		_, err = jwtService.ValidateAccountRecoveryToken(token)
+		assert.Error(t, err)
+	})
+}
+
+// =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
 

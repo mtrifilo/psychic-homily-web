@@ -1,37 +1,29 @@
 import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
 import { createMagicLinkToken } from '../helpers/jwt'
+import { execSync } from 'child_process'
 
-const TEST_USER = {
-  email: 'e2e-user@test.local',
-  password: 'e2e-test-password-123',
+const TEST_USER_EMAIL = 'e2e-user@test.local'
+const E2E_DB_URL =
+  'postgres://e2euser:e2epassword@localhost:5433/e2edb?sslmode=disable'
+
+/** Look up a user's ID directly from the database (avoids rate-limited auth endpoints). */
+function getUserId(email: string): number {
+  const result = execSync(
+    `psql "${E2E_DB_URL}" -tAc "SELECT id FROM users WHERE email = '${email}'"`,
+    { encoding: 'utf-8' }
+  ).trim()
+  return parseInt(result, 10)
 }
 
 test.describe('Magic Link Authentication', () => {
   test('authenticates user with valid magic link', async ({ page }) => {
-    // Get user ID by logging in via API
-    const loginResponse = await page.request.post(
-      'http://localhost:8080/auth/login',
-      {
-        data: {
-          email: TEST_USER.email,
-          password: TEST_USER.password,
-        },
-      }
-    )
-    expect(loginResponse.ok()).toBe(true)
-
-    const profileResponse = await page.request.get(
-      'http://localhost:8080/auth/profile'
-    )
-    expect(profileResponse.ok()).toBe(true)
-    const profile = await profileResponse.json()
-    const userId = profile.user.id
+    const userId = getUserId(TEST_USER_EMAIL)
 
     // Generate a valid magic link JWT
-    const token = await createMagicLinkToken(userId, TEST_USER.email)
+    const token = await createMagicLinkToken(userId, TEST_USER_EMAIL)
 
-    // Navigate to magic link page in a fresh context (the page fixture has no auth)
+    // Navigate to magic link page (the page fixture has no auth)
     await page.goto(`/auth/magic-link?token=${token}`)
 
     // Assert success

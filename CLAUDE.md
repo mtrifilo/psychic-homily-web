@@ -72,3 +72,45 @@ bun run dev
 # Backend (from /backend)
 go run ./cmd/server
 ```
+
+## Testing
+
+### Unit / Component Tests (Vitest)
+
+```bash
+# From /frontend
+bun run test          # Watch mode
+bun run test:run      # Single run
+bun run test:coverage # With coverage
+```
+
+### Backend Tests
+
+```bash
+# From /backend
+go test ./...
+```
+
+### E2E Tests (Playwright)
+
+E2E tests run against an ephemeral PostgreSQL database (port 5433) with a real backend and frontend. Stop the dev backend before running (port 8080 must be free).
+
+```bash
+# From /frontend
+bun run test:e2e          # Headless
+bun run test:e2e:ui       # Interactive Playwright UI
+bun run test:e2e:headed   # Headed browser
+bun run test:e2e:debug    # Step-through debugger
+```
+
+**How it works**: Global setup starts a Docker PostgreSQL container, runs migrations, seeds data (including future-dated shows and test users), starts the Go backend, and captures auth state. Teardown kills the backend and destroys the container.
+
+**Key files**:
+- `frontend/playwright.config.ts` — Playwright configuration
+- `frontend/e2e/global-setup.ts` / `global-teardown.ts` — Lifecycle management
+- `frontend/e2e/setup-db.sh` — Database seeding script
+- `frontend/e2e/fixtures/` — Error detection and auth fixtures
+- `frontend/e2e/pages/` — Test specs
+- `backend/docker-compose.e2e.yml` — Ephemeral PostgreSQL + migrate
+
+**Test users**: `e2e-user@test.local` and `e2e-admin@test.local` (password: `e2e-test-password-123`)

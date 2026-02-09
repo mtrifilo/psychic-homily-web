@@ -10,6 +10,21 @@ import (
 )
 
 // =============================================================================
+// NewExtractionService TESTS
+// =============================================================================
+
+func TestNewExtractionService(t *testing.T) {
+	cfg := &config.Config{
+		Anthropic: config.AnthropicConfig{APIKey: "test-key"},
+	}
+	svc := NewExtractionService(nil, cfg)
+	assert.NotNil(t, svc)
+	assert.NotNil(t, svc.config)
+	assert.NotNil(t, svc.artistService)
+	assert.NotNil(t, svc.venueService)
+}
+
+// =============================================================================
 // parseExtractionResponse TESTS
 // =============================================================================
 

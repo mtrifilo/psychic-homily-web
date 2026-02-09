@@ -218,7 +218,7 @@ func (suite *ShowServiceIntegrationTestSuite) SetupSuite() {
 	// Start PostgreSQL container
 	container, err := testcontainers.GenericContainer(suite.ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "postgres:17.5",
+			Image:        "postgres:18",
 			ExposedPorts: []string{"5432/tcp"},
 			Env: map[string]string{
 				"POSTGRES_DB":       "test_db",

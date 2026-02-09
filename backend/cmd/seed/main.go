@@ -12,6 +12,7 @@ import (
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/utils"
 
 	"github.com/goccy/go-yaml"
 	"github.com/joho/godotenv"
@@ -66,8 +67,10 @@ func main() {
 	venueModels := make([]*models.Venue, 0, len(venues))
 
 	for _, venue := range venues {
+		slug := utils.GenerateVenueSlug(venue.Name, venue.City, venue.State)
 		venueModel := &models.Venue{
 			Name:    venue.Name,
+			Slug:    &slug,
 			Address: &venue.Address,
 			City:    venue.City,
 			State:   venue.State,
@@ -114,8 +117,10 @@ func main() {
 			state = &az
 		}
 
+		slug := utils.GenerateArtistSlug(artist.Name)
 		artistModel := &models.Artist{
-			Name:  artist.Name,
+			Name: artist.Name,
+			Slug: &slug,
 			State: state,
 			Social: models.Social{
 				Instagram: &artist.Social.Instagram,
@@ -264,9 +269,21 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 	// Generate normalized title: "Band1, Band2, Band3 at Venue Name"
 	normalizedTitle := generateNormalizedTitle(showData)
 
+	// Generate slug from headliner, venue, and date
+	headlinerName := ""
+	if len(showData.Bands) > 0 {
+		headlinerName = normalizeArtistName(showData.Bands[0])
+	}
+	venueName := ""
+	if len(showData.Venues) > 0 {
+		venueName = normalizeVenueName(showData.Venues[0])
+	}
+	showSlug := utils.GenerateShowSlug(eventDateUTC, headlinerName, venueName)
+
 	// Create the show
 	show := &models.Show{
 		Title:          normalizedTitle,
+		Slug:           &showSlug,
 		EventDate:      eventDateUTC,
 		City:           &showData.City,
 		State:          &showData.State,

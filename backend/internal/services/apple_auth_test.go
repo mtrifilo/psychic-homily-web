@@ -15,7 +15,52 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/models"
 )
+
+// =============================================================================
+// NewAppleAuthService TESTS
+// =============================================================================
+
+func TestNewAppleAuthService(t *testing.T) {
+	cfg := &config.Config{
+		Apple: config.AppleConfig{BundleID: "com.test.app"},
+		JWT:   config.JWTConfig{SecretKey: "test-key", Expiry: 24},
+	}
+	svc := NewAppleAuthService(nil, cfg)
+	assert.NotNil(t, svc)
+	assert.NotNil(t, svc.config)
+	assert.NotNil(t, svc.userService)
+	assert.NotNil(t, svc.jwtService)
+	assert.NotNil(t, svc.keys)
+	assert.Empty(t, svc.keys)
+}
+
+// =============================================================================
+// GenerateToken TESTS
+// =============================================================================
+
+func TestAppleAuthService_GenerateToken(t *testing.T) {
+	cfg := &config.Config{
+		Apple: config.AppleConfig{BundleID: "com.test.app"},
+		JWT:   config.JWTConfig{SecretKey: "test-key-for-apple-generate", Expiry: 24},
+	}
+	svc := NewAppleAuthService(nil, cfg)
+
+	user := &models.User{ID: 42, Email: stringPtr("apple@example.com")}
+	token, err := svc.GenerateToken(user)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, token)
+
+	// Parse token to verify claims
+	parsed, parseErr := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
+		return []byte(cfg.JWT.SecretKey), nil
+	})
+	assert.NoError(t, parseErr)
+	assert.True(t, parsed.Valid)
+	claims := parsed.Claims.(jwt.MapClaims)
+	assert.Equal(t, float64(42), claims["user_id"])
+}
 
 // =============================================================================
 // IsEmailVerified TESTS

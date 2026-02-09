@@ -1,35 +1,27 @@
 import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
 import { createVerificationToken } from '../helpers/jwt'
+import { execSync } from 'child_process'
 
-const UNVERIFIED_USER = {
-  email: 'e2e-unverified@test.local',
-  password: 'e2e-test-password-123',
+const UNVERIFIED_USER_EMAIL = 'e2e-unverified@test.local'
+const E2E_DB_URL =
+  'postgres://e2euser:e2epassword@localhost:5433/e2edb?sslmode=disable'
+
+/** Look up the unverified user's ID directly from the database (avoids rate-limited auth endpoints). */
+function getUnverifiedUserId(): number {
+  const result = execSync(
+    `psql "${E2E_DB_URL}" -tAc "SELECT id FROM users WHERE email = '${UNVERIFIED_USER_EMAIL}'"`,
+    { encoding: 'utf-8' }
+  ).trim()
+  return parseInt(result, 10)
 }
 
 test.describe('Email Verification', () => {
   test('verifies email with valid token', async ({ page }) => {
-    // Log in as unverified user via API to get their user ID
-    const loginResponse = await page.request.post(
-      'http://localhost:8080/auth/login',
-      {
-        data: {
-          email: UNVERIFIED_USER.email,
-          password: UNVERIFIED_USER.password,
-        },
-      }
-    )
-    expect(loginResponse.ok()).toBe(true)
-
-    const profileResponse = await page.request.get(
-      'http://localhost:8080/auth/profile'
-    )
-    expect(profileResponse.ok()).toBe(true)
-    const profile = await profileResponse.json()
-    const userId = profile.user.id
+    const userId = getUnverifiedUserId()
 
     // Generate a valid verification JWT
-    const token = await createVerificationToken(userId, UNVERIFIED_USER.email)
+    const token = await createVerificationToken(userId, UNVERIFIED_USER_EMAIL)
 
     // Navigate to the verify-email page with the token
     await page.goto(`/verify-email?token=${token}`)
