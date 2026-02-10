@@ -62,10 +62,20 @@ test.describe('Save/unsave a show', () => {
       authenticatedPage.getByRole('button', { name: 'Remove from My List' })
     ).toBeVisible({ timeout: 5_000 })
 
-    // Click to unsave
-    await authenticatedPage
-      .getByRole('button', { name: 'Remove from My List' })
-      .click()
+    // Click to unsave — wait for API response to ensure DB state is
+    // updated before the next serial test starts (optimistic UI updates
+    // flip the button text before the DELETE request completes)
+    await Promise.all([
+      authenticatedPage.waitForResponse(
+        (resp) =>
+          resp.url().includes('/saved-shows/') &&
+          resp.request().method() === 'DELETE',
+        { timeout: 10_000 }
+      ),
+      authenticatedPage
+        .getByRole('button', { name: 'Remove from My List' })
+        .click(),
+    ])
 
     // Button should revert to "Add to My List"
     await expect(
@@ -130,10 +140,18 @@ test.describe('Save/unsave a show', () => {
       authenticatedPage.getByRole('button', { name: 'Remove from My List' })
     ).toBeVisible({ timeout: 10_000 })
 
-    // Clean up: unsave the show
-    await authenticatedPage
-      .getByRole('button', { name: 'Remove from My List' })
-      .click()
+    // Clean up: unsave the show — wait for API response
+    await Promise.all([
+      authenticatedPage.waitForResponse(
+        (resp) =>
+          resp.url().includes('/saved-shows/') &&
+          resp.request().method() === 'DELETE',
+        { timeout: 10_000 }
+      ),
+      authenticatedPage
+        .getByRole('button', { name: 'Remove from My List' })
+        .click(),
+    ])
     await expect(
       authenticatedPage.getByRole('button', { name: 'Add to My List' })
     ).toBeVisible({ timeout: 5_000 })

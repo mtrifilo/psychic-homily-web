@@ -1,6 +1,9 @@
 import { test, expect } from '../fixtures'
 
 test.describe('Favorite venue', () => {
+  // Tests share DB state (same user favoriting/unfavoriting the same venue),
+  // so they must not run in parallel
+  test.describe.configure({ mode: 'serial' })
   test('favorite button is hidden when not authenticated', async ({
     page,
   }) => {
@@ -52,8 +55,17 @@ test.describe('Favorite venue', () => {
     })
     await expect(favoriteButton).toBeVisible({ timeout: 5_000 })
 
-    // Click to favorite
-    await favoriteButton.click()
+    // Click to favorite — wait for API response (optimistic UI updates
+    // flip the button text before the POST request completes)
+    await Promise.all([
+      authenticatedPage.waitForResponse(
+        (resp) =>
+          resp.url().includes('/favorite-venues/') &&
+          resp.request().method() === 'POST',
+        { timeout: 10_000 }
+      ),
+      favoriteButton.click(),
+    ])
 
     // Button should change to "Remove from Favorites"
     await expect(
@@ -62,10 +74,18 @@ test.describe('Favorite venue', () => {
       })
     ).toBeVisible({ timeout: 5_000 })
 
-    // Click to unfavorite (cleanup)
-    await authenticatedPage
-      .getByRole('button', { name: 'Remove from Favorites' })
-      .click()
+    // Click to unfavorite (cleanup) — wait for API response
+    await Promise.all([
+      authenticatedPage.waitForResponse(
+        (resp) =>
+          resp.url().includes('/favorite-venues/') &&
+          resp.request().method() === 'DELETE',
+        { timeout: 10_000 }
+      ),
+      authenticatedPage
+        .getByRole('button', { name: 'Remove from Favorites' })
+        .click(),
+    ])
 
     // Button should revert to "Add to Favorites"
     await expect(
@@ -141,9 +161,17 @@ test.describe('Favorite venue', () => {
       authenticatedPage.getByRole('heading', { level: 1 })
     ).toBeVisible({ timeout: 10_000 })
 
-    await authenticatedPage
-      .getByRole('button', { name: 'Remove from Favorites' })
-      .click()
+    await Promise.all([
+      authenticatedPage.waitForResponse(
+        (resp) =>
+          resp.url().includes('/favorite-venues/') &&
+          resp.request().method() === 'DELETE',
+        { timeout: 10_000 }
+      ),
+      authenticatedPage
+        .getByRole('button', { name: 'Remove from Favorites' })
+        .click(),
+    ])
     await expect(
       authenticatedPage.getByRole('button', { name: 'Add to Favorites' })
     ).toBeVisible({ timeout: 5_000 })
