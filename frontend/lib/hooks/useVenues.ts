@@ -71,7 +71,7 @@ export const useVenue = (options: UseVenueOptions) => {
         method: 'GET',
       })
     },
-    enabled: enabled && Boolean(venueId),
+    enabled: enabled && (typeof venueId === 'string' ? Boolean(venueId) : venueId > 0),
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }
@@ -117,7 +117,7 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
         method: 'GET',
       })
     },
-    enabled: enabled && Boolean(venueId),
+    enabled: enabled && (typeof venueId === 'string' ? Boolean(venueId) : venueId > 0),
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }

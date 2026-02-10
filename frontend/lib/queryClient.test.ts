@@ -43,12 +43,12 @@ describe('queryClient module', () => {
       expect(defaults.queries?.gcTime).toBe(10 * 60 * 1000) // 10 minutes
     })
 
-    it('configures mutation retry to 1', async () => {
+    it('configures mutation retry to 0', async () => {
       const { getQueryClient } = await import('./queryClient')
       const client = getQueryClient()
 
       const defaults = client.getDefaultOptions()
-      expect(defaults.mutations?.retry).toBe(1)
+      expect(defaults.mutations?.retry).toBe(0)
     })
   })
 
@@ -108,7 +108,7 @@ describe('queryClient module', () => {
     it('generates venues shows key', async () => {
       const { queryKeys } = await import('./queryClient')
 
-      expect(queryKeys.venues.shows(42)).toEqual(['venues', 'shows', 42])
+      expect(queryKeys.venues.shows(42)).toEqual(['venues', 'shows', '42'])
     })
 
     it('generates venues myPendingEdit key', async () => {
@@ -117,7 +117,7 @@ describe('queryClient module', () => {
       expect(queryKeys.venues.myPendingEdit(10)).toEqual([
         'venues',
         'myPendingEdit',
-        10,
+        '10',
       ])
     })
 
@@ -145,13 +145,13 @@ describe('queryClient module', () => {
     it('generates artists detail key', async () => {
       const { queryKeys } = await import('./queryClient')
 
-      expect(queryKeys.artists.detail(99)).toEqual(['artists', 'detail', 99])
+      expect(queryKeys.artists.detail(99)).toEqual(['artists', 'detail', '99'])
     })
 
     it('generates artists shows key', async () => {
       const { queryKeys } = await import('./queryClient')
 
-      expect(queryKeys.artists.shows(5)).toEqual(['artists', 'shows', 5])
+      expect(queryKeys.artists.shows(5)).toEqual(['artists', 'shows', '5'])
     })
 
     it('generates savedShows check key with string conversion', async () => {

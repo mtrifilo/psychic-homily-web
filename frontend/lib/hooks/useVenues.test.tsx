@@ -14,8 +14,8 @@ vi.mock('../api', () => ({
     VENUES: {
       LIST: '/venues',
       CITIES: '/venues/cities',
-      GET: (venueId: number) => `/venues/${venueId}`,
-      SHOWS: (venueId: number) => `/venues/${venueId}/shows`,
+      GET: (venueId: string | number) => `/venues/${venueId}`,
+      SHOWS: (venueId: string | number) => `/venues/${venueId}/shows`,
     },
   },
   API_BASE_URL: 'http://localhost:8080',
@@ -27,7 +27,7 @@ vi.mock('../queryClient', () => ({
     venues: {
       list: (filters?: Record<string, unknown>) => ['venues', 'list', filters],
       detail: (id: string) => ['venues', 'detail', id],
-      shows: (venueId: number) => ['venues', 'shows', venueId],
+      shows: (venueId: string | number) => ['venues', 'shows', String(venueId)],
       cities: ['venues', 'cities'],
     },
   },

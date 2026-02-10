@@ -193,6 +193,19 @@ BEGIN
   INSERT INTO pending_venue_edits (venue_id, submitted_by, name, status, created_at, updated_at)
   VALUES (venue2_id, test_user_id, 'Renamed Venue E2E', 'pending', NOW(), NOW());
 
+  -- 4) Approved show submitted by test user (for "my submissions" test)
+  INSERT INTO shows (title, event_date, city, state, status, source, submitted_by, created_at, updated_at, slug)
+  VALUES (
+    'E2E My Submitted Show',
+    NOW() + INTERVAL '85 days',
+    'Phoenix', 'AZ', 'approved', 'user', test_user_id,
+    NOW(), NOW(),
+    'e2e-my-submitted-show'
+  )
+  RETURNING id INTO s_id;
+  INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
+  INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
+
 END $$;
 SQL
 

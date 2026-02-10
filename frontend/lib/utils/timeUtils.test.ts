@@ -65,13 +65,40 @@ describe('combineDateTimeToUTC', () => {
     expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
   })
 
-  // Note: combineDateTimeToUTC uses browser local timezone, not the timezone parameter
-  // This behavior is documented - the timezone param is currently unused
-  it('always uses browser local time (timezone param is unused)', () => {
-    const result1 = combineDateTimeToUTC('2024-06-15', '10:00', 'America/Phoenix')
-    const result2 = combineDateTimeToUTC('2024-06-15', '10:00', 'America/New_York')
-    // Both should produce the same result since timezone is unused
-    expect(result1).toBe(result2)
+  it('uses specified timezone (America/Phoenix is UTC-7 year-round)', () => {
+    // 8:00 PM in Phoenix (UTC-7) = 3:00 AM next day UTC
+    const result = combineDateTimeToUTC('2026-01-25', '20:00', 'America/Phoenix')
+    expect(result).toBe('2026-01-26T03:00:00Z')
+  })
+
+  it('uses specified timezone (America/New_York EST is UTC-5)', () => {
+    // 8:00 PM in New York (EST, UTC-5) = 1:00 AM next day UTC
+    const result = combineDateTimeToUTC('2026-01-25', '20:00', 'America/New_York')
+    expect(result).toBe('2026-01-26T01:00:00Z')
+  })
+
+  it('produces different UTC times for different timezones with same local time', () => {
+    const phoenix = combineDateTimeToUTC('2026-01-25', '20:00', 'America/Phoenix')
+    const newYork = combineDateTimeToUTC('2026-01-25', '20:00', 'America/New_York')
+    // Phoenix (UTC-7) should be 2 hours later in UTC than New York (UTC-5)
+    expect(phoenix).toBe('2026-01-26T03:00:00Z')
+    expect(newYork).toBe('2026-01-26T01:00:00Z')
+  })
+
+  it('handles DST correctly for America/Los_Angeles', () => {
+    // Summer (PDT, UTC-7): 8 PM = 3 AM next day UTC
+    const summer = combineDateTimeToUTC('2026-07-15', '20:00', 'America/Los_Angeles')
+    expect(summer).toBe('2026-07-16T03:00:00Z')
+
+    // Winter (PST, UTC-8): 8 PM = 4 AM next day UTC
+    const winter = combineDateTimeToUTC('2026-01-15', '20:00', 'America/Los_Angeles')
+    expect(winter).toBe('2026-01-16T04:00:00Z')
+  })
+
+  it('handles America/Chicago (CST/CDT)', () => {
+    // Winter (CST, UTC-6): 8 PM = 2 AM next day UTC
+    const result = combineDateTimeToUTC('2026-01-25', '20:00', 'America/Chicago')
+    expect(result).toBe('2026-01-26T02:00:00Z')
   })
 })
 
@@ -260,10 +287,67 @@ describe('parseISOToDateAndTime', () => {
     const result = parseISOToDateAndTime(isoDate)
     expect(result.time).toBe('23:59')
   })
+
+  it('parses UTC time into America/Phoenix timezone', () => {
+    // 3:00 AM UTC on Jan 26 = 8:00 PM Jan 25 in Phoenix (UTC-7)
+    const result = parseISOToDateAndTime('2026-01-26T03:00:00Z', 'America/Phoenix')
+    expect(result.date).toBe('2026-01-25')
+    expect(result.time).toBe('20:00')
+  })
+
+  it('parses UTC time into America/New_York timezone', () => {
+    // 1:00 AM UTC on Jan 26 = 8:00 PM Jan 25 in New York (EST, UTC-5)
+    const result = parseISOToDateAndTime('2026-01-26T01:00:00Z', 'America/New_York')
+    expect(result.date).toBe('2026-01-25')
+    expect(result.time).toBe('20:00')
+  })
+
+  it('handles DST for America/Los_Angeles', () => {
+    // Summer (PDT, UTC-7): 3 AM UTC July 16 = 8 PM July 15 in LA
+    const summer = parseISOToDateAndTime('2026-07-16T03:00:00Z', 'America/Los_Angeles')
+    expect(summer.date).toBe('2026-07-15')
+    expect(summer.time).toBe('20:00')
+
+    // Winter (PST, UTC-8): 4 AM UTC Jan 16 = 8 PM Jan 15 in LA
+    const winter = parseISOToDateAndTime('2026-01-16T04:00:00Z', 'America/Los_Angeles')
+    expect(winter.date).toBe('2026-01-15')
+    expect(winter.time).toBe('20:00')
+  })
 })
 
 describe('round-trip conversions', () => {
-  it('parseISOToDateAndTime output can be used with combineDateTimeToUTC', () => {
+  it('round-trips through parse and combine with a specific timezone', () => {
+    // Start with a known UTC time: 3 AM UTC Jan 26 = 8 PM Jan 25 Phoenix
+    const utcIso = '2026-01-26T03:00:00Z'
+    const tz = 'America/Phoenix'
+
+    const { date, time } = parseISOToDateAndTime(utcIso, tz)
+    expect(date).toBe('2026-01-25')
+    expect(time).toBe('20:00')
+
+    const roundTripped = combineDateTimeToUTC(date, time, tz)
+    expect(roundTripped).toBe(utcIso)
+  })
+
+  it('round-trips with America/New_York', () => {
+    const utcIso = '2026-01-26T01:00:00Z'
+    const tz = 'America/New_York'
+
+    const { date, time } = parseISOToDateAndTime(utcIso, tz)
+    const roundTripped = combineDateTimeToUTC(date, time, tz)
+    expect(roundTripped).toBe(utcIso)
+  })
+
+  it('round-trips with DST timezone (summer)', () => {
+    const utcIso = '2026-07-16T03:00:00Z'
+    const tz = 'America/Los_Angeles'
+
+    const { date, time } = parseISOToDateAndTime(utcIso, tz)
+    const roundTripped = combineDateTimeToUTC(date, time, tz)
+    expect(roundTripped).toBe(utcIso)
+  })
+
+  it('parseISOToDateAndTime output can be used with combineDateTimeToUTC (no timezone)', () => {
     const originalDate = new Date(2024, 11, 15, 19, 30) // Local time
     const isoString = originalDate.toISOString()
 

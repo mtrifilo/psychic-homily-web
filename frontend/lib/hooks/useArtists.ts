@@ -33,7 +33,7 @@ export function useArtist(options: UseArtistOptions) {
         method: 'GET',
       })
     },
-    enabled: enabled && Boolean(artistId),
+    enabled: enabled && (typeof artistId === 'string' ? Boolean(artistId) : artistId > 0),
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }
@@ -77,7 +77,7 @@ export function useArtistShows(options: UseArtistShowsOptions) {
         method: 'GET',
       })
     },
-    enabled: enabled && Boolean(artistId),
+    enabled: enabled && (typeof artistId === 'string' ? Boolean(artistId) : artistId > 0),
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }

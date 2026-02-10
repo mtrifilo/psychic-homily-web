@@ -12,8 +12,8 @@ vi.mock('../api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
   API_ENDPOINTS: {
     ARTISTS: {
-      GET: (artistId: number) => `/artists/${artistId}`,
-      SHOWS: (artistId: number) => `/artists/${artistId}/shows`,
+      GET: (artistId: string | number) => `/artists/${artistId}`,
+      SHOWS: (artistId: string | number) => `/artists/${artistId}/shows`,
     },
   },
   API_BASE_URL: 'http://localhost:8080',
@@ -23,8 +23,8 @@ vi.mock('../api', () => ({
 vi.mock('../queryClient', () => ({
   queryKeys: {
     artists: {
-      detail: (id: number) => ['artists', 'detail', id],
-      shows: (artistId: number) => ['artists', 'shows', artistId],
+      detail: (id: string | number) => ['artists', 'detail', String(id)],
+      shows: (artistId: string | number) => ['artists', 'shows', String(artistId)],
     },
   },
 }))

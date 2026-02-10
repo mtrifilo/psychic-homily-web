@@ -26,6 +26,7 @@ import {
 import {
   combineDateTimeToUTC,
   parseISOToDateAndTime,
+  getTimezoneForState,
 } from '@/lib/utils/timeUtils'
 import type { Venue } from '@/lib/types/venue'
 import type { ShowResponse, VenueResponse, OrphanedArtist } from '@/lib/types/show'
@@ -99,8 +100,9 @@ const defaultValues: FormValues = {
  * Convert ShowResponse data to form values for editing
  */
 function showToFormValues(show: ShowResponse): FormValues {
-  const { date, time } = parseISOToDateAndTime(show.event_date)
   const venue = show.venues[0]
+  const venueTz = venue?.state ? getTimezoneForState(venue.state) : undefined
+  const { date, time } = parseISOToDateAndTime(show.event_date, venueTz)
 
   return {
     title: show.title || '',
@@ -223,8 +225,9 @@ export function ShowForm({
   const form = useForm({
     defaultValues: initialFormValues,
     onSubmit: async ({ value }) => {
-      // Combine date and time into UTC timestamp
-      const eventDate = combineDateTimeToUTC(value.date, value.time || '20:00')
+      // Combine date and time into UTC timestamp using the venue's timezone
+      const venueTimezone = value.venue.state ? getTimezoneForState(value.venue.state) : undefined
+      const eventDate = combineDateTimeToUTC(value.date, value.time || '20:00', venueTimezone)
 
       // Parse cost to number if provided
       const price = value.cost
