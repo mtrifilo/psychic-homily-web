@@ -24,84 +24,137 @@ import (
 // =============================================================================
 
 func TestParseEventDate_ISODateOnly(t *testing.T) {
-	result, err := parseEventDate("2026-01-25", nil)
+	result, err := parseEventDate("2026-01-25", nil, "AZ")
 	assert.NoError(t, err)
 	assert.Equal(t, time.Date(2026, 1, 25, 0, 0, 0, 0, time.UTC), result)
 }
 
 func TestParseEventDate_ISOTimestamp(t *testing.T) {
-	result, err := parseEventDate("2026-01-25T19:00:00Z", nil)
+	result, err := parseEventDate("2026-01-25T19:00:00Z", nil, "AZ")
 	assert.NoError(t, err)
 	assert.Equal(t, time.Date(2026, 1, 25, 19, 0, 0, 0, time.UTC), result)
 }
 
 func TestParseEventDate_RFC3339(t *testing.T) {
-	result, err := parseEventDate("2026-01-25T19:00:00-07:00", nil)
+	result, err := parseEventDate("2026-01-25T19:00:00-07:00", nil, "AZ")
 	assert.NoError(t, err)
 	expected := time.Date(2026, 1, 26, 2, 0, 0, 0, time.UTC)
 	assert.Equal(t, expected, result)
 }
 
-func TestParseEventDate_WithShowTimePM(t *testing.T) {
+func TestParseEventDate_WithShowTimePM_AZ(t *testing.T) {
 	showTime := "7:00 pm"
-	result, err := parseEventDate("2026-01-25", &showTime)
+	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
 	assert.NoError(t, err)
+	// 7:00 PM Phoenix (UTC-7) = 2:00 AM UTC next day
+	assert.Equal(t, time.Date(2026, 1, 26, 2, 0, 0, 0, time.UTC), result)
+}
+
+func TestParseEventDate_WithShowTimePM_NY(t *testing.T) {
+	showTime := "8:00 pm"
+	result, err := parseEventDate("2026-01-25", &showTime, "NY")
+	assert.NoError(t, err)
+	// 8:00 PM New York (UTC-5 in January) = 1:00 AM UTC next day
+	assert.Equal(t, time.Date(2026, 1, 26, 1, 0, 0, 0, time.UTC), result)
+}
+
+func TestParseEventDate_WithShowTimeAM_AZ(t *testing.T) {
+	showTime := "11:00 am"
+	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
+	assert.NoError(t, err)
+	// 11:00 AM Phoenix (UTC-7) = 6:00 PM UTC same day
+	assert.Equal(t, time.Date(2026, 1, 25, 18, 0, 0, 0, time.UTC), result)
+}
+
+func TestParseEventDate_12PM_AZ(t *testing.T) {
+	showTime := "12:00 pm"
+	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
+	assert.NoError(t, err)
+	// 12:00 PM Phoenix (UTC-7) = 7:00 PM UTC same day
 	assert.Equal(t, time.Date(2026, 1, 25, 19, 0, 0, 0, time.UTC), result)
 }
 
-func TestParseEventDate_WithShowTimeAM(t *testing.T) {
-	showTime := "11:00 am"
-	result, err := parseEventDate("2026-01-25", &showTime)
-	assert.NoError(t, err)
-	assert.Equal(t, time.Date(2026, 1, 25, 11, 0, 0, 0, time.UTC), result)
-}
-
-func TestParseEventDate_12PM(t *testing.T) {
-	showTime := "12:00 pm"
-	result, err := parseEventDate("2026-01-25", &showTime)
-	assert.NoError(t, err)
-	assert.Equal(t, time.Date(2026, 1, 25, 12, 0, 0, 0, time.UTC), result)
-}
-
-func TestParseEventDate_12AM(t *testing.T) {
+func TestParseEventDate_12AM_AZ(t *testing.T) {
 	showTime := "12:00 am"
-	result, err := parseEventDate("2026-01-25", &showTime)
+	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
 	assert.NoError(t, err)
-	assert.Equal(t, time.Date(2026, 1, 25, 0, 0, 0, 0, time.UTC), result)
+	// 12:00 AM Phoenix (UTC-7) = 7:00 AM UTC same day
+	assert.Equal(t, time.Date(2026, 1, 25, 7, 0, 0, 0, time.UTC), result)
 }
 
 func TestParseEventDate_WithSpacesInTime(t *testing.T) {
 	showTime := " 7:00 PM "
-	result, err := parseEventDate("2026-01-25", &showTime)
+	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
 	assert.NoError(t, err)
-	assert.Equal(t, time.Date(2026, 1, 25, 19, 0, 0, 0, time.UTC), result)
+	// 7:00 PM Phoenix (UTC-7) = 2:00 AM UTC next day
+	assert.Equal(t, time.Date(2026, 1, 26, 2, 0, 0, 0, time.UTC), result)
 }
 
 func TestParseEventDate_EmptyShowTime(t *testing.T) {
 	showTime := ""
-	result, err := parseEventDate("2026-01-25", &showTime)
+	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
 	assert.NoError(t, err)
 	assert.Equal(t, time.Date(2026, 1, 25, 0, 0, 0, 0, time.UTC), result)
 }
 
 func TestParseEventDate_InvalidDate(t *testing.T) {
-	_, err := parseEventDate("not-a-date", nil)
+	_, err := parseEventDate("not-a-date", nil, "AZ")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unable to parse date")
 }
 
 func TestParseEventDate_NilShowTime(t *testing.T) {
-	result, err := parseEventDate("2026-01-25", nil)
+	result, err := parseEventDate("2026-01-25", nil, "AZ")
 	assert.NoError(t, err)
 	assert.Equal(t, time.Date(2026, 1, 25, 0, 0, 0, 0, time.UTC), result)
 }
 
 func TestParseEventDate_UnparseableTime(t *testing.T) {
 	showTime := "doors at 7"
-	result, err := parseEventDate("2026-01-25", &showTime)
+	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
 	assert.NoError(t, err)
 	// Unparseable time is silently ignored, date is returned without time
 	assert.Equal(t, time.Date(2026, 1, 25, 0, 0, 0, 0, time.UTC), result)
+}
+
+func TestParseEventDate_UnknownStateDefaultsToPhoenix(t *testing.T) {
+	showTime := "8:00 pm"
+	result, err := parseEventDate("2026-01-25", &showTime, "XX")
+	assert.NoError(t, err)
+	// Unknown state defaults to America/Phoenix (UTC-7)
+	// 8:00 PM Phoenix = 3:00 AM UTC next day
+	assert.Equal(t, time.Date(2026, 1, 26, 3, 0, 0, 0, time.UTC), result)
+}
+
+func TestParseEventDate_DSTAwareState(t *testing.T) {
+	// California in summer (PDT = UTC-7), vs winter (PST = UTC-8)
+	showTime := "8:00 pm"
+
+	// January (PST = UTC-8): 8:00 PM = 4:00 AM UTC next day
+	winter, err := parseEventDate("2026-01-25", &showTime, "CA")
+	assert.NoError(t, err)
+	assert.Equal(t, time.Date(2026, 1, 26, 4, 0, 0, 0, time.UTC), winter)
+
+	// July (PDT = UTC-7): 8:00 PM = 3:00 AM UTC next day
+	summer, err := parseEventDate("2026-07-15", &showTime, "CA")
+	assert.NoError(t, err)
+	assert.Equal(t, time.Date(2026, 7, 16, 3, 0, 0, 0, time.UTC), summer)
+}
+
+// =============================================================================
+// UNIT TESTS — getTimezoneForState
+// =============================================================================
+
+func TestGetTimezoneForState(t *testing.T) {
+	assert.Equal(t, "America/Phoenix", getTimezoneForState("AZ"))
+	assert.Equal(t, "America/Phoenix", getTimezoneForState("az"))
+	assert.Equal(t, "America/Los_Angeles", getTimezoneForState("CA"))
+	assert.Equal(t, "America/Denver", getTimezoneForState("CO"))
+	assert.Equal(t, "America/Chicago", getTimezoneForState("TX"))
+	assert.Equal(t, "America/New_York", getTimezoneForState("NY"))
+	// Unknown state defaults to Phoenix
+	assert.Equal(t, "America/Phoenix", getTimezoneForState("XX"))
+	assert.Equal(t, "America/Phoenix", getTimezoneForState(""))
 }
 
 // =============================================================================

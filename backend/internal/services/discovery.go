@@ -204,16 +204,16 @@ func (s *DiscoveryService) importEvent(event *DiscoveredEvent, dryRun bool) (str
 		return fmt.Sprintf("ERROR: Failed to check duplicate: %v", err), "error"
 	}
 
-	// Parse event date
-	eventDate, err := parseEventDate(event.Date, event.ShowTime)
-	if err != nil {
-		return fmt.Sprintf("ERROR: Failed to parse date for %s: %v", event.Title, err), "error"
-	}
-
-	// Look up venue configuration
+	// Look up venue configuration (needed for timezone before parsing date)
 	venueConfig, ok := VenueConfig[event.VenueSlug]
 	if !ok {
 		return fmt.Sprintf("ERROR: Unknown venue slug: %s", event.VenueSlug), "error"
+	}
+
+	// Parse event date using the venue's state for timezone context
+	eventDate, err := parseEventDate(event.Date, event.ShowTime, venueConfig.State)
+	if err != nil {
+		return fmt.Sprintf("ERROR: Failed to parse date for %s: %v", event.Title, err), "error"
 	}
 
 	// Check if there's a rejected show at the same venue on the same date
@@ -410,8 +410,29 @@ func (s *DiscoveryService) createShowFromEvent(event *DiscoveredEvent, eventDate
 	})
 }
 
-// parseEventDate parses the event date and optional show time into a time.Time
-func parseEventDate(dateStr string, showTime *string) (time.Time, error) {
+// stateTimezones maps US state abbreviations to IANA timezone names
+var stateTimezones = map[string]string{
+	"AZ": "America/Phoenix",
+	"CA": "America/Los_Angeles",
+	"NV": "America/Los_Angeles",
+	"CO": "America/Denver",
+	"NM": "America/Denver",
+	"TX": "America/Chicago",
+	"NY": "America/New_York",
+}
+
+// getTimezoneForState returns the IANA timezone for a US state abbreviation.
+// Defaults to "America/Phoenix" if the state is not found.
+func getTimezoneForState(state string) string {
+	if tz, ok := stateTimezones[strings.ToUpper(state)]; ok {
+		return tz
+	}
+	return "America/Phoenix"
+}
+
+// parseEventDate parses the event date and optional show time into a time.Time (UTC).
+// The state parameter is used to interpret the show time in the venue's local timezone.
+func parseEventDate(dateStr string, showTime *string, state string) (time.Time, error) {
 	// Try parsing ISO date format (2026-01-25)
 	date, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
@@ -441,7 +462,12 @@ func parseEventDate(dateStr string, showTime *string) (time.Time, error) {
 			} else if strings.HasPrefix(period, "am") && hour == 12 {
 				hour = 0
 			}
-			date = time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, time.UTC)
+			// Interpret the time in the venue's local timezone
+			loc, locErr := time.LoadLocation(getTimezoneForState(state))
+			if locErr != nil {
+				loc = time.UTC
+			}
+			date = time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, loc)
 		}
 	}
 
