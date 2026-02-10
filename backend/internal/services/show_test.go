@@ -1436,3 +1436,429 @@ func (suite *ShowServiceIntegrationTestSuite) TestSetShowCancelled() {
 	suite.Require().NoError(err)
 	suite.False(resp.IsCancelled)
 }
+
+// =============================================================================
+// Group 7: ParseShowMarkdown (Pure Logic — no DB needed)
+// =============================================================================
+
+func TestParseShowMarkdown_Valid(t *testing.T) {
+	svc := &ShowService{} // nil db is fine — ParseShowMarkdown doesn't use it
+	content := []byte(`---
+version: "1.0"
+exported_at: "2026-01-15T12:00:00Z"
+show:
+  title: "Rock Night"
+  event_date: "2026-07-15T20:00:00Z"
+  city: "Phoenix"
+  state: "AZ"
+  status: "approved"
+venues:
+  - name: "Valley Bar"
+    city: "Phoenix"
+    state: "AZ"
+artists:
+  - name: "The Band"
+    position: 0
+    set_type: "headliner"
+  - name: "Opener"
+    position: 1
+    set_type: "opener"
+---
+
+## Description
+
+A great rock show with two bands.
+`)
+
+	parsed, err := svc.ParseShowMarkdown(content)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, parsed)
+	assert.Equal(t, "Rock Night", parsed.Frontmatter.Show.Title)
+	assert.Equal(t, "2026-07-15T20:00:00Z", parsed.Frontmatter.Show.EventDate)
+	assert.Equal(t, "Phoenix", parsed.Frontmatter.Show.City)
+	assert.Equal(t, "AZ", parsed.Frontmatter.Show.State)
+	assert.Equal(t, "approved", parsed.Frontmatter.Show.Status)
+	assert.Len(t, parsed.Frontmatter.Venues, 1)
+	assert.Equal(t, "Valley Bar", parsed.Frontmatter.Venues[0].Name)
+	assert.Len(t, parsed.Frontmatter.Artists, 2)
+	assert.Equal(t, "The Band", parsed.Frontmatter.Artists[0].Name)
+	assert.Equal(t, "headliner", parsed.Frontmatter.Artists[0].SetType)
+	assert.Equal(t, "Opener", parsed.Frontmatter.Artists[1].Name)
+	assert.Equal(t, "opener", parsed.Frontmatter.Artists[1].SetType)
+	assert.Equal(t, "A great rock show with two bands.", parsed.Description)
+}
+
+func TestParseShowMarkdown_MinimalFrontmatter(t *testing.T) {
+	svc := &ShowService{}
+	content := []byte(`---
+show:
+  title: "Minimal"
+  event_date: "2026-01-01T00:00:00Z"
+  status: "pending"
+---
+`)
+
+	parsed, err := svc.ParseShowMarkdown(content)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, parsed)
+	assert.Equal(t, "Minimal", parsed.Frontmatter.Show.Title)
+	assert.Empty(t, parsed.Frontmatter.Venues)
+	assert.Empty(t, parsed.Frontmatter.Artists)
+	assert.Empty(t, parsed.Description)
+}
+
+func TestParseShowMarkdown_NoDescription(t *testing.T) {
+	svc := &ShowService{}
+	content := []byte(`---
+show:
+  title: "No Desc"
+  event_date: "2026-01-01T00:00:00Z"
+  status: "approved"
+---
+
+Some other content without a Description heading.
+`)
+
+	parsed, err := svc.ParseShowMarkdown(content)
+
+	assert.NoError(t, err)
+	assert.Empty(t, parsed.Description)
+}
+
+func TestParseShowMarkdown_MultilineDescription(t *testing.T) {
+	svc := &ShowService{}
+	content := []byte(`---
+show:
+  title: "Multi Desc"
+  event_date: "2026-01-01T00:00:00Z"
+  status: "approved"
+---
+
+## Description
+
+First paragraph.
+
+Second paragraph with more details.
+
+Third paragraph.
+`)
+
+	parsed, err := svc.ParseShowMarkdown(content)
+
+	assert.NoError(t, err)
+	assert.Contains(t, parsed.Description, "First paragraph.")
+	assert.Contains(t, parsed.Description, "Second paragraph with more details.")
+	assert.Contains(t, parsed.Description, "Third paragraph.")
+}
+
+func TestParseShowMarkdown_InvalidYAML(t *testing.T) {
+	svc := &ShowService{}
+	content := []byte(`---
+show:
+  title: [invalid yaml
+---
+`)
+
+	_, err := svc.ParseShowMarkdown(content)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse frontmatter")
+}
+
+func TestParseShowMarkdown_NoFrontmatter(t *testing.T) {
+	svc := &ShowService{}
+	content := []byte(`No frontmatter at all here.`)
+
+	_, err := svc.ParseShowMarkdown(content)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing frontmatter delimiter")
+}
+
+func TestParseShowMarkdown_EmptyContent(t *testing.T) {
+	svc := &ShowService{}
+
+	_, err := svc.ParseShowMarkdown([]byte{})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing frontmatter delimiter")
+}
+
+func TestParseShowMarkdown_MultipleArtistsAndVenues(t *testing.T) {
+	svc := &ShowService{}
+	content := []byte(`---
+show:
+  title: "Big Festival"
+  event_date: "2026-08-01T18:00:00Z"
+  status: "approved"
+venues:
+  - name: "Main Stage"
+    city: "Phoenix"
+    state: "AZ"
+  - name: "Side Stage"
+    city: "Phoenix"
+    state: "AZ"
+artists:
+  - name: "Headliner A"
+    position: 0
+    set_type: "headliner"
+  - name: "Support B"
+    position: 1
+    set_type: "opener"
+  - name: "Support C"
+    position: 2
+    set_type: "opener"
+---
+
+## Description
+
+Festival description.
+`)
+
+	parsed, err := svc.ParseShowMarkdown(content)
+
+	assert.NoError(t, err)
+	assert.Len(t, parsed.Frontmatter.Venues, 2)
+	assert.Equal(t, "Main Stage", parsed.Frontmatter.Venues[0].Name)
+	assert.Equal(t, "Side Stage", parsed.Frontmatter.Venues[1].Name)
+	assert.Len(t, parsed.Frontmatter.Artists, 3)
+	assert.Equal(t, 0, parsed.Frontmatter.Artists[0].Position)
+	assert.Equal(t, 1, parsed.Frontmatter.Artists[1].Position)
+	assert.Equal(t, 2, parsed.Frontmatter.Artists[2].Position)
+}
+
+func TestParseShowMarkdown_DescriptionStopsAtNextHeading(t *testing.T) {
+	svc := &ShowService{}
+	content := []byte(`---
+show:
+  title: "Heading Test"
+  event_date: "2026-01-01T00:00:00Z"
+  status: "approved"
+---
+
+## Description
+
+Only this part.
+
+## Other Section
+
+This should not be included.
+`)
+
+	parsed, err := svc.ParseShowMarkdown(content)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "Only this part.", parsed.Description)
+	assert.NotContains(t, parsed.Description, "This should not be included")
+}
+
+// =============================================================================
+// Group 8: ExportShowToMarkdown (DB required)
+// =============================================================================
+
+func (suite *ShowServiceIntegrationTestSuite) TestExportShowToMarkdown_Success() {
+	created := suite.createTestShow(func(req *CreateShowRequest) {
+		req.Title = "Export Test Show"
+		req.Description = "A great test show"
+		price := 25.0
+		req.Price = &price
+	})
+
+	data, filename, err := suite.showService.ExportShowToMarkdown(created.ID)
+
+	suite.Require().NoError(err)
+	suite.NotEmpty(data)
+	suite.NotEmpty(filename)
+
+	// Verify markdown structure
+	content := string(data)
+	suite.True(strings.HasPrefix(content, "---\n"), "should start with frontmatter delimiter")
+	suite.Contains(content, "Export Test Show")
+	suite.Contains(content, "## Description")
+	suite.Contains(content, "A great test show")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestExportShowToMarkdown_NotFound() {
+	_, _, err := suite.showService.ExportShowToMarkdown(99999)
+
+	suite.Require().Error(err)
+	var showErr *apperrors.ShowError
+	suite.ErrorAs(err, &showErr)
+	suite.Equal(apperrors.CodeShowNotFound, showErr.Code)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestExportShowToMarkdown_RoundTrip() {
+	created := suite.createTestShow(func(req *CreateShowRequest) {
+		req.Title = "Round Trip Show"
+		req.Description = "Round trip description"
+		req.City = "Tempe"
+		req.State = "AZ"
+	})
+
+	// Export
+	data, _, err := suite.showService.ExportShowToMarkdown(created.ID)
+	suite.Require().NoError(err)
+
+	// Parse back
+	parsed, err := suite.showService.ParseShowMarkdown(data)
+	suite.Require().NoError(err)
+
+	suite.Equal("Round Trip Show", parsed.Frontmatter.Show.Title)
+	suite.Equal("Tempe", parsed.Frontmatter.Show.City)
+	suite.Equal("AZ", parsed.Frontmatter.Show.State)
+	suite.Equal("approved", parsed.Frontmatter.Show.Status)
+	suite.Equal("Round trip description", parsed.Description)
+	suite.Len(parsed.Frontmatter.Venues, 1)
+	suite.Len(parsed.Frontmatter.Artists, 1)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestExportShowToMarkdown_FilenameFormat() {
+	created := suite.createTestShow(func(req *CreateShowRequest) {
+		req.Title = "Cool Show 2026"
+		req.EventDate = time.Date(2026, 3, 15, 20, 0, 0, 0, time.UTC)
+	})
+
+	_, filename, err := suite.showService.ExportShowToMarkdown(created.ID)
+
+	suite.Require().NoError(err)
+	suite.True(strings.HasPrefix(filename, "show-2026-03-15-"), "filename should start with show-date prefix")
+	suite.True(strings.HasSuffix(filename, ".md"), "filename should end with .md")
+	suite.Contains(filename, "cool-show-2026")
+}
+
+// =============================================================================
+// Group 9: GetAdminShows (DB required)
+// =============================================================================
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_NoFilters() {
+	user := suite.createTestUser()
+	for i := 0; i < 3; i++ {
+		req := &CreateShowRequest{
+			Title:     fmt.Sprintf("Admin Show %d", i),
+			EventDate: time.Date(2026, 12, 1+i, 20, 0, 0, 0, time.UTC),
+			City:      "Phoenix",
+			State:     "AZ",
+			Venues:    []CreateShowVenue{{Name: fmt.Sprintf("Admin Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:   []CreateShowArtist{{Name: fmt.Sprintf("Admin Artist %d", i), IsHeadliner: boolPtr(true)}},
+			SubmittedByUserID: &user.ID,
+			SubmitterIsAdmin:  true,
+		}
+		_, err := suite.showService.CreateShow(req)
+		suite.Require().NoError(err)
+	}
+
+	shows, total, err := suite.showService.GetAdminShows(10, 0, AdminShowFilters{})
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(3), total)
+	suite.Len(shows, 3)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_StatusFilter() {
+	user := suite.createTestUser()
+
+	// Create 2 approved shows
+	for i := 0; i < 2; i++ {
+		req := &CreateShowRequest{
+			Title:     fmt.Sprintf("Approved Admin %d", i),
+			EventDate: time.Date(2026, 12, 10+i, 20, 0, 0, 0, time.UTC),
+			City:      "Phoenix",
+			State:     "AZ",
+			Venues:    []CreateShowVenue{{Name: fmt.Sprintf("StatusF Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:   []CreateShowArtist{{Name: fmt.Sprintf("StatusF Artist %d", i), IsHeadliner: boolPtr(true)}},
+			SubmittedByUserID: &user.ID,
+			SubmitterIsAdmin:  true,
+		}
+		_, err := suite.showService.CreateShow(req)
+		suite.Require().NoError(err)
+	}
+
+	// Create 1 pending show
+	req := &CreateShowRequest{
+		Title:     "Pending Admin Show",
+		EventDate: time.Date(2026, 12, 15, 20, 0, 0, 0, time.UTC),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    []CreateShowVenue{{Name: "StatusF Venue P", City: "Phoenix", State: "AZ"}},
+		Artists:   []CreateShowArtist{{Name: "StatusF Artist P", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	pendingShow, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+	suite.db.Model(&models.Show{}).Where("id = ?", pendingShow.ID).Update("status", models.ShowStatusPending)
+
+	// Filter by pending
+	shows, total, err := suite.showService.GetAdminShows(10, 0, AdminShowFilters{Status: "pending"})
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(shows, 1)
+	suite.Equal("Pending Admin Show", shows[0].Title)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_Pagination() {
+	user := suite.createTestUser()
+	for i := 0; i < 5; i++ {
+		req := &CreateShowRequest{
+			Title:     fmt.Sprintf("Page Show %d", i),
+			EventDate: time.Date(2026, 12, 20+i, 20, 0, 0, 0, time.UTC),
+			City:      "Phoenix",
+			State:     "AZ",
+			Venues:    []CreateShowVenue{{Name: fmt.Sprintf("Page Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:   []CreateShowArtist{{Name: fmt.Sprintf("Page Artist %d", i), IsHeadliner: boolPtr(true)}},
+			SubmittedByUserID: &user.ID,
+			SubmitterIsAdmin:  true,
+		}
+		_, err := suite.showService.CreateShow(req)
+		suite.Require().NoError(err)
+	}
+
+	// Get page with limit=2, offset=2
+	shows, total, err := suite.showService.GetAdminShows(2, 2, AdminShowFilters{})
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(5), total)
+	suite.Len(shows, 2)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_CityFilter() {
+	user := suite.createTestUser()
+
+	// Phoenix show
+	req1 := &CreateShowRequest{
+		Title:     "PHX Admin Show",
+		EventDate: time.Date(2027, 1, 1, 20, 0, 0, 0, time.UTC),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    []CreateShowVenue{{Name: "PHX Admin Venue", City: "Phoenix", State: "AZ"}},
+		Artists:   []CreateShowArtist{{Name: "PHX Admin Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	_, err := suite.showService.CreateShow(req1)
+	suite.Require().NoError(err)
+
+	// Tucson show
+	req2 := &CreateShowRequest{
+		Title:     "TUC Admin Show",
+		EventDate: time.Date(2027, 1, 2, 20, 0, 0, 0, time.UTC),
+		City:      "Tucson",
+		State:     "AZ",
+		Venues:    []CreateShowVenue{{Name: "TUC Admin Venue", City: "Tucson", State: "AZ"}},
+		Artists:   []CreateShowArtist{{Name: "TUC Admin Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	_, err = suite.showService.CreateShow(req2)
+	suite.Require().NoError(err)
+
+	shows, total, err := suite.showService.GetAdminShows(10, 0, AdminShowFilters{City: "Tucson"})
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(shows, 1)
+	suite.Equal("TUC Admin Show", shows[0].Title)
+}

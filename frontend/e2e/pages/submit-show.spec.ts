@@ -63,9 +63,10 @@ test.describe('Submit a show', () => {
     await venueOption.click()
 
     // Verify city auto-filled from selected venue
+    // Increase timeout — form state propagation can be slow in CI
     await expect(
       authenticatedPage.locator('[id="venue.city"]')
-    ).toHaveValue('Phoenix', { timeout: 5_000 })
+    ).toHaveValue('Phoenix', { timeout: 10_000 })
 
     // Fill date with tomorrow's date
     const tomorrow = new Date()

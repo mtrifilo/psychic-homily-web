@@ -1,6 +1,0 @@
-{{ $venue_id := .Data.Term }} {{ $venue_data := index .Site.Data.venues
-$venue_id }}
-<meta
-  name="description"
-  content="Upcoming featured shows and events at {{ with $venue_data }}{{ .name }} in {{ .city }}, {{ .state }}{{ else }}{{ $venue_id | humanize }}{{ end }}. Find websites, socials, upcoming shows, and more."
-/>

@@ -1,14 +1,3 @@
-# Hugo default output directory
-/public/
-
-# Hugo cache directory
-/resources/_gen/
-/assets/jsconfig.json
-hugo_stats.json
-
-# Temporary lock files
-.hugo_build.lock
-
 # OS generated files
 .DS_Store
 .DS_Store?
@@ -31,8 +20,6 @@ Thumbs.db
 .env.stage
 .env.*.local
 
-# Keep example files
-!.env.example
 .env.development
 
 # Node.js

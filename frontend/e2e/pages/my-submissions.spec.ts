@@ -20,13 +20,14 @@ test.describe('My Submissions tab', () => {
     ).toHaveAttribute('data-state', 'active')
 
     // At least one submission should be visible
+    // (ShowCard renders artist names + venue, not the show title)
     await expect(authenticatedPage.locator('article').first()).toBeVisible({
       timeout: 10_000,
     })
 
-    // The stable approved show should be present
+    // The seeded show is in Phoenix, AZ — verify location text is rendered
     await expect(
-      authenticatedPage.getByText('E2E My Submitted Show')
+      authenticatedPage.getByText('Phoenix, AZ').first()
     ).toBeVisible()
   })
 
@@ -52,10 +53,11 @@ test.describe('My Submissions tab', () => {
       timeout: 10_000,
     })
 
-    // The approved show should have a "Published" badge
-    await expect(authenticatedPage.getByText('Published')).toBeVisible()
+    // At least one approved show should have a "Published" badge
+    // (admin tests may approve additional shows, so use .first() to avoid strict mode)
+    await expect(authenticatedPage.getByText('Published').first()).toBeVisible()
 
     // Venue and location info should be present (Phoenix, AZ)
-    await expect(authenticatedPage.getByText('Phoenix, AZ')).toBeVisible()
+    await expect(authenticatedPage.getByText('Phoenix, AZ').first()).toBeVisible()
   })
 })

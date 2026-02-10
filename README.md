@@ -1,283 +1,96 @@
-# Psychic Homily Web
+# Psychic Homily
 
 ### [https://psychichomily.com](https://psychichomily.com)
 
-A Hugo-based website to document and amplify some of the most exciting and memorable new music releases, shows, and cultural events from Arizona musicians and beyond, focusing on artists truly putting their hearts and souls into their work bravely.
+A music discovery platform for Arizona and beyond — upcoming shows, venues, and artists with community-driven listings and an admin-curated feed.
 
-This website features a show list and blog, along with helper scripts for parsing data. An Anthropic API key is required for the show parser, which uses Claude's Sonnet 3.5 model for an agentic AI workflow to parse natural language show descriptions into structured data for new show listings.
+<img width="640" alt="Screenshot 2025-02-16 at 3 11 09 AM" src="https://github.com/user-attachments/assets/072b7211-05a4-45e4-9243-0187d37b2aef" />
 
-<img width="640" alt="Screenshot 2025-02-16 at 3 11 09 AM" src="https://github.com/user-attachments/assets/072b7211-05a4-45e4-9243-0187d37b2aef" />
+## Tech Stack
 
-## Prerequisites
-
-- [Hugo](https://gohugo.io/installation/)
-- Node.js and pnpm
-- An Anthropic API key (for the show parser)
-
-## Setup
-
-1. Clone the repository:
-
-```bash
-git clone https://github.com/mtrifilo/psychic-homily-web.git
-cd psychic-homily-web
-```
-
-2. Install Node.js dependencies:
-
-```bash
-pnpm install
-```
-
-3. Create a `.env` file in the root directory with your Anthropic API key:
-
-```
-ANTHROPIC_API_KEY=your_api_key_here
-```
-
-## Running the Development Server
-
-To work on the Hugo site locally:
-
-```bash
-pnpm dev
-```
-
-The Hugo site is available at `http://localhost:1313` with live reload.
-
-**Note:** The main web application frontend is now a separate Next.js app located in `frontend/`. See `frontend/README.md` for frontend development instructions.
-
-## Adding New Shows
-
-There are two ways to add new shows:
-
-### 1. Using the Show Parser Script
-
-The project includes a custom script that uses Claude AI to parse natural language show announcements into structured data.
-
-https://github.com/user-attachments/assets/0612af17-5d4a-4594-92c3-d8712ccba77f
-
-1. Run the parser:
-
-```bash
-pnpm new-show
-```
-
-2. Enter the show announcement in the following format:
-
-```
-Band Name 1 and Band Name 2
-Friday March 15th at Venue Name
-8pm • 21+ • $10
-```
-
-3. Review the parsed details and confirm to create the show.
-
-The script will:
-
-- Parse the show details
-- Add any new bands to `data/bands.yaml`
-- Create a new show markdown file in `content/shows/`
-
-Here is a prompt template if formatting needs to be smoothed out, and a command generated:
-
-```
-I have a Hugo-based show listing website with a script at psychic-homily-web/scripts/parse-show.js that parses show announcements using Claude AI.
-
-The script is run via: pnpm new-show
-
-It accepts multiline input (terminated with two enters), parses the details, then asks for confirmation before creating files.
-
-I need a command that:
-1. Pipes the show details to the script
-2. Keeps stdin open so I can manually review and confirm with Y/n
-
-Show details:
-[paste show info or attach screenshot]
-```
-
-### 2. Manual Creation
-
-You can also manually create show files:
-
-1. Create a new markdown file in `content/shows/` with the format `YYYY-MM-DD-band-names.md`
-2. Add the required front matter:
-
-```yaml
----
-title: "YYYY-MM-DD Show"
-date: <current-datetime>
-event_date: YYYY-MM-DDT20:00:00-07:00
-draft: false
-venue: "Venue Name"
-city: "City"
-state: "ST"
-price: "10"
-age_requirement: "21+"
-bands:
-  - "band-id-1"
-  - "band-id-2"
----
-```
-
-## Adding Bandcamp Embeds
-
-The site includes a custom Bandcamp embed parser and shortcode for easily adding music players to your content.
-
-### Using the Bandcamp Parser
-
-1. Copy the embed code from Bandcamp (Share/Embed → Embed Code)
-
-2. Run the parser:
-
-```bash
-pnpm parse-bandcamp
-```
-
-3. Paste the embed code when prompted
-4. Review the parsed details
-5. Confirm to copy the generated Hugo shortcode to your clipboard
-
-### Using the Bandcamp Shortcode
-
-Add Bandcamp players to your content using the shortcode:
-
-```
-{{< bandcamp
-    album="albumID"
-    artist="artist-name"
-    title="album-title"
->}}
-```
-
-also note that an albumID is all that's needed at a minimum:
-
-```
-{{< bandcamp
-    album="albumID"
->}}
-```
-
-for tracks:
-
-```
-{{< bandcamp
-    track="trackID"
-    artist="artist-name"
-    title="track-title"
->}}
-```
-
-Optional parameters:
-
-- `size`: "large" (default) or "small"
-- `artwork`: "small" (default) or "large"
-- `height`: height in pixels (default: 120)
-- `bgcol`: background color hex code (default: ffffff)
-- `linkcol`: link color hex code (default: 0687f5)
-- `tracklist`: "false" (default) or "true"
-
-## Adding Blog Posts
-
-Blog posts can be added to the `content/blog/` directory. While you can create them manually, it is recommended to use the helper scripts:
-
-```bash
-pnpm new-blog
-```
-
-This script will create a new blog post file for you in `content/blog/`.
-
-There is also a script for creating "mix" posts:
-
-```bash
-pnpm new-mix
-```
-
-### Blog Post Front Matter
-
-Each blog post should include the following front matter:
-
-```yaml
----
-title: "Your Blog Post Title"
-date: YYYY-MM-DDT00:00:00-07:00
-draft: true
-description: "A brief description of your post"
-featured_image: "/images/your-image.jpg" # Optional
-tags: ["tag1", "tag2"] # Optional
----
-```
-
-### Writing Content
-
-The post content is written in Markdown below the front matter. You can:
-
-- Use standard Markdown syntax
-- Include images: `![Alt text](/images/image.jpg)`
-- Add Bandcamp embeds using the shortcode (see Bandcamp Embeds section)
-- Create links to shows: `[Show link](/shows/YYYY-MM-DD-show-name)`
-
-### Publishing
-
-1. Write your post with `draft: true` while working on it
-2. Preview it locally using `hugo server -D`
-3. When ready to publish, set `draft: false`
-4. The post will appear on the blog page and in the RSS feed
-
-## Building for Production
-
-To build the Hugo site for production deployment:
-
-```bash
-pnpm build:prod
-```
-
-This generates a production-ready site in the `public/` directory with minified HTML, CSS, and assets.
-
-### Deployment Checklist
-
-Before deploying:
-
-1. Set `draft: false` for all content you want to publish
-2. Update `baseURL` in `config.toml` to match your production domain
-3. Ensure all images and assets are optimized
-4. Test the built site locally:
-   ```bash
-   hugo server --minify --environment production
-   ```
+- **Frontend** — Next.js 16, React 19, TanStack Query, Tailwind CSS 4, Shadcn UI
+- **Backend** — Go (Chi router, Huma framework, GORM, PostgreSQL)
+- **Discovery** — Playwright-based show scraper with provider plugins
+- **iOS** — Native Swift app (in progress)
+- **Testing** — Vitest (unit), Playwright (E2E), Go `testing` (backend)
 
 ## Project Structure
 
-- `frontend/` - Next.js web application (main frontend)
-- `backend/` - Go API server
-- `content/shows/` - Hugo show markdown files
-- `content/blog/` - Hugo blog markdown files
-- `data/bands.yaml` - Band information and metadata
-- `layouts/` - Hugo templates and layouts
-- `scripts/` - Utility scripts including the show parser
-- `themes/` - Hugo themes
-- `assets/` - Static assets like images and CSS
+| Directory | Description |
+|-----------|-------------|
+| `frontend/` | Next.js web application |
+| `backend/` | Go API server |
+| `discovery/` | Playwright show discovery service |
+| `ios/` | Native iOS app |
+| `cli/` | Admin CLI tool |
+| `deploy/` | Deployment configuration |
+| `scripts/` | Utility scripts (test runner, venue discovery) |
+| `dev-docs/` | Internal development documentation |
 
-## Development
+## Prerequisites
 
-- The site uses Hugo for static site generation
-- Show data is stored in markdown files with YAML front matter
-- Band information is centralized in `data/bands.yaml`
-- The show parser script (`scripts/parse-show.js`) uses Claude AI to parse natural language show announcements
+- [Go](https://go.dev/) 1.24+
+- [Bun](https://bun.sh/) 1.2+
+- [Docker](https://www.docker.com/) (for PostgreSQL)
+- PostgreSQL 18
 
-## Roadmap
+## Getting Started
 
-- Store the bands and venue data in a database, and re-generate the yaml data based on persisted data
-- Allow users to submit shows, tag "favorite" shows, and create a profile
-- Create a mobile app for iPhone to allow for viewing show and band data, along with submitting shows on the go
-- Create a flyer image parser to extract show details from flyers, to update the show list
-- Social features?
+### Backend
+
+```bash
+cd backend
+docker compose up -d        # Start PostgreSQL
+go run ./cmd/server          # Start API server (localhost:8080)
+```
+
+### Frontend
+
+```bash
+cd frontend
+bun install
+bun run dev                  # Start dev server (localhost:3000)
+```
+
+## Testing
+
+### Backend
+
+```bash
+cd backend
+go test ./...
+```
+
+### Frontend (unit)
+
+```bash
+cd frontend
+bun run test                 # Watch mode
+bun run test:run             # Single run
+bun run test:coverage        # With coverage
+```
+
+### E2E
+
+Stop the dev backend first (port 8080 must be free), then:
+
+```bash
+cd frontend
+bun run test:e2e             # Headless
+bun run test:e2e:ui          # Interactive Playwright UI
+```
+
+### All suites
+
+```bash
+./scripts/test-all.sh
+```
 
 ## License
 
 MIT License
 
-Copyright (c) 2025 Psychic Homily Web
+Copyright (c) 2025-2026 Psychic Homily
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -296,10 +109,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-### Third-Party Licenses
-
-This project uses the following open source components:
-
-- [Hugo Ananke Theme](https://github.com/theNewDynamic/gohugo-theme-ananke) - MIT License, Copyright (c) 2016-2025 Bud Parr
-- Font Awesome Icons (via Ananke theme) - Licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)

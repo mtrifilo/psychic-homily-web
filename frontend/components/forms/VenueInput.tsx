@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { type AnyFieldApi } from '@tanstack/react-form'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -27,6 +27,7 @@ export function VenueInput({
 }: VenueInputProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchValue, setSearchValue] = useState('')
+  const justSelectedRef = useRef(false)
 
   const { data: searchResults } = useVenueSearch({
     query: searchValue,
@@ -36,6 +37,7 @@ export function VenueInput({
 
   // Handle venue selection from dropdown
   const handleVenueSelect = (venue: Venue) => {
+    justSelectedRef.current = true
     field.handleChange(venue.name)
     onVenueSelect?.(venue)
     setIsOpen(false)
@@ -76,7 +78,13 @@ export function VenueInput({
   const handleBlur = () => {
     // Delay closing to allow click on dropdown items
     setTimeout(() => {
-      if (field.state.value?.trim()) {
+      // Skip handleConfirm if a venue was just selected from dropdown —
+      // otherwise handleConfirm may call onVenueSelect(null) and wipe city/state
+      if (justSelectedRef.current) {
+        justSelectedRef.current = false
+        setIsOpen(false)
+        setSearchValue('')
+      } else if (field.state.value?.trim()) {
         handleConfirm()
       } else {
         setIsOpen(false)
