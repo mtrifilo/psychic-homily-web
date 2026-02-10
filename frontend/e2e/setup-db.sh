@@ -129,4 +129,71 @@ FROM users WHERE email IN ('e2e-user@test.local', 'e2e-admin@test.local', 'e2e-u
 ON CONFLICT (user_id) DO NOTHING;
 SQL
 
+echo "==> Inserting admin workflow test data..."
+psql "$E2E_DB_URL" <<'SQL'
+-- Admin workflow seed data: pending shows, unverified venue, pending venue edits
+DO $$
+DECLARE
+  test_user_id INTEGER;
+  v_id INTEGER;
+  a_id INTEGER;
+  s_id INTEGER;
+  venue1_id INTEGER;
+  venue2_id INTEGER;
+BEGIN
+  -- Get test user ID
+  SELECT id INTO test_user_id FROM users WHERE email = 'e2e-user@test.local';
+
+  -- Get an existing venue and artist for pending shows
+  SELECT id INTO v_id FROM venues LIMIT 1;
+  SELECT id INTO a_id FROM artists LIMIT 1;
+
+  -- 1) Two pending shows for approve/reject tests
+  INSERT INTO shows (title, event_date, city, state, status, source, submitted_by, created_at, updated_at, slug)
+  VALUES (
+    'E2E Pending Show Approve',
+    NOW() + INTERVAL '90 days',
+    'Phoenix', 'AZ', 'pending', 'user', test_user_id,
+    NOW(), NOW(),
+    'e2e-pending-show-approve'
+  )
+  RETURNING id INTO s_id;
+  INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
+  INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
+
+  INSERT INTO shows (title, event_date, city, state, status, source, submitted_by, created_at, updated_at, slug)
+  VALUES (
+    'E2E Pending Show Reject',
+    NOW() + INTERVAL '91 days',
+    'Phoenix', 'AZ', 'pending', 'user', test_user_id,
+    NOW(), NOW(),
+    'e2e-pending-show-reject'
+  )
+  RETURNING id INTO s_id;
+  INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
+  INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
+
+  -- 2) Unverified venue
+  INSERT INTO venues (name, address, city, state, zipcode, verified, created_at, updated_at, slug)
+  VALUES (
+    'E2E Unverified Venue',
+    '999 Test Street', 'Phoenix', 'AZ', '85001',
+    false, NOW(), NOW(), 'e2e-unverified-venue'
+  );
+
+  -- 3) Two pending venue edits against existing venues
+  SELECT id INTO venue1_id FROM venues WHERE verified = true ORDER BY id LIMIT 1;
+  SELECT id INTO venue2_id FROM venues WHERE verified = true AND id != venue1_id ORDER BY id LIMIT 1;
+
+  -- Edit 1: propose address + website change (for approve test)
+  INSERT INTO pending_venue_edits (venue_id, submitted_by, address, website, status, created_at, updated_at)
+  VALUES (venue1_id, test_user_id, '123 Updated Address', 'https://updated-venue.example.com', 'pending', NOW(), NOW());
+
+  -- Edit 2: propose name change (for reject test)
+  INSERT INTO pending_venue_edits (venue_id, submitted_by, name, status, created_at, updated_at)
+  VALUES (venue2_id, test_user_id, 'Renamed Venue E2E', 'pending', NOW(), NOW());
+
+END $$;
+SQL
+
 echo "==> E2E database setup complete!"

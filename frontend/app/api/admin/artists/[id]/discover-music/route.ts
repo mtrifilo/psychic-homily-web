@@ -191,11 +191,53 @@ async function validateBandcampUrl(url: string): Promise<boolean> {
 }
 
 function extractBandcampUrl(text: string): string | null {
-  // Try to find a Bandcamp URL in the response
+  // Try to find a Bandcamp album/track URL in the response
   const urlMatch = text.match(
     /https?:\/\/[a-zA-Z0-9-]+\.bandcamp\.com\/(album|track)\/[a-zA-Z0-9-]+/
   )
   return urlMatch ? urlMatch[0] : null
+}
+
+function extractBandcampProfileUrl(text: string): string | null {
+  // Match a Bandcamp profile URL (not album/track) like https://artist.bandcamp.com
+  const urlMatch = text.match(
+    /https?:\/\/[a-zA-Z0-9-]+\.bandcamp\.com\/?(?!\/(album|track)\/)/
+  )
+  if (!urlMatch) return null
+  // Clean trailing slash
+  return urlMatch[0].replace(/\/$/, '')
+}
+
+async function resolveAlbumFromProfile(profileUrl: string): Promise<string | null> {
+  try {
+    const response = await fetch(profileUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; MusicEmbed/1.0)',
+      },
+    })
+
+    if (!response.ok) return null
+
+    const html = await response.text()
+
+    // Bandcamp profile pages contain relative album/track links like href="/album/new-earth"
+    // Find all album links first (preferred), then fall back to track links
+    const albumMatches = html.match(/href="\/album\/[a-zA-Z0-9-]+"/g)
+    if (albumMatches && albumMatches.length > 0) {
+      const path = albumMatches[0].match(/href="(\/album\/[a-zA-Z0-9-]+)"/)
+      if (path) return `${profileUrl}${path[1]}`
+    }
+
+    const trackMatches = html.match(/href="\/track\/[a-zA-Z0-9-]+"/g)
+    if (trackMatches && trackMatches.length > 0) {
+      const path = trackMatches[0].match(/href="(\/track\/[a-zA-Z0-9-]+)"/)
+      if (path) return `${profileUrl}${path[1]}`
+    }
+
+    return null
+  } catch {
+    return null
+  }
 }
 
 function extractSpotifyUrl(text: string): string | null {
@@ -279,8 +321,24 @@ async function discoverBandcamp(
       return { found: false }
     }
 
-    // Extract URL from response
-    const bandcampUrl = extractBandcampUrl(responseText)
+    // Extract album/track URL from response
+    let bandcampUrl = extractBandcampUrl(responseText)
+
+    // If no album/track URL found, check for a profile URL and try to resolve an album from it
+    if (!bandcampUrl) {
+      const profileUrl = extractBandcampProfileUrl(responseText)
+      if (profileUrl) {
+        console.log(
+          `[MusicDiscovery] Bandcamp: Found profile "${profileUrl}" for "${artistName}", resolving album...`
+        )
+        bandcampUrl = await resolveAlbumFromProfile(profileUrl)
+        if (bandcampUrl) {
+          console.log(
+            `[MusicDiscovery] Bandcamp: Resolved album "${bandcampUrl}" from profile`
+          )
+        }
+      }
+    }
 
     if (!bandcampUrl) {
       console.log(
