@@ -426,12 +426,15 @@ export function ShowForm({
         state: venue.state,
         verified: venue.verified,
       })
-      form.setFieldValue('venue.id', venue.id)
-      form.setFieldValue('venue.city', venue.city)
-      form.setFieldValue('venue.state', venue.state)
-      if (venue.address) {
-        form.setFieldValue('venue.address', venue.address)
-      }
+      // Set the entire venue object at once to ensure all sub-field
+      // subscribers are notified in a single store update
+      form.setFieldValue('venue', {
+        id: venue.id,
+        name: venue.name,
+        city: venue.city,
+        state: venue.state,
+        address: venue.address || '',
+      })
       // Reset private show option when selecting a verified venue
       if (venue.verified) {
         setIsPrivateShow(false)

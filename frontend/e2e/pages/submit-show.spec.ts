@@ -45,25 +45,22 @@ test.describe('Submit a show', () => {
       .locator('[id="artists[0].name"]')
       .fill('E2E Submitted Artist')
 
-    // Fill venue — type to trigger autocomplete, then select from dropdown
-    // Use pressSequentially to keep focus on the input (fill() triggers blur
-    // which closes the dropdown before the API responds)
+    // Fill venue — type to trigger autocomplete, then confirm via Enter key
+    // pressSequentially keeps focus on the input while typing
     const venueInput = authenticatedPage.locator('[id="venue.name"]')
     await venueInput.click()
     await venueInput.pressSequentially('Valley Bar', { delay: 30 })
 
-    // Wait for autocomplete results to load, then click the venue
+    // Wait for autocomplete results to load (confirms API responded)
     await expect(
       authenticatedPage.getByText('Existing Venues')
     ).toBeVisible({ timeout: 5_000 })
-    const venueOption = authenticatedPage
-      .locator('button')
-      .filter({ hasText: 'Valley Bar' })
-      .first()
-    await venueOption.click()
+
+    // Press Enter to confirm the exact-match venue selection
+    // This is more reliable than clicking dropdown items in E2E tests
+    await venueInput.press('Enter')
 
     // Verify city auto-filled from selected venue
-    // Increase timeout — form state propagation can be slow in CI
     await expect(
       authenticatedPage.locator('[id="venue.city"]')
     ).toHaveValue('Phoenix', { timeout: 10_000 })
