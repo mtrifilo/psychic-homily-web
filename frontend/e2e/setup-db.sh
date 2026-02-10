@@ -27,8 +27,34 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
-echo "==> Running seed command..."
-DATABASE_URL="$E2E_DB_URL" go run ./cmd/seed
+echo "==> Seeding venues and artists..."
+psql "$E2E_DB_URL" <<'SQL'
+-- Minimal set of venues for E2E tests
+INSERT INTO venues (name, address, city, state, zipcode, verified, created_at, updated_at, slug)
+VALUES
+  ('The Rebel Lounge', '2303 E Indian School Rd', 'Phoenix', 'AZ', '85016', true, NOW(), NOW(), 'the-rebel-lounge-phoenix-az'),
+  ('Crescent Ballroom', '308 N 2nd Ave', 'Phoenix', 'AZ', '85003', true, NOW(), NOW(), 'crescent-ballroom-phoenix-az'),
+  ('Valley Bar', '130 N Central Ave', 'Phoenix', 'AZ', '85004', true, NOW(), NOW(), 'valley-bar-phoenix-az'),
+  ('Club Congress', '311 E Congress St', 'Tucson', 'AZ', '85701', true, NOW(), NOW(), 'club-congress-tucson-az'),
+  ('191 Toole', '191 E Toole Ave', 'Tucson', 'AZ', '85701', true, NOW(), NOW(), '191-toole-tucson-az'),
+  ('Hotel Congress Plaza', '311 E Congress St', 'Tucson', 'AZ', '85701', true, NOW(), NOW(), 'hotel-congress-plaza-tucson-az')
+ON CONFLICT DO NOTHING;
+
+-- Minimal set of artists for E2E tests
+INSERT INTO artists (name, created_at, updated_at, slug)
+VALUES
+  ('Calexico', NOW(), NOW(), 'calexico'),
+  ('Jimmy Eat World', NOW(), NOW(), 'jimmy-eat-world'),
+  ('The Maine', NOW(), NOW(), 'the-maine'),
+  ('AJJ', NOW(), NOW(), 'ajj'),
+  ('Playboy Manbaby', NOW(), NOW(), 'playboy-manbaby'),
+  ('Doll Skin', NOW(), NOW(), 'doll-skin'),
+  ('The Format', NOW(), NOW(), 'the-format'),
+  ('Dear and the Headlights', NOW(), NOW(), 'dear-and-the-headlights'),
+  ('Sundressed', NOW(), NOW(), 'sundressed'),
+  ('ROAR', NOW(), NOW(), 'roar')
+ON CONFLICT DO NOTHING;
+SQL
 
 echo "==> Inserting future-dated test shows..."
 psql "$E2E_DB_URL" <<'SQL'
