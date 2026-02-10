@@ -1,6 +1,6 @@
 {
   "private": true,
   "scripts": {
-    "test-all": "./scripts/test-all.sh"
+    "test-all": "cd scripts/test-runner && go run ."
   }
 }

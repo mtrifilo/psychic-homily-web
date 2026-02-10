@@ -4,8 +4,6 @@
 
 A music discovery platform for Arizona and beyond — upcoming shows, venues, and artists with community-driven listings and an admin-curated feed.
 
-<img width="640" alt="Screenshot 2025-02-16 at 3 11 09 AM" src="https://github.com/user-attachments/assets/072b7211-05a4-45e4-9243-0187d37b2aef" />
-
 ## Tech Stack
 
 - **Frontend** — Next.js 16, React 19, TanStack Query, Tailwind CSS 4, Shadcn UI
@@ -16,16 +14,16 @@ A music discovery platform for Arizona and beyond — upcoming shows, venues, an
 
 ## Project Structure
 
-| Directory | Description |
-|-----------|-------------|
-| `frontend/` | Next.js web application |
-| `backend/` | Go API server |
-| `discovery/` | Playwright show discovery service |
-| `ios/` | Native iOS app |
-| `cli/` | Admin CLI tool |
-| `deploy/` | Deployment configuration |
-| `scripts/` | Utility scripts (test runner, venue discovery) |
-| `dev-docs/` | Internal development documentation |
+| Directory    | Description                                    |
+| ------------ | ---------------------------------------------- |
+| `frontend/`  | Next.js web application                        |
+| `backend/`   | Go API server                                  |
+| `discovery/` | Playwright show discovery service              |
+| `ios/`       | Native iOS app                                 |
+| `cli/`       | Admin CLI tool                                 |
+| `deploy/`    | Deployment configuration                       |
+| `scripts/`   | Utility scripts (test runner, venue discovery) |
+| `dev-docs/`  | Internal development documentation             |
 
 ## Prerequisites
 
