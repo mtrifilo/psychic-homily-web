@@ -136,24 +136,26 @@ function ShowCard({
             {show.city}, {show.state}
           </h3>
 
-          {/* Status Badge */}
+          {/* Status Badge - only show for owner's own shows or admins */}
           <div className="mt-2 flex flex-col gap-1">
-            {show.status === 'approved' ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 w-fit">
-                <CheckCircle2 className="h-3 w-3" />
-                Published
-              </span>
-            ) : show.status === 'pending' ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 w-fit">
-                <Clock className="h-3 w-3" />
-                Pending
-              </span>
-            ) : show.status === 'private' || show.status === 'rejected' ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/10 text-slate-600 dark:text-slate-400 w-fit">
-                <EyeOff className="h-3 w-3" />
-                Private
-              </span>
-            ) : null}
+            {(isAdmin || isOwner) && (
+              show.status === 'approved' ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 w-fit">
+                  <CheckCircle2 className="h-3 w-3" />
+                  Published
+                </span>
+              ) : show.status === 'pending' ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 w-fit">
+                  <Clock className="h-3 w-3" />
+                  Pending
+                </span>
+              ) : show.status === 'private' || show.status === 'rejected' ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/10 text-slate-600 dark:text-slate-400 w-fit">
+                  <EyeOff className="h-3 w-3" />
+                  Private
+                </span>
+              ) : null
+            )}
 
             {/* Sold Out Badge */}
             {show.is_sold_out && (
