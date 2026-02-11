@@ -174,17 +174,20 @@ async function updateArtistSpotify(
 
 async function validateBandcampUrl(url: string): Promise<boolean> {
   try {
-    // Use our existing album-id endpoint to validate the URL
-    const response = await fetch(
-      `${process.env.NEXT_PUBLIC_URL || 'http://localhost:3000'}/api/bandcamp/album-id?url=${encodeURIComponent(url)}`
-    )
+    // Fetch the Bandcamp page directly and check for album ID pattern
+    // (avoids self-referencing HTTP fetch to /api/bandcamp/album-id)
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; MusicEmbed/1.0)',
+      },
+    })
 
     if (!response.ok) {
       return false
     }
 
-    const data = await response.json()
-    return !!data.albumId
+    const html = await response.text()
+    return /album=(\d+)/.test(html)
   } catch {
     return false
   }
@@ -531,77 +534,101 @@ export async function POST(
     // Initialize Anthropic client
     const anthropic = new Anthropic({ apiKey })
 
-    // Step 1: Try to discover Bandcamp first
-    const bandcampResult = await discoverBandcamp(artist.name, anthropic)
+    // Run both discoveries in parallel
+    const [bandcampSettled, spotifySettled] = await Promise.allSettled([
+      discoverBandcamp(artist.name, anthropic),
+      discoverSpotify(artist.name, anthropic),
+    ])
 
-    if (bandcampResult.found && bandcampResult.url) {
-      // Found Bandcamp - update and return
-      const updatedArtist = await updateArtistBandcamp(
-        artistId,
-        bandcampResult.url,
-        authToken
-      )
-
-      if (!updatedArtist) {
-        Sentry.captureMessage('Failed to save discovered Bandcamp URL', {
-          level: 'error',
-          tags: { service: 'music-discovery', error_type: 'update_failed' },
-          extra: { artistId, url: bandcampResult.url },
-        })
-        return NextResponse.json(
-          {
-            success: false,
-            error: 'UPDATE_FAILED',
-            message: 'Failed to save the discovered Bandcamp URL',
-            discovered_url: bandcampResult.url,
-            platform: 'bandcamp',
-          },
-          { status: 500 }
-        )
+    // Check for credit errors from either call
+    for (const settled of [bandcampSettled, spotifySettled]) {
+      if (settled.status === 'rejected' && isCreditsError(settled.reason)) {
+        throw settled.reason
       }
-
-      return NextResponse.json({
-        success: true,
-        platform: 'bandcamp',
-        url: bandcampResult.url,
-        artist: updatedArtist,
-      })
     }
 
-    // Step 2: Bandcamp not found, try Spotify as fallback
-    const spotifyResult = await discoverSpotify(artist.name, anthropic)
+    const bandcampResult: DiscoveryResult =
+      bandcampSettled.status === 'fulfilled'
+        ? bandcampSettled.value
+        : { found: false, error: bandcampSettled.reason?.message }
+    const spotifyResult: DiscoveryResult =
+      spotifySettled.status === 'fulfilled'
+        ? spotifySettled.value
+        : { found: false, error: spotifySettled.reason?.message }
 
-    if (spotifyResult.found && spotifyResult.url) {
-      // Found Spotify - update and return
-      const updatedArtist = await updateArtistSpotify(
-        artistId,
-        spotifyResult.url,
-        authToken
+    const foundBandcamp = bandcampResult.found && bandcampResult.url
+    const foundSpotify = spotifyResult.found && spotifyResult.url
+
+    // Save both results in parallel
+    const updatePromises: Promise<Artist | null>[] = []
+    if (foundBandcamp) {
+      updatePromises.push(
+        updateArtistBandcamp(artistId, bandcampResult.url!, authToken)
       )
+    }
+    if (foundSpotify) {
+      updatePromises.push(
+        updateArtistSpotify(artistId, spotifyResult.url!, authToken)
+      )
+    }
 
-      if (!updatedArtist) {
-        Sentry.captureMessage('Failed to save discovered Spotify URL', {
+    if (updatePromises.length > 0) {
+      const updateResults = await Promise.all(updatePromises)
+      const anyUpdateFailed = updateResults.some(r => r === null)
+
+      if (anyUpdateFailed && !updateResults.some(r => r !== null)) {
+        // All updates failed
+        Sentry.captureMessage('Failed to save all discovered music URLs', {
           level: 'error',
           tags: { service: 'music-discovery', error_type: 'update_failed' },
-          extra: { artistId, url: spotifyResult.url },
+          extra: {
+            artistId,
+            bandcampUrl: bandcampResult.url,
+            spotifyUrl: spotifyResult.url,
+          },
         })
         return NextResponse.json(
           {
             success: false,
             error: 'UPDATE_FAILED',
-            message: 'Failed to save the discovered Spotify URL',
-            discovered_url: spotifyResult.url,
-            platform: 'spotify',
+            message: 'Failed to save the discovered music URLs',
+            platform: foundBandcamp ? 'bandcamp' : 'spotify',
+            discovered_url: foundBandcamp
+              ? bandcampResult.url
+              : spotifyResult.url,
           },
           { status: 500 }
         )
       }
 
+      // Build platforms response
+      const platforms = {
+        bandcamp: {
+          found: !!foundBandcamp,
+          ...(foundBandcamp && { url: bandcampResult.url }),
+          ...(!foundBandcamp &&
+            bandcampResult.error && { error: bandcampResult.error }),
+        },
+        spotify: {
+          found: !!foundSpotify,
+          ...(foundSpotify && { url: spotifyResult.url }),
+          ...(!foundSpotify &&
+            spotifyResult.error && { error: spotifyResult.error }),
+        },
+      }
+
+      // Top-level platform/url for backward compatibility (prefer Bandcamp)
+      const primaryPlatform = foundBandcamp ? 'bandcamp' : 'spotify'
+      const primaryUrl = foundBandcamp
+        ? bandcampResult.url
+        : spotifyResult.url
+
       return NextResponse.json({
         success: true,
-        platform: 'spotify',
-        url: spotifyResult.url,
-        artist: updatedArtist,
+        platform: primaryPlatform,
+        url: primaryUrl,
+        platforms,
+        artist: updateResults.find(r => r !== null),
       })
     }
 
@@ -611,6 +638,16 @@ export async function POST(
         success: false,
         error: 'NOT_FOUND',
         message: `Could not find music for "${artist.name}" on Bandcamp or Spotify`,
+        platforms: {
+          bandcamp: {
+            found: false,
+            ...(bandcampResult.error && { error: bandcampResult.error }),
+          },
+          spotify: {
+            found: false,
+            ...(spotifyResult.error && { error: spotifyResult.error }),
+          },
+        },
       },
       { status: 404 }
     )

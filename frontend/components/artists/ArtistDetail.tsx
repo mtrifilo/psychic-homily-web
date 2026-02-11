@@ -79,13 +79,23 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
         queryClient.invalidateQueries({
           queryKey: queryKeys.artists.detail(artistId),
         })
-        const platformName = data.platform
-          ? formatPlatformName(data.platform)
-          : 'music'
-        setFeedback({
-          type: 'success',
-          message: `Found ${platformName}: ${data.url}`,
-        })
+
+        let message: string
+        if (data.platforms) {
+          const found: string[] = []
+          if (data.platforms.bandcamp?.found) found.push('Bandcamp')
+          if (data.platforms.spotify?.found) found.push('Spotify')
+          message = found.length > 0
+            ? `Found ${found.join(' and ')}`
+            : `Found ${data.platform ? formatPlatformName(data.platform) : 'music'}: ${data.url}`
+        } else {
+          const platformName = data.platform
+            ? formatPlatformName(data.platform)
+            : 'music'
+          message = `Found ${platformName}: ${data.url}`
+        }
+
+        setFeedback({ type: 'success', message })
         setShowManualInput(null)
       },
       onError: err => {

@@ -27,6 +27,10 @@ export interface DiscoverMusicResponse {
   error?: string
   message?: string
   discovered_url?: string
+  platforms?: {
+    bandcamp: { found: boolean; url?: string; error?: string }
+    spotify: { found: boolean; url?: string; error?: string }
+  }
 }
 
 /**
@@ -61,7 +65,7 @@ export interface UpdateSpotifyResponse {
 
 /**
  * Hook for AI-powered music discovery (admin only)
- * Tries Bandcamp first, then falls back to Spotify
+ * Searches Bandcamp and Spotify in parallel, saves both when found
  *
  * Usage:
  * ```tsx

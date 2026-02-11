@@ -45,7 +45,7 @@ test.describe('Submit a show', () => {
       .locator('[id="artists[0].name"]')
       .fill('E2E Submitted Artist')
 
-    // Fill venue — type to trigger autocomplete, then confirm via Enter key
+    // Fill venue — type to trigger autocomplete, then select from dropdown
     // pressSequentially keeps focus on the input while typing
     const venueInput = authenticatedPage.locator('[id="venue.name"]')
     await venueInput.click()
@@ -56,9 +56,14 @@ test.describe('Submit a show', () => {
       authenticatedPage.getByText('Existing Venues')
     ).toBeVisible({ timeout: 5_000 })
 
-    // Press Enter to confirm the exact-match venue selection
-    // This is more reliable than clicking dropdown items in E2E tests
-    await venueInput.press('Enter')
+    // Click the Valley Bar venue in the autocomplete dropdown.
+    // The dropdown button's onMouseDown directly calls handleVenueSelect(venue)
+    // with the full venue object (including city/state), bypassing the
+    // filteredVenues lookup in handleConfirm. It also sets justSelectedRef
+    // which prevents a duplicate handleConfirm call on blur.
+    await authenticatedPage
+      .getByRole('button', { name: /Valley Bar/ })
+      .click()
 
     // Verify city auto-filled from selected venue
     await expect(

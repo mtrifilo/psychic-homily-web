@@ -61,12 +61,15 @@ describe('useAdminArtists', () => {
   })
 
   describe('useDiscoverMusic', () => {
-    it('discovers music for an artist and returns Bandcamp URL', async () => {
+    it('discovers music and returns both Bandcamp and Spotify', async () => {
       const mockResponse = {
         success: true,
         platform: 'bandcamp',
         url: 'https://artist.bandcamp.com/album/test',
-        discovered_url: 'https://artist.bandcamp.com/album/test',
+        platforms: {
+          bandcamp: { found: true, url: 'https://artist.bandcamp.com/album/test' },
+          spotify: { found: true, url: 'https://open.spotify.com/artist/abc123' },
+        },
       }
       mockFetchResponse(mockResponse)
 
@@ -91,13 +94,19 @@ describe('useAdminArtists', () => {
       expect(result.current.data?.url).toBe(
         'https://artist.bandcamp.com/album/test'
       )
+      expect(result.current.data?.platforms?.bandcamp.found).toBe(true)
+      expect(result.current.data?.platforms?.spotify.found).toBe(true)
     })
 
-    it('discovers music and returns Spotify URL', async () => {
+    it('discovers only Bandcamp when Spotify not found', async () => {
       const mockResponse = {
         success: true,
-        platform: 'spotify',
-        url: 'https://open.spotify.com/artist/abc123',
+        platform: 'bandcamp',
+        url: 'https://artist.bandcamp.com/album/test',
+        platforms: {
+          bandcamp: { found: true, url: 'https://artist.bandcamp.com/album/test' },
+          spotify: { found: false },
+        },
       }
       mockFetchResponse(mockResponse)
 
@@ -111,7 +120,36 @@ describe('useAdminArtists', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
+      expect(result.current.data?.platform).toBe('bandcamp')
+      expect(result.current.data?.platforms?.bandcamp.found).toBe(true)
+      expect(result.current.data?.platforms?.spotify.found).toBe(false)
+    })
+
+    it('discovers only Spotify when Bandcamp not found', async () => {
+      const mockResponse = {
+        success: true,
+        platform: 'spotify',
+        url: 'https://open.spotify.com/artist/abc123',
+        platforms: {
+          bandcamp: { found: false },
+          spotify: { found: true, url: 'https://open.spotify.com/artist/abc123' },
+        },
+      }
+      mockFetchResponse(mockResponse)
+
+      const { result } = renderHook(() => useDiscoverMusic(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate(789)
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
       expect(result.current.data?.platform).toBe('spotify')
+      expect(result.current.data?.platforms?.bandcamp.found).toBe(false)
+      expect(result.current.data?.platforms?.spotify.found).toBe(true)
     })
 
     it('invalidates artist query on success', async () => {
