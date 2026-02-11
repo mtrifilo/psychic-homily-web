@@ -42,7 +42,7 @@ const nextConfig: NextConfig = {
               "font-src 'self'",
               "worker-src 'self' blob:",
               "connect-src 'self' https://api.psychichomily.com https://stage.api.psychichomily.com https://app.posthog.com",
-              "frame-src https://open.spotify.com https://bandcamp.com https://w.soundcloud.com https://vercel.live",
+              "frame-src https://open.spotify.com https://bandcamp.com https://w.soundcloud.com https://vercel.live https://maps.google.com https://www.google.com",
               "frame-ancestors 'none'",
               "base-uri 'self'",
               "form-action 'self'",
