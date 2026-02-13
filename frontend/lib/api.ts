@@ -132,6 +132,7 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/saved-shows/${showId}`,
     CHECK: (showId: string | number) =>
       `${API_BASE_URL}/saved-shows/${showId}/check`,
+    CHECK_BATCH: `${API_BASE_URL}/saved-shows/check-batch`,
   },
 
   // Favorite venues endpoints

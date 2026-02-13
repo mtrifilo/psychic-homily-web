@@ -169,6 +169,8 @@ export const queryKeys = {
     list: (userId?: string) => ['savedShows', 'list', userId] as const,
     check: (showId: string | number) =>
       ['savedShows', 'check', String(showId)] as const,
+    batch: (showIds: number[]) =>
+      ['savedShows', 'batch', showIds] as const,
   },
 
   // Favorite venues queries

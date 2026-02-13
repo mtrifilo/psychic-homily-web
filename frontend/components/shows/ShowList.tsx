@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useCallback, useTransition } from 'react'
+import { useState, useCallback, useMemo, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useUpcomingShows, useShowCities } from '@/lib/hooks/useShows'
+import { useSavedShowBatch } from '@/lib/hooks/useSavedShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { ShowResponse, ArtistResponse } from '@/lib/types/show'
 import Link from 'next/link'
@@ -65,9 +66,10 @@ interface ShowCardProps {
   show: ShowResponse
   isAdmin: boolean
   userId?: string
+  isSaved?: boolean
 }
 
-function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
+function ShowCard({ show, isAdmin, userId, isSaved }: ShowCardProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isExpanded, setIsExpanded] = useState(false)
@@ -156,7 +158,7 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
               )}
 
               {/* Save Button */}
-              <SaveButton showId={show.id} variant="ghost" size="sm" />
+              <SaveButton showId={show.id} variant="ghost" size="sm" isSaved={isSaved} />
 
               {/* Admin Edit Button */}
               {isAdmin && (
@@ -301,7 +303,7 @@ function ShowCard({ show, isAdmin, userId }: ShowCardProps) {
 export function ShowList() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { user } = useAuthContext()
+  const { user, isAuthenticated } = useAuthContext()
   const isAdmin = user?.is_admin ?? false
   const [isPending, startTransition] = useTransition()
 
@@ -322,6 +324,14 @@ export function ShowList() {
     city: selectedCity || undefined,
     state: selectedState || undefined,
   })
+
+  // Batch-check saved status for all visible shows (1 request instead of N)
+  const allShows = useMemo(
+    () => [...accumulatedShows, ...(data?.shows || [])],
+    [accumulatedShows, data?.shows]
+  )
+  const allShowIds = useMemo(() => allShows.map(s => s.id), [allShows])
+  const { data: savedShowIds } = useSavedShowBatch(allShowIds, isAuthenticated)
 
   const handleLoadMore = useCallback(() => {
     if (data?.pagination.next_cursor) {
@@ -389,52 +399,47 @@ export function ShowList() {
 
       {/* Dim content while fetching, don't hide it */}
       <div className={isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
-        {(() => {
-          const allShows = [...accumulatedShows, ...(data?.shows || [])]
-          if (allShows.length === 0) {
-            return (
-              <div className="text-center py-12 text-muted-foreground">
-                <p>
-                  {selectedCity
-                    ? `No upcoming shows in ${selectedCity}.`
-                    : 'No upcoming shows at this time.'}
-                </p>
-                {selectedCity && (
-                  <button
-                    onClick={() => handleFilterChange(null, null)}
-                    className="mt-4 text-primary hover:underline"
-                  >
-                    View all shows
-                  </button>
-                )}
-              </div>
-            )
-          }
-          return (
-            <>
-              {allShows.map(show => (
-                <ShowCard
-                  key={show.id}
-                  show={show}
-                  isAdmin={isAdmin}
-                  userId={user?.id}
-                />
-              ))}
+        {allShows.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p>
+              {selectedCity
+                ? `No upcoming shows in ${selectedCity}.`
+                : 'No upcoming shows at this time.'}
+            </p>
+            {selectedCity && (
+              <button
+                onClick={() => handleFilterChange(null, null)}
+                className="mt-4 text-primary hover:underline"
+              >
+                View all shows
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            {allShows.map(show => (
+              <ShowCard
+                key={show.id}
+                show={show}
+                isAdmin={isAdmin}
+                userId={user?.id}
+                isSaved={savedShowIds?.has(show.id)}
+              />
+            ))}
 
-              {data?.pagination.has_more && (
-                <div className="text-center py-6">
-                  <Button
-                    variant="outline"
-                    onClick={handleLoadMore}
-                    disabled={isFetching}
-                  >
-                    {isFetching ? 'Loading...' : 'Load More'}
-                  </Button>
-                </div>
-              )}
-            </>
-          )
-        })()}
+            {data?.pagination.has_more && (
+              <div className="text-center py-6">
+                <Button
+                  variant="outline"
+                  onClick={handleLoadMore}
+                  disabled={isFetching}
+                >
+                  {isFetching ? 'Loading...' : 'Load More'}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </section>
   )

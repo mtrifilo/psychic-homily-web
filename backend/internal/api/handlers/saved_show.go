@@ -254,6 +254,84 @@ func (h *SavedShowHandler) GetSavedShowsHandler(ctx context.Context, req *GetSav
 	}, nil
 }
 
+// CheckBatchSavedRequest represents the HTTP request for batch checking saved shows
+type CheckBatchSavedRequest struct {
+	Body struct {
+		ShowIDs []int `json:"show_ids" validate:"required,max=200" doc:"List of show IDs to check (max 200)"`
+	}
+}
+
+// CheckBatchSavedResponse represents the HTTP response for batch checking saved shows
+type CheckBatchSavedResponse struct {
+	Body struct {
+		SavedShowIDs []int `json:"saved_show_ids"`
+	}
+}
+
+// CheckBatchSavedHandler handles POST /saved-shows/check-batch
+func (h *SavedShowHandler) CheckBatchSavedHandler(ctx context.Context, req *CheckBatchSavedRequest) (*CheckBatchSavedResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Get authenticated user
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	if len(req.Body.ShowIDs) == 0 {
+		return &CheckBatchSavedResponse{
+			Body: struct {
+				SavedShowIDs []int `json:"saved_show_ids"`
+			}{
+				SavedShowIDs: []int{},
+			},
+		}, nil
+	}
+
+	if len(req.Body.ShowIDs) > 200 {
+		return nil, huma.Error400BadRequest("Maximum 200 show IDs allowed")
+	}
+
+	// Convert to []uint
+	showIDs := make([]uint, len(req.Body.ShowIDs))
+	for i, id := range req.Body.ShowIDs {
+		if id <= 0 {
+			return nil, huma.Error400BadRequest("Invalid show ID")
+		}
+		showIDs[i] = uint(id)
+	}
+
+	// Batch check
+	savedMap, err := h.savedShowService.GetSavedShowIDs(user.ID, showIDs)
+	if err != nil {
+		logger.FromContext(ctx).Error("check_batch_saved_failed",
+			"user_id", user.ID,
+			"count", len(showIDs),
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to check saved shows (request_id: %s)", requestID),
+		)
+	}
+
+	// Convert map to list of saved IDs
+	savedIDs := make([]int, 0, len(savedMap))
+	for id, saved := range savedMap {
+		if saved {
+			savedIDs = append(savedIDs, int(id))
+		}
+	}
+
+	return &CheckBatchSavedResponse{
+		Body: struct {
+			SavedShowIDs []int `json:"saved_show_ids"`
+		}{
+			SavedShowIDs: savedIDs,
+		},
+	}, nil
+}
+
 // CheckSavedHandler handles GET /saved-shows/{show_id}/check
 func (h *SavedShowHandler) CheckSavedHandler(ctx context.Context, req *CheckSavedRequest) (*CheckSavedResponse, error) {
 	requestID := logger.GetRequestID(ctx)

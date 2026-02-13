@@ -11,6 +11,7 @@ interface SaveButtonProps {
   variant?: 'default' | 'ghost' | 'outline'
   size?: 'sm' | 'md' | 'lg'
   showLabel?: boolean
+  isSaved?: boolean
 }
 
 export function SaveButton({
@@ -18,9 +19,10 @@ export function SaveButton({
   variant = 'ghost',
   size = 'sm',
   showLabel = false,
+  isSaved: batchIsSaved,
 }: SaveButtonProps) {
   const { isAuthenticated } = useAuthContext()
-  const { isSaved, isLoading, toggle, error } = useSaveShowToggle(showId, isAuthenticated)
+  const { isSaved, isLoading, toggle, error } = useSaveShowToggle(showId, isAuthenticated, batchIsSaved)
   const [showError, setShowError] = useState(false)
 
   // Don't render if not authenticated

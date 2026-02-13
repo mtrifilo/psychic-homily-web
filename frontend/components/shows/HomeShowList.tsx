@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useUpcomingShows } from '@/lib/hooks/useShows'
+import { useSavedShowBatch } from '@/lib/hooks/useSavedShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { ShowResponse, ArtistResponse } from '@/lib/types/show'
 import Link from 'next/link'
@@ -61,9 +62,10 @@ function showHasArtistMusic(artists: ArtistResponse[]): boolean {
 interface ShowCardProps {
   show: ShowResponse
   isAdmin: boolean
+  isSaved?: boolean
 }
 
-function ShowCard({ show, isAdmin }: ShowCardProps) {
+function ShowCard({ show, isAdmin, isSaved }: ShowCardProps) {
   const { user } = useAuthContext()
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -146,7 +148,7 @@ function ShowCard({ show, isAdmin }: ShowCardProps) {
               )}
 
               {/* Save Button */}
-              <SaveButton showId={show.id} variant="ghost" size="sm" />
+              <SaveButton showId={show.id} variant="ghost" size="sm" isSaved={isSaved} />
 
               {/* Admin Edit Button */}
               {isAdmin && (
@@ -266,7 +268,7 @@ function ShowCard({ show, isAdmin }: ShowCardProps) {
 }
 
 export function HomeShowList() {
-  const { user } = useAuthContext()
+  const { user, isAuthenticated } = useAuthContext()
   const isAdmin = user?.is_admin ?? false
 
   const { data, isLoading, error } = useUpcomingShows({
@@ -276,6 +278,9 @@ export function HomeShowList() {
         : 'America/Phoenix',
     limit: 10,
   })
+
+  const showIds = useMemo(() => data?.shows?.map(s => s.id) ?? [], [data?.shows])
+  const { data: savedShowIds } = useSavedShowBatch(showIds, isAuthenticated)
 
   if (isLoading) {
     return (
@@ -304,7 +309,7 @@ export function HomeShowList() {
   return (
     <div className="w-full">
       {data.shows.map(show => (
-        <ShowCard key={show.id} show={show} isAdmin={isAdmin} />
+        <ShowCard key={show.id} show={show} isAdmin={isAdmin} isSaved={savedShowIds?.has(show.id)} />
       ))}
     </div>
   )

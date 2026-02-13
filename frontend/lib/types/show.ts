@@ -134,6 +134,10 @@ export interface CheckSavedResponse {
   is_saved: boolean
 }
 
+export interface CheckBatchSavedResponse {
+  saved_show_ids: number[]
+}
+
 // User's submitted shows response
 export interface MySubmissionsResponse {
   shows: ShowResponse[]

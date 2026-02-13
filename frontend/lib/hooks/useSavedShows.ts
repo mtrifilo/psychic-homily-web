@@ -7,6 +7,7 @@ import type {
   SavedShowsListResponse,
   SaveShowResponse,
   CheckSavedResponse,
+  CheckBatchSavedResponse,
 } from '../types/show'
 
 interface UseSavedShowsOptions {
@@ -41,10 +42,32 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
 }
 
 /**
+ * Hook to batch-check which shows are saved by the current user.
+ * Replaces N individual useIsShowSaved calls with a single POST request.
+ */
+export const useSavedShowBatch = (showIds: number[], enabled: boolean) => {
+  return useQuery({
+    queryKey: queryKeys.savedShows.batch(showIds),
+    queryFn: async (): Promise<CheckBatchSavedResponse> => {
+      return apiRequest<CheckBatchSavedResponse>(
+        API_ENDPOINTS.SAVED_SHOWS.CHECK_BATCH,
+        {
+          method: 'POST',
+          body: JSON.stringify({ show_ids: showIds }),
+        }
+      )
+    },
+    select: (data) => new Set(data.saved_show_ids),
+    enabled: showIds.length > 0 && enabled,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
  * Hook to check if a specific show is saved
  * Requires authentication
  */
-export const useIsShowSaved = (showId: number | string | null, isAuthenticated: boolean) => {
+export const useIsShowSaved = (showId: number | string | null, isAuthenticated: boolean, enabled: boolean = true) => {
   return useQuery({
     queryKey: queryKeys.savedShows.check(String(showId)),
     queryFn: async (): Promise<CheckSavedResponse> => {
@@ -55,7 +78,7 @@ export const useIsShowSaved = (showId: number | string | null, isAuthenticated: 
         }
       )
     },
-    enabled: Boolean(showId) && isAuthenticated,
+    enabled: Boolean(showId) && isAuthenticated && enabled,
     staleTime: 30 * 1000, // 30 seconds (shorter since save state can change)
   })
 }
@@ -120,13 +143,13 @@ export const useUnsaveShow = () => {
  * Combined hook that provides save/unsave toggle functionality
  * Includes optimistic updates for better UX
  */
-export const useSaveShowToggle = (showId: number, isAuthenticated: boolean) => {
+export const useSaveShowToggle = (showId: number, isAuthenticated: boolean, batchIsSaved?: boolean) => {
   const queryClient = useQueryClient()
-  const { data: savedStatus } = useIsShowSaved(showId, isAuthenticated)
+  const { data: savedStatus } = useIsShowSaved(showId, isAuthenticated, batchIsSaved === undefined)
   const saveShow = useSaveShow()
   const unsaveShow = useUnsaveShow()
 
-  const isSaved = savedStatus?.is_saved ?? false
+  const isSaved = batchIsSaved ?? savedStatus?.is_saved ?? false
   const isLoading = saveShow.isPending || unsaveShow.isPending
 
   const toggle = async () => {

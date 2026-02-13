@@ -291,6 +291,7 @@ func setupSavedShowRoutes(protected *huma.Group, sc *services.ServiceContainer) 
 	huma.Delete(protected, "/saved-shows/{show_id}", savedShowHandler.UnsaveShowHandler)
 	huma.Get(protected, "/saved-shows", savedShowHandler.GetSavedShowsHandler)
 	huma.Get(protected, "/saved-shows/{show_id}/check", savedShowHandler.CheckSavedHandler)
+	huma.Post(protected, "/saved-shows/check-batch", savedShowHandler.CheckBatchSavedHandler)
 }
 
 // setupFavoriteVenueRoutes configures favorite venue endpoints
