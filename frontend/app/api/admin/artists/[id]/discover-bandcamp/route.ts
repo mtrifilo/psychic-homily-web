@@ -99,7 +99,11 @@ async function updateArtistBandcamp(
     )
 
     if (!response.ok) {
-      console.error('Failed to update artist:', await response.text())
+      Sentry.captureMessage('Failed to update artist bandcamp URL', {
+        level: 'error',
+        tags: { service: 'discover-bandcamp', error_type: 'artist_update' },
+        extra: { artistId, status: response.status },
+      })
       return null
     }
 
@@ -110,7 +114,6 @@ async function updateArtistBandcamp(
       tags: { service: 'discover-bandcamp', error_type: 'artist_update' },
       extra: { artistId, bandcampUrl },
     })
-    console.error('Error updating artist:', error)
     return null
   }
 }
@@ -182,7 +185,6 @@ export async function POST(
       level: 'error',
       tags: { service: 'discover-bandcamp', error_type: 'missing_config' },
     })
-    console.error('ANTHROPIC_API_KEY not configured')
     return NextResponse.json(
       { error: 'AI service not configured' },
       { status: 503 }
@@ -237,7 +239,11 @@ export async function POST(
     const bandcampUrl = extractBandcampUrl(responseText)
 
     if (!bandcampUrl) {
-      console.error('AI did not return a valid Bandcamp URL:', responseText)
+      Sentry.captureMessage('AI did not return a valid Bandcamp URL', {
+        level: 'warning',
+        tags: { service: 'discover-bandcamp', error_type: 'invalid_response' },
+        extra: { artistId, artistName: artist.name },
+      })
       return NextResponse.json(
         {
           success: false,
@@ -251,7 +257,11 @@ export async function POST(
     // Validate the URL is actually embeddable
     const isValid = await validateBandcampUrl(bandcampUrl)
     if (!isValid) {
-      console.error('Bandcamp URL validation failed:', bandcampUrl)
+      Sentry.captureMessage('Bandcamp URL validation failed', {
+        level: 'warning',
+        tags: { service: 'discover-bandcamp', error_type: 'validation_failed' },
+        extra: { artistId, bandcampUrl },
+      })
       return NextResponse.json(
         {
           success: false,
@@ -294,8 +304,6 @@ export async function POST(
       tags: { service: 'discover-bandcamp' },
       extra: { artistId, artistName: artist.name },
     })
-    console.error('Bandcamp discovery error:', error)
-
     if (error instanceof Anthropic.APIError) {
       return NextResponse.json(
         {

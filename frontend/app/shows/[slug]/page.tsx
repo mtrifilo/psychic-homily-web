@@ -58,6 +58,21 @@ async function getShow(slug: string): Promise<ShowData | null> {
   return null
 }
 
+export async function generateStaticParams() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/shows/upcoming?limit=200`)
+    if (res.ok) {
+      const data = await res.json()
+      return (data.shows || [])
+        .filter((s: { slug?: string }) => s.slug)
+        .map((s: { slug: string }) => ({ slug: s.slug }))
+    }
+  } catch {
+    // Fall back to on-demand rendering
+  }
+  return []
+}
+
 function formatShowDate(dateString: string): string {
   const date = new Date(dateString)
   return date.toLocaleDateString('en-US', {

@@ -51,6 +51,21 @@ async function getVenue(slug: string): Promise<VenueData | null> {
   return null
 }
 
+export async function generateStaticParams() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/venues?limit=200`)
+    if (res.ok) {
+      const data = await res.json()
+      return (data.venues || [])
+        .filter((v: { slug?: string }) => v.slug)
+        .map((v: { slug: string }) => ({ slug: v.slug }))
+    }
+  } catch {
+    // Fall back to on-demand rendering
+  }
+  return []
+}
+
 export async function generateMetadata({ params }: VenuePageProps): Promise<Metadata> {
   const { slug } = await params
   const venue = await getVenue(slug)

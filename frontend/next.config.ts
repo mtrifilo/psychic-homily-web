@@ -2,9 +2,9 @@ import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
+  reactCompiler: true,
   experimental: {
     // Optimize barrel imports for common libraries
-    // Only list packages that are actually installed
     optimizePackageImports: [
       'lucide-react',
       '@radix-ui/react-dialog',
@@ -13,6 +13,15 @@ const nextConfig: NextConfig = {
       '@radix-ui/react-slot',
       '@radix-ui/react-label',
       '@tanstack/react-query',
+      '@/components/admin',
+      '@/components/shows',
+      '@/components/venues',
+      '@/components/artists',
+      '@/components/shared',
+      '@/components/forms',
+      '@/components/layout',
+      '@/components/filters',
+      '@/components/settings',
     ],
   },
   async headers() {

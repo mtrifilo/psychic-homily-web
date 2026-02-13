@@ -2,7 +2,6 @@ package services
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/markbates/goth"
@@ -56,11 +55,9 @@ func (s *AuthService) OAuthLogin(w http.ResponseWriter, r *http.Request, provide
 
 	// Use Goth's recommended way to set the provider in context
 	r = gothic.GetContextWithProvider(r, provider)
-	
+
 	// Begin OAuth flow - this will redirect to the OAuth provider
-	log.Printf("DEBUG: About to call gothic.BeginAuthHandler with provider: %s", provider)
 	gothic.BeginAuthHandler(w, r)
-	log.Printf("DEBUG: After gothic.BeginAuthHandler call")
 	return nil
 }
 
@@ -71,17 +68,11 @@ func (s *AuthService) OAuthCallback(w http.ResponseWriter, r *http.Request, prov
         return nil, "", fmt.Errorf("request cannot be nil")
     }
 
-    log.Printf("DEBUG: Request URL: %s", r.URL.String())
-    log.Printf("DEBUG: Using provider: '%s'", provider)
-    
     // Use the OAuth completer interface (can be mocked for testing)
-    log.Printf("DEBUG: About to call OAuth completer")
     gothUser, err := s.oauthCompleter.CompleteUserAuth(w, r)
     if err != nil {
         return nil, "", fmt.Errorf("OAuth completion failed: %w", err)
     }
-    
-    log.Printf("DEBUG: Successfully completed OAuth! gothUser: %+v", gothUser)
 
     // Find or create user using user service
     user, err := s.userService.FindOrCreateUser(gothUser, provider)

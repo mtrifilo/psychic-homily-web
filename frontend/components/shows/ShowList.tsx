@@ -14,10 +14,11 @@ import {
 } from '@/lib/utils/timeUtils'
 import { Button } from '@/components/ui/button'
 import { ShowForm } from '@/components/forms'
-import { SaveButton, SocialLinks, MusicEmbed, LoadingSpinner } from '@/components/shared'
+import { SaveButton, SocialLinks, MusicEmbed } from '@/components/shared'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ExportShowButton } from './ExportShowButton'
 import { ShowStatusBadge } from './ShowStatusBadge'
+import { ShowCardSkeleton } from './ShowCardSkeleton'
 import { CityFilters, type CityWithCount } from '@/components/filters'
 
 /**
@@ -346,12 +347,14 @@ export function ShowList() {
     })
   }
 
-  // Only show full spinner on FIRST load (no data yet)
+  // Only show skeleton on FIRST load (no data yet)
   if ((isLoading && !data) || (citiesLoading && !citiesData)) {
     return (
-      <div className="flex justify-center items-center py-12">
-        <LoadingSpinner />
-      </div>
+      <section className="w-full max-w-4xl">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <ShowCardSkeleton key={i} />
+        ))}
+      </section>
     )
   }
 

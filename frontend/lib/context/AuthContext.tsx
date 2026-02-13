@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useState,
+  useRef,
   useMemo,
   useCallback,
   ReactNode,
@@ -49,6 +50,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Use the useProfile hook to get authentication status
   const { data: profileData, isLoading, error: profileError } = useProfile()
   const logoutMutation = useLogout()
+  const logoutRef = useRef(logoutMutation)
+  logoutRef.current = logoutMutation
 
   // Derive user from profile data or override
   const user = useMemo(() => {
@@ -97,13 +100,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       setErrorOverride(null)
       setUserOverride(null)
-      // The useProfile hook will automatically handle the logout state
-      // when the server clears the HTTP-only cookie
-      await logoutMutation.mutateAsync()
+      await logoutRef.current.mutateAsync()
     } catch (err) {
       console.error('Logout failed:', err)
     }
-  }, [logoutMutation])
+  }, [])
 
   const clearError = useCallback(() => {
     setErrorOverride(null)

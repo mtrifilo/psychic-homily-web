@@ -142,6 +142,16 @@ func main() {
 
 	router.Use(corsMiddleware.Handler)
 
+	// Add request body size limit (10MB) to prevent memory exhaustion
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+
 	// Add security headers middleware
 	// Adds headers like X-Content-Type-Options, X-Frame-Options, CSP, HSTS (in production)
 	router.Use(middleware.SecurityHeaders)

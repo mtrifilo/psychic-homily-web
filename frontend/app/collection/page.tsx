@@ -56,11 +56,19 @@ function formatPrice(price: number): string {
   return `$${price.toFixed(2)}`
 }
 
+type DialogType = 'delete' | 'unpublish' | 'makePrivate' | 'publish' | 'venueDenied'
+
+interface DialogState {
+  type: DialogType
+  show: SavedShowResponse | ShowResponse
+}
+
 interface ShowCardProps {
   show: SavedShowResponse | ShowResponse
   currentUserId?: number
   isAdmin?: boolean
   showSaveButton?: boolean
+  onDialogOpen: (type: DialogType, show: SavedShowResponse | ShowResponse) => void
 }
 
 function ShowCard({
@@ -68,13 +76,9 @@ function ShowCard({
   currentUserId,
   isAdmin,
   showSaveButton = true,
+  onDialogOpen,
 }: ShowCardProps) {
   const [isEditing, setIsEditing] = useState(false)
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [isUnpublishDialogOpen, setIsUnpublishDialogOpen] = useState(false)
-  const [isMakePrivateDialogOpen, setIsMakePrivateDialogOpen] = useState(false)
-  const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false)
-  const [isVenueDeniedDialogOpen, setIsVenueDeniedDialogOpen] = useState(false)
   const venue = show.venues[0]
   const artists = show.artists
 
@@ -89,12 +93,9 @@ function ShowCard({
   const canUnpublish = show.status === 'approved' && (isAdmin || isOwner)
 
   // Check if user can make show private (pending -> private)
-  // Note: New shows are never pending, but legacy data may have this status
   const canMakePrivate = show.status === 'pending' && (isAdmin || isOwner)
 
   // Check if user can publish show (private/rejected -> approved)
-  // Shows are always approved now (unverified venues display city-only)
-  // Rejected shows will show a VenueDeniedDialog instead of actual publish
   const canPublish =
     (show.status === 'private' || show.status === 'rejected') &&
     (isAdmin || isOwner)
@@ -215,7 +216,7 @@ function ShowCard({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setIsUnpublishDialogOpen(true)}
+                  onClick={() => onDialogOpen('unpublish', show)}
                   className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                   title="Make private"
                 >
@@ -228,7 +229,7 @@ function ShowCard({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setIsMakePrivateDialogOpen(true)}
+                  onClick={() => onDialogOpen('makePrivate', show)}
                   className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                   title="Make private"
                 >
@@ -243,9 +244,9 @@ function ShowCard({
                   size="sm"
                   onClick={() => {
                     if (show.status === 'rejected') {
-                      setIsVenueDeniedDialogOpen(true)
+                      onDialogOpen('venueDenied', show)
                     } else {
-                      setIsPublishDialogOpen(true)
+                      onDialogOpen('publish', show)
                     }
                   }}
                   className="h-7 w-7 p-0 text-muted-foreground hover:text-emerald-500"
@@ -277,7 +278,7 @@ function ShowCard({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setIsDeleteDialogOpen(true)}
+                  onClick={() => onDialogOpen('delete', show)}
                   className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
                   title="Delete show"
                 >
@@ -365,42 +366,49 @@ function ShowCard({
           />
         </div>
       )}
+    </article>
+  )
+}
 
-      {/* Unpublish Confirmation Dialog */}
+function ShowListDialogs({
+  dialogState,
+  onClose,
+}: {
+  dialogState: DialogState | null
+  onClose: () => void
+}) {
+  if (!dialogState) return null
+
+  const { type, show } = dialogState
+
+  return (
+    <>
       <UnpublishShowDialog
         show={show}
-        open={isUnpublishDialogOpen}
-        onOpenChange={setIsUnpublishDialogOpen}
+        open={type === 'unpublish'}
+        onOpenChange={open => !open && onClose()}
       />
-
-      {/* Make Private Dialog */}
       <MakePrivateDialog
         show={show}
-        open={isMakePrivateDialogOpen}
-        onOpenChange={setIsMakePrivateDialogOpen}
+        open={type === 'makePrivate'}
+        onOpenChange={open => !open && onClose()}
       />
-
-      {/* Publish Show Dialog */}
       <PublishShowDialog
         show={show}
-        open={isPublishDialogOpen}
-        onOpenChange={setIsPublishDialogOpen}
+        open={type === 'publish'}
+        onOpenChange={open => !open && onClose()}
       />
-
-      {/* Venue Denied Dialog (for rejected shows) */}
       <VenueDeniedDialog
         show={show}
-        open={isVenueDeniedDialogOpen}
-        onOpenChange={setIsVenueDeniedDialogOpen}
+        open={type === 'venueDenied'}
+        onOpenChange={open => !open && onClose()}
       />
-
-      {/* Delete Confirmation Dialog */}
       <DeleteShowDialog
         show={show}
-        open={isDeleteDialogOpen}
-        onOpenChange={setIsDeleteDialogOpen}
+        open={type === 'delete'}
+        onOpenChange={open => !open && onClose()}
       />
-    </article>
+    </>
   )
 }
 
@@ -413,6 +421,11 @@ function SavedShowsList({
 }) {
   const { isAuthenticated } = useAuthContext()
   const { data, isLoading, error } = useSavedShows({ enabled: isAuthenticated })
+  const [dialogState, setDialogState] = useState<DialogState | null>(null)
+
+  const handleDialogOpen = (type: DialogType, show: SavedShowResponse | ShowResponse) => {
+    setDialogState({ type, show })
+  }
 
   if (isLoading) {
     return (
@@ -459,8 +472,13 @@ function SavedShowsList({
           currentUserId={currentUserId}
           isAdmin={isAdmin}
           showSaveButton={true}
+          onDialogOpen={handleDialogOpen}
         />
       ))}
+      <ShowListDialogs
+        dialogState={dialogState}
+        onClose={() => setDialogState(null)}
+      />
     </section>
   )
 }
@@ -474,6 +492,11 @@ function MySubmissionsList({
 }) {
   const { isAuthenticated } = useAuthContext()
   const { data, isLoading, error } = useMySubmissions({ enabled: isAuthenticated })
+  const [dialogState, setDialogState] = useState<DialogState | null>(null)
+
+  const handleDialogOpen = (type: DialogType, show: SavedShowResponse | ShowResponse) => {
+    setDialogState({ type, show })
+  }
 
   if (isLoading) {
     return (
@@ -518,8 +541,13 @@ function MySubmissionsList({
           currentUserId={currentUserId}
           isAdmin={isAdmin}
           showSaveButton={true}
+          onDialogOpen={handleDialogOpen}
         />
       ))}
+      <ShowListDialogs
+        dialogState={dialogState}
+        onClose={() => setDialogState(null)}
+      />
     </section>
   )
 }

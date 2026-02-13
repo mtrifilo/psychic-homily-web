@@ -49,6 +49,21 @@ async function getArtist(slug: string): Promise<ArtistData | null> {
   return null
 }
 
+export async function generateStaticParams() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/artists?limit=500`)
+    if (res.ok) {
+      const data = await res.json()
+      return (data.artists || [])
+        .filter((a: { slug?: string }) => a.slug)
+        .map((a: { slug: string }) => ({ slug: a.slug }))
+    }
+  } catch {
+    // Fall back to on-demand rendering
+  }
+  return []
+}
+
 export async function generateMetadata({ params }: ArtistPageProps): Promise<Metadata> {
   const { slug } = await params
   const artist = await getArtist(slug)

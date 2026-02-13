@@ -12,6 +12,12 @@ import (
 	"psychic-homily-backend/internal/config"
 )
 
+const (
+	DefaultMaxOpenConns    = 25
+	DefaultMaxIdleConns    = 10
+	DefaultConnMaxLifetime = 30 * time.Minute
+)
+
 var (
 	DB *gorm.DB
 )
@@ -36,7 +42,28 @@ func Connect(cfg *config.Config) error {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	log.Println("✅ Database connected successfully")
+	// Configure connection pool
+	sqlDB, err := DB.DB()
+	if err != nil {
+		return fmt.Errorf("failed to get underlying sql.DB: %w", err)
+	}
+
+	// SetMaxOpenConns limits the total number of open connections to the database.
+	// Prevents exhausting PostgreSQL's max_connections limit under load.
+	sqlDB.SetMaxOpenConns(DefaultMaxOpenConns)
+
+	// SetMaxIdleConns limits the number of idle connections kept open.
+	// Reduces connection churn by reusing idle connections.
+	sqlDB.SetMaxIdleConns(DefaultMaxIdleConns)
+
+	// SetConnMaxLifetime sets the maximum duration a connection may be reused.
+	// Connections older than this are closed and replaced.
+	// Prevents stale connections from causing issues.
+	sqlDB.SetConnMaxLifetime(DefaultConnMaxLifetime)
+
+	log.Printf("✅ Database connected successfully (pool: max_open=%d, max_idle=%d, max_lifetime=%v)",
+		DefaultMaxOpenConns, DefaultMaxIdleConns, DefaultConnMaxLifetime)
+
 	return nil
 }
 

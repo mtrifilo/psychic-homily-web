@@ -116,7 +116,6 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
 		})
-		log.Printf("DEBUG: CLI callback stored with ID %s: %s", callbackID, cliCallback)
 	}
 
 	// Add provider to query parameters for Goth (following Goth best practices)
@@ -124,14 +123,8 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 	q.Add("provider", provider)
 	r.URL.RawQuery = q.Encode()
 
-	// DEBUG: Check session before OAuth
-	log.Printf("DEBUG: Login - Request URL: %s", r.URL.String())
-	log.Printf("DEBUG: Login - Request cookies BEFORE: %+v", r.Cookies())
-
 	// Use Goth's standard BeginAuthHandler directly
 	gothic.BeginAuthHandler(w, r)
-
-	log.Printf("DEBUG: Login - After BeginAuthHandler call")
 }
 
 // OAuthCallbackHTTPHandler handles OAuth callback via HTTP
@@ -142,8 +135,6 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		provider = "google" // fallback
 	}
 
-	log.Printf("DEBUG: Using provider '%s' from URL path", provider)
-
 	// Check for CLI callback via cookie ID + memory store
 	var cliCallback string
 	if cookie, err := r.Cookie("cli_callback_id"); err == nil {
@@ -151,7 +142,6 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		if callback, ok := getCLICallback(callbackID); ok {
 			cliCallback = callback
 			deleteCLICallback(callbackID)
-			log.Printf("DEBUG: CLI callback found for ID %s: %s", callbackID, cliCallback)
 		}
 		// Clear the CLI callback ID cookie
 		http.SetCookie(w, &http.Cookie{
@@ -198,7 +188,6 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	if cliCallback != "" {
 		// Token expires in 24 hours (86400 seconds)
 		redirectURL := cliCallback + "?token=" + url.QueryEscape(token) + "&expires_in=86400"
-		log.Printf("DEBUG: Redirecting to CLI callback: %s", cliCallback)
 		http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 		return
 	}

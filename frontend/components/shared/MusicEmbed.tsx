@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
-import { ExternalLink, Loader2, Music } from 'lucide-react'
+import { ExternalLink, Loader2, Music, Play } from 'lucide-react'
 
 interface MusicEmbedProps {
   bandcampAlbumUrl?: string | null
@@ -29,6 +29,89 @@ type EmbedState =
   | { type: 'fallback'; url: string; label: string }
   | { type: 'none' }
 
+function BandcampFacade({
+  albumId,
+  artistName,
+  compact,
+  isLoaded,
+  onLoad,
+}: {
+  albumId: string
+  artistName: string
+  compact: boolean
+  isLoaded: boolean
+  onLoad: () => void
+}) {
+  if (isLoaded) {
+    return (
+      <iframe
+        title={`${artistName} on Bandcamp`}
+        style={{ border: 0, width: '100%', maxWidth: '700px', height: '120px' }}
+        src={`https://bandcamp.com/EmbeddedPlayer/album=${albumId}/size=large/bgcol=1a1a1a/linkcol=f59e0b/tracklist=false/artwork=small/`}
+        seamless
+      />
+    )
+  }
+
+  return (
+    <button
+      onClick={onLoad}
+      className="flex items-center justify-center w-full bg-[#1a1a1a] hover:bg-[#2a2a2a] transition-colors rounded-md"
+      style={{ height: compact ? '60px' : '120px' }}
+      aria-label={`Play ${artistName} on Bandcamp`}
+    >
+      <div className="flex items-center gap-3 text-white">
+        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-[#629aa9]">
+          <Play className="h-5 w-5 ml-0.5" fill="white" />
+        </div>
+        <span className="font-medium">Listen on Bandcamp</span>
+      </div>
+    </button>
+  )
+}
+
+function SpotifyFacade({
+  artistId,
+  artistName,
+  compact,
+  isLoaded,
+  onLoad,
+}: {
+  artistId: string
+  artistName: string
+  compact: boolean
+  isLoaded: boolean
+  onLoad: () => void
+}) {
+  if (isLoaded) {
+    return (
+      <iframe
+        title={`${artistName} on Spotify`}
+        style={{ borderRadius: '12px', width: '100%', height: compact ? '152px' : '352px' }}
+        src={`https://open.spotify.com/embed/artist/${artistId}?utm_source=generator&theme=0`}
+        frameBorder="0"
+        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+      />
+    )
+  }
+
+  return (
+    <button
+      onClick={onLoad}
+      className="flex items-center justify-center w-full bg-black hover:bg-[#181818] transition-colors rounded-lg"
+      style={{ height: compact ? '152px' : '352px' }}
+      aria-label={`Listen to ${artistName} on Spotify`}
+    >
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-16 h-16 rounded-full bg-[#1DB954] flex items-center justify-center">
+          <Play className="h-8 w-8 ml-1" fill="black" />
+        </div>
+        <span className="text-white font-medium">Listen on Spotify</span>
+      </div>
+    </button>
+  )
+}
+
 export function MusicEmbed({
   bandcampAlbumUrl,
   bandcampProfileUrl,
@@ -37,6 +120,7 @@ export function MusicEmbed({
   compact = false,
 }: MusicEmbedProps) {
   const [embed, setEmbed] = useState<EmbedState>({ type: 'loading' })
+  const [isEmbedLoaded, setIsEmbedLoaded] = useState(false)
 
   useEffect(() => {
     async function resolveEmbed() {
@@ -97,6 +181,10 @@ export function MusicEmbed({
     resolveEmbed()
   }, [bandcampAlbumUrl, bandcampProfileUrl, spotifyUrl, artistName])
 
+  const handleLoadEmbed = () => {
+    setIsEmbedLoaded(true)
+  }
+
   if (embed.type === 'none') {
     return null
   }
@@ -137,22 +225,22 @@ export function MusicEmbed({
         </a>
       ) : embed.type === 'bandcamp' ? (
         <div className="music-embed-container">
-          <iframe
-            title={`${artistName} on Bandcamp`}
-            style={{ border: 0, width: '100%', maxWidth: '700px', height: '120px' }}
-            src={`https://bandcamp.com/EmbeddedPlayer/album=${embed.albumId}/size=large/bgcol=1a1a1a/linkcol=f59e0b/tracklist=false/artwork=small/`}
-            seamless
+          <BandcampFacade
+            albumId={embed.albumId}
+            artistName={artistName}
+            compact={compact}
+            isLoaded={isEmbedLoaded}
+            onLoad={handleLoadEmbed}
           />
         </div>
       ) : (
         <div className="music-embed-container">
-          <iframe
-            title={`${artistName} on Spotify`}
-            style={{ borderRadius: '12px', width: '100%', height: compact ? '152px' : '352px' }}
-            src={`https://open.spotify.com/embed/artist/${embed.artistId}?utm_source=generator&theme=0`}
-            frameBorder="0"
-            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-            loading="lazy"
+          <SpotifyFacade
+            artistId={embed.artistId}
+            artistName={artistName}
+            compact={compact}
+            isLoaded={isEmbedLoaded}
+            onLoad={handleLoadEmbed}
           />
         </div>
       )}

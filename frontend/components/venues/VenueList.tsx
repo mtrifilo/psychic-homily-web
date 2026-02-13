@@ -5,8 +5,8 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { useVenues, useVenueCities } from '@/lib/hooks/useVenues'
 import type { VenueWithShowCount } from '@/lib/types/venue'
 import { VenueCard } from './VenueCard'
+import { VenueCardSkeleton } from './VenueCardSkeleton'
 import { CityFilters, type CityWithCount } from '@/components/filters'
-import { LoadingSpinner } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 
 const VENUES_PER_PAGE = 50
@@ -51,12 +51,14 @@ export function VenueList() {
     })
   }
 
-  // Only show full spinner on FIRST load (no data yet)
+  // Only show skeleton on FIRST load (no data yet)
   if ((isLoading && !data) || (citiesLoading && !citiesData)) {
     return (
-      <div className="flex justify-center items-center py-12">
-        <LoadingSpinner />
-      </div>
+      <section className="w-full max-w-4xl">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <VenueCardSkeleton key={i} />
+        ))}
+      </section>
     )
   }
 

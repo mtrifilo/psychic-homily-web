@@ -479,8 +479,6 @@ export async function POST(request: NextRequest) {
       warnings: warnings.length > 0 ? warnings : undefined,
     })
   } catch (error) {
-    console.error('Show extraction error:', error)
-
     if (error instanceof Anthropic.APIError) {
       const message = error.message.toLowerCase()
       if (message.includes('credit') || message.includes('billing') || message.includes('balance')) {

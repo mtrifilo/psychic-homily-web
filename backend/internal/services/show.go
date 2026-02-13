@@ -120,7 +120,7 @@ type VenueResponse struct {
 	Address    *string `json:"address"`
 	City       string  `json:"city"`
 	State      string  `json:"state"`
-	Verified   bool    `json:"verified"`    // Admin-verified as legitimate venue
+	Verified   bool    `json:"verified"`     // Admin-verified as legitimate venue
 	IsNewVenue *bool   `json:"is_new_venue"` // True if venue was created during this show submission
 }
 
@@ -568,27 +568,50 @@ func (s *ShowService) UpdateShowWithRelations(
 			}
 
 			// Check which old artists are no longer associated with ANY show
+			// Use batch query instead of N+1 individual counts
+			oldIDsSlice := make([]uint, 0, len(oldArtistIDs))
+			for id := range oldArtistIDs {
+				oldIDsSlice = append(oldIDsSlice, id)
+			}
+
+			// Find all artist IDs from this set that still have ANY show associations
+			var stillAssociated []uint
+			if err := tx.Model(&models.ShowArtist{}).
+				Where("artist_id IN ?", oldIDsSlice).
+				Pluck("artist_id", &stillAssociated).Error; err != nil {
+				return fmt.Errorf("failed to check artist associations: %w", err)
+			}
+
+			// Build lookup map for fast checking
+			stillAssociatedMap := make(map[uint]bool, len(stillAssociated))
+			for _, id := range stillAssociated {
+				stillAssociatedMap[id] = true
+			}
+
+			// Find truly orphaned artists (in oldIDs but not in stillAssociated)
+			orphanedIDs := make([]uint, 0)
 			for oldID := range oldArtistIDs {
-				if newArtistIDs[oldID] {
-					continue // still associated with this show
+				if !stillAssociatedMap[oldID] {
+					orphanedIDs = append(orphanedIDs, oldID)
 				}
-				var count int64
-				if err := tx.Model(&models.ShowArtist{}).Where("artist_id = ?", oldID).Count(&count).Error; err != nil {
-					return fmt.Errorf("failed to count artist associations: %w", err)
+			}
+
+			// Batch fetch orphaned artists in a single query
+			if len(orphanedIDs) > 0 {
+				var orphanedModels []models.Artist
+				if err := tx.Where("id IN ?", orphanedIDs).Find(&orphanedModels).Error; err != nil {
+					return fmt.Errorf("failed to fetch orphaned artists: %w", err)
 				}
-				if count == 0 {
-					var artist models.Artist
-					if err := tx.First(&artist, oldID).Error; err == nil {
-						slug := ""
-						if artist.Slug != nil {
-							slug = *artist.Slug
-						}
-						orphanedArtists = append(orphanedArtists, OrphanedArtist{
-							ID:   artist.ID,
-							Name: artist.Name,
-							Slug: slug,
-						})
+				for _, artist := range orphanedModels {
+					slug := ""
+					if artist.Slug != nil {
+						slug = *artist.Slug
 					}
+					orphanedArtists = append(orphanedArtists, OrphanedArtist{
+						ID:   artist.ID,
+						Name: artist.Name,
+						Slug: slug,
+					})
 				}
 			}
 		}
@@ -1284,8 +1307,8 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 				requestVenue.City,
 				requestVenue.State,
 				addressPtr,
-				nil,    // zipcode
-				tx,     // use transaction
+				nil,     // zipcode
+				tx,      // use transaction
 				isAdmin, // pass admin status for venue verification
 			)
 			if err != nil {
@@ -1526,22 +1549,22 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 		showSlug = *show.Slug
 	}
 	return &ShowResponse{
-		ID:              show.ID,
-		Slug:            showSlug,
-		Title:           show.Title,
-		EventDate:       show.EventDate,
-		City:            show.City,
-		State:           show.State,
-		Price:           show.Price,
-		AgeRequirement:  show.AgeRequirement,
-		Description:     show.Description,
-		Status:          string(show.Status),
-		SubmittedBy:     show.SubmittedBy,
-		RejectionReason: show.RejectionReason,
-		Venues:          venues,
-		Artists:         artists,
-		CreatedAt:       show.CreatedAt,
-		UpdatedAt:       show.UpdatedAt,
+		ID:                show.ID,
+		Slug:              showSlug,
+		Title:             show.Title,
+		EventDate:         show.EventDate,
+		City:              show.City,
+		State:             show.State,
+		Price:             show.Price,
+		AgeRequirement:    show.AgeRequirement,
+		Description:       show.Description,
+		Status:            string(show.Status),
+		SubmittedBy:       show.SubmittedBy,
+		RejectionReason:   show.RejectionReason,
+		Venues:            venues,
+		Artists:           artists,
+		CreatedAt:         show.CreatedAt,
+		UpdatedAt:         show.UpdatedAt,
 		IsSoldOut:         show.IsSoldOut,
 		IsCancelled:       show.IsCancelled,
 		Source:            string(show.Source),

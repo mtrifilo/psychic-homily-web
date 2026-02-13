@@ -120,13 +120,21 @@ async function updateArtistBandcamp(
     )
 
     if (!response.ok) {
-      console.error('Failed to update artist bandcamp:', await response.text())
+      Sentry.captureMessage('Failed to update artist bandcamp', {
+        level: 'error',
+        tags: { service: 'music-discovery', error_type: 'bandcamp_update' },
+        extra: { artistId, status: response.status },
+      })
       return null
     }
 
     return await response.json()
   } catch (error) {
-    console.error('Error updating artist bandcamp:', error)
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'music-discovery', error_type: 'bandcamp_update' },
+      extra: { artistId },
+    })
     return null
   }
 }
@@ -161,13 +169,21 @@ async function updateArtistSpotify(
     )
 
     if (!response.ok) {
-      console.error('Failed to update artist spotify:', await response.text())
+      Sentry.captureMessage('Failed to update artist spotify', {
+        level: 'error',
+        tags: { service: 'music-discovery', error_type: 'spotify_update' },
+        extra: { artistId, status: response.status },
+      })
       return null
     }
 
     return await response.json()
   } catch (error) {
-    console.error('Error updating artist spotify:', error)
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'music-discovery', error_type: 'spotify_update' },
+      extra: { artistId },
+    })
     return null
   }
 }
@@ -345,7 +361,11 @@ async function discoverBandcamp(
     if (isCreditsError(error)) {
       throw error
     }
-    console.error('Bandcamp discovery error:', error)
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'music-discovery', error_type: 'bandcamp_discovery' },
+      extra: { artistName },
+    })
     return {
       found: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -412,7 +432,11 @@ async function discoverSpotify(
     if (isCreditsError(error)) {
       throw error
     }
-    console.error('Spotify discovery error:', error)
+    Sentry.captureException(error, {
+      level: 'error',
+      tags: { service: 'music-discovery', error_type: 'spotify_discovery' },
+      extra: { artistName },
+    })
     return {
       found: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -607,8 +631,6 @@ export async function POST(
       { status: 404 }
     )
   } catch (error) {
-    console.error('Music discovery error:', error)
-
     if (error instanceof Anthropic.APIError) {
       // Check for credit/billing errors and log prominently
       if (isCreditsError(error)) {

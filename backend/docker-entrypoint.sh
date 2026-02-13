@@ -1,8 +1,7 @@
 #!/bin/sh
 set -e
 
-echo "Starting entrypoint script (v3)..."
-echo "DEBUG: DATABASE_URL=${DATABASE_URL:-NOT SET}"
+echo "Starting entrypoint script..."
 
 # Check if DATABASE_URL is set
 if [ -z "$DATABASE_URL" ]; then

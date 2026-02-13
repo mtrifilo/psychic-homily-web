@@ -16,6 +16,7 @@ import { ShowForm } from '@/components/forms'
 import { SaveButton, SocialLinks, MusicEmbed } from '@/components/shared'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ShowStatusBadge } from './ShowStatusBadge'
+import { ShowCardSkeleton } from './ShowCardSkeleton'
 
 /**
  * Format a date string to "Mon, Dec 1" format in venue timezone
@@ -279,8 +280,10 @@ export function HomeShowList() {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center py-8">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-foreground"></div>
+      <div className="w-full">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <ShowCardSkeleton key={i} />
+        ))}
       </div>
     )
   }

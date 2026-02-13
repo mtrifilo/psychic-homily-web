@@ -1,12 +1,12 @@
 'use client'
 
+import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../api'
 import { queryKeys, createInvalidateQueries } from '../queryClient'
 import type {
   SavedShowsListResponse,
   SaveShowResponse,
-  CheckSavedResponse,
 } from '../types/show'
 
 interface UseSavedShowsOptions {
@@ -41,23 +41,18 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
 }
 
 /**
- * Hook to check if a specific show is saved
- * Requires authentication
+ * Hook that returns a Set of saved show IDs from the saved shows list.
+ * Fetches the list once instead of making per-show check requests.
  */
-export const useIsShowSaved = (showId: number | string | null, isAuthenticated: boolean) => {
-  return useQuery({
-    queryKey: queryKeys.savedShows.check(String(showId)),
-    queryFn: async (): Promise<CheckSavedResponse> => {
-      return apiRequest<CheckSavedResponse>(
-        API_ENDPOINTS.SAVED_SHOWS.CHECK(showId!),
-        {
-          method: 'GET',
-        }
-      )
-    },
-    enabled: Boolean(showId) && isAuthenticated,
-    staleTime: 30 * 1000, // 30 seconds (shorter since save state can change)
-  })
+export const useSavedShowIds = (isAuthenticated: boolean) => {
+  const { data, isLoading } = useSavedShows({ enabled: isAuthenticated })
+
+  const savedIds = useMemo(() => {
+    if (!data?.shows) return new Set<number>()
+    return new Set(data.shows.map(s => s.id))
+  }, [data?.shows])
+
+  return { savedIds, isLoading }
 }
 
 /**
@@ -77,13 +72,8 @@ export const useSaveShow = () => {
         }
       )
     },
-    onSuccess: (_data, showId) => {
-      // Invalidate saved shows list
+    onSuccess: () => {
       invalidateQueries.savedShows()
-      // Invalidate the specific show's saved status
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.savedShows.check(String(showId)),
-      })
     },
   })
 }
@@ -105,37 +95,43 @@ export const useUnsaveShow = () => {
         }
       )
     },
-    onSuccess: (_data, showId) => {
-      // Invalidate saved shows list
+    onSuccess: () => {
       invalidateQueries.savedShows()
-      // Invalidate the specific show's saved status
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.savedShows.check(String(showId)),
-      })
     },
   })
 }
 
 /**
  * Combined hook that provides save/unsave toggle functionality
- * Includes optimistic updates for better UX
+ * Uses the saved show IDs set instead of per-show API requests.
+ * Includes optimistic updates for better UX.
  */
 export const useSaveShowToggle = (showId: number, isAuthenticated: boolean) => {
   const queryClient = useQueryClient()
-  const { data: savedStatus } = useIsShowSaved(showId, isAuthenticated)
+  const { savedIds } = useSavedShowIds(isAuthenticated)
   const saveShow = useSaveShow()
   const unsaveShow = useUnsaveShow()
 
-  const isSaved = savedStatus?.is_saved ?? false
+  const isSaved = savedIds.has(showId)
   const isLoading = saveShow.isPending || unsaveShow.isPending
 
   const toggle = async () => {
-    // Optimistic update
-    const checkQueryKey = queryKeys.savedShows.check(String(showId))
+    // Optimistic update on the saved shows list
+    const listQueryKey = queryKeys.savedShows.list()
+    const previousData = queryClient.getQueryData<SavedShowsListResponse>(listQueryKey)
 
-    queryClient.setQueryData(checkQueryKey, {
-      is_saved: !isSaved,
-    })
+    if (previousData) {
+      if (isSaved) {
+        queryClient.setQueryData(listQueryKey, {
+          ...previousData,
+          shows: previousData.shows.filter(s => s.id !== showId),
+          total: previousData.total - 1,
+        })
+      } else {
+        // For save, we don't have the full show data to add to the list,
+        // so just invalidate after mutation succeeds
+      }
+    }
 
     try {
       if (isSaved) {
@@ -145,9 +141,9 @@ export const useSaveShowToggle = (showId: number, isAuthenticated: boolean) => {
       }
     } catch (error) {
       // Rollback on error
-      queryClient.setQueryData(checkQueryKey, {
-        is_saved: isSaved,
-      })
+      if (previousData) {
+        queryClient.setQueryData(listQueryKey, previousData)
+      }
       throw error
     }
   }
