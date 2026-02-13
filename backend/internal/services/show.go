@@ -381,7 +381,8 @@ func (s *ShowService) GetShows(filters map[string]interface{}) ([]*ShowResponse,
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	query := s.db.Preload("Venues").Preload("Artists")
+	query := s.db.Preload("Venues").Preload("Artists").
+		Where("status = ?", models.ShowStatusApproved)
 
 	// Apply filters
 	if city, ok := filters["city"].(string); ok && city != "" {
@@ -594,62 +595,87 @@ func (s *ShowService) UpdateShowWithRelations(
 
 		// Build response - need to fetch associations if not updated
 		if venues == nil {
-			// Fetch existing venues
+			// Fetch existing venues in batch
 			var showVenues []models.ShowVenue
 			if err := tx.Where("show_id = ?", showID).Find(&showVenues).Error; err != nil {
 				return fmt.Errorf("failed to fetch show venues: %w", err)
 			}
-			for _, sv := range showVenues {
-				var venue models.Venue
-				if err := tx.First(&venue, sv.VenueID).Error; err == nil {
-					// Hide address for unverified venues
-					var addr *string
-					if venue.Verified {
-						addr = venue.Address
+			if len(showVenues) > 0 {
+				venueIDs := make([]uint, len(showVenues))
+				for i, sv := range showVenues {
+					venueIDs[i] = sv.VenueID
+				}
+				var venueModels []models.Venue
+				if err := tx.Where("id IN ?", venueIDs).Find(&venueModels).Error; err != nil {
+					return fmt.Errorf("failed to fetch venues: %w", err)
+				}
+				venueMap := make(map[uint]models.Venue, len(venueModels))
+				for _, v := range venueModels {
+					venueMap[v.ID] = v
+				}
+				for _, sv := range showVenues {
+					if venue, ok := venueMap[sv.VenueID]; ok {
+						var addr *string
+						if venue.Verified {
+							addr = venue.Address
+						}
+						venueResponses = append(venueResponses, VenueResponse{
+							ID:       venue.ID,
+							Name:     venue.Name,
+							Address:  addr,
+							City:     venue.City,
+							State:    venue.State,
+							Verified: venue.Verified,
+						})
 					}
-					venueResponses = append(venueResponses, VenueResponse{
-						ID:       venue.ID,
-						Name:     venue.Name,
-						Address:  addr,
-						City:     venue.City,
-						State:    venue.State,
-						Verified: venue.Verified,
-					})
 				}
 			}
 		}
 
 		if artists == nil {
-			// Fetch existing artists in order
+			// Fetch existing artists in batch, preserving position order
 			var showArtists []models.ShowArtist
 			if err := tx.Where("show_id = ?", showID).Order("position ASC").Find(&showArtists).Error; err != nil {
 				return fmt.Errorf("failed to fetch show artists: %w", err)
 			}
-			for _, sa := range showArtists {
-				var artist models.Artist
-				if err := tx.First(&artist, sa.ArtistID).Error; err == nil {
-					isHeadliner := sa.SetType == "headliner"
-					isNewArtist := false
-					socials := ShowArtistSocials{
-						Instagram:  artist.Social.Instagram,
-						Facebook:   artist.Social.Facebook,
-						Twitter:    artist.Social.Twitter,
-						YouTube:    artist.Social.YouTube,
-						Spotify:    artist.Social.Spotify,
-						SoundCloud: artist.Social.SoundCloud,
-						Bandcamp:   artist.Social.Bandcamp,
-						Website:    artist.Social.Website,
+			if len(showArtists) > 0 {
+				artistIDs := make([]uint, len(showArtists))
+				for i, sa := range showArtists {
+					artistIDs[i] = sa.ArtistID
+				}
+				var artistModels []models.Artist
+				if err := tx.Where("id IN ?", artistIDs).Find(&artistModels).Error; err != nil {
+					return fmt.Errorf("failed to fetch artists: %w", err)
+				}
+				artistMap := make(map[uint]models.Artist, len(artistModels))
+				for _, a := range artistModels {
+					artistMap[a.ID] = a
+				}
+				for _, sa := range showArtists {
+					if artist, ok := artistMap[sa.ArtistID]; ok {
+						isHeadliner := sa.SetType == "headliner"
+						isNewArtist := false
+						socials := ShowArtistSocials{
+							Instagram:  artist.Social.Instagram,
+							Facebook:   artist.Social.Facebook,
+							Twitter:    artist.Social.Twitter,
+							YouTube:    artist.Social.YouTube,
+							Spotify:    artist.Social.Spotify,
+							SoundCloud: artist.Social.SoundCloud,
+							Bandcamp:   artist.Social.Bandcamp,
+							Website:    artist.Social.Website,
+						}
+						artistResponses = append(artistResponses, ArtistResponse{
+							ID:               artist.ID,
+							Name:             artist.Name,
+							State:            artist.State,
+							City:             artist.City,
+							IsHeadliner:      &isHeadliner,
+							IsNewArtist:      &isNewArtist,
+							BandcampEmbedURL: artist.BandcampEmbedURL,
+							Socials:          socials,
+						})
 					}
-					artistResponses = append(artistResponses, ArtistResponse{
-						ID:               artist.ID,
-						Name:             artist.Name,
-						State:            artist.State,
-						City:             artist.City,
-						IsHeadliner:      &isHeadliner,
-						IsNewArtist:      &isNewArtist,
-						BandcampEmbedURL: artist.BandcampEmbedURL,
-						Socials:          socials,
-					})
 				}
 			}
 		}

@@ -68,6 +68,10 @@ func (s *JWTService) ValidateToken(tokenString string) (*models.User, error) {
 			return nil, fmt.Errorf("failed to get user: %w", err)
 		}
 
+		if !user.IsActive {
+			return nil, apperrors.ErrTokenInvalid(fmt.Errorf("user account is not active"))
+		}
+
 		return user, nil
 	}
 
@@ -135,6 +139,10 @@ func (s *JWTService) ValidateTokenLenient(tokenString string, gracePeriod time.D
 	user, userErr := s.userService.GetUserByID(userID)
 	if userErr != nil {
 		return nil, fmt.Errorf("failed to get user: %w", userErr)
+	}
+
+	if !user.IsActive {
+		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("user account is not active"))
 	}
 
 	return user, nil

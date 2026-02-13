@@ -371,7 +371,7 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 				"request_id", requestID,
 			)
 			return nil, huma.Error422UnprocessableEntity(
-				fmt.Sprintf("Failed to update venue: %s (request_id: %s)", err.Error(), requestID),
+				fmt.Sprintf("Failed to update venue (request_id: %s)", requestID),
 			)
 		}
 
@@ -424,7 +424,7 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		}
 
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to create pending edit: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to create pending edit (request_id: %s)", requestID),
 		)
 	}
 
@@ -559,7 +559,7 @@ func (h *VenueHandler) CancelMyPendingEditHandler(ctx context.Context, req *Canc
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to cancel pending edit: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to cancel pending edit (request_id: %s)", requestID),
 		)
 	}
 

@@ -113,7 +113,7 @@ func (h *SavedShowHandler) SaveShowHandler(ctx context.Context, req *SaveShowReq
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to save show: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to save show (request_id: %s)", requestID),
 		)
 	}
 
@@ -169,7 +169,7 @@ func (h *SavedShowHandler) UnsaveShowHandler(ctx context.Context, req *UnsaveSho
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to unsave show: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to unsave show (request_id: %s)", requestID),
 		)
 	}
 

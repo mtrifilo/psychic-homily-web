@@ -1,9 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from './ui/button'
 import { Badge } from './ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
-import { Checkbox } from './ui/checkbox'
-import { Label } from './ui/label'
 import { Alert, AlertDescription, AlertTitle } from './ui/alert'
 import { LoadingSpinner } from './shared/LoadingSpinner'
 import { ErrorAlert } from './shared/ErrorAlert'
@@ -22,18 +20,53 @@ interface Props {
 
 export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
   const [loading, setLoading] = useState(false)
-  const [isDryRun, setIsDryRun] = useState(true)
   const [result, setResult] = useState<ImportResult | null>(null)
+  const [isLiveResult, setIsLiveResult] = useState(false)
   const [error, setError] = useState<string>('')
   const [showStartOverDialog, setShowStartOverDialog] = useState(false)
+  const [previewDone, setPreviewDone] = useState(false)
 
-  const handleImport = async () => {
+  const targetEnv = settings.targetEnvironment === 'production' ? 'Production' : 'Stage'
+  const isProduction = settings.targetEnvironment === 'production'
+  const hasToken = isProduction
+    ? Boolean(settings.productionToken?.length)
+    : Boolean(settings.stageToken?.length)
+
+  // Auto-run preview (dry run) on mount
+  useEffect(() => {
+    if (!hasToken || previewDone) return
+    let cancelled = false
+
+    const runPreview = async () => {
+      setLoading(true)
+      setError('')
+      try {
+        const importResult = await importEvents(events, true)
+        if (!cancelled) {
+          setResult(importResult)
+          setPreviewDone(true)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Preview failed')
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    runPreview()
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleLiveImport = async () => {
     setLoading(true)
     setError('')
     setResult(null)
+    setIsLiveResult(true)
 
     try {
-      const importResult = await importEvents(events, isDryRun)
+      const importResult = await importEvents(events, false)
       setResult(importResult)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed')
@@ -41,12 +74,6 @@ export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
       setLoading(false)
     }
   }
-
-  const targetEnv = settings.targetEnvironment === 'production' ? 'Production' : 'Stage'
-  const isProduction = settings.targetEnvironment === 'production'
-  const hasToken = isProduction
-    ? Boolean(settings.productionToken?.length)
-    : Boolean(settings.stageToken?.length)
 
   return (
     <div className="space-y-6">
@@ -121,66 +148,52 @@ export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
         </CardContent>
       </Card>
 
-      {/* Import Options */}
+      {/* Import Action */}
       <Card>
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-medium text-foreground">Import Mode</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                {isDryRun
-                  ? 'Preview what would be imported without making changes'
-                  : 'Import events to the database'}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="live-import"
-                checked={!isDryRun}
-                onCheckedChange={(checked) => setIsDryRun(!checked)}
-              />
-              <Label htmlFor="live-import" className="cursor-pointer">
-                Live Import
-              </Label>
-            </div>
-          </div>
-
-          <div className="mt-4 flex items-center justify-between">
-            <Badge variant={isProduction ? 'destructive' : 'secondary'}>
-              Target: {targetEnv}
-            </Badge>
-            <Button
-              onClick={handleImport}
-              disabled={loading || !hasToken}
-              variant={isDryRun ? 'default' : 'destructive'}
-            >
-              {loading && <LoadingSpinner size="sm" />}
-              {isDryRun ? 'Preview Import' : 'Import Now'}
-            </Button>
-          </div>
+        <CardContent className="pt-6 flex items-center justify-between">
+          <Badge variant={isProduction ? 'destructive' : 'secondary'}>
+            Target: {targetEnv}
+          </Badge>
+          <Button
+            onClick={handleLiveImport}
+            disabled={loading || !hasToken}
+            variant="destructive"
+          >
+            {loading && <LoadingSpinner size="sm" />}
+            Import Now
+          </Button>
         </CardContent>
       </Card>
 
-      {/* Import Results */}
+      {/* Results */}
+      {loading && !result && (
+        <Card>
+          <CardContent className="pt-6 flex items-center justify-center gap-2 text-muted-foreground">
+            <LoadingSpinner size="sm" />
+            <span>Running preview...</span>
+          </CardContent>
+        </Card>
+      )}
+
       {result && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
-              {isDryRun ? 'Preview Results' : 'Import Results'}
+              {isLiveResult ? 'Import Results' : 'Preview Results'}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <StatCard label="Total" value={result.total} color="gray" />
               <StatCard
-                label={isDryRun ? 'Would Import' : 'Imported'}
+                label={isLiveResult ? 'Imported' : 'Would Import'}
                 value={result.imported}
                 color="green"
               />
               <StatCard label="Duplicates" value={result.duplicates} color="gray" />
               {result.updated > 0 && (
                 <StatCard
-                  label={isDryRun ? 'Would Update' : 'Updated'}
+                  label={isLiveResult ? 'Updated' : 'Would Update'}
                   value={result.updated}
                   color="blue"
                 />
@@ -188,7 +201,7 @@ export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
               <StatCard label="Rejected" value={result.rejected} color="amber" />
               {result.pending_review > 0 && (
                 <StatCard
-                  label={isDryRun ? 'Would Flag' : 'Flagged'}
+                  label={isLiveResult ? 'Flagged' : 'Would Flag'}
                   value={result.pending_review}
                   color="amber"
                 />
@@ -201,31 +214,58 @@ export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
             {result.messages.length > 0 && (
               <div>
                 <h4 className="text-sm font-medium text-foreground mb-2">Details</h4>
-                <div className="bg-muted rounded-lg p-3 max-h-48 overflow-y-auto">
-                  <ul className="text-xs font-mono space-y-1">
-                    {result.messages.map((msg, i) => (
-                      <li
-                        key={i}
-                        className={cn(
-                          msg.startsWith('IMPORTED') || msg.startsWith('WOULD IMPORT')
-                            ? 'text-green-600'
-                            : msg.startsWith('UPDATED') || msg.startsWith('WOULD UPDATE')
-                            ? 'text-blue-600'
-                            : msg.startsWith('DUPLICATE')
-                            ? 'text-muted-foreground'
-                            : msg.startsWith('FLAGGED FOR REVIEW') || msg.startsWith('WOULD FLAG FOR REVIEW')
-                            ? 'text-amber-600'
-                            : msg.startsWith('REJECTED')
-                            ? 'text-amber-600'
-                            : msg.startsWith('ERROR') || msg.startsWith('SKIP')
-                            ? 'text-destructive'
-                            : 'text-muted-foreground'
+                <div className="bg-muted rounded-lg p-3 max-h-96 overflow-y-auto space-y-3">
+                  {result.messages.map((msg, i) => {
+                    const event = events[i]
+                    const statusColor = msg.startsWith('IMPORTED') || msg.startsWith('WOULD IMPORT')
+                      ? 'text-green-600'
+                      : msg.startsWith('UPDATED') || msg.startsWith('WOULD UPDATE')
+                      ? 'text-blue-600'
+                      : msg.startsWith('DUPLICATE')
+                      ? 'text-muted-foreground'
+                      : msg.startsWith('FLAGGED FOR REVIEW') || msg.startsWith('WOULD FLAG FOR REVIEW')
+                      ? 'text-amber-600'
+                      : msg.startsWith('REJECTED')
+                      ? 'text-amber-600'
+                      : msg.startsWith('ERROR') || msg.startsWith('SKIP')
+                      ? 'text-destructive'
+                      : 'text-muted-foreground'
+
+                    return (
+                      <div key={i}>
+                        <div className={cn('text-xs font-mono font-semibold', statusColor)}>
+                          {msg}
+                        </div>
+                        {event && (
+                          <ul className="text-xs text-muted-foreground mt-1 ml-4 space-y-0.5">
+                            <li>Date: {new Date(event.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</li>
+                            <li>Artists: {event.artists.join(', ')}</li>
+                            {event.showTime && <li>Show: {event.showTime}</li>}
+                            {event.doorsTime && <li>Doors: {event.doorsTime}</li>}
+                            {event.price && <li>Price: {event.price}</li>}
+                            {event.ageRestriction && <li>Ages: {event.ageRestriction}</li>}
+                            {event.ticketUrl && (
+                              <li>
+                                Tickets:{' '}
+                                <a
+                                  href={event.ticketUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-500 hover:underline"
+                                >
+                                  {event.ticketUrl.length > 60
+                                    ? event.ticketUrl.slice(0, 60) + '...'
+                                    : event.ticketUrl}
+                                </a>
+                              </li>
+                            )}
+                            {event.isSoldOut && <li className="text-red-500">Sold Out</li>}
+                            {event.isCancelled && <li className="text-red-500">Cancelled</li>}
+                          </ul>
                         )}
-                      >
-                        {msg}
-                      </li>
-                    ))}
-                  </ul>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}

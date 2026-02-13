@@ -1,12 +1,28 @@
 package services
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/models"
 )
 
 // =============================================================================
@@ -22,6 +38,8 @@ func TestNewExtractionService(t *testing.T) {
 	assert.NotNil(t, svc.config)
 	assert.NotNil(t, svc.artistService)
 	assert.NotNil(t, svc.venueService)
+	assert.NotNil(t, svc.httpClient)
+	assert.Equal(t, "https://api.anthropic.com", svc.anthropicBaseURL)
 }
 
 // =============================================================================
@@ -272,7 +290,14 @@ func TestExtractShowValidation(t *testing.T) {
 	cfg := &config.Config{
 		Anthropic: config.AnthropicConfig{APIKey: "test-key"},
 	}
-	svc := &ExtractionService{config: cfg}
+	// Use a local server that returns a non-validation error so tests that pass
+	// validation but call callAnthropic fail fast instead of timing out.
+	validationServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte("test server"))
+	}))
+	defer validationServer.Close()
+	svc := &ExtractionService{config: cfg, httpClient: validationServer.Client(), anthropicBaseURL: validationServer.URL}
 
 	t.Run("missing_api_key", func(t *testing.T) {
 		svc := &ExtractionService{config: &config.Config{}}
@@ -390,4 +415,630 @@ func TestExtractShowValidation(t *testing.T) {
 		assert.False(t, resp.Success)
 		assert.Contains(t, resp.Error, "exceeds maximum length")
 	})
+}
+
+// =============================================================================
+// callAnthropic TESTS (httptest mock)
+// =============================================================================
+
+// newTestExtractionService creates an ExtractionService with an httptest server
+func newTestExtractionService(handler http.HandlerFunc) (*ExtractionService, *httptest.Server) {
+	server := httptest.NewServer(handler)
+	svc := &ExtractionService{
+		config: &config.Config{
+			Anthropic: config.AnthropicConfig{APIKey: "test-api-key"},
+		},
+		httpClient:       server.Client(),
+		anthropicBaseURL: server.URL,
+	}
+	return svc, server
+}
+
+func TestCallAnthropic(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(anthropicResponse{
+				Content: []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				}{
+					{Type: "text", Text: "hello"},
+				},
+			})
+		})
+		defer server.Close()
+
+		result, err := svc.callAnthropic([]interface{}{map[string]string{"type": "text", "text": "test"}})
+
+		assert.NoError(t, err)
+		assert.Equal(t, "hello", result)
+	})
+
+	t.Run("multiple_content_blocks", func(t *testing.T) {
+		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(anthropicResponse{
+				Content: []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				}{
+					{Type: "text", Text: "first"},
+					{Type: "text", Text: " second"},
+				},
+			})
+		})
+		defer server.Close()
+
+		result, err := svc.callAnthropic([]interface{}{map[string]string{"type": "text", "text": "test"}})
+
+		assert.NoError(t, err)
+		assert.Equal(t, "first second", result)
+	})
+
+	t.Run("empty_content", func(t *testing.T) {
+		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(anthropicResponse{
+				Content: []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				}{},
+			})
+		})
+		defer server.Close()
+
+		result, err := svc.callAnthropic([]interface{}{map[string]string{"type": "text", "text": "test"}})
+
+		assert.NoError(t, err)
+		assert.Equal(t, "", result)
+	})
+
+	t.Run("non_text_blocks_ignored", func(t *testing.T) {
+		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			// Write raw JSON to include non-text blocks
+			w.Write([]byte(`{"content":[{"type":"tool_use","text":"ignored"},{"type":"text","text":"kept"}]}`))
+		})
+		defer server.Close()
+
+		result, err := svc.callAnthropic([]interface{}{map[string]string{"type": "text", "text": "test"}})
+
+		assert.NoError(t, err)
+		assert.Equal(t, "kept", result)
+	})
+
+	t.Run("non_200_status", func(t *testing.T) {
+		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte("rate limited"))
+		})
+		defer server.Close()
+
+		result, err := svc.callAnthropic([]interface{}{map[string]string{"type": "text", "text": "test"}})
+
+		assert.Error(t, err)
+		assert.Empty(t, result)
+		assert.Contains(t, err.Error(), "status 429")
+	})
+
+	t.Run("api_error_response", func(t *testing.T) {
+		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"error":{"type":"overloaded_error","message":"Overloaded"}}`))
+		})
+		defer server.Close()
+
+		result, err := svc.callAnthropic([]interface{}{map[string]string{"type": "text", "text": "test"}})
+
+		assert.Error(t, err)
+		assert.Empty(t, result)
+		assert.Contains(t, err.Error(), "Overloaded")
+	})
+
+	t.Run("credit_billing_error", func(t *testing.T) {
+		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Your credit balance is too low"))
+		})
+		defer server.Close()
+
+		result, err := svc.callAnthropic([]interface{}{map[string]string{"type": "text", "text": "test"}})
+
+		assert.Error(t, err)
+		assert.Empty(t, result)
+		assert.Contains(t, err.Error(), "credit")
+	})
+
+	t.Run("invalid_response_json", func(t *testing.T) {
+		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("not json"))
+		})
+		defer server.Close()
+
+		result, err := svc.callAnthropic([]interface{}{map[string]string{"type": "text", "text": "test"}})
+
+		assert.Error(t, err)
+		assert.Empty(t, result)
+		assert.Contains(t, err.Error(), "failed to parse")
+	})
+
+	t.Run("request_headers", func(t *testing.T) {
+		var capturedHeaders http.Header
+		var capturedBody []byte
+		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
+			capturedHeaders = r.Header.Clone()
+			capturedBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(anthropicResponse{
+				Content: []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				}{
+					{Type: "text", Text: "ok"},
+				},
+			})
+		})
+		defer server.Close()
+
+		_, err := svc.callAnthropic([]interface{}{map[string]string{"type": "text", "text": "test"}})
+		assert.NoError(t, err)
+
+		// Verify headers
+		assert.Equal(t, "application/json", capturedHeaders.Get("Content-Type"))
+		assert.Equal(t, "test-api-key", capturedHeaders.Get("x-api-key"))
+		assert.Equal(t, "2023-06-01", capturedHeaders.Get("anthropic-version"))
+
+		// Verify body contains expected fields
+		var reqBody anthropicRequest
+		err = json.Unmarshal(capturedBody, &reqBody)
+		assert.NoError(t, err)
+		assert.Equal(t, "claude-haiku-4-5-20251001", reqBody.Model)
+		assert.Equal(t, 1024, reqBody.MaxTokens)
+		assert.Equal(t, extractionSystemPrompt, reqBody.System)
+	})
+
+	t.Run("http_client_error", func(t *testing.T) {
+		svc := &ExtractionService{
+			config: &config.Config{
+				Anthropic: config.AnthropicConfig{APIKey: "test-key"},
+			},
+			httpClient:       &http.Client{Timeout: 1 * time.Millisecond},
+			anthropicBaseURL: "http://192.0.2.1:1", // RFC 5737 TEST-NET, unreachable
+		}
+
+		result, err := svc.callAnthropic([]interface{}{map[string]string{"type": "text", "text": "test"}})
+
+		assert.Error(t, err)
+		assert.Empty(t, result)
+		assert.Contains(t, err.Error(), "request failed")
+	})
+}
+
+// =============================================================================
+// matchArtists UNIT TESTS (edge cases, no DB)
+// =============================================================================
+
+func TestMatchArtists(t *testing.T) {
+	t.Run("empty_input", func(t *testing.T) {
+		svc := &ExtractionService{
+			artistService: &ArtistService{db: nil},
+		}
+
+		result := svc.matchArtists([]rawArtist{})
+
+		assert.Nil(t, result)
+	})
+
+	t.Run("nil_input", func(t *testing.T) {
+		svc := &ExtractionService{
+			artistService: &ArtistService{db: nil},
+		}
+
+		result := svc.matchArtists(nil)
+
+		assert.Nil(t, result)
+	})
+
+	t.Run("search_error_returns_unmatched", func(t *testing.T) {
+		svc := &ExtractionService{
+			artistService: &ArtistService{db: nil}, // nil db → "database not initialized" error
+		}
+
+		result := svc.matchArtists([]rawArtist{
+			{Name: "Test Artist", IsHeadliner: true},
+		})
+
+		require.Len(t, result, 1)
+		assert.Equal(t, "Test Artist", result[0].Name)
+		assert.True(t, result[0].IsHeadliner)
+		assert.Nil(t, result[0].MatchedID)
+		assert.Nil(t, result[0].Suggestions)
+	})
+}
+
+// =============================================================================
+// matchVenue UNIT TESTS (edge cases, no DB)
+// =============================================================================
+
+func TestMatchVenue(t *testing.T) {
+	t.Run("no_venue_in_parsed", func(t *testing.T) {
+		svc := &ExtractionService{
+			venueService: &VenueService{db: nil},
+		}
+
+		result := svc.matchVenue(map[string]interface{}{
+			"date": "2025-03-15",
+		})
+
+		assert.Nil(t, result)
+	})
+
+	t.Run("venue_not_map", func(t *testing.T) {
+		svc := &ExtractionService{
+			venueService: &VenueService{db: nil},
+		}
+
+		result := svc.matchVenue(map[string]interface{}{
+			"venue": "just a string",
+		})
+
+		assert.Nil(t, result)
+	})
+
+	t.Run("empty_name", func(t *testing.T) {
+		svc := &ExtractionService{
+			venueService: &VenueService{db: nil},
+		}
+
+		result := svc.matchVenue(map[string]interface{}{
+			"venue": map[string]interface{}{
+				"name": "",
+			},
+		})
+
+		assert.Nil(t, result)
+	})
+
+	t.Run("search_error_returns_unmatched", func(t *testing.T) {
+		svc := &ExtractionService{
+			venueService: &VenueService{db: nil}, // nil db → error
+		}
+
+		result := svc.matchVenue(map[string]interface{}{
+			"venue": map[string]interface{}{
+				"name":  "Test Venue",
+				"city":  "Phoenix",
+				"state": "AZ",
+			},
+		})
+
+		require.NotNil(t, result)
+		assert.Equal(t, "Test Venue", result.Name)
+		assert.Equal(t, "Phoenix", result.City)
+		assert.Equal(t, "AZ", result.State)
+		assert.Nil(t, result.MatchedID)
+		assert.Nil(t, result.Suggestions)
+	})
+}
+
+// =============================================================================
+// matchArtists / matchVenue INTEGRATION TESTS (testcontainers)
+// =============================================================================
+
+type ExtractionIntegrationTestSuite struct {
+	suite.Suite
+	container         testcontainers.Container
+	db                *gorm.DB
+	extractionService *ExtractionService
+	ctx               context.Context
+}
+
+func (suite *ExtractionIntegrationTestSuite) SetupSuite() {
+	suite.ctx = context.Background()
+
+	container, err := testcontainers.GenericContainer(suite.ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: testcontainers.ContainerRequest{
+			Image:        "postgres:18",
+			ExposedPorts: []string{"5432/tcp"},
+			Env: map[string]string{
+				"POSTGRES_DB":       "test_db",
+				"POSTGRES_USER":     "test_user",
+				"POSTGRES_PASSWORD": "test_password",
+			},
+			WaitingFor: wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(120 * time.Second),
+		},
+		Started: true,
+	})
+	if err != nil {
+		suite.T().Fatalf("failed to start postgres container: %v", err)
+	}
+	suite.container = container
+
+	host, err := container.Host(suite.ctx)
+	if err != nil {
+		suite.T().Fatalf("failed to get host: %v", err)
+	}
+	port, err := container.MappedPort(suite.ctx, "5432")
+	if err != nil {
+		suite.T().Fatalf("failed to get port: %v", err)
+	}
+
+	dsn := fmt.Sprintf("host=%s port=%s user=test_user password=test_password dbname=test_db sslmode=disable",
+		host, port.Port())
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		suite.T().Fatalf("failed to connect to test database: %v", err)
+	}
+	suite.db = db
+
+	// Run migrations
+	sqlDB, err := db.DB()
+	if err != nil {
+		suite.T().Fatalf("failed to get sql.DB: %v", err)
+	}
+
+	migrations := []string{
+		"000001_create_initial_schema.up.sql",
+		"000002_add_artist_search_indexes.up.sql",
+		"000003_add_venue_search_indexes.up.sql",
+		"000004_update_venue_constraints.up.sql",
+		"000005_add_show_status.up.sql",
+		"000007_add_private_show_status.up.sql",
+		"000008_add_pending_venue_edits.up.sql",
+		"000009_add_bandcamp_embed_url.up.sql",
+		"000010_add_scraper_source_fields.up.sql",
+		"000012_add_user_deletion_fields.up.sql",
+		"000013_add_slugs.up.sql",
+		"000014_add_account_lockout.up.sql",
+		"000020_add_show_status_flags.up.sql",
+		"000023_rename_scraper_to_discovery.up.sql",
+		"000026_add_duplicate_of_show_id.up.sql",
+		"000028_change_event_date_to_timestamptz.up.sql",
+	}
+	for _, m := range migrations {
+		migrationSQL, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", m))
+		if err != nil {
+			suite.T().Fatalf("failed to read migration file %s: %v", m, err)
+		}
+		_, err = sqlDB.Exec(string(migrationSQL))
+		if err != nil {
+			suite.T().Fatalf("failed to run migration %s: %v", m, err)
+		}
+	}
+
+	// Run migration 000027 with CONCURRENTLY stripped
+	migration27, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", "000027_add_index_duplicate_of_show_id.up.sql"))
+	if err != nil {
+		suite.T().Fatalf("failed to read migration 000027: %v", err)
+	}
+	sql27 := strings.ReplaceAll(string(migration27), "CONCURRENTLY ", "")
+	_, err = sqlDB.Exec(sql27)
+	if err != nil {
+		suite.T().Fatalf("failed to run migration 000027: %v", err)
+	}
+
+	suite.extractionService = &ExtractionService{
+		config:        &config.Config{},
+		artistService: &ArtistService{db: db},
+		venueService:  &VenueService{db: db},
+	}
+}
+
+func (suite *ExtractionIntegrationTestSuite) TearDownSuite() {
+	if suite.container != nil {
+		if err := suite.container.Terminate(suite.ctx); err != nil {
+			suite.T().Logf("failed to terminate container: %v", err)
+		}
+	}
+}
+
+func (suite *ExtractionIntegrationTestSuite) TearDownTest() {
+	sqlDB, err := suite.db.DB()
+	suite.Require().NoError(err)
+	_, _ = sqlDB.Exec("DELETE FROM show_artists")
+	_, _ = sqlDB.Exec("DELETE FROM show_venues")
+	_, _ = sqlDB.Exec("DELETE FROM shows")
+	_, _ = sqlDB.Exec("DELETE FROM artists")
+	_, _ = sqlDB.Exec("DELETE FROM venues")
+}
+
+func (suite *ExtractionIntegrationTestSuite) createArtist(name string) models.Artist {
+	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+	artist := models.Artist{Name: name, Slug: &slug}
+	err := suite.db.Create(&artist).Error
+	suite.Require().NoError(err)
+	return artist
+}
+
+func (suite *ExtractionIntegrationTestSuite) createVenue(name, city, state string) models.Venue {
+	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+	venue := models.Venue{Name: name, City: city, State: state, Slug: &slug}
+	err := suite.db.Create(&venue).Error
+	suite.Require().NoError(err)
+	return venue
+}
+
+// --- matchArtists integration tests ---
+
+func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_ExactMatch() {
+	suite.createArtist("Radiohead")
+
+	result := suite.extractionService.matchArtists([]rawArtist{
+		{Name: "Radiohead", IsHeadliner: true},
+	})
+
+	suite.Require().Len(result, 1)
+	suite.NotNil(result[0].MatchedID)
+	suite.Equal("Radiohead", *result[0].MatchedName)
+	suite.Equal("radiohead", *result[0].MatchedSlug)
+	suite.True(result[0].IsHeadliner)
+}
+
+func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_CaseInsensitive() {
+	suite.createArtist("The National")
+
+	result := suite.extractionService.matchArtists([]rawArtist{
+		{Name: "the national", IsHeadliner: false},
+	})
+
+	suite.Require().Len(result, 1)
+	suite.NotNil(result[0].MatchedID)
+	suite.Equal("The National", *result[0].MatchedName)
+	suite.False(result[0].IsHeadliner)
+}
+
+func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_NoMatchEmptyDB() {
+	result := suite.extractionService.matchArtists([]rawArtist{
+		{Name: "Nonexistent Band", IsHeadliner: true},
+	})
+
+	suite.Require().Len(result, 1)
+	suite.Nil(result[0].MatchedID)
+	suite.Empty(result[0].Suggestions)
+}
+
+func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_SuggestionsWhenNoExact() {
+	suite.createArtist("Radio Moscow")
+	suite.createArtist("Radio Dept")
+	suite.createArtist("Radio Birdman")
+
+	result := suite.extractionService.matchArtists([]rawArtist{
+		{Name: "Radio", IsHeadliner: false},
+	})
+
+	suite.Require().Len(result, 1)
+	suite.Nil(result[0].MatchedID, "Should not have exact match")
+	suite.NotEmpty(result[0].Suggestions)
+	for _, s := range result[0].Suggestions {
+		suite.NotZero(s.ID)
+		suite.NotEmpty(s.Name)
+		suite.NotEmpty(s.Slug)
+	}
+}
+
+func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_SuggestionsCappedAt3() {
+	for i := 0; i < 5; i++ {
+		suite.createArtist(fmt.Sprintf("TestBand%d", i))
+	}
+
+	result := suite.extractionService.matchArtists([]rawArtist{
+		{Name: "TestBand", IsHeadliner: false},
+	})
+
+	suite.Require().Len(result, 1)
+	suite.Nil(result[0].MatchedID)
+	suite.LessOrEqual(len(result[0].Suggestions), 3)
+}
+
+func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_MultipleArtists() {
+	suite.createArtist("Turnstile")
+	suite.createArtist("Ceremony")
+
+	result := suite.extractionService.matchArtists([]rawArtist{
+		{Name: "Turnstile", IsHeadliner: true},
+		{Name: "Ceremony", IsHeadliner: false},
+	})
+
+	suite.Require().Len(result, 2)
+	suite.NotNil(result[0].MatchedID)
+	suite.Equal("Turnstile", *result[0].MatchedName)
+	suite.True(result[0].IsHeadliner)
+	suite.NotNil(result[1].MatchedID)
+	suite.Equal("Ceremony", *result[1].MatchedName)
+	suite.False(result[1].IsHeadliner)
+}
+
+// --- matchVenue integration tests ---
+
+func (suite *ExtractionIntegrationTestSuite) TestMatchVenue_ExactMatch() {
+	suite.createVenue("Crescent Ballroom", "Phoenix", "AZ")
+
+	result := suite.extractionService.matchVenue(map[string]interface{}{
+		"venue": map[string]interface{}{
+			"name":  "Crescent Ballroom",
+			"city":  "Tempe",
+			"state": "AZ",
+		},
+	})
+
+	suite.Require().NotNil(result)
+	suite.NotNil(result.MatchedID)
+	suite.Equal("Crescent Ballroom", *result.MatchedName)
+	suite.Equal("crescent-ballroom", *result.MatchedSlug)
+	// City/State overridden from DB
+	suite.Equal("Phoenix", result.City)
+	suite.Equal("AZ", result.State)
+}
+
+func (suite *ExtractionIntegrationTestSuite) TestMatchVenue_CaseInsensitive() {
+	suite.createVenue("Valley Bar", "Phoenix", "AZ")
+
+	result := suite.extractionService.matchVenue(map[string]interface{}{
+		"venue": map[string]interface{}{
+			"name": "valley bar",
+		},
+	})
+
+	suite.Require().NotNil(result)
+	suite.NotNil(result.MatchedID)
+	suite.Equal("Valley Bar", *result.MatchedName)
+}
+
+func (suite *ExtractionIntegrationTestSuite) TestMatchVenue_NoMatchEmptyDB() {
+	result := suite.extractionService.matchVenue(map[string]interface{}{
+		"venue": map[string]interface{}{
+			"name":  "Nonexistent Venue",
+			"city":  "Phoenix",
+			"state": "AZ",
+		},
+	})
+
+	suite.Require().NotNil(result)
+	suite.Nil(result.MatchedID)
+	suite.Empty(result.Suggestions)
+}
+
+func (suite *ExtractionIntegrationTestSuite) TestMatchVenue_SuggestionsWhenNoExact() {
+	suite.createVenue("The Rebel Lounge", "Phoenix", "AZ")
+	suite.createVenue("The Rebel Room", "Mesa", "AZ")
+
+	result := suite.extractionService.matchVenue(map[string]interface{}{
+		"venue": map[string]interface{}{
+			"name": "Rebel",
+		},
+	})
+
+	suite.Require().NotNil(result)
+	suite.Nil(result.MatchedID, "Should not have exact match")
+	suite.NotEmpty(result.Suggestions)
+	for _, s := range result.Suggestions {
+		suite.NotZero(s.ID)
+		suite.NotEmpty(s.Name)
+		suite.NotEmpty(s.Slug)
+		suite.NotEmpty(s.City)
+		suite.NotEmpty(s.State)
+	}
+}
+
+func (suite *ExtractionIntegrationTestSuite) TestMatchVenue_SuggestionsCappedAt3() {
+	for i := 0; i < 5; i++ {
+		suite.createVenue(fmt.Sprintf("TestVenue%d", i), "Phoenix", "AZ")
+	}
+
+	result := suite.extractionService.matchVenue(map[string]interface{}{
+		"venue": map[string]interface{}{
+			"name": "TestVenue",
+		},
+	})
+
+	suite.Require().NotNil(result)
+	suite.Nil(result.MatchedID)
+	suite.LessOrEqual(len(result.Suggestions), 3)
+}
+
+func TestExtractionIntegrationTestSuite(t *testing.T) {
+	suite.Run(t, new(ExtractionIntegrationTestSuite))
 }

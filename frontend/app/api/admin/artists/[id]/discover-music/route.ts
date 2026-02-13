@@ -310,17 +310,11 @@ async function discoverBandcamp(
       }
     }
 
-    console.log(
-      `[MusicDiscovery] Bandcamp search for "${artistName}" returned:`,
-      responseText.substring(0, 500)
-    )
-
     // Check for NOT_FOUND
     if (
       responseText.trim() === 'NOT_FOUND' ||
       responseText.includes('NOT_FOUND')
     ) {
-      console.log(`[MusicDiscovery] Bandcamp: NOT_FOUND for "${artistName}"`)
       return { found: false }
     }
 
@@ -331,35 +325,17 @@ async function discoverBandcamp(
     if (!bandcampUrl) {
       const profileUrl = extractBandcampProfileUrl(responseText)
       if (profileUrl) {
-        console.log(
-          `[MusicDiscovery] Bandcamp: Found profile "${profileUrl}" for "${artistName}", resolving album...`
-        )
         bandcampUrl = await resolveAlbumFromProfile(profileUrl)
-        if (bandcampUrl) {
-          console.log(
-            `[MusicDiscovery] Bandcamp: Resolved album "${bandcampUrl}" from profile`
-          )
-        }
       }
     }
 
     if (!bandcampUrl) {
-      console.log(
-        `[MusicDiscovery] Bandcamp: No valid URL extracted for "${artistName}"`
-      )
       return { found: false, error: 'No valid URL in response' }
     }
-
-    console.log(
-      `[MusicDiscovery] Bandcamp: Found URL "${bandcampUrl}" for "${artistName}", validating...`
-    )
 
     // Validate the URL is actually embeddable
     const isValid = await validateBandcampUrl(bandcampUrl)
     if (!isValid) {
-      console.log(
-        `[MusicDiscovery] Bandcamp: URL validation failed for "${bandcampUrl}"`
-      )
       return { found: false, error: 'URL validation failed' }
     }
 
@@ -410,17 +386,11 @@ async function discoverSpotify(
       }
     }
 
-    console.log(
-      `[MusicDiscovery] Spotify search for "${artistName}" returned:`,
-      responseText.substring(0, 500)
-    )
-
     // Check for NOT_FOUND
     if (
       responseText.trim() === 'NOT_FOUND' ||
       responseText.includes('NOT_FOUND')
     ) {
-      console.log(`[MusicDiscovery] Spotify: NOT_FOUND for "${artistName}"`)
       return { found: false }
     }
 
@@ -428,21 +398,11 @@ async function discoverSpotify(
     const spotifyUrl = extractSpotifyUrl(responseText)
 
     if (!spotifyUrl) {
-      console.log(
-        `[MusicDiscovery] Spotify: No valid URL extracted for "${artistName}"`
-      )
       return { found: false, error: 'No valid URL in response' }
     }
 
-    console.log(
-      `[MusicDiscovery] Spotify: Found URL "${spotifyUrl}" for "${artistName}"`
-    )
-
     // Validate URL format
     if (!isValidSpotifyArtistUrl(spotifyUrl)) {
-      console.log(
-        `[MusicDiscovery] Spotify: Invalid URL format "${spotifyUrl}"`
-      )
       return { found: false, error: 'Invalid Spotify URL format' }
     }
 
@@ -524,11 +484,6 @@ export async function POST(
       { status: 503 }
     )
   }
-
-  // Debug: Log API key info (prefix only, not full key)
-  console.log(
-    `[MusicDiscovery] API key check - prefix: ${apiKey.substring(0, 10)}..., length: ${apiKey.length}`
-  )
 
   try {
     // Initialize Anthropic client

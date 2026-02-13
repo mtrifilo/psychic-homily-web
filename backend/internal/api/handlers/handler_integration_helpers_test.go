@@ -38,6 +38,7 @@ type handlerIntegrationDeps struct {
 	dataSyncService       *services.DataSyncService
 	adminStatsService     *services.AdminStatsService
 	discoveryService      *services.DiscoveryService
+	artistService         *services.ArtistService
 }
 
 func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
@@ -98,6 +99,7 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		"000008_add_pending_venue_edits.up.sql",
 		"000009_add_bandcamp_embed_url.up.sql",
 		"000010_add_scraper_source_fields.up.sql",
+		"000011_add_webauthn_tables.up.sql",
 		"000012_add_user_deletion_fields.up.sql",
 		"000013_add_slugs.up.sql",
 		"000014_add_account_lockout.up.sql",
@@ -156,6 +158,7 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		dataSyncService:       services.NewDataSyncService(db),
 		adminStatsService:     services.NewAdminStatsService(db),
 		discoveryService:      services.NewDiscoveryService(db),
+		artistService:         services.NewArtistService(db),
 	}
 
 	return deps
@@ -175,6 +178,10 @@ func cleanupTables(db *gorm.DB) {
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM api_tokens")
+	_, _ = sqlDB.Exec("DELETE FROM webauthn_credentials")
+	_, _ = sqlDB.Exec("DELETE FROM webauthn_challenges")
+	_, _ = sqlDB.Exec("DELETE FROM oauth_accounts")
+	_, _ = sqlDB.Exec("DELETE FROM user_preferences")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 

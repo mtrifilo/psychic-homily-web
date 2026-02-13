@@ -121,7 +121,7 @@ export function ChangePassword() {
 
           {/* Error message from mutation */}
           {changePasswordMutation.isError && (
-            <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{changePasswordMutation.error?.message || 'Failed to change password'}</span>
             </div>
@@ -156,7 +156,7 @@ export function ChangePassword() {
                   </button>
                 </div>
                 {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-destructive">
+                  <p role="alert" className="text-sm text-destructive">
                     {field.state.meta.errors.map(getErrorMessage).join(', ')}
                   </p>
                 )}
@@ -198,7 +198,7 @@ export function ChangePassword() {
                 {/* Password strength meter */}
                 <PasswordStrengthMeter password={newPasswordValue} showRequirements={true} />
                 {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-destructive">
+                  <p role="alert" className="text-sm text-destructive">
                     {field.state.meta.errors.map(getErrorMessage).join(', ')}
                   </p>
                 )}

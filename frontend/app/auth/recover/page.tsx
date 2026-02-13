@@ -92,7 +92,7 @@ function EmailForm({ onSubmit, isLoading }: {
               />
             </div>
             {field.state.meta.errors.length > 0 && (
-              <p className="text-sm text-destructive">
+              <p role="alert" className="text-sm text-destructive">
                 {field.state.meta.errors.map(getErrorMessage).join(', ')}
               </p>
             )}
@@ -226,7 +226,7 @@ function PasswordRecoveryForm({
                 </button>
               </div>
               {field.state.meta.errors.length > 0 && (
-                <p className="text-sm text-destructive">
+                <p role="alert" className="text-sm text-destructive">
                   {field.state.meta.errors.map(getErrorMessage).join(', ')}
                 </p>
               )}

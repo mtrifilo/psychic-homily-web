@@ -1,3 +1,4 @@
+import { chromium, type Page } from 'playwright'
 import type { DiscoveredEvent, PreviewEvent, DiscoveryProvider } from './types'
 
 // Venue configurations for JSON-LD provider
@@ -183,6 +184,138 @@ function isSoldOut(event: JsonLdMusicEvent): boolean {
   return offers.some(o => o.availability?.includes('SoldOut') === true)
 }
 
+// Enrichment data extracted from Playwright modal interactions
+interface ModalEnrichment {
+  title: string // event title from modal (for matching)
+  performers: string[] // individual performer names from LINEUP
+}
+
+/**
+ * Normalize a title for fuzzy matching between JSON-LD and DOM.
+ * Lowercases, strips punctuation, collapses whitespace.
+ */
+function normalizeTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Use Playwright to open the venue page, click "More Info" on selected event cards,
+ * and extract performer names from the LINEUP accordion in each modal.
+ *
+ * Only opens modals for events matching the provided titles (normalized).
+ * Returns enrichment data keyed by normalized title for matching.
+ * Best-effort: returns empty map on failure.
+ */
+async function enrichWithPlaywright(
+  venueUrl: string,
+  venueName: string,
+  targetTitles: Set<string>,
+): Promise<Map<string, ModalEnrichment>> {
+  const enrichments = new Map<string, ModalEnrichment>()
+  let browser
+
+  try {
+    browser = await chromium.launch({ headless: true })
+    const page = await browser.newPage()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto(venueUrl, { waitUntil: 'networkidle', timeout: 30000 })
+    await page.waitForTimeout(2000)
+
+    // Get all card titles and their indices so we only click the ones we need
+    const cardTitles: Array<{ index: number; normalizedTitle: string }> = await page.evaluate(() => {
+      const cards = document.querySelectorAll('.chakra-linkbox')
+      return Array.from(cards).map((card, index) => ({
+        index,
+        title: card.querySelector('.chakra-linkbox__overlay')?.textContent?.trim() || '',
+      }))
+    }).then(cards => cards.map(c => ({ index: c.index, normalizedTitle: normalizeTitle(c.title) })))
+
+    // Filter to only cards matching our target events
+    const matchingCards = cardTitles.filter(c => targetTitles.has(c.normalizedTitle))
+    console.log(`[jsonld/pw] ${matchingCards.length} of ${cardTitles.length} cards match selected events on ${venueName}`)
+
+    for (const card of matchingCards) {
+      try {
+        const modalData = await extractModalData(page, card.index)
+        if (modalData) {
+          const key = normalizeTitle(modalData.title)
+          enrichments.set(key, modalData)
+        }
+      } catch (err) {
+        console.warn(`[jsonld/pw] Error on card ${card.index}:`, err instanceof Error ? err.message : err)
+      }
+
+      // Brief delay between interactions
+      if (matchingCards.length > 1) {
+        await page.waitForTimeout(500)
+      }
+    }
+
+    console.log(`[jsonld/pw] Enriched ${enrichments.size} events with performer data`)
+  } catch (err) {
+    console.warn(`[jsonld/pw] Playwright enrichment failed:`, err instanceof Error ? err.message : err)
+  } finally {
+    await browser?.close()
+  }
+
+  return enrichments
+}
+
+/**
+ * Click "More Info" on card at given index, extract data from modal, close it.
+ */
+async function extractModalData(page: Page, cardIndex: number): Promise<ModalEnrichment | null> {
+  // Open modal via JS click (button is CSS-hidden but responds to JS click)
+  await page.evaluate((index) => {
+    const cards = document.querySelectorAll('.chakra-linkbox')
+    const card = cards[index]
+    if (!card) return
+    const btn = card.querySelector('button')
+    if (btn) btn.click()
+  }, cardIndex)
+
+  // Wait for modal to appear
+  try {
+    await page.waitForSelector('[role="dialog"]', { timeout: 5000 })
+  } catch {
+    return null
+  }
+  await page.waitForTimeout(500)
+
+  // Extract data
+  const data = await page.evaluate(() => {
+    const dialog = document.querySelector('[role="dialog"]')
+    if (!dialog) return null
+
+    const title = dialog.querySelector('.event-name')?.textContent?.trim() || ''
+
+    // Extract performers from LINEUP accordion
+    const performers: string[] = []
+    const panel = dialog.querySelector('.chakra-accordion__panel')
+    if (panel) {
+      for (const lb of panel.querySelectorAll('.chakra-linkbox')) {
+        const name = lb.querySelector('.chakra-linkbox__overlay')?.textContent?.trim()
+        if (name) performers.push(name)
+      }
+    }
+
+    return { title, performers }
+  })
+
+  // Close modal
+  await page.evaluate(() => {
+    const btn = document.querySelector('.chakra-modal__close-btn') as HTMLElement
+    if (btn) btn.click()
+  })
+  await page.waitForTimeout(300)
+
+  return data
+}
+
 // JSON-LD provider implementation
 export const jsonldProvider: DiscoveryProvider = {
   async preview(venueSlug: string): Promise<PreviewEvent[]> {
@@ -225,6 +358,7 @@ export const jsonldProvider: DiscoveryProvider = {
 
     console.log(`[jsonld] Scraping ${eventIds.length} events from ${venue.name}...`)
 
+    // Pass 1: HTTP fetch + JSON-LD parse (fast baseline)
     const response = await fetch(venue.url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; PsychicHomily/1.0)',
@@ -245,6 +379,18 @@ export const jsonldProvider: DiscoveryProvider = {
     }
 
     const eventIdSet = new Set(eventIds)
+
+    // Build set of normalized titles for the selected events only
+    const targetTitles = new Set<string>()
+    for (const [id, event] of eventMap) {
+      if (eventIdSet.has(id)) {
+        targetTitles.add(normalizeTitle(event.name || ''))
+      }
+    }
+
+    // Pass 2: Playwright enrichment (best-effort, only for selected events)
+    console.log(`[jsonld] Starting Playwright enrichment for ${targetTitles.size} events on ${venue.name}...`)
+    const enrichments = await enrichWithPlaywright(venue.url, venue.name, targetTitles)
     const scrapedEvents: DiscoveredEvent[] = []
 
     for (const [id, event] of eventMap) {
@@ -252,6 +398,15 @@ export const jsonldProvider: DiscoveryProvider = {
 
       const cancelled = isCancelled(event)
       const soldOut = isSoldOut(event)
+
+      // Try to find enrichment data by matching normalized title
+      const titleKey = normalizeTitle(event.name || '')
+      const enrichment = enrichments.get(titleKey)
+
+      // Use enriched performers if available, otherwise fall back to JSON-LD/title parsing
+      const artists = enrichment && enrichment.performers.length > 0
+        ? enrichment.performers
+        : extractArtists(event)
 
       scrapedEvents.push({
         id,
@@ -263,7 +418,7 @@ export const jsonldProvider: DiscoveryProvider = {
         doorsTime: extractTime(event.doorTime),
         showTime: extractTime(event.startDate),
         ticketUrl: extractTicketUrl(event),
-        artists: extractArtists(event),
+        artists,
         scrapedAt: new Date().toISOString(),
         price: extractOfferPrice(event),
         ageRestriction: extractAge(event),

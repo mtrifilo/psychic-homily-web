@@ -293,7 +293,7 @@ func (h *AdminHandler) ApproveShowHandler(ctx context.Context, req *ApproveShowR
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to approve show: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to approve show (request_id: %s)", requestID),
 		)
 	}
 
@@ -354,7 +354,7 @@ func (h *AdminHandler) RejectShowHandler(ctx context.Context, req *RejectShowReq
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to reject show: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to reject show (request_id: %s)", requestID),
 		)
 	}
 
@@ -409,7 +409,7 @@ func (h *AdminHandler) VerifyVenueHandler(ctx context.Context, req *VerifyVenueR
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to verify venue: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to verify venue (request_id: %s)", requestID),
 		)
 	}
 
@@ -613,7 +613,7 @@ func (h *AdminHandler) ApproveVenueEditHandler(ctx context.Context, req *Approve
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to approve venue edit: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to approve venue edit (request_id: %s)", requestID),
 		)
 	}
 
@@ -684,7 +684,7 @@ func (h *AdminHandler) RejectVenueEditHandler(ctx context.Context, req *RejectVe
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to reject venue edit: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to reject venue edit (request_id: %s)", requestID),
 		)
 	}
 
@@ -756,7 +756,7 @@ func (h *AdminHandler) ImportShowPreviewHandler(ctx context.Context, req *Import
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to preview import: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to preview import (request_id: %s)", requestID),
 		)
 	}
 
@@ -820,7 +820,7 @@ func (h *AdminHandler) ImportShowConfirmHandler(ctx context.Context, req *Import
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to import show: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to import show (request_id: %s)", requestID),
 		)
 	}
 
@@ -993,7 +993,7 @@ func (h *AdminHandler) BulkExportShowsHandler(ctx context.Context, req *BulkExpo
 				"request_id", requestID,
 			)
 			return nil, huma.Error422UnprocessableEntity(
-				fmt.Sprintf("Failed to export show %d: %s (request_id: %s)", showID, err.Error(), requestID),
+				fmt.Sprintf("Failed to export show %d (request_id: %s)", showID, requestID),
 			)
 		}
 		exports = append(exports, base64.StdEncoding.EncodeToString(content))
@@ -1094,7 +1094,7 @@ func (h *AdminHandler) BulkImportPreviewHandler(ctx context.Context, req *BulkIm
 				"request_id", requestID,
 			)
 			return nil, huma.Error422UnprocessableEntity(
-				fmt.Sprintf("Failed to preview show %d: %s (request_id: %s)", i+1, err.Error(), requestID),
+				fmt.Sprintf("Failed to preview show %d (request_id: %s)", i+1, requestID),
 			)
 		}
 
@@ -1200,7 +1200,7 @@ func (h *AdminHandler) BulkImportConfirmHandler(ctx context.Context, req *BulkIm
 		if err != nil {
 			results = append(results, BulkImportResult{
 				Success: false,
-				Error:   fmt.Sprintf("Invalid base64 content: %s", err.Error()),
+				Error:   "Invalid base64 content",
 			})
 			errorCount++
 			continue
@@ -1210,7 +1210,7 @@ func (h *AdminHandler) BulkImportConfirmHandler(ctx context.Context, req *BulkIm
 		if err != nil {
 			results = append(results, BulkImportResult{
 				Success: false,
-				Error:   err.Error(),
+				Error:   "Failed to import show",
 			})
 			errorCount++
 			logger.FromContext(ctx).Warn("admin_bulk_import_show_failed",
@@ -1624,7 +1624,7 @@ func (h *AdminHandler) RevokeAPITokenHandler(ctx context.Context, req *RevokeAPI
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		return nil, huma.Error404NotFound(err.Error())
+		return nil, huma.Error404NotFound("Token not found or already revoked")
 	}
 
 	logger.FromContext(ctx).Info("admin_revoke_token_success",

@@ -1004,7 +1004,7 @@ func (h *ShowHandler) UnpublishShowHandler(ctx context.Context, req *UnpublishSh
 			}
 		}
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to unpublish show: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to unpublish show (request_id: %s)", requestID),
 		)
 	}
 
@@ -1089,7 +1089,7 @@ func (h *ShowHandler) MakePrivateShowHandler(ctx context.Context, req *MakePriva
 			}
 		}
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to make show private: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to make show private (request_id: %s)", requestID),
 		)
 	}
 
@@ -1176,7 +1176,7 @@ func (h *ShowHandler) PublishShowHandler(ctx context.Context, req *PublishShowRe
 			}
 		}
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to publish show: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to publish show (request_id: %s)", requestID),
 		)
 	}
 
@@ -1415,7 +1415,7 @@ func (h *ShowHandler) SetShowSoldOutHandler(ctx context.Context, req *SetShowSol
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to update show: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to update show (request_id: %s)", requestID),
 		)
 	}
 
@@ -1498,7 +1498,7 @@ func (h *ShowHandler) SetShowCancelledHandler(ctx context.Context, req *SetShowC
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to update show: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to update show (request_id: %s)", requestID),
 		)
 	}
 

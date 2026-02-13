@@ -86,6 +86,40 @@ function toTitleCase(str: string, force = false): string {
     .join(' ')
 }
 
+/**
+ * Parse support act names from event description text.
+ * Looks for patterns like "with special guest X", "w/ X", "featuring X", etc.
+ * Returns array of extracted artist names.
+ */
+function parseDescriptionArtists(text: string): string[] {
+  const artists: string[] = []
+  if (!text) return artists
+
+  // Patterns: "with special guest\nARTIST", "with special guests\nA, B", "w/ ARTIST", "featuring ARTIST"
+  const patterns = [
+    /with\s+special\s+guests?\s*\n?\s*(.+?)(?:\n\n|\n(?=[A-Z][a-z]+ \d)|$)/is,
+    /(?:^|\n)w\/\s*(.+?)(?:\n\n|\n(?=[A-Z][a-z]+ \d)|$)/im,
+    /featuring\s+(.+?)(?:\n\n|\n(?=[A-Z][a-z]+ \d)|$)/is,
+    /(?:^|\n)support:\s*(.+?)(?:\n\n|\n(?=[A-Z][a-z]+ \d)|$)/im,
+  ]
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern)
+    if (match) {
+      // The captured group may have multiple names separated by commas, &, "and", or newlines
+      const raw = match[1].trim()
+      const names = raw
+        .split(/\s*[,&]\s*|\s+and\s+|\s*\n\s*/)
+        .map(n => n.trim())
+        .filter(n => n.length > 0 && n.length < 60 && !/^\d/.test(n))
+      artists.push(...names)
+      break // Use the first matching pattern
+    }
+  }
+
+  return artists
+}
+
 // Detail page extraction types
 interface EventDetails {
   artists: string[]
@@ -236,41 +270,61 @@ export const ticketwebProvider: DiscoveryProvider = {
         return urls
       })
 
-      // Fetch details from detail pages using HTTP (much faster than Playwright)
+      // Fetch details from detail pages using Playwright (HTTP gets blocked by bot detection)
       const detailsByEventId: Record<string, EventDetails> = {}
-      const detailFetches = events
-        .filter((e: any) => eventUrls[e.id])
-        .map(async (event: any) => {
-          try {
-            const controller = new AbortController()
-            const timeout = setTimeout(() => controller.abort(), 10000)
-            const response = await fetch(eventUrls[event.id], { signal: controller.signal })
-            clearTimeout(timeout)
-            const html = await response.text()
 
-            // Parse artist names from .artist-list .row h4 a elements
-            const artistMatches = html.matchAll(/<div[^>]*class="[^"]*artist-list[^"]*"[\s\S]*?<\/div>\s*<\/div>/gi)
+      for (const event of events) {
+        const detailUrl = eventUrls[event.id]
+        if (!detailUrl) continue
+
+        try {
+          const detailPage = await browser.newPage()
+          await detailPage.goto(detailUrl, { waitUntil: 'networkidle', timeout: 15000 })
+
+          const details = await detailPage.evaluate(() => {
+            // Extract artists from .artist-list h4 a elements
             const artists: string[] = []
-            for (const block of artistMatches) {
-              const nameMatches = block[0].matchAll(/<h4[^>]*>\s*<a[^>]*>([^<]+)<\/a>/gi)
-              for (const m of nameMatches) {
-                const name = m[1].trim()
-                if (name) artists.push(name)
-              }
-            }
+            document.querySelectorAll('.artist-list h4 a').forEach((el) => {
+              const name = el.textContent?.trim()
+              if (name) artists.push(name)
+            })
 
-            detailsByEventId[event.id] = {
-              artists: artists.map(name => toTitleCase(name, true)),
-              price: extractPrice(html),
-              ageRestriction: extractAgeRestriction(html),
-              isSoldOut: extractSoldOutStatus(html),
+            // Extract description text for support act parsing
+            const descEl = document.querySelector('.tw-event-description, .event-description, [class*="description"]')
+            const descText = (descEl as HTMLElement)?.innerText?.trim() || ''
+
+            // Also check full body text for support acts listed outside artist-list
+            const bodyText = document.body.innerText || ''
+
+            return { artists, descText, bodyText }
+          })
+
+          // Parse support acts from description text
+          const supportArtists = parseDescriptionArtists(details.descText || details.bodyText)
+
+          // Merge: artist-list names first, then description-parsed support acts (deduped)
+          const allArtists = [...details.artists]
+          const lowerArtists = new Set(allArtists.map(a => a.toLowerCase()))
+          for (const sa of supportArtists) {
+            if (!lowerArtists.has(sa.toLowerCase())) {
+              allArtists.push(sa)
+              lowerArtists.add(sa.toLowerCase())
             }
-          } catch (err) {
-            console.warn(`[ticketweb] Failed to fetch detail page for event ${event.id}:`, err instanceof Error ? err.message : err)
           }
-        })
 
-      await Promise.all(detailFetches)
+          const html = await detailPage.content()
+          detailsByEventId[event.id] = {
+            artists: allArtists.map(name => toTitleCase(name, true)),
+            price: extractPrice(html),
+            ageRestriction: extractAgeRestriction(html),
+            isSoldOut: extractSoldOutStatus(html),
+          }
+
+          await detailPage.close()
+        } catch (err) {
+          console.warn(`[ticketweb] Failed to fetch detail page for event ${event.id}:`, err instanceof Error ? err.message : err)
+        }
+      }
 
       // Process each event
       const scrapedEvents: DiscoveredEvent[] = []

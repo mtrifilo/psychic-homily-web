@@ -181,13 +181,13 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 
 		// Handle CLI callback error
 		if cliCallback != "" {
-			redirectURL := cliCallback + "?error=" + url.QueryEscape(err.Error())
+			redirectURL := cliCallback + "?error=" + url.QueryEscape("authentication failed")
 			http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 			return
 		}
 
 		// Redirect to frontend auth page with error
-		redirectURL := frontendURL + "/auth?error=" + url.QueryEscape(err.Error())
+		redirectURL := frontendURL + "/auth?error=" + url.QueryEscape("authentication failed")
 		http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 		return
 	}

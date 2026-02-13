@@ -66,7 +66,7 @@ func checkDatabaseHealth(ctx context.Context) ComponentHealth {
 		return ComponentHealth{
 			Status:  "unhealthy",
 			Latency: time.Since(start).String(),
-			Error:   "failed to get database connection: " + err.Error(),
+			Error:   "failed to get database connection",
 		}
 	}
 
@@ -75,7 +75,7 @@ func checkDatabaseHealth(ctx context.Context) ComponentHealth {
 		return ComponentHealth{
 			Status:  "unhealthy",
 			Latency: time.Since(start).String(),
-			Error:   "database ping failed: " + err.Error(),
+			Error:   "database ping failed",
 		}
 	}
 

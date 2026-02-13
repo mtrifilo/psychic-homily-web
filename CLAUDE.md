@@ -1,73 +1,24 @@
-# Claude Code Instructions
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Package Managers
 
 - **Frontend**: Always use `bun` (not npm/yarn/pnpm)
-  - `bun install`, `bun run dev`, `bun run build`, `bun run test`
 - **Backend**: Use `go` commands
-  - `go run ./cmd/server`, `go test ./...`
 
 ## Project Structure
 
 - `/frontend` - Next.js 16 app (React 19, TanStack Query, Tailwind CSS 4, Vitest)
-- `/backend` - Go API (Chi router, Huma, GORM, PostgreSQL)
+- `/backend` - Go API (Chi router, Huma v2, GORM, PostgreSQL 18)
+- `/discovery` - Local Bun+Playwright app for scraping venue events and importing to the backend
 - `/dev-docs` - Implementation docs and checklists (read these for context on recent work)
-
-## Key Conventions
-
-### Backend
-- Database migrations in `/backend/db/migrations/` (numbered `000XXX_name.up.sql` / `.down.sql`)
-- API handlers in `/backend/internal/api/handlers/`
-- Services in `/backend/internal/services/`
-- Models in `/backend/internal/models/`
-
-#### Huma API Framework Quirks
-- **All request body fields are required by default** - Even pointer types (`*bool`, `*string`) are treated as required unless explicitly marked optional
-- When adding optional fields to request structs, the frontend must still send the field (use a default value like `false` or `""`)
-- Huma returns 422 "validation failed" errors when required fields are missing from the request body
-- If you see "expected required property X to be present" errors, ensure the frontend always sends that field
-
-### Frontend
-- App router pages in `/frontend/app/`
-- API client and hooks in `/frontend/lib/`
-- Tests colocated or in `/frontend/test/`
-
-#### Component Organization
-```
-/frontend/components/
-├── /artists/       # Artist domain (ArtistDetail, ArtistShowsList)
-├── /shows/         # Show domain (ShowDetail, ShowList, HomeShowList, dialogs)
-├── /venues/        # Venue domain (VenueDetail, VenueList, VenueCard, dialogs)
-├── /layout/        # App shell (Footer, Providers, ThemeProvider, ModeToggle)
-├── /settings/      # User settings (SettingsPanel, ChangePassword, etc.)
-├── /filters/       # Reusable filter components (FilterChip, CityFilters)
-├── /forms/         # Form components (ShowForm, VenueEditForm, etc.)
-├── /shared/        # Cross-cutting utilities (LoadingSpinner, SaveButton, SocialLinks, MusicEmbed)
-├── /admin/         # Admin-only components
-├── /auth/          # Authentication components
-├── /blog/          # Blog-related components
-├── /seo/           # SEO components (JsonLd)
-└── /ui/            # Shadcn primitives (Button, Dialog, etc.)
-```
-
-- **Domain directories** (artists, shows, venues): Domain-specific components grouped together
-- **layout/**: App-level components used in root layout
-- **settings/**: User account and settings components
-- **filters/**: Generic filter UI components with shared interfaces (e.g., `CityWithCount`)
-- **shared/**: Common utilities used across multiple features
-- **ui/**: Low-level Shadcn components (don't modify directly)
-- Each domain directory has an `index.ts` barrel file for clean imports (e.g., `import { ShowList } from '@/components/shows'`)
-
-### URLs
-- Artists, venues, and shows use SEO-friendly slugs (e.g., `/artists/the-national`)
-- Handlers support both numeric IDs and slugs for backwards compatibility
 
 ## Running Locally
 
 ```bash
 # Frontend (from /frontend)
-bun install
-bun run dev
+bun install && bun run dev
 
 # Backend (from /backend)
 go run ./cmd/server
@@ -75,42 +26,81 @@ go run ./cmd/server
 
 ## Testing
 
-### Unit / Component Tests (Vitest)
-
 ```bash
-# From /frontend
-bun run test          # Watch mode
-bun run test:run      # Single run
-bun run test:coverage # With coverage
-```
+# Frontend unit/component tests (from /frontend)
+bun run test              # Watch mode
+bun run test:run          # Single run
+bun run test -- path/to/file.test.ts  # Single file
 
-### Backend Tests
+# Backend tests (from /backend)
+go test ./...                                    # All tests
+go test ./internal/services/ -run TestShowSuite  # Single suite
+go test ./internal/api/handlers/ -run TestName   # Single test
 
-```bash
-# From /backend
-go test ./...
-```
+# Backend coverage (from /backend)
+./scripts/coverage.sh
 
-### E2E Tests (Playwright)
-
-E2E tests run against an ephemeral PostgreSQL database (port 5433) with a real backend and frontend. Stop the dev backend before running (port 8080 must be free).
-
-```bash
-# From /frontend
+# E2E tests (from /frontend, stop dev backend first — port 8080 must be free)
 bun run test:e2e          # Headless
 bun run test:e2e:ui       # Interactive Playwright UI
-bun run test:e2e:headed   # Headed browser
-bun run test:e2e:debug    # Step-through debugger
 ```
 
-**How it works**: Global setup starts a Docker PostgreSQL container, runs migrations, seeds data (including future-dated shows and test users), starts the Go backend, and captures auth state. Teardown kills the backend and destroys the container.
+## Architecture
 
-**Key files**:
-- `frontend/playwright.config.ts` — Playwright configuration
-- `frontend/e2e/global-setup.ts` / `global-teardown.ts` — Lifecycle management
-- `frontend/e2e/setup-db.sh` — Database seeding script
-- `frontend/e2e/fixtures/` — Error detection and auth fixtures
-- `frontend/e2e/pages/` — Test specs
-- `backend/docker-compose.e2e.yml` — Ephemeral PostgreSQL + migrate
+### Backend Request Flow
 
-**Test users**: `e2e-user@test.local` and `e2e-admin@test.local` (password: `e2e-test-password-123`)
+```
+HTTP Request → Chi Router → Global Middleware → Huma Adapter → Route Group Middleware → Handler → Service → GORM/DB
+```
+
+**Middleware layers (applied in order):**
+1. Global (Chi): Request ID → Sentry → Logging → CORS → Security Headers
+2. Route groups (Huma): JWT auth (strict/lenient/optional), rate limiting
+
+**Dependency injection:** Services are eagerly instantiated in `services/container.go` (`NewServiceContainer(db, cfg)`) → passed to handler constructors → handlers registered in `routes/routes.go`.
+
+### Backend Conventions
+
+- **Handlers** (`internal/api/handlers/`): HTTP layer only — parse Huma request structs, extract user from context via `middleware.GetUserFromContext()`, call services, map responses. Constructor takes pre-instantiated services.
+- **Services** (`internal/services/`): Business logic + DB operations. Constructor pattern: `NewXService(db *gorm.DB)` — if nil, falls back to `db.GetDB()` singleton.
+- **Models** (`internal/models/`): GORM structs with `TableName()` methods. Use `*json.RawMessage` for JSONB columns (not `datatypes.JSON`).
+- **Routes**: Public/protected/admin routes registered in `routes/routes.go`. Admin routes don't use separate middleware — handlers check `user.IsAdmin` internally.
+- **Migrations**: Numbered SQL files in `db/migrations/` (`000XXX_name.up.sql` / `.down.sql`).
+- **Fire-and-forget**: Discord notifications and audit log writes log errors but never fail parent operations.
+
+#### Huma API Framework Quirks
+
+- **All request body fields are required by default** — even pointer types (`*bool`, `*string`) are treated as required unless explicitly marked optional with struct tags
+- Huma returns 422 "validation failed" errors when required fields are missing from the request body
+- If you see "expected required property X to be present" errors, ensure the frontend always sends that field
+
+### Frontend Conventions
+
+- **API client** (`lib/api.ts`): `apiRequest()` utility with `credentials: 'include'` for HTTP-only cookie auth. In development, browser requests proxy through Next.js (`/api/*` → `localhost:8080`); in production, requests go direct to `api.psychichomily.com`.
+- **Hooks** (`lib/hooks/`): TanStack Query hooks per domain. Queries use `queryKeys` from `lib/queryClient.ts`. Mutations invalidate via `createInvalidateQueries()`.
+- **Query client** (`lib/queryClient.ts`): 5-min staleTime, smart retry (no retry on 4xx, up to 3 on 5xx). Global error handlers detect session expiry and invalidate auth profile.
+- **Auth**: `AuthContext` wraps app, checks `/auth/profile` on mount. Auth token is HTTP-only cookie — frontend never accesses it directly. Supports email/password, magic link, OAuth (Google/GitHub), and passkeys (WebAuthn).
+- **Admin**: Tab-based UI in `app/admin/page.tsx` with dynamic imports. Components in `components/admin/` with barrel export in `index.ts`.
+- **Component dirs**: Domain directories (artists, shows, venues) have `index.ts` barrel files. Shadcn primitives in `components/ui/` — don't modify directly.
+- **URLs**: Artists, venues, and shows use SEO-friendly slugs. Handlers support both numeric IDs and slugs.
+
+### Backend Test Patterns
+
+- **Service integration tests**: Use testcontainers (`postgres:18`), `testify/suite`. Migrations loaded from `../../db/migrations/`.
+- **Handler integration tests**: Direct function calls (no httptest/router needed for Huma handlers). Shared setup in `handler_integration_helpers_test.go`.
+- **Unit tests**: Pure functions tested without DB. Nil DB → `"database not initialized"` error path.
+- **Migration 27 gotcha**: Uses `CREATE INDEX CONCURRENTLY` — must strip keyword in test migrations (not allowed in transactions).
+- **GORM bool gotcha**: `IsActive: false` on Create is zero-value, GORM skips it → DB default wins. Fix: create as true, then Update to false.
+
+### E2E Test Patterns (Playwright)
+
+Global setup starts Docker PostgreSQL (port 5433), runs migrations, seeds data (`go run ./cmd/seed` + `setup-db.sh`), starts Go backend, captures auth state.
+
+- **Test users**: `e2e-user@test.local` / `e2e-admin@test.local` (password: `e2e-test-password-123`)
+- **Auth fixtures**: `e2e/.auth/user.json`, `e2e/.auth/admin.json`
+- **Error detection**: Auto-fail on console errors/5xx responses (`e2e/fixtures/error-detection.ts`)
+- **API mocking**: `page.route('**/api/...')` intercepts at browser level; use 200+`success:false` (not 5xx) to avoid error fixture
+
+### Discovery App
+
+Local tool for importing venue events. Lives in `/discovery` with Bun server + Playwright scraping + React UI. Venue providers in `src/server/providers/`. Backend integration via `DiscoveryService` (`services/discovery.go`) which deduplicates by `source_venue` + `source_event_id` and auto-approves shows for verified venues.

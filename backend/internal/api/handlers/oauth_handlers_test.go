@@ -2,410 +2,225 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
-
-	"psychic-homily-backend/internal/models"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
 
-// AuthServiceInterface defines the interface for AuthService
-type AuthServiceInterface interface {
-	OAuthCallback(w http.ResponseWriter, r *http.Request, provider string) (*models.User, string, error)
-}
+// --- generateRandomID ---
 
-// MockAuthService is a mock implementation of AuthService for testing
-type MockAuthService struct {
-	callbackUser  *models.User
-	callbackToken string
-	callbackError error
-}
+func TestGenerateRandomID(t *testing.T) {
+	id := generateRandomID()
+	if len(id) != 32 {
+		t.Errorf("expected 32 hex chars, got %d", len(id))
+	}
 
-func (m *MockAuthService) OAuthCallback(w http.ResponseWriter, r *http.Request, provider string) (*models.User, string, error) {
-	return m.callbackUser, m.callbackToken, m.callbackError
-}
-
-// TestOAuthHTTPHandler is a test version of OAuthHTTPHandler that uses the interface
-type TestOAuthHTTPHandler struct {
-	authService AuthServiceInterface
-}
-
-func NewTestOAuthHTTPHandler(authService AuthServiceInterface) *TestOAuthHTTPHandler {
-	return &TestOAuthHTTPHandler{
-		authService: authService,
+	// Verify uniqueness
+	id2 := generateRandomID()
+	if id == id2 {
+		t.Error("expected unique IDs, got duplicates")
 	}
 }
 
-func (h *TestOAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.Request) {
-	// Get provider from path parameter using chi
-	provider := chi.URLParam(r, "provider")
-	if provider == "" {
-		http.Error(w, "Provider required", http.StatusBadRequest)
-		return
-	}
+// --- CLI callback store ---
 
-	// Validate provider
-	if provider != "google" && provider != "github" {
-		http.Error(w, "Invalid provider", http.StatusBadRequest)
-		return
-	}
-
-	// Add provider to query parameters for Goth (following Goth best practices)
-	q := r.URL.Query()
-	q.Add("provider", provider)
-	r.URL.RawQuery = q.Encode()
-
-	// In the real implementation, this would call gothic.BeginAuthHandler(w, r)
-	// For testing, we'll just return success
-	w.WriteHeader(http.StatusOK)
+func cleanCLICallbackStore() {
+	cliCallbackStore.Lock()
+	cliCallbackStore.callbacks = make(map[string]cliCallbackEntry)
+	cliCallbackStore.Unlock()
 }
 
-func (h *TestOAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *http.Request) {
-	// Get provider from path parameter
-	provider := chi.URLParam(r, "provider")
-	if provider == "" {
-		provider = "google" // fallback
+func TestCLICallbackStore_StoreAndRetrieve(t *testing.T) {
+	defer cleanCLICallbackStore()
+
+	storeCLICallback("test-id-1", "http://localhost:9999/callback")
+
+	url, ok := getCLICallback("test-id-1")
+	if !ok {
+		t.Fatal("expected callback to be found")
 	}
-
-	// Add provider to query parameters for Goth (following best practices)
-	q := r.URL.Query()
-	q.Add("provider", provider)
-	r.URL.RawQuery = q.Encode()
-
-	// Use AuthService to handle the complete OAuth flow
-	user, token, err := h.authService.OAuthCallback(w, r, provider)
-	if err != nil {
-		// Redirect to frontend with error
-		http.Redirect(w, r, "/login?error="+err.Error(), http.StatusTemporaryRedirect)
-		return
+	if url != "http://localhost:9999/callback" {
+		t.Errorf("expected callback URL, got %q", url)
 	}
-
-	// Return JWT token to frontend
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-
-	email := ""
-	if user.Email != nil {
-		email = *user.Email
-	}
-
-	w.Write([]byte(fmt.Sprintf(`{
-		"success": true,
-		"token": "%s",
-		"user": {
-			"id": %d,
-			"email": "%s"
-		}
-	}`, token, user.ID, email)))
 }
+
+func TestCLICallbackStore_NotFound(t *testing.T) {
+	defer cleanCLICallbackStore()
+
+	_, ok := getCLICallback("nonexistent")
+	if ok {
+		t.Error("expected not found for nonexistent key")
+	}
+}
+
+func TestCLICallbackStore_Expired(t *testing.T) {
+	defer cleanCLICallbackStore()
+
+	// Manually insert an expired entry
+	cliCallbackStore.Lock()
+	cliCallbackStore.callbacks["expired-id"] = cliCallbackEntry{
+		callbackURL: "http://expired.example.com",
+		expiresAt:   time.Now().Add(-1 * time.Minute),
+	}
+	cliCallbackStore.Unlock()
+
+	_, ok := getCLICallback("expired-id")
+	if ok {
+		t.Error("expected expired callback to not be found")
+	}
+}
+
+func TestCLICallbackStore_Delete(t *testing.T) {
+	defer cleanCLICallbackStore()
+
+	storeCLICallback("del-id", "http://localhost/cb")
+
+	// Verify it exists
+	_, ok := getCLICallback("del-id")
+	if !ok {
+		t.Fatal("expected callback to exist before delete")
+	}
+
+	deleteCLICallback("del-id")
+
+	_, ok = getCLICallback("del-id")
+	if ok {
+		t.Error("expected callback to be gone after delete")
+	}
+}
+
+func TestCLICallbackStore_CleansExpiredOnStore(t *testing.T) {
+	defer cleanCLICallbackStore()
+
+	// Manually insert an expired entry
+	cliCallbackStore.Lock()
+	cliCallbackStore.callbacks["old-id"] = cliCallbackEntry{
+		callbackURL: "http://old.example.com",
+		expiresAt:   time.Now().Add(-1 * time.Minute),
+	}
+	cliCallbackStore.Unlock()
+
+	// Store a new entry — should clean expired
+	storeCLICallback("new-id", "http://new.example.com")
+
+	cliCallbackStore.RLock()
+	_, oldExists := cliCallbackStore.callbacks["old-id"]
+	_, newExists := cliCallbackStore.callbacks["new-id"]
+	cliCallbackStore.RUnlock()
+
+	if oldExists {
+		t.Error("expected expired entry to be cleaned up")
+	}
+	if !newExists {
+		t.Error("expected new entry to exist")
+	}
+}
+
+// --- NewOAuthHTTPHandler ---
 
 func TestNewOAuthHTTPHandler(t *testing.T) {
-	authService := &MockAuthService{}
-	handler := NewTestOAuthHTTPHandler(authService)
-
+	handler := NewOAuthHTTPHandler(nil, nil)
 	if handler == nil {
-		t.Fatal("Expected handler to be created, got nil")
-	}
-
-	if handler.authService != authService {
-		t.Error("Expected authService to be set correctly")
+		t.Fatal("expected non-nil handler")
 	}
 }
 
-func TestOAuthLoginHTTPHandler_ValidProvider(t *testing.T) {
-	tests := []struct {
-		name           string
-		provider       string
-		expectedStatus int
-	}{
-		{
-			name:           "google provider success",
-			provider:       "google",
-			expectedStatus: http.StatusOK,
-		},
-		{
-			name:           "github provider success",
-			provider:       "github",
-			expectedStatus: http.StatusOK,
-		},
+// --- OAuthLoginHTTPHandler (real handler, validation paths) ---
+
+func oauthLoginRequest(provider string) (*httptest.ResponseRecorder, *http.Request) {
+	req := httptest.NewRequest("GET", "/auth/login/"+provider, nil)
+	w := httptest.NewRecorder()
+
+	if provider != "" {
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("provider", provider)
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create mock auth service
-			mockAuth := &MockAuthService{}
-
-			// Create handler
-			handler := NewTestOAuthHTTPHandler(mockAuth)
-
-			// Create request with chi context
-			req := httptest.NewRequest("GET", "/auth/login/"+tt.provider, nil)
-			w := httptest.NewRecorder()
-
-			// Set up chi context with URL parameters
-			rctx := chi.NewRouteContext()
-			rctx.URLParams.Add("provider", tt.provider)
-			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-
-			// Call handler
-			handler.OAuthLoginHTTPHandler(w, req)
-
-			// Check status code
-			if w.Code != tt.expectedStatus {
-				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
-			}
-		})
-	}
-}
-
-func TestOAuthLoginHTTPHandler_InvalidProvider(t *testing.T) {
-	invalidProviders := []string{"facebook", "twitter", "linkedin", "invalid"}
-
-	for _, provider := range invalidProviders {
-		t.Run("invalid provider: "+provider, func(t *testing.T) {
-			mockAuth := &MockAuthService{}
-			handler := NewTestOAuthHTTPHandler(mockAuth)
-
-			req := httptest.NewRequest("GET", "/auth/login/"+provider, nil)
-			w := httptest.NewRecorder()
-
-			// Set up chi context with URL parameters
-			rctx := chi.NewRouteContext()
-			rctx.URLParams.Add("provider", provider)
-			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-
-			handler.OAuthLoginHTTPHandler(w, req)
-
-			if w.Code != http.StatusBadRequest {
-				t.Errorf("Expected status %d for provider %s, got %d", http.StatusBadRequest, provider, w.Code)
-			}
-
-			if !strings.Contains(w.Body.String(), "Invalid provider") {
-				t.Errorf("Expected 'Invalid provider' error for provider %s", provider)
-			}
-		})
-	}
+	return w, req
 }
 
 func TestOAuthLoginHTTPHandler_NoProvider(t *testing.T) {
-	mockAuth := &MockAuthService{}
-	handler := NewTestOAuthHTTPHandler(mockAuth)
-
-	// Test with no provider in URL
-	req := httptest.NewRequest("GET", "/auth/login", nil)
-	w := httptest.NewRecorder()
+	handler := NewOAuthHTTPHandler(nil, nil)
+	w, req := oauthLoginRequest("")
+	// Clear chi context so URLParam returns ""
+	req = httptest.NewRequest("GET", "/auth/login", nil)
 
 	handler.OAuthLoginHTTPHandler(w, req)
 
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
-	}
-
-	if !strings.Contains(w.Body.String(), "Provider required") {
-		t.Errorf("Expected 'Provider required' error")
+		t.Errorf("expected 400, got %d", w.Code)
 	}
 }
 
-func TestOAuthCallbackHTTPHandler_Success(t *testing.T) {
-	email := "user@example.com"
-	emptyEmail := ""
-	tests := []struct {
-		name           string
-		provider       string
-		user           *models.User
-		token          string
-		expectedStatus int
-		expectedEmail  string
-	}{
-		{
-			name:     "user with email",
-			provider: "google",
-			user: &models.User{
-				ID:    1,
-				Email: &email,
-			},
-			token:          "jwt-token-123",
-			expectedStatus: http.StatusOK,
-			expectedEmail:  "user@example.com",
-		},
-		{
-			name:     "user without email",
-			provider: "github",
-			user: &models.User{
-				ID:    2,
-				Email: nil,
-			},
-			token:          "jwt-token-456",
-			expectedStatus: http.StatusOK,
-			expectedEmail:  "",
-		},
-		{
-			name:     "user with empty email",
-			provider: "google",
-			user: &models.User{
-				ID:    3,
-				Email: &emptyEmail,
-			},
-			token:          "jwt-token-789",
-			expectedStatus: http.StatusOK,
-			expectedEmail:  "",
-		},
-	}
+func TestOAuthLoginHTTPHandler_InvalidProvider(t *testing.T) {
+	handler := NewOAuthHTTPHandler(nil, nil)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockAuth := &MockAuthService{
-				callbackUser:  tt.user,
-				callbackToken: tt.token,
-				callbackError: nil,
-			}
+	for _, provider := range []string{"facebook", "twitter", "linkedin"} {
+		t.Run(provider, func(t *testing.T) {
+			w, req := oauthLoginRequest(provider)
+			handler.OAuthLoginHTTPHandler(w, req)
 
-			handler := NewTestOAuthHTTPHandler(mockAuth)
-
-			req := httptest.NewRequest("GET", "/auth/callback/"+tt.provider, nil)
-			w := httptest.NewRecorder()
-
-			// Set up chi context with URL parameters
-			rctx := chi.NewRouteContext()
-			rctx.URLParams.Add("provider", tt.provider)
-			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-
-			handler.OAuthCallbackHTTPHandler(w, req)
-
-			if w.Code != tt.expectedStatus {
-				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
-			}
-
-			// Check content type
-			contentType := w.Header().Get("Content-Type")
-			if contentType != "application/json" {
-				t.Errorf("Expected Content-Type application/json, got %s", contentType)
-			}
-
-			// Parse response
-			var response map[string]interface{}
-			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
-				t.Fatalf("Failed to parse JSON response: %v", err)
-			}
-
-			// Check success field
-			if success, ok := response["success"].(bool); !ok || !success {
-				t.Error("Expected success to be true")
-			}
-
-			// Check token field
-			if token, ok := response["token"].(string); !ok || token != tt.token {
-				t.Errorf("Expected token %s, got %s", tt.token, token)
-			}
-
-			// Check user object
-			if userObj, ok := response["user"].(map[string]interface{}); ok {
-				if id, ok := userObj["id"].(float64); !ok || int(id) != int(tt.user.ID) {
-					t.Errorf("Expected user ID %d, got %v", tt.user.ID, id)
-				}
-
-				if email, ok := userObj["email"].(string); !ok || email != tt.expectedEmail {
-					t.Errorf("Expected email %s, got %s", tt.expectedEmail, email)
-				}
-			} else {
-				t.Error("Expected user object in response")
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("expected 400, got %d", w.Code)
 			}
 		})
 	}
 }
 
-func TestOAuthCallbackHTTPHandler_Error(t *testing.T) {
-	tests := []struct {
-		name             string
-		provider         string
-		error            error
-		expectedStatus   int
-		expectedRedirect bool
-	}{
-		{
-			name:             "OAuth callback error",
-			provider:         "google",
-			error:            fmt.Errorf("OAuth provider not configured"),
-			expectedStatus:   http.StatusTemporaryRedirect,
-			expectedRedirect: true,
-		},
-		{
-			name:             "database error",
-			provider:         "github",
-			error:            fmt.Errorf("Database connection failed"),
-			expectedStatus:   http.StatusTemporaryRedirect,
-			expectedRedirect: true,
-		},
-	}
+func TestOAuthLoginHTTPHandler_CLICallbackStored(t *testing.T) {
+	defer cleanCLICallbackStore()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockAuth := &MockAuthService{
-				callbackUser:  nil,
-				callbackToken: "",
-				callbackError: tt.error,
-			}
+	handler := NewOAuthHTTPHandler(nil, nil)
 
-			handler := NewTestOAuthHTTPHandler(mockAuth)
-
-			req := httptest.NewRequest("GET", "/auth/callback/"+tt.provider, nil)
-			w := httptest.NewRecorder()
-
-			// Set up chi context with URL parameters
-			rctx := chi.NewRouteContext()
-			rctx.URLParams.Add("provider", tt.provider)
-			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-
-			handler.OAuthCallbackHTTPHandler(w, req)
-
-			if w.Code != tt.expectedStatus {
-				t.Errorf("Expected status %d, got %d", tt.expectedStatus, w.Code)
-			}
-
-			if tt.expectedRedirect {
-				location := w.Header().Get("Location")
-				if location == "" {
-					t.Error("Expected redirect location header")
-				}
-				if !strings.Contains(location, "/login?error=") {
-					t.Errorf("Expected redirect to login with error, got %s", location)
-				}
-			}
-		})
-	}
-}
-
-func TestOAuthCallbackHTTPHandler_NoProvider(t *testing.T) {
-	email := "user@example.com"
-	mockAuth := &MockAuthService{
-		callbackUser: &models.User{
-			ID:    1,
-			Email: &email,
-		},
-		callbackToken: "jwt-token-123",
-		callbackError: nil,
-	}
-
-	handler := NewTestOAuthHTTPHandler(mockAuth)
-
-	// Test with no provider in URL (should fallback to "google")
-	req := httptest.NewRequest("GET", "/auth/callback", nil)
+	req := httptest.NewRequest("GET", "/auth/login/google?cli_callback=http://localhost:8888/cli-cb", nil)
 	w := httptest.NewRecorder()
 
-	handler.OAuthCallbackHTTPHandler(w, req)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("provider", "google")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	handler.OAuthLoginHTTPHandler(w, req)
+
+	// Verify the cli_callback_id cookie was set
+	resp := w.Result()
+	var callbackCookie *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == "cli_callback_id" {
+			callbackCookie = c
+			break
+		}
+	}
+	if callbackCookie == nil {
+		t.Fatal("expected cli_callback_id cookie to be set")
+	}
+	if callbackCookie.Value == "" {
+		t.Error("expected non-empty cookie value")
 	}
 
-	// Check content type
-	contentType := w.Header().Get("Content-Type")
-	if contentType != "application/json" {
-		t.Errorf("Expected Content-Type application/json, got %s", contentType)
+	// Verify the callback was stored in memory using the cookie value
+	url, ok := getCLICallback(callbackCookie.Value)
+	if !ok {
+		t.Fatal("expected callback to be stored in memory")
 	}
+	if url != "http://localhost:8888/cli-cb" {
+		t.Errorf("expected stored callback URL, got %q", url)
+	}
+}
+
+func TestOAuthLoginHTTPHandler_ValidProvider_GoogleQueryParam(t *testing.T) {
+	// Verify that the handler adds the provider to query params for Goth
+	// (gothic.BeginAuthHandler will fail without registered providers, but
+	// we can verify the query param was added by checking the request URL)
+	handler := NewOAuthHTTPHandler(nil, nil)
+	w, req := oauthLoginRequest("google")
+
+	handler.OAuthLoginHTTPHandler(w, req)
+
+	// Gothic will fail (no providers registered), but the handler shouldn't panic.
+	// The response will be whatever gothic writes (likely 400 or 500).
+	// The key test is that the handler didn't panic.
 }

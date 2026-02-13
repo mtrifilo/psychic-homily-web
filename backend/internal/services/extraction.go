@@ -39,17 +39,21 @@ Rules:
 
 // ExtractionService handles AI-powered show info extraction
 type ExtractionService struct {
-	config        *config.Config
-	artistService *ArtistService
-	venueService  *VenueService
+	config           *config.Config
+	artistService    *ArtistService
+	venueService     *VenueService
+	httpClient       *http.Client
+	anthropicBaseURL string
 }
 
 // NewExtractionService creates a new extraction service
 func NewExtractionService(database *gorm.DB, cfg *config.Config) *ExtractionService {
 	return &ExtractionService{
-		config:        cfg,
-		artistService: NewArtistService(database),
-		venueService:  NewVenueService(database),
+		config:           cfg,
+		artistService:    NewArtistService(database),
+		venueService:     NewVenueService(database),
+		httpClient:       &http.Client{},
+		anthropicBaseURL: "https://api.anthropic.com",
 	}
 }
 
@@ -347,7 +351,7 @@ func (s *ExtractionService) callAnthropic(userContent []interface{}) (string, er
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(jsonBody))
+	req, err := http.NewRequest("POST", s.anthropicBaseURL+"/v1/messages", bytes.NewReader(jsonBody))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -356,8 +360,7 @@ func (s *ExtractionService) callAnthropic(userContent []interface{}) (string, er
 	req.Header.Set("x-api-key", s.config.Anthropic.APIKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("Anthropic API request failed: %w", err)
 	}

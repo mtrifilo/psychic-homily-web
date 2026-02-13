@@ -187,7 +187,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
               />
             </div>
             {field.state.meta.errors.length > 0 && (
-              <p className="text-sm text-destructive">
+              <p role="alert" className="text-sm text-destructive">
                 {field.state.meta.errors.map(getErrorMessage).join(', ')}
               </p>
             )}
@@ -223,7 +223,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
               </button>
             </div>
             {field.state.meta.errors.length > 0 && (
-              <p className="text-sm text-destructive">
+              <p role="alert" className="text-sm text-destructive">
                 {field.state.meta.errors.map(getErrorMessage).join(', ')}
               </p>
             )}
@@ -278,7 +278,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
       ) : (
         <>
           {magicLinkError && (
-            <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{magicLinkError}</span>
             </div>
@@ -399,7 +399,7 @@ function SignupForm({ returnTo }: { returnTo: string }) {
               />
             </div>
             {field.state.meta.errors.length > 0 && (
-              <p className="text-sm text-destructive">
+              <p role="alert" className="text-sm text-destructive">
                 {field.state.meta.errors.map(getErrorMessage).join(', ')}
               </p>
             )}
@@ -477,7 +477,7 @@ function SignupForm({ returnTo }: { returnTo: string }) {
               </Label>
             </div>
             {field.state.meta.errors.length > 0 && (
-              <p className="text-sm text-destructive">
+              <p role="alert" className="text-sm text-destructive">
                 {field.state.meta.errors.map(getErrorMessage).join(', ')}
               </p>
             )}

@@ -89,7 +89,7 @@ func (h *ShowReportHandler) ReportShowHandler(ctx context.Context, req *ReportSh
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to report show: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to report show (request_id: %s)", requestID),
 		)
 	}
 
@@ -290,7 +290,7 @@ func (h *ShowReportHandler) DismissReportHandler(ctx context.Context, req *Dismi
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to dismiss report: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to dismiss report (request_id: %s)", requestID),
 		)
 	}
 
@@ -365,7 +365,7 @@ func (h *ShowReportHandler) ResolveReportHandler(ctx context.Context, req *Resol
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to resolve report: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to resolve report (request_id: %s)", requestID),
 		)
 	}
 

@@ -175,7 +175,7 @@ export function SettingsPanel() {
                     )}
 
                     {sendVerificationEmail.isError && (
-                      <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                      <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
                         <AlertCircle className="h-4 w-4" />
                         <span>
                           {sendVerificationEmail.error?.message || 'Failed to send verification email. Please try again.'}
@@ -275,7 +275,7 @@ export function SettingsPanel() {
             </div>
 
             {exportData.isError && (
-              <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4" />
                 <span>
                   {exportData.error?.message || 'Failed to export data. Please try again.'}
@@ -378,7 +378,7 @@ export function SettingsPanel() {
               </div>
 
               {generateCLIToken.isError && (
-                <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
                   <AlertCircle className="h-4 w-4" />
                   <span>
                     {generateCLIToken.error?.message || 'Failed to generate token. Please try again.'}

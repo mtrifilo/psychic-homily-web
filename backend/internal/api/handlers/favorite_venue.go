@@ -131,7 +131,7 @@ func (h *FavoriteVenueHandler) FavoriteVenueHandler(ctx context.Context, req *Fa
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to favorite venue: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to favorite venue (request_id: %s)", requestID),
 		)
 	}
 
@@ -187,7 +187,7 @@ func (h *FavoriteVenueHandler) UnfavoriteVenueHandler(ctx context.Context, req *
 			"request_id", requestID,
 		)
 		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to unfavorite venue: %s (request_id: %s)", err.Error(), requestID),
+			fmt.Sprintf("Failed to unfavorite venue (request_id: %s)", requestID),
 		)
 	}
 

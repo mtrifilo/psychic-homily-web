@@ -187,7 +187,7 @@ export function PasskeySignupButton({ onError, className }: PasskeySignupButtonP
               />
             </div>
             {emailError && (
-              <p className="text-sm text-destructive">{emailError}</p>
+              <p role="alert" className="text-sm text-destructive">{emailError}</p>
             )}
           </div>
           <div className="space-y-2">
@@ -224,7 +224,7 @@ export function PasskeySignupButton({ onError, className }: PasskeySignupButtonP
               </Label>
             </div>
             {termsError && (
-              <p className="text-sm text-destructive">{termsError}</p>
+              <p role="alert" className="text-sm text-destructive">{termsError}</p>
             )}
           </div>
           <Button

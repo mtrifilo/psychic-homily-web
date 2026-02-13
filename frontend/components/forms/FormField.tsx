@@ -22,7 +22,7 @@ export function FieldInfo({ field }: Readonly<{ field: AnyFieldApi }>) {
 
   if (field.state.meta.isTouched && errors.length > 0) {
     return (
-      <p className="text-sm text-destructive">
+      <p role="alert" className="text-sm text-destructive">
         {errors
           .map(err =>
             typeof err === 'string' ? err : err?.message || String(err)
@@ -81,6 +81,7 @@ export function FormField({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
+          aria-invalid={field.state.meta.errors.length > 0}
           disabled={disabled}
         />
       ) : (

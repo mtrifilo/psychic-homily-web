@@ -319,7 +319,7 @@ export function APITokenManagement() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : error ? (
-            <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               <AlertCircle className="h-4 w-4" />
               <span>Failed to load tokens. Please try again.</span>
             </div>
@@ -361,7 +361,7 @@ export function APITokenManagement() {
           </div>
 
           {createToken.isError && (
-            <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               <AlertCircle className="h-4 w-4" />
               <span>
                 {createToken.error?.message || 'Failed to create token. Please try again.'}
@@ -370,7 +370,7 @@ export function APITokenManagement() {
           )}
 
           {revokeToken.isError && (
-            <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               <AlertCircle className="h-4 w-4" />
               <span>
                 {revokeToken.error?.message || 'Failed to revoke token. Please try again.'}
