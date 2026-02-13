@@ -86,6 +86,47 @@ function toTitleCase(str: string, force = false): string {
     .join(' ')
 }
 
+// Detail page extraction types
+interface EventDetails {
+  artists: string[]
+  price?: string
+  ageRestriction?: string
+  isSoldOut: boolean
+}
+
+function extractPrice(html: string): string | undefined {
+  // Check for "Free" or "No Cover"
+  if (/\bfree\b/i.test(html) && !/\bfree\s*parking\b/i.test(html)) {
+    return 'Free'
+  }
+  if (/\bno\s*cover\b/i.test(html)) {
+    return 'Free'
+  }
+  // Extract dollar amount
+  const match = html.match(/\$(\d+(?:\.\d{2})?)/)
+  if (match) {
+    return `$${match[1]}`
+  }
+  return undefined
+}
+
+function extractAgeRestriction(html: string): string | undefined {
+  // Check for "All Ages"
+  if (/\ball\s*ages?\b/i.test(html)) {
+    return 'All Ages'
+  }
+  // Check for "16 and up", "21+", etc.
+  const match = html.match(/(\d{1,2})\s*(?:and\s*up|\+)/i)
+  if (match) {
+    return `${match[1]}+`
+  }
+  return undefined
+}
+
+function extractSoldOutStatus(html: string): boolean {
+  return /\bsold\s*out\b/i.test(html)
+}
+
 // TicketWeb provider implementation
 export const ticketwebProvider: DiscoveryProvider = {
   async preview(venueSlug: string): Promise<PreviewEvent[]> {
@@ -195,8 +236,8 @@ export const ticketwebProvider: DiscoveryProvider = {
         return urls
       })
 
-      // Fetch artist lists from detail pages using HTTP (much faster than Playwright)
-      const artistsByEventId: Record<string, string[]> = {}
+      // Fetch details from detail pages using HTTP (much faster than Playwright)
+      const detailsByEventId: Record<string, EventDetails> = {}
       const detailFetches = events
         .filter((e: any) => eventUrls[e.id])
         .map(async (event: any) => {
@@ -206,6 +247,7 @@ export const ticketwebProvider: DiscoveryProvider = {
             const response = await fetch(eventUrls[event.id], { signal: controller.signal })
             clearTimeout(timeout)
             const html = await response.text()
+
             // Parse artist names from .artist-list .row h4 a elements
             const artistMatches = html.matchAll(/<div[^>]*class="[^"]*artist-list[^"]*"[\s\S]*?<\/div>\s*<\/div>/gi)
             const artists: string[] = []
@@ -216,8 +258,12 @@ export const ticketwebProvider: DiscoveryProvider = {
                 if (name) artists.push(name)
               }
             }
-            if (artists.length > 0) {
-              artistsByEventId[event.id] = artists.map(name => toTitleCase(name, true))
+
+            detailsByEventId[event.id] = {
+              artists: artists.map(name => toTitleCase(name, true)),
+              price: extractPrice(html),
+              ageRestriction: extractAgeRestriction(html),
+              isSoldOut: extractSoldOutStatus(html),
             }
           } catch (err) {
             console.warn(`[ticketweb] Failed to fetch detail page for event ${event.id}:`, err instanceof Error ? err.message : err)
@@ -234,7 +280,8 @@ export const ticketwebProvider: DiscoveryProvider = {
 
         console.log(`[ticketweb] [${i + 1}/${events.length}] Processing: ${decodeHtmlEntities(event.title).slice(0, 40)}...`)
 
-        let artists = artistsByEventId[event.id] || []
+        const details = detailsByEventId[event.id]
+        let artists = details?.artists || []
 
         // Fall back to title if no artists found
         if (artists.length === 0) {
@@ -255,6 +302,9 @@ export const ticketwebProvider: DiscoveryProvider = {
           ticketUrl: ticketLinks[event.id] || undefined,
           artists: artists,
           scrapedAt: new Date().toISOString(),
+          price: details?.price,
+          ageRestriction: details?.ageRestriction,
+          isSoldOut: details?.isSoldOut || undefined,
         })
       }
 

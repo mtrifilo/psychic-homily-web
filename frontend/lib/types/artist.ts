@@ -28,6 +28,20 @@ export interface Artist {
   updated_at: string
 }
 
+export interface ArtistEditRequest {
+  name?: string
+  city?: string
+  state?: string
+  instagram?: string
+  facebook?: string
+  twitter?: string
+  youtube?: string
+  spotify?: string
+  soundcloud?: string
+  bandcamp?: string
+  website?: string
+}
+
 export interface ArtistSearchParams {
   query: string
 }

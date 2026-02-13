@@ -1272,15 +1272,20 @@ type DiscoveryImportEventInput struct {
 	DoorsTime *string  `json:"doorsTime,omitempty" doc:"Doors time (e.g., 6:30 pm)"`
 	ShowTime  *string  `json:"showTime,omitempty" doc:"Show time (e.g., 7:00 pm)"`
 	TicketURL *string  `json:"ticketUrl,omitempty" doc:"Ticket purchase URL"`
-	Artists   []string `json:"artists" doc:"List of artist names"`
-	ScrapedAt string   `json:"scrapedAt" doc:"When the event was scraped (ISO timestamp)"`
+	Artists        []string `json:"artists" doc:"List of artist names"`
+	ScrapedAt      string   `json:"scrapedAt" doc:"When the event was scraped (ISO timestamp)"`
+	Price          *string  `json:"price,omitempty" doc:"Price string (e.g., $18, Free)"`
+	AgeRestriction *string  `json:"ageRestriction,omitempty" doc:"Age restriction (e.g., 16+, All Ages)"`
+	IsSoldOut      *bool    `json:"isSoldOut,omitempty" doc:"Whether the event is sold out"`
+	IsCancelled    *bool    `json:"isCancelled,omitempty" doc:"Whether the event is cancelled"`
 }
 
 // DiscoveryImportRequest represents the HTTP request for importing discovered events
 type DiscoveryImportRequest struct {
 	Body struct {
-		Events []DiscoveryImportEventInput `json:"events" validate:"required,min=1" doc:"Array of discovered events to import"`
-		DryRun bool                      `json:"dryRun" doc:"If true, preview import without persisting"`
+		Events       []DiscoveryImportEventInput `json:"events" validate:"required,min=1" doc:"Array of discovered events to import"`
+		DryRun       bool                        `json:"dryRun" doc:"If true, preview import without persisting"`
+		AllowUpdates bool                        `json:"allowUpdates" doc:"If true, update existing shows with new data"`
 	}
 }
 
@@ -1321,22 +1326,26 @@ func (h *AdminHandler) DiscoveryImportHandler(ctx context.Context, req *Discover
 	events := make([]services.DiscoveredEvent, len(req.Body.Events))
 	for i, e := range req.Body.Events {
 		events[i] = services.DiscoveredEvent{
-			ID:        e.ID,
-			Title:     e.Title,
-			Date:      e.Date,
-			Venue:     e.Venue,
-			VenueSlug: e.VenueSlug,
-			ImageURL:  e.ImageURL,
-			DoorsTime: e.DoorsTime,
-			ShowTime:  e.ShowTime,
-			TicketURL: e.TicketURL,
-			Artists:   e.Artists,
-			ScrapedAt: e.ScrapedAt,
+			ID:             e.ID,
+			Title:          e.Title,
+			Date:           e.Date,
+			Venue:          e.Venue,
+			VenueSlug:      e.VenueSlug,
+			ImageURL:       e.ImageURL,
+			DoorsTime:      e.DoorsTime,
+			ShowTime:       e.ShowTime,
+			TicketURL:      e.TicketURL,
+			Artists:        e.Artists,
+			ScrapedAt:      e.ScrapedAt,
+			Price:          e.Price,
+			AgeRestriction: e.AgeRestriction,
+			IsSoldOut:      e.IsSoldOut,
+			IsCancelled:    e.IsCancelled,
 		}
 	}
 
 	// Import events
-	result, err := h.discoveryService.ImportEvents(events, req.Body.DryRun)
+	result, err := h.discoveryService.ImportEvents(events, req.Body.DryRun, req.Body.AllowUpdates)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_discovery_import_failed",
 			"error", err.Error(),

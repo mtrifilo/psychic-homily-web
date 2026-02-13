@@ -120,10 +120,17 @@ export async function scrapeVenueEvents(
   return response.json()
 }
 
+// Strip discovery-specific fields that older backends don't know about
+function stripNewEventFields(events: ScrapedEvent[]): Record<string, unknown>[] {
+  return events.map(({ price, ageRestriction, isSoldOut, isCancelled, ...rest }) => rest)
+}
+
 // Import events to the backend
+// Always sends allowUpdates: true so existing shows get updated automatically.
+// Falls back to legacy payload (no new fields) if the backend returns 422 for unexpected properties.
 export async function importEvents(
   events: ScrapedEvent[],
-  dryRun: boolean = false
+  dryRun: boolean = false,
 ): Promise<ImportResult> {
   const token = getTargetToken()
   if (!token) {
@@ -133,14 +140,39 @@ export async function importEvents(
   }
 
   const baseUrl = getApiBaseUrl()
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`,
+  }
+
+  // Try with full payload (new fields + allowUpdates)
   const response = await fetch(`${baseUrl}/admin/discovery/import`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: JSON.stringify({ events, dryRun }),
+    headers,
+    body: JSON.stringify({ events, dryRun, allowUpdates: true }),
   })
+
+  if (response.status === 422) {
+    const error = await response.json()
+    // Check if this is a Huma "unexpected property" error (backend hasn't been updated)
+    const isUnexpectedProp = error.errors?.some?.(
+      (e: { message?: string }) => e.message === 'unexpected property'
+    )
+    if (isUnexpectedProp) {
+      // Retry with legacy payload (strip new fields)
+      const fallbackResponse = await fetch(`${baseUrl}/admin/discovery/import`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ events: stripNewEventFields(events), dryRun }),
+      })
+      if (!fallbackResponse.ok) {
+        const fallbackError = await fallbackResponse.json()
+        throw new Error(fallbackError.detail || fallbackError.message || 'Failed to import events')
+      }
+      return fallbackResponse.json()
+    }
+    throw new Error(error.detail || error.message || 'Failed to import events')
+  }
 
   if (!response.ok) {
     const error = await response.json()

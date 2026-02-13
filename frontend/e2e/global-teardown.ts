@@ -29,7 +29,7 @@ export default async function globalTeardown() {
   // 2. Tear down the database container
   log('Stopping E2E database...')
   try {
-    execSync('docker compose -f docker-compose.e2e.yml down', {
+    execSync('docker compose -p e2e -f docker-compose.e2e.yml down -v', {
       cwd: BACKEND_DIR,
       stdio: 'inherit',
     })

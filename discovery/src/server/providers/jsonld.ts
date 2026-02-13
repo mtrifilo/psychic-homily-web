@@ -27,7 +27,8 @@ interface JsonLdMusicEvent {
   }
   doorTime?: string
   performer?: Array<{ name?: string }> | { name?: string }
-  offers?: { url?: string } | Array<{ url?: string }>
+  offers?: { url?: string; price?: number | string; priceCurrency?: string; availability?: string } | Array<{ url?: string; price?: number | string; priceCurrency?: string; availability?: string }>
+  typicalAgeRange?: string
 }
 
 /**
@@ -134,6 +135,54 @@ function extractTicketUrl(event: JsonLdMusicEvent): string | undefined {
   return undefined
 }
 
+/**
+ * Extract price from offers field.
+ */
+function extractOfferPrice(event: JsonLdMusicEvent): string | undefined {
+  if (!event.offers) return undefined
+  const offer = Array.isArray(event.offers) ? event.offers[0] : event.offers
+  if (offer?.price !== undefined && offer.price !== null) {
+    const price = Number(offer.price)
+    if (price === 0) return 'Free'
+    if (!isNaN(price)) return `$${price}`
+  }
+  return undefined
+}
+
+/**
+ * Extract age restriction from typicalAgeRange or event name.
+ */
+function extractAge(event: JsonLdMusicEvent): string | undefined {
+  // Try typicalAgeRange field first (e.g., "18-" means 18+)
+  if (event.typicalAgeRange) {
+    const match = event.typicalAgeRange.match(/(\d{1,2})/)
+    if (match) return `${match[1]}+`
+  }
+  // Fallback: parse from event name, e.g. "(18+)" or "(All Ages)"
+  const name = event.name || ''
+  if (/\ball\s*ages?\b/i.test(name)) return 'All Ages'
+  const ageMatch = name.match(/\((\d{1,2})\+\)/)
+  if (ageMatch) return `${ageMatch[1]}+`
+  return undefined
+}
+
+/**
+ * Check if the event is cancelled based on eventStatus.
+ */
+function isCancelled(event: JsonLdMusicEvent): boolean {
+  if (!event.eventStatus) return false
+  return event.eventStatus.includes('EventCancelled')
+}
+
+/**
+ * Check if the event is sold out based on offers availability.
+ */
+function isSoldOut(event: JsonLdMusicEvent): boolean {
+  if (!event.offers) return false
+  const offers = Array.isArray(event.offers) ? event.offers : [event.offers]
+  return offers.some(o => o.availability?.includes('SoldOut') === true)
+}
+
 // JSON-LD provider implementation
 export const jsonldProvider: DiscoveryProvider = {
   async preview(venueSlug: string): Promise<PreviewEvent[]> {
@@ -201,6 +250,9 @@ export const jsonldProvider: DiscoveryProvider = {
     for (const [id, event] of eventMap) {
       if (!eventIdSet.has(id)) continue
 
+      const cancelled = isCancelled(event)
+      const soldOut = isSoldOut(event)
+
       scrapedEvents.push({
         id,
         title: event.name || 'Unknown Event',
@@ -213,6 +265,10 @@ export const jsonldProvider: DiscoveryProvider = {
         ticketUrl: extractTicketUrl(event),
         artists: extractArtists(event),
         scrapedAt: new Date().toISOString(),
+        price: extractOfferPrice(event),
+        ageRestriction: extractAge(event),
+        isSoldOut: soldOut || undefined,
+        isCancelled: cancelled || undefined,
       })
     }
 

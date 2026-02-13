@@ -11,6 +11,10 @@ export interface DiscoveredEvent {
   ticketUrl?: string
   artists: string[]
   scrapedAt: string
+  price?: string
+  ageRestriction?: string
+  isSoldOut?: boolean
+  isCancelled?: boolean
 }
 
 // Preview event interface (quick scan)

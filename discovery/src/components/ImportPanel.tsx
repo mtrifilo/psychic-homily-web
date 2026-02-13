@@ -83,6 +83,7 @@ export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
                   <th className="px-4 py-2 text-left text-muted-foreground font-medium">Event</th>
                   <th className="px-4 py-2 text-left text-muted-foreground font-medium">Venue</th>
                   <th className="px-4 py-2 text-left text-muted-foreground font-medium">Artists</th>
+                  <th className="px-4 py-2 text-left text-muted-foreground font-medium">Info</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -95,6 +96,22 @@ export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
                     <td className="px-4 py-2 text-muted-foreground">{event.venue}</td>
                     <td className="px-4 py-2 text-muted-foreground truncate max-w-xs">
                       {event.artists.join(', ')}
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex gap-1 flex-wrap">
+                        {event.price && (
+                          <Badge variant="outline" className="text-xs">{event.price}</Badge>
+                        )}
+                        {event.ageRestriction && (
+                          <Badge variant="outline" className="text-xs">{event.ageRestriction}</Badge>
+                        )}
+                        {event.isSoldOut && (
+                          <Badge className="bg-red-100 text-red-800 hover:bg-red-100 text-xs">Sold Out</Badge>
+                        )}
+                        {event.isCancelled && (
+                          <Badge className="bg-gray-100 text-gray-800 hover:bg-gray-100 text-xs">Cancelled</Badge>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -160,7 +177,14 @@ export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
                 value={result.imported}
                 color="green"
               />
-              <StatCard label="Duplicates" value={result.duplicates} color="blue" />
+              <StatCard label="Duplicates" value={result.duplicates} color="gray" />
+              {result.updated > 0 && (
+                <StatCard
+                  label={isDryRun ? 'Would Update' : 'Updated'}
+                  value={result.updated}
+                  color="blue"
+                />
+              )}
               <StatCard label="Rejected" value={result.rejected} color="amber" />
               {result.pending_review > 0 && (
                 <StatCard
@@ -185,8 +209,10 @@ export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
                         className={cn(
                           msg.startsWith('IMPORTED') || msg.startsWith('WOULD IMPORT')
                             ? 'text-green-600'
-                            : msg.startsWith('DUPLICATE')
+                            : msg.startsWith('UPDATED') || msg.startsWith('WOULD UPDATE')
                             ? 'text-blue-600'
+                            : msg.startsWith('DUPLICATE')
+                            ? 'text-muted-foreground'
                             : msg.startsWith('FLAGGED FOR REVIEW') || msg.startsWith('WOULD FLAG FOR REVIEW')
                             ? 'text-amber-600'
                             : msg.startsWith('REJECTED')

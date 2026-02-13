@@ -8,8 +8,9 @@
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiRequest, API_ENDPOINTS } from '../api'
 import { queryKeys } from '../queryClient'
-import type { Artist } from '../types/artist'
+import type { Artist, ArtistEditRequest } from '../types/artist'
 
 /**
  * Platform types for music discovery
@@ -332,6 +333,52 @@ export function useClearArtistSpotify() {
     onSuccess: (data, artistId) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.artists.detail(artistId),
+      })
+    },
+  })
+}
+
+/**
+ * Hook for updating artist details (admin only)
+ *
+ * Usage:
+ * ```tsx
+ * const { mutate: updateArtist, isPending } = useArtistUpdate()
+ *
+ * updateArtist(
+ *   { artistId: 123, data: { name: 'New Name', city: 'Phoenix' } },
+ *   {
+ *     onSuccess: () => toast.success('Artist updated'),
+ *     onError: (error) => toast.error(error.message)
+ *   }
+ * )
+ * ```
+ */
+export function useArtistUpdate() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      artistId,
+      data,
+    }: {
+      artistId: number
+      data: ArtistEditRequest
+    }): Promise<Artist> => {
+      return apiRequest<Artist>(
+        API_ENDPOINTS.ADMIN.ARTISTS.UPDATE(artistId),
+        {
+          method: 'PATCH',
+          body: JSON.stringify(data),
+        }
+      )
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.artists.detail(variables.artistId),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.artists.all,
       })
     },
   })

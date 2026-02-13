@@ -12,15 +12,15 @@ E2E_DB_URL="postgres://e2euser:e2epassword@localhost:5433/e2edb?sslmode=disable"
 echo "==> Waiting for migrate service to finish..."
 # Wait up to 60s for the migrate container to exit successfully
 for i in $(seq 1 30); do
-  STATUS=$(docker compose -f docker-compose.e2e.yml ps migrate --format json 2>/dev/null | python3 -c "import sys,json; data=json.load(sys.stdin); print(data['State'] if isinstance(data, dict) else data[0]['State'])" 2>/dev/null || echo "unknown")
+  STATUS=$(docker compose -p e2e -f docker-compose.e2e.yml ps migrate --format json 2>/dev/null | python3 -c "import sys,json; data=json.load(sys.stdin); print(data['State'] if isinstance(data, dict) else data[0]['State'])" 2>/dev/null || echo "unknown")
   if [ "$STATUS" = "exited" ]; then
-    EXIT_CODE=$(docker compose -f docker-compose.e2e.yml ps migrate --format json 2>/dev/null | python3 -c "import sys,json; data=json.load(sys.stdin); print(data['ExitCode'] if isinstance(data, dict) else data[0]['ExitCode'])" 2>/dev/null || echo "1")
+    EXIT_CODE=$(docker compose -p e2e -f docker-compose.e2e.yml ps migrate --format json 2>/dev/null | python3 -c "import sys,json; data=json.load(sys.stdin); print(data['ExitCode'] if isinstance(data, dict) else data[0]['ExitCode'])" 2>/dev/null || echo "1")
     if [ "$EXIT_CODE" = "0" ]; then
       echo "    Migrations completed successfully."
       break
     else
       echo "ERROR: Migrate exited with code $EXIT_CODE"
-      docker compose -f docker-compose.e2e.yml logs migrate
+      docker compose -p e2e -f docker-compose.e2e.yml logs migrate
       exit 1
     fi
   fi

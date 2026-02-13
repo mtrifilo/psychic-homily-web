@@ -172,6 +172,10 @@ export const API_ENDPOINTS = {
       REJECT_EDIT: (editId: string | number) =>
         `${API_BASE_URL}/admin/venues/pending-edits/${editId}/reject`,
     },
+    ARTISTS: {
+      UPDATE: (artistId: string | number) =>
+        `${API_BASE_URL}/admin/artists/${artistId}`,
+    },
     REPORTS: {
       LIST: `${API_BASE_URL}/admin/reports`,
       DISMISS: (reportId: string | number) =>

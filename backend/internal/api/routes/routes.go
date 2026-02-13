@@ -249,7 +249,7 @@ func setupShowRoutes(router *chi.Mux, api huma.API, protected *huma.Group, sc *s
 }
 
 func setupArtistRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
-	artistHandler := handlers.NewArtistHandler(sc.Artist)
+	artistHandler := handlers.NewArtistHandler(sc.Artist, sc.AuditLog)
 
 	// Public artist endpoints - registered on main API without middleware
 	// Note: Static routes must come before parameterized routes
@@ -260,6 +260,7 @@ func setupArtistRoutes(api huma.API, protected *huma.Group, sc *services.Service
 
 	// Protected artist endpoints
 	huma.Delete(protected, "/artists/{artist_id}", artistHandler.DeleteArtistHandler)
+	huma.Patch(protected, "/admin/artists/{artist_id}", artistHandler.AdminUpdateArtistHandler)
 }
 
 func setupVenueRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
@@ -341,7 +342,7 @@ func setupAdminRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 		sc.Show, sc.Venue, sc.Discord, sc.MusicDiscovery, sc.Discovery,
 		sc.APIToken, sc.DataSync, sc.AuditLog, sc.User, sc.AdminStats,
 	)
-	artistHandler := handlers.NewArtistHandler(sc.Artist)
+	artistHandler := handlers.NewArtistHandler(sc.Artist, sc.AuditLog)
 	auditLogHandler := handlers.NewAuditLogHandler(sc.AuditLog)
 
 	// Admin dashboard stats endpoint

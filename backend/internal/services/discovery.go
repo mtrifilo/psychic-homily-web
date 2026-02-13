@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,8 +43,12 @@ type DiscoveredEvent struct {
 	DoorsTime  *string  `json:"doorsTime"`  // Doors time (e.g., "6:30 pm")
 	ShowTime   *string  `json:"showTime"`   // Show time (e.g., "7:00 pm")
 	TicketURL  *string  `json:"ticketUrl"`  // Ticket purchase URL (optional)
-	Artists    []string `json:"artists"`    // List of artists (from event detail page)
-	ScrapedAt  string   `json:"scrapedAt"`  // When the event was scraped (ISO timestamp)
+	Artists        []string `json:"artists"`        // List of artists (from event detail page)
+	ScrapedAt      string   `json:"scrapedAt"`      // When the event was scraped (ISO timestamp)
+	Price          *string  `json:"price"`          // Price string (e.g., "$18", "Free")
+	AgeRestriction *string  `json:"ageRestriction"` // Age restriction (e.g., "16+", "All Ages")
+	IsSoldOut      *bool    `json:"isSoldOut"`      // Whether the event is sold out
+	IsCancelled    *bool    `json:"isCancelled"`    // Whether the event is cancelled
 }
 
 // ImportResult contains statistics about the import operation
@@ -53,6 +58,7 @@ type ImportResult struct {
 	Duplicates    int      `json:"duplicates"`     // Skipped due to deduplication
 	Rejected      int      `json:"rejected"`       // Skipped due to matching rejected shows
 	PendingReview int      `json:"pending_review"` // Flagged as potential duplicates for admin review
+	Updated       int      `json:"updated"`        // Updated existing shows with new data
 	Errors        int      `json:"errors"`         // Failed to import
 	Messages      []string `json:"messages"`       // Detailed messages for each event
 }
@@ -144,7 +150,7 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*Import
 	}
 
 	for _, event := range events {
-		msg, status := s.importEvent(&event, dryRun)
+		msg, status := s.importEvent(&event, dryRun, false)
 		result.Messages = append(result.Messages, msg)
 
 		switch status {
@@ -156,6 +162,8 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*Import
 			result.Rejected++
 		case "pending_review":
 			result.PendingReview++
+		case "updated":
+			result.Updated++
 		case "error":
 			result.Errors++
 		}
@@ -188,8 +196,8 @@ func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName stri
 }
 
 // importEvent imports a single scraped event
-// Returns a message and status ("imported", "duplicate", "rejected", "error")
-func (s *DiscoveryService) importEvent(event *DiscoveredEvent, dryRun bool) (string, string) {
+// Returns a message and status ("imported", "duplicate", "rejected", "updated", "error")
+func (s *DiscoveryService) importEvent(event *DiscoveredEvent, dryRun bool, allowUpdates bool) (string, string) {
 	// Validate required fields
 	if event.ID == "" || event.VenueSlug == "" {
 		return fmt.Sprintf("SKIP: Missing required fields (id=%s, venueSlug=%s)", event.ID, event.VenueSlug), "error"
@@ -199,6 +207,9 @@ func (s *DiscoveryService) importEvent(event *DiscoveredEvent, dryRun bool) (str
 	var existing models.Show
 	err := s.db.Where("source_venue = ? AND source_event_id = ?", event.VenueSlug, event.ID).First(&existing).Error
 	if err == nil {
+		if allowUpdates {
+			return s.updateShowFromEvent(&existing, event, dryRun)
+		}
 		return fmt.Sprintf("DUPLICATE: %s (ID: %s) already imported as show #%d", event.Title, event.ID, existing.ID), "duplicate"
 	} else if err != gorm.ErrRecordNotFound {
 		return fmt.Sprintf("ERROR: Failed to check duplicate: %v", err), "error"
@@ -310,6 +321,15 @@ func (s *DiscoveryService) createShowFromEvent(event *DiscoveredEvent, eventDate
 			SourceEventID:     &event.ID,
 			ScrapedAt:         &scrapedAt,
 			DuplicateOfShowID: duplicateOfShowID,
+			Price:             parsePriceString(ptrStr(event.Price)),
+			AgeRequirement:    event.AgeRestriction,
+		}
+
+		if event.IsSoldOut != nil && *event.IsSoldOut {
+			show.IsSoldOut = true
+		}
+		if event.IsCancelled != nil && *event.IsCancelled {
+			show.IsCancelled = true
 		}
 
 		if err := tx.Create(show).Error; err != nil {
@@ -408,6 +428,68 @@ func (s *DiscoveryService) createShowFromEvent(event *DiscoveredEvent, eventDate
 
 		return nil
 	})
+}
+
+// updateShowFromEvent compares scraped event data against an existing show and updates changed fields.
+// Returns a message and status ("updated" or "duplicate").
+func (s *DiscoveryService) updateShowFromEvent(existing *models.Show, event *DiscoveredEvent, dryRun bool) (string, string) {
+	updates := make(map[string]interface{})
+	var changes []string
+
+	// Compare price
+	if event.Price != nil {
+		newPrice := parsePriceString(*event.Price)
+		if newPrice != nil {
+			if existing.Price == nil || *existing.Price != *newPrice {
+				updates["price"] = *newPrice
+				oldStr := "nil"
+				if existing.Price != nil {
+					oldStr = fmt.Sprintf("$%.2f", *existing.Price)
+				}
+				changes = append(changes, fmt.Sprintf("price: %s → $%.2f", oldStr, *newPrice))
+			}
+		}
+	}
+
+	// Compare age restriction
+	if event.AgeRestriction != nil {
+		if existing.AgeRequirement == nil || *existing.AgeRequirement != *event.AgeRestriction {
+			updates["age_requirement"] = *event.AgeRestriction
+			oldStr := "nil"
+			if existing.AgeRequirement != nil {
+				oldStr = *existing.AgeRequirement
+			}
+			changes = append(changes, fmt.Sprintf("age: %s → %s", oldStr, *event.AgeRestriction))
+		}
+	}
+
+	// Compare sold out status
+	if event.IsSoldOut != nil && *event.IsSoldOut != existing.IsSoldOut {
+		updates["is_sold_out"] = *event.IsSoldOut
+		changes = append(changes, fmt.Sprintf("soldOut: %v → %v", existing.IsSoldOut, *event.IsSoldOut))
+	}
+
+	// Compare cancelled status
+	if event.IsCancelled != nil && *event.IsCancelled != existing.IsCancelled {
+		updates["is_cancelled"] = *event.IsCancelled
+		changes = append(changes, fmt.Sprintf("cancelled: %v → %v", existing.IsCancelled, *event.IsCancelled))
+	}
+
+	if len(updates) == 0 {
+		return fmt.Sprintf("DUPLICATE: %s (ID: %s) already imported as show #%d (no changes)", event.Title, event.ID, existing.ID), "duplicate"
+	}
+
+	changeStr := strings.Join(changes, ", ")
+
+	if dryRun {
+		return fmt.Sprintf("WOULD UPDATE: %s (show #%d) — %s", event.Title, existing.ID, changeStr), "updated"
+	}
+
+	if err := s.db.Model(existing).Updates(updates).Error; err != nil {
+		return fmt.Sprintf("ERROR: Failed to update show #%d: %v", existing.ID, err), "error"
+	}
+
+	return fmt.Sprintf("UPDATED: %s (show #%d) — %s", event.Title, existing.ID, changeStr), "updated"
 }
 
 // stateTimezones maps US state abbreviations to IANA timezone names
@@ -511,6 +593,33 @@ func parseArtistsFromTitle(title string) []string {
 	return []string{strings.TrimSpace(title)}
 }
 
+// ptrStr safely dereferences a string pointer, returning "" if nil
+func ptrStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// parsePriceString parses a price string like "$18", "$23.81", "Free" into a float64
+func parsePriceString(s string) *float64 {
+	if s == "" {
+		return nil
+	}
+	lower := strings.ToLower(strings.TrimSpace(s))
+	if lower == "free" || lower == "no cover" {
+		val := 0.0
+		return &val
+	}
+	// Strip "$" prefix
+	cleaned := strings.TrimPrefix(lower, "$")
+	val, err := strconv.ParseFloat(cleaned, 64)
+	if err != nil {
+		return nil
+	}
+	return &val
+}
+
 // splitAndTrim splits a string by separator and trims whitespace from each part
 func splitAndTrim(s, sep string) []string {
 	parts := strings.Split(s, sep)
@@ -547,11 +656,23 @@ type CheckEventInput struct {
 	VenueSlug string `json:"venueSlug"`
 }
 
+// ShowCurrentData contains the current stored data for a show, used for diff comparison
+type ShowCurrentData struct {
+	Price          *float64 `json:"price,omitempty"`
+	AgeRequirement *string  `json:"ageRequirement,omitempty"`
+	Description    *string  `json:"description,omitempty"`
+	EventDate      string   `json:"eventDate,omitempty"`
+	IsSoldOut      bool     `json:"isSoldOut"`
+	IsCancelled    bool     `json:"isCancelled"`
+	Artists        []string `json:"artists,omitempty"`
+}
+
 // CheckEventStatus represents the import status of a single event
 type CheckEventStatus struct {
-	Exists bool   `json:"exists"`
-	ShowID uint   `json:"showId,omitempty"`
-	Status string `json:"status,omitempty"`
+	Exists      bool             `json:"exists"`
+	ShowID      uint             `json:"showId,omitempty"`
+	Status      string           `json:"status,omitempty"`
+	CurrentData *ShowCurrentData `json:"currentData,omitempty"`
 }
 
 // CheckEventsResult contains the import status of multiple events
@@ -588,7 +709,7 @@ func (s *DiscoveryService) CheckEvents(events []CheckEventInput) (*CheckEventsRe
 
 	var shows []models.Show
 	err := s.db.Where("(source_venue, source_event_id) IN ?", pairs).
-		Select("id, source_venue, source_event_id, status").
+		Select("id, source_venue, source_event_id, status, price, age_requirement, description, event_date, is_sold_out, is_cancelled").
 		Find(&shows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to check events: %w", err)
@@ -596,10 +717,26 @@ func (s *DiscoveryService) CheckEvents(events []CheckEventInput) (*CheckEventsRe
 
 	for _, show := range shows {
 		if show.SourceEventID != nil {
+			// Query artists for this show
+			var artistNames []string
+			s.db.Raw(`SELECT artists.name FROM show_artists
+				JOIN artists ON show_artists.artist_id = artists.id
+				WHERE show_artists.show_id = ?
+				ORDER BY show_artists.position`, show.ID).Scan(&artistNames)
+
 			result.Events[*show.SourceEventID] = CheckEventStatus{
 				Exists: true,
 				ShowID: show.ID,
 				Status: string(show.Status),
+				CurrentData: &ShowCurrentData{
+					Price:          show.Price,
+					AgeRequirement: show.AgeRequirement,
+					Description:    show.Description,
+					EventDate:      show.EventDate.Format(time.RFC3339),
+					IsSoldOut:      show.IsSoldOut,
+					IsCancelled:    show.IsCancelled,
+					Artists:        artistNames,
+				},
 			}
 		}
 	}
@@ -609,7 +746,7 @@ func (s *DiscoveryService) CheckEvents(events []CheckEventInput) (*CheckEventsRe
 
 // ImportEvents imports events from an array of DiscoveredEvent objects
 // This is used by the HTTP API endpoint for importing scraped data directly
-func (s *DiscoveryService) ImportEvents(events []DiscoveredEvent, dryRun bool) (*ImportResult, error) {
+func (s *DiscoveryService) ImportEvents(events []DiscoveredEvent, dryRun bool, allowUpdates bool) (*ImportResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -620,7 +757,7 @@ func (s *DiscoveryService) ImportEvents(events []DiscoveredEvent, dryRun bool) (
 	}
 
 	for _, event := range events {
-		msg, status := s.importEvent(&event, dryRun)
+		msg, status := s.importEvent(&event, dryRun, allowUpdates)
 		result.Messages = append(result.Messages, msg)
 
 		switch status {
@@ -632,6 +769,8 @@ func (s *DiscoveryService) ImportEvents(events []DiscoveredEvent, dryRun bool) (
 			result.Rejected++
 		case "pending_review":
 			result.PendingReview++
+		case "updated":
+			result.Updated++
 		case "error":
 			result.Errors++
 		}

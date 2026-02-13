@@ -11,6 +11,7 @@ import {
   X,
   Check,
   AlertCircle,
+  Edit2,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useArtist } from '@/lib/hooks/useArtists'
@@ -25,6 +26,7 @@ import {
   type MusicPlatform,
 } from '@/lib/hooks/useAdminArtists'
 import { SocialLinks, MusicEmbed } from '@/components/shared'
+import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
 import { ArtistShowsList } from './ArtistShowsList'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,6 +41,9 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   const { data: artist, isLoading, error } = useArtist({ artistId })
   const { user, isAuthenticated } = useIsAuthenticated()
   const isAdmin = isAuthenticated && user?.is_admin
+
+  // Admin state for artist edit dialog
+  const [isEditing, setIsEditing] = useState(false)
 
   // Admin state for music embed management
   const [showManualInput, setShowManualInput] = useState<
@@ -305,7 +310,19 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
       {/* Header */}
       <header className="mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold">{artist.name}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl md:text-3xl font-bold">{artist.name}</h1>
+          {isAdmin && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsEditing(true)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <Edit2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
         {hasLocation && (
           <div className="flex items-center gap-1 text-muted-foreground mt-2">
             <MapPin className="h-4 w-4" />
@@ -565,6 +582,20 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
       {/* Shows List */}
       <ArtistShowsList artistId={artist.id} artistName={artist.name} />
+
+      {/* Admin Edit Dialog */}
+      {isAdmin && (
+        <ArtistEditForm
+          artist={artist}
+          open={isEditing}
+          onOpenChange={setIsEditing}
+          onSuccess={() => {
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.artists.detail(artistId),
+            })
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -10,10 +10,11 @@ interface EventListProps {
   events: PreviewEvent[]
   selectedIds: Set<string>
   importStatuses: ImportStatusMap
+  updatableIds?: Set<string>
   onToggle: (eventId: string) => void
 }
 
-export function EventList({ events, selectedIds, importStatuses, onToggle }: EventListProps) {
+export function EventList({ events, selectedIds, importStatuses, updatableIds, onToggle }: EventListProps) {
   // Filter to only show future events
   const today = getLocalDateString()
   const futureEvents = events.filter(e => e.date >= today)
@@ -52,7 +53,7 @@ export function EventList({ events, selectedIds, importStatuses, onToggle }: Eve
             >
               {event.title}
             </Label>
-            {status?.exists && <ImportStatusBadge status={status.status} />}
+            {status?.exists && <ImportStatusBadge status={status.status} hasUpdates={updatableIds?.has(event.id)} />}
           </label>
         )
       })}
@@ -60,7 +61,10 @@ export function EventList({ events, selectedIds, importStatuses, onToggle }: Eve
   )
 }
 
-function ImportStatusBadge({ status }: { status?: string }) {
+function ImportStatusBadge({ status, hasUpdates }: { status?: string; hasUpdates?: boolean }) {
+  if (hasUpdates) {
+    return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100 shrink-0">Has Updates</Badge>
+  }
   switch (status) {
     case 'approved':
       return <Badge className="bg-green-100 text-green-800 hover:bg-green-100 shrink-0">Imported</Badge>

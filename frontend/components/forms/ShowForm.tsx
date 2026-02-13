@@ -361,13 +361,11 @@ export function ShowForm({
       // Set venue
       if (initialExtraction.venue) {
         const v = initialExtraction.venue
-        form.setFieldValue('venue', {
-          id: v.matched_id,
-          name: v.matched_name || v.name,
-          city: v.city || '',
-          state: v.state || '',
-          address: '',
-        })
+        form.setFieldValue('venue.id', v.matched_id)
+        form.setFieldValue('venue.name', v.matched_name || v.name)
+        form.setFieldValue('venue.city', v.city || '')
+        form.setFieldValue('venue.state', v.state || '')
+        form.setFieldValue('venue.address', '')
         // Update venue name for new venue warning
         setVenueName(v.matched_name || v.name)
         // Update selected venue if matched
@@ -426,15 +424,13 @@ export function ShowForm({
         state: venue.state,
         verified: venue.verified,
       })
-      // Set the entire venue object at once to ensure all sub-field
-      // subscribers are notified in a single store update
-      form.setFieldValue('venue', {
-        id: venue.id,
-        name: venue.name,
-        city: venue.city,
-        state: venue.state,
-        address: venue.address || '',
-      })
+      // Set each child field individually so that each field subscriber
+      // is notified directly (parent setFieldValue may not propagate to children)
+      form.setFieldValue('venue.id', venue.id)
+      form.setFieldValue('venue.name', venue.name)
+      form.setFieldValue('venue.city', venue.city)
+      form.setFieldValue('venue.state', venue.state)
+      form.setFieldValue('venue.address', venue.address || '')
       // Reset private show option when selecting a verified venue
       if (venue.verified) {
         setIsPrivateShow(false)

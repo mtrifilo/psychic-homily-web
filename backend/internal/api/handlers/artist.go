@@ -27,12 +27,14 @@ func isInternalServiceRequest(ctx huma.Context) bool {
 }
 
 type ArtistHandler struct {
-	artistService *services.ArtistService
+	artistService   *services.ArtistService
+	auditLogService *services.AuditLogService
 }
 
-func NewArtistHandler(artistService *services.ArtistService) *ArtistHandler {
+func NewArtistHandler(artistService *services.ArtistService, auditLogService *services.AuditLogService) *ArtistHandler {
 	return &ArtistHandler{
-		artistService: artistService,
+		artistService:   artistService,
+		auditLogService: auditLogService,
 	}
 }
 
@@ -287,6 +289,18 @@ func (h *ArtistHandler) UpdateArtistBandcampHandler(ctx context.Context, req *Up
 		"bandcamp_embed_url": bandcampURL,
 	}
 
+	// Also set the social bandcamp profile URL from the embed URL
+	if bandcampURL != nil {
+		// Extract profile URL: https://artist.bandcamp.com/album/name → https://artist.bandcamp.com
+		if idx := strings.Index(*bandcampURL, ".bandcamp.com"); idx != -1 {
+			profileURL := (*bandcampURL)[:idx+len(".bandcamp.com")]
+			updates["bandcamp"] = profileURL
+		}
+	} else {
+		// Clear the social bandcamp link when clearing the embed URL
+		updates["bandcamp"] = nil
+	}
+
 	artist, err := h.artistService.UpdateArtist(uint(artistID), updates)
 	if err != nil {
 		var artistErr *apperrors.ArtistError
@@ -507,4 +521,132 @@ func (h *ArtistHandler) DeleteArtistHandler(ctx context.Context, req *DeleteArti
 	)
 
 	return nil, nil
+}
+
+// ============================================================================
+// Admin Update Artist
+// ============================================================================
+
+// AdminUpdateArtistRequest represents the request for updating an artist (admin only)
+type AdminUpdateArtistRequest struct {
+	ArtistID string `path:"artist_id" validate:"required" doc:"Artist ID"`
+	Body     struct {
+		Name       *string `json:"name,omitempty" required:"false" doc:"Artist name"`
+		City       *string `json:"city,omitempty" required:"false" doc:"City"`
+		State      *string `json:"state,omitempty" required:"false" doc:"State"`
+		Instagram  *string `json:"instagram,omitempty" required:"false" doc:"Instagram URL"`
+		Facebook   *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
+		Twitter    *string `json:"twitter,omitempty" required:"false" doc:"Twitter/X URL"`
+		Youtube    *string `json:"youtube,omitempty" required:"false" doc:"YouTube URL"`
+		Spotify    *string `json:"spotify,omitempty" required:"false" doc:"Spotify URL"`
+		Soundcloud *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`
+		Bandcamp   *string `json:"bandcamp,omitempty" required:"false" doc:"Bandcamp URL"`
+		Website    *string `json:"website,omitempty" required:"false" doc:"Website URL"`
+	}
+}
+
+// AdminUpdateArtistResponse represents the response for updating an artist
+type AdminUpdateArtistResponse struct {
+	Body *services.ArtistDetailResponse
+}
+
+// AdminUpdateArtistHandler handles PATCH /admin/artists/{artist_id}
+// Admin-only endpoint to update any artist fields
+func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *AdminUpdateArtistRequest) (*AdminUpdateArtistResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Parse artist ID
+	artistID, err := strconv.ParseUint(req.ArtistID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid artist ID")
+	}
+
+	// Validate name if provided
+	if req.Body.Name != nil && strings.TrimSpace(*req.Body.Name) == "" {
+		return nil, huma.Error400BadRequest("Artist name cannot be empty")
+	}
+
+	// Build updates map with only provided fields
+	updates := map[string]interface{}{}
+
+	if req.Body.Name != nil {
+		updates["name"] = strings.TrimSpace(*req.Body.Name)
+	}
+	if req.Body.City != nil {
+		updates["city"] = nilIfEmpty(*req.Body.City)
+	}
+	if req.Body.State != nil {
+		updates["state"] = nilIfEmpty(*req.Body.State)
+	}
+	if req.Body.Instagram != nil {
+		updates["instagram"] = nilIfEmpty(*req.Body.Instagram)
+	}
+	if req.Body.Facebook != nil {
+		updates["facebook"] = nilIfEmpty(*req.Body.Facebook)
+	}
+	if req.Body.Twitter != nil {
+		updates["twitter"] = nilIfEmpty(*req.Body.Twitter)
+	}
+	if req.Body.Youtube != nil {
+		updates["youtube"] = nilIfEmpty(*req.Body.Youtube)
+	}
+	if req.Body.Spotify != nil {
+		updates["spotify"] = nilIfEmpty(*req.Body.Spotify)
+	}
+	if req.Body.Soundcloud != nil {
+		updates["soundcloud"] = nilIfEmpty(*req.Body.Soundcloud)
+	}
+	if req.Body.Bandcamp != nil {
+		updates["bandcamp"] = nilIfEmpty(*req.Body.Bandcamp)
+	}
+	if req.Body.Website != nil {
+		updates["website"] = nilIfEmpty(*req.Body.Website)
+	}
+
+	if len(updates) == 0 {
+		return nil, huma.Error400BadRequest("No fields to update")
+	}
+
+	artist, err := h.artistService.UpdateArtist(uint(artistID), updates)
+	if err != nil {
+		var artistErr *apperrors.ArtistError
+		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
+			return nil, huma.Error404NotFound("Artist not found")
+		}
+		logger.FromContext(ctx).Error("admin_update_artist_failed",
+			"artist_id", artistID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to update artist (request_id: %s)", requestID),
+		)
+	}
+
+	// Audit log (fire and forget)
+	if h.auditLogService != nil {
+		h.auditLogService.LogAction(user.ID, "edit_artist", "artist", uint(artistID), nil)
+	}
+
+	logger.FromContext(ctx).Info("admin_update_artist_success",
+		"artist_id", artistID,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &AdminUpdateArtistResponse{Body: artist}, nil
+}
+
+// nilIfEmpty returns nil if the string is empty, otherwise returns a pointer to the string
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

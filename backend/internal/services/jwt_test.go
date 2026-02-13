@@ -258,8 +258,14 @@ func TestJWTService_ValidateToken(t *testing.T) {
 		token, err := jwtService.CreateToken(user)
 		require.NoError(t, err)
 
-		// Tamper with the token by changing a character
-		tamperedToken := token[:len(token)-1] + "X"
+		// Tamper with the token by flipping a character in the middle of the signature
+		// (Changing only the last char can be a no-op due to base64url padding bits)
+		mid := len(token) - len(token)/4
+		replacement := byte('A')
+		if token[mid] == 'A' {
+			replacement = 'B'
+		}
+		tamperedToken := token[:mid] + string(replacement) + token[mid+1:]
 
 		// Try to validate tampered token
 		validatedUser, err := jwtService.ValidateToken(tamperedToken)

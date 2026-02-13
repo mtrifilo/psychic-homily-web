@@ -1,6 +1,9 @@
 {
   "private": true,
   "scripts": {
+    "frontend": "cd frontend && bun run dev",
+    "backend": "cd backend && go run ./cmd/server",
+    "discovery": "cd discovery && bun run dev",
     "test-all": "cd scripts/test-runner && go run ."
   }
 }

@@ -11,6 +11,10 @@ export interface ScrapedEvent {
   ticketUrl?: string
   artists: string[]
   scrapedAt: string // ISO timestamp
+  price?: string
+  ageRestriction?: string
+  isSoldOut?: boolean
+  isCancelled?: boolean
 }
 
 // Preview event (quick scan without details)
@@ -45,6 +49,7 @@ export interface ImportResult {
   duplicates: number
   rejected: number
   pending_review: number
+  updated: number
   errors: number
   messages: string[]
 }
@@ -76,6 +81,15 @@ export interface ImportStatusEntry {
   exists: boolean
   showId?: number
   status?: string // pending, approved, rejected
+  currentData?: {
+    price?: number
+    ageRequirement?: string
+    description?: string
+    eventDate?: string
+    isSoldOut?: boolean
+    isCancelled?: boolean
+    artists?: string[]
+  }
 }
 
 export type ImportStatusMap = Record<string, ImportStatusEntry>

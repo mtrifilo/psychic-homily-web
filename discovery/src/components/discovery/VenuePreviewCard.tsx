@@ -16,6 +16,7 @@ interface VenuePreviewCardProps {
   onRetry?: () => void
   selectedIds?: Set<string>
   importStatuses?: ImportStatusMap
+  updatableIds?: Set<string>
   onToggle?: (eventId: string) => void
   onSelectAll?: () => void
   onSelectNone?: () => void
@@ -30,6 +31,7 @@ export function VenuePreviewCard({
   onRetry,
   selectedIds,
   importStatuses = {},
+  updatableIds,
   onToggle,
   onSelectAll,
   onSelectNone,
@@ -133,6 +135,7 @@ export function VenuePreviewCard({
             events={events}
             selectedIds={selectedIds!}
             importStatuses={importStatuses}
+            updatableIds={updatableIds}
             onToggle={onToggle!}
           />
         </div>

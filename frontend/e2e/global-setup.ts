@@ -70,7 +70,7 @@ async function startDatabase() {
   log('Starting ephemeral PostgreSQL on port 5433...')
   // Don't use --wait: the migrate container is a one-shot that exits with 0,
   // which docker compose --wait treats as failure.
-  execSync('docker compose -f docker-compose.e2e.yml up -d', {
+  execSync('docker compose -p e2e -f docker-compose.e2e.yml up -d', {
     cwd: BACKEND_DIR,
     stdio: 'inherit',
   })
@@ -79,7 +79,7 @@ async function startDatabase() {
   for (let i = 0; i < 30; i++) {
     try {
       execSync(
-        'docker compose -f docker-compose.e2e.yml exec -T db pg_isready -U e2euser -d e2edb',
+        'docker compose -p e2e -f docker-compose.e2e.yml exec -T db pg_isready -U e2euser -d e2edb',
         { cwd: BACKEND_DIR, stdio: 'pipe' }
       )
       log('PostgreSQL is ready.')

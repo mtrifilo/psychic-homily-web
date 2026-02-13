@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -118,8 +119,11 @@ func (s *suiteState) addLine(line string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lines++
-	s.lastLine = line
 	s.output = append(s.output, line)
+	// Only update the displayed line with clean, non-empty content
+	if cleaned := cleanLine(line); cleaned != "" {
+		s.lastLine = cleaned
+	}
 }
 
 func (s *suiteState) snapshot() (status, time.Duration, int64, int, string) {
@@ -136,6 +140,14 @@ func (s *suiteState) getOutput() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return strings.Join(s.output, "\n")
+}
+
+// ── ANSI / control char stripping ────────────────────────────────────
+
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\r`)
+
+func cleanLine(s string) string {
+	return strings.TrimSpace(ansiRe.ReplaceAllString(s, ""))
 }
 
 // ── Formatting helpers ───────────────────────────────────────────────
