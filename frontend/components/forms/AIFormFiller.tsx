@@ -31,6 +31,45 @@ const SUPPORTED_IMAGE_TYPES = [
   'image/webp',
 ]
 
+// Max dimension for resized images sent to the API.
+// 1500px is plenty for Claude to read flyer text, and keeps
+// base64 payload well under Vercel's 4.5MB body limit.
+const MAX_IMAGE_DIMENSION = 1500
+const JPEG_QUALITY = 0.8
+
+/**
+ * Resize an image to fit within MAX_IMAGE_DIMENSION and compress as JPEG.
+ * Returns a base64 data URL.
+ */
+function compressImage(dataUrl: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      let { width, height } = img
+
+      // Only resize if the image exceeds the max dimension
+      if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+        const scale = MAX_IMAGE_DIMENSION / Math.max(width, height)
+        width = Math.round(width * scale)
+        height = Math.round(height * scale)
+      }
+
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error('Could not get canvas context'))
+        return
+      }
+      ctx.drawImage(img, 0, 0, width, height)
+      resolve(canvas.toDataURL('image/jpeg', JPEG_QUALITY))
+    }
+    img.onerror = () => reject(new Error('Failed to load image'))
+    img.src = dataUrl
+  })
+}
+
 interface AIFormFillerProps {
   /** Callback when extraction is successful */
   onExtracted: (data: ExtractedShowData) => void
@@ -75,10 +114,17 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
       setWarnings([])
       reset()
 
-      // Create preview
+      // Read the file, then compress for API use
       const reader = new FileReader()
-      reader.onload = e => {
-        setImagePreview(e.target?.result as string)
+      reader.onload = async e => {
+        const originalDataUrl = e.target?.result as string
+        try {
+          const compressed = await compressImage(originalDataUrl)
+          setImagePreview(compressed)
+        } catch {
+          // Fall back to original if compression fails
+          setImagePreview(originalDataUrl)
+        }
       }
       reader.readAsDataURL(file)
     },
@@ -128,20 +174,15 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
     if (!hasText && !hasImage) return
 
     if (hasImage) {
-      // Extract base64 data from data URL
+      // Extract base64 data from data URL (always JPEG after compression)
       const base64Data = imagePreview!.split(',')[1]
-      const mediaType = imageFile!.type as
-        | 'image/jpeg'
-        | 'image/png'
-        | 'image/gif'
-        | 'image/webp'
 
       // Use 'both' if we have text context, otherwise just 'image'
       mutate(
         {
           type: hasText ? 'both' : 'image',
           image_data: base64Data,
-          media_type: mediaType,
+          media_type: 'image/jpeg',
           text: hasText ? textInput : undefined,
         },
         {

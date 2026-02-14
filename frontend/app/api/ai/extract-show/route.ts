@@ -23,7 +23,7 @@ Today's date is ${today}.
 
 Output ONLY valid JSON with no additional text or markdown formatting:
 {
-  "artists": [{"name": "Artist Name", "is_headliner": true}],
+  "artists": [{"name": "Artist Name", "is_headliner": true, "instagram_handle": "@handle"}],
   "venue": {"name": "Venue Name", "city": "City", "state": "AZ"},
   "date": "YYYY-MM-DD",
   "time": "HH:MM",
@@ -33,6 +33,7 @@ Output ONLY valid JSON with no additional text or markdown formatting:
 
 Rules:
 - First artist listed is usually the headliner (is_headliner: true), others are is_headliner: false
+- For instagram_handle, extract Instagram handles (like @username) when visible on the flyer or in the text. Include the @ prefix. Omit if not found.
 - Convert dates to YYYY-MM-DD format. If no year is specified, assume the next upcoming occurrence of that date (relative to today's date).
 - Convert time to 24-hour format (default to 20:00 if "doors" time is given but show time is ambiguous)
 - State should be 2-letter abbreviation (default to AZ for Arizona venues)
@@ -136,7 +137,7 @@ async function searchVenue(name: string): Promise<VenueSearchResult | null> {
  * Match extracted artists against the database
  */
 async function matchArtists(
-  rawArtists: Array<{ name: string; is_headliner?: boolean }>
+  rawArtists: Array<{ name: string; is_headliner?: boolean; instagram_handle?: string }>
 ): Promise<ExtractedArtist[]> {
   const matchedArtists: ExtractedArtist[] = []
 
@@ -144,6 +145,7 @@ async function matchArtists(
     const result: ExtractedArtist = {
       name: artist.name,
       is_headliner: artist.is_headliner ?? false,
+      instagram_handle: artist.instagram_handle,
     }
 
     // Try to find an exact match in the database
@@ -158,6 +160,8 @@ async function matchArtists(
         result.matched_id = exactMatch.id
         result.matched_name = exactMatch.name
         result.matched_slug = exactMatch.slug
+        // Clear instagram handle for matched artists — their socials are managed via artist edit
+        result.instagram_handle = undefined
       } else {
         // No exact match — include top 3 results as suggestions
         result.suggestions = searchResult.artists.slice(0, 3).map(

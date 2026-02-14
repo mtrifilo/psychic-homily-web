@@ -27,6 +27,7 @@ export interface ShowUpdateArtist {
   id?: number
   name?: string
   is_headliner?: boolean
+  instagram_handle?: string
 }
 
 /**

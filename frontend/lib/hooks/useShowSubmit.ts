@@ -14,6 +14,7 @@ interface SubmitArtist {
   name: string
   id?: number
   is_headliner?: boolean
+  instagram_handle?: string
 }
 
 /**

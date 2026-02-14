@@ -41,6 +41,8 @@ export interface ExtractedArtist {
   name: string
   /** Whether this artist is the headliner */
   is_headliner: boolean
+  /** Instagram handle extracted from flyer (only for new/unmatched artists) */
+  instagram_handle?: string
   /** Database ID if matched to existing artist */
   matched_id?: number
   /** Canonical name from database (may differ in casing) */

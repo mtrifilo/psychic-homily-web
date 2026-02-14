@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { useUpcomingShows } from '@/lib/hooks/useShows'
 import { useSavedShowBatch } from '@/lib/hooks/useSavedShows'
+import { usePrefetchRoutes } from '@/lib/hooks/usePrefetchRoutes'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { ShowResponse, ArtistResponse } from '@/lib/types/show'
 import Link from 'next/link'
@@ -271,13 +272,18 @@ export function HomeShowList() {
   const { user, isAuthenticated } = useAuthContext()
   const isAdmin = user?.is_admin ?? false
 
+  const timezone =
+    typeof window !== 'undefined'
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone
+      : 'America/Phoenix'
+
   const { data, isLoading, error } = useUpcomingShows({
-    timezone:
-      typeof window !== 'undefined'
-        ? Intl.DateTimeFormat().resolvedOptions().timeZone
-        : 'America/Phoenix',
+    timezone,
     limit: 10,
   })
+
+  // Prefetch /shows and /venues data during idle time
+  usePrefetchRoutes(timezone)
 
   const showIds = useMemo(() => data?.shows?.map(s => s.id) ?? [], [data?.shows])
   const { data: savedShowIds } = useSavedShowBatch(showIds, isAuthenticated)

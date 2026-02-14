@@ -16,6 +16,7 @@ Quick wins that don't require major refactors. Based on Vercel's React Best Prac
 - [x] Bundle analyzer (`bun run analyze`)
 - [x] Static generation — `/blog`, `/dj-sets`, `/venues` already statically rendered (filesystem content + client-side fetching)
 - [x] Parallel data fetching — `discover-music/route.ts` already uses `Promise.allSettled`; `oembed/route.ts` is single-fetch
+- [x] Detail page server fetches — `shows/[slug]`, `venues/[slug]`, `artists/[slug]` each make a single fetch (deduplicated by Next.js between `generateMetadata` and page component)
 
 ---
 

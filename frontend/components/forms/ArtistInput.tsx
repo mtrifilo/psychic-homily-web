@@ -15,6 +15,8 @@ interface ArtistInputProps {
   index: number
   onRemove?: () => void
   showRemoveButton?: boolean
+  /** Called when the artist match status changes (id = matched existing artist, undefined = new artist) */
+  onArtistMatch?: (artistId: number | undefined) => void
 }
 
 /**
@@ -26,6 +28,7 @@ export function ArtistInput({
   index,
   onRemove,
   showRemoveButton,
+  onArtistMatch,
 }: ArtistInputProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchValue, setSearchValue] = useState('')
@@ -37,8 +40,9 @@ export function ArtistInput({
   const filteredArtists = searchResults?.artists || []
 
   // Handle artist selection from dropdown
-  const handleArtistSelect = (artistName: string) => {
+  const handleArtistSelect = (artistName: string, artistId?: number) => {
     field.handleChange(artistName)
+    onArtistMatch?.(artistId)
     setIsOpen(false)
     setSearchValue('')
   }
@@ -51,8 +55,13 @@ export function ArtistInput({
       const exactMatch = filteredArtists.find(
         artist => artist.name.toLowerCase() === value.toLowerCase()
       )
-      if (exactMatch && exactMatch.name !== value) {
-        field.handleChange(exactMatch.name)
+      if (exactMatch) {
+        if (exactMatch.name !== value) {
+          field.handleChange(exactMatch.name)
+        }
+        onArtistMatch?.(exactMatch.id)
+      } else {
+        onArtistMatch?.(undefined)
       }
     }
     setIsOpen(false)
@@ -64,6 +73,8 @@ export function ArtistInput({
     field.handleChange(value)
     setSearchValue(value)
     setIsOpen(value.length > 0)
+    // Clear match when user types (they may be entering a new artist)
+    onArtistMatch?.(undefined)
   }
 
   const handleBlur = () => {
@@ -130,7 +141,7 @@ export function ArtistInput({
                         className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
                         onMouseDown={e => {
                           e.preventDefault()
-                          handleArtistSelect(artist.name)
+                          handleArtistSelect(artist.name, artist.id)
                         }}
                       >
                         <div className="flex w-full items-center justify-between gap-2">

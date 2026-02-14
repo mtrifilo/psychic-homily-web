@@ -47,6 +47,8 @@ const showFormSchema = z.object({
       z.object({
         name: z.string().min(1, 'Artist name is required'),
         is_headliner: z.boolean(),
+        matched_id: z.number().optional(),
+        instagram_handle: z.string().optional(),
       })
     )
     .min(1, 'At least one artist is required'),
@@ -75,6 +77,8 @@ const showFormSchema = z.object({
 interface FormArtist {
   name: string
   is_headliner: boolean
+  matched_id?: number
+  instagram_handle?: string
 }
 
 interface FormValues {
@@ -96,7 +100,7 @@ interface FormValues {
 
 const defaultValues: FormValues = {
   title: '',
-  artists: [{ name: '', is_headliner: true }],
+  artists: [{ name: '', is_headliner: true, matched_id: undefined, instagram_handle: undefined }],
   venue: { id: undefined, name: '', city: '', state: '', address: '' },
   date: '',
   time: '20:00',
@@ -118,6 +122,8 @@ function showToFormValues(show: ShowResponse): FormValues {
     artists: show.artists.map(artist => ({
       name: artist.name,
       is_headliner: artist.is_headliner ?? false,
+      matched_id: artist.id,
+      instagram_handle: undefined,
     })),
     venue: {
       name: venue?.name || '',
@@ -263,8 +269,10 @@ export function ShowForm({
             },
           ],
           artists: value.artists.map(artist => ({
+            id: artist.matched_id,
             name: artist.name,
             is_headliner: artist.is_headliner,
+            instagram_handle: artist.matched_id ? undefined : artist.instagram_handle || undefined,
           })),
         }
 
@@ -307,8 +315,10 @@ export function ShowForm({
             },
           ],
           artists: value.artists.map(artist => ({
+            id: artist.matched_id,
             name: artist.name,
             is_headliner: artist.is_headliner,
+            instagram_handle: artist.matched_id ? undefined : artist.instagram_handle || undefined,
           })),
           // Only include is_private for new/unverified venue submissions
           is_private: isPrivateShow || undefined,
@@ -363,6 +373,8 @@ export function ShowForm({
           initialExtraction.artists.map(a => ({
             name: a.matched_name || a.name,
             is_headliner: a.is_headliner,
+            matched_id: a.matched_id,
+            instagram_handle: a.matched_id ? undefined : a.instagram_handle,
           }))
         )
       }
@@ -455,7 +467,7 @@ export function ShowForm({
     const currentArtists = form.getFieldValue('artists')
     form.setFieldValue('artists', [
       ...currentArtists,
-      { name: '', is_headliner: false },
+      { name: '', is_headliner: false, matched_id: undefined, instagram_handle: undefined },
     ])
   }
 
@@ -524,17 +536,38 @@ export function ShowForm({
         <form.Field name="artists" mode="array">
           {artistsField => (
             <div className="space-y-4">
-              {artistsField.state.value.map((_: FormArtist, index: number) => (
-                <form.Field key={index} name={`artists[${index}].name`}>
-                  {field => (
-                    <ArtistInput
-                      field={field}
-                      index={index}
-                      showRemoveButton={artistsField.state.value.length > 1}
-                      onRemove={() => handleRemoveArtist(index)}
-                    />
+              {artistsField.state.value.map((artist: FormArtist, index: number) => (
+                <div key={index} className="space-y-2">
+                  <form.Field name={`artists[${index}].name`}>
+                    {field => (
+                      <ArtistInput
+                        field={field}
+                        index={index}
+                        showRemoveButton={artistsField.state.value.length > 1}
+                        onRemove={() => handleRemoveArtist(index)}
+                        onArtistMatch={(artistId) => {
+                          form.setFieldValue(`artists[${index}].matched_id`, artistId)
+                          if (artistId) {
+                            // Clear instagram for matched artists
+                            form.setFieldValue(`artists[${index}].instagram_handle`, undefined)
+                          }
+                        }}
+                      />
+                    )}
+                  </form.Field>
+                  {/* Instagram handle input - only for new (unmatched) artists with a name */}
+                  {!artist.matched_id && artist.name?.trim() && (
+                    <form.Field name={`artists[${index}].instagram_handle`}>
+                      {field => (
+                        <FormField
+                          field={field}
+                          label="Instagram Handle (Optional)"
+                          placeholder="@artistname"
+                        />
+                      )}
+                    </form.Field>
                   )}
-                </form.Field>
+                </div>
               ))}
               <Button
                 type="button"
