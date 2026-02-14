@@ -13,6 +13,7 @@ import { CookieConsentProvider } from '@/lib/context/CookieConsentContext'
 import Nav from '@/app/nav'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateOrganizationSchema } from '@/lib/seo/jsonld'
+import { Analytics } from '@vercel/analytics/react'
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://psychichomily.com'),
@@ -61,6 +62,7 @@ export default function RootLayout({
                   <Footer />
                 </div>
                 <CookieConsentBanner />
+                <Analytics />
               </PostHogProvider>
             </CookieConsentProvider>
           </ThemeProvider>

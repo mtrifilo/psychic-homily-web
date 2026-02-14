@@ -149,38 +149,74 @@ function ShowListItem({
   const onStage = stageShowIds?.has(showKey) ?? false
   const onProd = productionShowIds?.has(showKey) ?? false
 
+  const artistNames = show.artists
+    .sort((a, b) => a.position - b.position)
+    .map((a) => a.name)
+
+  const detailParts: string[] = []
+  const venueName = show.venues.map((v) => v.name).join(', ')
+  if (venueName) detailParts.push(venueName)
+  if (show.price != null) detailParts.push(formatPrice(show.price))
+  if (show.ageRequirement) detailParts.push(show.ageRequirement)
+  const time = formatTime(show.eventDate)
+  if (time) detailParts.push(time)
+  detailParts.push(formatDate(show.eventDate))
+
   return (
-    <div className="flex items-start justify-between gap-2">
-      <div className="min-w-0">
-        <div className="font-medium text-foreground truncate">{show.title}</div>
-        <div className="text-sm text-muted-foreground">
-          {formatDate(show.eventDate)} •{' '}
-          {show.venues.map((v) => v.name).join(', ') || 'No venue'} •{' '}
-          {show.artists.length} artist{show.artists.length !== 1 ? 's' : ''}
+    <div className={show.isCancelled ? 'opacity-60' : undefined}>
+      {/* Line 1: Artist names + badges */}
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 truncate font-medium text-foreground">
+          {artistNames.length > 0 ? artistNames.join(' \u2022 ') : show.title}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {show.isCancelled && (
+            <Badge variant="outline" className="text-xs text-red-600 border-red-300">Cancelled</Badge>
+          )}
+          {show.isSoldOut && (
+            <Badge variant="outline" className="text-xs text-orange-600 border-orange-300">Sold Out</Badge>
+          )}
+          <Badge
+            variant={
+              show.status === 'approved'
+                ? 'default'
+                : show.status === 'pending'
+                ? 'secondary'
+                : 'outline'
+            }
+          >
+            {show.status}
+          </Badge>
+          {onStage && onProd && (
+            <Badge variant="outline" className="text-xs">Both</Badge>
+          )}
+          {onStage && !onProd && (
+            <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">Stage</Badge>
+          )}
+          {!onStage && onProd && (
+            <Badge variant="outline" className="text-xs text-green-600 border-green-300">Prod</Badge>
+          )}
         </div>
       </div>
-      <div className="flex items-center gap-1.5 shrink-0">
-        {onStage && onProd && (
-          <Badge variant="outline" className="text-xs">Both</Badge>
-        )}
-        {onStage && !onProd && (
-          <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">Stage</Badge>
-        )}
-        {!onStage && onProd && (
-          <Badge variant="outline" className="text-xs text-green-600 border-green-300">Prod</Badge>
-        )}
-        <Badge
-          variant={
-            show.status === 'approved'
-              ? 'default'
-              : show.status === 'pending'
-              ? 'secondary'
-              : 'outline'
-          }
-        >
-          {show.status}
-        </Badge>
+      {/* Line 2: Venue, price, age, time, date */}
+      <div className="text-sm text-muted-foreground truncate">
+        {detailParts.map((part, i) => (
+          <span key={i}>
+            {i === 0 && venueName ? (
+              <span className="text-primary">{part}</span>
+            ) : (
+              part
+            )}
+            {i < detailParts.length - 1 && ' \u2022 '}
+          </span>
+        ))}
       </div>
+      {/* Line 3: Description (optional) */}
+      {show.description && (
+        <div className="text-xs text-muted-foreground/70 line-clamp-1 mt-0.5">
+          {show.description}
+        </div>
+      )}
     </div>
   )
 }
@@ -188,8 +224,25 @@ function ShowListItem({
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
   return date.toLocaleDateString('en-US', {
+    weekday: 'short',
     month: 'short',
     day: 'numeric',
-    year: 'numeric',
   })
+}
+
+function formatTime(dateStr: string): string {
+  const date = new Date(dateStr)
+  const hours = date.getHours()
+  const minutes = date.getMinutes()
+  // Skip if midnight (no time info)
+  if (hours === 0 && minutes === 0) return ''
+  return date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function formatPrice(price: number): string {
+  if (price === 0) return 'Free'
+  return `$${price.toFixed(2)}`
 }
