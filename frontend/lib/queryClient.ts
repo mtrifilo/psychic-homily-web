@@ -14,9 +14,9 @@ import { AuthError, AuthErrorCode } from './errors'
 const defaultQueryOptions: DefaultOptions = {
   queries: {
     // Stale time: how long data is considered fresh
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 15 * 60 * 1000, // 15 minutes
     // Cache time: how long data stays in cache after last use
-    gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
+    gcTime: 30 * 60 * 1000, // 30 minutes (formerly cacheTime)
     // Retry configuration
     retry: (failureCount, error: Error & { status?: number }) => {
       // Don't retry on 4xx errors (client errors)

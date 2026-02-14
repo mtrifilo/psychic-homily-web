@@ -192,15 +192,23 @@ func setupPasskeyRoutes(router *chi.Mux, api huma.API, protected *huma.Group, sc
 func setupShowRoutes(router *chi.Mux, api huma.API, protected *huma.Group, sc *services.ServiceContainer, cfg *config.Config) {
 	showHandler := handlers.NewShowHandler(sc.Show, sc.SavedShow, sc.Discord, sc.MusicDiscovery, sc.Extraction)
 
-	// Public show endpoints - registered on main API without middleware
-	// Note: Static routes must come before parameterized routes
-	huma.Get(api, "/shows", showHandler.GetShowsHandler)
-	huma.Get(api, "/shows/cities", showHandler.GetShowCitiesHandler)
-	huma.Get(api, "/shows/upcoming", showHandler.GetUpcomingShowsHandler)
+	// Public show endpoints with cache headers
+	// Lists: 5 min cache, 30 min stale-while-revalidate
+	cachedListGroup := huma.NewGroup(api, "")
+	cachedListGroup.UseMiddleware(middleware.HumaCacheControl(300))
+	huma.Get(cachedListGroup, "/shows", showHandler.GetShowsHandler)
+	huma.Get(cachedListGroup, "/shows/upcoming", showHandler.GetUpcomingShowsHandler)
+
+	// City aggregations: 30 min cache, 3 hr stale-while-revalidate
+	cachedCitiesGroup := huma.NewGroup(api, "")
+	cachedCitiesGroup.UseMiddleware(middleware.HumaCacheControl(1800))
+	huma.Get(cachedCitiesGroup, "/shows/cities", showHandler.GetShowCitiesHandler)
 
 	// Show detail with optional auth for access control on non-approved shows
+	// Detail pages: 10 min cache, 1 hr stale-while-revalidate
 	optionalAuthGroup := huma.NewGroup(api, "")
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(sc.JWT))
+	optionalAuthGroup.UseMiddleware(middleware.HumaCacheControl(600))
 	huma.Get(optionalAuthGroup, "/shows/{show_id}", showHandler.GetShowHandler)
 
 	// Export endpoint - only register in development environment
@@ -252,12 +260,22 @@ func setupShowRoutes(router *chi.Mux, api huma.API, protected *huma.Group, sc *s
 func setupArtistRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
 	artistHandler := handlers.NewArtistHandler(sc.Artist, sc.AuditLog)
 
-	// Public artist endpoints - registered on main API without middleware
-	// Note: Static routes must come before parameterized routes
-	huma.Get(api, "/artists", artistHandler.ListArtistsHandler)
-	huma.Get(api, "/artists/search", artistHandler.SearchArtistsHandler)
-	huma.Get(api, "/artists/{artist_id}", artistHandler.GetArtistHandler)
-	huma.Get(api, "/artists/{artist_id}/shows", artistHandler.GetArtistShowsHandler)
+	// Public artist endpoints with cache headers
+	// Lists: 5 min cache
+	cachedListGroup := huma.NewGroup(api, "")
+	cachedListGroup.UseMiddleware(middleware.HumaCacheControl(300))
+	huma.Get(cachedListGroup, "/artists", artistHandler.ListArtistsHandler)
+	huma.Get(cachedListGroup, "/artists/{artist_id}/shows", artistHandler.GetArtistShowsHandler)
+
+	// Search: 2 min cache
+	cachedSearchGroup := huma.NewGroup(api, "")
+	cachedSearchGroup.UseMiddleware(middleware.HumaCacheControl(120))
+	huma.Get(cachedSearchGroup, "/artists/search", artistHandler.SearchArtistsHandler)
+
+	// Detail: 10 min cache
+	cachedDetailGroup := huma.NewGroup(api, "")
+	cachedDetailGroup.UseMiddleware(middleware.HumaCacheControl(600))
+	huma.Get(cachedDetailGroup, "/artists/{artist_id}", artistHandler.GetArtistHandler)
 
 	// Protected artist endpoints
 	huma.Delete(protected, "/artists/{artist_id}", artistHandler.DeleteArtistHandler)
@@ -267,13 +285,27 @@ func setupArtistRoutes(api huma.API, protected *huma.Group, sc *services.Service
 func setupVenueRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
 	venueHandler := handlers.NewVenueHandler(sc.Venue, sc.Discord)
 
-	// Public venue endpoints - registered on main API without middleware
-	// Note: Static routes must come before parameterized routes
-	huma.Get(api, "/venues", venueHandler.ListVenuesHandler)
-	huma.Get(api, "/venues/cities", venueHandler.GetVenueCitiesHandler)
-	huma.Get(api, "/venues/search", venueHandler.SearchVenuesHandler)
-	huma.Get(api, "/venues/{venue_id}", venueHandler.GetVenueHandler)
-	huma.Get(api, "/venues/{venue_id}/shows", venueHandler.GetVenueShowsHandler)
+	// Public venue endpoints with cache headers
+	// Lists: 5 min cache
+	cachedListGroup := huma.NewGroup(api, "")
+	cachedListGroup.UseMiddleware(middleware.HumaCacheControl(300))
+	huma.Get(cachedListGroup, "/venues", venueHandler.ListVenuesHandler)
+	huma.Get(cachedListGroup, "/venues/{venue_id}/shows", venueHandler.GetVenueShowsHandler)
+
+	// City aggregations: 30 min cache
+	cachedCitiesGroup := huma.NewGroup(api, "")
+	cachedCitiesGroup.UseMiddleware(middleware.HumaCacheControl(1800))
+	huma.Get(cachedCitiesGroup, "/venues/cities", venueHandler.GetVenueCitiesHandler)
+
+	// Search: 2 min cache
+	cachedSearchGroup := huma.NewGroup(api, "")
+	cachedSearchGroup.UseMiddleware(middleware.HumaCacheControl(120))
+	huma.Get(cachedSearchGroup, "/venues/search", venueHandler.SearchVenuesHandler)
+
+	// Detail: 10 min cache
+	cachedDetailGroup := huma.NewGroup(api, "")
+	cachedDetailGroup.UseMiddleware(middleware.HumaCacheControl(600))
+	huma.Get(cachedDetailGroup, "/venues/{venue_id}", venueHandler.GetVenueHandler)
 
 	// Protected venue endpoints - require authentication
 	huma.Put(protected, "/venues/{venue_id}", venueHandler.UpdateVenueHandler)
