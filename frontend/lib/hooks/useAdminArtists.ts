@@ -380,6 +380,9 @@ export function useArtistUpdate() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.artists.all,
       })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.shows.all,
+      })
     },
   })
 }

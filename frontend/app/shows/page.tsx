@@ -1,6 +1,5 @@
 import { Suspense } from 'react'
-import { ShowList } from '@/components/shows'
-import { LoadingSpinner } from '@/components/shared'
+import { ShowList, ShowListSkeleton } from '@/components/shows'
 
 export const metadata = {
   title: 'Upcoming Shows',
@@ -13,19 +12,11 @@ export const metadata = {
   },
 }
 
-function ShowListFallback() {
-  return (
-    <div className="flex justify-center items-center py-12">
-      <LoadingSpinner />
-    </div>
-  )
-}
-
 export default function ShowsPage() {
   return (
     <div className="w-full max-w-4xl mx-auto px-4 py-8 md:px-8">
-        <h1 className="text-3xl font-bold text-center mb-8">Upcoming Shows</h1>
-        <Suspense fallback={<ShowListFallback />}>
+        <h1 className="text-3xl font-bold text-center mb-8 leading-9">Upcoming Shows</h1>
+        <Suspense fallback={<ShowListSkeleton />}>
           <ShowList />
         </Suspense>
     </div>

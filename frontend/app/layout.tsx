@@ -14,6 +14,7 @@ import Nav from '@/app/nav'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateOrganizationSchema } from '@/lib/seo/jsonld'
 import { Analytics } from '@vercel/analytics/react'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 
 export const viewport: Viewport = {
   themeColor: [
@@ -74,6 +75,7 @@ export default function RootLayout({
                 </div>
                 <CookieConsentBanner />
                 <Analytics />
+                <SpeedInsights />
               </PostHogProvider>
             </CookieConsentProvider>
           </ThemeProvider>

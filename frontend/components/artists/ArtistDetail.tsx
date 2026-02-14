@@ -311,7 +311,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
       {/* Header */}
       <header className="mb-8">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl md:text-3xl font-bold">{artist.name}</h1>
+          <h1 className="text-2xl md:text-3xl font-bold leading-8 md:leading-9">{artist.name}</h1>
           {isAdmin && (
             <Button
               variant="ghost"

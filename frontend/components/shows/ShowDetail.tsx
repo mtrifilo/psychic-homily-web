@@ -183,7 +183,7 @@ export function ShowDetail({ showId }: ShowDetailProps) {
             </div>
 
             {/* Artists */}
-            <h1 className="text-2xl md:text-3xl font-bold">
+            <h1 className="text-2xl md:text-3xl font-bold leading-8 md:leading-9">
               {artists.map((artist, index) => (
                 <span key={artist.id}>
                   {index > 0 && (

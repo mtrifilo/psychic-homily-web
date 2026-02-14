@@ -150,7 +150,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h1 className="text-2xl md:text-3xl font-bold">{venue.name}</h1>
+                  <h1 className="text-2xl md:text-3xl font-bold leading-8 md:leading-9">{venue.name}</h1>
                   {venue.verified && (
                     <BadgeCheck
                       className="h-6 w-6 text-primary shrink-0"

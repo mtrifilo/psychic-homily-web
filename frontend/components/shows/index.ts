@@ -1,5 +1,6 @@
 export { ShowDetail } from './ShowDetail'
 export { ShowList } from './ShowList'
+export { ShowListSkeleton } from './ShowListSkeleton'
 export { HomeShowList } from './HomeShowList'
 export { DeleteShowDialog } from './DeleteShowDialog'
 export { PublishShowDialog } from './PublishShowDialog'
