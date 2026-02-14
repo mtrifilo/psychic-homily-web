@@ -213,6 +213,34 @@ func TestExtractRawArtists(t *testing.T) {
 		assert.Equal(t, "Solo Artist", artists[0].Name)
 		assert.False(t, artists[0].IsHeadliner)
 	})
+
+	t.Run("parses_instagram_handle", func(t *testing.T) {
+		parsed := map[string]interface{}{
+			"artists": []interface{}{
+				map[string]interface{}{"name": "Artist With IG", "is_headliner": true, "instagram_handle": "@artist_ig"},
+				map[string]interface{}{"name": "Artist Without IG", "is_headliner": false},
+			},
+		}
+
+		artists := extractRawArtists(parsed)
+		require.Len(t, artists, 2)
+		assert.Equal(t, "@artist_ig", artists[0].InstagramHandle)
+		assert.Equal(t, "", artists[1].InstagramHandle)
+	})
+
+	t.Run("missing_instagram_handle_defaults_empty", func(t *testing.T) {
+		parsed := map[string]interface{}{
+			"artists": []interface{}{
+				map[string]interface{}{"name": "Band A", "is_headliner": true},
+				map[string]interface{}{"name": "Band B", "is_headliner": false},
+			},
+		}
+
+		artists := extractRawArtists(parsed)
+		require.Len(t, artists, 2)
+		assert.Equal(t, "", artists[0].InstagramHandle)
+		assert.Equal(t, "", artists[1].InstagramHandle)
+	})
 }
 
 // =============================================================================
@@ -949,6 +977,46 @@ func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_MultipleArtists() 
 	suite.NotNil(result[1].MatchedID)
 	suite.Equal("Ceremony", *result[1].MatchedName)
 	suite.False(result[1].IsHeadliner)
+}
+
+func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_InstagramPreservedForNewArtist() {
+	// No artists in DB — new artist should preserve instagram handle
+	result := suite.extractionService.matchArtists([]rawArtist{
+		{Name: "New Band", IsHeadliner: true, InstagramHandle: "@newband"},
+	})
+
+	suite.Require().Len(result, 1)
+	suite.Equal("@newband", result[0].InstagramHandle)
+	suite.Nil(result[0].MatchedID)
+}
+
+func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_InstagramClearedForMatchedArtist() {
+	suite.createArtist("Existing Band")
+
+	result := suite.extractionService.matchArtists([]rawArtist{
+		{Name: "Existing Band", IsHeadliner: false, InstagramHandle: "@existing_ig"},
+	})
+
+	suite.Require().Len(result, 1)
+	suite.NotNil(result[0].MatchedID)
+	suite.Equal("", result[0].InstagramHandle, "Instagram handle should be cleared for matched artists")
+}
+
+func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_InstagramMixedMatchAndNew() {
+	suite.createArtist("Known Artist")
+
+	result := suite.extractionService.matchArtists([]rawArtist{
+		{Name: "Known Artist", IsHeadliner: true, InstagramHandle: "@known_ig"},
+		{Name: "Unknown Artist", IsHeadliner: false, InstagramHandle: "@unknown_ig"},
+	})
+
+	suite.Require().Len(result, 2)
+	// Matched artist: instagram cleared
+	suite.NotNil(result[0].MatchedID)
+	suite.Equal("", result[0].InstagramHandle)
+	// New artist: instagram preserved
+	suite.Nil(result[1].MatchedID)
+	suite.Equal("@unknown_ig", result[1].InstagramHandle)
 }
 
 // --- matchVenue integration tests ---

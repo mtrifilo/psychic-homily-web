@@ -513,6 +513,134 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistAndVenue()
 	suite.NoError(suite.db.Where("name = ?", "New Place").First(&venue).Error)
 }
 
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistWithInstagram() {
+	user := suite.createTestUser()
+	igHandle := "@ig_artist"
+	req := &CreateShowRequest{
+		Title:     "IG Show",
+		EventDate: time.Date(2026, 10, 2, 20, 0, 0, 0, time.UTC),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues: []CreateShowVenue{
+			{Name: "IG Venue", City: "Phoenix", State: "AZ"},
+		},
+		Artists: []CreateShowArtist{
+			{Name: "IG Artist", IsHeadliner: boolPtr(true), InstagramHandle: &igHandle},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+
+	resp, err := suite.showService.CreateShow(req)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Len(resp.Artists, 1)
+
+	// Verify DB artist has instagram set
+	var artist models.Artist
+	suite.NoError(suite.db.Where("name = ?", "IG Artist").First(&artist).Error)
+	suite.Require().NotNil(artist.Social.Instagram)
+	suite.Equal("@ig_artist", *artist.Social.Instagram)
+
+	// Verify response socials
+	suite.Require().NotNil(resp.Artists[0].Socials.Instagram)
+	suite.Equal("@ig_artist", *resp.Artists[0].Socials.Instagram)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistWithoutInstagram() {
+	user := suite.createTestUser()
+	req := &CreateShowRequest{
+		Title:     "No IG Show",
+		EventDate: time.Date(2026, 10, 3, 20, 0, 0, 0, time.UTC),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues: []CreateShowVenue{
+			{Name: "No IG Venue", City: "Phoenix", State: "AZ"},
+		},
+		Artists: []CreateShowArtist{
+			{Name: "No IG Artist", IsHeadliner: boolPtr(true)},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+
+	resp, err := suite.showService.CreateShow(req)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+
+	// Verify DB artist has no instagram
+	var artist models.Artist
+	suite.NoError(suite.db.Where("name = ?", "No IG Artist").First(&artist).Error)
+	suite.Nil(artist.Social.Instagram)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_ExistingArtistIgnoresInstagram() {
+	// Pre-create artist with no Instagram
+	preExisting := models.Artist{Name: "Pre-existing Artist"}
+	suite.Require().NoError(suite.db.Create(&preExisting).Error)
+
+	user := suite.createTestUser()
+	igHandle := "@should_ignore"
+	req := &CreateShowRequest{
+		Title:     "Existing Artist IG Show",
+		EventDate: time.Date(2026, 10, 4, 20, 0, 0, 0, time.UTC),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues: []CreateShowVenue{
+			{Name: "Some Venue", City: "Phoenix", State: "AZ"},
+		},
+		Artists: []CreateShowArtist{
+			{Name: "Pre-existing Artist", IsHeadliner: boolPtr(true), InstagramHandle: &igHandle},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+
+	resp, err := suite.showService.CreateShow(req)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Len(resp.Artists, 1)
+	// Artist should be reused, not duplicated
+	suite.Equal(preExisting.ID, resp.Artists[0].ID)
+
+	// Verify DB artist still has no instagram (existing artist socials unchanged)
+	var artist models.Artist
+	suite.NoError(suite.db.First(&artist, preExisting.ID).Error)
+	suite.Nil(artist.Social.Instagram, "Existing artist's Instagram should not be modified")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistEmptyInstagramIgnored() {
+	user := suite.createTestUser()
+	emptyIG := ""
+	req := &CreateShowRequest{
+		Title:     "Empty IG Show",
+		EventDate: time.Date(2026, 10, 5, 20, 0, 0, 0, time.UTC),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues: []CreateShowVenue{
+			{Name: "Empty IG Venue", City: "Phoenix", State: "AZ"},
+		},
+		Artists: []CreateShowArtist{
+			{Name: "Empty IG Artist", IsHeadliner: boolPtr(true), InstagramHandle: &emptyIG},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+
+	resp, err := suite.showService.CreateShow(req)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+
+	// Verify DB artist has no instagram (empty string should be treated as nil)
+	var artist models.Artist
+	suite.NoError(suite.db.Where("name = ?", "Empty IG Artist").First(&artist).Error)
+	suite.Nil(artist.Social.Instagram, "Empty instagram handle should not be stored")
+}
+
 func (suite *ShowServiceIntegrationTestSuite) TestGetShow_Success() {
 	created := suite.createTestShow()
 

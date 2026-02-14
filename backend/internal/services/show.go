@@ -55,9 +55,10 @@ type CreateShowVenue struct {
 // CreateShowArtist represents an artist in a show creation request.
 // IsHeadliner is used for duplicate prevention (headliners can't perform at same venue on same date).
 type CreateShowArtist struct {
-	ID          *uint  `json:"id"`
-	Name        string `json:"name"`
-	IsHeadliner *bool  `json:"is_headliner"`
+	ID              *uint   `json:"id"`
+	Name            string  `json:"name"`
+	IsHeadliner     *bool   `json:"is_headliner"`
+	InstagramHandle *string `json:"instagram_handle,omitempty"`
 }
 
 // CreateShowRequest represents the data needed to create a new show.
@@ -1356,6 +1357,10 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 				// Create new artist
 				artist = models.Artist{
 					Name: requestArtist.Name,
+				}
+				// Set Instagram handle if provided
+				if requestArtist.InstagramHandle != nil && *requestArtist.InstagramHandle != "" {
+					artist.Social.Instagram = requestArtist.InstagramHandle
 				}
 				if err := tx.Create(&artist).Error; err != nil {
 					return nil, fmt.Errorf("failed to create artist %s: %w", requestArtist.Name, err)

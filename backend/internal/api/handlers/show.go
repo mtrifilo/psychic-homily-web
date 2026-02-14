@@ -44,9 +44,10 @@ func NewShowHandler(
 
 // Artist represents an artist in a show request
 type Artist struct {
-	ID          *uint   `json:"id,omitempty"`
-	Name        *string `json:"name,omitempty"`
-	IsHeadliner *bool   `json:"is_headliner,omitempty"`
+	ID              *uint   `json:"id,omitempty"`
+	Name            *string `json:"name,omitempty"`
+	IsHeadliner     *bool   `json:"is_headliner,omitempty"`
+	InstagramHandle *string `json:"instagram_handle,omitempty"`
 }
 
 // Venue represents a venue in a show request
@@ -157,6 +158,13 @@ func (r *CreateShowRequestBody) Resolve(ctx huma.Context) []error {
 				Location: fmt.Sprintf("body.artists[%d].name", i),
 				Message:  "Artist name must be 255 characters or fewer",
 				Value:    len(*artist.Name),
+			})
+		}
+		if artist.InstagramHandle != nil && len(*artist.InstagramHandle) > 100 {
+			errors = append(errors, &huma.ErrorDetail{
+				Location: fmt.Sprintf("body.artists[%d].instagram_handle", i),
+				Message:  "Instagram handle must be 100 characters or fewer",
+				Value:    len(*artist.InstagramHandle),
 			})
 		}
 	}
@@ -344,9 +352,10 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 			name = *artist.Name
 		}
 		serviceArtists[i] = services.CreateShowArtist{
-			ID:          artist.ID,
-			Name:        name,
-			IsHeadliner: artist.IsHeadliner,
+			ID:              artist.ID,
+			Name:            name,
+			IsHeadliner:     artist.IsHeadliner,
+			InstagramHandle: artist.InstagramHandle,
 		}
 	}
 
@@ -809,9 +818,10 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 				name = *artist.Name
 			}
 			serviceArtists[i] = services.CreateShowArtist{
-				ID:          artist.ID,
-				Name:        name,
-				IsHeadliner: artist.IsHeadliner,
+				ID:              artist.ID,
+				Name:            name,
+				IsHeadliner:     artist.IsHeadliner,
+				InstagramHandle: artist.InstagramHandle,
 			}
 		}
 	}

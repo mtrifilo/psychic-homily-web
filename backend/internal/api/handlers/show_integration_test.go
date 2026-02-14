@@ -302,6 +302,62 @@ func (s *ShowHandlerIntegrationSuite) TestDeleteShow_NotFound() {
 	s.Error(err)
 }
 
+// --- CreateShowHandler with InstagramHandle ---
+
+func (s *ShowHandlerIntegrationSuite) TestCreateShow_WithInstagramHandle() {
+	user := createTestUser(s.deps.db)
+	venue := createVerifiedVenue(s.deps.db, "IG Test Venue", "Phoenix", "AZ")
+
+	ctx := ctxWithUser(user)
+	title := "IG Show"
+	igHandle := "@new_ig"
+	req := &CreateShowRequest{}
+	req.Body.Title = &title
+	req.Body.EventDate = time.Now().UTC().AddDate(0, 0, 14)
+	req.Body.City = "Phoenix"
+	req.Body.State = "AZ"
+	req.Body.Venues = []Venue{{ID: &venue.ID}}
+	req.Body.Artists = []Artist{{Name: stringPtr("New IG Artist"), InstagramHandle: &igHandle}}
+
+	resp, err := s.handler.CreateShowHandler(ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Require().Len(resp.Body.Artists, 1)
+	s.Require().NotNil(resp.Body.Artists[0].Socials.Instagram)
+	s.Equal("@new_ig", *resp.Body.Artists[0].Socials.Instagram)
+
+	// Verify in DB
+	var artist models.Artist
+	s.NoError(s.deps.db.Where("name = ?", "New IG Artist").First(&artist).Error)
+	s.Require().NotNil(artist.Social.Instagram)
+	s.Equal("@new_ig", *artist.Social.Instagram)
+}
+
+func (s *ShowHandlerIntegrationSuite) TestUpdateShow_WithInstagramOnNewArtist() {
+	user := createTestUser(s.deps.db)
+	show := createApprovedShow(s.deps.db, user.ID, "Update IG Show")
+
+	ctx := ctxWithUser(user)
+	igHandle := "@updated_ig"
+	req := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	req.Body.Artists = []Artist{
+		{Name: stringPtr("Updated IG Artist"), InstagramHandle: &igHandle},
+	}
+
+	resp, err := s.handler.UpdateShowHandler(ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Require().Len(resp.Body.Artists, 1)
+	s.Require().NotNil(resp.Body.Artists[0].Socials.Instagram)
+	s.Equal("@updated_ig", *resp.Body.Artists[0].Socials.Instagram)
+
+	// Verify in DB
+	var artist models.Artist
+	s.NoError(s.deps.db.Where("name = ?", "Updated IG Artist").First(&artist).Error)
+	s.Require().NotNil(artist.Social.Instagram)
+	s.Equal("@updated_ig", *artist.Social.Instagram)
+}
+
 // --- GetMySubmissionsHandler ---
 
 func (s *ShowHandlerIntegrationSuite) TestGetMySubmissions_Success() {

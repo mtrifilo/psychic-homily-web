@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -192,6 +193,60 @@ func TestSetShowCancelledHandler_InvalidID(t *testing.T) {
 
 	_, err := h.SetShowCancelledHandler(ctx, req)
 	assertHumaError(t, err, 400)
+}
+
+// --- Resolve validation: InstagramHandle ---
+
+func TestResolve_InstagramHandleTooLong(t *testing.T) {
+	longHandle := make([]byte, 101)
+	for i := range longHandle {
+		longHandle[i] = 'x'
+	}
+	handleStr := string(longHandle)
+	name := "Test Artist"
+	body := &CreateShowRequestBody{
+		EventDate: time.Now().UTC().AddDate(0, 0, 7),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    []Venue{{Name: &name}},
+		Artists:   []Artist{{Name: &name, InstagramHandle: &handleStr}},
+	}
+
+	errs := body.Resolve(nil)
+
+	found := false
+	for _, e := range errs {
+		detail, ok := e.(*huma.ErrorDetail)
+		if ok && detail.Location == "body.artists[0].instagram_handle" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected validation error at body.artists[0].instagram_handle, got errors: %v", errs)
+	}
+}
+
+func TestResolve_InstagramHandleValid(t *testing.T) {
+	handle := "@valid_handle"
+	name := "Test Artist"
+	venueName := "Test Venue"
+	body := &CreateShowRequestBody{
+		EventDate: time.Now().UTC().AddDate(0, 0, 7),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    []Venue{{Name: &venueName}},
+		Artists:   []Artist{{Name: &name, InstagramHandle: &handle}},
+	}
+
+	errs := body.Resolve(nil)
+
+	for _, e := range errs {
+		detail, ok := e.(*huma.ErrorDetail)
+		if ok && detail.Location == "body.artists[0].instagram_handle" {
+			t.Errorf("unexpected instagram_handle validation error: %v", detail)
+		}
+	}
 }
 
 // --- ExportShowHandler ---

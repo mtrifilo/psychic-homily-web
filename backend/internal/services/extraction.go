@@ -18,7 +18,7 @@ const extractionSystemPrompt = `You are a show information extractor. Given text
 
 Output ONLY valid JSON with no additional text or markdown formatting:
 {
-  "artists": [{"name": "Artist Name", "is_headliner": true}],
+  "artists": [{"name": "Artist Name", "is_headliner": true, "instagram_handle": "@handle"}],
   "venue": {"name": "Venue Name", "city": "City", "state": "AZ"},
   "date": "YYYY-MM-DD",
   "time": "HH:MM",
@@ -28,6 +28,7 @@ Output ONLY valid JSON with no additional text or markdown formatting:
 
 Rules:
 - First artist listed is usually the headliner (is_headliner: true), others are is_headliner: false
+- For instagram_handle, extract Instagram handles (like @username) when visible on the flyer or in the text. Include the @ prefix. Omit if not found.
 - Convert dates to YYYY-MM-DD format (assume current year if not specified)
 - Convert time to 24-hour format (default to 20:00 if "doors" time is given but show time is ambiguous)
 - State should be 2-letter abbreviation (default to AZ for Arizona venues)
@@ -83,12 +84,13 @@ type VenueMatchSuggestion struct {
 
 // ExtractedArtist represents an extracted artist with optional DB match
 type ExtractedArtist struct {
-	Name        string            `json:"name"`
-	IsHeadliner bool              `json:"is_headliner"`
-	MatchedID   *uint             `json:"matched_id,omitempty"`
-	MatchedName *string           `json:"matched_name,omitempty"`
-	MatchedSlug *string           `json:"matched_slug,omitempty"`
-	Suggestions []MatchSuggestion `json:"suggestions,omitempty"`
+	Name            string            `json:"name"`
+	IsHeadliner     bool              `json:"is_headliner"`
+	InstagramHandle string            `json:"instagram_handle,omitempty"`
+	MatchedID       *uint             `json:"matched_id,omitempty"`
+	MatchedName     *string           `json:"matched_name,omitempty"`
+	MatchedSlug     *string           `json:"matched_slug,omitempty"`
+	Suggestions     []MatchSuggestion `json:"suggestions,omitempty"`
 }
 
 // ExtractedVenue represents an extracted venue with optional DB match
@@ -424,8 +426,9 @@ func parseExtractionResponse(text string) map[string]interface{} {
 
 // rawArtist is the intermediate type from Claude's JSON output
 type rawArtist struct {
-	Name        string `json:"name"`
-	IsHeadliner bool   `json:"is_headliner"`
+	Name            string `json:"name"`
+	IsHeadliner     bool   `json:"is_headliner"`
+	InstagramHandle string `json:"instagram_handle"`
 }
 
 // extractRawArtists extracts the artists array from parsed JSON
@@ -448,8 +451,9 @@ func extractRawArtists(parsed map[string]interface{}) []rawArtist {
 		}
 		name, _ := artistMap["name"].(string)
 		isHeadliner, _ := artistMap["is_headliner"].(bool)
+		instagramHandle, _ := artistMap["instagram_handle"].(string)
 		if name != "" {
-			artists = append(artists, rawArtist{Name: name, IsHeadliner: isHeadliner})
+			artists = append(artists, rawArtist{Name: name, IsHeadliner: isHeadliner, InstagramHandle: instagramHandle})
 		}
 	}
 
@@ -462,8 +466,9 @@ func (s *ExtractionService) matchArtists(rawArtists []rawArtist) []ExtractedArti
 
 	for _, raw := range rawArtists {
 		result := ExtractedArtist{
-			Name:        raw.Name,
-			IsHeadliner: raw.IsHeadliner,
+			Name:            raw.Name,
+			IsHeadliner:     raw.IsHeadliner,
+			InstagramHandle: raw.InstagramHandle,
 		}
 
 		// Search for the artist in the database
@@ -482,6 +487,8 @@ func (s *ExtractionService) matchArtists(rawArtists []rawArtist) []ExtractedArti
 				result.MatchedID = &exactMatch.ID
 				result.MatchedName = &exactMatch.Name
 				result.MatchedSlug = &exactMatch.Slug
+				// Clear instagram handle for matched artists — their socials are managed via artist edit
+				result.InstagramHandle = ""
 			} else {
 				// No exact match — include top 3 as suggestions
 				limit := 3
