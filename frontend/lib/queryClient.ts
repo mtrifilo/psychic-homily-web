@@ -198,6 +198,15 @@ export const queryKeys = {
       ['showReports', 'pending', { limit, offset }] as const,
   },
 
+  // Artist reports queries
+  artistReports: {
+    all: ['artistReports'] as const,
+    myReport: (artistId: string | number) =>
+      ['artistReports', 'myReport', String(artistId)] as const,
+    pending: (limit: number, offset: number) =>
+      ['artistReports', 'pending', { limit, offset }] as const,
+  },
+
   // System queries
   system: {
     health: ['system', 'health'] as const,
@@ -237,6 +246,10 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate show reports queries
   showReports: () =>
     queryClient.invalidateQueries({ queryKey: ['showReports'] }),
+
+  // Invalidate artist reports queries
+  artistReports: () =>
+    queryClient.invalidateQueries({ queryKey: ['artistReports'] }),
 
   // Invalidate audit logs queries
   auditLogs: () =>

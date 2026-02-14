@@ -107,3 +107,46 @@ export interface ArtistShowsResponse {
  */
 export type ArtistTimeFilter = 'upcoming' | 'past' | 'all'
 
+// Artist report types
+export type ArtistReportType = 'inaccurate' | 'removal_request'
+export type ArtistReportStatus = 'pending' | 'dismissed' | 'resolved'
+
+// Artist info for report responses
+export interface ArtistReportArtistInfo {
+  id: number
+  name: string
+  slug: string
+}
+
+// Artist report response
+export interface ArtistReportResponse {
+  id: number
+  artist_id: number
+  report_type: ArtistReportType
+  details?: string | null
+  status: ArtistReportStatus
+  admin_notes?: string | null
+  reviewed_by?: number | null
+  reviewed_at?: string | null
+  created_at: string
+  updated_at: string
+  artist?: ArtistReportArtistInfo
+}
+
+// Request to create an artist report
+export interface CreateArtistReportRequest {
+  report_type: ArtistReportType
+  details?: string
+}
+
+// Response for my-report endpoint
+export interface MyArtistReportResponse {
+  report: ArtistReportResponse | null
+}
+
+// Response for admin artist reports list
+export interface ArtistReportsListResponse {
+  reports: ArtistReportResponse[]
+  total: number
+}
+

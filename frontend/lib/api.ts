@@ -111,6 +111,10 @@ export const API_ENDPOINTS = {
     GET: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}`,
     SHOWS: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}/shows`,
     DELETE: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}`,
+    REPORT: (artistId: string | number) =>
+      `${API_BASE_URL}/artists/${artistId}/report`,
+    MY_REPORT: (artistId: string | number) =>
+      `${API_BASE_URL}/artists/${artistId}/my-report`,
   },
   VENUES: {
     LIST: `${API_BASE_URL}/venues`,
@@ -183,6 +187,13 @@ export const API_ENDPOINTS = {
         `${API_BASE_URL}/admin/reports/${reportId}/dismiss`,
       RESOLVE: (reportId: string | number) =>
         `${API_BASE_URL}/admin/reports/${reportId}/resolve`,
+    },
+    ARTIST_REPORTS: {
+      LIST: `${API_BASE_URL}/admin/artist-reports`,
+      DISMISS: (reportId: string | number) =>
+        `${API_BASE_URL}/admin/artist-reports/${reportId}/dismiss`,
+      RESOLVE: (reportId: string | number) =>
+        `${API_BASE_URL}/admin/artist-reports/${reportId}/resolve`,
     },
     TOKENS: {
       LIST: `${API_BASE_URL}/admin/tokens`,

@@ -6,6 +6,7 @@ import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, L
 import { usePendingVenueEdits } from '@/lib/hooks/useAdminVenueEdits'
 import { useUnverifiedVenues } from '@/lib/hooks/useAdminVenues'
 import { usePendingReports } from '@/lib/hooks/useAdminReports'
+import { usePendingArtistReports } from '@/lib/hooks/useAdminArtistReports'
 import { usePendingShows } from '@/lib/hooks/useAdminShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -95,6 +96,9 @@ export default function AdminPage() {
   const {
     data: reportsData,
   } = usePendingReports()
+  const {
+    data: artistReportsData,
+  } = usePendingArtistReports()
 
   return (
     <div className="min-h-[calc(100vh-64px)] px-4 py-8">
@@ -152,10 +156,9 @@ export default function AdminPage() {
             <TabsTrigger value="reports" className="gap-2">
               <Flag className="h-4 w-4" />
               Reports
-              {reportsData?.total !== undefined &&
-                reportsData.total > 0 && (
+              {((reportsData?.total || 0) + (artistReportsData?.total || 0)) > 0 && (
                   <span className="ml-1 rounded-full bg-red-500 px-2 py-0.5 text-xs font-medium text-white">
-                    {reportsData.total}
+                    {(reportsData?.total || 0) + (artistReportsData?.total || 0)}
                   </span>
                 )}
             </TabsTrigger>

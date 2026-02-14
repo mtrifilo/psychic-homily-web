@@ -28,6 +28,7 @@ import {
 import { SocialLinks, MusicEmbed } from '@/components/shared'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
 import { ArtistShowsList } from './ArtistShowsList'
+import { ReportArtistButton } from './ReportArtistButton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -322,6 +323,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
               <Edit2 className="h-4 w-4" />
             </Button>
           )}
+          <ReportArtistButton artistId={artist.id} artistName={artist.name} />
         </div>
         {hasLocation && (
           <div className="flex items-center gap-1 text-muted-foreground mt-2">
