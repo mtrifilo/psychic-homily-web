@@ -56,7 +56,16 @@ const showFormSchema = z.object({
     state: z.string().min(1, 'State is required'),
     address: z.string(),
   }),
-  date: z.string().min(1, 'Date is required'),
+  date: z.string().min(1, 'Date is required').refine(
+    (val) => {
+      if (!val) return true
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const selected = new Date(val + 'T00:00:00')
+      return selected >= today
+    },
+    { message: 'Date cannot be in the past' }
+  ),
   time: z.string(),
   cost: z.string(),
   ages: z.string(),

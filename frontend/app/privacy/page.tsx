@@ -23,7 +23,7 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-xl font-semibold mb-3">1. Introduction</h2>
             <p className="text-foreground/90 leading-relaxed mb-3">
-              Psychic Homily is a personal project operated by Matt T. in Phoenix, Arizona. It is not a registered business entity. In this policy, &quot;I,&quot; &quot;me,&quot; and &quot;my&quot; refer to the operator of Psychic Homily.
+              In this policy, &quot;I,&quot; &quot;me,&quot; and &quot;my&quot; refer to the operator of Psychic Homily.
             </p>
             <p className="text-foreground/90 leading-relaxed mb-3">
               I respect your privacy and am committed to protecting your personal information. This Privacy Policy explains how I collect, use, disclose, and safeguard your information when you use the website and services.

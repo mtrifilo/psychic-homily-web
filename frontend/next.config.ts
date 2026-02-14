@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
+import withBundleAnalyzer from "@next/bundle-analyzer";
 
 const nextConfig: NextConfig = {
   experimental: {
@@ -54,7 +55,7 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withSentryConfig(nextConfig, {
+const sentryConfig = withSentryConfig(nextConfig, {
   // Sentry organization and project slugs
   org: process.env.SENTRY_ORG,
   project: process.env.SENTRY_PROJECT,
@@ -77,3 +78,7 @@ export default withSentryConfig(nextConfig, {
   // Disable Sentry telemetry
   telemetry: false,
 });
+
+export default process.env.ANALYZE === 'true'
+  ? withBundleAnalyzer({ enabled: true })(sentryConfig)
+  : sentryConfig;

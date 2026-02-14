@@ -24,8 +24,9 @@ const navLinks = [
     href: 'https://psychichomily.substack.com/',
     label: 'Substack',
     external: true,
+    prefetch: false as const,
   },
-  { href: '/submissions', label: 'Submissions' },
+  { href: '/submissions', label: 'Submissions', prefetch: false as const },
 ]
 
 function isExternal(link: (typeof navLinks)[number]): boolean {
@@ -96,6 +97,7 @@ export default function Nav() {
                 alt="Psychic Homily Logo"
                 width={40}
                 height={40}
+                priority
                 className="rounded-full"
                 style={{ filter: 'url(#glitch)' }}
               />
@@ -110,6 +112,7 @@ export default function Nav() {
                 href={link.href}
                 target={isExternal(link) ? '_blank' : undefined}
                 rel={isExternal(link) ? 'noopener noreferrer' : undefined}
+                prefetch={'prefetch' in link ? link.prefetch : undefined}
                 className="px-3 py-1.5 text-sm font-medium rounded-md hover:bg-muted/50 hover:text-primary transition-colors"
               >
                 {link.label}
@@ -135,6 +138,7 @@ export default function Nav() {
               {user.is_admin && (
                 <Link
                   href="/admin"
+                  prefetch={false}
                   className="px-3 py-1.5 text-sm font-medium rounded-md hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-1.5"
                 >
                   <Shield className="h-3.5 w-3.5" />

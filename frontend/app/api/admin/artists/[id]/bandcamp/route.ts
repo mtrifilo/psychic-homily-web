@@ -56,18 +56,20 @@ async function validateBandcampUrl(url: string): Promise<{ valid: boolean; error
   }
 
   try {
-    // Use our existing album-id endpoint to validate the URL is embeddable
-    const response = await fetch(
-      `${process.env.NEXT_PUBLIC_URL || 'http://localhost:3000'}/api/bandcamp/album-id?url=${encodeURIComponent(url)}`
-    )
+    // Fetch the Bandcamp page directly to validate it's embeddable
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; MusicEmbed/1.0)',
+      },
+    })
 
     if (!response.ok) {
-      const error = await response.json()
-      return { valid: false, error: error.error || 'Could not validate URL' }
+      return { valid: false, error: `Failed to fetch Bandcamp page: ${response.status}` }
     }
 
-    const data = await response.json()
-    if (!data.albumId) {
+    const html = await response.text()
+    const match = html.match(/album=(\d+)/)
+    if (!match) {
       return { valid: false, error: 'Could not extract album ID from URL' }
     }
 

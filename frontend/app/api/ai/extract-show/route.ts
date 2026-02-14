@@ -15,7 +15,11 @@ import type {
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
 // System prompt for Claude to extract show information
-const EXTRACTION_SYSTEM_PROMPT = `You are a show information extractor. Given text or an image of a show flyer, extract structured information.
+function getExtractionSystemPrompt(): string {
+  const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD
+  return `You are a show information extractor. Given text or an image of a show flyer, extract structured information.
+
+Today's date is ${today}.
 
 Output ONLY valid JSON with no additional text or markdown formatting:
 {
@@ -29,7 +33,7 @@ Output ONLY valid JSON with no additional text or markdown formatting:
 
 Rules:
 - First artist listed is usually the headliner (is_headliner: true), others are is_headliner: false
-- Convert dates to YYYY-MM-DD format (assume current year if not specified)
+- Convert dates to YYYY-MM-DD format. If no year is specified, assume the next upcoming occurrence of that date (relative to today's date).
 - Convert time to 24-hour format (default to 20:00 if "doors" time is given but show time is ambiguous)
 - State should be 2-letter abbreviation (default to AZ for Arizona venues)
 - Omit fields if not found (don't include null or empty values)
@@ -37,6 +41,7 @@ Rules:
 - For ages, common formats are "21+", "18+", "All Ages"
 - If multiple dates are shown, extract only the first/primary date
 - Return ONLY the JSON object, no explanation or markdown code blocks`
+}
 
 interface UserProfile {
   success: boolean
@@ -399,7 +404,7 @@ export async function POST(request: NextRequest) {
     const response = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
-      system: EXTRACTION_SYSTEM_PROMPT,
+      system: getExtractionSystemPrompt(),
       messages: [
         {
           role: 'user',

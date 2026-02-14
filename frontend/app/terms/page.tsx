@@ -18,13 +18,6 @@ export default function TermsOfServicePage() {
           Last Updated: {lastUpdated} | Effective: {effectiveDate}
         </p>
 
-        {/* Individual Operator Notice */}
-        <div className="bg-muted/50 border border-border rounded-lg p-4 mb-8">
-          <p className="text-sm text-foreground/90">
-            Psychic Homily is a personal project operated by Matt T. in Phoenix, Arizona. It is not a registered business entity.
-          </p>
-        </div>
-
         <div className="prose prose-neutral dark:prose-invert max-w-none space-y-8">
           {/* 1. Acceptance of Terms */}
           <section>

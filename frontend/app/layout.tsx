@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { GeistSans } from 'geist/font/sans'
 import { GeistMono } from 'geist/font/mono'
 import './globals.css'
@@ -14,6 +14,13 @@ import Nav from '@/app/nav'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateOrganizationSchema } from '@/lib/seo/jsonld'
 import { Analytics } from '@vercel/analytics/react'
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: 'white' },
+    { media: '(prefers-color-scheme: dark)', color: 'black' },
+  ],
+}
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://psychichomily.com'),
@@ -42,6 +49,10 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <link rel="preconnect" href="https://api.psychichomily.com" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="//api.psychichomily.com" />
+        <link rel="dns-prefetch" href="//open.spotify.com" />
+        <link rel="dns-prefetch" href="//bandcamp.com" />
         <JsonLd data={generateOrganizationSchema()} />
       </head>
       <body

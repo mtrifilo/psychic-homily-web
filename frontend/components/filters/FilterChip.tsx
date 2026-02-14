@@ -17,7 +17,7 @@ export function FilterChip({ label, isActive, onClick, count }: FilterChipProps)
     >
       {label}
       {count !== undefined && (
-        <span className={`ml-1.5 ${isActive ? 'opacity-80' : 'opacity-60'}`}>
+        <span className={`ml-1.5 ${isActive ? 'opacity-80' : 'opacity-70'}`}>
           ({count})
         </span>
       )}

@@ -117,17 +117,19 @@ async function updateArtistBandcamp(
 
 async function validateBandcampUrl(url: string): Promise<boolean> {
   try {
-    // Use our existing album-id endpoint to validate the URL
-    const response = await fetch(
-      `${process.env.NEXT_PUBLIC_URL || 'http://localhost:3000'}/api/bandcamp/album-id?url=${encodeURIComponent(url)}`
-    )
+    // Fetch the Bandcamp page directly to validate it's embeddable
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; MusicEmbed/1.0)',
+      },
+    })
 
     if (!response.ok) {
       return false
     }
 
-    const data = await response.json()
-    return !!data.albumId
+    const html = await response.text()
+    return !!html.match(/album=(\d+)/)
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',

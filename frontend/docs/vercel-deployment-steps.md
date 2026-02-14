@@ -69,7 +69,6 @@ Set these in **Project Settings → Environment Variables**:
 | Variable | Value |
 |----------|-------|
 | `NEXT_PUBLIC_API_URL` | `https://api.psychichomily.com` |
-| `NEXT_PUBLIC_URL` | `https://psychichomily.com` |
 | `BACKEND_URL` | `https://api.psychichomily.com` |
 | `ANTHROPIC_API_KEY` | Your API key |
 | `INTERNAL_API_SECRET` | Generate a secure secret |
@@ -79,7 +78,6 @@ Set these in **Project Settings → Environment Variables**:
 | Variable | Value |
 |----------|-------|
 | `NEXT_PUBLIC_API_URL` | `https://api-stage.psychichomily.com` (or same as prod) |
-| `NEXT_PUBLIC_URL` | `https://stage.psychichomily.com` |
 | `BACKEND_URL` | `https://api-stage.psychichomily.com` (or same as prod) |
 | `ANTHROPIC_API_KEY` | Your API key |
 | `INTERNAL_API_SECRET` | Same or different secret |
