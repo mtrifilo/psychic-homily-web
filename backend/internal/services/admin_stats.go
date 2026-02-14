@@ -27,10 +27,11 @@ func NewAdminStatsService(database *gorm.DB) *AdminStatsService {
 // AdminDashboardStats contains all dashboard statistics
 type AdminDashboardStats struct {
 	// Action items (things that need admin attention)
-	PendingShows      int64 `json:"pending_shows"`
-	PendingVenueEdits int64 `json:"pending_venue_edits"`
-	PendingReports    int64 `json:"pending_reports"`
-	UnverifiedVenues  int64 `json:"unverified_venues"`
+	PendingShows         int64 `json:"pending_shows"`
+	PendingVenueEdits    int64 `json:"pending_venue_edits"`
+	PendingReports       int64 `json:"pending_reports"`
+	PendingArtistReports int64 `json:"pending_artist_reports"`
+	UnverifiedVenues     int64 `json:"unverified_venues"`
 
 	// Content totals
 	TotalShows   int64 `json:"total_shows"`
@@ -58,6 +59,9 @@ func (s *AdminStatsService) GetDashboardStats() (*AdminDashboardStats, error) {
 		return nil, err
 	}
 	if err := s.db.Model(&models.ShowReport{}).Where("status = ?", models.ShowReportStatusPending).Count(&stats.PendingReports).Error; err != nil {
+		return nil, err
+	}
+	if err := s.db.Model(&models.ArtistReport{}).Where("status = ?", models.ShowReportStatusPending).Count(&stats.PendingArtistReports).Error; err != nil {
 		return nil, err
 	}
 	if err := s.db.Model(&models.Venue{}).Where("verified = ?", false).Count(&stats.UnverifiedVenues).Error; err != nil {

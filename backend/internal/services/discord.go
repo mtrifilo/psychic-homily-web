@@ -261,6 +261,55 @@ func (s *DiscordService) NotifyShowReport(report *models.ShowReport, reporterEma
 	go s.sendWebhook(embed)
 }
 
+// NotifyArtistReport sends a notification when a user reports an artist issue
+func (s *DiscordService) NotifyArtistReport(report *models.ArtistReport, reporterEmail string) {
+	if !s.IsConfigured() || report == nil {
+		return
+	}
+
+	// Format report type for display
+	reportTypeDisplay := string(report.ReportType)
+	switch report.ReportType {
+	case models.ArtistReportTypeInaccurate:
+		reportTypeDisplay = "Inaccurate Info"
+	case models.ArtistReportTypeRemovalRequest:
+		reportTypeDisplay = "Removal Request"
+	}
+
+	artistName := "Unknown Artist"
+	if report.Artist.ID != 0 {
+		artistName = report.Artist.Name
+	}
+
+	fields := []DiscordEmbedField{
+		{Name: "Report Type", Value: reportTypeDisplay, Inline: true},
+		{Name: "Artist", Value: artistName, Inline: true},
+		{Name: "Reporter", Value: hashEmail(reporterEmail), Inline: true},
+	}
+
+	// Add details if provided
+	if report.Details != nil && *report.Details != "" {
+		details := *report.Details
+		if len(details) > 200 {
+			details = details[:197] + "..."
+		}
+		fields = append(fields, DiscordEmbedField{Name: "Details", Value: details, Inline: false})
+	}
+
+	// Add action link
+	actions := fmt.Sprintf("[Review Reports](%s/admin?tab=reports)", s.frontendURL)
+	fields = append(fields, DiscordEmbedField{Name: "Actions", Value: actions, Inline: false})
+
+	embed := DiscordEmbed{
+		Title:     fmt.Sprintf("Artist Report: %s", artistName),
+		Color:     ColorOrange,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Fields:    fields,
+	}
+
+	go s.sendWebhook(embed)
+}
+
 // NotifyNewVenue sends a notification when a new unverified venue is created
 func (s *DiscordService) NotifyNewVenue(venueID uint, venueName, city, state string, address *string, submitterEmail string) {
 	if !s.IsConfigured() {

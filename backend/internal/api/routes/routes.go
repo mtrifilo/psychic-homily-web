@@ -74,6 +74,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupSavedShowRoutes(protectedGroup, sc)
 	setupFavoriteVenueRoutes(protectedGroup, sc)
 	setupShowReportRoutes(router, protectedGroup, sc, cfg)
+	setupArtistReportRoutes(router, protectedGroup, sc, cfg)
 	setupAdminRoutes(protectedGroup, sc)
 
 	return api
@@ -334,6 +335,33 @@ func setupShowReportRoutes(router *chi.Mux, protected *huma.Group, sc *services.
 	huma.Get(protected, "/admin/reports", showReportHandler.GetPendingReportsHandler)
 	huma.Post(protected, "/admin/reports/{report_id}/dismiss", showReportHandler.DismissReportHandler)
 	huma.Post(protected, "/admin/reports/{report_id}/resolve", showReportHandler.ResolveReportHandler)
+}
+
+// setupArtistReportRoutes configures artist report endpoints
+func setupArtistReportRoutes(router *chi.Mux, protected *huma.Group, sc *services.ServiceContainer, cfg *config.Config) {
+	artistReportHandler := handlers.NewArtistReportHandler(sc.ArtistReport, sc.Discord, sc.User, sc.AuditLog)
+
+	// Rate-limited report submission: 5 requests per minute per IP
+	router.Group(func(r chi.Router) {
+		r.Use(httprate.Limit(
+			middleware.ReportRequestsPerMinute,
+			time.Minute,
+			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithLimitHandler(rateLimitHandler),
+		))
+		reportAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Artist Reports", "1.0.0"))
+		reportAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
+		reportAPI.UseMiddleware(middleware.HumaJWTMiddleware(sc.JWT, cfg.Session))
+		huma.Post(reportAPI, "/artists/{artist_id}/report", artistReportHandler.ReportArtistHandler)
+	})
+
+	// Protected report endpoints (no additional rate limiting)
+	huma.Get(protected, "/artists/{artist_id}/my-report", artistReportHandler.GetMyArtistReportHandler)
+
+	// Admin endpoints for managing artist reports
+	huma.Get(protected, "/admin/artist-reports", artistReportHandler.GetPendingArtistReportsHandler)
+	huma.Post(protected, "/admin/artist-reports/{report_id}/dismiss", artistReportHandler.DismissArtistReportHandler)
+	huma.Post(protected, "/admin/artist-reports/{report_id}/resolve", artistReportHandler.ResolveArtistReportHandler)
 }
 
 // setupAdminRoutes configures admin-only endpoints

@@ -15,6 +15,7 @@ type ServiceContainer struct {
 	AdminStats    *AdminStatsService
 	APIToken      *APITokenService
 	Artist        *ArtistService
+	ArtistReport  *ArtistReportService
 	AuditLog      *AuditLogService
 	FavoriteVenue *FavoriteVenueService
 	SavedShow     *SavedShowService
@@ -56,6 +57,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		AdminStats:    NewAdminStatsService(database),
 		APIToken:      NewAPITokenService(database),
 		Artist:        NewArtistService(database),
+		ArtistReport:  NewArtistReportService(database),
 		AuditLog:      NewAuditLogService(database),
 		FavoriteVenue: NewFavoriteVenueService(database),
 		SavedShow:     NewSavedShowService(database),
