@@ -22,6 +22,7 @@ import {
   Star,
   Ban,
   TicketX,
+  MoreVertical,
 } from 'lucide-react'
 import {
   formatDateInTimezone,
@@ -41,6 +42,13 @@ import { useSetShowSoldOut, useSetShowCancelled } from '@/lib/hooks/useAdminShow
 import { ShowForm } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 function formatDate(dateString: string, state?: string | null): string {
   const timezone = getTimezoneForState(state || 'AZ')
@@ -205,126 +213,109 @@ function ShowCard({
 
             {/* Action Buttons */}
             <div className="flex items-center gap-1 shrink-0">
-              {/* Save Button */}
+              {/* Save Button - always visible for quick access */}
               {showSaveButton && (
                 <SaveButton showId={show.id} variant="ghost" size="sm" />
               )}
 
-              {/* Unpublish Button (approved -> private) */}
-              {canUnpublish && (
+              {/* Cancel Edit Button - shown when editing */}
+              {isEditing && (
                 <Button
-                  variant="ghost"
+                  variant="secondary"
                   size="sm"
-                  onClick={() => setIsUnpublishDialogOpen(true)}
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                  title="Make private"
-                >
-                  <EyeOff className="h-3.5 w-3.5" />
-                </Button>
-              )}
-
-              {/* Make Private Button (pending -> private) */}
-              {canMakePrivate && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsMakePrivateDialogOpen(true)}
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                  title="Make private"
-                >
-                  <EyeOff className="h-3.5 w-3.5" />
-                </Button>
-              )}
-
-              {/* Publish Button (private -> approved/pending, rejected -> shows denied dialog) */}
-              {canPublish && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    if (show.status === 'rejected') {
-                      setIsVenueDeniedDialogOpen(true)
-                    } else {
-                      setIsPublishDialogOpen(true)
-                    }
-                  }}
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-emerald-500"
-                  title="Publish show"
-                >
-                  <Globe className="h-3.5 w-3.5" />
-                </Button>
-              )}
-
-              {/* Edit Button (admin or owner) */}
-              {canEdit && (
-                <Button
-                  variant={isEditing ? 'secondary' : 'ghost'}
-                  size="sm"
-                  onClick={() => setIsEditing(!isEditing)}
+                  onClick={() => setIsEditing(false)}
                   className="h-7 w-7 p-0"
-                  title={isEditing ? 'Cancel editing' : 'Edit show'}
+                  title="Cancel editing"
                 >
-                  {isEditing ? (
-                    <X className="h-4 w-4" />
-                  ) : (
-                    <Pencil className="h-3.5 w-3.5" />
-                  )}
+                  <X className="h-4 w-4" />
                 </Button>
               )}
 
-              {/* Delete Button (admin or owner) */}
-              {canDelete && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsDeleteDialogOpen(true)}
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                  title="Delete show"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              )}
+              {/* Overflow Menu - secondary actions */}
+              {canEdit && !isEditing && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                      <span className="sr-only">Show actions</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {/* Edit */}
+                    <DropdownMenuItem onClick={() => setIsEditing(true)}>
+                      <Pencil className="h-4 w-4 mr-2" />
+                      Edit show
+                    </DropdownMenuItem>
 
-              {/* Sold Out Toggle (admin or owner) */}
-              {canToggleStatus && (
-                <Button
-                  variant={show.is_sold_out ? 'secondary' : 'ghost'}
-                  size="sm"
-                  onClick={handleToggleSoldOut}
-                  disabled={setSoldOutMutation.isPending}
-                  className="h-7 px-2 text-xs"
-                  title={show.is_sold_out ? 'Mark as available' : 'Mark as sold out'}
-                >
-                  {setSoldOutMutation.isPending ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <>
-                      <TicketX className="h-3 w-3 mr-1" />
-                      {show.is_sold_out ? 'Undo Sold Out' : 'Sold Out'}
-                    </>
-                  )}
-                </Button>
-              )}
+                    {/* Visibility controls */}
+                    {canUnpublish && (
+                      <DropdownMenuItem onClick={() => setIsUnpublishDialogOpen(true)}>
+                        <EyeOff className="h-4 w-4 mr-2" />
+                        Make private
+                      </DropdownMenuItem>
+                    )}
+                    {canMakePrivate && (
+                      <DropdownMenuItem onClick={() => setIsMakePrivateDialogOpen(true)}>
+                        <EyeOff className="h-4 w-4 mr-2" />
+                        Make private
+                      </DropdownMenuItem>
+                    )}
+                    {canPublish && (
+                      <DropdownMenuItem
+                        onClick={() => {
+                          if (show.status === 'rejected') {
+                            setIsVenueDeniedDialogOpen(true)
+                          } else {
+                            setIsPublishDialogOpen(true)
+                          }
+                        }}
+                      >
+                        <Globe className="h-4 w-4 mr-2" />
+                        Publish show
+                      </DropdownMenuItem>
+                    )}
 
-              {/* Cancelled Toggle (admin or owner) */}
-              {canToggleStatus && (
-                <Button
-                  variant={show.is_cancelled ? 'secondary' : 'ghost'}
-                  size="sm"
-                  onClick={handleToggleCancelled}
-                  disabled={setCancelledMutation.isPending}
-                  className="h-7 px-2 text-xs"
-                  title={show.is_cancelled ? 'Mark as active' : 'Mark as cancelled'}
-                >
-                  {setCancelledMutation.isPending ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <>
-                      <Ban className="h-3 w-3 mr-1" />
-                      {show.is_cancelled ? 'Undo Cancelled' : 'Cancelled'}
-                    </>
-                  )}
-                </Button>
+                    <DropdownMenuSeparator />
+
+                    {/* Status toggles */}
+                    {canToggleStatus && (
+                      <DropdownMenuItem
+                        onClick={handleToggleSoldOut}
+                        disabled={setSoldOutMutation.isPending}
+                      >
+                        <TicketX className="h-4 w-4 mr-2" />
+                        {show.is_sold_out ? 'Undo sold out' : 'Mark sold out'}
+                      </DropdownMenuItem>
+                    )}
+                    {canToggleStatus && (
+                      <DropdownMenuItem
+                        onClick={handleToggleCancelled}
+                        disabled={setCancelledMutation.isPending}
+                      >
+                        <Ban className="h-4 w-4 mr-2" />
+                        {show.is_cancelled ? 'Undo cancelled' : 'Mark cancelled'}
+                      </DropdownMenuItem>
+                    )}
+
+                    {/* Delete - destructive, always last */}
+                    {canDelete && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() => setIsDeleteDialogOpen(true)}
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete show
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </div>
           </div>
