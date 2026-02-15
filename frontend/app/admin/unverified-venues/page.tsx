@@ -16,6 +16,7 @@ import type { UnverifiedVenue } from '@/lib/types/venue'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { formatShortDate } from '@/lib/utils/formatters'
 import {
   Dialog,
   DialogContent,
@@ -24,18 +25,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-
-/**
- * Format date for display
- */
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
 
 interface VerifyVenueDialogProps {
   venue: UnverifiedVenue
@@ -183,7 +172,7 @@ function UnverifiedVenueCard({ venue }: UnverifiedVenueCardProps) {
           {/* Submitted Info */}
           <div className="text-sm text-muted-foreground flex items-center gap-1">
             <Calendar className="h-3 w-3" />
-            Added {formatDate(venue.created_at)}
+            Added {formatShortDate(venue.created_at)}
           </div>
 
           {/* Actions */}

@@ -1,10 +1,11 @@
 import { Suspense } from 'react'
 import { Metadata } from 'next'
+import { notFound } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import * as Sentry from '@sentry/nextjs'
 import { ShowDetail } from '@/components/shows'
 import { JsonLd } from '@/components/seo/JsonLd'
-import { generateMusicEventSchema } from '@/lib/seo/jsonld'
+import { generateMusicEventSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -18,18 +19,34 @@ interface ShowPageProps {
 
 interface ShowData {
   title?: string
-  date: string
+  event_date: string
   slug?: string
-  ticket_url?: string
+  description?: string | null
   price?: number
-  venue?: {
+  is_sold_out: boolean
+  is_cancelled: boolean
+  venues: Array<{
     name: string
-    address?: string
-    city?: string
-    state?: string
-    zip_code?: string
-  }
-  artists?: Array<{ name: string; is_headliner?: boolean }>
+    slug: string
+    address?: string | null
+    city: string
+    state: string
+  }>
+  artists: Array<{
+    name: string
+    slug: string
+    is_headliner?: boolean | null
+    socials: {
+      instagram?: string | null
+      facebook?: string | null
+      twitter?: string | null
+      youtube?: string | null
+      spotify?: string | null
+      soundcloud?: string | null
+      bandcamp?: string | null
+      website?: string | null
+    }
+  }>
 }
 
 async function getShow(slug: string): Promise<ShowData | null> {
@@ -74,10 +91,13 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
 
   if (show) {
     const headliner = show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
-    const venueName = show.venue?.name || 'TBA'
-    const showDate = formatShowDate(show.date)
+    const venueName = show.venues?.[0]?.name || 'TBA'
+    const showDate = formatShowDate(show.event_date)
     const title = `${headliner} at ${venueName}`
-    const description = `${headliner} live at ${venueName} on ${showDate}`
+    const generatedDesc = `${headliner} live at ${venueName} on ${showDate}`
+    const description = show.description
+      ? show.description.slice(0, 155) + (show.description.length > 155 ? '...' : '')
+      : generatedDesc
 
     return {
       title,
@@ -126,19 +146,42 @@ export default async function ShowPage({ params }: ShowPageProps) {
 
   const showData = await getShow(slug)
 
+  if (!showData) {
+    notFound()
+  }
+
+  const headliner = showData.artists?.find(a => a.is_headliner)?.name || showData.artists?.[0]?.name || 'Live Music'
+  const showName = showData.title || `${headliner} at ${showData.venues?.[0]?.name || 'TBA'}`
+
   return (
     <>
-      {showData && (
-        <JsonLd data={generateMusicEventSchema({
-          name: showData.title,
-          date: showData.date,
-          venue: showData.venue,
-          artists: showData.artists,
-          ticket_url: showData.ticket_url,
-          price: showData.price?.toString(),
-          slug: showData.slug,
-        })} />
-      )}
+      <JsonLd data={generateMusicEventSchema({
+        name: showData.title,
+        date: showData.event_date,
+        description: showData.description ?? undefined,
+        is_cancelled: showData.is_cancelled,
+        is_sold_out: showData.is_sold_out,
+        venue: showData.venues?.[0] ? {
+          name: showData.venues[0].name,
+          slug: showData.venues[0].slug,
+          address: showData.venues[0].address ?? undefined,
+          city: showData.venues[0].city,
+          state: showData.venues[0].state,
+        } : undefined,
+        artists: showData.artists?.map(a => ({
+          name: a.name,
+          slug: a.slug,
+          is_headliner: a.is_headliner ?? undefined,
+          socials: a.socials,
+        })),
+        price: showData.price,
+        slug: showData.slug,
+      })} />
+      <JsonLd data={generateBreadcrumbSchema([
+        { name: 'Home', url: 'https://psychichomily.com' },
+        { name: 'Shows', url: 'https://psychichomily.com/shows' },
+        { name: showName, url: `https://psychichomily.com/shows/${slug}` },
+      ])} />
       <Suspense fallback={<ShowLoadingFallback />}>
         <ShowDetail showId={slug} />
       </Suspense>

@@ -59,7 +59,7 @@ export function MusicEmbed({
             tags: { service: 'music-embed' },
             extra: { bandcampAlbumUrl },
           })
-          console.error('Failed to fetch Bandcamp album ID:', error)
+          // Error captured by Sentry above
         }
       }
 

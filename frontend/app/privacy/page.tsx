@@ -4,6 +4,9 @@ import Link from 'next/link'
 export const metadata: Metadata = {
   title: 'Privacy Policy | Psychic Homily',
   description: 'Privacy Policy for Psychic Homily - how your personal information is collected, used, and protected.',
+  alternates: {
+    canonical: 'https://psychichomily.com/privacy',
+  },
 }
 
 export default function PrivacyPolicyPage() {

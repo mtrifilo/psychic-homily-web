@@ -44,7 +44,7 @@ export function SettingsPanel() {
         level: 'error',
         tags: { service: 'settings', error_type: 'verification_email' },
       })
-      console.error('Failed to send verification email:', error)
+      // Error captured by Sentry above; UI shows error via mutation.isError
     }
   }
 
@@ -68,7 +68,7 @@ export function SettingsPanel() {
         level: 'error',
         tags: { service: 'settings', error_type: 'data_export' },
       })
-      console.error('Failed to export data:', error)
+      // Error captured by Sentry above; UI shows error via mutation.isError
     }
   }
 
@@ -82,7 +82,7 @@ export function SettingsPanel() {
         level: 'error',
         tags: { service: 'settings', error_type: 'cli_token' },
       })
-      console.error('Failed to generate CLI token:', error)
+      // Error captured by Sentry above; UI shows error via mutation.isError
     }
   }
 

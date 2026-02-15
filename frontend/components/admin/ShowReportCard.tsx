@@ -16,24 +16,12 @@ import type { ShowReportResponse } from '@/lib/types/show'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { formatAdminDate } from '@/lib/utils/formatters'
 import { DismissReportDialog } from './DismissReportDialog'
 import { ResolveReportDialog } from './ResolveReportDialog'
 
 interface ShowReportCardProps {
   report: ShowReportResponse
-}
-
-/**
- * Format date for display
- */
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
 }
 
 /**
@@ -116,7 +104,7 @@ export function ShowReportCard({ report }: ShowReportCardProps) {
             {report.show?.event_date && (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Calendar className="h-4 w-4 shrink-0" />
-                <span>{formatDate(report.show.event_date)}</span>
+                <span>{formatAdminDate(report.show.event_date)}</span>
                 {report.show.city && report.show.state && (
                   <span className="text-xs">
                     ({report.show.city}, {report.show.state})
@@ -138,7 +126,7 @@ export function ShowReportCard({ report }: ShowReportCardProps) {
             {/* Report Metadata */}
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Flag className="h-3 w-3" />
-              <span>Reported on {formatDate(report.created_at)}</span>
+              <span>Reported on {formatAdminDate(report.created_at)}</span>
             </div>
           </div>
 

@@ -27,8 +27,10 @@ test.describe('Login', () => {
       timeout: 15_000,
     })
 
-    // Nav shows user email instead of login link
-    await expect(page.getByText(TEST_USER.email)).toBeVisible()
+    // Nav shows avatar dropdown instead of login link
+    await expect(
+      page.getByRole('button', { name: 'User menu' })
+    ).toBeVisible()
     await expect(page.getByRole('link', { name: /login/i })).not.toBeVisible()
   })
 
@@ -67,15 +69,18 @@ test.describe('Login', () => {
       timeout: 15_000,
     })
 
-    // Click logout button (sr-only text "Sign out")
-    await page.getByRole('button', { name: 'Sign out' }).click()
+    // Open avatar dropdown and click Sign out
+    await page.getByRole('button', { name: 'User menu' }).click()
+    await page.getByRole('menuitem', { name: /sign out/i }).click()
 
     // Login link reappears
     await expect(page.getByRole('link', { name: /login/i })).toBeVisible({
       timeout: 5_000,
     })
 
-    // User email no longer visible in nav
-    await expect(page.getByText(TEST_USER.email)).not.toBeVisible()
+    // Avatar button no longer visible
+    await expect(
+      page.getByRole('button', { name: 'User menu' })
+    ).not.toBeVisible()
   })
 })

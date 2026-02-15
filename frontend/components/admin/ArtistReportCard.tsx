@@ -15,24 +15,12 @@ import type { ArtistReportResponse } from '@/lib/types/artist'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { formatAdminDate } from '@/lib/utils/formatters'
 import { DismissArtistReportDialog } from './DismissArtistReportDialog'
 import { ResolveArtistReportDialog } from './ResolveArtistReportDialog'
 
 interface ArtistReportCardProps {
   report: ArtistReportResponse
-}
-
-/**
- * Format date for display
- */
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
 }
 
 /**
@@ -126,7 +114,7 @@ export function ArtistReportCard({ report }: ArtistReportCardProps) {
             {/* Report Metadata */}
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Flag className="h-3 w-3" />
-              <span>Reported on {formatDate(report.created_at)}</span>
+              <span>Reported on {formatAdminDate(report.created_at)}</span>
             </div>
           </div>
 

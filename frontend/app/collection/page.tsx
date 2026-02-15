@@ -25,10 +25,10 @@ import {
   MoreVertical,
 } from 'lucide-react'
 import {
-  formatDateInTimezone,
-  formatTimeInTimezone,
-  getTimezoneForState,
-} from '@/lib/utils/timeUtils'
+  formatShowDate,
+  formatShowTime,
+  formatPrice,
+} from '@/lib/utils/formatters'
 import type { SavedShowResponse, ShowResponse } from '@/lib/types/show'
 import { SaveButton, SubmissionSuccessDialog } from '@/components/shared'
 import {
@@ -38,7 +38,10 @@ import {
   PublishShowDialog,
 } from '@/components/shows'
 import { VenueDeniedDialog, FavoriteVenuesTab } from '@/components/venues'
-import { useSetShowSoldOut, useSetShowCancelled } from '@/lib/hooks/useAdminShows'
+import {
+  useSetShowSoldOut,
+  useSetShowCancelled,
+} from '@/lib/hooks/useAdminShows'
 import { ShowForm } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -49,20 +52,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-
-function formatDate(dateString: string, state?: string | null): string {
-  const timezone = getTimezoneForState(state || 'AZ')
-  return formatDateInTimezone(dateString, timezone)
-}
-
-function formatTime(dateString: string, state?: string | null): string {
-  const timezone = getTimezoneForState(state || 'AZ')
-  return formatTimeInTimezone(dateString, timezone)
-}
-
-function formatPrice(price: number): string {
-  return `$${price.toFixed(2)}`
-}
+import { SHOW_LIST_FEATURE_POLICY } from '@/components/shows/showListFeaturePolicy'
 
 interface ShowCardProps {
   show: SavedShowResponse | ShowResponse
@@ -138,7 +128,7 @@ function ShowCard({
         {/* Left column: Date, Location, and Status */}
         <div className="w-full md:w-1/5 md:pr-4 mb-2 md:mb-0">
           <h2 className="text-sm font-bold tracking-wide text-primary">
-            {formatDate(show.event_date, show.state)}
+            {formatShowDate(show.event_date, show.state)}
           </h2>
           <h3 className="text-xs text-muted-foreground mt-0.5">
             {show.city}, {show.state}
@@ -146,8 +136,8 @@ function ShowCard({
 
           {/* Status Badge - only show for owner's own shows or admins */}
           <div className="mt-2 flex flex-col gap-1">
-            {(isAdmin || isOwner) && (
-              show.status === 'approved' ? (
+            {(isAdmin || isOwner) &&
+              (show.status === 'approved' ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 w-fit">
                   <CheckCircle2 className="h-3 w-3" />
                   Published
@@ -162,8 +152,7 @@ function ShowCard({
                   <EyeOff className="h-3 w-3" />
                   Private
                 </span>
-              ) : null
-            )}
+              ) : null)}
 
             {/* Sold Out Badge */}
             {show.is_sold_out && (
@@ -195,7 +184,14 @@ function ShowCard({
                       &nbsp;•&nbsp;
                     </span>
                   )}
-                  {artist.socials?.instagram ? (
+                  {artist.slug ? (
+                    <Link
+                      href={`/artists/${artist.slug}`}
+                      className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
+                    >
+                      {artist.name}
+                    </Link>
+                  ) : artist.socials?.instagram ? (
                     <a
                       href={`https://instagram.com/${artist.socials.instagram}`}
                       className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
@@ -214,9 +210,10 @@ function ShowCard({
             {/* Action Buttons */}
             <div className="flex items-center gap-1 shrink-0">
               {/* Save Button - always visible for quick access */}
-              {showSaveButton && (
-                <SaveButton showId={show.id} variant="ghost" size="sm" />
-              )}
+              {SHOW_LIST_FEATURE_POLICY.ownership.showSaveButton &&
+                showSaveButton && (
+                  <SaveButton showId={show.id} variant="ghost" size="sm" />
+                )}
 
               {/* Cancel Edit Button - shown when editing */}
               {isEditing && (
@@ -232,98 +229,106 @@ function ShowCard({
               )}
 
               {/* Overflow Menu - secondary actions */}
-              {canEdit && !isEditing && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                    >
-                      <MoreVertical className="h-4 w-4" />
-                      <span className="sr-only">Show actions</span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {/* Edit */}
-                    <DropdownMenuItem onClick={() => setIsEditing(true)}>
-                      <Pencil className="h-4 w-4 mr-2" />
-                      Edit show
-                    </DropdownMenuItem>
-
-                    {/* Visibility controls */}
-                    {canUnpublish && (
-                      <DropdownMenuItem onClick={() => setIsUnpublishDialogOpen(true)}>
-                        <EyeOff className="h-4 w-4 mr-2" />
-                        Make private
-                      </DropdownMenuItem>
-                    )}
-                    {canMakePrivate && (
-                      <DropdownMenuItem onClick={() => setIsMakePrivateDialogOpen(true)}>
-                        <EyeOff className="h-4 w-4 mr-2" />
-                        Make private
-                      </DropdownMenuItem>
-                    )}
-                    {canPublish && (
-                      <DropdownMenuItem
-                        onClick={() => {
-                          if (show.status === 'rejected') {
-                            setIsVenueDeniedDialogOpen(true)
-                          } else {
-                            setIsPublishDialogOpen(true)
-                          }
-                        }}
+              {SHOW_LIST_FEATURE_POLICY.ownership.showOwnerActions &&
+                canEdit &&
+                !isEditing && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                       >
-                        <Globe className="h-4 w-4 mr-2" />
-                        Publish show
+                        <MoreVertical className="h-4 w-4" />
+                        <span className="sr-only">Show actions</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {/* Edit */}
+                      <DropdownMenuItem onClick={() => setIsEditing(true)}>
+                        <Pencil className="h-4 w-4 mr-2" />
+                        Edit show
                       </DropdownMenuItem>
-                    )}
 
-                    <DropdownMenuSeparator />
-
-                    {/* Status toggles */}
-                    {canToggleStatus && (
-                      <DropdownMenuItem
-                        onClick={handleToggleSoldOut}
-                        disabled={setSoldOutMutation.isPending}
-                      >
-                        <TicketX className="h-4 w-4 mr-2" />
-                        {show.is_sold_out ? 'Undo sold out' : 'Mark sold out'}
-                      </DropdownMenuItem>
-                    )}
-                    {canToggleStatus && (
-                      <DropdownMenuItem
-                        onClick={handleToggleCancelled}
-                        disabled={setCancelledMutation.isPending}
-                      >
-                        <Ban className="h-4 w-4 mr-2" />
-                        {show.is_cancelled ? 'Undo cancelled' : 'Mark cancelled'}
-                      </DropdownMenuItem>
-                    )}
-
-                    {/* Delete - destructive, always last */}
-                    {canDelete && (
-                      <>
-                        <DropdownMenuSeparator />
+                      {/* Visibility controls */}
+                      {canUnpublish && (
                         <DropdownMenuItem
-                          variant="destructive"
-                          onClick={() => setIsDeleteDialogOpen(true)}
+                          onClick={() => setIsUnpublishDialogOpen(true)}
                         >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete show
+                          <EyeOff className="h-4 w-4 mr-2" />
+                          Make private
                         </DropdownMenuItem>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
+                      )}
+                      {canMakePrivate && (
+                        <DropdownMenuItem
+                          onClick={() => setIsMakePrivateDialogOpen(true)}
+                        >
+                          <EyeOff className="h-4 w-4 mr-2" />
+                          Make private
+                        </DropdownMenuItem>
+                      )}
+                      {canPublish && (
+                        <DropdownMenuItem
+                          onClick={() => {
+                            if (show.status === 'rejected') {
+                              setIsVenueDeniedDialogOpen(true)
+                            } else {
+                              setIsPublishDialogOpen(true)
+                            }
+                          }}
+                        >
+                          <Globe className="h-4 w-4 mr-2" />
+                          Publish show
+                        </DropdownMenuItem>
+                      )}
+
+                      <DropdownMenuSeparator />
+
+                      {/* Status toggles */}
+                      {canToggleStatus && (
+                        <DropdownMenuItem
+                          onClick={handleToggleSoldOut}
+                          disabled={setSoldOutMutation.isPending}
+                        >
+                          <TicketX className="h-4 w-4 mr-2" />
+                          {show.is_sold_out ? 'Undo sold out' : 'Mark sold out'}
+                        </DropdownMenuItem>
+                      )}
+                      {canToggleStatus && (
+                        <DropdownMenuItem
+                          onClick={handleToggleCancelled}
+                          disabled={setCancelledMutation.isPending}
+                        >
+                          <Ban className="h-4 w-4 mr-2" />
+                          {show.is_cancelled
+                            ? 'Undo cancelled'
+                            : 'Mark cancelled'}
+                        </DropdownMenuItem>
+                      )}
+
+                      {/* Delete - destructive, always last */}
+                      {canDelete && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => setIsDeleteDialogOpen(true)}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete show
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
             </div>
           </div>
 
           {/* Venue and Details */}
           <div className="text-sm mt-1.5 text-muted-foreground">
-            {venue && (
-              venue.slug ? (
+            {venue &&
+              (venue.slug ? (
                 <Link
                   href={`/venues/${venue.slug}`}
                   className="text-primary/80 hover:text-primary font-medium transition-colors"
@@ -331,16 +336,30 @@ function ShowCard({
                   {venue.name}
                 </Link>
               ) : (
-                <span className="text-primary/80 font-medium">{venue.name}</span>
-              )
-            )}
+                <span className="text-primary/80 font-medium">
+                  {venue.name}
+                </span>
+              ))}
             {show.price != null && (
               <span>&nbsp;•&nbsp;{formatPrice(show.price)}</span>
             )}
             {show.age_requirement && (
               <span>&nbsp;•&nbsp;{show.age_requirement}</span>
             )}
-            <span>&nbsp;•&nbsp;{formatTime(show.event_date, show.state)}</span>
+            <span>
+              &nbsp;•&nbsp;{formatShowTime(show.event_date, show.state)}
+            </span>
+            {SHOW_LIST_FEATURE_POLICY.ownership.showDetailsLink && (
+              <>
+                <span>&nbsp;•&nbsp;</span>
+                <Link
+                  href={`/shows/${show.slug || show.id}`}
+                  className="text-primary/80 hover:text-primary underline underline-offset-2 transition-colors"
+                >
+                  Details
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -464,7 +483,9 @@ function MySubmissionsList({
   isAdmin?: boolean
 }) {
   const { isAuthenticated } = useAuthContext()
-  const { data, isLoading, error } = useMySubmissions({ enabled: isAuthenticated })
+  const { data, isLoading, error } = useMySubmissions({
+    enabled: isAuthenticated,
+  })
 
   if (isLoading) {
     return (
@@ -631,7 +652,6 @@ function CollectionPageContent() {
             isAdmin={user?.is_admin}
           />
         </TabsContent>
-
       </Tabs>
     </div>
   )

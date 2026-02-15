@@ -29,24 +29,7 @@ import {
   Clock,
   CheckCircle2,
 } from 'lucide-react'
-
-function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
-}
-
-function formatDateTime(dateString: string): string {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-}
+import { formatTokenDate, formatTokenDateTime, isTokenExpiringSoon } from './api-token-utils'
 
 function TokenRow({ token, onRevoke, isRevoking }: {
   token: APIToken
@@ -54,8 +37,7 @@ function TokenRow({ token, onRevoke, isRevoking }: {
   isRevoking: boolean
 }) {
   const [isRevokeDialogOpen, setIsRevokeDialogOpen] = useState(false)
-  const expiresAt = new Date(token.expires_at)
-  const isExpiringSoon = !token.is_expired && expiresAt.getTime() - Date.now() < 7 * 24 * 60 * 60 * 1000 // 7 days
+  const isExpiringSoon = isTokenExpiringSoon(token.expires_at, token.is_expired)
 
   const handleRevoke = () => {
     onRevoke(token.id)
@@ -84,10 +66,10 @@ function TokenRow({ token, onRevoke, isRevoking }: {
           )}
         </div>
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          <span>Created: {formatDate(token.created_at)}</span>
-          <span>Expires: {formatDate(token.expires_at)}</span>
+          <span>Created: {formatTokenDate(token.created_at)}</span>
+          <span>Expires: {formatTokenDate(token.expires_at)}</span>
           {token.last_used_at && (
-            <span>Last used: {formatDateTime(token.last_used_at)}</span>
+            <span>Last used: {formatTokenDateTime(token.last_used_at)}</span>
           )}
         </div>
       </div>
@@ -159,7 +141,6 @@ export function APITokenManagement() {
         level: 'error',
         tags: { service: 'api-tokens', error_type: 'create_failed' },
       })
-      console.error('Failed to create token:', error)
     }
   }
 
@@ -186,7 +167,6 @@ export function APITokenManagement() {
         tags: { service: 'api-tokens', error_type: 'revoke_failed' },
         extra: { tokenId },
       })
-      console.error('Failed to revoke token:', error)
     }
   }
 

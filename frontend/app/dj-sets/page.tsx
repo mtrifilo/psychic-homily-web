@@ -1,10 +1,16 @@
 import Link from 'next/link'
 import { getAllMixes } from '@/lib/mixes'
 import { SoundCloud } from '@/components/blog/soundcloud-embed'
+import { JsonLd } from '@/components/seo/JsonLd'
+import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
+import { formatContentDate } from '@/lib/utils/formatters'
 
 export const metadata = {
   title: 'DJ Sets',
   description: 'Featured DJ mixes from Arizona DJs and beyond.',
+  alternates: {
+    canonical: 'https://psychichomily.com/dj-sets',
+  },
   openGraph: {
     title: 'DJ Sets | Psychic Homily',
     description: 'Featured DJ mixes from Arizona DJs and beyond.',
@@ -13,24 +19,30 @@ export const metadata = {
   },
 }
 
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
-}
-
 export default function DJSetsPage() {
   const mixes = getAllMixes()
 
   return (
-    <div className="flex min-h-screen items-start justify-center">
-      <main className="w-full max-w-3xl px-4 py-8 md:px-8">
-        <h1 className="text-3xl font-bold text-center mb-8">DJ Sets</h1>
+    <>
+      {mixes.length > 0 && (
+        <JsonLd data={generateItemListSchema({
+          name: 'DJ Sets',
+          description: 'Featured DJ mixes from Arizona DJs and beyond.',
+          listItems: mixes.map(mix => ({
+            url: `https://psychichomily.com/dj-sets/${mix.slug}`,
+            name: mix.title,
+          })),
+        })} />
+      )}
+      <JsonLd data={generateBreadcrumbSchema([
+        { name: 'Home', url: 'https://psychichomily.com' },
+        { name: 'DJ Sets', url: 'https://psychichomily.com/dj-sets' },
+      ])} />
+      <div className="flex min-h-screen items-start justify-center">
+        <main className="w-full max-w-3xl px-4 py-8 md:px-8">
+          <h1 className="text-3xl font-bold text-center mb-8">DJ Sets</h1>
 
-        <section className="w-full">
+          <section className="w-full">
           {mixes.map(mix => (
             <article
               key={mix.slug}
@@ -46,7 +58,7 @@ export default function DJSetsPage() {
               </h2>
 
               <div className="text-sm text-muted-foreground mt-1">
-                {formatDate(mix.date)} by {mix.artist}
+                {formatContentDate(mix.date)} by {mix.artist}
               </div>
 
               {mix.description && (
@@ -73,7 +85,8 @@ export default function DJSetsPage() {
             </p>
           )}
         </section>
-      </main>
-    </div>
+        </main>
+      </div>
+    </>
   )
 }

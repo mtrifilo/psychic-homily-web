@@ -1,10 +1,11 @@
 import { Suspense } from 'react'
 import { Metadata } from 'next'
+import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
 import { ArtistDetail } from '@/components/artists'
 import { JsonLd } from '@/components/seo/JsonLd'
-import { generateMusicGroupSchema } from '@/lib/seo/jsonld'
+import { generateMusicGroupSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -101,17 +102,24 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
 
   const artistData = await getArtist(slug)
 
+  if (!artistData) {
+    notFound()
+  }
+
   return (
     <>
-      {artistData && (
-        <JsonLd data={generateMusicGroupSchema({
-          name: artistData.name,
-          slug: artistData.slug || slug,
-          city: artistData.city,
-          state: artistData.state,
-          social: artistData.social,
-        })} />
-      )}
+      <JsonLd data={generateMusicGroupSchema({
+        name: artistData.name,
+        slug: artistData.slug || slug,
+        city: artistData.city,
+        state: artistData.state,
+        social: artistData.social,
+      })} />
+      <JsonLd data={generateBreadcrumbSchema([
+        { name: 'Home', url: 'https://psychichomily.com' },
+        { name: 'Artists', url: 'https://psychichomily.com/artists' },
+        { name: artistData.name, url: `https://psychichomily.com/artists/${artistData.slug || slug}` },
+      ])} />
       <Suspense fallback={<ArtistLoadingFallback />}>
         <ArtistDetail artistId={slug} />
       </Suspense>

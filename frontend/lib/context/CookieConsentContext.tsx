@@ -10,9 +10,9 @@ import {
   ReactNode,
 } from 'react'
 
-const STORAGE_KEY = 'cookie-consent'
-const CONSENT_VERSION = 1
-const CONSENT_DURATION_MONTHS = 6
+export const STORAGE_KEY = 'cookie-consent'
+export const CONSENT_VERSION = 1
+export const CONSENT_DURATION_MONTHS = 6
 
 export interface CookieConsentState {
   version: number
@@ -44,7 +44,7 @@ const CookieConsentContext = createContext<CookieConsentContextType | undefined>
   undefined
 )
 
-function detectGPCSignal(): boolean {
+export function detectGPCSignal(): boolean {
   if (typeof window === 'undefined') return false
 
   // Check for Global Privacy Control signal
@@ -65,18 +65,18 @@ function detectGPCSignal(): boolean {
   return false
 }
 
-function isConsentExpired(consent: CookieConsentState): boolean {
+export function isConsentExpired(consent: CookieConsentState): boolean {
   const expiresAt = new Date(consent.expiresAt)
   return new Date() > expiresAt
 }
 
-function createExpirationDate(): string {
+export function createExpirationDate(): string {
   const date = new Date()
   date.setMonth(date.getMonth() + CONSENT_DURATION_MONTHS)
   return date.toISOString()
 }
 
-function loadConsent(): CookieConsentState | null {
+export function loadConsent(): CookieConsentState | null {
   if (typeof window === 'undefined') return null
 
   try {
@@ -104,7 +104,7 @@ function loadConsent(): CookieConsentState | null {
   }
 }
 
-function saveConsent(consent: CookieConsentState): void {
+export function saveConsent(consent: CookieConsentState): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(STORAGE_KEY, JSON.stringify(consent))
 }

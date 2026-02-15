@@ -1,25 +1,22 @@
 import Link from 'next/link'
 import { getBlogSlugs, getBlogPost } from '@/lib/blog'
 import { MDXContent } from '@/components/blog/mdx-content'
+import { JsonLd } from '@/components/seo/JsonLd'
+import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
+import { formatContentDate } from '@/lib/utils/formatters'
 
 export const metadata = {
   title: 'Blog',
   description: 'Music news, reviews, and updates from the Arizona music scene.',
+  alternates: {
+    canonical: 'https://psychichomily.com/blog',
+  },
   openGraph: {
     title: 'Blog | Psychic Homily',
     description: 'Music news, reviews, and updates from the Arizona music scene.',
     url: '/blog',
     type: 'website',
   },
-}
-
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
 }
 
 /**
@@ -65,11 +62,26 @@ export default function BlogPage() {
     )
 
   return (
-    <div className="flex min-h-screen items-start justify-center">
-      <main className="w-full max-w-3xl px-4 py-8 md:px-8">
-        <h1 className="text-3xl font-bold text-center mb-8">Blog</h1>
+    <>
+      {posts.length > 0 && (
+        <JsonLd data={generateItemListSchema({
+          name: 'Blog',
+          description: 'Music news, reviews, and updates from the Arizona music scene.',
+          listItems: posts.map(post => ({
+            url: `https://psychichomily.com/blog/${post.slug}`,
+            name: post.frontmatter.title,
+          })),
+        })} />
+      )}
+      <JsonLd data={generateBreadcrumbSchema([
+        { name: 'Home', url: 'https://psychichomily.com' },
+        { name: 'Blog', url: 'https://psychichomily.com/blog' },
+      ])} />
+      <div className="flex min-h-screen items-start justify-center">
+        <main className="w-full max-w-3xl px-4 py-8 md:px-8">
+          <h1 className="text-3xl font-bold text-center mb-8">Blog</h1>
 
-        <section className="w-full">
+          <section className="w-full">
           {posts.map(post => {
             const embed = extractEmbed(post.content)
             const textExcerpt = getTextExcerpt(post.content)
@@ -89,7 +101,7 @@ export default function BlogPage() {
                 </h2>
 
                 <div className="text-sm text-muted-foreground mt-1">
-                  {formatDate(post.frontmatter.date)}
+                  {formatContentDate(post.frontmatter.date)}
                 </div>
 
                 {/* Render embed if present */}
@@ -119,7 +131,8 @@ export default function BlogPage() {
             </p>
           )}
         </section>
-      </main>
-    </div>
+        </main>
+      </div>
+    </>
   )
 }

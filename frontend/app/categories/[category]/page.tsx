@@ -7,6 +7,9 @@ import {
   getPostsByCategory,
 } from '@/lib/blog'
 import { MDXContent } from '@/components/blog/mdx-content'
+import { JsonLd } from '@/components/seo/JsonLd'
+import { generateBreadcrumbSchema } from '@/lib/seo/jsonld'
+import { formatContentDate } from '@/lib/utils/formatters'
 
 interface CategoryPageProps {
   params: Promise<{ category: string }>
@@ -32,16 +35,15 @@ export async function generateMetadata({ params }: CategoryPageProps) {
   return {
     title: `${categoryName} | Psychic Homily`,
     description: `Blog posts in the ${categoryName} category`,
+    alternates: {
+      canonical: `https://psychichomily.com/categories/${categorySlug}`,
+    },
+    openGraph: {
+      title: `${categoryName} | Psychic Homily`,
+      description: `Blog posts in the ${categoryName} category`,
+      type: 'website',
+    },
   }
-}
-
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
 }
 
 /**
@@ -78,6 +80,12 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
   const posts = getPostsByCategory(categorySlug)
 
   return (
+    <>
+    <JsonLd data={generateBreadcrumbSchema([
+      { name: 'Home', url: 'https://psychichomily.com' },
+      { name: 'Blog', url: 'https://psychichomily.com/blog' },
+      { name: categoryName, url: `https://psychichomily.com/categories/${categorySlug}` },
+    ])} />
     <div className="flex min-h-screen items-start justify-center">
       <main className="w-full max-w-3xl px-4 py-8 md:px-8">
         <h1 className="text-3xl font-bold text-center mb-2">{categoryName}</h1>
@@ -105,7 +113,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
                 </h2>
 
                 <div className="text-sm text-muted-foreground mt-1">
-                  {formatDate(post.frontmatter.date)}
+                  {formatContentDate(post.frontmatter.date)}
                 </div>
 
                 {embed && (
@@ -145,5 +153,6 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
         </footer>
       </main>
     </div>
+    </>
   )
 }

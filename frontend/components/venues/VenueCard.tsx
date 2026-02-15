@@ -15,90 +15,17 @@ import { useVenueShows } from '@/lib/hooks/useVenues'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useQueryClient } from '@tanstack/react-query'
 import { createInvalidateQueries } from '@/lib/queryClient'
-import type { VenueWithShowCount, VenueShow } from '@/lib/types/venue'
-import {
-  formatDateInTimezone,
-  formatTimeInTimezone,
-  getTimezoneForState,
-} from '@/lib/utils/timeUtils'
+import type { VenueWithShowCount } from '@/lib/types/venue'
 import { ShowForm } from '@/components/forms/ShowForm'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
+import { CompactShowRow } from '@/components/shows/CompactShowRow'
+import { SHOW_LIST_FEATURE_POLICY } from '@/components/shows/showListFeaturePolicy'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
 import { FavoriteVenueButton } from './FavoriteVenueButton'
 import { Button } from '@/components/ui/button'
 
 interface VenueCardProps {
   venue: VenueWithShowCount
-}
-
-/**
- * Format a date string to "Mon, Dec 1" format in venue timezone
- */
-function formatDate(dateString: string, state?: string | null): string {
-  const timezone = getTimezoneForState(state || 'AZ')
-  return formatDateInTimezone(dateString, timezone)
-}
-
-/**
- * Format a date string to "7:30 PM" format in venue timezone
- */
-function formatTime(dateString: string, state?: string | null): string {
-  const timezone = getTimezoneForState(state || 'AZ')
-  return formatTimeInTimezone(dateString, timezone)
-}
-
-/**
- * Format price as $XX.XX
- */
-function formatPrice(price: number): string {
-  return `$${price.toFixed(2)}`
-}
-
-interface ShowItemProps {
-  show: VenueShow
-  state: string
-}
-
-function ShowItem({ show, state }: ShowItemProps) {
-  return (
-    <div className="py-3 border-b border-border/30 last:border-b-0">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-primary">
-            {formatDate(show.event_date, state)}
-          </div>
-          <div className="text-base font-semibold">
-            {show.artists.map((artist, index) => (
-              <span key={artist.id}>
-                {index > 0 && (
-                  <span className="text-muted-foreground/60 font-normal">
-                    {' '}
-                    &bull;{' '}
-                  </span>
-                )}
-                {artist.slug ? (
-                  <Link
-                    href={`/artists/${artist.slug}`}
-                    className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
-                    onClick={e => e.stopPropagation()}
-                  >
-                    {artist.name}
-                  </Link>
-                ) : (
-                  <span>{artist.name}</span>
-                )}
-              </span>
-            ))}
-            {show.artists.length === 0 && 'TBA'}
-          </div>
-        </div>
-        <div className="text-right text-sm text-muted-foreground shrink-0">
-          <div>{formatTime(show.event_date, state)}</div>
-          {show.price != null && <div>{formatPrice(show.price)}</div>}
-        </div>
-      </div>
-    </div>
-  )
 }
 
 export function VenueCard({ venue }: VenueCardProps) {
@@ -114,10 +41,9 @@ export function VenueCard({ venue }: VenueCardProps) {
   const canEdit =
     isAuthenticated &&
     (user?.is_admin ||
-      (venue.submitted_by != null &&
-        venue.submitted_by === Number(user?.id)))
+      (venue.submitted_by != null && venue.submitted_by === Number(user?.id)))
 
-  const { data, isLoading, error, refetch } = useVenueShows({
+  const { data, error, refetch } = useVenueShows({
     venueId: venue.id,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     enabled: isExpanded,
@@ -229,7 +155,14 @@ export function VenueCard({ venue }: VenueCardProps) {
           {data?.shows && data.shows.length > 0 && (
             <div className="pt-2">
               {data.shows.map(show => (
-                <ShowItem key={show.id} show={show} state={venue.state} />
+                <CompactShowRow
+                  key={show.id}
+                  show={show}
+                  state={venue.state}
+                  showDetailsLink={
+                    SHOW_LIST_FEATURE_POLICY.context.showDetailsLink
+                  }
+                />
               ))}
               {data.total > data.shows.length && venue.slug && (
                 <div className="text-center pt-3">

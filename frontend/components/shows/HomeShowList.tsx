@@ -9,38 +9,16 @@ import type { ShowResponse, ArtistResponse } from '@/lib/types/show'
 import Link from 'next/link'
 import { Pencil, Trash2, X, ChevronDown, ChevronUp, MapPin } from 'lucide-react'
 import {
-  formatDateInTimezone,
-  formatTimeInTimezone,
-  getTimezoneForState,
-} from '@/lib/utils/timeUtils'
+  formatShowDate,
+  formatShowTime,
+  formatPrice,
+} from '@/lib/utils/formatters'
 import { Button } from '@/components/ui/button'
 import { ShowForm } from '@/components/forms'
 import { SaveButton, SocialLinks, MusicEmbed } from '@/components/shared'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ShowStatusBadge } from './ShowStatusBadge'
-
-/**
- * Format a date string to "Mon, Dec 1" format in venue timezone
- */
-function formatDate(dateString: string, state?: string | null): string {
-  const timezone = getTimezoneForState(state || 'AZ')
-  return formatDateInTimezone(dateString, timezone)
-}
-
-/**
- * Format a date string to "7:30 PM" format in venue timezone
- */
-function formatTime(dateString: string, state?: string | null): string {
-  const timezone = getTimezoneForState(state || 'AZ')
-  return formatTimeInTimezone(dateString, timezone)
-}
-
-/**
- * Format price as $XX.XX
- */
-function formatPrice(price: number): string {
-  return `$${price.toFixed(2)}`
-}
+import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 
 /**
  * Check if an artist has any music available (Bandcamp embed, Spotify, or Bandcamp profile)
@@ -78,7 +56,7 @@ function ShowCard({ show, isAdmin, isSaved }: ShowCardProps) {
   const hasArtistMusic = showHasArtistMusic(artists)
 
   // Check if user can delete: admin or show owner
-  const canDelete = isAdmin || (user?.id === String(show.submitted_by))
+  const canDelete = isAdmin || user?.id === String(show.submitted_by)
 
   const handleEditSuccess = () => {
     setIsEditing(false)
@@ -89,16 +67,20 @@ function ShowCard({ show, isAdmin, isSaved }: ShowCardProps) {
   }
 
   return (
-    <article className={`border-b border-border/50 py-4 -mx-2 px-2 rounded-md hover:bg-muted/30 transition-colors duration-75 ${show.is_cancelled ? 'opacity-60' : ''}`}>
+    <article
+      className={`border-b border-border/50 py-4 -mx-2 px-2 rounded-md hover:bg-muted/30 transition-colors duration-75 ${show.is_cancelled ? 'opacity-60' : ''}`}
+    >
       <div className="flex flex-col md:flex-row">
         {/* Left column: Date and Location */}
         <div className="w-full md:w-1/5 md:pr-4 mb-1 md:mb-0">
-          <h3 className="text-sm font-bold tracking-wide text-primary">
-            {formatDate(show.event_date, show.state)}
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            {show.city}, {show.state}
-          </p>
+          <Link href={`/shows/${show.slug || show.id}`} className="block group">
+            <h3 className="text-sm font-bold tracking-wide text-primary group-hover:underline underline-offset-2">
+              {formatShowDate(show.event_date, show.state)}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {show.city}, {show.state}
+            </p>
+          </Link>
         </div>
 
         {/* Right column: Artists, Venue, Details */}
@@ -132,74 +114,104 @@ function ShowCard({ show, isAdmin, isSaved }: ShowCardProps) {
             {/* Action Buttons */}
             <div className="flex items-center gap-1 shrink-0">
               {/* Expand Button - only show if artists have music */}
-              {hasArtistMusic && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsExpanded(!isExpanded)}
-                  className="h-7 w-7 p-0"
-                  title={isExpanded ? 'Hide artist music' : 'Discover artist music'}
-                >
-                  {isExpanded ? (
-                    <ChevronUp className="h-4 w-4" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4" />
-                  )}
-                </Button>
-              )}
+              {SHOW_LIST_FEATURE_POLICY.discovery.showExpandMusic &&
+                hasArtistMusic && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="h-7 w-7 p-0"
+                    title={
+                      isExpanded ? 'Hide artist music' : 'Discover artist music'
+                    }
+                  >
+                    {isExpanded ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </Button>
+                )}
 
               {/* Save Button */}
-              <SaveButton showId={show.id} variant="ghost" size="sm" isSaved={isSaved} />
-
-              {/* Admin Edit Button */}
-              {isAdmin && (
-                <Button
-                  variant={isEditing ? 'secondary' : 'ghost'}
-                  size="sm"
-                  onClick={() => setIsEditing(!isEditing)}
-                  className="h-7 w-7 p-0"
-                  title={isEditing ? 'Cancel editing' : 'Edit show'}
-                >
-                  {isEditing ? (
-                    <X className="h-4 w-4" />
-                  ) : (
-                    <Pencil className="h-3.5 w-3.5" />
-                  )}
-                </Button>
-              )}
-
-              {/* Delete Button */}
-              {canDelete && (
-                <Button
+              {SHOW_LIST_FEATURE_POLICY.discovery.showSaveButton && (
+                <SaveButton
+                  showId={show.id}
                   variant="ghost"
                   size="sm"
-                  onClick={() => setIsDeleteDialogOpen(true)}
-                  className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10"
-                  title="Delete show"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                  isSaved={isSaved}
+                />
               )}
+
+              {/* Admin Edit Button */}
+              {SHOW_LIST_FEATURE_POLICY.discovery.showAdminActions &&
+                isAdmin && (
+                  <Button
+                    variant={isEditing ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setIsEditing(!isEditing)}
+                    className="h-7 w-7 p-0"
+                    title={isEditing ? 'Cancel editing' : 'Edit show'}
+                  >
+                    {isEditing ? (
+                      <X className="h-4 w-4" />
+                    ) : (
+                      <Pencil className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                )}
+
+              {/* Delete Button */}
+              {SHOW_LIST_FEATURE_POLICY.discovery.showOwnerActions &&
+                canDelete && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsDeleteDialogOpen(true)}
+                    className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10"
+                    title="Delete show"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
             </div>
           </div>
 
           {/* Venue and Details */}
           <div className="text-sm mt-1 text-muted-foreground">
-            {venue && (
-              <Link
-                href={`/venues/${venue.slug}`}
-                className="text-primary/80 hover:text-primary font-medium transition-colors"
-              >
-                {venue.name}
-              </Link>
-            )}
+            {venue &&
+              (venue.slug ? (
+                <Link
+                  href={`/venues/${venue.slug}`}
+                  className="text-primary/80 hover:text-primary font-medium transition-colors"
+                >
+                  {venue.name}
+                </Link>
+              ) : (
+                <span className="text-primary/80 font-medium">
+                  {venue.name}
+                </span>
+              ))}
             {show.price != null && (
               <span>&nbsp;•&nbsp;{formatPrice(show.price)}</span>
             )}
             {show.age_requirement && (
               <span>&nbsp;•&nbsp;{show.age_requirement}</span>
             )}
-            <span>&nbsp;•&nbsp;{formatTime(show.event_date, show.state)}</span>
+            <span>
+              &nbsp;•&nbsp;{formatShowTime(show.event_date, show.state)}
+            </span>
+            {SHOW_LIST_FEATURE_POLICY.discovery.showDetailsLink && (
+              <>
+                <span>&nbsp;•&nbsp;</span>
+                <Link
+                  href={`/shows/${show.slug || show.id}`}
+                  className="text-primary/80 hover:text-primary underline underline-offset-2 transition-colors"
+                >
+                  Details
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -226,7 +238,9 @@ function ShowCard({ show, isAdmin, isSaved }: ShowCardProps) {
                       <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
                         <MapPin className="h-3 w-3" />
                         <span>
-                          {[artist.city, artist.state].filter(Boolean).join(', ')}
+                          {[artist.city, artist.state]
+                            .filter(Boolean)
+                            .join(', ')}
                         </span>
                       </div>
                     )}
@@ -285,7 +299,10 @@ export function HomeShowList() {
   // Prefetch /shows and /venues data during idle time
   usePrefetchRoutes(timezone)
 
-  const showIds = useMemo(() => data?.shows?.map(s => s.id) ?? [], [data?.shows])
+  const showIds = useMemo(
+    () => data?.shows?.map(s => s.id) ?? [],
+    [data?.shows]
+  )
   const { data: savedShowIds } = useSavedShowBatch(showIds, isAuthenticated)
 
   if (isLoading) {
@@ -315,7 +332,12 @@ export function HomeShowList() {
   return (
     <div className="w-full">
       {data.shows.map(show => (
-        <ShowCard key={show.id} show={show} isAdmin={isAdmin} isSaved={savedShowIds?.has(show.id)} />
+        <ShowCard
+          key={show.id}
+          show={show}
+          isAdmin={isAdmin}
+          isSaved={savedShowIds?.has(show.id)}
+        />
       ))}
     </div>
   )

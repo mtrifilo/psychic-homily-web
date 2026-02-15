@@ -50,7 +50,6 @@ export function ExportShowButton({
             extra: { showId, status: response.status, errorText },
           })
         }
-        console.error('Export failed:', response.status, errorText)
         if (response.status === 404) {
           alert('Export not available. Make sure ENVIRONMENT=development is set on the backend.')
         } else {
@@ -85,8 +84,7 @@ export function ExportShowButton({
         tags: { service: 'show-export' },
         extra: { showId },
       })
-      console.error('Export failed:', error)
-      alert('Export failed. Check browser console for details.')
+      alert('Export failed. Please try again.')
     } finally {
       setIsExporting(false)
     }

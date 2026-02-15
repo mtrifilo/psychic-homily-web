@@ -51,7 +51,6 @@ export function ImportDropZone({
         setSelectedFile(file.name)
         onFileSelect(content, file.name)
       } catch (error) {
-        console.error('Failed to read file:', error)
         alert('Failed to read file')
       }
     },

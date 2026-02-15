@@ -13,20 +13,9 @@ import type { PendingVenueEdit } from '@/lib/types/venue'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { formatShortDate } from '@/lib/utils/formatters'
 import { ApproveVenueEditDialog } from '@/components/admin/ApproveVenueEditDialog'
 import { RejectVenueEditDialog } from '@/components/admin/RejectVenueEditDialog'
-
-/**
- * Format date for display
- */
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
 
 /**
  * Show difference between current and proposed value
@@ -107,7 +96,7 @@ function PendingVenueEditCard({ edit }: PendingVenueEditCardProps) {
             <span className="font-medium text-foreground">
               {edit.submitter_name || `User #${edit.submitted_by}`}
             </span>{' '}
-            on {formatDate(edit.created_at)}
+            on {formatShortDate(edit.created_at)}
           </div>
 
           {/* Proposed Changes */}

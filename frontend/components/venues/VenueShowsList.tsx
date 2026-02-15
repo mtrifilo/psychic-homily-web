@@ -1,20 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
 import { Loader2, Calendar, History, Plus } from 'lucide-react'
 import { useVenueShows, type TimeFilter } from '@/lib/hooks/useVenues'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import type { VenueShow } from '@/lib/types/venue'
-import {
-  formatDateInTimezone,
-  formatDateWithYearInTimezone,
-  formatTimeInTimezone,
-  getTimezoneForState,
-} from '@/lib/utils/timeUtils'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { ShowForm } from '@/components/forms/ShowForm'
+import { CompactShowRow } from '@/components/shows/CompactShowRow'
+import { SHOW_LIST_FEATURE_POLICY } from '@/components/shows/showListFeaturePolicy'
 
 interface VenueShowsListProps {
   venueId: number
@@ -26,79 +20,6 @@ interface VenueShowsListProps {
   venueVerified?: boolean
   className?: string
   onShowAdded?: () => void
-}
-
-/**
- * Format a date string to "Mon, Dec 1" format in venue timezone
- * If includeYear is true, formats as "Mon, Dec 1, 2024"
- */
-function formatDate(dateString: string, state: string, includeYear = false): string {
-  const timezone = getTimezoneForState(state)
-  return includeYear
-    ? formatDateWithYearInTimezone(dateString, timezone)
-    : formatDateInTimezone(dateString, timezone)
-}
-
-/**
- * Format a date string to "7:30 PM" format in venue timezone
- */
-function formatTime(dateString: string, state: string): string {
-  const timezone = getTimezoneForState(state)
-  return formatTimeInTimezone(dateString, timezone)
-}
-
-/**
- * Format price as $XX.XX
- */
-function formatPrice(price: number): string {
-  return `$${price.toFixed(2)}`
-}
-
-interface ShowItemProps {
-  show: VenueShow
-  state: string
-  isPastShow?: boolean
-}
-
-function ShowItem({ show, state, isPastShow = false }: ShowItemProps) {
-  return (
-    <div className="py-3 border-b border-border/30 last:border-b-0">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-primary">
-            {formatDate(show.event_date, state, isPastShow)}
-          </div>
-          <div className="text-base font-semibold">
-            {show.artists.map((artist, index) => (
-              <span key={artist.id}>
-                {index > 0 && (
-                  <span className="text-muted-foreground/60 font-normal">
-                    {' '}
-                    &bull;{' '}
-                  </span>
-                )}
-                {artist.slug ? (
-                  <Link
-                    href={`/artists/${artist.slug}`}
-                    className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
-                  >
-                    {artist.name}
-                  </Link>
-                ) : (
-                  <span>{artist.name}</span>
-                )}
-              </span>
-            ))}
-            {show.artists.length === 0 && 'TBA'}
-          </div>
-        </div>
-        <div className="text-right text-sm text-muted-foreground shrink-0">
-          <div>{formatTime(show.event_date, state)}</div>
-          {show.price != null && <div>{formatPrice(show.price)}</div>}
-        </div>
-      </div>
-    </div>
-  )
 }
 
 interface ShowsTabContentProps {
@@ -149,9 +70,15 @@ function ShowsTabContent({
   const isPastShow = timeFilter === 'past'
 
   return (
-    <div className="divide-y divide-border/30">
+    <div>
       {data.shows.map(show => (
-        <ShowItem key={show.id} show={show} state={venueState} isPastShow={isPastShow} />
+        <CompactShowRow
+          key={show.id}
+          show={show}
+          state={venueState}
+          isPastShow={isPastShow}
+          showDetailsLink={SHOW_LIST_FEATURE_POLICY.context.showDetailsLink}
+        />
       ))}
     </div>
   )

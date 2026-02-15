@@ -3,9 +3,18 @@
 import { useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { Menu, LogOut, Loader2, Shield, Library } from 'lucide-react'
+import { Menu, LogOut, Loader2, Shield, Library, Settings } from 'lucide-react'
 import { ModeToggle } from '@/components/layout'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Sheet,
   SheetContent,
@@ -14,24 +23,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet'
 import { useAuthContext } from '@/lib/context/AuthContext'
-
-const navLinks = [
-  { href: '/shows', label: 'Shows' },
-  { href: '/venues', label: 'Venues' },
-  { href: '/blog', label: 'Blog' },
-  { href: '/dj-sets', label: 'DJ Sets' },
-  {
-    href: 'https://psychichomily.substack.com/',
-    label: 'Substack',
-    external: true,
-    prefetch: false as const,
-  },
-  { href: '/submissions', label: 'Submissions', prefetch: false as const },
-]
-
-function isExternal(link: (typeof navLinks)[number]): boolean {
-  return 'external' in link && link.external === true
-}
+import { navLinks, isExternal, getUserInitials, getUserDisplayName } from './nav-utils'
 
 export default function Nav() {
   const [open, setOpen] = useState(false)
@@ -125,41 +117,69 @@ export default function Nav() {
           {isLoading ? (
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground hidden sm:block" />
           ) : isAuthenticated && user ? (
-            <div className="hidden sm:flex items-center gap-1">
-              {/* My Collection link */}
-              <Link
-                href="/collection"
-                className="px-3 py-1.5 text-sm font-medium rounded-md hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-1.5"
-              >
-                <Library className="h-3.5 w-3.5" />
-                My Collection
-              </Link>
-              {/* Admin link - only show to admins */}
-              {user.is_admin && (
-                <Link
-                  href="/admin"
-                  prefetch={false}
-                  className="px-3 py-1.5 text-sm font-medium rounded-md hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-1.5"
-                >
-                  <Shield className="h-3.5 w-3.5" />
-                  Admin
-                </Link>
-              )}
-              <Link
-                href="/profile"
-                className="text-sm text-muted-foreground hover:text-primary truncate max-w-[150px] ml-2 transition-colors"
-              >
-                {user.email}
-              </Link>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={logout}
-                className="text-muted-foreground hover:text-primary"
-              >
-                <LogOut className="h-4 w-4" />
-                <span className="sr-only">Sign out</span>
-              </Button>
+            <div className="hidden sm:block">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="relative h-9 w-9 rounded-full ring-2 ring-muted-foreground/25 hover:ring-primary/50 hover:scale-105 transition-all duration-150 cursor-pointer"
+                    aria-label="User menu"
+                  >
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-medium">
+                      {getUserInitials(user)}
+                    </div>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel className="font-normal">
+                    <div className="flex flex-col space-y-1">
+                      {getUserDisplayName(user) && (
+                        <p className="text-sm font-medium leading-none">
+                          {getUserDisplayName(user)}
+                        </p>
+                      )}
+                      <p className="text-xs leading-none text-muted-foreground">
+                        {user.email}
+                      </p>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem asChild>
+                      <Link href="/collection">
+                        <Library className="mr-2 h-4 w-4" />
+                        My Collection
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/profile">
+                        <Settings className="mr-2 h-4 w-4" />
+                        Profile
+                      </Link>
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                  {user.is_admin && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem asChild>
+                        <Link href="/admin" prefetch={false}>
+                          <Shield className="mr-2 h-4 w-4" />
+                          Admin
+                        </Link>
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={logout}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           ) : (
             <Link
@@ -198,28 +218,6 @@ export default function Nav() {
                     {link.label}
                   </Link>
                 ))}
-                {/* My Collection link - only show to authenticated users */}
-                {isAuthenticated && (
-                  <Link
-                    href="/collection"
-                    onClick={() => setOpen(false)}
-                    className="text-lg font-medium px-4 py-3 rounded-lg hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-2"
-                  >
-                    <Library className="h-4 w-4" />
-                    My Collection
-                  </Link>
-                )}
-                {/* Admin link - only show to admins */}
-                {isAuthenticated && user?.is_admin && (
-                  <Link
-                    href="/admin"
-                    onClick={() => setOpen(false)}
-                    className="text-lg font-medium px-4 py-3 rounded-lg hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-2"
-                  >
-                    <Shield className="h-4 w-4" />
-                    Admin
-                  </Link>
-                )}
 
                 {/* Mobile auth section */}
                 {isLoading ? (
@@ -227,25 +225,53 @@ export default function Nav() {
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                   </div>
                 ) : isAuthenticated && user ? (
-                  <div className="px-4 py-3 space-y-3 sm:hidden">
+                  <div className="sm:hidden">
+                    <div className="my-2 mx-4 border-t border-border/30" />
+                    <p className="px-4 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      Your Account
+                    </p>
+                    <Link
+                      href="/collection"
+                      onClick={() => setOpen(false)}
+                      className="text-lg font-medium px-4 py-3 rounded-lg hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-2"
+                    >
+                      <Library className="h-4 w-4" />
+                      My Collection
+                    </Link>
                     <Link
                       href="/profile"
                       onClick={() => setOpen(false)}
-                      className="block text-sm text-muted-foreground hover:text-primary truncate transition-colors"
+                      className="text-lg font-medium px-4 py-3 rounded-lg hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-2"
                     >
-                      Signed in as {user.email}
+                      <Settings className="h-4 w-4" />
+                      Profile
                     </Link>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start"
-                      onClick={() => {
-                        logout()
-                        setOpen(false)
-                      }}
-                    >
-                      <LogOut className="h-4 w-4 mr-2" />
-                      Sign out
-                    </Button>
+                    {user.is_admin && (
+                      <Link
+                        href="/admin"
+                        onClick={() => setOpen(false)}
+                        className="text-lg font-medium px-4 py-3 rounded-lg hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-2"
+                      >
+                        <Shield className="h-4 w-4" />
+                        Admin
+                      </Link>
+                    )}
+                    <div className="px-4 py-3 space-y-3 mt-2">
+                      <p className="text-sm text-muted-foreground truncate">
+                        {user.email}
+                      </p>
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start"
+                        onClick={() => {
+                          logout()
+                          setOpen(false)
+                        }}
+                      >
+                        <LogOut className="h-4 w-4 mr-2" />
+                        Sign out
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <Link

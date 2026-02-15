@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { AlertCircle, Loader2, Mail, Lock, Eye, EyeOff, CheckCircle2, RefreshCw, ArrowLeft } from 'lucide-react'
 import { useRecoverAccount, useRequestAccountRecovery, useConfirmAccountRecovery } from '@/lib/hooks/useAuth'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -32,19 +33,6 @@ const passwordRecoverySchema = z.object({
 
 type EmailFormData = z.infer<typeof emailSchema>
 type PasswordRecoveryFormData = z.infer<typeof passwordRecoverySchema>
-
-/**
- * Safely extract error message from TanStack Form validation errors
- */
-function getErrorMessage(err: unknown): string {
-  if (typeof err === 'string') {
-    return err
-  }
-  if (err && typeof err === 'object' && 'message' in err) {
-    return String((err as { message: unknown }).message)
-  }
-  return String(err)
-}
 
 // Step 1: Email entry form
 function EmailForm({ onSubmit, isLoading }: {
@@ -93,7 +81,7 @@ function EmailForm({ onSubmit, isLoading }: {
             </div>
             {field.state.meta.errors.length > 0 && (
               <p role="alert" className="text-sm text-destructive">
-                {field.state.meta.errors.map(getErrorMessage).join(', ')}
+                {getUniqueErrors(field.state.meta.errors)}
               </p>
             )}
           </div>
@@ -227,7 +215,7 @@ function PasswordRecoveryForm({
               </div>
               {field.state.meta.errors.length > 0 && (
                 <p role="alert" className="text-sm text-destructive">
-                  {field.state.meta.errors.map(getErrorMessage).join(', ')}
+                  {getUniqueErrors(field.state.meta.errors)}
                 </p>
               )}
             </div>

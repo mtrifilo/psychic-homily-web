@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import {
   Star,
@@ -19,112 +19,14 @@ import {
 import { useVenueShows } from '@/lib/hooks/useVenues'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
+import { CompactShowRow } from '@/components/shows/CompactShowRow'
+import { SHOW_LIST_FEATURE_POLICY } from '@/components/shows/showListFeaturePolicy'
 import { FavoriteVenueButton } from './FavoriteVenueButton'
-import type {
-  FavoriteVenueResponse,
-  FavoriteVenueShow,
-  VenueShow,
-} from '@/lib/types/venue'
-import {
-  formatDateInTimezone,
-  formatTimeInTimezone,
-  getTimezoneForState,
-} from '@/lib/utils/timeUtils'
+import type { FavoriteVenueResponse } from '@/lib/types/venue'
 
 type ViewMode = 'chronological' | 'byVenue'
 
 const VIEW_MODE_STORAGE_KEY = 'favoriteVenuesViewMode'
-
-function formatDate(dateString: string, state?: string | null): string {
-  const timezone = getTimezoneForState(state || 'AZ')
-  return formatDateInTimezone(dateString, timezone)
-}
-
-function formatTime(dateString: string, state?: string | null): string {
-  const timezone = getTimezoneForState(state || 'AZ')
-  return formatTimeInTimezone(dateString, timezone)
-}
-
-function formatPrice(price: number): string {
-  return `$${price.toFixed(2)}`
-}
-
-interface ShowItemProps {
-  show: FavoriteVenueShow | VenueShow
-  state: string | null
-  showVenue?: boolean
-  venueSlug?: string
-  venueName?: string
-}
-
-function ShowItem({
-  show,
-  state,
-  showVenue = false,
-  venueSlug,
-  venueName,
-}: ShowItemProps) {
-  // Handle both FavoriteVenueShow and VenueShow types
-  const displayVenueSlug =
-    'venue_slug' in show ? show.venue_slug : venueSlug
-  const displayVenueName =
-    'venue_name' in show ? show.venue_name : venueName
-
-  return (
-    <div className="py-3 border-b border-border/30 last:border-b-0">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-primary">
-            {formatDate(show.event_date, state)}
-          </div>
-          <div className="text-base font-semibold">
-            {show.artists.map((artist, index) => (
-              <span key={artist.id}>
-                {index > 0 && (
-                  <span className="text-muted-foreground/60 font-normal">
-                    {' '}
-                    &bull;{' '}
-                  </span>
-                )}
-                {artist.slug ? (
-                  <Link
-                    href={`/artists/${artist.slug}`}
-                    className="hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors"
-                  >
-                    {artist.name}
-                  </Link>
-                ) : (
-                  <span>{artist.name}</span>
-                )}
-              </span>
-            ))}
-            {show.artists.length === 0 && 'TBA'}
-          </div>
-          {showVenue && displayVenueName && (
-            <div className="text-sm text-muted-foreground mt-1">
-              {displayVenueSlug ? (
-                <Link
-                  href={`/venues/${displayVenueSlug}`}
-                  className="text-primary/80 hover:text-primary font-medium transition-colors"
-                >
-                  {displayVenueName}
-                </Link>
-              ) : (
-                <span className="text-primary/80 font-medium">
-                  {displayVenueName}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-        <div className="text-right text-sm text-muted-foreground shrink-0">
-          <div>{formatTime(show.event_date, state)}</div>
-          {show.price != null && <div>{formatPrice(show.price)}</div>}
-        </div>
-      </div>
-    </div>
-  )
-}
 
 interface VenueCardExpandableProps {
   venue: FavoriteVenueResponse
@@ -222,12 +124,13 @@ function VenueCardExpandable({ venue }: VenueCardExpandableProps) {
           {data?.shows && data.shows.length > 0 && (
             <div className="pt-2">
               {data.shows.map(show => (
-                <ShowItem
+                <CompactShowRow
                   key={show.id}
                   show={show}
                   state={venue.state}
-                  venueSlug={venue.slug}
-                  venueName={venue.name}
+                  showDetailsLink={
+                    SHOW_LIST_FEATURE_POLICY.context.showDetailsLink
+                  }
                 />
               ))}
               {data.total > data.shows.length && (
@@ -256,7 +159,9 @@ function VenueCardExpandable({ venue }: VenueCardExpandableProps) {
 
 function ChronologicalView() {
   const { isAuthenticated } = useAuthContext()
-  const { data, isLoading, error } = useFavoriteVenueShows({ enabled: isAuthenticated })
+  const { data, isLoading, error } = useFavoriteVenueShows({
+    enabled: isAuthenticated,
+  })
 
   if (isLoading) {
     return (
@@ -269,7 +174,9 @@ function ChronologicalView() {
   if (error) {
     return (
       <div className="text-center text-destructive py-12">
-        <p>Failed to load shows from favorite venues. Please try again later.</p>
+        <p>
+          Failed to load shows from favorite venues. Please try again later.
+        </p>
       </div>
     )
   }
@@ -288,7 +195,17 @@ function ChronologicalView() {
   return (
     <section className="w-full">
       {shows.map(show => (
-        <ShowItem key={show.id} show={show} state={show.state} showVenue />
+        <CompactShowRow
+          key={show.id}
+          show={show}
+          state={show.state}
+          showVenueLine
+          venue={{
+            name: show.venue_name,
+            slug: show.venue_slug,
+          }}
+          showDetailsLink={SHOW_LIST_FEATURE_POLICY.context.showDetailsLink}
+        />
       ))}
     </section>
   )
@@ -296,7 +213,9 @@ function ChronologicalView() {
 
 function ByVenueView() {
   const { isAuthenticated } = useAuthContext()
-  const { data, isLoading, error } = useFavoriteVenues({ enabled: isAuthenticated })
+  const { data, isLoading, error } = useFavoriteVenues({
+    enabled: isAuthenticated,
+  })
 
   if (isLoading) {
     return (
@@ -331,21 +250,23 @@ function ByVenueView() {
 
 export function FavoriteVenuesTab() {
   const { isAuthenticated } = useAuthContext()
-  const [viewMode, setViewMode] = useState<ViewMode>('byVenue')
-  const { data: venuesData, isLoading: venuesLoading } = useFavoriteVenues({ enabled: isAuthenticated })
-
-  // Load view mode from localStorage on mount
-  useEffect(() => {
-    const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY)
-    if (stored === 'chronological' || stored === 'byVenue') {
-      setViewMode(stored)
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window === 'undefined') {
+      return 'byVenue'
     }
-  }, [])
+    const stored = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY)
+    return stored === 'chronological' || stored === 'byVenue'
+      ? stored
+      : 'byVenue'
+  })
+  const { data: venuesData, isLoading: venuesLoading } = useFavoriteVenues({
+    enabled: isAuthenticated,
+  })
 
   // Save view mode to localStorage when it changes
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode)
-    localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode)
+    window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode)
   }
 
   // Show empty state if no favorites
@@ -364,9 +285,7 @@ export function FavoriteVenuesTab() {
       <div className="text-center py-12 text-muted-foreground">
         <Star className="h-16 w-16 mx-auto mb-4 text-muted-foreground/30" />
         <p className="text-lg mb-2">No favorite venues yet</p>
-        <p className="text-sm">
-          Star venues to see their upcoming shows here
-        </p>
+        <p className="text-sm">Star venues to see their upcoming shows here</p>
         <Link
           href="/venues"
           className="inline-block mt-6 px-6 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"

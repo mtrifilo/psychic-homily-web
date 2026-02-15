@@ -24,6 +24,7 @@ import { PasswordStrengthMeter } from '@/components/ui/password-strength-meter'
 import { PasskeyLoginButton } from '@/components/auth/passkey-login'
 import { PasskeySignupButton } from '@/components/auth/passkey-signup'
 import { GoogleOAuthButton } from '@/components/auth/google-oauth-button'
+import { getUniqueErrors } from '@/lib/utils/formErrors'
 
 // Password validation constants
 const MIN_PASSWORD_LENGTH = 12
@@ -50,19 +51,6 @@ const signupSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>
 type SignupFormData = z.infer<typeof signupSchema>
-
-/**
- * Safely extract error message from TanStack Form validation errors
- */
-function getErrorMessage(err: unknown): string {
-  if (typeof err === 'string') {
-    return err
-  }
-  if (err && typeof err === 'object' && 'message' in err) {
-    return String((err as { message: unknown }).message)
-  }
-  return String(err)
-}
 
 function LoginForm({ returnTo }: { returnTo: string }) {
   const router = useRouter()
@@ -132,6 +120,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
 
   return (
     <form
+      noValidate
       onSubmit={e => {
         e.preventDefault()
         e.stopPropagation()
@@ -188,7 +177,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
             </div>
             {field.state.meta.errors.length > 0 && (
               <p role="alert" className="text-sm text-destructive">
-                {field.state.meta.errors.map(getErrorMessage).join(', ')}
+                {getUniqueErrors(field.state.meta.errors)}
               </p>
             )}
           </div>
@@ -224,7 +213,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
             </div>
             {field.state.meta.errors.length > 0 && (
               <p role="alert" className="text-sm text-destructive">
-                {field.state.meta.errors.map(getErrorMessage).join(', ')}
+                {getUniqueErrors(field.state.meta.errors)}
               </p>
             )}
             <div className="flex justify-end">
@@ -315,6 +304,7 @@ function SignupForm({ returnTo }: { returnTo: string }) {
   const [showPassword, setShowPassword] = useState(false)
   const [passwordValue, setPasswordValue] = useState('')
   const [passkeyError, setPasskeyError] = useState<string | null>(null)
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false)
 
   const form = useForm({
     defaultValues: {
@@ -342,16 +332,18 @@ function SignupForm({ returnTo }: { returnTo: string }) {
       )
     },
     validators: {
-      onChange: signupSchema,
+      ...(hasAttemptedSubmit && { onChange: signupSchema }),
       onSubmit: signupSchema,
     },
   })
 
   return (
     <form
+      noValidate
       onSubmit={e => {
         e.preventDefault()
         e.stopPropagation()
+        setHasAttemptedSubmit(true)
         form.handleSubmit()
       }}
       className="space-y-4"
@@ -400,7 +392,7 @@ function SignupForm({ returnTo }: { returnTo: string }) {
             </div>
             {field.state.meta.errors.length > 0 && (
               <p role="alert" className="text-sm text-destructive">
-                {field.state.meta.errors.map(getErrorMessage).join(', ')}
+                {getUniqueErrors(field.state.meta.errors)}
               </p>
             )}
           </div>
@@ -437,6 +429,11 @@ function SignupForm({ returnTo }: { returnTo: string }) {
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
+            {field.state.meta.errors.length > 0 && (
+              <p role="alert" className="text-sm text-destructive">
+                {getUniqueErrors(field.state.meta.errors)}
+              </p>
+            )}
             {/* Password strength meter with requirements */}
             <PasswordStrengthMeter password={passwordValue} showRequirements={true} />
           </div>
@@ -478,7 +475,7 @@ function SignupForm({ returnTo }: { returnTo: string }) {
             </div>
             {field.state.meta.errors.length > 0 && (
               <p role="alert" className="text-sm text-destructive">
-                {field.state.meta.errors.map(getErrorMessage).join(', ')}
+                {getUniqueErrors(field.state.meta.errors)}
               </p>
             )}
           </div>
@@ -490,7 +487,7 @@ function SignupForm({ returnTo }: { returnTo: string }) {
           <Button
             type="submit"
             className="w-full"
-            disabled={!canSubmit || isSubmitting || registerMutation.isPending}
+            disabled={!canSubmit || isSubmitting || registerMutation.isPending || (passwordValue.length > 0 && passwordValue.length < MIN_PASSWORD_LENGTH)}
           >
             {isSubmitting || registerMutation.isPending ? (
               <>

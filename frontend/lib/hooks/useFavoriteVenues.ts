@@ -131,6 +131,8 @@ export const useFavoriteVenueToggle = (venueId: number, isAuthenticated: boolean
   const isLoading = favoriteVenue.isPending || unfavoriteVenue.isPending
 
   const toggle = async () => {
+    if (isLoading) return // Prevent concurrent mutations
+
     // Optimistic update
     const checkQueryKey = queryKeys.favoriteVenues.check(String(venueId))
 

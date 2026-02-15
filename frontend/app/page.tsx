@@ -4,26 +4,23 @@ import { getBlogSlugs, getBlogPost } from '@/lib/blog'
 import { getAllMixes } from '@/lib/mixes'
 import { MDXContent } from '@/components/blog/mdx-content'
 import { SoundCloud } from '@/components/blog/soundcloud-embed'
+import { JsonLd } from '@/components/seo/JsonLd'
+import { generateWebSiteSchema } from '@/lib/seo/jsonld'
+import { formatContentDate } from '@/lib/utils/formatters'
 
 export const metadata = {
   title: 'Psychic Homily | Arizona Music Community',
   description:
     'Discover upcoming live music shows, blog posts, and DJ sets from the Arizona music scene.',
+  alternates: {
+    canonical: 'https://psychichomily.com',
+  },
   openGraph: {
     title: 'Psychic Homily | Arizona Music Community',
     description: 'Discover upcoming live music shows, blog posts, and DJ sets from the Arizona music scene.',
     url: '/',
     type: 'website',
   },
-}
-
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
 }
 
 /**
@@ -67,6 +64,8 @@ export default function Home() {
   const latestMix = allMixes[0]
 
   return (
+    <>
+    <JsonLd data={generateWebSiteSchema()} />
     <div className="flex min-h-screen items-start justify-center">
       <main className="w-full max-w-4xl px-4 py-8 md:px-8">
         {/* Upcoming Shows Section */}
@@ -109,7 +108,7 @@ export default function Home() {
                 </Link>
               </h3>
               <div className="text-sm text-muted-foreground mt-1.5">
-                {formatDate(latestPost.frontmatter.date)}
+                {formatContentDate(latestPost.frontmatter.date)}
               </div>
 
               {extractEmbed(latestPost.content) && (
@@ -156,7 +155,7 @@ export default function Home() {
                 </Link>
               </h3>
               <div className="text-sm text-muted-foreground mt-1.5">
-                {formatDate(latestMix.date)} by {latestMix.artist}
+                {formatContentDate(latestMix.date)} by {latestMix.artist}
               </div>
 
               {latestMix.description && (
@@ -179,5 +178,6 @@ export default function Home() {
         )}
       </main>
     </div>
+    </>
   )
 }

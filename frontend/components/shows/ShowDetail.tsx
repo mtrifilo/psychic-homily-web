@@ -8,11 +8,7 @@ import type { ApiError } from '@/lib/api'
 import { useSetShowSoldOut, useSetShowCancelled } from '@/lib/hooks/useAdminShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { ArtistResponse } from '@/lib/types/show'
-import {
-  formatDateInTimezone,
-  formatTimeInTimezone,
-  getTimezoneForState,
-} from '@/lib/utils/timeUtils'
+import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
 import { Button } from '@/components/ui/button'
 import { SocialLinks, MusicEmbed, SaveButton } from '@/components/shared'
 import { ShowForm } from '@/components/forms'
@@ -23,20 +19,6 @@ import { ReportShowButton } from './ReportShowButton'
 
 interface ShowDetailProps {
   showId: string | number
-}
-
-function formatDate(dateString: string, state?: string | null): string {
-  const timezone = getTimezoneForState(state || 'AZ')
-  return formatDateInTimezone(dateString, timezone)
-}
-
-function formatTime(dateString: string, state?: string | null): string {
-  const timezone = getTimezoneForState(state || 'AZ')
-  return formatTimeInTimezone(dateString, timezone)
-}
-
-function formatPrice(price: number): string {
-  return `$${price.toFixed(2)}`
 }
 
 function artistHasMusic(artist: ArtistResponse): boolean {
@@ -173,7 +155,7 @@ export function ShowDetail({ showId }: ShowDetailProps) {
             {/* Date and Status Badges */}
             <div className="flex items-center gap-2 mb-2">
               <span className="text-lg font-bold text-primary">
-                {formatDate(show.event_date, show.state)}
+                {formatShowDate(show.event_date, show.state)}
               </span>
               {show.is_sold_out && (
                 <Badge variant="secondary" className="text-xs font-semibold bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400">
@@ -231,7 +213,7 @@ export function ShowDetail({ showId }: ShowDetailProps) {
 
             {/* Show Details */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground mt-3">
-              <span>{formatTime(show.event_date, show.state)}</span>
+              <span>{formatShowTime(show.event_date, show.state)}</span>
               {show.price != null && <span>{formatPrice(show.price)}</span>}
               {show.age_requirement && <span>{show.age_requirement}</span>}
             </div>

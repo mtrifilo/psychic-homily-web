@@ -9,10 +9,10 @@ import type { ShowResponse, ArtistResponse } from '@/lib/types/show'
 import Link from 'next/link'
 import { Pencil, X, Trash2, ChevronDown, ChevronUp, MapPin } from 'lucide-react'
 import {
-  formatDateInTimezone,
-  formatTimeInTimezone,
-  getTimezoneForState,
-} from '@/lib/utils/timeUtils'
+  formatShowDate,
+  formatShowTime,
+  formatPrice,
+} from '@/lib/utils/formatters'
 import { Button } from '@/components/ui/button'
 import { ShowForm } from '@/components/forms'
 import { SaveButton, SocialLinks, MusicEmbed } from '@/components/shared'
@@ -20,30 +20,8 @@ import { ShowListSkeleton } from './ShowListSkeleton'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ExportShowButton } from './ExportShowButton'
 import { ShowStatusBadge } from './ShowStatusBadge'
+import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 import { CityFilters, type CityWithCount } from '@/components/filters'
-
-/**
- * Format a date string to "Mon, Dec 1" format in venue timezone
- */
-function formatDate(dateString: string, state?: string | null): string {
-  const timezone = getTimezoneForState(state || 'AZ')
-  return formatDateInTimezone(dateString, timezone)
-}
-
-/**
- * Format a date string to "7:30 PM" format in venue timezone
- */
-function formatTime(dateString: string, state?: string | null): string {
-  const timezone = getTimezoneForState(state || 'AZ')
-  return formatTimeInTimezone(dateString, timezone)
-}
-
-/**
- * Format price as $XX.XX
- */
-function formatPrice(price: number): string {
-  return `$${price.toFixed(2)}`
-}
 
 /**
  * Check if an artist has any music available (Bandcamp embed, Spotify, or Bandcamp profile)
@@ -94,16 +72,15 @@ function ShowCard({ show, isAdmin, userId, isSaved }: ShowCardProps) {
   }
 
   return (
-    <article className={`border-b border-border/50 py-5 -mx-3 px-3 rounded-lg hover:bg-muted/30 transition-colors duration-75 ${show.is_cancelled ? 'opacity-60' : ''}`}>
+    <article
+      className={`border-b border-border/50 py-5 -mx-3 px-3 rounded-lg hover:bg-muted/30 transition-colors duration-75 ${show.is_cancelled ? 'opacity-60' : ''}`}
+    >
       <div className="flex flex-col md:flex-row">
         {/* Left column: Date and Location */}
         <div className="w-full md:w-1/5 md:pr-4 mb-2 md:mb-0">
-          <Link
-            href={`/shows/${show.slug || show.id}`}
-            className="block group"
-          >
+          <Link href={`/shows/${show.slug || show.id}`} className="block group">
             <h2 className="text-sm font-bold tracking-wide text-primary group-hover:underline underline-offset-2">
-              {formatDate(show.event_date, show.state)}
+              {formatShowDate(show.event_date, show.state)}
             </h2>
             <h3 className="text-xs text-muted-foreground mt-0.5">
               {show.city}, {show.state}
@@ -142,73 +119,86 @@ function ShowCard({ show, isAdmin, userId, isSaved }: ShowCardProps) {
             {/* Action Buttons */}
             <div className="flex items-center gap-1 shrink-0">
               {/* Expand Button - only show if artists have music */}
-              {hasArtistMusic && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsExpanded(!isExpanded)}
-                  className="h-7 w-7 p-0"
-                  title={isExpanded ? 'Hide artist music' : 'Discover artist music'}
-                >
-                  {isExpanded ? (
-                    <ChevronUp className="h-4 w-4" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4" />
-                  )}
-                </Button>
-              )}
+              {SHOW_LIST_FEATURE_POLICY.discovery.showExpandMusic &&
+                hasArtistMusic && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="h-7 w-7 p-0"
+                    title={
+                      isExpanded ? 'Hide artist music' : 'Discover artist music'
+                    }
+                  >
+                    {isExpanded ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </Button>
+                )}
 
               {/* Save Button */}
-              <SaveButton showId={show.id} variant="ghost" size="sm" isSaved={isSaved} />
-
-              {/* Admin Edit Button */}
-              {isAdmin && (
-                <Button
-                  variant={isEditing ? 'secondary' : 'ghost'}
-                  size="sm"
-                  onClick={() => setIsEditing(!isEditing)}
-                  className="h-7 w-7 p-0"
-                  title={isEditing ? 'Cancel editing' : 'Edit show'}
-                >
-                  {isEditing ? (
-                    <X className="h-4 w-4" />
-                  ) : (
-                    <Pencil className="h-3.5 w-3.5" />
-                  )}
-                </Button>
-              )}
-
-              {/* Export Button (admin, dev only) */}
-              {isAdmin && (
-                <ExportShowButton
+              {SHOW_LIST_FEATURE_POLICY.discovery.showSaveButton && (
+                <SaveButton
                   showId={show.id}
-                  showTitle={show.title}
                   variant="ghost"
                   size="sm"
-                  className="h-7 w-7 p-0"
-                  iconOnly
+                  isSaved={isSaved}
                 />
               )}
 
+              {/* Admin Edit Button */}
+              {SHOW_LIST_FEATURE_POLICY.discovery.showAdminActions &&
+                isAdmin && (
+                  <Button
+                    variant={isEditing ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setIsEditing(!isEditing)}
+                    className="h-7 w-7 p-0"
+                    title={isEditing ? 'Cancel editing' : 'Edit show'}
+                  >
+                    {isEditing ? (
+                      <X className="h-4 w-4" />
+                    ) : (
+                      <Pencil className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                )}
+
+              {/* Export Button (admin, dev only) */}
+              {SHOW_LIST_FEATURE_POLICY.discovery.showAdminActions &&
+                isAdmin && (
+                  <ExportShowButton
+                    showId={show.id}
+                    showTitle={show.title}
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    iconOnly
+                  />
+                )}
+
               {/* Delete Button (admin or owner) */}
-              {canDelete && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsDeleteDialogOpen(true)}
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                  title="Delete show"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              )}
+              {SHOW_LIST_FEATURE_POLICY.discovery.showOwnerActions &&
+                canDelete && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsDeleteDialogOpen(true)}
+                    className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                    title="Delete show"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
             </div>
           </div>
 
           {/* Venue and Details */}
           <div className="text-sm mt-1.5 text-muted-foreground">
-            {venue && (
-              venue.slug ? (
+            {venue &&
+              (venue.slug ? (
                 <Link
                   href={`/venues/${venue.slug}`}
                   className="text-primary/80 hover:text-primary font-medium transition-colors"
@@ -216,23 +206,30 @@ function ShowCard({ show, isAdmin, userId, isSaved }: ShowCardProps) {
                   {venue.name}
                 </Link>
               ) : (
-                <span className="text-primary/80 font-medium">{venue.name}</span>
-              )
-            )}
+                <span className="text-primary/80 font-medium">
+                  {venue.name}
+                </span>
+              ))}
             {show.price != null && (
               <span>&nbsp;•&nbsp;{formatPrice(show.price)}</span>
             )}
             {show.age_requirement && (
               <span>&nbsp;•&nbsp;{show.age_requirement}</span>
             )}
-            <span>&nbsp;•&nbsp;{formatTime(show.event_date, show.state)}</span>
-            <span>&nbsp;•&nbsp;</span>
-            <Link
-              href={`/shows/${show.slug || show.id}`}
-              className="text-primary/80 hover:text-primary underline underline-offset-2 transition-colors"
-            >
-              Details
-            </Link>
+            <span>
+              &nbsp;•&nbsp;{formatShowTime(show.event_date, show.state)}
+            </span>
+            {SHOW_LIST_FEATURE_POLICY.discovery.showDetailsLink && (
+              <>
+                <span>&nbsp;•&nbsp;</span>
+                <Link
+                  href={`/shows/${show.slug || show.id}`}
+                  className="text-primary/80 hover:text-primary underline underline-offset-2 transition-colors"
+                >
+                  Details
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -259,7 +256,9 @@ function ShowCard({ show, isAdmin, userId, isSaved }: ShowCardProps) {
                       <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
                         <MapPin className="h-3 w-3" />
                         <span>
-                          {[artist.city, artist.state].filter(Boolean).join(', ')}
+                          {[artist.city, artist.state]
+                            .filter(Boolean)
+                            .join(', ')}
                         </span>
                       </div>
                     )}
@@ -315,7 +314,11 @@ export function ShowList() {
   const [cursor, setCursor] = useState<string | undefined>(undefined)
   const [accumulatedShows, setAccumulatedShows] = useState<ShowResponse[]>([])
 
-  const { data: citiesData, isLoading: citiesLoading, isFetching: citiesFetching } = useShowCities({
+  const {
+    data: citiesData,
+    isLoading: citiesLoading,
+    isFetching: citiesFetching,
+  } = useShowCities({
     timezone,
   })
 
@@ -377,11 +380,12 @@ export function ShowList() {
   }
 
   // Map ShowCity to CityWithCount
-  const cities: CityWithCount[] = citiesData?.cities?.map(c => ({
-    city: c.city,
-    state: c.state,
-    count: c.show_count,
-  })) ?? []
+  const cities: CityWithCount[] =
+    citiesData?.cities?.map(c => ({
+      city: c.city,
+      state: c.state,
+      count: c.show_count,
+    })) ?? []
 
   return (
     <section className="w-full max-w-4xl">
@@ -395,7 +399,13 @@ export function ShowList() {
       )}
 
       {/* Dim content while fetching, don't hide it */}
-      <div className={isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
+      <div
+        className={
+          isUpdating
+            ? 'opacity-60 transition-opacity duration-75'
+            : 'transition-opacity duration-75'
+        }
+      >
         {allShows.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <p>

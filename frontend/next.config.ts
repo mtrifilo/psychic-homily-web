@@ -16,6 +16,34 @@ const nextConfig: NextConfig = {
       '@tanstack/react-query',
     ],
   },
+  async redirects() {
+    return [
+      // Hugo shows used /shows/YYYY/MM/slug/ — flatten to /shows/slug
+      {
+        source: '/shows/:year(\\d{4})/:month(\\d{2})/:slug',
+        destination: '/shows/:slug',
+        permanent: true,
+      },
+      // "bands" taxonomy renamed to "artists"
+      {
+        source: '/bands/:slug',
+        destination: '/artists/:slug',
+        permanent: true,
+      },
+      // "mixes" section renamed to "dj-sets"
+      {
+        source: '/mixes/:slug',
+        destination: '/dj-sets/:slug',
+        permanent: true,
+      },
+      // Old about page
+      {
+        source: '/about',
+        destination: '/',
+        permanent: true,
+      },
+    ]
+  },
   async headers() {
     return [
       {

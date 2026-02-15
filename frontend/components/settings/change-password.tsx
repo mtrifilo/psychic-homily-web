@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PasswordStrengthMeter } from '@/components/ui/password-strength-meter'
+import { getUniqueErrors } from '@/lib/utils/formErrors'
 
 // Password validation constants (same as auth page)
 const MIN_PASSWORD_LENGTH = 12
@@ -35,19 +36,6 @@ const changePasswordSchema = z
   })
 
 type ChangePasswordFormData = z.infer<typeof changePasswordSchema>
-
-/**
- * Safely extract error message from TanStack Form validation errors
- */
-function getErrorMessage(err: unknown): string {
-  if (typeof err === 'string') {
-    return err
-  }
-  if (err && typeof err === 'object' && 'message' in err) {
-    return String((err as { message: unknown }).message)
-  }
-  return String(err)
-}
 
 export function ChangePassword() {
   const changePasswordMutation = useChangePassword()
@@ -157,7 +145,7 @@ export function ChangePassword() {
                 </div>
                 {field.state.meta.errors.length > 0 && (
                   <p role="alert" className="text-sm text-destructive">
-                    {field.state.meta.errors.map(getErrorMessage).join(', ')}
+                    {getUniqueErrors(field.state.meta.errors)}
                   </p>
                 )}
               </div>
@@ -199,7 +187,7 @@ export function ChangePassword() {
                 <PasswordStrengthMeter password={newPasswordValue} showRequirements={true} />
                 {field.state.meta.errors.length > 0 && (
                   <p role="alert" className="text-sm text-destructive">
-                    {field.state.meta.errors.map(getErrorMessage).join(', ')}
+                    {getUniqueErrors(field.state.meta.errors)}
                   </p>
                 )}
               </div>
@@ -237,8 +225,13 @@ export function ChangePassword() {
                     {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
+                {field.state.meta.errors.length > 0 && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {getUniqueErrors(field.state.meta.errors)}
+                  </p>
+                )}
                 {/* Password match indicator */}
-                {confirmPasswordValue && (
+                {confirmPasswordValue && field.state.meta.errors.length === 0 && (
                   <p className={`text-xs ${passwordsMatch ? 'text-green-600 dark:text-green-500' : 'text-muted-foreground'}`}>
                     {passwordsMatch ? 'Passwords match' : 'Passwords do not match'}
                   </p>

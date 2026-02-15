@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import type { AuditLogEntry as AuditLogEntryType } from '@/lib/types/audit'
 import { Badge } from '@/components/ui/badge'
+import { formatTimestamp } from '@/lib/utils/formatters'
 
 interface AuditLogEntryProps {
   entry: AuditLogEntryType
@@ -69,17 +70,6 @@ function getActionConfig(action: string) {
       color: 'text-muted-foreground',
     }
   )
-}
-
-function formatTimestamp(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
 }
 
 function getEntityLabel(entityType: string): string {

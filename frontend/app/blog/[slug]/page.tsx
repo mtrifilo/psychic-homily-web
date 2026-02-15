@@ -3,7 +3,8 @@ import { getBlogPost, getBlogSlugs } from '@/lib/blog'
 import { MDXContent } from '@/components/blog/mdx-content'
 import Link from 'next/link'
 import { JsonLd } from '@/components/seo/JsonLd'
-import { generateBlogPostingSchema } from '@/lib/seo/jsonld'
+import { generateBlogPostingSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
+import { formatContentDate } from '@/lib/utils/formatters'
 
 interface BlogPostPageProps {
   params: Promise<{ slug: string }>
@@ -40,15 +41,6 @@ export async function generateMetadata({ params }: BlogPostPageProps) {
   }
 }
 
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
-}
-
 export default async function BlogPostPage({ params }: BlogPostPageProps) {
   const { slug } = await params
   const post = getBlogPost(slug)
@@ -65,6 +57,11 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
         description: post.frontmatter.description || post.excerpt,
         slug,
       })} />
+      <JsonLd data={generateBreadcrumbSchema([
+        { name: 'Home', url: 'https://psychichomily.com' },
+        { name: 'Blog', url: 'https://psychichomily.com/blog' },
+        { name: post.frontmatter.title, url: `https://psychichomily.com/blog/${slug}` },
+      ])} />
       <div className="flex min-h-screen items-start justify-center">
         <article className="w-full max-w-3xl px-4 py-8 md:px-8">
           <header className="mb-8">
@@ -73,7 +70,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
             </h1>
 
             <div className="text-sm text-muted-foreground flex flex-wrap gap-2 items-center">
-              <time>{formatDate(post.frontmatter.date)}</time>
+              <time>{formatContentDate(post.frontmatter.date)}</time>
 
               {post.frontmatter.categories &&
                 post.frontmatter.categories.length > 0 && (

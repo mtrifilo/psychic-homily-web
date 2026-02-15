@@ -101,6 +101,12 @@ test.describe('Collection page', () => {
     await expect(authenticatedPage.locator('article').first()).toBeVisible({
       timeout: 5_000,
     })
+    await expect(
+      authenticatedPage
+        .locator('article')
+        .first()
+        .getByRole('link', { name: 'Details' })
+    ).toBeVisible()
 
     // Clean up: go back to the show and unsave it
     await authenticatedPage.goto(showUrl)

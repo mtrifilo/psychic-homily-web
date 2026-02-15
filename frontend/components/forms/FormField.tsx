@@ -3,6 +3,7 @@
 import { type AnyFieldApi } from '@tanstack/react-form'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { getUniqueErrors } from '@/lib/utils/formErrors'
 
 interface FormFieldProps {
   field: AnyFieldApi
@@ -23,11 +24,7 @@ export function FieldInfo({ field }: Readonly<{ field: AnyFieldApi }>) {
   if (field.state.meta.isTouched && errors.length > 0) {
     return (
       <p role="alert" className="text-sm text-destructive">
-        {errors
-          .map(err =>
-            typeof err === 'string' ? err : err?.message || String(err)
-          )
-          .join(', ')}
+        {getUniqueErrors(errors)}
       </p>
     )
   }

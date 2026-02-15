@@ -1,10 +1,11 @@
 import { Suspense } from 'react'
 import { Metadata } from 'next'
+import { notFound } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import * as Sentry from '@sentry/nextjs'
 import { VenueDetail } from '@/components/venues'
 import { JsonLd } from '@/components/seo/JsonLd'
-import { generateMusicVenueSchema } from '@/lib/seo/jsonld'
+import { generateMusicVenueSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -103,18 +104,25 @@ export default async function VenuePage({ params }: VenuePageProps) {
 
   const venueData = await getVenue(slug)
 
+  if (!venueData) {
+    notFound()
+  }
+
   return (
     <>
-      {venueData && (
-        <JsonLd data={generateMusicVenueSchema({
-          name: venueData.name,
-          address: venueData.address,
-          city: venueData.city,
-          state: venueData.state,
-          zip_code: venueData.zip_code,
-          slug: venueData.slug || slug,
-        })} />
-      )}
+      <JsonLd data={generateMusicVenueSchema({
+        name: venueData.name,
+        address: venueData.address,
+        city: venueData.city,
+        state: venueData.state,
+        zip_code: venueData.zip_code,
+        slug: venueData.slug || slug,
+      })} />
+      <JsonLd data={generateBreadcrumbSchema([
+        { name: 'Home', url: 'https://psychichomily.com' },
+        { name: 'Venues', url: 'https://psychichomily.com/venues' },
+        { name: venueData.name, url: `https://psychichomily.com/venues/${venueData.slug || slug}` },
+      ])} />
       <Suspense fallback={<VenueLoadingFallback />}>
         <VenueDetail venueId={slug} />
       </Suspense>

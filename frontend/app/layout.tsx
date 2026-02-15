@@ -40,6 +40,13 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     images: ['/og-image.jpg'],
   },
+  robots: {
+    index: true,
+    follow: true,
+    'max-snippet': -1,
+    'max-image-preview': 'large' as const,
+    'max-video-preview': -1,
+  },
 }
 
 export default function RootLayout({

@@ -16,36 +16,12 @@ import type { ShowResponse } from '@/lib/types/show'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { formatAdminDate, formatAdminTime } from '@/lib/utils/formatters'
 import { ApproveShowDialog } from './ApproveShowDialog'
 import { RejectShowDialog } from './RejectShowDialog'
 
 interface PendingShowCardProps {
   show: ShowResponse
-}
-
-/**
- * Format date for display
- */
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
-
-/**
- * Format time for display
- */
-function formatTime(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
 }
 
 export function PendingShowCard({ show }: PendingShowCardProps) {
@@ -117,7 +93,7 @@ export function PendingShowCard({ show }: PendingShowCardProps) {
             <div className="flex items-center gap-2 text-muted-foreground">
               <Calendar className="h-4 w-4 shrink-0" />
               <span>
-                {formatDate(show.event_date)} at {formatTime(show.event_date)}
+                {formatAdminDate(show.event_date)} at {formatAdminTime(show.event_date)}
               </span>
             </div>
 

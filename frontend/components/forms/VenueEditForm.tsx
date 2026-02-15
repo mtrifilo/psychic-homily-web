@@ -13,7 +13,8 @@ import {
 } from 'lucide-react'
 import { useVenueUpdate, useMyPendingVenueEdit, useCancelPendingVenueEdit } from '@/lib/hooks/useVenueEdit'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import type { VenueWithShowCount, VenueEditRequest, Venue } from '@/lib/types/venue'
+import type { VenueWithShowCount, Venue } from '@/lib/types/venue'
+import { detectVenueChanges, type VenueEditFormValues } from './venue-edit-utils'
 import {
   Dialog,
   DialogContent,
@@ -44,21 +45,7 @@ const venueEditSchema = z.object({
   website: z.string(),
 })
 
-interface FormValues {
-  name: string
-  address: string
-  city: string
-  state: string
-  zipcode: string
-  instagram: string
-  facebook: string
-  twitter: string
-  youtube: string
-  spotify: string
-  soundcloud: string
-  bandcamp: string
-  website: string
-}
+type FormValues = VenueEditFormValues
 
 interface VenueEditFormProps {
   venue: VenueWithShowCount | Venue
@@ -109,35 +96,9 @@ export function VenueEditForm({
     onSubmit: async ({ value }) => {
       setError(null)
 
-      // Build request with only changed fields
-      const changes: VenueEditRequest = {}
+      const changes = detectVenueChanges(value, venue)
 
-      if (value.name !== venue.name) changes.name = value.name
-      if (value.address !== (venue.address || ''))
-        changes.address = value.address || undefined
-      if (value.city !== venue.city) changes.city = value.city
-      if (value.state !== venue.state) changes.state = value.state
-      if (value.zipcode !== (venue.zipcode || ''))
-        changes.zipcode = value.zipcode || undefined
-      if (value.instagram !== (venue.social?.instagram || ''))
-        changes.instagram = value.instagram || undefined
-      if (value.facebook !== (venue.social?.facebook || ''))
-        changes.facebook = value.facebook || undefined
-      if (value.twitter !== (venue.social?.twitter || ''))
-        changes.twitter = value.twitter || undefined
-      if (value.youtube !== (venue.social?.youtube || ''))
-        changes.youtube = value.youtube || undefined
-      if (value.spotify !== (venue.social?.spotify || ''))
-        changes.spotify = value.spotify || undefined
-      if (value.soundcloud !== (venue.social?.soundcloud || ''))
-        changes.soundcloud = value.soundcloud || undefined
-      if (value.bandcamp !== (venue.social?.bandcamp || ''))
-        changes.bandcamp = value.bandcamp || undefined
-      if (value.website !== (venue.social?.website || ''))
-        changes.website = value.website || undefined
-
-      // Check if any changes were made
-      if (Object.keys(changes).length === 0) {
+      if (!changes) {
         setError('No changes detected')
         return
       }

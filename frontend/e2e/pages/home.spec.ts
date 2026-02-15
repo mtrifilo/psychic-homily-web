@@ -26,6 +26,7 @@ test.describe('Homepage', () => {
     // Verify at least one show card has a link (artist or venue)
     const firstShow = page.locator('article').first()
     await expect(firstShow.locator('a').first()).toBeVisible()
+    await expect(firstShow.getByRole('link', { name: 'Details' })).toBeVisible()
   })
 
   test('displays navigation links', async ({ page }) => {
@@ -38,9 +39,7 @@ test.describe('Homepage', () => {
     await expect(page.getByRole('link', { name: 'DJ Sets' })).toBeVisible()
 
     // Login link visible when not authenticated
-    await expect(
-      page.getByRole('link', { name: /login/i })
-    ).toBeVisible()
+    await expect(page.getByRole('link', { name: /login/i })).toBeVisible()
   })
 
   test('displays blog and DJ set sections', async ({ page }) => {

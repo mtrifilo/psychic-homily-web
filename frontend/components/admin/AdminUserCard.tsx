@@ -3,18 +3,10 @@
 import { Shield, UserX } from 'lucide-react'
 import type { AdminUser } from '@/lib/types/user'
 import { Badge } from '@/components/ui/badge'
+import { formatShortDate } from '@/lib/utils/formatters'
 
 interface AdminUserCardProps {
   user: AdminUser
-}
-
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
 }
 
 function formatAuthMethod(method: string): string {
@@ -122,7 +114,7 @@ export function AdminUserCard({ user }: AdminUserCardProps) {
 
           {/* Join date */}
           <span className="text-xs text-muted-foreground">
-            Joined {formatDate(user.created_at)}
+            Joined {formatShortDate(user.created_at)}
           </span>
         </div>
       </div>

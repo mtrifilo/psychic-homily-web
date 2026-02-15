@@ -91,9 +91,10 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           const found: string[] = []
           if (data.platforms.bandcamp?.found) found.push('Bandcamp')
           if (data.platforms.spotify?.found) found.push('Spotify')
-          message = found.length > 0
-            ? `Found ${found.join(' and ')}`
-            : `Found ${data.platform ? formatPlatformName(data.platform) : 'music'}: ${data.url}`
+          message =
+            found.length > 0
+              ? `Found ${found.join(' and ')}`
+              : `Found ${data.platform ? formatPlatformName(data.platform) : 'music'}: ${data.url}`
         } else {
           const platformName = data.platform
             ? formatPlatformName(data.platform)
@@ -312,7 +313,9 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
       {/* Header */}
       <header className="mb-8">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl md:text-3xl font-bold leading-8 md:leading-9">{artist.name}</h1>
+          <h1 className="text-2xl md:text-3xl font-bold leading-8 md:leading-9">
+            {artist.name}
+          </h1>
           {isAdmin && (
             <Button
               variant="ghost"
@@ -335,7 +338,9 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
         )}
 
         {/* Social Links */}
-        {artist.social && <SocialLinks social={artist.social} className="mt-4" />}
+        {artist.social && (
+          <SocialLinks social={artist.social} className="mt-4" />
+        )}
       </header>
 
       {/* Music Embed */}
@@ -355,9 +360,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
               variant={feedback.type === 'error' ? 'destructive' : 'default'}
               className="mb-4"
             >
-              {feedback.type === 'error' && (
-                <AlertCircle className="h-4 w-4" />
-              )}
+              {feedback.type === 'error' && <AlertCircle className="h-4 w-4" />}
               {feedback.type === 'success' && <Check className="h-4 w-4" />}
               <AlertDescription>{feedback.message}</AlertDescription>
             </Alert>
@@ -583,7 +586,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
       )}
 
       {/* Shows List */}
-      <ArtistShowsList artistId={artist.id} artistName={artist.name} />
+      <ArtistShowsList artistId={artist.id} />
 
       {/* Admin Edit Dialog */}
       {isAdmin && (

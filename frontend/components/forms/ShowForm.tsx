@@ -25,7 +25,6 @@ import {
 } from '@/lib/hooks/useShowUpdate'
 import {
   combineDateTimeToUTC,
-  parseISOToDateAndTime,
   getTimezoneForState,
 } from '@/lib/utils/timeUtils'
 import type { Venue } from '@/lib/types/venue'
@@ -38,6 +37,15 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { FormField, ArtistInput, VenueInput } from '@/components/forms'
 import { OrphanedArtistsDialog } from '@/components/forms/OrphanedArtistsDialog'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import {
+  type FormArtist,
+  type FormValues,
+  defaultFormValues,
+  showToFormValues,
+  parseCost,
+  removeArtistAtIndex,
+  isVenueLocationEditable as computeVenueEditable,
+} from './show-form-utils'
 
 // Form validation schema
 const showFormSchema = z.object({
@@ -73,71 +81,6 @@ const showFormSchema = z.object({
   ages: z.string(),
   description: z.string(),
 })
-
-interface FormArtist {
-  name: string
-  is_headliner: boolean
-  matched_id?: number
-  instagram_handle?: string
-}
-
-interface FormValues {
-  title: string
-  artists: FormArtist[]
-  venue: {
-    id?: number
-    name: string
-    city: string
-    state: string
-    address: string
-  }
-  date: string
-  time: string
-  cost: string
-  ages: string
-  description: string
-}
-
-const defaultValues: FormValues = {
-  title: '',
-  artists: [{ name: '', is_headliner: true, matched_id: undefined, instagram_handle: undefined }],
-  venue: { id: undefined, name: '', city: '', state: '', address: '' },
-  date: '',
-  time: '20:00',
-  cost: '',
-  ages: '',
-  description: '',
-}
-
-/**
- * Convert ShowResponse data to form values for editing
- */
-function showToFormValues(show: ShowResponse): FormValues {
-  const venue = show.venues[0]
-  const venueTz = venue?.state ? getTimezoneForState(venue.state) : undefined
-  const { date, time } = parseISOToDateAndTime(show.event_date, venueTz)
-
-  return {
-    title: show.title || '',
-    artists: show.artists.map(artist => ({
-      name: artist.name,
-      is_headliner: artist.is_headliner ?? false,
-      matched_id: artist.id,
-      instagram_handle: undefined,
-    })),
-    venue: {
-      name: venue?.name || '',
-      city: venue?.city || show.city || '',
-      state: venue?.state || show.state || '',
-      address: venue?.address || '',
-    },
-    date,
-    time,
-    cost: show.price != null ? `$${show.price}` : '',
-    ages: show.age_requirement || '',
-    description: show.description || '',
-  }
-}
 
 /** Pre-filled venue data for locking venue selection */
 interface PrefilledVenue {
@@ -206,13 +149,7 @@ export function ShowForm({
   const isAdmin = user?.is_admin ?? false
   const mutation = isEditMode ? updateMutation : submitMutation
 
-  // Venue location fields are editable if:
-  // 1. Prefilled venue is NOT used (it locks venue selection), AND
-  // 2. User is admin (always editable), OR
-  // 3. No venue selected (new venue scenario), OR
-  // 4. Selected venue is unverified
-  const isVenueLocationEditable =
-    !prefilledVenue && (isAdmin || !selectedVenue || !selectedVenue.verified)
+  const isVenueLocationEditable = computeVenueEditable(isAdmin, selectedVenue, !!prefilledVenue)
 
   // Compute initial values based on mode
   const initialFormValues = (() => {
@@ -221,7 +158,7 @@ export function ShowForm({
     }
     if (prefilledVenue) {
       return {
-        ...defaultValues,
+        ...defaultFormValues,
         venue: {
           id: prefilledVenue.id,
           name: prefilledVenue.name,
@@ -231,7 +168,7 @@ export function ShowForm({
         },
       }
     }
-    return defaultValues
+    return defaultFormValues
   })()
 
   // Track venue name for showing/hiding the "new venue" warning
@@ -244,10 +181,7 @@ export function ShowForm({
       const venueTimezone = value.venue.state ? getTimezoneForState(value.venue.state) : undefined
       const eventDate = combineDateTimeToUTC(value.date, value.time || '20:00', venueTimezone)
 
-      // Parse cost to number if provided
-      const price = value.cost
-        ? parseFloat(value.cost.replace(/[^0-9.]/g, ''))
-        : undefined
+      const price = parseCost(value.cost)
 
       if (isEditMode && initialData) {
         // Build update payload including venues and artists
@@ -256,7 +190,7 @@ export function ShowForm({
           event_date: eventDate,
           city: value.venue.city,
           state: value.venue.state,
-          price: isNaN(price as number) ? undefined : price,
+          price,
           age_requirement: value.ages || undefined,
           description: value.description || undefined,
           venues: [
@@ -302,7 +236,7 @@ export function ShowForm({
           event_date: eventDate,
           city: value.venue.city,
           state: value.venue.state,
-          price: isNaN(price as number) ? undefined : price,
+          price,
           age_requirement: value.ages || undefined,
           description: value.description || undefined,
           venues: [
@@ -473,19 +407,10 @@ export function ShowForm({
 
   const handleRemoveArtist = (index: number) => {
     const currentArtists = form.getFieldValue('artists')
-    if (currentArtists.length <= 1) return
-
-    const wasHeadliner = currentArtists[index]?.is_headliner
-    const newArtists = currentArtists.filter(
-      (_: FormArtist, i: number) => i !== index
-    )
-
-    // If we removed the headliner, make the first remaining artist the headliner
-    if (wasHeadliner && newArtists.length > 0) {
-      newArtists[0].is_headliner = true
+    const result = removeArtistAtIndex(currentArtists, index)
+    if (result) {
+      form.setFieldValue('artists', result)
     }
-
-    form.setFieldValue('artists', newArtists)
   }
 
   // Render success state (only shown for approved/edit submissions, pending/private redirect immediately)

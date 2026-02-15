@@ -101,7 +101,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // when the server clears the HTTP-only cookie
       await logoutMutation.mutateAsync()
     } catch (err) {
-      console.error('Logout failed:', err)
+      // Logout failure is non-critical — cookie will expire naturally
     }
   }, [logoutMutation])
 

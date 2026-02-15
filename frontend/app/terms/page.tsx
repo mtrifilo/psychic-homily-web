@@ -4,6 +4,9 @@ import Link from 'next/link'
 export const metadata: Metadata = {
   title: 'Terms of Service | Psychic Homily',
   description: 'Terms of Service for Psychic Homily - the rules and guidelines for using the platform.',
+  alternates: {
+    canonical: 'https://psychichomily.com/terms',
+  },
 }
 
 export default function TermsOfServicePage() {

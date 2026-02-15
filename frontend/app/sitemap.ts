@@ -1,6 +1,6 @@
 import { MetadataRoute } from 'next'
-import { getBlogSlugs } from '@/lib/blog'
-import { getMixSlugs } from '@/lib/mixes'
+import { getBlogSlugs, getBlogPost } from '@/lib/blog'
+import { getMixSlugs, getMix } from '@/lib/mixes'
 import * as Sentry from '@sentry/nextjs'
 
 const BASE_URL = 'https://psychichomily.com'
@@ -174,21 +174,27 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // Dynamic blog posts
   const blogSlugs = getBlogSlugs()
-  const blogPages: MetadataRoute.Sitemap = blogSlugs.map(slug => ({
-    url: `${BASE_URL}/blog/${slug}`,
-    lastModified: new Date(),
-    changeFrequency: 'monthly' as const,
-    priority: 0.6,
-  }))
+  const blogPages: MetadataRoute.Sitemap = blogSlugs.map(slug => {
+    const post = getBlogPost(slug)
+    return {
+      url: `${BASE_URL}/blog/${slug}`,
+      lastModified: post?.frontmatter.date ? new Date(post.frontmatter.date) : new Date(),
+      changeFrequency: 'monthly' as const,
+      priority: 0.6,
+    }
+  })
 
   // Dynamic DJ sets
   const mixSlugs = getMixSlugs()
-  const mixPages: MetadataRoute.Sitemap = mixSlugs.map(slug => ({
-    url: `${BASE_URL}/dj-sets/${slug}`,
-    lastModified: new Date(),
-    changeFrequency: 'monthly' as const,
-    priority: 0.5,
-  }))
+  const mixPages: MetadataRoute.Sitemap = mixSlugs.map(slug => {
+    const mix = getMix(slug)
+    return {
+      url: `${BASE_URL}/dj-sets/${slug}`,
+      lastModified: mix?.frontmatter.date ? new Date(mix.frontmatter.date) : new Date(),
+      changeFrequency: 'monthly' as const,
+      priority: 0.5,
+    }
+  })
 
   return [
     ...staticPages,

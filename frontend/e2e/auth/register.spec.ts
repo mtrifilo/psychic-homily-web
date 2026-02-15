@@ -29,10 +29,10 @@ test.describe('Registration', () => {
       timeout: 15_000,
     })
 
-    // Nav shows user email
-    await expect(page.getByText(REGISTER_USER.email)).toBeVisible({
-      timeout: 5_000,
-    })
+    // Nav shows avatar dropdown
+    await expect(
+      page.getByRole('button', { name: 'User menu' })
+    ).toBeVisible({ timeout: 5_000 })
   })
 
   test('shows password strength requirements', async ({ page }) => {

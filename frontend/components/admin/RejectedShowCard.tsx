@@ -5,28 +5,11 @@ import { Calendar, MapPin, XCircle, CheckCircle } from 'lucide-react'
 import type { ShowResponse } from '@/lib/types/show'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { formatShortDate, formatAdminTime } from '@/lib/utils/formatters'
 import { ApproveShowDialog } from './ApproveShowDialog'
 
 interface RejectedShowCardProps {
   show: ShowResponse
-}
-
-function formatShortDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
-
-function formatTime(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
 }
 
 /**
@@ -44,7 +27,7 @@ export const RejectedShowCard = memo(function RejectedShowCard({ show }: Rejecte
         <div className="flex-shrink-0 text-center min-w-[60px]">
           <div className="text-sm font-medium">{formatShortDate(show.event_date).split(',')[0].split(' ')[0]}</div>
           <div className="text-lg font-bold">{new Date(show.event_date).getDate()}</div>
-          <div className="text-xs text-muted-foreground">{formatTime(show.event_date)}</div>
+          <div className="text-xs text-muted-foreground">{formatAdminTime(show.event_date)}</div>
         </div>
 
         {/* Main content */}
