@@ -32,7 +32,7 @@ describe('queryClient module', () => {
       const client = getQueryClient()
 
       const defaults = client.getDefaultOptions()
-      expect(defaults.queries?.staleTime).toBe(5 * 60 * 1000) // 5 minutes
+      expect(defaults.queries?.staleTime).toBe(15 * 60 * 1000) // 15 minutes
     })
 
     it('configures default gc time', async () => {
@@ -40,7 +40,7 @@ describe('queryClient module', () => {
       const client = getQueryClient()
 
       const defaults = client.getDefaultOptions()
-      expect(defaults.queries?.gcTime).toBe(10 * 60 * 1000) // 10 minutes
+      expect(defaults.queries?.gcTime).toBe(30 * 60 * 1000) // 30 minutes
     })
 
     it('configures mutation retry to 0', async () => {

@@ -173,8 +173,11 @@ async function loginAs(
 ) {
   await page.goto('http://localhost:3000/auth')
 
-  // Fill login form
-  await page.getByLabel('Email').fill(email)
+  // Wait for login form to render (handles dev compilation + React hydration + auth check)
+  await page.locator('#email').waitFor({ state: 'visible', timeout: 60_000 })
+
+  // Fill login form — use ID selectors for reliability during setup
+  await page.locator('#email').fill(email)
   await page.locator('#password').fill(password)
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
 

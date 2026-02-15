@@ -115,6 +115,7 @@ func (suite *AdminStatsServiceIntegrationTestSuite) SetupSuite() {
 		"000023_rename_scraper_to_discovery.up.sql",
 		"000026_add_duplicate_of_show_id.up.sql",
 		"000028_change_event_date_to_timestamptz.up.sql",
+		"000030_add_artist_reports.up.sql",
 	}
 	for _, m := range migrations {
 		migrationSQL, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", m))
@@ -152,6 +153,7 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TearDownSuite() {
 func (suite *AdminStatsServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
+	_, _ = sqlDB.Exec("DELETE FROM artist_reports")
 	_, _ = sqlDB.Exec("DELETE FROM show_reports")
 	_, _ = sqlDB.Exec("DELETE FROM pending_venue_edits")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
