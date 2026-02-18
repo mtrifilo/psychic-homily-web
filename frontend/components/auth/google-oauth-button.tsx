@@ -9,13 +9,40 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 interface GoogleOAuthButtonProps {
   className?: string
   variant?: 'login' | 'signup'
+  termsAccepted?: boolean
+  termsVersion?: string
+  privacyVersion?: string
+  onMissingTermsAcceptance?: () => void
 }
 
-export function GoogleOAuthButton({ className, variant = 'login' }: GoogleOAuthButtonProps) {
+export function GoogleOAuthButton({
+  className,
+  variant = 'login',
+  termsAccepted = false,
+  termsVersion,
+  privacyVersion,
+  onMissingTermsAcceptance,
+}: GoogleOAuthButtonProps) {
   const handleGoogleLogin = () => {
+    if (variant === 'signup' && !termsAccepted) {
+      onMissingTermsAcceptance?.()
+      return
+    }
+
     // Redirect to backend OAuth endpoint
     // The backend will redirect to Google, then back to callback, then to frontend
-    window.location.href = `${API_BASE_URL}/auth/login/google`
+    const loginUrl = new URL(`${API_BASE_URL}/auth/login/google`)
+    if (variant === 'signup') {
+      loginUrl.searchParams.set('signup_intent', '1')
+      loginUrl.searchParams.set('terms_accepted', 'true')
+      if (termsVersion) {
+        loginUrl.searchParams.set('terms_version', termsVersion)
+      }
+      if (privacyVersion) {
+        loginUrl.searchParams.set('privacy_version', privacyVersion)
+      }
+    }
+    window.location.href = loginUrl.toString()
   }
 
   return (

@@ -49,12 +49,12 @@ type BeginRegisterRequest struct {
 // BeginRegisterResponse represents the response with WebAuthn registration options
 type BeginRegisterResponse struct {
 	Body struct {
-		Success     bool                          `json:"success" doc:"Success status"`
-		Message     string                        `json:"message" doc:"Response message"`
-		Options     *protocol.CredentialCreation  `json:"options,omitempty" doc:"WebAuthn registration options"`
-		ChallengeID string                        `json:"challenge_id,omitempty" doc:"Challenge ID for finishing registration"`
-		ErrorCode   string                        `json:"error_code,omitempty" doc:"Error code"`
-		RequestID   string                        `json:"request_id,omitempty" doc:"Request ID"`
+		Success     bool                         `json:"success" doc:"Success status"`
+		Message     string                       `json:"message" doc:"Response message"`
+		Options     *protocol.CredentialCreation `json:"options,omitempty" doc:"WebAuthn registration options"`
+		ChallengeID string                       `json:"challenge_id,omitempty" doc:"Challenge ID for finishing registration"`
+		ErrorCode   string                       `json:"error_code,omitempty" doc:"Error code"`
+		RequestID   string                       `json:"request_id,omitempty" doc:"Request ID"`
 	}
 }
 
@@ -245,12 +245,12 @@ type BeginLoginRequest struct {
 // BeginLoginResponse represents the response with WebAuthn login options
 type BeginLoginResponse struct {
 	Body struct {
-		Success     bool                         `json:"success" doc:"Success status"`
-		Message     string                       `json:"message" doc:"Response message"`
+		Success     bool                          `json:"success" doc:"Success status"`
+		Message     string                        `json:"message" doc:"Response message"`
 		Options     *protocol.CredentialAssertion `json:"options,omitempty" doc:"WebAuthn login options"`
-		ChallengeID string                       `json:"challenge_id,omitempty" doc:"Challenge ID for finishing login"`
-		ErrorCode   string                       `json:"error_code,omitempty" doc:"Error code"`
-		RequestID   string                       `json:"request_id,omitempty" doc:"Request ID"`
+		ChallengeID string                        `json:"challenge_id,omitempty" doc:"Challenge ID for finishing login"`
+		ErrorCode   string                        `json:"error_code,omitempty" doc:"Error code"`
+		RequestID   string                        `json:"request_id,omitempty" doc:"Request ID"`
 	}
 }
 
@@ -453,11 +453,11 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 // ListCredentialsResponse represents the response with user's passkeys
 type ListCredentialsResponse struct {
 	Body struct {
-		Success     bool                       `json:"success" doc:"Success status"`
-		Message     string                     `json:"message" doc:"Response message"`
+		Success     bool                        `json:"success" doc:"Success status"`
+		Message     string                      `json:"message" doc:"Response message"`
 		Credentials []models.WebAuthnCredential `json:"credentials" doc:"User's passkey credentials"`
-		ErrorCode   string                     `json:"error_code,omitempty" doc:"Error code"`
-		RequestID   string                     `json:"request_id,omitempty" doc:"Request ID"`
+		ErrorCode   string                      `json:"error_code,omitempty" doc:"Error code"`
+		RequestID   string                      `json:"request_id,omitempty" doc:"Request ID"`
 	}
 }
 
@@ -588,7 +588,10 @@ func createCredentialRequestReader(input *FinishLoginRequest) io.Reader {
 // BeginSignupRequest represents the request to begin passkey signup
 type BeginSignupRequest struct {
 	Body struct {
-		Email string `json:"email" example:"user@example.com" doc:"Email for the new account"`
+		Email          string `json:"email" example:"user@example.com" doc:"Email for the new account"`
+		TermsAccepted  bool   `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
+		TermsVersion   string `json:"terms_version,omitempty" doc:"Accepted terms version identifier"`
+		PrivacyVersion string `json:"privacy_version,omitempty" doc:"Accepted privacy policy version identifier"`
 	}
 }
 
@@ -614,6 +617,18 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 	if email == "" {
 		resp.Body.Success = false
 		resp.Body.Message = "Email is required"
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+	if !input.Body.TermsAccepted {
+		resp.Body.Success = false
+		resp.Body.Message = "You must accept the Terms of Service and Privacy Policy"
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+	if input.Body.TermsVersion == "" {
+		resp.Body.Success = false
+		resp.Body.Message = "Terms version is required"
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
 		return resp, nil
 	}
@@ -683,9 +698,12 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 // FinishSignupRequest represents the request to complete passkey signup
 type FinishSignupRequest struct {
 	Body struct {
-		ChallengeID string                     `json:"challenge_id" doc:"Challenge ID from begin signup"`
-		DisplayName string                     `json:"display_name" example:"My MacBook" doc:"Name for this passkey"`
-		Response    CredentialCreationResponse `json:"response" doc:"The credential response from the browser"`
+		ChallengeID    string                     `json:"challenge_id" doc:"Challenge ID from begin signup"`
+		DisplayName    string                     `json:"display_name" example:"My MacBook" doc:"Name for this passkey"`
+		Response       CredentialCreationResponse `json:"response" doc:"The credential response from the browser"`
+		TermsAccepted  bool                       `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
+		TermsVersion   string                     `json:"terms_version,omitempty" doc:"Accepted terms version identifier"`
+		PrivacyVersion string                     `json:"privacy_version,omitempty" doc:"Accepted privacy policy version identifier"`
 	}
 }
 
@@ -756,9 +774,31 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 	if displayName == "" {
 		displayName = "My Passkey"
 	}
+	if !input.Body.TermsAccepted {
+		resp.Body.Success = false
+		resp.Body.Message = "You must accept the Terms of Service and Privacy Policy"
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+	if input.Body.TermsVersion == "" {
+		resp.Body.Success = false
+		resp.Body.Message = "Terms version is required"
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
 
 	// Complete registration and create user
-	user, err := h.webauthnService.FinishSignupRegistration(email, session, parsedResponse, displayName)
+	user, err := h.webauthnService.FinishSignupRegistrationWithLegal(
+		email,
+		session,
+		parsedResponse,
+		displayName,
+		services.LegalAcceptance{
+			TermsAcceptedAt: time.Now().UTC(),
+			TermsVersion:    input.Body.TermsVersion,
+			PrivacyVersion:  input.Body.PrivacyVersion,
+		},
+	)
 	if err != nil {
 		logger.AuthError(ctx, "passkey_signup_finish_failed", err,
 			"email", email,

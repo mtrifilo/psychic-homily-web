@@ -133,9 +133,12 @@ export const useFavoriteVenueToggle = (venueId: number, isAuthenticated: boolean
   const toggle = async () => {
     if (isLoading) return // Prevent concurrent mutations
 
-    // Optimistic update
     const checkQueryKey = queryKeys.favoriteVenues.check(String(venueId))
 
+    // Cancel any in-flight check queries so stale responses don't overwrite the optimistic update
+    await queryClient.cancelQueries({ queryKey: checkQueryKey })
+
+    // Optimistic update
     queryClient.setQueryData(checkQueryKey, {
       is_favorited: !isFavorited,
     })

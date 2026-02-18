@@ -169,7 +169,9 @@ export function ArtistInput({
                         handleConfirm()
                       }}
                     >
-                      <span className="truncate">"{field.state.value}"</span>
+                      <span className="truncate">
+                        &quot;{field.state.value}&quot;
+                      </span>
                     </button>
                   </div>
                 )}

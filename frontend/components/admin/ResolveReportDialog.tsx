@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { CheckCircle, Loader2 } from 'lucide-react'
 import { useResolveReport } from '@/lib/hooks/useAdminReports'
 import type { ShowReportResponse } from '@/lib/types/show'
@@ -36,13 +36,17 @@ export function ResolveReportDialog({
   const canSetFlag = report.report_type === 'cancelled' || report.report_type === 'sold_out'
   const flagLabel = report.report_type === 'cancelled' ? 'Mark show as Cancelled' : 'Mark show as Sold Out'
 
-  // Reset flag state when dialog opens
-  useEffect(() => {
-    if (open) {
-      setNotes('')
-      setSetShowFlag(true)
+  const resetDialogState = () => {
+    setNotes('')
+    setSetShowFlag(true)
+  }
+
+  const handleDialogOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      resetDialogState()
     }
-  }, [open])
+    onOpenChange(nextOpen)
+  }
 
   const handleResolve = () => {
     resolveMutation.mutate(
@@ -53,8 +57,7 @@ export function ResolveReportDialog({
       },
       {
         onSuccess: () => {
-          setNotes('')
-          setSetShowFlag(true)
+          resetDialogState()
           onOpenChange(false)
         },
       }
@@ -64,7 +67,7 @@ export function ResolveReportDialog({
   const showTitle = report.show?.title || 'Unknown Show'
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -122,7 +125,7 @@ export function ResolveReportDialog({
         <DialogFooter>
           <Button
             variant="outline"
-            onClick={() => onOpenChange(false)}
+            onClick={() => handleDialogOpenChange(false)}
             disabled={resolveMutation.isPending}
           >
             Cancel

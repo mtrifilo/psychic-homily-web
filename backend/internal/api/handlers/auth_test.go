@@ -268,12 +268,34 @@ func TestRegisterHandler_MissingEmail(t *testing.T) {
 	}
 }
 
+func TestRegisterHandler_MissingTermsAcceptance(t *testing.T) {
+	h := testAuthHandler()
+	input := &RegisterRequest{}
+	input.Body.Email = "user@example.com"
+	input.Body.Password = "a-valid-password-123"
+	input.Body.TermsAccepted = false
+
+	resp, err := h.RegisterHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeValidationFailed, resp.Body.ErrorCode)
+	}
+}
+
 func TestRegisterHandler_NilUserService(t *testing.T) {
 	// No passwordValidator, no userService → hits userService nil check
 	h := testAuthHandler()
 	input := &RegisterRequest{}
 	input.Body.Email = "user@example.com"
 	input.Body.Password = "a-valid-password-123"
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "2026-01-31"
+	input.Body.PrivacyVersion = "2026-02-15"
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {
@@ -295,6 +317,9 @@ func TestRegisterHandler_WeakPassword(t *testing.T) {
 	input := &RegisterRequest{}
 	input.Body.Email = "user@example.com"
 	input.Body.Password = "abc" // too short (min 12)
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "2026-01-31"
+	input.Body.PrivacyVersion = "2026-02-15"
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {

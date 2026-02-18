@@ -131,6 +131,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) SetupSuite() {
 		"000011_add_webauthn_tables.up.sql",
 		"000012_add_user_deletion_fields.up.sql",
 		"000014_add_account_lockout.up.sql",
+		"000031_add_user_terms_acceptance.up.sql",
 	}
 	for _, m := range migrations {
 		migrationSQL, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", m))

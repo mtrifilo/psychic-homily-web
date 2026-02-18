@@ -116,6 +116,7 @@ func (suite *AdminStatsServiceIntegrationTestSuite) SetupSuite() {
 		"000026_add_duplicate_of_show_id.up.sql",
 		"000028_change_event_date_to_timestamptz.up.sql",
 		"000030_add_artist_reports.up.sql",
+		"000031_add_user_terms_acceptance.up.sql",
 	}
 	for _, m := range migrations {
 		migrationSQL, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", m))
@@ -414,8 +415,8 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_FullSc
 	suite.Equal(int64(1), stats.PendingVenueEdits)
 	suite.Equal(int64(1), stats.PendingReports)
 	suite.Equal(int64(1), stats.UnverifiedVenues)
-	suite.Equal(int64(2), stats.TotalShows)   // 2 approved
-	suite.Equal(int64(1), stats.TotalVenues)   // 1 verified
+	suite.Equal(int64(2), stats.TotalShows)  // 2 approved
+	suite.Equal(int64(1), stats.TotalVenues) // 1 verified
 	suite.Equal(int64(2), stats.TotalArtists)
 	suite.Equal(int64(3), stats.TotalUsers)
 	suite.Equal(int64(2), stats.ShowsSubmittedLast7Days) // Recent approved + pending

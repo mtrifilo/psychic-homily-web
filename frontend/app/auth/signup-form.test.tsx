@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '@/lib/legal'
 import AuthPage from './page'
 
 // --- Mocks ---
@@ -119,20 +120,31 @@ describe('SignupForm deferred validation', () => {
     expect(mockRegisterMutate).not.toHaveBeenCalled()
   })
 
-  it('shows password error text and aria-invalid on submit with short password', async () => {
+  it('disables submit while password is shorter than minimum length', async () => {
     const { user } = await renderSignupForm()
 
     await user.type(screen.getByLabelText('Email'), 'test@example.com')
-    await user.type(screen.getByLabelText('Password'), 'short')
+    await user.type(screen.getByLabelText('Password'), 'short') // 5 chars
     await user.click(screen.getByRole('checkbox'))
-    await user.click(screen.getByRole('button', { name: 'Create account' }))
 
-    await waitFor(() => {
-      expect(screen.getByLabelText('Password')).toHaveAttribute('aria-invalid', 'true')
-    })
-    // Password error is now rendered as a visible alert
-    expect(screen.getByText(/Password must be at least 12 characters/)).toBeInTheDocument()
+    const submitButton = screen.getByRole('button', { name: 'Create account' })
+    expect(submitButton).toBeDisabled()
     expect(mockRegisterMutate).not.toHaveBeenCalled()
+  })
+
+  it('enables submit once password reaches minimum length', async () => {
+    const { user } = await renderSignupForm()
+
+    await user.type(screen.getByLabelText('Email'), 'test@example.com')
+    await user.click(screen.getByRole('checkbox'))
+
+    // 11 chars => still disabled
+    await user.type(screen.getByLabelText('Password'), '12345678901')
+    expect(screen.getByRole('button', { name: 'Create account' })).toBeDisabled()
+
+    // 12 chars => enabled
+    await user.type(screen.getByLabelText('Password'), '2')
+    expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled()
   })
 
   it('shows terms error on submit without checking terms', async () => {
@@ -185,7 +197,13 @@ describe('SignupForm deferred validation', () => {
 
     await waitFor(() => {
       expect(mockRegisterMutate).toHaveBeenCalledWith(
-        { email: 'test@example.com', password: 'validPassword123!' },
+        {
+          email: 'test@example.com',
+          password: 'validPassword123!',
+          terms_accepted: true,
+          terms_version: CURRENT_TERMS_VERSION,
+          privacy_version: CURRENT_PRIVACY_VERSION,
+        },
         expect.any(Object),
       )
     })

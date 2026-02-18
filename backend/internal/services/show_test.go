@@ -273,6 +273,7 @@ func (suite *ShowServiceIntegrationTestSuite) SetupSuite() {
 		"000023_rename_scraper_to_discovery.up.sql",
 		"000026_add_duplicate_of_show_id.up.sql",
 		"000028_change_event_date_to_timestamptz.up.sql",
+		"000031_add_user_terms_acceptance.up.sql",
 		// 000027 handled below (CONCURRENTLY not allowed in transaction)
 	}
 	for _, m := range migrations {
@@ -944,12 +945,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestRejectShow_NotPending_Fails() 
 func (suite *ShowServiceIntegrationTestSuite) TestUnpublishShow_AsSubmitter() {
 	user := suite.createTestUser()
 	req := &CreateShowRequest{
-		Title:     "Submitter Unpublish",
-		EventDate: time.Date(2026, 8, 10, 20, 0, 0, 0, time.UTC),
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Unpub Venue", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "Unpub Artist", IsHeadliner: boolPtr(true)}},
+		Title:             "Submitter Unpublish",
+		EventDate:         time.Date(2026, 8, 10, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "Unpub Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "Unpub Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1012,12 +1013,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestMakePrivateShow_NotPending_Fai
 func (suite *ShowServiceIntegrationTestSuite) TestPublishShow_Success() {
 	user := suite.createTestUser()
 	req := &CreateShowRequest{
-		Title:     "To Publish",
-		EventDate: time.Date(2026, 9, 1, 20, 0, 0, 0, time.UTC),
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Pub Venue", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "Pub Artist", IsHeadliner: boolPtr(true)}},
+		Title:             "To Publish",
+		EventDate:         time.Date(2026, 9, 1, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "Pub Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "Pub Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		IsPrivate:         true,
 	}
@@ -1034,12 +1035,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestPublishShow_Success() {
 func (suite *ShowServiceIntegrationTestSuite) TestPublishShow_Unauthorized() {
 	user := suite.createTestUser()
 	req := &CreateShowRequest{
-		Title:     "Unauth Publish",
-		EventDate: time.Date(2026, 9, 2, 20, 0, 0, 0, time.UTC),
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Unauth Pub Venue", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "Unauth Pub Artist", IsHeadliner: boolPtr(true)}},
+		Title:             "Unauth Publish",
+		EventDate:         time.Date(2026, 9, 2, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "Unauth Pub Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "Unauth Pub Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		IsPrivate:         true,
 	}
@@ -1064,12 +1065,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 	eventDate := time.Date(2026, 11, 1, 20, 0, 0, 0, time.UTC)
 
 	req := &CreateShowRequest{
-		Title:     "First Show",
-		EventDate: eventDate,
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Dup Venue", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "Dup Headliner", IsHeadliner: boolPtr(true)}},
+		Title:             "First Show",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "Dup Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "Dup Headliner", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1078,12 +1079,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 
 	// Try creating duplicate
 	req2 := &CreateShowRequest{
-		Title:     "Second Show (duplicate)",
-		EventDate: eventDate,
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Dup Venue", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "Dup Headliner", IsHeadliner: boolPtr(true)}},
+		Title:             "Second Show (duplicate)",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "Dup Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "Dup Headliner", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1098,12 +1099,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 	eventDate := time.Date(2026, 11, 2, 20, 0, 0, 0, time.UTC)
 
 	req := &CreateShowRequest{
-		Title:     "Original Case Show",
-		EventDate: eventDate,
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Case Venue", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "The Band", IsHeadliner: boolPtr(true)}},
+		Title:             "Original Case Show",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "Case Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "The Band", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1112,12 +1113,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 
 	// Try with different case
 	req2 := &CreateShowRequest{
-		Title:     "Case Insensitive Dup",
-		EventDate: eventDate,
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "case venue", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "the band", IsHeadliner: boolPtr(true)}},
+		Title:             "Case Insensitive Dup",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "case venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "the band", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1131,12 +1132,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 	user := suite.createTestUser()
 
 	req := &CreateShowRequest{
-		Title:     "Day 1",
-		EventDate: time.Date(2026, 11, 3, 20, 0, 0, 0, time.UTC),
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Multi Day Venue", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "Day Headliner", IsHeadliner: boolPtr(true)}},
+		Title:             "Day 1",
+		EventDate:         time.Date(2026, 11, 3, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "Multi Day Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "Day Headliner", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1145,12 +1146,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 
 	// Same headliner, same venue, DIFFERENT day
 	req2 := &CreateShowRequest{
-		Title:     "Day 2",
-		EventDate: time.Date(2026, 11, 4, 20, 0, 0, 0, time.UTC),
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Multi Day Venue", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "Day Headliner", IsHeadliner: boolPtr(true)}},
+		Title:             "Day 2",
+		EventDate:         time.Date(2026, 11, 4, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "Multi Day Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "Day Headliner", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1165,12 +1166,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 	eventDate := time.Date(2026, 11, 5, 20, 0, 0, 0, time.UTC)
 
 	req := &CreateShowRequest{
-		Title:     "Venue 1",
-		EventDate: eventDate,
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Venue Alpha", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "Venue Hopper", IsHeadliner: boolPtr(true)}},
+		Title:             "Venue 1",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "Venue Alpha", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "Venue Hopper", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1179,12 +1180,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 
 	// Same headliner, same day, DIFFERENT venue
 	req2 := &CreateShowRequest{
-		Title:     "Venue 2",
-		EventDate: eventDate,
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Venue Beta", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "Venue Hopper", IsHeadliner: boolPtr(true)}},
+		Title:             "Venue 2",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "Venue Beta", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "Venue Hopper", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1243,12 +1244,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShows_FilterByCity() {
 
 	// Phoenix show
 	req1 := &CreateShowRequest{
-		Title:     "Phoenix Show",
-		EventDate: time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "PHX Venue", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "PHX Artist", IsHeadliner: boolPtr(true)}},
+		Title:             "Phoenix Show",
+		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "PHX Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "PHX Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1257,12 +1258,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShows_FilterByCity() {
 
 	// Tucson show
 	req2 := &CreateShowRequest{
-		Title:     "Tucson Show",
-		EventDate: time.Date(2026, 12, 2, 20, 0, 0, 0, time.UTC),
-		City:      "Tucson",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "TUC Venue", City: "Tucson", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "TUC Artist", IsHeadliner: boolPtr(true)}},
+		Title:             "Tucson Show",
+		EventDate:         time.Date(2026, 12, 2, 20, 0, 0, 0, time.UTC),
+		City:              "Tucson",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "TUC Venue", City: "Tucson", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "TUC Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1287,12 +1288,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShows_FilterByDateRange() {
 
 	for i, d := range dates {
 		req := &CreateShowRequest{
-			Title:     fmt.Sprintf("Date Show %d", i),
-			EventDate: d,
-			City:      "Phoenix",
-			State:     "AZ",
-			Venues:    []CreateShowVenue{{Name: fmt.Sprintf("Date Venue %d", i), City: "Phoenix", State: "AZ"}},
-			Artists:   []CreateShowArtist{{Name: fmt.Sprintf("Date Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Title:             fmt.Sprintf("Date Show %d", i),
+			EventDate:         d,
+			City:              "Phoenix",
+			State:             "AZ",
+			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("Date Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("Date Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1317,12 +1318,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUserSubmissions_Success() {
 	// Create 2 shows for user
 	for i := 0; i < 2; i++ {
 		req := &CreateShowRequest{
-			Title:     fmt.Sprintf("User Show %d", i),
-			EventDate: time.Date(2026, 12, 1+i, 20, 0, 0, 0, time.UTC),
-			City:      "Phoenix",
-			State:     "AZ",
-			Venues:    []CreateShowVenue{{Name: fmt.Sprintf("Sub Venue %d", i), City: "Phoenix", State: "AZ"}},
-			Artists:   []CreateShowArtist{{Name: fmt.Sprintf("Sub Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Title:             fmt.Sprintf("User Show %d", i),
+			EventDate:         time.Date(2026, 12, 1+i, 20, 0, 0, 0, time.UTC),
+			City:              "Phoenix",
+			State:             "AZ",
+			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("Sub Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("Sub Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1332,12 +1333,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUserSubmissions_Success() {
 
 	// Create 1 show for other user
 	req := &CreateShowRequest{
-		Title:     "Other User Show",
-		EventDate: time.Date(2026, 12, 3, 20, 0, 0, 0, time.UTC),
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Other Venue", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "Other Artist", IsHeadliner: boolPtr(true)}},
+		Title:             "Other User Show",
+		EventDate:         time.Date(2026, 12, 3, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "Other Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "Other Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &otherUser.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1356,12 +1357,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_Success() {
 
 	// Create 2 shows, set one to pending
 	req1 := &CreateShowRequest{
-		Title:     "Pending Show",
-		EventDate: time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Pending Venue 1", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "Pending Artist 1", IsHeadliner: boolPtr(true)}},
+		Title:             "Pending Show",
+		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "Pending Venue 1", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "Pending Artist 1", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1370,12 +1371,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_Success() {
 	suite.db.Model(&models.Show{}).Where("id = ?", show1.ID).Update("status", models.ShowStatusPending)
 
 	req2 := &CreateShowRequest{
-		Title:     "Approved Show",
-		EventDate: time.Date(2026, 12, 2, 20, 0, 0, 0, time.UTC),
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Pending Venue 2", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "Pending Artist 2", IsHeadliner: boolPtr(true)}},
+		Title:             "Approved Show",
+		EventDate:         time.Date(2026, 12, 2, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "Pending Venue 2", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "Pending Artist 2", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1394,12 +1395,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetRejectedShows_Success() {
 	user := suite.createTestUser()
 
 	req := &CreateShowRequest{
-		Title:     "Rejected Show",
-		EventDate: time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Reject Venue", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "Reject Artist", IsHeadliner: boolPtr(true)}},
+		Title:             "Rejected Show",
+		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "Reject Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "Reject Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1424,12 +1425,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetRejectedShows_WithSearch() 
 	// Create 2 rejected shows
 	for i, reason := range []string{"Duplicate entry", "Spam content"} {
 		req := &CreateShowRequest{
-			Title:     fmt.Sprintf("Rejected %d", i),
-			EventDate: time.Date(2026, 12, 1+i, 20, 0, 0, 0, time.UTC),
-			City:      "Phoenix",
-			State:     "AZ",
-			Venues:    []CreateShowVenue{{Name: fmt.Sprintf("Search Venue %d", i), City: "Phoenix", State: "AZ"}},
-			Artists:   []CreateShowArtist{{Name: fmt.Sprintf("Search Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Title:             fmt.Sprintf("Rejected %d", i),
+			EventDate:         time.Date(2026, 12, 1+i, 20, 0, 0, 0, time.UTC),
+			City:              "Phoenix",
+			State:             "AZ",
+			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("Search Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("Search Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1455,12 +1456,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_Pagination() 
 	baseDate := time.Date(2027, 6, 1, 20, 0, 0, 0, time.UTC)
 	for i := 0; i < 5; i++ {
 		req := &CreateShowRequest{
-			Title:     fmt.Sprintf("Upcoming %d", i),
-			EventDate: baseDate.AddDate(0, 0, i),
-			City:      "Phoenix",
-			State:     "AZ",
-			Venues:    []CreateShowVenue{{Name: fmt.Sprintf("Up Venue %d", i), City: "Phoenix", State: "AZ"}},
-			Artists:   []CreateShowArtist{{Name: fmt.Sprintf("Up Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Title:             fmt.Sprintf("Upcoming %d", i),
+			EventDate:         baseDate.AddDate(0, 0, i),
+			City:              "Phoenix",
+			State:             "AZ",
+			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("Up Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("Up Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1506,12 +1507,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_Success() {
 	}
 	for i, c := range cities {
 		req := &CreateShowRequest{
-			Title:     fmt.Sprintf("City Show %d", i),
-			EventDate: time.Now().UTC().AddDate(0, 0, i+1),
-			City:      c.city,
-			State:     c.state,
-			Venues:    []CreateShowVenue{{Name: fmt.Sprintf("City Venue %d", i), City: c.city, State: c.state}},
-			Artists:   []CreateShowArtist{{Name: fmt.Sprintf("City Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Title:             fmt.Sprintf("City Show %d", i),
+			EventDate:         time.Now().UTC().AddDate(0, 0, i+1),
+			City:              c.city,
+			State:             c.state,
+			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("City Venue %d", i), City: c.city, State: c.state}},
+			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("City Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1864,12 +1865,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_NoFilters() {
 	user := suite.createTestUser()
 	for i := 0; i < 3; i++ {
 		req := &CreateShowRequest{
-			Title:     fmt.Sprintf("Admin Show %d", i),
-			EventDate: time.Date(2026, 12, 1+i, 20, 0, 0, 0, time.UTC),
-			City:      "Phoenix",
-			State:     "AZ",
-			Venues:    []CreateShowVenue{{Name: fmt.Sprintf("Admin Venue %d", i), City: "Phoenix", State: "AZ"}},
-			Artists:   []CreateShowArtist{{Name: fmt.Sprintf("Admin Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Title:             fmt.Sprintf("Admin Show %d", i),
+			EventDate:         time.Date(2026, 12, 1+i, 20, 0, 0, 0, time.UTC),
+			City:              "Phoenix",
+			State:             "AZ",
+			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("Admin Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("Admin Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1890,12 +1891,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_StatusFilter() {
 	// Create 2 approved shows
 	for i := 0; i < 2; i++ {
 		req := &CreateShowRequest{
-			Title:     fmt.Sprintf("Approved Admin %d", i),
-			EventDate: time.Date(2026, 12, 10+i, 20, 0, 0, 0, time.UTC),
-			City:      "Phoenix",
-			State:     "AZ",
-			Venues:    []CreateShowVenue{{Name: fmt.Sprintf("StatusF Venue %d", i), City: "Phoenix", State: "AZ"}},
-			Artists:   []CreateShowArtist{{Name: fmt.Sprintf("StatusF Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Title:             fmt.Sprintf("Approved Admin %d", i),
+			EventDate:         time.Date(2026, 12, 10+i, 20, 0, 0, 0, time.UTC),
+			City:              "Phoenix",
+			State:             "AZ",
+			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("StatusF Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("StatusF Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1905,12 +1906,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_StatusFilter() {
 
 	// Create 1 pending show
 	req := &CreateShowRequest{
-		Title:     "Pending Admin Show",
-		EventDate: time.Date(2026, 12, 15, 20, 0, 0, 0, time.UTC),
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "StatusF Venue P", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "StatusF Artist P", IsHeadliner: boolPtr(true)}},
+		Title:             "Pending Admin Show",
+		EventDate:         time.Date(2026, 12, 15, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "StatusF Venue P", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "StatusF Artist P", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1931,12 +1932,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_Pagination() {
 	user := suite.createTestUser()
 	for i := 0; i < 5; i++ {
 		req := &CreateShowRequest{
-			Title:     fmt.Sprintf("Page Show %d", i),
-			EventDate: time.Date(2026, 12, 20+i, 20, 0, 0, 0, time.UTC),
-			City:      "Phoenix",
-			State:     "AZ",
-			Venues:    []CreateShowVenue{{Name: fmt.Sprintf("Page Venue %d", i), City: "Phoenix", State: "AZ"}},
-			Artists:   []CreateShowArtist{{Name: fmt.Sprintf("Page Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Title:             fmt.Sprintf("Page Show %d", i),
+			EventDate:         time.Date(2026, 12, 20+i, 20, 0, 0, 0, time.UTC),
+			City:              "Phoenix",
+			State:             "AZ",
+			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("Page Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("Page Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1957,12 +1958,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_CityFilter() {
 
 	// Phoenix show
 	req1 := &CreateShowRequest{
-		Title:     "PHX Admin Show",
-		EventDate: time.Date(2027, 1, 1, 20, 0, 0, 0, time.UTC),
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "PHX Admin Venue", City: "Phoenix", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "PHX Admin Artist", IsHeadliner: boolPtr(true)}},
+		Title:             "PHX Admin Show",
+		EventDate:         time.Date(2027, 1, 1, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "PHX Admin Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "PHX Admin Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1971,12 +1972,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_CityFilter() {
 
 	// Tucson show
 	req2 := &CreateShowRequest{
-		Title:     "TUC Admin Show",
-		EventDate: time.Date(2027, 1, 2, 20, 0, 0, 0, time.UTC),
-		City:      "Tucson",
-		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "TUC Admin Venue", City: "Tucson", State: "AZ"}},
-		Artists:   []CreateShowArtist{{Name: "TUC Admin Artist", IsHeadliner: boolPtr(true)}},
+		Title:             "TUC Admin Show",
+		EventDate:         time.Date(2027, 1, 2, 20, 0, 0, 0, time.UTC),
+		City:              "Tucson",
+		State:             "AZ",
+		Venues:            []CreateShowVenue{{Name: "TUC Admin Venue", City: "Tucson", State: "AZ"}},
+		Artists:           []CreateShowArtist{{Name: "TUC Admin Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}

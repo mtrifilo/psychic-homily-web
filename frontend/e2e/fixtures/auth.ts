@@ -12,21 +12,21 @@ export const test = base.extend<{
   authenticatedPage: Page
   adminPage: Page
 }>({
-  authenticatedPage: async ({ browser, errors: _errors }, use) => {
+  authenticatedPage: async ({ browser, errors: _errors }, runFixture) => {
     const context: BrowserContext = await browser.newContext({
       storageState: path.join(AUTH_DIR, 'user.json'),
     })
     const page = await context.newPage()
-    await use(page)
+    await runFixture(page)
     await context.close()
   },
 
-  adminPage: async ({ browser, errors: _errors }, use) => {
+  adminPage: async ({ browser, errors: _errors }, runFixture) => {
     const context: BrowserContext = await browser.newContext({
       storageState: path.join(AUTH_DIR, 'admin.json'),
     })
     const page = await context.newPage()
-    await use(page)
+    await runFixture(page)
     await context.close()
   },
 })

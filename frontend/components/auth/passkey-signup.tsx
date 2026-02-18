@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { startRegistration, browserSupportsWebAuthn } from '@simplewebauthn/browser'
-import { Fingerprint, Loader2, Mail, X } from 'lucide-react'
+import { Fingerprint, Loader2, Mail } from 'lucide-react'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,6 +19,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '@/lib/legal'
 import { BackupAuthPrompt } from './backup-auth-prompt'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
@@ -26,9 +27,18 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 interface PasskeySignupButtonProps {
   onError?: (error: string) => void
   className?: string
+  returnTo?: string
+  termsVersion?: string
+  privacyVersion?: string
 }
 
-export function PasskeySignupButton({ onError, className }: PasskeySignupButtonProps) {
+export function PasskeySignupButton({
+  onError,
+  className,
+  returnTo = '/',
+  termsVersion = CURRENT_TERMS_VERSION,
+  privacyVersion = CURRENT_PRIVACY_VERSION,
+}: PasskeySignupButtonProps) {
   const router = useRouter()
   const { setUser } = useAuthContext()
   const [isLoading, setIsLoading] = useState(false)
@@ -72,7 +82,12 @@ export function PasskeySignupButton({ onError, className }: PasskeySignupButtonP
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({
+          email,
+          terms_accepted: true,
+          terms_version: termsVersion,
+          privacy_version: privacyVersion,
+        }),
       })
 
       const beginData = await beginResponse.json()
@@ -94,6 +109,9 @@ export function PasskeySignupButton({ onError, className }: PasskeySignupButtonP
         body: JSON.stringify({
           challenge_id: beginData.challenge_id,
           response: credential,
+          terms_accepted: true,
+          terms_version: termsVersion,
+          privacy_version: privacyVersion,
         }),
       })
 
@@ -134,7 +152,7 @@ export function PasskeySignupButton({ onError, className }: PasskeySignupButtonP
   }
 
   const handleBackupComplete = () => {
-    router.push('/')
+    router.push(returnTo)
   }
 
   // Don't render if browser doesn't support WebAuthn

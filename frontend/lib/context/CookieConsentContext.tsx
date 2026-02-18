@@ -124,6 +124,8 @@ export function CookieConsentProvider({ children }: CookieConsentProviderProps) 
     const storedConsent = loadConsent()
     const gpcDetected = detectGPCSignal()
 
+    // Initialize client-only consent state after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setConsent(storedConsent)
     setGpcSignalDetected(gpcDetected)
     setIsLoaded(true)

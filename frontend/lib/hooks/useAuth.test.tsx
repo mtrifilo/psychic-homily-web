@@ -185,6 +185,9 @@ describe('useAuth hooks', () => {
           password: 'password123',
           first_name: 'John',
           last_name: 'Doe',
+          terms_accepted: true,
+          terms_version: '2026-01-31',
+          privacy_version: '2026-02-15',
         })
       })
 
@@ -199,6 +202,9 @@ describe('useAuth hooks', () => {
             password: 'password123',
             first_name: 'John',
             last_name: 'Doe',
+            terms_accepted: true,
+            terms_version: '2026-01-31',
+            privacy_version: '2026-02-15',
           }),
         })
       )
@@ -219,6 +225,9 @@ describe('useAuth hooks', () => {
         result.current.mutate({
           email: 'existing@example.com',
           password: 'password123',
+          terms_accepted: true,
+          terms_version: '2026-01-31',
+          privacy_version: '2026-02-15',
         })
       })
 

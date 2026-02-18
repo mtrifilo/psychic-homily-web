@@ -383,6 +383,7 @@ func (s *AppleAuthIntegrationTestSuite) SetupSuite() {
 		"000005_add_show_status.up.sql",
 		"000012_add_user_deletion_fields.up.sql",
 		"000014_add_account_lockout.up.sql",
+		"000031_add_user_terms_acceptance.up.sql",
 	}
 	for _, m := range migrations {
 		migrationSQL, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", m))

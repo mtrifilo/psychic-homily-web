@@ -20,6 +20,21 @@ const (
 	AccountLockDuration    = 15 * time.Minute
 )
 
+// LegalAcceptance records terms/privacy agreement metadata at account creation.
+type LegalAcceptance struct {
+	TermsAcceptedAt time.Time
+	TermsVersion    string
+	PrivacyVersion  string
+}
+
+// OAuthSignupConsent carries consent details from OAuth signup initiation.
+type OAuthSignupConsent struct {
+	TermsAccepted  bool
+	TermsVersion   string
+	PrivacyVersion string
+	AcceptedAt     time.Time
+}
+
 // AdminUserFilters contains filter criteria for listing users
 type AdminUserFilters struct {
 	Search string // ILIKE match on email or username
@@ -45,7 +60,7 @@ type AdminUserResponse struct {
 	IsAdmin         bool                `json:"is_admin"`
 	EmailVerified   bool                `json:"email_verified"`
 	AuthMethods     []string            `json:"auth_methods"`
-	SubmissionStats UserSubmissionStats  `json:"submission_stats"`
+	SubmissionStats UserSubmissionStats `json:"submission_stats"`
 	CreatedAt       time.Time           `json:"created_at"`
 	DeletedAt       *time.Time          `json:"deleted_at,omitempty"`
 }
@@ -187,8 +202,18 @@ func NewUserService(database *gorm.DB) *UserService {
 	}
 }
 
-// FindOrCreateUser finds existing user or creates new one from OAuth data
+// FindOrCreateUser finds existing user or creates new one from OAuth data.
+// This legacy path does not enforce signup consent for new OAuth users.
 func (s *UserService) FindOrCreateUser(gothUser goth.User, provider string) (*models.User, error) {
+	return s.findOrCreateOAuthUser(gothUser, provider, nil, false)
+}
+
+// FindOrCreateUserWithConsent enforces terms acceptance for brand-new OAuth users.
+func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *OAuthSignupConsent) (*models.User, error) {
+	return s.findOrCreateOAuthUser(gothUser, provider, consent, true)
+}
+
+func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string, consent *OAuthSignupConsent, enforceConsent bool) (*models.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -227,12 +252,32 @@ func (s *UserService) FindOrCreateUser(gothUser goth.User, provider string) (*mo
 	}
 
 	// Create new user
-	return s.createNewUserOauth(gothUser, provider)
+	return s.createNewUserOauthWithConsent(gothUser, provider, consent, enforceConsent)
 }
 
-// creates a new user with email and password
-func (s *UserService) CreateUserWithPassword(email, password, firstName, lastName string) (
-	*models.User, error) {
+// CreateUserWithPassword creates a new user with email and password.
+func (s *UserService) CreateUserWithPassword(email, password, firstName, lastName string) (*models.User, error) {
+	return s.createUserWithPassword(email, password, firstName, lastName, nil)
+}
+
+// CreateUserWithPasswordWithLegal creates a new user and records legal acceptance metadata.
+func (s *UserService) CreateUserWithPasswordWithLegal(
+	email,
+	password,
+	firstName,
+	lastName string,
+	acceptance LegalAcceptance,
+) (*models.User, error) {
+	return s.createUserWithPassword(email, password, firstName, lastName, &acceptance)
+}
+
+func (s *UserService) createUserWithPassword(
+	email,
+	password,
+	firstName,
+	lastName string,
+	acceptance *LegalAcceptance,
+) (*models.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -265,6 +310,17 @@ func (s *UserService) CreateUserWithPassword(email, password, firstName, lastNam
 		LastName:      &lastName,
 		IsActive:      true,
 		EmailVerified: false, // Email verification required for password users
+	}
+	if acceptance != nil {
+		acceptedAt := acceptance.TermsAcceptedAt
+		if acceptedAt.IsZero() {
+			acceptedAt = time.Now().UTC()
+		}
+		termsVersion := acceptance.TermsVersion
+		privacyVersion := acceptance.PrivacyVersion
+		user.TermsAcceptedAt = &acceptedAt
+		user.TermsVersion = &termsVersion
+		user.PrivacyVersion = &privacyVersion
 	}
 
 	if err := tx.Create(user).Error; err != nil {
@@ -344,10 +400,25 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*mod
 	return user, nil
 }
 
-// createNewUserOauth creates a new user with OAuth account
+// createNewUserOauth creates a new user with OAuth account.
+// This legacy path does not enforce consent requirements.
 func (s *UserService) createNewUserOauth(gothUser goth.User, provider string) (*models.User, error) {
+	return s.createNewUserOauthWithConsent(gothUser, provider, nil, false)
+}
+
+func (s *UserService) createNewUserOauthWithConsent(
+	gothUser goth.User,
+	provider string,
+	consent *OAuthSignupConsent,
+	enforceConsent bool,
+) (*models.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
+	}
+	if enforceConsent {
+		if err := validateOAuthSignupConsent(consent); err != nil {
+			return nil, err
+		}
 	}
 
 	// Start transaction
@@ -366,6 +437,17 @@ func (s *UserService) createNewUserOauth(gothUser goth.User, provider string) (*
 		AvatarURL:     &gothUser.AvatarURL,
 		IsActive:      true,
 		EmailVerified: true, // OAuth users are email verified
+	}
+	if consent != nil && consent.TermsAccepted && consent.TermsVersion != "" {
+		acceptedAt := consent.AcceptedAt
+		if acceptedAt.IsZero() {
+			acceptedAt = time.Now().UTC()
+		}
+		termsVersion := consent.TermsVersion
+		privacyVersion := consent.PrivacyVersion
+		user.TermsAcceptedAt = &acceptedAt
+		user.TermsVersion = &termsVersion
+		user.PrivacyVersion = &privacyVersion
 	}
 
 	if err := tx.Create(user).Error; err != nil {
@@ -416,6 +498,19 @@ func (s *UserService) createNewUserOauth(gothUser goth.User, provider string) (*
 	}
 
 	return user, nil
+}
+
+func validateOAuthSignupConsent(consent *OAuthSignupConsent) error {
+	if consent == nil {
+		return fmt.Errorf("terms acceptance required for OAuth signup")
+	}
+	if !consent.TermsAccepted {
+		return fmt.Errorf("terms acceptance required for OAuth signup")
+	}
+	if consent.TermsVersion == "" {
+		return fmt.Errorf("terms version is required for OAuth signup")
+	}
+	return nil
 }
 
 // linkOAuthAccount links OAuth account to existing user
@@ -826,28 +921,28 @@ func (s *UserService) CreateUserWithoutPassword(email string) (*models.User, err
 
 // UserDataExport represents all user data in a portable format (GDPR compliance)
 type UserDataExport struct {
-	ExportedAt     time.Time                `json:"exported_at"`
-	ExportVersion  string                   `json:"export_version"`
-	Profile        UserProfileExport        `json:"profile"`
-	Preferences    *UserPreferencesExport   `json:"preferences,omitempty"`
-	OAuthAccounts  []OAuthAccountExport     `json:"oauth_accounts,omitempty"`
-	Passkeys       []PasskeyExport          `json:"passkeys,omitempty"`
-	SavedShows     []SavedShowExport        `json:"saved_shows,omitempty"`
-	SubmittedShows []SubmittedShowExport    `json:"submitted_shows,omitempty"`
+	ExportedAt     time.Time              `json:"exported_at"`
+	ExportVersion  string                 `json:"export_version"`
+	Profile        UserProfileExport      `json:"profile"`
+	Preferences    *UserPreferencesExport `json:"preferences,omitempty"`
+	OAuthAccounts  []OAuthAccountExport   `json:"oauth_accounts,omitempty"`
+	Passkeys       []PasskeyExport        `json:"passkeys,omitempty"`
+	SavedShows     []SavedShowExport      `json:"saved_shows,omitempty"`
+	SubmittedShows []SubmittedShowExport  `json:"submitted_shows,omitempty"`
 }
 
 // UserProfileExport contains user profile data for export
 type UserProfileExport struct {
-	ID            uint       `json:"id"`
-	Email         *string    `json:"email"`
-	Username      *string    `json:"username,omitempty"`
-	FirstName     *string    `json:"first_name,omitempty"`
-	LastName      *string    `json:"last_name,omitempty"`
-	AvatarURL     *string    `json:"avatar_url,omitempty"`
-	Bio           *string    `json:"bio,omitempty"`
-	EmailVerified bool       `json:"email_verified"`
-	CreatedAt     time.Time  `json:"account_created_at"`
-	UpdatedAt     time.Time  `json:"last_updated_at"`
+	ID            uint      `json:"id"`
+	Email         *string   `json:"email"`
+	Username      *string   `json:"username,omitempty"`
+	FirstName     *string   `json:"first_name,omitempty"`
+	LastName      *string   `json:"last_name,omitempty"`
+	AvatarURL     *string   `json:"avatar_url,omitempty"`
+	Bio           *string   `json:"bio,omitempty"`
+	EmailVerified bool      `json:"email_verified"`
+	CreatedAt     time.Time `json:"account_created_at"`
+	UpdatedAt     time.Time `json:"last_updated_at"`
 }
 
 // UserPreferencesExport contains user preferences for export

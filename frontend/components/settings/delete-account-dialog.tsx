@@ -53,6 +53,23 @@ export function DeleteAccountDialog({
   const deletionSummary = useDeletionSummary()
   const deleteAccount = useDeleteAccount()
 
+  const resetDialogState = () => {
+    setStep('warning')
+    setPassword('')
+    setShowPassword(false)
+    setReason('')
+    setConfirmed(false)
+    setDeletionDate(null)
+    deleteAccount.reset()
+  }
+
+  const handleDialogOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      resetDialogState()
+    }
+    onOpenChange(nextOpen)
+  }
+
   // Fetch deletion summary when dialog opens
   useEffect(() => {
     if (open && step === 'warning') {
@@ -60,29 +77,16 @@ export function DeleteAccountDialog({
     }
   }, [open, step])
 
-  // Reset state when dialog closes
-  useEffect(() => {
-    if (!open) {
-      setStep('warning')
-      setPassword('')
-      setShowPassword(false)
-      setReason('')
-      setConfirmed(false)
-      setDeletionDate(null)
-      deleteAccount.reset()
-    }
-  }, [open])
-
   // Auto-redirect after successful deletion
   useEffect(() => {
     if (step === 'success') {
       const timer = setTimeout(() => {
-        onOpenChange(false)
+        handleDialogOpenChange(false)
         router.push('/')
       }, 3000)
       return () => clearTimeout(timer)
     }
-  }, [step, router, onOpenChange])
+  }, [step, router])
 
   const handleDelete = async () => {
     try {
@@ -106,7 +110,7 @@ export function DeleteAccountDialog({
   const hasPassword = summary?.has_password ?? true
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="sm:max-w-md">
         {step === 'warning' && (
           <>
@@ -187,7 +191,10 @@ export function DeleteAccountDialog({
             </div>
 
             <DialogFooter className="gap-2 sm:gap-0">
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
+              <Button
+                variant="outline"
+                onClick={() => handleDialogOpenChange(false)}
+              >
                 Cancel
               </Button>
               <Button
@@ -371,7 +378,7 @@ export function DeleteAccountDialog({
               <Button
                 variant="outline"
                 onClick={() => {
-                  onOpenChange(false)
+                  handleDialogOpenChange(false)
                   router.push('/')
                 }}
               >

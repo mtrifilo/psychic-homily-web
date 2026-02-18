@@ -211,6 +211,9 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_Success() {
 	input.Body.Password = "very-strong-password-123!"
 	input.Body.FirstName = stringPtr("Jane")
 	input.Body.LastName = stringPtr("Doe")
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "2026-01-31"
+	input.Body.PrivacyVersion = "2026-02-15"
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	s.Require().NoError(err)
@@ -228,6 +231,9 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_DuplicateEmail() {
 	input := &RegisterRequest{}
 	input.Body.Email = "dup@test.com"
 	input.Body.Password = "another-strong-pass-456!"
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "2026-01-31"
+	input.Body.PrivacyVersion = "2026-02-15"
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	s.Require().NoError(err)
@@ -241,6 +247,9 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_WeakPassword() {
 	input := &RegisterRequest{}
 	input.Body.Email = "weak-pass@test.com"
 	input.Body.Password = "short" // too short
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "2026-01-31"
+	input.Body.PrivacyVersion = "2026-02-15"
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	s.Require().NoError(err)

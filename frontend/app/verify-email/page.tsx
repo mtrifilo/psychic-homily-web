@@ -1,7 +1,7 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Loader2, CheckCircle2, AlertCircle, Mail, ArrowRight } from 'lucide-react'
 import { useConfirmVerification } from '@/lib/hooks/useAuth'
@@ -9,19 +9,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 
 function VerifyEmailContent() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const token = searchParams.get('token')
   const confirmVerification = useConfirmVerification()
-  const [hasAttempted, setHasAttempted] = useState(false)
+  const attemptedTokenRef = useRef<string | null>(null)
 
-  // Automatically verify when token is present
+  // Automatically verify once per token value.
   useEffect(() => {
-    if (token && !hasAttempted) {
-      setHasAttempted(true)
-      confirmVerification.mutate(token)
+    if (!token || attemptedTokenRef.current === token) {
+      return
     }
-  }, [token, hasAttempted, confirmVerification])
+    attemptedTokenRef.current = token
+    confirmVerification.mutate(token)
+  }, [token, confirmVerification])
 
   // No token provided
   if (!token) {

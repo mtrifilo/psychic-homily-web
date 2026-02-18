@@ -91,6 +91,20 @@ func oauthCallbackRequest(provider string) (*httptest.ResponseRecorder, *http.Re
 	return w, req
 }
 
+func (s *OAuthHandlerIntegrationSuite) addSignupConsentCookie(req *http.Request) {
+	encoded, err := encodeOAuthSignupConsent(services.OAuthSignupConsent{
+		TermsAccepted:  true,
+		TermsVersion:   "2026-01-31",
+		PrivacyVersion: "2026-02-15",
+		AcceptedAt:     time.Now().UTC(),
+	})
+	s.Require().NoError(err)
+	req.AddCookie(&http.Cookie{
+		Name:  oauthSignupConsentCookieName,
+		Value: encoded,
+	})
+}
+
 // --- OAuthCallbackHTTPHandler: error paths ---
 
 func (s *OAuthHandlerIntegrationSuite) TestCallback_Error_RedirectsToFrontend() {
@@ -99,6 +113,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Error_RedirectsToFrontend() 
 	})
 
 	w, req := oauthCallbackRequest("google")
+	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
@@ -117,6 +132,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Error_CLICallback_RedirectsT
 	storeCLICallback(callbackID, "http://localhost:8888/cli-cb")
 
 	w, req := oauthCallbackRequest("google")
+	s.addSignupConsentCookie(req)
 	req.AddCookie(&http.Cookie{
 		Name:  "cli_callback_id",
 		Value: callbackID,
@@ -211,6 +227,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_CustomFrontendURL() {
 	handler := NewOAuthHTTPHandler(authService, customCfg)
 
 	w, req := oauthCallbackRequest("google")
+	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	location := w.Header().Get("Location")
@@ -229,6 +246,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_EmptyFrontendURL_Fallback() 
 	handler := NewOAuthHTTPHandler(authService, emptyCfg)
 
 	w, req := oauthCallbackRequest("google")
+	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	location := w.Header().Get("Location")
@@ -249,6 +267,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_SetsCookieAndRedirec
 	})
 
 	w, req := oauthCallbackRequest("google")
+	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
@@ -266,7 +285,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_SetsCookieAndRedirec
 			break
 		}
 	}
-	s.NotNil(authCookie, "expected auth_token cookie to be set")
+	s.Require().NotNil(authCookie, "expected auth_token cookie to be set")
 	s.NotEmpty(authCookie.Value, "expected non-empty token in cookie")
 	s.True(authCookie.HttpOnly, "expected HttpOnly cookie")
 }
@@ -286,6 +305,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_CLICallback_Redirect
 	storeCLICallback(callbackID, "http://localhost:8888/cli-success")
 
 	w, req := oauthCallbackRequest("google")
+	s.addSignupConsentCookie(req)
 	req.AddCookie(&http.Cookie{
 		Name:  "cli_callback_id",
 		Value: callbackID,
@@ -320,6 +340,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_GithubProvider() {
 	})
 
 	w, req := oauthCallbackRequest("github")
+	s.addSignupConsentCookie(req)
 	handler.OAuthCallbackHTTPHandler(w, req)
 
 	s.Equal(http.StatusTemporaryRedirect, w.Code)
@@ -339,6 +360,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_ExistingUser_Returns
 	})
 
 	w1, req1 := oauthCallbackRequest("google")
+	s.addSignupConsentCookie(req1)
 	handler.OAuthCallbackHTTPHandler(w1, req1)
 	s.Equal(http.StatusTemporaryRedirect, w1.Code)
 
@@ -370,6 +392,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_ExpiredCLICallback_NotUsed()
 	cliCallbackStore.Unlock()
 
 	w, req := oauthCallbackRequest("google")
+	s.addSignupConsentCookie(req)
 	req.AddCookie(&http.Cookie{
 		Name:  "cli_callback_id",
 		Value: "expired-cli-id",

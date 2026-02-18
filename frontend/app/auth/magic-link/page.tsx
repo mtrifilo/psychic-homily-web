@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Loader2, CheckCircle2, AlertCircle, Mail } from 'lucide-react'
 import { useVerifyMagicLink } from '@/lib/hooks/useAuth'
@@ -14,32 +14,42 @@ function MagicLinkContent() {
   const token = searchParams.get('token')
   const { setUser } = useAuthContext()
   const verifyMagicLink = useVerifyMagicLink()
-  const [hasAttempted, setHasAttempted] = useState(false)
+  const attemptedTokenRef = useRef<string | null>(null)
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    // Only attempt verification once
-    if (token && !hasAttempted && !verifyMagicLink.isPending) {
-      setHasAttempted(true)
-      verifyMagicLink.mutate(token, {
-        onSuccess: data => {
-          if (data.user) {
-            setUser({
-              id: data.user.id,
-              email: data.user.email,
-              first_name: data.user.first_name,
-              last_name: data.user.last_name,
-              email_verified: true,
-              is_admin: data.user.is_admin,
-            })
-          }
-          // Redirect after short delay to show success message
-          setTimeout(() => {
-            router.push('/')
-          }, 1500)
-        },
-      })
+    // Attempt verification once per token value.
+    if (!token || attemptedTokenRef.current === token) {
+      return
     }
-  }, [token, hasAttempted, verifyMagicLink, setUser, router])
+    attemptedTokenRef.current = token
+    verifyMagicLink.mutate(token, {
+      onSuccess: data => {
+        if (data.user) {
+          setUser({
+            id: data.user.id,
+            email: data.user.email,
+            first_name: data.user.first_name,
+            last_name: data.user.last_name,
+            email_verified: true,
+            is_admin: data.user.is_admin,
+          })
+        }
+        // Redirect after short delay to show success message.
+        redirectTimerRef.current = setTimeout(() => {
+          router.push('/')
+        }, 1500)
+      },
+    })
+  }, [token, verifyMagicLink, setUser, router])
+
+  useEffect(() => {
+    return () => {
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current)
+      }
+    }
+  }, [])
 
   // No token provided
   if (!token) {
@@ -95,7 +105,7 @@ function MagicLinkContent() {
             </div>
             <CardTitle>Welcome back!</CardTitle>
             <CardDescription>
-              You've been signed in successfully. Redirecting...
+              You&apos;ve been signed in successfully. Redirecting...
             </CardDescription>
           </CardHeader>
         </Card>

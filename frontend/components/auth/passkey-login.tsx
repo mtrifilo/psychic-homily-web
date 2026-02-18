@@ -13,9 +13,14 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 interface PasskeyLoginButtonProps {
   onError?: (error: string) => void
   className?: string
+  returnTo?: string
 }
 
-export function PasskeyLoginButton({ onError, className }: PasskeyLoginButtonProps) {
+export function PasskeyLoginButton({
+  onError,
+  className,
+  returnTo = '/',
+}: PasskeyLoginButtonProps) {
   const router = useRouter()
   const { setUser } = useAuthContext()
   const [isLoading, setIsLoading] = useState(false)
@@ -80,7 +85,7 @@ export function PasskeyLoginButton({ onError, className }: PasskeyLoginButtonPro
         })
       }
 
-      router.push('/')
+      router.push(returnTo)
     } catch (error) {
       // Handle user cancellation gracefully
       if (error instanceof Error) {

@@ -139,6 +139,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) SetupSuite() {
 		"000023_rename_scraper_to_discovery.up.sql",
 		"000026_add_duplicate_of_show_id.up.sql",
 		"000028_change_event_date_to_timestamptz.up.sql",
+		"000031_add_user_terms_acceptance.up.sql",
 	}
 	for _, m := range migrations {
 		migrationSQL, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", m))

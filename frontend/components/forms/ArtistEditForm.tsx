@@ -64,6 +64,11 @@ export function ArtistEditForm({
   const [showSuccess, setShowSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const resetDialogState = () => {
+    setError(null)
+    setShowSuccess(false)
+  }
+
   const initialValues: FormValues = {
     name: artist.name,
     city: artist.city || '',
@@ -119,7 +124,7 @@ export function ArtistEditForm({
           onSuccess: () => {
             setShowSuccess(true)
             setTimeout(() => {
-              setShowSuccess(false)
+              resetDialogState()
               onOpenChange(false)
               onSuccess?.()
             }, 1500)
@@ -141,13 +146,18 @@ export function ArtistEditForm({
   useEffect(() => {
     if (open) {
       form.reset()
-      setError(null)
-      setShowSuccess(false)
     }
   }, [open, artist.id])
 
+  const handleDialogOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      resetDialogState()
+    }
+    onOpenChange(nextOpen)
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -366,7 +376,7 @@ export function ArtistEditForm({
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleDialogOpenChange(false)}
               disabled={updateMutation.isPending}
             >
               Cancel

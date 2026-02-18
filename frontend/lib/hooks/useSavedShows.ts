@@ -153,9 +153,12 @@ export const useSaveShowToggle = (showId: number, isAuthenticated: boolean, batc
   const isLoading = saveShow.isPending || unsaveShow.isPending
 
   const toggle = async () => {
-    // Optimistic update
     const checkQueryKey = queryKeys.savedShows.check(String(showId))
 
+    // Cancel any in-flight check queries so stale responses don't overwrite the optimistic update
+    await queryClient.cancelQueries({ queryKey: checkQueryKey })
+
+    // Optimistic update
     queryClient.setQueryData(checkQueryKey, {
       is_saved: !isSaved,
     })

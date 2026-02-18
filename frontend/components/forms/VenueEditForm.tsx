@@ -66,6 +66,11 @@ export function VenueEditForm({
   const [showSuccess, setShowSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const resetDialogState = () => {
+    setError(null)
+    setShowSuccess(false)
+  }
+
   const isAdmin = user?.is_admin ?? false
 
   // Fetch user's pending edit if they're not an admin
@@ -109,7 +114,7 @@ export function VenueEditForm({
           onSuccess: response => {
             setShowSuccess(true)
             setTimeout(() => {
-              setShowSuccess(false)
+              resetDialogState()
               onOpenChange(false)
               onSuccess?.()
             }, 1500)
@@ -131,10 +136,15 @@ export function VenueEditForm({
   useEffect(() => {
     if (open) {
       form.reset()
-      setError(null)
-      setShowSuccess(false)
     }
   }, [open, venue.id])
+
+  const handleDialogOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      resetDialogState()
+    }
+    onOpenChange(nextOpen)
+  }
 
   const handleCancelPendingEdit = () => {
     cancelMutation.mutate(venue.id, {
@@ -148,7 +158,7 @@ export function VenueEditForm({
   if (!isAdmin && hasPendingEdit && pendingEditData?.pending_edit) {
     const pendingEdit = pendingEditData.pending_edit
     return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open={open} onOpenChange={handleDialogOpenChange}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -226,7 +236,7 @@ export function VenueEditForm({
                 </>
               )}
             </Button>
-            <Button onClick={() => onOpenChange(false)}>Close</Button>
+            <Button onClick={() => handleDialogOpenChange(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -236,7 +246,7 @@ export function VenueEditForm({
   // Loading state
   if (!isAdmin && isPendingEditLoading) {
     return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open={open} onOpenChange={handleDialogOpenChange}>
         <DialogContent className="sm:max-w-lg">
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin" />
@@ -247,7 +257,7 @@ export function VenueEditForm({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -479,7 +489,7 @@ export function VenueEditForm({
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleDialogOpenChange(false)}
               disabled={updateMutation.isPending}
             >
               Cancel

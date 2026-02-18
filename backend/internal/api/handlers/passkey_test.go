@@ -109,3 +109,19 @@ func TestBeginSignupHandler_EmptyEmail(t *testing.T) {
 	}
 }
 
+func TestBeginSignupHandler_MissingTermsAcceptance(t *testing.T) {
+	h := testPasskeyHandler()
+	input := &BeginSignupRequest{}
+	input.Body.Email = "test@example.com"
+
+	resp, err := h.BeginSignupHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeValidationFailed, resp.Body.ErrorCode)
+	}
+}

@@ -171,6 +171,7 @@ func (suite *ArtistServiceIntegrationTestSuite) SetupSuite() {
 		"000023_rename_scraper_to_discovery.up.sql",
 		"000026_add_duplicate_of_show_id.up.sql",
 		"000028_change_event_date_to_timestamptz.up.sql",
+		"000031_add_user_terms_acceptance.up.sql",
 		// 000027 handled below (CONCURRENTLY not allowed in transaction)
 	}
 	for _, m := range migrations {
@@ -784,5 +785,5 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_RespectsLi
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(5), total) // total count is still 5
-	suite.Len(resp, 3)          // but only 3 returned
+	suite.Len(resp, 3)           // but only 3 returned
 }

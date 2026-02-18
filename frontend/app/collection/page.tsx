@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSavedShows } from '@/lib/hooks/useSavedShows'
 import { useMySubmissions } from '@/lib/hooks/useMySubmissions'
@@ -53,6 +53,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { SHOW_LIST_FEATURE_POLICY } from '@/components/shows/showListFeaturePolicy'
+
+const COLLECTION_TABS = ['saved', 'favorites', 'submissions'] as const
+type CollectionTab = (typeof COLLECTION_TABS)[number]
+
+function isCollectionTab(value: string | null): value is CollectionTab {
+  return value !== null && COLLECTION_TABS.includes(value as CollectionTab)
+}
 
 interface ShowCardProps {
   show: SavedShowResponse | ShowResponse
@@ -541,12 +548,25 @@ function CollectionPageContent() {
   const searchParams = useSearchParams()
   const { isAuthenticated, isLoading: authLoading, user } = useAuthContext()
 
+  const rawTab = searchParams.get('tab')
   // Get current tab from URL or default to "saved"
-  const currentTab = searchParams.get('tab') || 'saved'
+  const currentTab: CollectionTab = isCollectionTab(rawTab) ? rawTab : 'saved'
 
   // Handle private show submission success dialog from query param
   const isPrivateSubmission = searchParams.get('submitted') === 'private'
   const [dialogDismissed, setDialogDismissed] = useState(false)
+
+  // Normalize invalid tab query values.
+  useEffect(() => {
+    if (rawTab && !isCollectionTab(rawTab)) {
+      const newParams = new URLSearchParams(searchParams.toString())
+      newParams.delete('tab')
+      const newPath = newParams.toString()
+        ? `/collection?${newParams.toString()}`
+        : '/collection'
+      router.replace(newPath, { scroll: false })
+    }
+  }, [rawTab, router, searchParams])
 
   // Show dialog for private show submissions
   const showSuccessDialog = !dialogDismissed && isPrivateSubmission
@@ -567,6 +587,9 @@ function CollectionPageContent() {
 
   // Handle tab change
   const handleTabChange = (tab: string) => {
+    if (!isCollectionTab(tab)) {
+      return
+    }
     const newParams = new URLSearchParams(searchParams.toString())
     if (tab === 'saved') {
       newParams.delete('tab')

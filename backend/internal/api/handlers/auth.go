@@ -376,10 +376,13 @@ func (h *AuthHandler) GetProfileHandler(ctx context.Context, input *struct{}) (*
 
 type RegisterRequest struct {
 	Body struct {
-		Email     string  `json:"email" example:"test@example.com" doc:"User email" validate:"required,email"`
-		Password  string  `json:"password" example:"password" doc:"User password" validate:"required"`
-		FirstName *string `json:"first_name,omitempty" example:"John" doc:"User first name (optional)"`
-		LastName  *string `json:"last_name,omitempty" example:"Doe" doc:"User last name (optional)"`
+		Email          string  `json:"email" example:"test@example.com" doc:"User email" validate:"required,email"`
+		Password       string  `json:"password" example:"password" doc:"User password" validate:"required"`
+		FirstName      *string `json:"first_name,omitempty" example:"John" doc:"User first name (optional)"`
+		LastName       *string `json:"last_name,omitempty" example:"Doe" doc:"User last name (optional)"`
+		TermsAccepted  bool    `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
+		TermsVersion   string  `json:"terms_version,omitempty" doc:"Accepted terms version identifier"`
+		PrivacyVersion string  `json:"privacy_version,omitempty" doc:"Accepted privacy policy version identifier"`
 	}
 }
 
@@ -408,6 +411,26 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 	// Validate email and password presence
 	if input.Body.Email == "" || input.Body.Password == "" {
 		authErr := autherrors.ErrValidationFailed("Email and password are required")
+		logger.AuthWarn(ctx, "register_validation_failed",
+			"error", authErr.Message,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = authErr.Message
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+	if !input.Body.TermsAccepted {
+		authErr := autherrors.ErrValidationFailed("You must accept the Terms of Service and Privacy Policy")
+		logger.AuthWarn(ctx, "register_validation_failed",
+			"error", authErr.Message,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = authErr.Message
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+	if input.Body.TermsVersion == "" {
+		authErr := autherrors.ErrValidationFailed("Terms version is required")
 		logger.AuthWarn(ctx, "register_validation_failed",
 			"error", authErr.Message,
 		)
@@ -460,7 +483,17 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		lastName = *input.Body.LastName
 	}
 
-	user, err := h.userService.CreateUserWithPassword(input.Body.Email, input.Body.Password, firstName, lastName)
+	user, err := h.userService.CreateUserWithPasswordWithLegal(
+		input.Body.Email,
+		input.Body.Password,
+		firstName,
+		lastName,
+		services.LegalAcceptance{
+			TermsAcceptedAt: time.Now().UTC(),
+			TermsVersion:    input.Body.TermsVersion,
+			PrivacyVersion:  input.Body.PrivacyVersion,
+		},
+	)
 	if err != nil {
 		errorCode := autherrors.CodeUnknown
 		message := "Failed to create user"
@@ -1258,12 +1291,12 @@ type RequestAccountRecoveryRequest struct {
 // RequestAccountRecoveryResponse represents the response for requesting recovery
 type RequestAccountRecoveryResponse struct {
 	Body struct {
-		Success      bool   `json:"success" example:"true" doc:"Success status"`
-		Message      string `json:"message" example:"Recovery email sent" doc:"Response message"`
-		HasPassword  bool   `json:"has_password,omitempty" doc:"Whether the account has a password set"`
-		DaysRemaining int   `json:"days_remaining,omitempty" doc:"Days remaining before permanent deletion"`
-		ErrorCode    string `json:"error_code,omitempty" example:"ACCOUNT_NOT_FOUND" doc:"Error code for programmatic handling"`
-		RequestID    string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+		Success       bool   `json:"success" example:"true" doc:"Success status"`
+		Message       string `json:"message" example:"Recovery email sent" doc:"Response message"`
+		HasPassword   bool   `json:"has_password,omitempty" doc:"Whether the account has a password set"`
+		DaysRemaining int    `json:"days_remaining,omitempty" doc:"Days remaining before permanent deletion"`
+		ErrorCode     string `json:"error_code,omitempty" example:"ACCOUNT_NOT_FOUND" doc:"Error code for programmatic handling"`
+		RequestID     string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
 	}
 }
 

@@ -6,27 +6,30 @@ import (
 
 // User represents a user account
 type User struct {
-	ID            uint      `json:"id" gorm:"primaryKey"`
-	Email         *string   `json:"email" gorm:"uniqueIndex"`
-	Username      *string   `json:"username" gorm:"uniqueIndex"`
-	PasswordHash  *string   `json:"-" gorm:"column:password_hash"` // Hidden from JSON
-	FirstName     *string   `json:"first_name" gorm:"column:first_name"`
-	LastName      *string   `json:"last_name" gorm:"column:last_name"`
-	AvatarURL     *string   `json:"avatar_url" gorm:"column:avatar_url"`
-	Bio           *string   `json:"bio"`
+	ID                  uint       `json:"id" gorm:"primaryKey"`
+	Email               *string    `json:"email" gorm:"uniqueIndex"`
+	Username            *string    `json:"username" gorm:"uniqueIndex"`
+	PasswordHash        *string    `json:"-" gorm:"column:password_hash"` // Hidden from JSON
+	FirstName           *string    `json:"first_name" gorm:"column:first_name"`
+	LastName            *string    `json:"last_name" gorm:"column:last_name"`
+	AvatarURL           *string    `json:"avatar_url" gorm:"column:avatar_url"`
+	Bio                 *string    `json:"bio"`
 	IsActive            bool       `json:"is_active" gorm:"default:true"`
 	IsAdmin             bool       `json:"is_admin" gorm:"default:false"`
 	EmailVerified       bool       `json:"email_verified" gorm:"default:false"`
+	TermsAcceptedAt     *time.Time `json:"-" gorm:"column:terms_accepted_at"` // Legal acceptance evidence
+	TermsVersion        *string    `json:"-" gorm:"column:terms_version"`
+	PrivacyVersion      *string    `json:"-" gorm:"column:privacy_version"`
 	FailedLoginAttempts int        `json:"-" gorm:"default:0"`
 	LockedUntil         *time.Time `json:"-" gorm:"column:locked_until"`
 	CreatedAt           time.Time  `json:"created_at"`
 	UpdatedAt           time.Time  `json:"updated_at"`
-	DeletedAt     *time.Time `json:"deleted_at,omitempty" gorm:"column:deleted_at"`
-	DeletionReason *string   `json:"-" gorm:"column:deletion_reason"` // Hidden from JSON
+	DeletedAt           *time.Time `json:"deleted_at,omitempty" gorm:"column:deleted_at"`
+	DeletionReason      *string    `json:"-" gorm:"column:deletion_reason"` // Hidden from JSON
 
 	// Relationships
-	OAuthAccounts  []OAuthAccount       `json:"oauth_accounts,omitempty" gorm:"foreignKey:UserID"`
-	Preferences    *UserPreferences     `json:"preferences,omitempty" gorm:"foreignKey:UserID"`
+	OAuthAccounts      []OAuthAccount       `json:"oauth_accounts,omitempty" gorm:"foreignKey:UserID"`
+	Preferences        *UserPreferences     `json:"preferences,omitempty" gorm:"foreignKey:UserID"`
 	PasskeyCredentials []WebAuthnCredential `json:"passkey_credentials,omitempty" gorm:"foreignKey:UserID"`
 }
 

@@ -333,7 +333,7 @@ func (u *signupUser) WebAuthnIcon() string {
 
 // signupSessionData wraps session data with email for signup flow
 type signupSessionData struct {
-	Email   string                 `json:"email"`
+	Email   string                `json:"email"`
 	Session *webauthn.SessionData `json:"session"`
 }
 
@@ -404,8 +404,20 @@ func (s *WebAuthnService) GetChallengeWithEmail(challengeID string, operation st
 	return wrapped.Session, wrapped.Email, nil
 }
 
-// FinishSignupRegistration completes registration, creates user, and stores credential
+// FinishSignupRegistration completes registration, creates user, and stores credential.
+// Legacy path without legal acceptance metadata.
 func (s *WebAuthnService) FinishSignupRegistration(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*models.User, error) {
+	return s.FinishSignupRegistrationWithLegal(email, session, response, displayName, LegalAcceptance{})
+}
+
+// FinishSignupRegistrationWithLegal completes registration and records legal acceptance metadata.
+func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
+	email string,
+	session *webauthn.SessionData,
+	response *protocol.ParsedCredentialCreationData,
+	displayName string,
+	acceptance LegalAcceptance,
+) (*models.User, error) {
 	// Use the same temp user for credential creation
 	tempUser := &signupUser{email: email}
 
@@ -428,6 +440,17 @@ func (s *WebAuthnService) FinishSignupRegistration(email string, session *webaut
 		Email:         &email,
 		IsActive:      true,
 		EmailVerified: false,
+	}
+	if acceptance.TermsVersion != "" {
+		acceptedAt := acceptance.TermsAcceptedAt
+		if acceptedAt.IsZero() {
+			acceptedAt = time.Now().UTC()
+		}
+		termsVersion := acceptance.TermsVersion
+		privacyVersion := acceptance.PrivacyVersion
+		user.TermsAcceptedAt = &acceptedAt
+		user.TermsVersion = &termsVersion
+		user.PrivacyVersion = &privacyVersion
 	}
 
 	if err := tx.Create(user).Error; err != nil {

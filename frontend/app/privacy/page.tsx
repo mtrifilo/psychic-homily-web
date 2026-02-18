@@ -10,8 +10,8 @@ export const metadata: Metadata = {
 }
 
 export default function PrivacyPolicyPage() {
-  const lastUpdated = 'February 7, 2026'
-  const effectiveDate = 'January 31, 2026'
+  const lastUpdated = 'February 15, 2026'
+  const effectiveDate = 'February 15, 2026'
 
   return (
     <div className="flex min-h-screen items-start justify-center">
@@ -96,8 +96,10 @@ export default function PrivacyPolicyPage() {
               <li><strong>Resend:</strong> Email delivery service. I share your email address to send transactional and notification emails. <Link href="https://resend.com/legal/privacy-policy" className="underline hover:text-muted-foreground">Resend Privacy Policy</Link></li>
               <li><strong>Railway:</strong> Cloud hosting provider where the application and database are hosted. <Link href="https://railway.app/legal/privacy" className="underline hover:text-muted-foreground">Railway Privacy Policy</Link></li>
               <li><strong>Google Cloud Storage:</strong> Used for backup storage. <Link href="https://cloud.google.com/terms/cloud-privacy-notice" className="underline hover:text-muted-foreground">Google Cloud Privacy Notice</Link></li>
-              <li><strong>Anthropic (Claude AI):</strong> I use AI to help extract show details from uploaded flyer images and to discover music links for artists. Uploaded images and artist names may be processed by Anthropic&apos;s Claude API. No personal user information is sent to Anthropic. <Link href="https://www.anthropic.com/privacy" className="underline hover:text-muted-foreground">Anthropic Privacy Policy</Link></li>
-              <li><strong>PostHog:</strong> I use PostHog for privacy-friendly product analytics, including page views and session recordings (with all inputs masked). PostHog is only activated after you consent to analytics cookies via the cookie banner. If you decline or revoke consent, no data is sent to PostHog. <Link href="https://posthog.com/privacy" className="underline hover:text-muted-foreground">PostHog Privacy Policy</Link></li>
+              <li><strong>Anthropic (Claude AI):</strong> I use AI to help extract show details from uploaded flyer images and to discover music links for artists. Uploaded images and artist names may be processed by Anthropic&apos;s Claude API. I do not intentionally include account identifiers (such as your email address or internal user ID) in Anthropic requests, unless you include personal information in submitted content. <Link href="https://www.anthropic.com/privacy" className="underline hover:text-muted-foreground">Anthropic Privacy Policy</Link></li>
+              <li><strong>PostHog:</strong> I use PostHog for product analytics, including page views and session recordings (with all inputs masked). PostHog is configured with tracking disabled by default. Analytics events and session recording are only captured after you consent to analytics cookies via the cookie banner. If you decline or revoke consent, capturing is disabled. <Link href="https://posthog.com/privacy" className="underline hover:text-muted-foreground">PostHog Privacy Policy</Link></li>
+              <li><strong>Sentry:</strong> I use Sentry for error monitoring and diagnostics to detect, investigate, and fix application issues. Sentry may process technical metadata such as stack traces, browser information, and request context. <Link href="https://sentry.io/privacy/" className="underline hover:text-muted-foreground">Sentry Privacy Policy</Link></li>
+              <li><strong>Vercel Analytics and Speed Insights:</strong> I use Vercel-provided analytics and performance monitoring to understand site usage and reliability. These services may process technical metadata, such as page URLs, browser characteristics, and performance timings. <Link href="https://vercel.com/legal/privacy-policy" className="underline hover:text-muted-foreground">Vercel Privacy Policy</Link></li>
             </ul>
 
             <h3 className="text-lg font-medium mt-4 mb-2">4.2 Authentication Providers</h3>
@@ -256,6 +258,9 @@ export default function PrivacyPolicyPage() {
           {/* Contact */}
           <section>
             <h2 className="text-xl font-semibold mb-3">12. Contact Us</h2>
+            <p className="text-foreground/90 leading-relaxed mb-3">
+              Psychic Homily is operated by an individual sole proprietor based in Arizona, United States.
+            </p>
             <p className="text-foreground/90 leading-relaxed">
               If you have any questions about this Privacy Policy or privacy practices, please contact me at <Link href="mailto:hello@psychichomily.com" className="underline hover:text-muted-foreground">hello@psychichomily.com</Link>.
             </p>

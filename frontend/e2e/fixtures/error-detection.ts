@@ -29,7 +29,7 @@ type ErrorEntry = {
 }
 
 export const test = base.extend<{ errors: ErrorEntry[] }>({
-  errors: async ({ page }, use) => {
+  errors: async ({ page }, runFixture) => {
     const errors: ErrorEntry[] = []
 
     // Uncaught exceptions
@@ -69,7 +69,7 @@ export const test = base.extend<{ errors: ErrorEntry[] }>({
     })
 
     // Run the test
-    await use(errors)
+    await runFixture(errors)
 
     // After the test: assert no unexpected errors occurred
     if (errors.length > 0) {

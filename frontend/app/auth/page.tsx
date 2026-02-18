@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
-import { AlertCircle, Loader2, Mail, Lock, User, Eye, EyeOff, Send, CheckCircle2, Check } from 'lucide-react'
+import { AlertCircle, Loader2, Mail, Lock, User, Eye, EyeOff, Send, CheckCircle2 } from 'lucide-react'
 import { useLogin, useRegister, useSendMagicLink } from '@/lib/hooks/useAuth'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,11 @@ import { PasskeyLoginButton } from '@/components/auth/passkey-login'
 import { PasskeySignupButton } from '@/components/auth/passkey-signup'
 import { GoogleOAuthButton } from '@/components/auth/google-oauth-button'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
+import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '@/lib/legal'
+import {
+  safeDecodeQueryParam,
+  sanitizeReturnTo,
+} from './auth-redirect-utils'
 
 // Password validation constants
 const MIN_PASSWORD_LENGTH = 12
@@ -141,6 +146,7 @@ function LoginForm({ returnTo }: { returnTo: string }) {
         <PasskeyLoginButton
           onError={setPasskeyError}
           className="w-full"
+          returnTo={returnTo}
         />
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
@@ -304,6 +310,7 @@ function SignupForm({ returnTo }: { returnTo: string }) {
   const [showPassword, setShowPassword] = useState(false)
   const [passwordValue, setPasswordValue] = useState('')
   const [passkeyError, setPasskeyError] = useState<string | null>(null)
+  const [oauthError, setOauthError] = useState<string | null>(null)
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false)
 
   const form = useForm({
@@ -314,7 +321,13 @@ function SignupForm({ returnTo }: { returnTo: string }) {
     } as SignupFormData,
     onSubmit: async ({ value }) => {
       registerMutation.mutate(
-        { email: value.email, password: value.password },
+        {
+          email: value.email,
+          password: value.password,
+          terms_accepted: value.termsAccepted,
+          terms_version: CURRENT_TERMS_VERSION,
+          privacy_version: CURRENT_PRIVACY_VERSION,
+        },
         {
           onSuccess: data => {
             if (data.user) {
@@ -348,19 +361,35 @@ function SignupForm({ returnTo }: { returnTo: string }) {
       }}
       className="space-y-4"
     >
-      {(registerMutation.error || passkeyError) && (
+      {(registerMutation.error || passkeyError || oauthError) && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{registerMutation.error?.message || passkeyError}</AlertDescription>
+          <AlertDescription>{registerMutation.error?.message || passkeyError || oauthError}</AlertDescription>
         </Alert>
       )}
 
       {/* OAuth and Passkey signup options */}
       <div className="space-y-3">
-        <GoogleOAuthButton className="w-full" variant="signup" />
+        <form.Subscribe selector={state => state.values.termsAccepted}>
+          {termsAccepted => (
+            <GoogleOAuthButton
+              className="w-full"
+              variant="signup"
+              termsAccepted={termsAccepted}
+              termsVersion={CURRENT_TERMS_VERSION}
+              privacyVersion={CURRENT_PRIVACY_VERSION}
+              onMissingTermsAcceptance={() => {
+                setOauthError('You must agree to the Terms of Service and Privacy Policy before continuing with Google')
+              }}
+            />
+          )}
+        </form.Subscribe>
         <PasskeySignupButton
           onError={setPasskeyError}
           className="w-full"
+          returnTo={returnTo}
+          termsVersion={CURRENT_TERMS_VERSION}
+          privacyVersion={CURRENT_PRIVACY_VERSION}
         />
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
@@ -447,7 +476,13 @@ function SignupForm({ returnTo }: { returnTo: string }) {
               <Checkbox
                 id="terms"
                 checked={field.state.value}
-                onCheckedChange={(checked) => field.handleChange(checked === true)}
+                onCheckedChange={(checked) => {
+                  const accepted = checked === true
+                  field.handleChange(accepted)
+                  if (accepted) {
+                    setOauthError(null)
+                  }
+                }}
                 aria-invalid={field.state.meta.errors.length > 0}
                 className="mt-0.5"
               />
@@ -510,10 +545,10 @@ function AuthPageContent() {
   const { isAuthenticated, isLoading } = useAuthContext()
 
   // Get error from URL query params (e.g., OAuth errors)
-  const urlError = searchParams.get('error')
+  const urlError = safeDecodeQueryParam(searchParams.get('error'))
 
   // Get returnTo from URL query params (for redirecting after login)
-  const returnTo = searchParams.get('returnTo') || '/'
+  const returnTo = sanitizeReturnTo(searchParams.get('returnTo'))
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -557,7 +592,7 @@ function AuthPageContent() {
           <Alert variant="destructive" className="mb-6">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              {decodeURIComponent(urlError)}
+              {urlError}
             </AlertDescription>
           </Alert>
         )}

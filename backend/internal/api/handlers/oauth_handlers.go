@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +18,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/markbates/goth/gothic"
 )
+
+const oauthSignupConsentCookieName = "oauth_signup_consent"
 
 func generateRandomID() string {
 	bytes := make([]byte, 16)
@@ -87,6 +92,11 @@ func NewOAuthHTTPHandler(authService *services.AuthService, cfg *config.Config) 
 
 // OAuthLoginHTTPHandler handles OAuth login initiation via HTTP
 func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.Request) {
+	secureCookie := false
+	if h != nil && h.config != nil {
+		secureCookie = h.config.Session.Secure
+	}
+
 	// Get provider from path parameter
 	provider := chi.URLParam(r, "provider")
 	if provider == "" {
@@ -98,6 +108,39 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 	if provider != "google" && provider != "github" {
 		http.Error(w, "Invalid provider", http.StatusBadRequest)
 		return
+	}
+
+	// Capture explicit signup consent for later enforcement in callback.
+	signupIntent := r.URL.Query().Get("signup_intent") == "1"
+	if signupIntent {
+		termsAccepted := r.URL.Query().Get("terms_accepted") == "true"
+		termsVersion := r.URL.Query().Get("terms_version")
+		privacyVersion := r.URL.Query().Get("privacy_version")
+		if !termsAccepted || termsVersion == "" {
+			http.Error(w, "Terms acceptance is required for account creation", http.StatusBadRequest)
+			return
+		}
+
+		encodedConsent, err := encodeOAuthSignupConsent(services.OAuthSignupConsent{
+			TermsAccepted:  true,
+			TermsVersion:   termsVersion,
+			PrivacyVersion: privacyVersion,
+			AcceptedAt:     time.Now().UTC(),
+		})
+		if err != nil {
+			http.Error(w, "Failed to process signup consent", http.StatusInternalServerError)
+			return
+		}
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     oauthSignupConsentCookieName,
+			Value:    encodedConsent,
+			Path:     "/",
+			MaxAge:   600, // 10 minutes for full OAuth round-trip
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   secureCookie,
+		})
 	}
 
 	// Check for CLI callback parameter
@@ -136,6 +179,11 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 
 // OAuthCallbackHTTPHandler handles OAuth callback via HTTP
 func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *http.Request) {
+	secureCookie := false
+	if h != nil && h.config != nil {
+		secureCookie = h.config.Session.Secure
+	}
+
 	// Get provider from path parameter
 	provider := chi.URLParam(r, "provider")
 	if provider == "" {
@@ -163,6 +211,28 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		})
 	}
 
+	// Read signup consent captured during OAuth initiation (if present).
+	var signupConsent *services.OAuthSignupConsent
+	if cookie, err := r.Cookie(oauthSignupConsentCookieName); err == nil {
+		consent, decodeErr := decodeOAuthSignupConsent(cookie.Value)
+		if decodeErr != nil {
+			log.Printf("WARN: failed to decode OAuth signup consent cookie: %v", decodeErr)
+		} else {
+			signupConsent = consent
+		}
+
+		// Always clear the one-time consent cookie.
+		http.SetCookie(w, &http.Cookie{
+			Name:     oauthSignupConsentCookieName,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   secureCookie,
+		})
+	}
+
 	// Add provider to query parameters for Goth (following best practices)
 	q := r.URL.Query()
 	q.Add("provider", provider)
@@ -174,20 +244,24 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 		frontendURL = "http://localhost:3000"
 	}
 
-	// Use AuthService to handle the complete OAuth flow
-	user, token, err := h.authService.OAuthCallback(w, r, provider)
+	// Use AuthService to handle the complete OAuth flow. New users require consent.
+	user, token, err := h.authService.OAuthCallbackWithConsent(w, r, provider, signupConsent)
 	if err != nil {
 		log.Printf("OAuth callback failed: %v", err)
+		errorMessage := "authentication failed"
+		if strings.Contains(err.Error(), "terms acceptance required") || strings.Contains(err.Error(), "terms version is required") {
+			errorMessage = "Please accept the Terms of Service and Privacy Policy before creating an account."
+		}
 
 		// Handle CLI callback error
 		if cliCallback != "" {
-			redirectURL := cliCallback + "?error=" + url.QueryEscape("authentication failed")
+			redirectURL := cliCallback + "?error=" + url.QueryEscape(errorMessage)
 			http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 			return
 		}
 
 		// Redirect to frontend auth page with error
-		redirectURL := frontendURL + "/auth?error=" + url.QueryEscape("authentication failed")
+		redirectURL := frontendURL + "/auth?error=" + url.QueryEscape(errorMessage)
 		http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 		return
 	}
@@ -209,4 +283,24 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 
 	// Redirect to frontend home page
 	http.Redirect(w, r, frontendURL, http.StatusTemporaryRedirect)
+}
+
+func encodeOAuthSignupConsent(consent services.OAuthSignupConsent) (string, error) {
+	data, err := json.Marshal(consent)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(data), nil
+}
+
+func decodeOAuthSignupConsent(value string) (*services.OAuthSignupConsent, error) {
+	data, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return nil, err
+	}
+	var consent services.OAuthSignupConsent
+	if err := json.Unmarshal(data, &consent); err != nil {
+		return nil, err
+	}
+	return &consent, nil
 }

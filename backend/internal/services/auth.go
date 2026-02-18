@@ -28,9 +28,9 @@ func (r *RealOAuthCompleter) CompleteUserAuth(w http.ResponseWriter, req *http.R
 
 // AuthService handles authentication business logic
 type AuthService struct {
-	db          *gorm.DB
-	userService *UserService
-	jwtService  *JWTService
+	db             *gorm.DB
+	userService    *UserService
+	jwtService     *JWTService
 	oauthCompleter OAuthCompleter
 }
 
@@ -40,9 +40,9 @@ func NewAuthService(database *gorm.DB, cfg *config.Config) *AuthService {
 		database = db.GetDB()
 	}
 	return &AuthService{
-		db:          database,
-		userService: NewUserService(database),
-		jwtService:  NewJWTService(database, cfg),
+		db:             database,
+		userService:    NewUserService(database),
+		jwtService:     NewJWTService(database, cfg),
 		oauthCompleter: &RealOAuthCompleter{},
 	}
 }
@@ -56,7 +56,7 @@ func (s *AuthService) OAuthLogin(w http.ResponseWriter, r *http.Request, provide
 
 	// Use Goth's recommended way to set the provider in context
 	r = gothic.GetContextWithProvider(r, provider)
-	
+
 	// Begin OAuth flow - this will redirect to the OAuth provider
 	log.Printf("DEBUG: About to call gothic.BeginAuthHandler with provider: %s", provider)
 	gothic.BeginAuthHandler(w, r)
@@ -64,38 +64,64 @@ func (s *AuthService) OAuthLogin(w http.ResponseWriter, r *http.Request, provide
 	return nil
 }
 
-// OAuthCallback handles OAuth callback and user creation/linking
+// OAuthCallback handles OAuth callback and user creation/linking.
+// This legacy path does not enforce signup consent requirements.
 func (s *AuthService) OAuthCallback(w http.ResponseWriter, r *http.Request, provider string) (*models.User, string, error) {
-    // Check for nil request
-    if r == nil {
-        return nil, "", fmt.Errorf("request cannot be nil")
-    }
+	return s.oauthCallbackInternal(w, r, provider, nil, false)
+}
 
-    log.Printf("DEBUG: Request URL: %s", r.URL.String())
-    log.Printf("DEBUG: Using provider: '%s'", provider)
-    
-    // Use the OAuth completer interface (can be mocked for testing)
-    log.Printf("DEBUG: About to call OAuth completer")
-    gothUser, err := s.oauthCompleter.CompleteUserAuth(w, r)
-    if err != nil {
-        return nil, "", fmt.Errorf("OAuth completion failed: %w", err)
-    }
-    
-    log.Printf("DEBUG: Successfully completed OAuth! gothUser: %+v", gothUser)
+// OAuthCallbackWithConsent enforces terms acceptance for brand-new OAuth users.
+func (s *AuthService) OAuthCallbackWithConsent(
+	w http.ResponseWriter,
+	r *http.Request,
+	provider string,
+	consent *OAuthSignupConsent,
+) (*models.User, string, error) {
+	return s.oauthCallbackInternal(w, r, provider, consent, true)
+}
 
-    // Find or create user using user service
-    user, err := s.userService.FindOrCreateUser(gothUser, provider)
-    if err != nil {
-        return nil, "", fmt.Errorf("failed to find or create user: %w", err)
-    }
+func (s *AuthService) oauthCallbackInternal(
+	w http.ResponseWriter,
+	r *http.Request,
+	provider string,
+	consent *OAuthSignupConsent,
+	enforceConsent bool,
+) (*models.User, string, error) {
+	// Check for nil request
+	if r == nil {
+		return nil, "", fmt.Errorf("request cannot be nil")
+	}
 
-    // Generate JWT token
-    token, err := s.jwtService.CreateToken(user)
-    if err != nil {
-        return nil, "", fmt.Errorf("failed to create token: %w", err)
-    }
+	log.Printf("DEBUG: Request URL: %s", r.URL.String())
+	log.Printf("DEBUG: Using provider: '%s'", provider)
 
-    return user, token, nil
+	// Use the OAuth completer interface (can be mocked for testing)
+	log.Printf("DEBUG: About to call OAuth completer")
+	gothUser, err := s.oauthCompleter.CompleteUserAuth(w, r)
+	if err != nil {
+		return nil, "", fmt.Errorf("OAuth completion failed: %w", err)
+	}
+
+	log.Printf("DEBUG: Successfully completed OAuth! gothUser: %+v", gothUser)
+
+	// Find or create user using user service
+	var user *models.User
+	if enforceConsent {
+		user, err = s.userService.FindOrCreateUserWithConsent(gothUser, provider, consent)
+	} else {
+		user, err = s.userService.FindOrCreateUser(gothUser, provider)
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to find or create user: %w", err)
+	}
+
+	// Generate JWT token
+	token, err := s.jwtService.CreateToken(user)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create token: %w", err)
+	}
+
+	return user, token, nil
 }
 
 // Add this to backend/internal/services/auth.go

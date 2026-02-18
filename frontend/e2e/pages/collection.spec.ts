@@ -46,6 +46,21 @@ test.describe('Collection page', () => {
     ).toBeVisible()
   })
 
+  test('falls back to saved tab when tab query is invalid', async ({
+    authenticatedPage,
+  }) => {
+    await authenticatedPage.goto('/collection?tab=invalid')
+
+    await expect(
+      authenticatedPage.getByRole('heading', { name: /my collection/i })
+    ).toBeVisible({ timeout: 10_000 })
+
+    await expect(
+      authenticatedPage.getByRole('tab', { name: /saved shows/i })
+    ).toHaveAttribute('data-state', 'active')
+    await authenticatedPage.waitForURL('/collection')
+  })
+
   test('shows saved show after saving one', async ({
     authenticatedPage,
   }) => {

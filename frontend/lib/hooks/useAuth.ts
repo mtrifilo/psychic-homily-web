@@ -24,6 +24,9 @@ interface RegisterCredentials {
   password: string
   first_name?: string
   last_name?: string
+  terms_accepted: boolean
+  terms_version: string
+  privacy_version: string
 }
 
 interface AuthResponse {
