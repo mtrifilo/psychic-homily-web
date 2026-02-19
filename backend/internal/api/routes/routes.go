@@ -25,6 +25,9 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	// Add request ID middleware to all Huma routes
 	api.UseMiddleware(middleware.HumaRequestIDMiddleware)
 
+	// Enrich Sentry scope with request ID and HTTP metadata on all routes
+	api.UseMiddleware(middleware.HumaSentryContextMiddleware)
+
 	// Setup domain-specific routes
 	setupSystemRoutes(router, api)
 	setupAuthRoutes(router, api, sc, cfg)
@@ -32,6 +35,8 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	// Create a protected group that will require authentication
 	protectedGroup := huma.NewGroup(api, "")
 	protectedGroup.UseMiddleware(middleware.HumaJWTMiddleware(sc.JWT, cfg.Session))
+	// Enrich Sentry scope with authenticated user context (runs after JWT middleware)
+	protectedGroup.UseMiddleware(middleware.HumaSentryContextMiddleware)
 
 	// Add protected auth routes
 	authHandler := handlers.NewAuthHandler(sc.Auth, sc.JWT, sc.User, sc.Email, sc.Discord, sc.PasswordValidator, cfg)
