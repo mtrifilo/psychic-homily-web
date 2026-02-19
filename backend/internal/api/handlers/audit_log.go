@@ -13,11 +13,11 @@ import (
 
 // AuditLogHandler handles audit log HTTP requests
 type AuditLogHandler struct {
-	auditLogService *services.AuditLogService
+	auditLogService services.AuditLogServiceInterface
 }
 
 // NewAuditLogHandler creates a new audit log handler
-func NewAuditLogHandler(auditLogService *services.AuditLogService) *AuditLogHandler {
+func NewAuditLogHandler(auditLogService services.AuditLogServiceInterface) *AuditLogHandler {
 	return &AuditLogHandler{
 		auditLogService: auditLogService,
 	}

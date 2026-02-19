@@ -14,11 +14,11 @@ import (
 
 // SavedShowHandler handles saved show HTTP requests
 type SavedShowHandler struct {
-	savedShowService *services.SavedShowService
+	savedShowService services.SavedShowServiceInterface
 }
 
 // NewSavedShowHandler creates a new saved show handler
-func NewSavedShowHandler(savedShowService *services.SavedShowService) *SavedShowHandler {
+func NewSavedShowHandler(savedShowService services.SavedShowServiceInterface) *SavedShowHandler {
 	return &SavedShowHandler{
 		savedShowService: savedShowService,
 	}

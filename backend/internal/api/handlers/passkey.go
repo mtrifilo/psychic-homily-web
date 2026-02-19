@@ -21,14 +21,14 @@ import (
 
 // PasskeyHandler handles passkey/WebAuthn requests
 type PasskeyHandler struct {
-	webauthnService *services.WebAuthnService
-	jwtService      *services.JWTService
-	userService     *services.UserService
+	webauthnService services.WebAuthnServiceInterface
+	jwtService      services.JWTServiceInterface
+	userService     services.UserServiceInterface
 	config          *config.Config
 }
 
 // NewPasskeyHandler creates a new passkey handler
-func NewPasskeyHandler(webauthnService *services.WebAuthnService, jwtService *services.JWTService, userService *services.UserService, cfg *config.Config) *PasskeyHandler {
+func NewPasskeyHandler(webauthnService services.WebAuthnServiceInterface, jwtService services.JWTServiceInterface, userService services.UserServiceInterface, cfg *config.Config) *PasskeyHandler {
 	return &PasskeyHandler{
 		webauthnService: webauthnService,
 		jwtService:      jwtService,

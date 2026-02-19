@@ -17,30 +17,30 @@ import (
 
 // AdminHandler handles admin-related HTTP requests
 type AdminHandler struct {
-	showService           *services.ShowService
-	venueService          *services.VenueService
-	discordService        *services.DiscordService
-	musicDiscoveryService *services.MusicDiscoveryService
-	discoveryService      *services.DiscoveryService
-	apiTokenService       *services.APITokenService
-	dataSyncService       *services.DataSyncService
-	auditLogService       *services.AuditLogService
-	userService           *services.UserService
-	adminStatsService     *services.AdminStatsService
+	showService           services.ShowServiceInterface
+	venueService          services.VenueServiceInterface
+	discordService        services.DiscordServiceInterface
+	musicDiscoveryService services.MusicDiscoveryServiceInterface
+	discoveryService      services.DiscoveryServiceInterface
+	apiTokenService       services.APITokenServiceInterface
+	dataSyncService       services.DataSyncServiceInterface
+	auditLogService       services.AuditLogServiceInterface
+	userService           services.UserServiceInterface
+	adminStatsService     services.AdminStatsServiceInterface
 }
 
 // NewAdminHandler creates a new admin handler
 func NewAdminHandler(
-	showService *services.ShowService,
-	venueService *services.VenueService,
-	discordService *services.DiscordService,
-	musicDiscoveryService *services.MusicDiscoveryService,
-	discoveryService *services.DiscoveryService,
-	apiTokenService *services.APITokenService,
-	dataSyncService *services.DataSyncService,
-	auditLogService *services.AuditLogService,
-	userService *services.UserService,
-	adminStatsService *services.AdminStatsService,
+	showService services.ShowServiceInterface,
+	venueService services.VenueServiceInterface,
+	discordService services.DiscordServiceInterface,
+	musicDiscoveryService services.MusicDiscoveryServiceInterface,
+	discoveryService services.DiscoveryServiceInterface,
+	apiTokenService services.APITokenServiceInterface,
+	dataSyncService services.DataSyncServiceInterface,
+	auditLogService services.AuditLogServiceInterface,
+	userService services.UserServiceInterface,
+	adminStatsService services.AdminStatsServiceInterface,
 ) *AdminHandler {
 	return &AdminHandler{
 		showService:           showService,

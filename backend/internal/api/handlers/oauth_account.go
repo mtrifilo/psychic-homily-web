@@ -12,11 +12,11 @@ import (
 
 // OAuthAccountHandler handles OAuth account management HTTP requests
 type OAuthAccountHandler struct {
-	userService *services.UserService
+	userService services.UserServiceInterface
 }
 
 // NewOAuthAccountHandler creates a new OAuth account handler
-func NewOAuthAccountHandler(userService *services.UserService) *OAuthAccountHandler {
+func NewOAuthAccountHandler(userService services.UserServiceInterface) *OAuthAccountHandler {
 	return &OAuthAccountHandler{
 		userService: userService,
 	}

@@ -14,11 +14,11 @@ import (
 
 // FavoriteVenueHandler handles favorite venue HTTP requests
 type FavoriteVenueHandler struct {
-	favoriteVenueService *services.FavoriteVenueService
+	favoriteVenueService services.FavoriteVenueServiceInterface
 }
 
 // NewFavoriteVenueHandler creates a new favorite venue handler
-func NewFavoriteVenueHandler(favoriteVenueService *services.FavoriteVenueService) *FavoriteVenueHandler {
+func NewFavoriteVenueHandler(favoriteVenueService services.FavoriteVenueServiceInterface) *FavoriteVenueHandler {
 	return &FavoriteVenueHandler{
 		favoriteVenueService: favoriteVenueService,
 	}

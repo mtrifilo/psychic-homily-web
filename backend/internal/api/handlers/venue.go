@@ -15,11 +15,11 @@ import (
 )
 
 type VenueHandler struct {
-	venueService   *services.VenueService
-	discordService *services.DiscordService
+	venueService   services.VenueServiceInterface
+	discordService services.DiscordServiceInterface
 }
 
-func NewVenueHandler(venueService *services.VenueService, discordService *services.DiscordService) *VenueHandler {
+func NewVenueHandler(venueService services.VenueServiceInterface, discordService services.DiscordServiceInterface) *VenueHandler {
 	return &VenueHandler{
 		venueService:   venueService,
 		discordService: discordService,

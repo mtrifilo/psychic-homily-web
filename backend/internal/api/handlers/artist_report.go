@@ -14,18 +14,18 @@ import (
 
 // ArtistReportHandler handles artist report HTTP requests
 type ArtistReportHandler struct {
-	artistReportService *services.ArtistReportService
-	discordService      *services.DiscordService
-	userService         *services.UserService
-	auditLogService     *services.AuditLogService
+	artistReportService services.ArtistReportServiceInterface
+	discordService      services.DiscordServiceInterface
+	userService         services.UserServiceInterface
+	auditLogService     services.AuditLogServiceInterface
 }
 
 // NewArtistReportHandler creates a new artist report handler
 func NewArtistReportHandler(
-	artistReportService *services.ArtistReportService,
-	discordService *services.DiscordService,
-	userService *services.UserService,
-	auditLogService *services.AuditLogService,
+	artistReportService services.ArtistReportServiceInterface,
+	discordService services.DiscordServiceInterface,
+	userService services.UserServiceInterface,
+	auditLogService services.AuditLogServiceInterface,
 ) *ArtistReportHandler {
 	return &ArtistReportHandler{
 		artistReportService: artistReportService,

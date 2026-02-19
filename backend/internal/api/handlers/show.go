@@ -18,20 +18,20 @@ import (
 
 // ShowHandler handles show-related HTTP requests
 type ShowHandler struct {
-	showService           *services.ShowService
-	savedShowService      *services.SavedShowService
-	discordService        *services.DiscordService
-	musicDiscoveryService *services.MusicDiscoveryService
-	extractionService     *services.ExtractionService
+	showService           services.ShowServiceInterface
+	savedShowService      services.SavedShowServiceInterface
+	discordService        services.DiscordServiceInterface
+	musicDiscoveryService services.MusicDiscoveryServiceInterface
+	extractionService     services.ExtractionServiceInterface
 }
 
 // NewShowHandler creates a new show handler
 func NewShowHandler(
-	showService *services.ShowService,
-	savedShowService *services.SavedShowService,
-	discordService *services.DiscordService,
-	musicDiscoveryService *services.MusicDiscoveryService,
-	extractionService *services.ExtractionService,
+	showService services.ShowServiceInterface,
+	savedShowService services.SavedShowServiceInterface,
+	discordService services.DiscordServiceInterface,
+	musicDiscoveryService services.MusicDiscoveryServiceInterface,
+	extractionService services.ExtractionServiceInterface,
 ) *ShowHandler {
 	return &ShowHandler{
 		showService:           showService,

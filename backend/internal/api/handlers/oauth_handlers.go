@@ -78,12 +78,12 @@ func deleteCLICallback(id string) {
 
 // OAuthHTTPHandler handles OAuth HTTP requests directly
 type OAuthHTTPHandler struct {
-	authService *services.AuthService
+	authService services.AuthServiceInterface
 	config      *config.Config
 }
 
 // NewOAuthHTTPHandler creates a new OAuth HTTP handler
-func NewOAuthHTTPHandler(authService *services.AuthService, cfg *config.Config) *OAuthHTTPHandler {
+func NewOAuthHTTPHandler(authService services.AuthServiceInterface, cfg *config.Config) *OAuthHTTPHandler {
 	return &OAuthHTTPHandler{
 		authService: authService,
 		config:      cfg,

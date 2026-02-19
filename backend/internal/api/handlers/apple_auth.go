@@ -14,13 +14,13 @@ import (
 
 // AppleAuthHandler handles Sign in with Apple authentication
 type AppleAuthHandler struct {
-	appleAuthService *services.AppleAuthService
-	discordService   *services.DiscordService
+	appleAuthService services.AppleAuthServiceInterface
+	discordService   services.DiscordServiceInterface
 	config           *config.Config
 }
 
 // NewAppleAuthHandler creates a new Apple auth handler
-func NewAppleAuthHandler(appleAuthService *services.AppleAuthService, discordService *services.DiscordService, cfg *config.Config) *AppleAuthHandler {
+func NewAppleAuthHandler(appleAuthService services.AppleAuthServiceInterface, discordService services.DiscordServiceInterface, cfg *config.Config) *AppleAuthHandler {
 	return &AppleAuthHandler{
 		appleAuthService: appleAuthService,
 		discordService:   discordService,

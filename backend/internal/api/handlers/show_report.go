@@ -14,18 +14,18 @@ import (
 
 // ShowReportHandler handles show report HTTP requests
 type ShowReportHandler struct {
-	showReportService *services.ShowReportService
-	discordService    *services.DiscordService
-	userService       *services.UserService
-	auditLogService   *services.AuditLogService
+	showReportService services.ShowReportServiceInterface
+	discordService    services.DiscordServiceInterface
+	userService       services.UserServiceInterface
+	auditLogService   services.AuditLogServiceInterface
 }
 
 // NewShowReportHandler creates a new show report handler
 func NewShowReportHandler(
-	showReportService *services.ShowReportService,
-	discordService *services.DiscordService,
-	userService *services.UserService,
-	auditLogService *services.AuditLogService,
+	showReportService services.ShowReportServiceInterface,
+	discordService services.DiscordServiceInterface,
+	userService services.UserServiceInterface,
+	auditLogService services.AuditLogServiceInterface,
 ) *ShowReportHandler {
 	return &ShowReportHandler{
 		showReportService: showReportService,

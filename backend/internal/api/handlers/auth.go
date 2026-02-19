@@ -17,23 +17,23 @@ import (
 
 // AuthHandler handles authentication requests
 type AuthHandler struct {
-	authService       *services.AuthService
-	jwtService        *services.JWTService
-	userService       *services.UserService
-	emailService      *services.EmailService
-	discordService    *services.DiscordService
-	passwordValidator *services.PasswordValidator
+	authService       services.AuthServiceInterface
+	jwtService        services.JWTServiceInterface
+	userService       services.UserServiceInterface
+	emailService      services.EmailServiceInterface
+	discordService    services.DiscordServiceInterface
+	passwordValidator services.PasswordValidatorInterface
 	config            *config.Config
 }
 
 // NewAuthHandler creates a new authentication handler
 func NewAuthHandler(
-	authService *services.AuthService,
-	jwtService *services.JWTService,
-	userService *services.UserService,
-	emailService *services.EmailService,
-	discordService *services.DiscordService,
-	passwordValidator *services.PasswordValidator,
+	authService services.AuthServiceInterface,
+	jwtService services.JWTServiceInterface,
+	userService services.UserServiceInterface,
+	emailService services.EmailServiceInterface,
+	discordService services.DiscordServiceInterface,
+	passwordValidator services.PasswordValidatorInterface,
 	cfg *config.Config,
 ) *AuthHandler {
 	return &AuthHandler{

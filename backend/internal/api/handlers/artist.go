@@ -27,11 +27,11 @@ func isInternalServiceRequest(ctx huma.Context) bool {
 }
 
 type ArtistHandler struct {
-	artistService   *services.ArtistService
-	auditLogService *services.AuditLogService
+	artistService   services.ArtistServiceInterface
+	auditLogService services.AuditLogServiceInterface
 }
 
-func NewArtistHandler(artistService *services.ArtistService, auditLogService *services.AuditLogService) *ArtistHandler {
+func NewArtistHandler(artistService services.ArtistServiceInterface, auditLogService services.AuditLogServiceInterface) *ArtistHandler {
 	return &ArtistHandler{
 		artistService:   artistService,
 		auditLogService: auditLogService,
