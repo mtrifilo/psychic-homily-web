@@ -1,5 +1,6 @@
 import { chromium, type Page } from 'playwright'
 import type { DiscoveredEvent, PreviewEvent, DiscoveryProvider, OnScrapeProgress } from './types'
+import { cleanArtistName } from './artistUtils'
 
 // Venue configurations for JSON-LD provider
 const VENUES: Record<string, { name: string; url: string }> = {
@@ -114,13 +115,13 @@ function extractArtists(event: JsonLdMusicEvent): string[] {
   // Try performer field first
   if (event.performer) {
     const performers = Array.isArray(event.performer) ? event.performer : [event.performer]
-    const names = performers.map(p => p.name).filter((n): n is string => !!n)
+    const names = performers.map(p => p.name).filter((n): n is string => !!n).map(cleanArtistName)
     if (names.length > 0) return names
   }
 
   // Parse from title: strip tour name suffixes like " - The Something Tour"
   const title = event.name || ''
-  const cleaned = title.replace(/\s*[-–—]\s*(?:the\s+)?[^-–—]*tour.*$/i, '').trim()
+  const cleaned = cleanArtistName(title.replace(/\s*[-–—]\s*(?:the\s+)?[^-–—]*tour.*$/i, '').trim())
   return cleaned ? [cleaned] : [title]
 }
 

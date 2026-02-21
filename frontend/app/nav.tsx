@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { Menu, LogOut, Loader2, Shield, Library, Settings } from 'lucide-react'
-import { ModeToggle } from '@/components/layout'
+import { Menu, LogOut, Loader2, Shield, Library, Settings, Moon, Sun } from 'lucide-react'
+import { useTheme } from 'next-themes'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -28,6 +28,7 @@ import { navLinks, isExternal, getUserInitials, getUserDisplayName } from './nav
 export default function Nav() {
   const [open, setOpen] = useState(false)
   const { user, isAuthenticated, isLoading, logout } = useAuthContext()
+  const { theme, setTheme } = useTheme()
 
   return (
     <>
@@ -110,6 +111,15 @@ export default function Nav() {
                 {link.label}
               </Link>
             ))}
+            {isAuthenticated && (
+              <Link
+                href="/collection"
+                className="px-3 py-1.5 text-sm font-medium rounded-md hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-1.5"
+              >
+                <Library className="h-4 w-4" />
+                My Collection
+              </Link>
+            )}
           </div>
         </div>
 
@@ -147,16 +157,17 @@ export default function Nav() {
                   <DropdownMenuSeparator />
                   <DropdownMenuGroup>
                     <DropdownMenuItem asChild>
-                      <Link href="/collection">
-                        <Library className="mr-2 h-4 w-4" />
-                        My Collection
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
                       <Link href="/profile">
                         <Settings className="mr-2 h-4 w-4" />
                         Profile
                       </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                    >
+                      <Sun className="mr-2 h-4 w-4 dark:hidden" />
+                      <Moon className="mr-2 h-4 w-4 hidden dark:block" />
+                      {theme === 'dark' ? 'Light mode' : 'Dark mode'}
                     </DropdownMenuItem>
                   </DropdownMenuGroup>
                   {user.is_admin && (
@@ -182,15 +193,25 @@ export default function Nav() {
               </DropdownMenu>
             </div>
           ) : (
-            <Link
-              href="/auth"
-              className="hidden sm:inline text-sm text-muted-foreground hover:text-primary transition-colors"
-            >
-              login / sign-up
-            </Link>
+            <div className="hidden sm:flex items-center gap-2">
+              <Link
+                href="/auth"
+                className="text-sm text-muted-foreground hover:text-primary transition-colors"
+              >
+                login / sign-up
+              </Link>
+              <Button
+                variant="outline"
+                size="icon"
+                className="cursor-pointer"
+                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              >
+                <Sun className="h-[1.2rem] w-[1.2rem] scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
+                <Moon className="absolute h-[1.2rem] w-[1.2rem] scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" />
+                <span className="sr-only">Toggle theme</span>
+              </Button>
+            </div>
           )}
-          <ModeToggle />
-
           {/* Mobile Menu */}
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild className="md:hidden">
@@ -282,6 +303,17 @@ export default function Nav() {
                     login / sign-up
                   </Link>
                 )}
+
+                {/* Theme toggle */}
+                <div className="my-2 mx-4 border-t border-border/30" />
+                <button
+                  onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                  className="text-lg font-medium px-4 py-3 rounded-lg hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-2 w-full text-left"
+                >
+                  <Sun className="h-4 w-4 dark:hidden" />
+                  <Moon className="h-4 w-4 hidden dark:block" />
+                  {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+                </button>
               </nav>
             </SheetContent>
           </Sheet>

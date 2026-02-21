@@ -1,5 +1,6 @@
 import { chromium } from 'playwright'
 import type { DiscoveredEvent, PreviewEvent, DiscoveryProvider, OnScrapeProgress } from './types'
+import { cleanArtistName } from './artistUtils'
 
 // Venue configurations for Empty Bottle provider
 const VENUES: Record<string, { name: string; url: string }> = {
@@ -81,7 +82,7 @@ function cleanArtists(rawArtists: string[]): string[] {
     // Skip empty or pure event labels
     if (!name || /^FREE\s/i.test(name)) continue
 
-    artists.push(name)
+    artists.push(cleanArtistName(name))
   }
 
   return artists
