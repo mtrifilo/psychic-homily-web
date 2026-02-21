@@ -23,7 +23,7 @@ A music discovery platform for Arizona and beyond — upcoming shows, venues, an
 | `cli/`       | Admin CLI tool                                 |
 | `deploy/`    | Deployment configuration                       |
 | `scripts/`   | Utility scripts (test runner, venue discovery) |
-| `dev-docs/`  | Internal development documentation             |
+| `docs/`      | Development documentation, plans, and learnings |
 
 ## Prerequisites
 

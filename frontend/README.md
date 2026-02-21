@@ -101,7 +101,7 @@ Key auth features:
 - Password change for authenticated users
 - Email verification required for show submissions
 
-See `/dev-docs/authentication-overhaul.md` for detailed documentation.
+See `/docs/plans/completed/authentication-overhaul.md` for detailed documentation.
 
 ## Testing
 

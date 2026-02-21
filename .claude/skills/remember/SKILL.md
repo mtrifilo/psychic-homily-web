@@ -1,6 +1,6 @@
 ---
 name: remember
-description: Update dev-docs and memory files after completing implementation work. Use when finishing a task to record progress, update tracking docs, and surface next steps.
+description: Update docs and memory files after completing implementation work. Use when finishing a task to record progress, update tracking docs, and surface next steps.
 disable-model-invocation: true
 argument-hint: "[new | summary of what was done]"
 ---
@@ -27,12 +27,12 @@ Force-create a new dev-doc for tracking work that doesn't fit an existing doc. I
 - Skip to the "Creating a new dev-doc" section below.
 
 **Otherwise:**
-- Based on the argument (or recent conversation context if no argument), glob `dev-docs/*.md` and find the doc that tracks the work just completed. Common mappings:
+- Based on the argument (or recent conversation context if no argument), glob `docs/*.md` and find the doc that tracks the work just completed. Common mappings:
   - Backend test work → `backend-test-coverage-plan.md`
   - E2E test work → `e2e-testing-playwright.md`
   - Discovery/scraper work → `discovery-fixes-checklist.md`
 - If no existing doc is a clear match, **do not silently skip it**. Instead:
-  1. List the existing dev-docs by name.
+  1. List the existing docs by name.
   2. Ask: "I couldn't find a dev-doc related to this work. Would you like me to: (A) update one of the docs above, or (B) create a new one?"
   3. Wait for the user's answer before proceeding.
 
@@ -63,7 +63,7 @@ When creating a new doc (via `/remember new` or when the user accepts the offer)
 
 1. **Determine the topic** from the argument after "new", or from conversation context, or ask the user.
 2. **Choose a filename**: lowercase, hyphenated, descriptive. E.g., `oauth-refactor.md`, `frontend-performance.md`.
-3. **Write the doc** to `dev-docs/<filename>` using this template:
+3. **Write the doc** to `docs/<filename>` using this template:
 
 ```markdown
 # <Title>

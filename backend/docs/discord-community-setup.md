@@ -117,7 +117,7 @@ DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 DISCORD_NOTIFICATIONS_ENABLED=true
 ```
 
-See `dev-docs/discord-notifications-setup.md` for detailed Railway configuration steps.
+See `docs/discord-notifications-setup.md` for detailed Railway configuration steps.
 
 ### Verify Connection
 

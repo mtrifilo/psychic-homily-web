@@ -70,7 +70,7 @@ Thumbs.db
 .vercel
 .env*.local
 
-# Local development documentation (contains sensitive connection info)
+# Legacy local dev-docs (moved to /docs, tracked in git)
 dev-docs/
 cli/ph-admin
 scripts/test-runner/test-runner
