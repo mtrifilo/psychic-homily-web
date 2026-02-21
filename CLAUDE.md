@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## First Steps
+
+When starting a new task, read `dev-docs/llm-context.md` first. It has a task-to-doc routing table that tells you exactly which files to read for context, plus a current project checkpoint and key guardrails. Only drill into specific docs when your task requires it.
+
 ## Package Managers
 
 - **Frontend**: Always use `bun` (not npm/yarn/pnpm)
@@ -12,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `/frontend` - Next.js 16 app (React 19, TanStack Query, Tailwind CSS 4, Vitest)
 - `/backend` - Go API (Chi router, Huma v2, GORM, PostgreSQL 18)
 - `/discovery` - Local Bun+Playwright app for scraping venue events and importing to the backend
-- `/dev-docs` - Implementation docs and checklists (read these for context on recent work)
+- `/dev-docs` - Implementation docs, plans, learnings, and roadmap (start with `dev-docs/llm-context.md`)
 
 ## Running Locally
 
