@@ -1,0 +1,791 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0E027F3361E042DE20B5DB70 /* ShowListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B22F0A80C57168E846CA7586 /* ShowListViewModel.swift */; };
+		1D3728649FE12D5341D51106 /* ShowListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FAA113A6CDCB86EC522C120 /* ShowListView.swift */; };
+		23D7EA2AFB026C8FD53567B3 /* SavedShow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11459A1F8BC3403860580F43 /* SavedShow.swift */; };
+		27073A4030244BA9CF6CC2B3 /* SubmitShowViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCCF45F4F4531DF41CCADAE9 /* SubmitShowViewModel.swift */; };
+		2CEA00E8BE9DA6AD39CDCF4B /* CityFilterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF9FCEFEF54D72A3B6101FFF /* CityFilterView.swift */; };
+		36385E8C06B96A49F8BC261D /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9770274A0230059BC0997EE7 /* ShareViewController.swift */; };
+		408C955612FFC7BAE0EFC1D0 /* LoadingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 967366B243A4FEF585BC38BC /* LoadingView.swift */; };
+		4324DEDB850EA4C63D58865C /* Artist.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27A97AEBE4979F09FA4A76A1 /* Artist.swift */; };
+		44D256BCAF134262C0471787 /* VenueDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F534FCE47E079D9AC9B5359F /* VenueDetailView.swift */; };
+		45F9C5876B2F72EA416E0B86 /* Extraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DF5D9456CF0C093BA49E0B2 /* Extraction.swift */; };
+		467CD484CC114478865AED54 /* ArtistDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB849D1DEC2A074B2CBCDDF0 /* ArtistDetailViewModel.swift */; };
+		473774B8909535029DD6F6B2 /* VenueDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 474CA467C2D023821A660363 /* VenueDetailViewModel.swift */; };
+		4861F48434006707DD805C18 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95787A531E8FF0404A84137E /* APIClient.swift */; };
+		4A68FD612416C599FA4D6C18 /* Venue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 735B6A42D2FA7A3CA94A2488 /* Venue.swift */; };
+		4D5816982BBB4E0DA45FF609 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E391F590148F3093090E0A6D /* ProfileView.swift */; };
+		5F91BA9DA93D1B66784DB57C /* StatusBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E26AE8BBF3FA070DFD6BE986 /* StatusBadge.swift */; };
+		5FAD3ABF712351E2CAA8A887 /* ErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19E24C2B568553A9931D931 /* ErrorView.swift */; };
+		641BFE17A2A7C255520C87C2 /* PsychicHomilyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF54BE9717A4E4DA3B4BE002 /* PsychicHomilyTests.swift */; };
+		70A56EF24DE1A82BCF603046 /* PsychicHomilyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A57AAE4EC61812B5F37A111 /* PsychicHomilyApp.swift */; };
+		7415CAFFCB4464E87890E2D2 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B92251080D9BAEF70D0D8FE8 /* KeychainManager.swift */; };
+		76097DA8B6941FA97A70248F /* SaveButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6588800352FC6E5C9C2054E /* SaveButton.swift */; };
+		78E00113734FE6B9205ABE0C /* APIResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BF3425556A75EE1DA8F9AA5 /* APIResponse.swift */; };
+		7979D1A14CADCBEBF41FCEBF /* Color+Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF57F9CE60AF0DEFB0EDA2FA /* Color+Theme.swift */; };
+		7B74782AA7F29775E38B8003 /* ExtractionResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25CB31E6D6366BC10F03DA47 /* ExtractionResultView.swift */; };
+		865990C470ECCCB697EDD077 /* SocialLinksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B520C794814D98D58B3780C /* SocialLinksView.swift */; };
+		8ABE48E0C84C91F6285B72D6 /* SavedShowsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AD31FD16BB462B4E66FDA38 /* SavedShowsView.swift */; };
+		8E4B70D73BF84BB729C39C61 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA101084EE36C18A1C828EDA /* AppState.swift */; };
+		9A1A231B03EBC3C03B273E69 /* SubmitShowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65359470B1727CDC423DAF90 /* SubmitShowView.swift */; };
+		9E2EA85EDF99873670CAC992 /* ShowDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EEF4963A10FCA347B93FC53 /* ShowDetailView.swift */; };
+		A29BB833213E52C89ABEC1C4 /* RegisterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85503496D66FA3720E64F333 /* RegisterView.swift */; };
+		A9D1F72CDCAF0D8D57AC8847 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB20646C1FAA39CBA7ED5050 /* AuthViewModel.swift */; };
+		AC81B6178700A038E2B802B3 /* Show.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF1045EDC231AE675F05F629 /* Show.swift */; };
+		AEAC11720D60CD61B2898D82 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90DE3FF6672767229AEDAAB2 /* LoginView.swift */; };
+		B7C974323407BD62EC9AE2BE /* APIEndpoints.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C75409A91C0655BC47FACD /* APIEndpoints.swift */; };
+		B95D39A5645BE44F07643F30 /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1FBA438DFE0F9A42D094D07 /* User.swift */; };
+		BC323C0DFF308A6B6068EDCE /* Date+Formatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A31E900A5E11C3FA508051A /* Date+Formatting.swift */; };
+		C771F77F1835A1F1074BF00F /* ShowDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 889A9DCD77F9FEAAEE9C4021 /* ShowDetailViewModel.swift */; };
+		C8FE7C0786983E8F3946B00E /* ShowFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6007A7BC5251A09C9CCC462 /* ShowFormView.swift */; };
+		DAF3615AAB08D21737DBCEED /* ShowRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60B0A03926ED0D62B41851A /* ShowRowView.swift */; };
+		E8DBBB11D1AE75AB882F8BED /* PsychicHomilyShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F56B43AD0F47007917BA0022 /* PsychicHomilyShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		EACBAA6552ED69DAD31B222B /* ArtistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95BCA421E3BA9E2CDBEF3315 /* ArtistDetailView.swift */; };
+		FFACFB13EED8C6A3C44BDBDB /* SavedShowsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CD35EA6783763B365A22F98 /* SavedShowsViewModel.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		317582C3DE2D022BA03A7BD4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A596C3B4FA6017C34CEADB37 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 63EF3A27B5D07C7EE0A293F9;
+			remoteInfo = PsychicHomilyShareExtension;
+		};
+		806CB468620DFA0491260345 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A596C3B4FA6017C34CEADB37 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4C27B859EAF9C268E8EE94CE;
+			remoteInfo = PsychicHomily;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		DD3DD7FB6C39F6DED457A46D /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				E8DBBB11D1AE75AB882F8BED /* PsychicHomilyShareExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		0AD31FD16BB462B4E66FDA38 /* SavedShowsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedShowsView.swift; sourceTree = "<group>"; };
+		0EEF4963A10FCA347B93FC53 /* ShowDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowDetailView.swift; sourceTree = "<group>"; };
+		0FAA113A6CDCB86EC522C120 /* ShowListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowListView.swift; sourceTree = "<group>"; };
+		11459A1F8BC3403860580F43 /* SavedShow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedShow.swift; sourceTree = "<group>"; };
+		25CB31E6D6366BC10F03DA47 /* ExtractionResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtractionResultView.swift; sourceTree = "<group>"; };
+		27A97AEBE4979F09FA4A76A1 /* Artist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Artist.swift; sourceTree = "<group>"; };
+		3BF3425556A75EE1DA8F9AA5 /* APIResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIResponse.swift; sourceTree = "<group>"; };
+		3CD35EA6783763B365A22F98 /* SavedShowsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedShowsViewModel.swift; sourceTree = "<group>"; };
+		442FFA9621B8E9602A2750BF /* PsychicHomily.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PsychicHomily.entitlements; sourceTree = "<group>"; };
+		474CA467C2D023821A660363 /* VenueDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VenueDetailViewModel.swift; sourceTree = "<group>"; };
+		4B520C794814D98D58B3780C /* SocialLinksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocialLinksView.swift; sourceTree = "<group>"; };
+		5A57AAE4EC61812B5F37A111 /* PsychicHomilyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PsychicHomilyApp.swift; sourceTree = "<group>"; };
+		5D52DA22EE89F68565F99C80 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		65359470B1727CDC423DAF90 /* SubmitShowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubmitShowView.swift; sourceTree = "<group>"; };
+		735B6A42D2FA7A3CA94A2488 /* Venue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Venue.swift; sourceTree = "<group>"; };
+		85503496D66FA3720E64F333 /* RegisterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegisterView.swift; sourceTree = "<group>"; };
+		889A9DCD77F9FEAAEE9C4021 /* ShowDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowDetailViewModel.swift; sourceTree = "<group>"; };
+		8A31E900A5E11C3FA508051A /* Date+Formatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Date+Formatting.swift"; sourceTree = "<group>"; };
+		8DF5D9456CF0C093BA49E0B2 /* Extraction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extraction.swift; sourceTree = "<group>"; };
+		90DE3FF6672767229AEDAAB2 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		95787A531E8FF0404A84137E /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		95BCA421E3BA9E2CDBEF3315 /* ArtistDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistDetailView.swift; sourceTree = "<group>"; };
+		967366B243A4FEF585BC38BC /* LoadingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingView.swift; sourceTree = "<group>"; };
+		9770274A0230059BC0997EE7 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		A60B0A03926ED0D62B41851A /* ShowRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowRowView.swift; sourceTree = "<group>"; };
+		AF57F9CE60AF0DEFB0EDA2FA /* Color+Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+Theme.swift"; sourceTree = "<group>"; };
+		B0C75409A91C0655BC47FACD /* APIEndpoints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIEndpoints.swift; sourceTree = "<group>"; };
+		B22F0A80C57168E846CA7586 /* ShowListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowListViewModel.swift; sourceTree = "<group>"; };
+		B6588800352FC6E5C9C2054E /* SaveButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveButton.swift; sourceTree = "<group>"; };
+		B92251080D9BAEF70D0D8FE8 /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainManager.swift; sourceTree = "<group>"; };
+		BA101084EE36C18A1C828EDA /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		BB20646C1FAA39CBA7ED5050 /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
+		BC81ADC08CAC41CEDD22C9D8 /* PsychicHomilyShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PsychicHomilyShareExtension.entitlements; sourceTree = "<group>"; };
+		BF1045EDC231AE675F05F629 /* Show.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Show.swift; sourceTree = "<group>"; };
+		C1FBA438DFE0F9A42D094D07 /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
+		C6007A7BC5251A09C9CCC462 /* ShowFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowFormView.swift; sourceTree = "<group>"; };
+		D19E24C2B568553A9931D931 /* ErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorView.swift; sourceTree = "<group>"; };
+		DCCF45F4F4531DF41CCADAE9 /* SubmitShowViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubmitShowViewModel.swift; sourceTree = "<group>"; };
+		DF54BE9717A4E4DA3B4BE002 /* PsychicHomilyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PsychicHomilyTests.swift; sourceTree = "<group>"; };
+		E26AE8BBF3FA070DFD6BE986 /* StatusBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBadge.swift; sourceTree = "<group>"; };
+		E391F590148F3093090E0A6D /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		E3DCF8D6F1F9A3F74C267903 /* PsychicHomily.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PsychicHomily.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		EA126BA48293B7E17E1D3122 /* PsychicHomilyTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = PsychicHomilyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		EF9FCEFEF54D72A3B6101FFF /* CityFilterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityFilterView.swift; sourceTree = "<group>"; };
+		F31382D6D7D20C8187CFA8BE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		F534FCE47E079D9AC9B5359F /* VenueDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VenueDetailView.swift; sourceTree = "<group>"; };
+		F56B43AD0F47007917BA0022 /* PsychicHomilyShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = PsychicHomilyShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		FB849D1DEC2A074B2CBCDDF0 /* ArtistDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistDetailViewModel.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0728C630DC50FF4314409AF0 /* PsychicHomily */ = {
+			isa = PBXGroup;
+			children = (
+				5D52DA22EE89F68565F99C80 /* Info.plist */,
+				442FFA9621B8E9602A2750BF /* PsychicHomily.entitlements */,
+				0D22AECED2F3FE64AA8217AD /* App */,
+				BC786A446B0F50D9CED33982 /* Extensions */,
+				8169E02A03BE56B42F79B831 /* Models */,
+				85A9BCDD97AF891D03F365EA /* Networking */,
+				1BB3829FAC2A54C3C1635264 /* ViewModels */,
+				7D6CF208C7DD85A06E92A52A /* Views */,
+			);
+			path = PsychicHomily;
+			sourceTree = "<group>";
+		};
+		0D22AECED2F3FE64AA8217AD /* App */ = {
+			isa = PBXGroup;
+			children = (
+				BA101084EE36C18A1C828EDA /* AppState.swift */,
+				5A57AAE4EC61812B5F37A111 /* PsychicHomilyApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		1A6F942CFF32A0DDDDC02B01 = {
+			isa = PBXGroup;
+			children = (
+				0728C630DC50FF4314409AF0 /* PsychicHomily */,
+				F39B1227A4DF5020A9A6D239 /* PsychicHomilyShareExtension */,
+				D21BA14314BE10E99B26A0EA /* PsychicHomilyTests */,
+				6D4EF5984CD055BC97F024BD /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		1BB3829FAC2A54C3C1635264 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				FB849D1DEC2A074B2CBCDDF0 /* ArtistDetailViewModel.swift */,
+				BB20646C1FAA39CBA7ED5050 /* AuthViewModel.swift */,
+				3CD35EA6783763B365A22F98 /* SavedShowsViewModel.swift */,
+				889A9DCD77F9FEAAEE9C4021 /* ShowDetailViewModel.swift */,
+				B22F0A80C57168E846CA7586 /* ShowListViewModel.swift */,
+				DCCF45F4F4531DF41CCADAE9 /* SubmitShowViewModel.swift */,
+				474CA467C2D023821A660363 /* VenueDetailViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		57639C11D67143C676CF2BFD /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				D19E24C2B568553A9931D931 /* ErrorView.swift */,
+				967366B243A4FEF585BC38BC /* LoadingView.swift */,
+				B6588800352FC6E5C9C2054E /* SaveButton.swift */,
+				4B520C794814D98D58B3780C /* SocialLinksView.swift */,
+				E26AE8BBF3FA070DFD6BE986 /* StatusBadge.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		6D4EF5984CD055BC97F024BD /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				E3DCF8D6F1F9A3F74C267903 /* PsychicHomily.app */,
+				F56B43AD0F47007917BA0022 /* PsychicHomilyShareExtension.appex */,
+				EA126BA48293B7E17E1D3122 /* PsychicHomilyTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		6EA276C9BB1AACE6512F2EDD /* Shows */ = {
+			isa = PBXGroup;
+			children = (
+				EF9FCEFEF54D72A3B6101FFF /* CityFilterView.swift */,
+				0EEF4963A10FCA347B93FC53 /* ShowDetailView.swift */,
+				0FAA113A6CDCB86EC522C120 /* ShowListView.swift */,
+				A60B0A03926ED0D62B41851A /* ShowRowView.swift */,
+			);
+			path = Shows;
+			sourceTree = "<group>";
+		};
+		7D6CF208C7DD85A06E92A52A /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				FB79003ACA55EE78A5366DC8 /* Artists */,
+				A84B0FBCFCB4698C6F8AE402 /* Auth */,
+				DDBF0BBCD136F34ADA0B8376 /* Profile */,
+				FCE6F052E45328F66F90B1A2 /* SavedShows */,
+				57639C11D67143C676CF2BFD /* Shared */,
+				6EA276C9BB1AACE6512F2EDD /* Shows */,
+				A6F801AA6D1FEE5B4C4AFE47 /* Submit */,
+				D529E0CB10DBD5AE948E6827 /* Venues */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		8169E02A03BE56B42F79B831 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				3BF3425556A75EE1DA8F9AA5 /* APIResponse.swift */,
+				27A97AEBE4979F09FA4A76A1 /* Artist.swift */,
+				8DF5D9456CF0C093BA49E0B2 /* Extraction.swift */,
+				11459A1F8BC3403860580F43 /* SavedShow.swift */,
+				BF1045EDC231AE675F05F629 /* Show.swift */,
+				C1FBA438DFE0F9A42D094D07 /* User.swift */,
+				735B6A42D2FA7A3CA94A2488 /* Venue.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		85A9BCDD97AF891D03F365EA /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				95787A531E8FF0404A84137E /* APIClient.swift */,
+				B0C75409A91C0655BC47FACD /* APIEndpoints.swift */,
+				B92251080D9BAEF70D0D8FE8 /* KeychainManager.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		A6F801AA6D1FEE5B4C4AFE47 /* Submit */ = {
+			isa = PBXGroup;
+			children = (
+				25CB31E6D6366BC10F03DA47 /* ExtractionResultView.swift */,
+				C6007A7BC5251A09C9CCC462 /* ShowFormView.swift */,
+				65359470B1727CDC423DAF90 /* SubmitShowView.swift */,
+			);
+			path = Submit;
+			sourceTree = "<group>";
+		};
+		A84B0FBCFCB4698C6F8AE402 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				90DE3FF6672767229AEDAAB2 /* LoginView.swift */,
+				85503496D66FA3720E64F333 /* RegisterView.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		BC786A446B0F50D9CED33982 /* Extensions */ = {
+			isa = PBXGroup;
+			children = (
+				AF57F9CE60AF0DEFB0EDA2FA /* Color+Theme.swift */,
+				8A31E900A5E11C3FA508051A /* Date+Formatting.swift */,
+			);
+			path = Extensions;
+			sourceTree = "<group>";
+		};
+		D21BA14314BE10E99B26A0EA /* PsychicHomilyTests */ = {
+			isa = PBXGroup;
+			children = (
+				DF54BE9717A4E4DA3B4BE002 /* PsychicHomilyTests.swift */,
+			);
+			path = PsychicHomilyTests;
+			sourceTree = "<group>";
+		};
+		D529E0CB10DBD5AE948E6827 /* Venues */ = {
+			isa = PBXGroup;
+			children = (
+				F534FCE47E079D9AC9B5359F /* VenueDetailView.swift */,
+			);
+			path = Venues;
+			sourceTree = "<group>";
+		};
+		DDBF0BBCD136F34ADA0B8376 /* Profile */ = {
+			isa = PBXGroup;
+			children = (
+				E391F590148F3093090E0A6D /* ProfileView.swift */,
+			);
+			path = Profile;
+			sourceTree = "<group>";
+		};
+		F39B1227A4DF5020A9A6D239 /* PsychicHomilyShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				F31382D6D7D20C8187CFA8BE /* Info.plist */,
+				BC81ADC08CAC41CEDD22C9D8 /* PsychicHomilyShareExtension.entitlements */,
+				9770274A0230059BC0997EE7 /* ShareViewController.swift */,
+			);
+			path = PsychicHomilyShareExtension;
+			sourceTree = "<group>";
+		};
+		FB79003ACA55EE78A5366DC8 /* Artists */ = {
+			isa = PBXGroup;
+			children = (
+				95BCA421E3BA9E2CDBEF3315 /* ArtistDetailView.swift */,
+			);
+			path = Artists;
+			sourceTree = "<group>";
+		};
+		FCE6F052E45328F66F90B1A2 /* SavedShows */ = {
+			isa = PBXGroup;
+			children = (
+				0AD31FD16BB462B4E66FDA38 /* SavedShowsView.swift */,
+			);
+			path = SavedShows;
+			sourceTree = "<group>";
+		};
+		"TEMP_8068849B-8CB9-4065-BA96-1D8FCCCE5E38" /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4C27B859EAF9C268E8EE94CE /* PsychicHomily */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D798B119A1FC38066CFFE2A2 /* Build configuration list for PBXNativeTarget "PsychicHomily" */;
+			buildPhases = (
+				266CCF66056E65841AA31EDD /* Sources */,
+				DD3DD7FB6C39F6DED457A46D /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3001B68A7F6A76606B864DE4 /* PBXTargetDependency */,
+			);
+			name = PsychicHomily;
+			packageProductDependencies = (
+			);
+			productName = PsychicHomily;
+			productReference = E3DCF8D6F1F9A3F74C267903 /* PsychicHomily.app */;
+			productType = "com.apple.product-type.application";
+		};
+		63EF3A27B5D07C7EE0A293F9 /* PsychicHomilyShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 89607C9829A8D26C8C881C4F /* Build configuration list for PBXNativeTarget "PsychicHomilyShareExtension" */;
+			buildPhases = (
+				645FC38BEC49FD34F539953F /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PsychicHomilyShareExtension;
+			packageProductDependencies = (
+			);
+			productName = PsychicHomilyShareExtension;
+			productReference = F56B43AD0F47007917BA0022 /* PsychicHomilyShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		6E19CB10059CA6EB0B6DF495 /* PsychicHomilyTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 985CC18BEB87E065DA2FF372 /* Build configuration list for PBXNativeTarget "PsychicHomilyTests" */;
+			buildPhases = (
+				BDE13F57549A697A094984BC /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F059134DF10953DAFF140570 /* PBXTargetDependency */,
+			);
+			name = PsychicHomilyTests;
+			packageProductDependencies = (
+			);
+			productName = PsychicHomilyTests;
+			productReference = EA126BA48293B7E17E1D3122 /* PsychicHomilyTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A596C3B4FA6017C34CEADB37 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+			};
+			buildConfigurationList = 7D885547306633CD0805B885 /* Build configuration list for PBXProject "PsychicHomily" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 1A6F942CFF32A0DDDDC02B01;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				4C27B859EAF9C268E8EE94CE /* PsychicHomily */,
+				63EF3A27B5D07C7EE0A293F9 /* PsychicHomilyShareExtension */,
+				6E19CB10059CA6EB0B6DF495 /* PsychicHomilyTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		266CCF66056E65841AA31EDD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4861F48434006707DD805C18 /* APIClient.swift in Sources */,
+				B7C974323407BD62EC9AE2BE /* APIEndpoints.swift in Sources */,
+				78E00113734FE6B9205ABE0C /* APIResponse.swift in Sources */,
+				8E4B70D73BF84BB729C39C61 /* AppState.swift in Sources */,
+				4324DEDB850EA4C63D58865C /* Artist.swift in Sources */,
+				EACBAA6552ED69DAD31B222B /* ArtistDetailView.swift in Sources */,
+				467CD484CC114478865AED54 /* ArtistDetailViewModel.swift in Sources */,
+				A9D1F72CDCAF0D8D57AC8847 /* AuthViewModel.swift in Sources */,
+				2CEA00E8BE9DA6AD39CDCF4B /* CityFilterView.swift in Sources */,
+				7979D1A14CADCBEBF41FCEBF /* Color+Theme.swift in Sources */,
+				BC323C0DFF308A6B6068EDCE /* Date+Formatting.swift in Sources */,
+				5FAD3ABF712351E2CAA8A887 /* ErrorView.swift in Sources */,
+				45F9C5876B2F72EA416E0B86 /* Extraction.swift in Sources */,
+				7B74782AA7F29775E38B8003 /* ExtractionResultView.swift in Sources */,
+				7415CAFFCB4464E87890E2D2 /* KeychainManager.swift in Sources */,
+				408C955612FFC7BAE0EFC1D0 /* LoadingView.swift in Sources */,
+				AEAC11720D60CD61B2898D82 /* LoginView.swift in Sources */,
+				4D5816982BBB4E0DA45FF609 /* ProfileView.swift in Sources */,
+				70A56EF24DE1A82BCF603046 /* PsychicHomilyApp.swift in Sources */,
+				A29BB833213E52C89ABEC1C4 /* RegisterView.swift in Sources */,
+				76097DA8B6941FA97A70248F /* SaveButton.swift in Sources */,
+				23D7EA2AFB026C8FD53567B3 /* SavedShow.swift in Sources */,
+				8ABE48E0C84C91F6285B72D6 /* SavedShowsView.swift in Sources */,
+				FFACFB13EED8C6A3C44BDBDB /* SavedShowsViewModel.swift in Sources */,
+				AC81B6178700A038E2B802B3 /* Show.swift in Sources */,
+				9E2EA85EDF99873670CAC992 /* ShowDetailView.swift in Sources */,
+				C771F77F1835A1F1074BF00F /* ShowDetailViewModel.swift in Sources */,
+				C8FE7C0786983E8F3946B00E /* ShowFormView.swift in Sources */,
+				1D3728649FE12D5341D51106 /* ShowListView.swift in Sources */,
+				0E027F3361E042DE20B5DB70 /* ShowListViewModel.swift in Sources */,
+				DAF3615AAB08D21737DBCEED /* ShowRowView.swift in Sources */,
+				865990C470ECCCB697EDD077 /* SocialLinksView.swift in Sources */,
+				5F91BA9DA93D1B66784DB57C /* StatusBadge.swift in Sources */,
+				9A1A231B03EBC3C03B273E69 /* SubmitShowView.swift in Sources */,
+				27073A4030244BA9CF6CC2B3 /* SubmitShowViewModel.swift in Sources */,
+				B95D39A5645BE44F07643F30 /* User.swift in Sources */,
+				4A68FD612416C599FA4D6C18 /* Venue.swift in Sources */,
+				44D256BCAF134262C0471787 /* VenueDetailView.swift in Sources */,
+				473774B8909535029DD6F6B2 /* VenueDetailViewModel.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		645FC38BEC49FD34F539953F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				36385E8C06B96A49F8BC261D /* ShareViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BDE13F57549A697A094984BC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				641BFE17A2A7C255520C87C2 /* PsychicHomilyTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		3001B68A7F6A76606B864DE4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 63EF3A27B5D07C7EE0A293F9 /* PsychicHomilyShareExtension */;
+			targetProxy = 317582C3DE2D022BA03A7BD4 /* PBXContainerItemProxy */;
+		};
+		F059134DF10953DAFF140570 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4C27B859EAF9C268E8EE94CE /* PsychicHomily */;
+			targetProxy = 806CB468620DFA0491260345 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2B0E96BD1EEC1804FF14B20B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		55D880CEEC70CFD98FE1515E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.psychichomily.ios.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PsychicHomily.app/PsychicHomily";
+			};
+			name = Debug;
+		};
+		62567BF6A72B09208C6DA965 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.psychichomily.ios.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PsychicHomily.app/PsychicHomily";
+			};
+			name = Release;
+		};
+		A5CA9C3AFFC60E6BC58249D1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = PsychicHomily/PsychicHomily.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = PsychicHomily/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Psychic Homily";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.psychichomily.ios;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		D1836A8F44B56C9AA38D928C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = PsychicHomilyShareExtension/PsychicHomilyShareExtension.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = PsychicHomilyShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Psychic Homily";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.psychichomily.ios.share;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		D1DF81C11CF579335C1009E1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		ECE06A37F2C60EFC136D7D7A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = PsychicHomily/PsychicHomily.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = PsychicHomily/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Psychic Homily";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.psychichomily.ios;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F20846BAB637BECB676F0B3D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = PsychicHomilyShareExtension/PsychicHomilyShareExtension.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = PsychicHomilyShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Psychic Homily";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.psychichomily.ios.share;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		7D885547306633CD0805B885 /* Build configuration list for PBXProject "PsychicHomily" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2B0E96BD1EEC1804FF14B20B /* Debug */,
+				D1DF81C11CF579335C1009E1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		89607C9829A8D26C8C881C4F /* Build configuration list for PBXNativeTarget "PsychicHomilyShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F20846BAB637BECB676F0B3D /* Debug */,
+				D1836A8F44B56C9AA38D928C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		985CC18BEB87E065DA2FF372 /* Build configuration list for PBXNativeTarget "PsychicHomilyTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				55D880CEEC70CFD98FE1515E /* Debug */,
+				62567BF6A72B09208C6DA965 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D798B119A1FC38066CFFE2A2 /* Build configuration list for PBXNativeTarget "PsychicHomily" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ECE06A37F2C60EFC136D7D7A /* Debug */,
+				A5CA9C3AFFC60E6BC58249D1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A596C3B4FA6017C34CEADB37 /* Project object */;
+}

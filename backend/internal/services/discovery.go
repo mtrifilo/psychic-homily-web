@@ -104,6 +104,21 @@ var VenueConfig = map[string]struct {
 		State:   "AZ",
 		Address: "400 W Washington St",
 	},
+	// Phoenix, AZ - SeeTickets venues
+	"the-rebel-lounge": {
+		Name:    "The Rebel Lounge",
+		City:    "Phoenix",
+		State:   "AZ",
+		Address: "2303 E Indian School Rd",
+	},
+
+	// Chicago, IL
+	"empty-bottle": {
+		Name:    "Empty Bottle",
+		City:    "Chicago",
+		State:   "IL",
+		Address: "1035 N Western Ave",
+	},
 
 	// NOTE: Add more venues here as you implement providers for them.
 	// Example venues from other cities:
@@ -499,6 +514,7 @@ var stateTimezones = map[string]string{
 	"NV": "America/Los_Angeles",
 	"CO": "America/Denver",
 	"NM": "America/Denver",
+	"IL": "America/Chicago",
 	"TX": "America/Chicago",
 	"NY": "America/New_York",
 }
@@ -654,6 +670,7 @@ func (s *DiscoveryService) ImportFromJSONWithDB(filepath string, dryRun bool, da
 type CheckEventInput struct {
 	ID        string `json:"id"`
 	VenueSlug string `json:"venueSlug"`
+	Date      string `json:"date"` // YYYY-MM-DD, used for venue+date fallback match
 }
 
 // ShowCurrentData contains the current stored data for a show, used for diff comparison
@@ -717,31 +734,71 @@ func (s *DiscoveryService) CheckEvents(events []CheckEventInput) (*CheckEventsRe
 
 	for _, show := range shows {
 		if show.SourceEventID != nil {
-			// Query artists for this show
-			var artistNames []string
-			s.db.Raw(`SELECT artists.name FROM show_artists
-				JOIN artists ON show_artists.artist_id = artists.id
-				WHERE show_artists.show_id = ?
-				ORDER BY show_artists.position`, show.ID).Scan(&artistNames)
-
-			result.Events[*show.SourceEventID] = CheckEventStatus{
-				Exists: true,
-				ShowID: show.ID,
-				Status: string(show.Status),
-				CurrentData: &ShowCurrentData{
-					Price:          show.Price,
-					AgeRequirement: show.AgeRequirement,
-					Description:    show.Description,
-					EventDate:      show.EventDate.Format(time.RFC3339),
-					IsSoldOut:      show.IsSoldOut,
-					IsCancelled:    show.IsCancelled,
-					Artists:        artistNames,
-				},
-			}
+			result.Events[*show.SourceEventID] = s.buildCheckEventStatus(show)
 		}
 	}
 
+	// Fallback: for events not found by source key, try venue + date match.
+	// This catches manually-created shows that don't have source_venue/source_event_id.
+	for _, e := range events {
+		if _, found := result.Events[e.ID]; found {
+			continue // Already matched by source key
+		}
+		if e.Date == "" || e.VenueSlug == "" {
+			continue
+		}
+
+		venueConfig, ok := VenueConfig[e.VenueSlug]
+		if !ok {
+			continue
+		}
+
+		eventDate, err := time.Parse("2006-01-02", e.Date)
+		if err != nil {
+			continue
+		}
+		startOfDay := eventDate
+		endOfDay := eventDate.Add(24 * time.Hour)
+
+		var matchedShow models.Show
+		err = s.db.Joins("JOIN show_venues ON show_venues.show_id = shows.id").
+			Joins("JOIN venues ON show_venues.venue_id = venues.id").
+			Where("LOWER(venues.name) = LOWER(?) AND shows.event_date >= ? AND shows.event_date < ?",
+				venueConfig.Name, startOfDay, endOfDay).
+			Select("shows.id, shows.source_venue, shows.source_event_id, shows.status, shows.price, shows.age_requirement, shows.description, shows.event_date, shows.is_sold_out, shows.is_cancelled").
+			First(&matchedShow).Error
+		if err != nil {
+			continue // No match found — that's fine
+		}
+
+		result.Events[e.ID] = s.buildCheckEventStatus(matchedShow)
+	}
+
 	return result, nil
+}
+
+// buildCheckEventStatus creates a CheckEventStatus from a Show model
+func (s *DiscoveryService) buildCheckEventStatus(show models.Show) CheckEventStatus {
+	var artistNames []string
+	s.db.Raw(`SELECT artists.name FROM show_artists
+		JOIN artists ON show_artists.artist_id = artists.id
+		WHERE show_artists.show_id = ?
+		ORDER BY show_artists.position`, show.ID).Scan(&artistNames)
+
+	return CheckEventStatus{
+		Exists: true,
+		ShowID: show.ID,
+		Status: string(show.Status),
+		CurrentData: &ShowCurrentData{
+			Price:          show.Price,
+			AgeRequirement: show.AgeRequirement,
+			Description:    show.Description,
+			EventDate:      show.EventDate.Format(time.RFC3339),
+			IsSoldOut:      show.IsSoldOut,
+			IsCancelled:    show.IsCancelled,
+			Artists:        artistNames,
+		},
+	}
 }
 
 // ImportEvents imports events from an array of DiscoveredEvent objects

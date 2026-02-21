@@ -104,3 +104,8 @@ Global setup starts Docker PostgreSQL (port 5433), runs migrations, seeds data (
 ### Discovery App
 
 Local tool for importing venue events. Lives in `/discovery` with Bun server + Playwright scraping + React UI. Venue providers in `src/server/providers/`. Backend integration via `DiscoveryService` (`services/discovery.go`) which deduplicates by `source_venue` + `source_event_id` and auto-approves shows for verified venues.
+
+**Provider types:**
+- `ticketweb` — Playwright-based, waits for `window.all_events` global (Valley Bar, Crescent Ballroom)
+- `jsonld` — HTTP fetch + JSON-LD `MusicEvent` parsing, Playwright enrichment for performer lineup (The Van Buren, Arizona Financial Theatre)
+- `wix` — HTTP-only (no Playwright), fetches sitemap XML → concurrent page fetches → JSON-LD `Event` extraction (Celebrity Theatre)

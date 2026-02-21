@@ -1384,6 +1384,7 @@ func (h *AdminHandler) DiscoveryImportHandler(ctx context.Context, req *Discover
 type DiscoveryCheckEventInput struct {
 	ID        string `json:"id" doc:"External event ID from the venue's system"`
 	VenueSlug string `json:"venueSlug" doc:"Venue identifier (e.g., valley-bar)"`
+	Date      string `json:"date,omitempty" doc:"Event date YYYY-MM-DD for venue+date fallback match"`
 }
 
 // DiscoveryCheckRequest represents the HTTP request for checking discovered events
@@ -1431,6 +1432,7 @@ func (h *AdminHandler) DiscoveryCheckHandler(ctx context.Context, req *Discovery
 		events[i] = services.CheckEventInput{
 			ID:        e.ID,
 			VenueSlug: e.VenueSlug,
+			Date:      e.Date,
 		}
 	}
 

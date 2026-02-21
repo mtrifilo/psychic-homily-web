@@ -120,6 +120,109 @@ export async function scrapeVenueEvents(
   return response.json()
 }
 
+// SSE scrape progress event
+export interface ScrapeProgressEvent {
+  current: number
+  total: number
+  eventTitle: string
+  phase?: string
+}
+
+// Scrape with SSE streaming for real-time progress
+export async function scrapeVenueEventsWithProgress(
+  venueSlug: string,
+  eventIds: string[],
+  onProgress: (progress: ScrapeProgressEvent) => void,
+): Promise<ScrapedEvent[]> {
+  const response = await fetch(`${DISCOVERY_API_URL}/scrape/${venueSlug}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream',
+    },
+    body: JSON.stringify({ eventIds }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.error || 'Failed to scrape events')
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new Error('No response body for SSE stream')
+  }
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  return new Promise<ScrapedEvent[]>((resolve, reject) => {
+    function processBuffer() {
+      // SSE events are separated by double newlines
+      const parts = buffer.split('\n\n')
+      // Keep the last incomplete part in the buffer
+      buffer = parts.pop() || ''
+
+      for (const part of parts) {
+        if (!part.trim()) continue
+
+        let eventType = ''
+        let data = ''
+
+        for (const line of part.split('\n')) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7)
+          } else if (line.startsWith('data: ')) {
+            data = line.slice(6)
+          }
+        }
+
+        if (!eventType || !data) continue
+
+        try {
+          const parsed = JSON.parse(data)
+
+          if (eventType === 'progress') {
+            onProgress(parsed as ScrapeProgressEvent)
+          } else if (eventType === 'complete') {
+            resolve(parsed as ScrapedEvent[])
+            return
+          } else if (eventType === 'error') {
+            reject(new Error(parsed.error || 'Scrape failed'))
+            return
+          }
+        } catch {
+          // Skip malformed SSE data
+        }
+      }
+    }
+
+    async function read() {
+      try {
+        while (true) {
+          const { done, value } = await reader!.read()
+          if (done) {
+            // Process any remaining buffer
+            if (buffer.trim()) {
+              buffer += '\n\n'
+              processBuffer()
+            }
+            // If we haven't resolved yet, that's an error
+            reject(new Error('SSE stream ended without complete event'))
+            return
+          }
+          buffer += decoder.decode(value, { stream: true })
+          processBuffer()
+        }
+      } catch (err) {
+        reject(err)
+      }
+    }
+
+    read()
+  })
+}
+
 // Strip discovery-specific fields that older backends don't know about
 function stripNewEventFields(events: ScrapedEvent[]): Record<string, unknown>[] {
   return events.map(({ price, ageRestriction, isSoldOut, isCancelled, ...rest }) => rest)
@@ -184,7 +287,7 @@ export async function importEvents(
 
 // Check import status of events against the target environment
 export async function checkImportStatus(
-  events: { id: string; venueSlug: string }[]
+  events: { id: string; venueSlug: string; date?: string }[]
 ): Promise<ImportStatusMap> {
   const token = getTargetToken()
   if (!token) {

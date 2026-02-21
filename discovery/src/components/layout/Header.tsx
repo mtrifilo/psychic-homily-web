@@ -1,12 +1,15 @@
 import { Button } from '../ui/button'
-import { Badge } from '../ui/badge'
 import { ThemeToggle } from './ThemeToggle'
 import { useWizard } from '../../context/WizardContext'
 import { useSettings } from '../../context/SettingsContext'
 
 export function Header() {
   const { step, setStep } = useWizard()
-  const { hasToken } = useSettings()
+  const { settings, updateSettings } = useSettings()
+
+  const hasStageToken = Boolean(settings.stageToken?.length)
+  const hasProductionToken = Boolean(settings.productionToken?.length)
+  const isStage = settings.targetEnvironment === 'stage'
 
   // Discovery steps are venues, preview, select, import
   const isDiscoveryStep = ['venues', 'preview', 'import'].includes(step)
@@ -19,11 +22,32 @@ export function Header() {
           <p className="text-sm text-muted-foreground">Psychic Homily Admin Tool</p>
         </div>
         <div className="flex items-center gap-4">
-          {!hasToken && (
-            <Badge variant="secondary" className="bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400">
-              Token not configured
-            </Badge>
-          )}
+          <div className="flex items-center rounded-md border overflow-hidden text-sm">
+            <button
+              className={`px-3 py-1.5 font-medium transition-colors ${
+                isStage
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:text-foreground'
+              } ${!hasStageToken ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              onClick={() => updateSettings({ targetEnvironment: 'stage' })}
+              disabled={!hasStageToken}
+              title={hasStageToken ? 'Switch to Stage' : 'Stage token not configured'}
+            >
+              Stage
+            </button>
+            <button
+              className={`px-3 py-1.5 font-medium transition-colors ${
+                !isStage
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:text-foreground'
+              } ${!hasProductionToken ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              onClick={() => updateSettings({ targetEnvironment: 'production' })}
+              disabled={!hasProductionToken}
+              title={hasProductionToken ? 'Switch to Production' : 'Production token not configured'}
+            >
+              Prod
+            </button>
+          </div>
           <nav className="flex items-center gap-1">
             <Button
               variant={isDiscoveryStep ? 'secondary' : 'ghost'}

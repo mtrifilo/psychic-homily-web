@@ -25,8 +25,19 @@ export interface PreviewEvent {
   venue: string
 }
 
+// Scrape progress update
+export interface ScrapeProgress {
+  current: number
+  total: number
+  eventTitle: string
+  phase?: string
+}
+
+// Callback type for scrape progress
+export type OnScrapeProgress = (progress: ScrapeProgress) => void
+
 // Discovery provider interface
 export interface DiscoveryProvider {
   preview(venueSlug: string): Promise<PreviewEvent[]>
-  scrape(venueSlug: string, eventIds: string[]): Promise<DiscoveredEvent[]>
+  scrape(venueSlug: string, eventIds: string[], onProgress?: OnScrapeProgress): Promise<DiscoveredEvent[]>
 }

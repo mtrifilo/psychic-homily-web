@@ -1,5 +1,5 @@
 import { chromium } from 'playwright'
-import type { DiscoveredEvent, PreviewEvent, DiscoveryProvider } from './types'
+import type { DiscoveredEvent, PreviewEvent, DiscoveryProvider, OnScrapeProgress } from './types'
 
 // Venue configurations
 const VENUES: Record<string, { name: string; url: string }> = {
@@ -10,10 +10,6 @@ const VENUES: Record<string, { name: string; url: string }> = {
   'crescent-ballroom': {
     name: 'Crescent Ballroom',
     url: 'https://www.crescentphx.com/calendar/',
-  },
-  'celebrity-theatre': {
-    name: 'Celebrity Theatre',
-    url: 'https://www.celebritytheatre.com/events/',
   },
 }
 
@@ -213,7 +209,7 @@ export const ticketwebProvider: DiscoveryProvider = {
     }
   },
 
-  async scrape(venueSlug: string, eventIds: string[]): Promise<DiscoveredEvent[]> {
+  async scrape(venueSlug: string, eventIds: string[], onProgress?: OnScrapeProgress): Promise<DiscoveredEvent[]> {
     const venue = VENUES[venueSlug]
     if (!venue) {
       throw new Error(`Unknown venue: ${venueSlug}`)
@@ -273,9 +269,17 @@ export const ticketwebProvider: DiscoveryProvider = {
       // Fetch details from detail pages using Playwright (HTTP gets blocked by bot detection)
       const detailsByEventId: Record<string, EventDetails> = {}
 
-      for (const event of events) {
+      for (let di = 0; di < events.length; di++) {
+        const event = events[di]
         const detailUrl = eventUrls[event.id]
         if (!detailUrl) continue
+
+        onProgress?.({
+          current: di + 1,
+          total: events.length,
+          eventTitle: decodeHtmlEntities(event.title).slice(0, 60),
+          phase: 'enriching',
+        })
 
         try {
           const detailPage = await browser.newPage()

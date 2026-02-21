@@ -11,8 +11,14 @@ const VENUES: Record<string, { name: string; providerType: string; city: string;
   'valley-bar': { name: 'Valley Bar', providerType: 'ticketweb', city: 'Phoenix', state: 'AZ' },
   'crescent-ballroom': { name: 'Crescent Ballroom', providerType: 'ticketweb', city: 'Phoenix', state: 'AZ' },
   'the-van-buren': { name: 'The Van Buren', providerType: 'jsonld', city: 'Phoenix', state: 'AZ' },
-  'celebrity-theatre': { name: 'Celebrity Theatre', providerType: 'ticketweb', city: 'Phoenix', state: 'AZ' },
+  'celebrity-theatre': { name: 'Celebrity Theatre', providerType: 'wix', city: 'Phoenix', state: 'AZ' },
   'arizona-financial-theatre': { name: 'Arizona Financial Theatre', providerType: 'jsonld', city: 'Phoenix', state: 'AZ' },
+
+  // Phoenix, AZ - SeeTickets venues
+  'the-rebel-lounge': { name: 'The Rebel Lounge', providerType: 'seetickets', city: 'Phoenix', state: 'AZ' },
+
+  // Chicago, IL
+  'empty-bottle': { name: 'Empty Bottle', providerType: 'emptybottle', city: 'Chicago', state: 'IL' },
 
   // Denver, CO - Sample venues (would need proper provider implementation)
   // 'gothic-theatre': { name: 'Gothic Theatre', providerType: 'ticketweb', city: 'Denver', state: 'CO' },
@@ -26,7 +32,7 @@ const VENUES: Record<string, { name: string; providerType: string; city: string;
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Accept',
 }
 
 // JSON response helper
@@ -48,6 +54,7 @@ function errorResponse(message: string, status = 400) {
 // Main server
 const server = Bun.serve({
   port: PORT,
+  idleTimeout: 120, // seconds — SSE scrapes with Playwright can take >10s before first event
   async fetch(req) {
     const url = new URL(req.url)
     const path = url.pathname
@@ -137,7 +144,7 @@ const server = Bun.serve({
         return jsonResponse(events)
       }
 
-      // POST /discovery/scrape/:venueSlug - Scrape selected events
+      // POST /discovery/scrape/:venueSlug - Scrape selected events (JSON or SSE)
       if (path.startsWith('/discovery/scrape/') && req.method === 'POST') {
         const venueSlug = path.replace('/discovery/scrape/', '')
         const venueConfig = VENUES[venueSlug]
@@ -158,6 +165,43 @@ const server = Bun.serve({
           return errorResponse('eventIds array is required')
         }
 
+        const wantsSSE = req.headers.get('Accept') === 'text/event-stream'
+
+        if (wantsSSE) {
+          // SSE streaming mode
+          console.log(`[server] SSE scrape request for ${venueSlug}, ${eventIds.length} events`)
+          const stream = new ReadableStream({
+            async start(controller) {
+              const encoder = new TextEncoder()
+              const send = (event: string, data: unknown) => {
+                controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
+              }
+
+              try {
+                const events = await provider.scrape(venueSlug, eventIds, (progress) => {
+                  send('progress', progress)
+                })
+                send('complete', events)
+              } catch (err) {
+                const message = err instanceof Error ? err.message : 'Scrape failed'
+                send('error', { error: message })
+              } finally {
+                controller.close()
+              }
+            },
+          })
+
+          return new Response(stream, {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive',
+              ...corsHeaders,
+            },
+          })
+        }
+
+        // Standard JSON mode (backward compatible)
         console.log(`[server] Scrape request for ${venueSlug}, ${eventIds.length} events`)
         const events = await provider.scrape(venueSlug, eventIds)
         return jsonResponse(events)
@@ -187,7 +231,7 @@ const bannerLines = [
   `    GET  /discovery/venues          - List venues`,
   `    GET  /discovery/preview/:slug   - Preview events`,
   `    POST /discovery/preview-batch   - Parallel preview`,
-  `    POST /discovery/scrape/:slug    - Scrape events`,
+  `    POST /discovery/scrape/:slug    - Scrape (SSE/JSON)`,
   `    GET  /discovery/health          - Health check`,
   ``,
   `  Configured venues: ${Object.keys(VENUES).length}`,

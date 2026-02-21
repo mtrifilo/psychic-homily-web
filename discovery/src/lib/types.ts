@@ -29,7 +29,7 @@ export interface PreviewEvent {
 export interface VenueConfig {
   slug: string
   name: string
-  providerType: 'ticketweb' | 'jsonld' | 'seetickets' | 'other'
+  providerType: 'ticketweb' | 'jsonld' | 'wix' | 'seetickets' | 'emptybottle' | 'other'
   url: string
   city: string
   state: string

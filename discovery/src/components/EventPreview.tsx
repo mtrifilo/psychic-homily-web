@@ -4,7 +4,15 @@ import { Badge } from './ui/badge'
 import { VenuePreviewCard } from './discovery/VenuePreviewCard'
 import { LoadingSpinner } from './shared/LoadingSpinner'
 import { ErrorAlert } from './shared/ErrorAlert'
-import { previewVenueEvents, previewVenueEventsBatch, checkImportStatus, scrapeVenueEvents } from '../lib/api'
+import {
+  previewVenueEvents,
+  checkImportStatus,
+  scrapeVenueEvents,
+  scrapeVenueEventsWithProgress,
+  type ScrapeProgressEvent,
+} from '../lib/api'
+import { concurrentMap } from '../lib/concurrentMap'
+import { useSettings } from '../context/SettingsContext'
 import type { VenueConfig, PreviewEvent, ScrapedEvent, ImportStatusMap } from '../lib/types'
 
 interface Props {
@@ -36,6 +44,7 @@ export function EventPreview({
   onBack,
   onNext,
 }: Props) {
+  const { settings } = useSettings()
   const [loading, setLoading] = useState<Record<string, boolean>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [batchLoading, setBatchLoading] = useState(false)
@@ -43,6 +52,15 @@ export function EventPreview({
   const [scraping, setScraping] = useState(false)
   const [scrapeProgress, setScrapeProgress] = useState('')
   const [scrapeError, setScrapeError] = useState('')
+  const [scrapeDetail, setScrapeDetail] = useState<{
+    venueName: string
+    venueIndex: number
+    venueTotal: number
+    current: number
+    total: number
+    eventTitle: string
+    phase?: string
+  } | null>(null)
 
   // Check import statuses in the background whenever previews change
   const checkedSlugsRef = useRef<Set<string>>(new Set())
@@ -53,7 +71,7 @@ export function EventPreview({
     newSlugs.forEach(s => checkedSlugsRef.current.add(s))
 
     const events = newSlugs.flatMap(venueSlug =>
-      (previewEvents[venueSlug] || []).map(e => ({ id: e.id, venueSlug }))
+      (previewEvents[venueSlug] || []).map(e => ({ id: e.id, venueSlug, date: e.date }))
     )
     if (events.length === 0) return
 
@@ -61,6 +79,12 @@ export function EventPreview({
       .then(statuses => onSetImportStatuses(statuses))
       .catch(() => {}) // Non-critical
   }, [previewEvents, onSetImportStatuses])
+
+  // Re-check import statuses when target environment changes
+  useEffect(() => {
+    checkedSlugsRef.current = new Set()
+    onSetImportStatuses({})
+  }, [settings.targetEnvironment]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const previewVenue = async (venue: VenueConfig) => {
     setLoading(prev => ({ ...prev, [venue.slug]: true }))
@@ -87,16 +111,26 @@ export function EventPreview({
     setBatchProgress({ completed: 0, total: venuesToPreview.length })
 
     try {
-      const results = await previewVenueEventsBatch(venuesToPreview.map(v => v.slug))
-
-      for (const result of results) {
-        if (result.error) {
-          setErrors(prev => ({ ...prev, [result.venueSlug]: result.error! }))
-        } else if (result.events) {
-          onPreviewComplete(result.venueSlug, result.events)
-        }
-        setBatchProgress(prev => ({ ...prev, completed: prev.completed + 1 }))
-      }
+      await concurrentMap(
+        venuesToPreview,
+        async (venue) => {
+          const provider = await previewVenueEvents(venue.slug)
+          return { venueSlug: venue.slug, events: provider }
+        },
+        {
+          concurrency: 5,
+          onItemComplete: (result) => {
+            onPreviewComplete(result.venueSlug, result.events)
+            setBatchProgress(prev => ({ ...prev, completed: prev.completed + 1 }))
+          },
+          onItemError: (err, index) => {
+            const venue = venuesToPreview[index]
+            const message = err instanceof Error ? err.message : 'Failed to preview'
+            setErrors(prev => ({ ...prev, [venue.slug]: message }))
+            setBatchProgress(prev => ({ ...prev, completed: prev.completed + 1 }))
+          },
+        },
+      )
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Batch preview failed'
       for (const venue of venuesToPreview) {
@@ -147,33 +181,68 @@ export function EventPreview({
   const scrapeSelected = async () => {
     setScraping(true)
     setScrapeError('')
+    setScrapeDetail(null)
+
+    const venuesToScrape = venues.filter(v => {
+      const ids = selectedEventIds[v.slug]
+      return ids && ids.size > 0
+    })
 
     try {
-      for (const venue of venues) {
+      for (let vi = 0; vi < venuesToScrape.length; vi++) {
+        const venue = venuesToScrape[vi]
         const ids = Array.from(selectedEventIds[venue.slug] || new Set())
         if (ids.length === 0) continue
 
         setScrapeProgress(`Scraping ${venue.name}...`)
-        const events = await scrapeVenueEvents(venue.slug, ids)
-        onScrapeComplete(events)
+        setScrapeDetail({
+          venueName: venue.name,
+          venueIndex: vi + 1,
+          venueTotal: venuesToScrape.length,
+          current: 0,
+          total: ids.length,
+          eventTitle: '',
+        })
+
+        try {
+          // Try SSE streaming first
+          const events = await scrapeVenueEventsWithProgress(
+            venue.slug,
+            ids,
+            (progress: ScrapeProgressEvent) => {
+              setScrapeDetail(prev => prev ? {
+                ...prev,
+                current: progress.current,
+                total: progress.total,
+                eventTitle: progress.eventTitle,
+                phase: progress.phase,
+              } : null)
+            },
+          )
+          onScrapeComplete(events)
+        } catch {
+          // Fallback to standard JSON scrape
+          console.warn(`[EventPreview] SSE scrape failed for ${venue.slug}, falling back to JSON`)
+          setScrapeDetail(prev => prev ? { ...prev, eventTitle: 'Loading...' } : null)
+          const events = await scrapeVenueEvents(venue.slug, ids)
+          onScrapeComplete(events)
+        }
       }
 
       setScrapeProgress('')
+      setScrapeDetail(null)
       onNext()
     } catch (err) {
       setScrapeError(err instanceof Error ? err.message : 'Failed to scrape events')
     } finally {
       setScraping(false)
       setScrapeProgress('')
+      setScrapeDetail(null)
     }
   }
 
   const totalSelected = Object.values(selectedEventIds).reduce(
     (sum, set) => sum + set.size,
-    0
-  )
-  const totalEvents = Object.values(previewEvents).reduce(
-    (sum, events) => sum + events.length,
     0
   )
   const previewedCount = venues.filter(v => previewEvents[v.slug]).length
@@ -238,6 +307,37 @@ export function EventPreview({
             scrapeSelected()
           }}
         />
+      )}
+
+      {/* Scraping progress panel */}
+      {scraping && scrapeDetail && (
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 space-y-3">
+          <div className="flex items-center justify-between text-sm font-medium text-amber-700 dark:text-amber-400">
+            <span>
+              Scraping {scrapeDetail.venueName}
+              {scrapeDetail.venueTotal > 1 && ` (${scrapeDetail.venueIndex}/${scrapeDetail.venueTotal})`}
+              ...
+            </span>
+            {scrapeDetail.total > 0 && (
+              <span>{Math.round((scrapeDetail.current / scrapeDetail.total) * 100)}%</span>
+            )}
+          </div>
+          {scrapeDetail.total > 0 && (
+            <div className="h-2 bg-amber-500/20 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-amber-500 transition-all duration-300"
+                style={{ width: `${(scrapeDetail.current / scrapeDetail.total) * 100}%` }}
+              />
+            </div>
+          )}
+          {scrapeDetail.eventTitle && (
+            <p className="text-xs text-amber-600 dark:text-amber-500 truncate">
+              [{scrapeDetail.current}/{scrapeDetail.total}]
+              {scrapeDetail.phase ? ` ${scrapeDetail.phase.charAt(0).toUpperCase() + scrapeDetail.phase.slice(1)}` : ' Processing'}
+              : {scrapeDetail.eventTitle}
+            </p>
+          )}
+        </div>
       )}
 
       <div className="space-y-4">

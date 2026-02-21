@@ -1,5 +1,5 @@
 import { chromium, type Page } from 'playwright'
-import type { DiscoveredEvent, PreviewEvent, DiscoveryProvider } from './types'
+import type { DiscoveredEvent, PreviewEvent, DiscoveryProvider, OnScrapeProgress } from './types'
 
 // Venue configurations for JSON-LD provider
 const VENUES: Record<string, { name: string; url: string }> = {
@@ -350,7 +350,7 @@ export const jsonldProvider: DiscoveryProvider = {
     return previewEvents
   },
 
-  async scrape(venueSlug: string, eventIds: string[]): Promise<DiscoveredEvent[]> {
+  async scrape(venueSlug: string, eventIds: string[], onProgress?: OnScrapeProgress): Promise<DiscoveredEvent[]> {
     const venue = VENUES[venueSlug]
     if (!venue) {
       throw new Error(`Unknown venue: ${venueSlug}`)
@@ -392,9 +392,19 @@ export const jsonldProvider: DiscoveryProvider = {
     console.log(`[jsonld] Starting Playwright enrichment for ${targetTitles.size} events on ${venue.name}...`)
     const enrichments = await enrichWithPlaywright(venue.url, venue.name, targetTitles)
     const scrapedEvents: DiscoveredEvent[] = []
+    let progressCount = 0
+    const selectedCount = [...eventMap.keys()].filter(id => eventIdSet.has(id)).length
 
     for (const [id, event] of eventMap) {
       if (!eventIdSet.has(id)) continue
+      progressCount++
+
+      onProgress?.({
+        current: progressCount,
+        total: selectedCount,
+        eventTitle: (event.name || 'Unknown Event').slice(0, 60),
+        phase: 'assembling',
+      })
 
       const cancelled = isCancelled(event)
       const soldOut = isSoldOut(event)

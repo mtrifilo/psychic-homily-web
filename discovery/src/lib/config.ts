@@ -33,7 +33,7 @@ export const VENUES: VenueConfig[] = [
   {
     slug: 'celebrity-theatre',
     name: 'Celebrity Theatre',
-    providerType: 'ticketweb',
+    providerType: 'wix',
     url: 'https://www.celebritytheatre.com/events/',
     city: 'Phoenix',
     state: 'AZ',
@@ -43,6 +43,26 @@ export const VENUES: VenueConfig[] = [
     name: 'Arizona Financial Theatre',
     providerType: 'jsonld',
     url: 'https://www.arizonafinancialtheatre.com/shows',
+    city: 'Phoenix',
+    state: 'AZ',
+  },
+
+  // Chicago, IL
+  {
+    slug: 'empty-bottle',
+    name: 'Empty Bottle',
+    providerType: 'emptybottle',
+    url: 'https://www.emptybottle.com/',
+    city: 'Chicago',
+    state: 'IL',
+  },
+
+  // Phoenix, AZ - SeeTickets venues
+  {
+    slug: 'the-rebel-lounge',
+    name: 'The Rebel Lounge',
+    providerType: 'seetickets',
+    url: 'https://therebellounge.com/events/',
     city: 'Phoenix',
     state: 'AZ',
   },
