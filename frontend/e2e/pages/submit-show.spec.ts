@@ -51,19 +51,21 @@ test.describe('Submit a show', () => {
     await venueInput.click()
     await venueInput.pressSequentially('Valley Bar', { delay: 30 })
 
-    // Wait for autocomplete results to load (confirms API responded)
-    await expect(
-      authenticatedPage.getByText('Existing Venues')
-    ).toBeVisible({ timeout: 5_000 })
+    // Wait for the Valley Bar button to appear in the autocomplete dropdown.
+    // pressSequentially fires multiple search API calls as each character is typed,
+    // so we wait for the specific button rather than just the "Existing Venues" header
+    // to avoid clicking during a re-render from a later search response.
+    const valleyBarButton = authenticatedPage.getByRole('button', { name: /Valley Bar/ })
+    await expect(valleyBarButton).toBeVisible({ timeout: 10_000 })
 
-    // Click the Valley Bar venue in the autocomplete dropdown.
+    // Wait briefly for any in-flight search responses to settle
+    await authenticatedPage.waitForLoadState('networkidle')
+
     // The dropdown button's onMouseDown directly calls handleVenueSelect(venue)
     // with the full venue object (including city/state), bypassing the
     // filteredVenues lookup in handleConfirm. It also sets justSelectedRef
     // which prevents a duplicate handleConfirm call on blur.
-    await authenticatedPage
-      .getByRole('button', { name: /Valley Bar/ })
-      .click()
+    await valleyBarButton.click()
 
     // Verify city auto-filled from selected venue
     await expect(

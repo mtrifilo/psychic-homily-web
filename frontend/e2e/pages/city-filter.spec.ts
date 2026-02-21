@@ -37,9 +37,8 @@ test.describe('City filter on shows list', () => {
     // Click "Tucson" city filter (18 shows — fewer than the 50 page limit)
     await page.getByRole('button', { name: /Tucson/i }).click()
 
-    // URL should update with city and state params
-    await expect(page).toHaveURL(/city=Tucson/)
-    await expect(page).toHaveURL(/state=AZ/)
+    // URL should update with cities param
+    await expect(page).toHaveURL(/cities=Tucson/)
 
     // Wait for the article count to decrease from 50
     await page.waitForFunction(
@@ -56,7 +55,7 @@ test.describe('City filter on shows list', () => {
 
   test('All Cities button resets the filter', async ({ page }) => {
     // Start with Tucson filter (18 shows, under pagination limit)
-    await page.goto('/shows?city=Tucson&state=AZ')
+    await page.goto('/shows?cities=Tucson,AZ')
 
     await expect(page.locator('article').first()).toBeVisible({
       timeout: 10_000,
@@ -72,15 +71,15 @@ test.describe('City filter on shows list', () => {
       page.waitForResponse(
         (resp) =>
           resp.url().includes('/shows/upcoming') &&
-          !resp.url().includes('city='),
+          !resp.url().includes('cities='),
         { timeout: 10_000 }
       ),
       page.getByRole('button', { name: /all cities/i }).click(),
     ])
     expect(response.status()).toBeLessThan(400)
 
-    // URL should no longer have city/state params
-    expect(page.url()).not.toContain('city=')
+    // URL should no longer have cities param
+    expect(page.url()).not.toContain('cities=')
 
     // Wait for "Load More" button to appear (unfiltered view has 50+ shows)
     await expect(
@@ -99,7 +98,7 @@ test.describe('City filter on shows list', () => {
 
     // Apply Tucson filter
     await page.getByRole('button', { name: /Tucson/i }).click()
-    await expect(page).toHaveURL(/city=Tucson/)
+    await expect(page).toHaveURL(/cities=Tucson/)
 
     // Navigate to a show detail and back
     await page
@@ -114,6 +113,6 @@ test.describe('City filter on shows list', () => {
     await page.waitForURL(/\/shows\?/, { timeout: 10_000 })
 
     // Filter should still be in URL
-    expect(page.url()).toContain('city=Tucson')
+    expect(page.url()).toContain('cities=Tucson')
   })
 })

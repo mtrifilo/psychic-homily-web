@@ -184,6 +184,8 @@ type UserServiceInterface interface {
 	PermanentlyDeleteUser(userID uint) error
 	CanUnlinkOAuthAccount(userID uint, provider string) (bool, string, error)
 	UnlinkOAuthAccount(userID uint, provider string) error
+	GetFavoriteCities(userID uint) ([]models.FavoriteCity, error)
+	SetFavoriteCities(userID uint, cities []models.FavoriteCity) error
 }
 
 // EmailServiceInterface defines the contract for email operations.

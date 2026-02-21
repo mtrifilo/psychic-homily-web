@@ -532,6 +532,12 @@ func (m *mockUserService) UnlinkOAuthAccount(userID uint, provider string) error
 	}
 	return nil
 }
+func (m *mockUserService) GetFavoriteCities(userID uint) ([]models.FavoriteCity, error) {
+	return []models.FavoriteCity{}, nil
+}
+func (m *mockUserService) SetFavoriteCities(userID uint, cities []models.FavoriteCity) error {
+	return nil
+}
 
 // ============================================================================
 // Mock: ShowServiceInterface

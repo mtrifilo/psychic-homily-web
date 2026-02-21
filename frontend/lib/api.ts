@@ -75,6 +75,8 @@ export const API_ENDPOINTS = {
     RECOVER_ACCOUNT_CONFIRM: `${API_BASE_URL}/auth/recover-account/confirm`,
     // CLI token generation (admin only)
     CLI_TOKEN: `${API_BASE_URL}/auth/cli-token`,
+    // User preferences
+    FAVORITE_CITIES: `${API_BASE_URL}/auth/preferences/favorite-cities`,
   },
 
   // Application endpoints

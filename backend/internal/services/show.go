@@ -741,10 +741,17 @@ func decodeCursor(cursor string) (time.Time, uint, error) {
 	return time.Unix(0, unixNano), uint(id), nil
 }
 
-// UpcomingShowsFilter contains optional filters for GetUpcomingShows
-type UpcomingShowsFilter struct {
+// CityStateFilter represents a city+state pair for multi-city filtering
+type CityStateFilter struct {
 	City  string
 	State string
+}
+
+// UpcomingShowsFilter contains optional filters for GetUpcomingShows
+type UpcomingShowsFilter struct {
+	City   string
+	State  string
+	Cities []CityStateFilter
 }
 
 // GetUpcomingShows retrieves shows from today onwards in the specified timezone with cursor pagination.
@@ -783,11 +790,25 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 
 	// Apply city/state filters if provided
 	if filters != nil {
-		if filters.City != "" {
-			query = query.Where("city = ?", filters.City)
-		}
-		if filters.State != "" {
-			query = query.Where("state = ?", filters.State)
+		if len(filters.Cities) > 0 {
+			// Multi-city filter: (city = ? AND state = ?) OR ...
+			conditions := s.db
+			for i, cs := range filters.Cities {
+				if i == 0 {
+					conditions = conditions.Where("(city = ? AND state = ?)", cs.City, cs.State)
+				} else {
+					conditions = conditions.Or("(city = ? AND state = ?)", cs.City, cs.State)
+				}
+			}
+			query = query.Where(conditions)
+		} else {
+			// Legacy single-city filter
+			if filters.City != "" {
+				query = query.Where("city = ?", filters.City)
+			}
+			if filters.State != "" {
+				query = query.Where("state = ?", filters.State)
+			}
 		}
 	}
 

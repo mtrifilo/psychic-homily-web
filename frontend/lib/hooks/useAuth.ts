@@ -44,6 +44,20 @@ interface AuthResponse {
   }
 }
 
+interface FavoriteCity {
+  city: string
+  state: string
+}
+
+interface UserPreferencesData {
+  notification_email?: boolean
+  notification_push?: boolean
+  theme?: string
+  timezone?: string
+  language?: string
+  favorite_cities?: FavoriteCity[]
+}
+
 interface UserProfile {
   success: boolean
   message: string
@@ -59,6 +73,7 @@ interface UserProfile {
     email_verified?: boolean
     created_at: string
     updated_at: string
+    preferences?: UserPreferencesData
   }
 }
 

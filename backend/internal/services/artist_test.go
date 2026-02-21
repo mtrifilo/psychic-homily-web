@@ -172,6 +172,7 @@ func (suite *ArtistServiceIntegrationTestSuite) SetupSuite() {
 		"000026_add_duplicate_of_show_id.up.sql",
 		"000028_change_event_date_to_timestamptz.up.sql",
 		"000031_add_user_terms_acceptance.up.sql",
+		"000032_add_favorite_cities.up.sql",
 		// 000027 handled below (CONCURRENTLY not allowed in transaction)
 	}
 	for _, m := range migrations {
