@@ -15,23 +15,40 @@ interface UseUpcomingShowsOptions {
   timezone?: string
   cursor?: string
   limit?: number
+  /** Legacy single-city filter */
   city?: string
+  /** Legacy single-state filter */
   state?: string
+  /** Multi-city filter (takes priority over city/state) */
+  cities?: Array<{ city: string; state: string }>
+}
+
+/**
+ * Build pipe-delimited cities param: "Phoenix,AZ|Mesa,AZ"
+ */
+function buildCitiesParam(cities: Array<{ city: string; state: string }>): string {
+  return cities.map(c => `${c.city},${c.state}`).join('|')
 }
 
 /**
  * Hook to fetch upcoming shows with cursor-based pagination
  */
 export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
-  const { timezone, cursor, limit, city, state } = options
+  const { timezone, cursor, limit, city, state, cities } = options
 
   // Build query params
   const params = new URLSearchParams()
   if (timezone) params.set('timezone', timezone)
   if (cursor) params.set('cursor', cursor)
   if (limit) params.set('limit', limit.toString())
-  if (city) params.set('city', city)
-  if (state) params.set('state', state)
+
+  // Multi-city takes priority over legacy single-city
+  if (cities && cities.length > 0) {
+    params.set('cities', buildCitiesParam(cities))
+  } else {
+    if (city) params.set('city', city)
+    if (state) params.set('state', state)
+  }
 
   const queryString = params.toString()
   const endpoint = queryString
@@ -39,7 +56,7 @@ export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
     : API_ENDPOINTS.SHOWS.UPCOMING
 
   return useQuery({
-    queryKey: queryKeys.shows.list({ timezone, cursor, limit, city, state }),
+    queryKey: queryKeys.shows.list({ timezone, cursor, limit, city, state, cities }),
     queryFn: async (): Promise<UpcomingShowsResponse> => {
       return apiRequest<UpcomingShowsResponse>(endpoint, {
         method: 'GET',

@@ -1130,6 +1130,77 @@ func (s *UserService) ExportUserDataJSON(userID uint) ([]byte, error) {
 	return json.MarshalIndent(export, "", "  ")
 }
 
+// GetFavoriteCities returns a user's favorite cities from their preferences
+func (s *UserService) GetFavoriteCities(userID uint) ([]models.FavoriteCity, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var prefs models.UserPreferences
+	if err := s.db.Where("user_id = ?", userID).First(&prefs).Error; err != nil {
+		return nil, fmt.Errorf("failed to get user preferences: %w", err)
+	}
+
+	if prefs.FavoriteCities == nil {
+		return []models.FavoriteCity{}, nil
+	}
+
+	var cities []models.FavoriteCity
+	if err := json.Unmarshal(*prefs.FavoriteCities, &cities); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal favorite cities: %w", err)
+	}
+
+	return cities, nil
+}
+
+// SetFavoriteCities replaces a user's favorite cities list
+func (s *UserService) SetFavoriteCities(userID uint, cities []models.FavoriteCity) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	// Validate max 20 cities
+	if len(cities) > 20 {
+		return fmt.Errorf("maximum 20 favorite cities allowed")
+	}
+
+	// Validate each city has non-empty values
+	for _, c := range cities {
+		if c.City == "" || c.State == "" {
+			return fmt.Errorf("city and state must not be empty")
+		}
+	}
+
+	data, err := json.Marshal(cities)
+	if err != nil {
+		return fmt.Errorf("failed to marshal favorite cities: %w", err)
+	}
+
+	raw := json.RawMessage(data)
+
+	// Upsert preferences row
+	result := s.db.Model(&models.UserPreferences{}).
+		Where("user_id = ?", userID).
+		Update("favorite_cities", &raw)
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to update favorite cities: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		// No preferences row yet — create one
+		prefs := &models.UserPreferences{
+			UserID:         userID,
+			FavoriteCities: &raw,
+		}
+		if err := s.db.Create(prefs).Error; err != nil {
+			return fmt.Errorf("failed to create user preferences: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // GetOAuthAccounts returns all OAuth accounts linked to a user
 func (s *UserService) GetOAuthAccounts(userID uint) ([]models.OAuthAccount, error) {
 	var accounts []models.OAuthAccount

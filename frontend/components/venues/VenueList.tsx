@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useCallback, useTransition } from 'react'
+import { useState, useCallback, useMemo, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useVenues, useVenueCities } from '@/lib/hooks/useVenues'
 import type { VenueWithShowCount } from '@/lib/types/venue'
 import { VenueCard } from './VenueCard'
-import { CityFilters, type CityWithCount } from '@/components/filters'
+import { CityFilters, type CityWithCount, type CityState } from '@/components/filters'
 import { LoadingSpinner } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 
@@ -20,6 +20,14 @@ export function VenueList() {
 
   const selectedCity = searchParams.get('city')
   const selectedState = searchParams.get('state')
+
+  // Adapt single-select URL params to multi-select CityState[]
+  const selectedCities: CityState[] = useMemo(() => {
+    if (selectedCity && selectedState) {
+      return [{ city: selectedCity, state: selectedState }]
+    }
+    return []
+  }, [selectedCity, selectedState])
 
   const { data: citiesData, isLoading: citiesLoading, isFetching: citiesFetching } = useVenueCities()
   const { data, isLoading, isFetching, error, refetch } = useVenues({
@@ -36,14 +44,19 @@ export function VenueList() {
     }
   }, [data])
 
-  const handleFilterChange = (city: string | null, state: string | null) => {
+  // Venues use single-select: take the last selected city (or clear all)
+  const handleFilterChange = (cities: CityState[]) => {
     // Reset pagination on filter change
     setOffset(0)
     setAccumulatedVenues([])
 
     const params = new URLSearchParams()
-    if (city) params.set('city', city)
-    if (state) params.set('state', state)
+    if (cities.length > 0) {
+      // Take the most recently added city (last in array)
+      const city = cities[cities.length - 1]
+      params.set('city', city.city)
+      params.set('state', city.state)
+    }
 
     const queryString = params.toString()
     startTransition(() => {
@@ -86,8 +99,7 @@ export function VenueList() {
       {cities.length > 1 && (
         <CityFilters
           cities={cities}
-          selectedCity={selectedCity}
-          selectedState={selectedState}
+          selectedCities={selectedCities}
           onFilterChange={handleFilterChange}
         />
       )}
@@ -106,7 +118,7 @@ export function VenueList() {
                 </p>
                 {selectedCity && (
                   <button
-                    onClick={() => handleFilterChange(null, null)}
+                    onClick={() => handleFilterChange([])}
                     className="mt-4 text-primary hover:underline"
                   >
                     View all venues

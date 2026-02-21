@@ -1,11 +1,14 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { useUpcomingShows } from '@/lib/hooks/useShows'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { useUpcomingShows, useShowCities } from '@/lib/hooks/useShows'
 import { useSavedShowBatch } from '@/lib/hooks/useSavedShows'
 import { usePrefetchRoutes } from '@/lib/hooks/usePrefetchRoutes'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useProfile } from '@/lib/hooks/useAuth'
+import { useSetFavoriteCities } from '@/lib/hooks/useFavoriteCities'
 import type { ShowResponse, ArtistResponse } from '@/lib/types/show'
+import type { CityState } from '@/components/filters'
 import Link from 'next/link'
 import { Pencil, Trash2, X, ChevronDown, ChevronUp, MapPin } from 'lucide-react'
 import {
@@ -19,6 +22,8 @@ import { SaveButton, SocialLinks, MusicEmbed } from '@/components/shared'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ShowStatusBadge } from './ShowStatusBadge'
 import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
+import { CityFilters, type CityWithCount } from '@/components/filters'
+import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
 
 /**
  * Check if an artist has any music available (Bandcamp embed, Spotify, or Bandcamp profile)
@@ -282,18 +287,50 @@ function ShowCard({ show, isAdmin, isSaved }: ShowCardProps) {
   )
 }
 
+/** Compare two city arrays for equality (order-insensitive) */
+function citiesEqual(a: CityState[], b: CityState[]): boolean {
+  if (a.length !== b.length) return false
+  const setA = new Set(a.map(c => `${c.city}|${c.state}`))
+  return b.every(c => setA.has(`${c.city}|${c.state}`))
+}
+
 export function HomeShowList() {
   const { user, isAuthenticated } = useAuthContext()
   const isAdmin = user?.is_admin ?? false
+  const { data: profileData } = useProfile()
+  const [selectedCities, setSelectedCities] = useState<CityState[]>([])
+  const hasManuallyInteracted = useRef(false)
+
+  // Read favorites from profile
+  const favoriteCities: CityState[] = useMemo(() => {
+    const prefs = profileData?.user?.preferences
+    if (!prefs?.favorite_cities) return []
+    return prefs.favorite_cities
+  }, [profileData?.user?.preferences])
+
+  // Apply favorites as defaults when profile loads (only if user hasn't manually changed)
+  useEffect(() => {
+    if (!hasManuallyInteracted.current && favoriteCities.length > 0) {
+      setSelectedCities(favoriteCities)
+    }
+  }, [favoriteCities])
+
+  const handleFilterChange = useCallback((cities: CityState[]) => {
+    hasManuallyInteracted.current = true
+    setSelectedCities(cities)
+  }, [])
 
   const timezone =
     typeof window !== 'undefined'
       ? Intl.DateTimeFormat().resolvedOptions().timeZone
       : 'America/Phoenix'
 
-  const { data, isLoading, error } = useUpcomingShows({
+  const { data: citiesData } = useShowCities({ timezone })
+
+  const { data, isLoading, isFetching, error } = useUpcomingShows({
     timezone,
-    limit: 10,
+    limit: 5,
+    cities: selectedCities.length > 0 ? selectedCities : undefined,
   })
 
   // Prefetch /shows and /venues data during idle time
@@ -304,6 +341,19 @@ export function HomeShowList() {
     [data?.shows]
   )
   const { data: savedShowIds } = useSavedShowBatch(showIds, isAuthenticated)
+
+  const cities: CityWithCount[] = useMemo(
+    () =>
+      citiesData?.cities?.map(c => ({
+        city: c.city,
+        state: c.state,
+        count: c.show_count,
+      })) ?? [],
+    [citiesData?.cities]
+  )
+
+  // Determine if "Save as default" / "Clear defaults" should show
+  const selectionDiffersFromFavorites = !citiesEqual(selectedCities, favoriteCities)
 
   if (isLoading) {
     return (
@@ -321,24 +371,43 @@ export function HomeShowList() {
     )
   }
 
-  if (!data?.shows || data.shows.length === 0) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        <p>No upcoming shows at this time.</p>
-      </div>
-    )
-  }
-
   return (
     <div className="w-full">
-      {data.shows.map(show => (
-        <ShowCard
-          key={show.id}
-          show={show}
-          isAdmin={isAdmin}
-          isSaved={savedShowIds?.has(show.id)}
-        />
-      ))}
+      {cities.length > 1 && (
+        <CityFilters
+          cities={cities}
+          selectedCities={selectedCities}
+          onFilterChange={handleFilterChange}
+        >
+          {isAuthenticated && selectionDiffersFromFavorites && (
+            <SaveDefaultsButton
+              selectedCities={selectedCities}
+              favoriteCities={favoriteCities}
+            />
+          )}
+        </CityFilters>
+      )}
+
+      <div className={isFetching ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
+        {!data?.shows || data.shows.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <p>
+              {selectedCities.length > 0
+                ? `No upcoming shows in ${selectedCities.map(c => c.city).join(', ')}.`
+                : 'No upcoming shows at this time.'}
+            </p>
+          </div>
+        ) : (
+          data.shows.map(show => (
+            <ShowCard
+              key={show.id}
+              show={show}
+              isAdmin={isAdmin}
+              isSaved={savedShowIds?.has(show.id)}
+            />
+          ))
+        )}
+      </div>
     </div>
   )
 }

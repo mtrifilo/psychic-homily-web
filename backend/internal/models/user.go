@@ -1,8 +1,15 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 )
+
+// FavoriteCity represents a city+state pair for user's favorite cities
+type FavoriteCity struct {
+	City  string `json:"city"`
+	State string `json:"state"`
+}
 
 // User represents a user account
 type User struct {
@@ -70,9 +77,10 @@ type UserPreferences struct {
 	NotificationPush  bool      `json:"notification_push" gorm:"default:false"`
 	Theme             string    `json:"theme" gorm:"default:light"`
 	Timezone          string    `json:"timezone" gorm:"default:UTC"`
-	Language          string    `json:"language" gorm:"default:en"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	Language          string           `json:"language" gorm:"default:en"`
+	FavoriteCities    *json.RawMessage `json:"favorite_cities" gorm:"type:jsonb;default:'[]'"`
+	CreatedAt         time.Time        `json:"created_at"`
+	UpdatedAt         time.Time        `json:"updated_at"`
 
 	// Relationships
 	User User `json:"-" gorm:"foreignKey:UserID"`

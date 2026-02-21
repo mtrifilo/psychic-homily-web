@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -210,8 +211,9 @@ type GetUpcomingShowsRequest struct {
 	Timezone string `query:"timezone" default:"UTC" doc:"IANA timezone (e.g., 'America/Phoenix', 'America/New_York'). Defaults to UTC."`
 	Cursor   string `query:"cursor" doc:"Pagination cursor from previous response. Omit for first page."`
 	Limit    int    `query:"limit" default:"50" doc:"Number of shows per page (max 200). Defaults to 50."`
-	City     string `query:"city" doc:"Filter by city name (exact match)."`
-	State    string `query:"state" doc:"Filter by state code (exact match, e.g., 'AZ')."`
+	City     string `query:"city" doc:"Filter by city name (exact match). Legacy — prefer 'cities' param."`
+	State    string `query:"state" doc:"Filter by state code (exact match, e.g., 'AZ'). Legacy — prefer 'cities' param."`
+	Cities   string `query:"cities" doc:"Filter by multiple cities. Pipe-delimited pairs: 'Phoenix,AZ|Mesa,AZ|Tucson,AZ'. Max 10 cities."`
 }
 
 // GetShowCitiesRequest represents the HTTP request for listing show cities
@@ -624,7 +626,28 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 
 	// Build filters from query params
 	var filters *services.UpcomingShowsFilter
-	if req.City != "" || req.State != "" {
+	if req.Cities != "" {
+		// Parse pipe-delimited multi-city param: "Phoenix,AZ|Mesa,AZ"
+		pairs := strings.Split(req.Cities, "|")
+		var cityFilters []services.CityStateFilter
+		for _, pair := range pairs {
+			parts := strings.SplitN(pair, ",", 2)
+			if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+				cityFilters = append(cityFilters, services.CityStateFilter{
+					City:  strings.TrimSpace(parts[0]),
+					State: strings.TrimSpace(parts[1]),
+				})
+			}
+		}
+		// Cap at 10 cities
+		if len(cityFilters) > 10 {
+			cityFilters = cityFilters[:10]
+		}
+		if len(cityFilters) > 0 {
+			filters = &services.UpcomingShowsFilter{Cities: cityFilters}
+		}
+	} else if req.City != "" || req.State != "" {
+		// Legacy single-city filter
 		filters = &services.UpcomingShowsFilter{
 			City:  req.City,
 			State: req.State,
@@ -638,6 +661,7 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 		"include_non_approved", includeNonApproved,
 		"city", req.City,
 		"state", req.State,
+		"cities", req.Cities,
 	)
 
 	// Get upcoming shows using service (admins see all, others see only approved)
