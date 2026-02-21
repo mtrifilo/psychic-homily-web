@@ -1,0 +1,123 @@
+# Psychic Homily — Full LLM Reference
+
+> Community-driven live music calendar for Arizona and the Southwest US.
+> Website: https://psychichomily.com
+> API: https://api.psychichomily.com
+
+---
+
+## Public API Reference
+
+All endpoints below are publicly accessible with no authentication required.
+Responses are JSON. Dates are ISO 8601 (UTC).
+
+### Shows
+
+GET https://api.psychichomily.com/shows/upcoming
+  Query parameters:
+    - limit (integer, default 50, max 100) — number of shows to return
+    - offset (integer, default 0) — pagination offset
+    - city (string) — filter by city name, e.g. "Phoenix"
+    - state (string) — filter by state code, e.g. "AZ"
+    - cities (string) — multi-city filter, pipe-delimited: "Phoenix,AZ|Tucson,AZ|Mesa,AZ"
+    - timezone (string) — IANA timezone for date boundaries, e.g. "America/Phoenix"
+  Response fields per show:
+    - id, slug, title, event_date, city, state, status
+    - description, age_requirement, price, ticket_url, is_sold_out
+    - artists: [{name, slug, is_headliner, set_type, position}]
+    - venues: [{name, slug, address, city, state, zip_code, verified}]
+
+GET https://api.psychichomily.com/shows/cities
+  Query parameters:
+    - timezone (string) — IANA timezone
+  Returns: list of {city, state, show_count} for cities with upcoming shows
+
+GET https://api.psychichomily.com/shows/{id_or_slug}
+  Returns: full show details including artists, venues, and metadata
+
+### Venues
+
+GET https://api.psychichomily.com/venues
+  Query parameters:
+    - city (string) — filter by city
+    - state (string) — filter by state
+    - limit (integer, default 50)
+    - offset (integer, default 0)
+  Response: {venues: [{id, name, slug, address, city, state, zip_code, verified, show_count}], total}
+
+GET https://api.psychichomily.com/venues/cities
+  Returns: list of {city, state, venue_count}
+
+GET https://api.psychichomily.com/venues/{id_or_slug}
+  Returns: venue details with upcoming shows
+
+### Artists
+
+GET https://api.psychichomily.com/artists
+  Query parameters:
+    - limit (integer, default 50)
+    - offset (integer, default 0)
+  Response: {artists: [{id, name, slug, bio, spotify_url, bandcamp_url, instagram_url, website_url}]}
+
+GET https://api.psychichomily.com/artists/{id_or_slug}
+  Returns: artist details with upcoming and past shows
+
+---
+
+## Structured Data
+
+Every show detail page includes schema.org JSON-LD:
+- @type: MusicEvent
+- Fields: name, startDate, eventStatus, eventAttendanceMode
+- location: MusicVenue with PostalAddress
+- performer: array of MusicGroup with name and sameAs links
+- offers: Offer with price, priceCurrency, availability
+
+Every venue detail page includes:
+- @type: MusicVenue with PostalAddress
+
+Every artist detail page includes:
+- @type: MusicGroup with foundingLocation and sameAs links
+
+---
+
+## Example: "What shows are in Phoenix tonight?"
+
+To answer this question, call:
+  GET https://api.psychichomily.com/shows/upcoming?city=Phoenix&state=AZ&timezone=America/Phoenix&limit=20
+
+The response contains all upcoming Phoenix shows sorted by date. Filter by today's date to find tonight's shows.
+
+## Example: "What shows are at The Van Buren this week?"
+
+1. Look up the venue: GET https://api.psychichomily.com/venues/the-van-buren
+2. The response includes upcoming shows at that venue.
+
+---
+
+## Content Coverage
+
+Primary markets (Arizona):
+  Phoenix, Mesa, Tempe, Scottsdale, Chandler, Gilbert, Glendale, Tucson, Flagstaff
+
+Expanding markets:
+  Chicago (The Empty Bottle)
+
+Venue types: bars, clubs, theaters, DIY spaces, amphitheaters
+Genre coverage: indie, punk, metal, hip-hop, electronic, jazz, folk, country, Latin
+
+Data sources: community submissions (user-submitted shows) and automated venue discovery (scraping verified venue websites daily).
+
+Shows are moderated by admins before appearing on the calendar. Venues can be verified for auto-approval of discovered shows.
+
+---
+
+## Site Pages
+
+- https://psychichomily.com — Homepage with upcoming shows
+- https://psychichomily.com/shows — Full show listing with city filters
+- https://psychichomily.com/venues — Venue directory
+- https://psychichomily.com/blog — Music blog
+- https://psychichomily.com/dj-sets — DJ set mixes
+- https://psychichomily.com/sitemap.xml — Full sitemap
+- https://psychichomily.com/llms.txt — This summary

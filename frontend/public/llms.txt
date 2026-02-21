@@ -1,0 +1,41 @@
+# Psychic Homily
+
+> Community-driven live music calendar for Arizona and the Southwest US.
+
+Psychic Homily is a free platform for discovering upcoming live music shows, venues, and artists in the Arizona music scene and beyond. Shows are submitted by the community and curated by admins.
+
+## What you can find here
+
+- Upcoming live music shows with dates, venues, artists, prices, and age requirements
+- Venue profiles with addresses, upcoming show schedules, and links
+- Artist profiles with bios, social links (Spotify, Bandcamp, Instagram), and upcoming performances
+- Music blog posts and DJ set mixes
+
+## How to access show data
+
+### Web pages (with schema.org MusicEvent structured data)
+- Browse all upcoming shows: https://psychichomily.com/shows
+- Individual show pages have full JSON-LD MusicEvent markup
+- Sitemap: https://psychichomily.com/sitemap.xml
+
+### Public API (no authentication required)
+- Upcoming shows: GET https://api.psychichomily.com/shows/upcoming?limit=50
+- Filter by city: GET https://api.psychichomily.com/shows/upcoming?city=Phoenix&state=AZ
+- Multi-city filter: GET https://api.psychichomily.com/shows/upcoming?cities=Phoenix,AZ|Tucson,AZ
+- All venues: GET https://api.psychichomily.com/venues
+- All artists: GET https://api.psychichomily.com/artists
+- Venue cities: GET https://api.psychichomily.com/venues/cities
+- Show cities: GET https://api.psychichomily.com/shows/cities
+
+### Response format
+Show responses include: event date, title, city, state, venue (name, address), artists (name, headliner status), age requirement, price, ticket URL, sold out status, and SEO-friendly slug.
+
+## Coverage
+
+- Primary: Phoenix, Mesa, Tempe, Scottsdale, Chandler, Tucson (Arizona)
+- Expanding: Chicago venues (The Empty Bottle)
+- Shows are updated daily via community submissions and automated venue discovery
+
+## Optional: detailed reference
+
+- llms-full.txt: https://psychichomily.com/llms-full.txt
