@@ -69,9 +69,10 @@ postgres-data/
 Thumbs.db
 .vercel
 .env*.local
+# LLM and human-facing docs (not published yet)
+docs/
+human-docs/
 
-# Legacy local dev-docs (moved to /docs, tracked in git)
-dev-docs/
 cli/ph-admin
 scripts/test-runner/test-runner
 .test-history.json
