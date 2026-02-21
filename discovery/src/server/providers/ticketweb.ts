@@ -1,5 +1,6 @@
 import { chromium } from 'playwright'
 import type { DiscoveredEvent, PreviewEvent, DiscoveryProvider, OnScrapeProgress } from './types'
+import { cleanArtistName } from './artistUtils'
 
 // Venue configurations
 const VENUES: Record<string, { name: string; url: string }> = {
@@ -318,7 +319,7 @@ export const ticketwebProvider: DiscoveryProvider = {
 
           const html = await detailPage.content()
           detailsByEventId[event.id] = {
-            artists: allArtists.map(name => toTitleCase(name, true)),
+            artists: allArtists.map(name => cleanArtistName(toTitleCase(name, true))),
             price: extractPrice(html),
             ageRestriction: extractAgeRestriction(html),
             isSoldOut: extractSoldOutStatus(html),
@@ -344,7 +345,7 @@ export const ticketwebProvider: DiscoveryProvider = {
         // Fall back to title if no artists found
         if (artists.length === 0) {
           const title = toTitleCase(decodeHtmlEntities(event.title))
-          const cleanTitle = title.replace(/\s*[–-]\s*[^–-]*tour.*$/i, '').trim()
+          const cleanTitle = cleanArtistName(title.replace(/\s*[–-]\s*[^–-]*tour.*$/i, '').trim())
           artists = [cleanTitle]
         }
 

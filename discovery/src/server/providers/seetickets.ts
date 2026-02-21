@@ -1,5 +1,6 @@
 import { chromium } from 'playwright'
 import type { DiscoveredEvent, PreviewEvent, DiscoveryProvider, OnScrapeProgress } from './types'
+import { cleanArtistName } from './artistUtils'
 
 // Venue configurations for SeeTickets provider
 const VENUES: Record<string, { name: string; url: string }> = {
@@ -62,7 +63,7 @@ function parseArtists(headliner: string, supportingTalent?: string): string[] {
   const artists: string[] = []
   if (headliner) {
     // Split co-headliners (e.g. "Annika Wells, Rachel Bochner")
-    const headliners = headliner.split(/\s*,\s*/).map(s => s.trim()).filter(Boolean)
+    const headliners = headliner.split(/\s*,\s*/).map(s => cleanArtistName(s.trim())).filter(Boolean)
     artists.push(...headliners)
   }
 
@@ -73,7 +74,7 @@ function parseArtists(headliner: string, supportingTalent?: string): string[] {
       const parts = cleaned
         .split(/\s*,\s*/)
         .flatMap(part => part.split(/\s+and\s+/i))
-        .map(s => s.trim())
+        .map(s => cleanArtistName(s.trim()))
         .filter(s => s.length > 0 && !/^special\s+guests?$/i.test(s))
       artists.push(...parts)
     }

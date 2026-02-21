@@ -6,7 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from './ui/alert'
 import { LoadingSpinner } from './shared/LoadingSpinner'
 import { ErrorAlert } from './shared/ErrorAlert'
 import { ConfirmDialog } from './shared/ConfirmDialog'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Pencil } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { importEvents } from '../lib/api'
 import type { ScrapedEvent, ImportResult, AppSettings } from '../lib/types'
@@ -19,12 +19,31 @@ interface Props {
 }
 
 export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
+  const [editedEvents, setEditedEvents] = useState<ScrapedEvent[]>(() => events.map(e => ({ ...e, artists: [...e.artists] })))
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<ImportResult | null>(null)
   const [isLiveResult, setIsLiveResult] = useState(false)
   const [error, setError] = useState<string>('')
   const [showStartOverDialog, setShowStartOverDialog] = useState(false)
   const [previewDone, setPreviewDone] = useState(false)
+
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const [editingValue, setEditingValue] = useState('')
+
+  const startEditing = (index: number) => {
+    setEditingIndex(index)
+    setEditingValue(editedEvents[index].artists.join(', '))
+  }
+
+  const commitEdit = () => {
+    if (editingIndex === null) return
+    const newArtists = editingValue.split(',').map(s => s.trim()).filter(Boolean)
+    if (newArtists.length > 0) {
+      setEditedEvents(prev => prev.map((e, i) => i === editingIndex ? { ...e, artists: newArtists } : e))
+    }
+    setEditingIndex(null)
+    setEditingValue('')
+  }
 
   const targetEnv = settings.targetEnvironment === 'production' ? 'Production' : 'Stage'
   const isProduction = settings.targetEnvironment === 'production'
@@ -41,7 +60,7 @@ export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
       setLoading(true)
       setError('')
       try {
-        const importResult = await importEvents(events, true)
+        const importResult = await importEvents(editedEvents, true)
         if (!cancelled) {
           setResult(importResult)
           setPreviewDone(true)
@@ -66,7 +85,7 @@ export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
     setIsLiveResult(true)
 
     try {
-      const importResult = await importEvents(events, false)
+      const importResult = await importEvents(editedEvents, false)
       setResult(importResult)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed')
@@ -80,7 +99,7 @@ export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
       <div>
         <h2 className="text-lg font-semibold text-foreground">Import Events</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Review and import {events.length} scraped event{events.length !== 1 ? 's' : ''} to {targetEnv}
+          Review and import {editedEvents.length} scraped event{editedEvents.length !== 1 ? 's' : ''} to {targetEnv}
         </p>
       </div>
 
@@ -102,27 +121,39 @@ export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
           <CardTitle className="text-base">Events to Import</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="max-h-64 overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 sticky top-0">
+          <div className="max-h-96 overflow-y-auto">
+            <table className="w-full text-sm table-fixed">
+              <thead className="bg-muted sticky top-0 z-10">
                 <tr>
-                  <th className="px-4 py-2 text-left text-muted-foreground font-medium">Date</th>
+                  <th className="px-4 py-2 text-left text-muted-foreground font-medium w-[70px]">Date</th>
                   <th className="px-4 py-2 text-left text-muted-foreground font-medium">Event</th>
-                  <th className="px-4 py-2 text-left text-muted-foreground font-medium">Venue</th>
-                  <th className="px-4 py-2 text-left text-muted-foreground font-medium">Artists</th>
-                  <th className="px-4 py-2 text-left text-muted-foreground font-medium">Info</th>
+                  <th className="px-4 py-2 text-left text-muted-foreground font-medium w-[120px]">Venue</th>
+                  <th className="px-4 py-2 text-left text-muted-foreground font-medium w-[30%]">Artists</th>
+                  <th className="px-4 py-2 text-left text-muted-foreground font-medium w-[90px]">Info</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {events.map(event => (
+                {editedEvents.map((event, eventIndex) => (
                   <tr key={`${event.venueSlug}-${event.id}`} className="hover:bg-muted/30">
                     <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
                       {formatDate(event.date)}
                     </td>
-                    <td className="px-4 py-2 text-foreground">{event.title}</td>
-                    <td className="px-4 py-2 text-muted-foreground">{event.venue}</td>
-                    <td className="px-4 py-2 text-muted-foreground truncate max-w-xs">
-                      {event.artists.join(', ')}
+                    <td className="px-4 py-2 text-foreground truncate" title={event.title}>{event.title}</td>
+                    <td className="px-4 py-2 text-muted-foreground truncate">{event.venue}</td>
+                    <td className="px-4 py-2">
+                      <div className="group relative">
+                        <input
+                          type="text"
+                          value={editingIndex === eventIndex ? editingValue : event.artists.join(', ')}
+                          onFocus={() => startEditing(eventIndex)}
+                          onChange={(e) => setEditingValue(e.target.value)}
+                          onBlur={commitEdit}
+                          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                          className="w-full bg-transparent text-muted-foreground text-sm border border-transparent rounded px-1 py-0.5 hover:border-border focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring transition-colors pr-5"
+                          title="Edit artist names (comma-separated)"
+                        />
+                        <Pencil className="absolute right-1 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground/70 pointer-events-none transition-colors" />
+                      </div>
                     </td>
                     <td className="px-4 py-2">
                       <div className="flex gap-1 flex-wrap">
@@ -216,7 +247,7 @@ export function ImportPanel({ events, settings, onBack, onStartOver }: Props) {
                 <h4 className="text-sm font-medium text-foreground mb-2">Details</h4>
                 <div className="bg-muted rounded-lg p-3 max-h-96 overflow-y-auto space-y-3">
                   {result.messages.map((msg, i) => {
-                    const event = events[i]
+                    const event = editedEvents[i]
                     const statusColor = msg.startsWith('IMPORTED') || msg.startsWith('WOULD IMPORT')
                       ? 'text-green-600'
                       : msg.startsWith('UPDATED') || msg.startsWith('WOULD UPDATE')
