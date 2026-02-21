@@ -16,7 +16,8 @@ When starting a new task, read `docs/llm-context.md` first. It has a task-to-doc
 - `/frontend` - Next.js 16 app (React 19, TanStack Query, Tailwind CSS 4, Vitest)
 - `/backend` - Go API (Chi router, Huma v2, GORM, PostgreSQL 18)
 - `/discovery` - Local Bun+Playwright app for scraping venue events and importing to the backend
-- `/docs` - Implementation docs, plans, learnings, and roadmap (start with `docs/llm-context.md`)
+- `/docs` - LLM workspace: specs, strategy, plans, learnings (start with `docs/llm-context.md`)
+- `/human-docs` - Human-facing guides: contributing, workflow, release, FAQ, troubleshooting
 
 ## Running Locally
 
