@@ -9,19 +9,25 @@ import {
   checkImportStatus,
   scrapeVenueEvents,
   scrapeVenueEventsWithProgress,
+  recordPreviewEvents,
+  getEventMetadata,
+  toggleEventIgnored,
   type ScrapeProgressEvent,
 } from '../lib/api'
 import { concurrentMap } from '../lib/concurrentMap'
 import { useSettings } from '../context/SettingsContext'
-import type { VenueConfig, PreviewEvent, ScrapedEvent, ImportStatusMap } from '../lib/types'
+import type { VenueConfig, PreviewEvent, ScrapedEvent, ImportStatusMap, EventMetadataMap } from '../lib/types'
 
 interface Props {
   venues: VenueConfig[]
   previewEvents: Record<string, PreviewEvent[]>
   selectedEventIds: Record<string, Set<string>>
   importStatuses: ImportStatusMap
+  eventMetadata: Record<string, EventMetadataMap>
   onPreviewComplete: (venueSlug: string, events: PreviewEvent[]) => void
   onSetImportStatuses: (statuses: ImportStatusMap) => void
+  onSetEventMetadata: (venueSlug: string, metadata: EventMetadataMap) => void
+  onUpdateEventIgnored: (venueSlug: string, eventId: string, ignored: boolean) => void
   onToggle: (venueSlug: string, eventId: string) => void
   onSelectAll: (venueSlug: string) => void
   onSelectNone: (venueSlug: string) => void
@@ -35,8 +41,11 @@ export function EventPreview({
   previewEvents,
   selectedEventIds,
   importStatuses,
+  eventMetadata,
   onPreviewComplete,
   onSetImportStatuses,
+  onSetEventMetadata,
+  onUpdateEventIgnored,
   onToggle,
   onSelectAll,
   onSelectNone,
@@ -62,6 +71,26 @@ export function EventPreview({
     phase?: string
   } | null>(null)
 
+  // Record preview events and fetch metadata whenever previews change
+  const recordedSlugsRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const newSlugs = Object.keys(previewEvents).filter(s => !recordedSlugsRef.current.has(s))
+    if (newSlugs.length === 0) return
+
+    newSlugs.forEach(s => recordedSlugsRef.current.add(s))
+
+    // Record previews + fetch metadata for each new venue
+    for (const venueSlug of newSlugs) {
+      const events = previewEvents[venueSlug] || []
+      if (events.length === 0) continue
+
+      recordPreviewEvents(venueSlug, events)
+        .then(() => getEventMetadata(venueSlug))
+        .then(metadata => onSetEventMetadata(venueSlug, metadata))
+        .catch(() => {}) // Non-critical
+    }
+  }, [previewEvents, onSetEventMetadata])
+
   // Check import statuses in the background whenever previews change
   const checkedSlugsRef = useRef<Set<string>>(new Set())
   useEffect(() => {
@@ -80,9 +109,10 @@ export function EventPreview({
       .catch(() => {}) // Non-critical
   }, [previewEvents, onSetImportStatuses])
 
-  // Re-check import statuses when target environment changes
+  // Re-check import statuses and metadata when target environment changes
   useEffect(() => {
     checkedSlugsRef.current = new Set()
+    recordedSlugsRef.current = new Set()
     onSetImportStatuses({})
   }, [settings.targetEnvironment]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -352,9 +382,22 @@ export function EventPreview({
             onRetry={() => retryVenue(venue)}
             selectedIds={selectedEventIds[venue.slug]}
             importStatuses={importStatuses}
+            eventMetadata={eventMetadata[venue.slug]}
             onToggle={(eventId) => onToggle(venue.slug, eventId)}
             onSelectAll={() => onSelectAll(venue.slug)}
             onSelectNone={() => onSelectNone(venue.slug)}
+            onIgnore={async (eventId, ignored) => {
+              onUpdateEventIgnored(venue.slug, eventId, ignored)
+              try {
+                await toggleEventIgnored(venue.slug, eventId, ignored)
+                // Re-fetch metadata to overwrite any stale data from the
+                // recording effect's concurrent getEventMetadata call
+                const metadata = await getEventMetadata(venue.slug)
+                onSetEventMetadata(venue.slug, metadata)
+              } catch {
+                onUpdateEventIgnored(venue.slug, eventId, !ignored)
+              }
+            }}
           />
         ))}
       </div>

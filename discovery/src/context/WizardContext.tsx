@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
-import type { VenueConfig, PreviewEvent, ScrapedEvent, ImportStatusMap } from '../lib/types'
+import type { VenueConfig, PreviewEvent, ScrapedEvent, ImportStatusMap, EventMetadataMap } from '../lib/types'
 import { getLocalDateString } from '../lib/dates'
 
 export type WizardStep = 'venues' | 'preview' | 'import' | 'settings' | 'data-export'
@@ -11,6 +11,7 @@ interface WizardState {
   selectedEventIds: Record<string, Set<string>>
   scrapedEvents: ScrapedEvent[]
   importStatuses: ImportStatusMap
+  eventMetadata: Record<string, EventMetadataMap>
 }
 
 interface WizardActions {
@@ -22,6 +23,8 @@ interface WizardActions {
   clearEventSelection: (venueSlug: string) => void
   addScrapedEvents: (events: ScrapedEvent[]) => void
   setImportStatuses: (statuses: ImportStatusMap) => void
+  setEventMetadata: (venueSlug: string, metadata: EventMetadataMap) => void
+  updateEventIgnored: (venueSlug: string, eventId: string, ignored: boolean) => void
   startOver: () => void
 }
 
@@ -39,6 +42,31 @@ export function WizardProvider({ children }: { children: ReactNode }) {
   const [selectedEventIds, setSelectedEventIds] = useState<Record<string, Set<string>>>({})
   const [scrapedEvents, setScrapedEvents] = useState<ScrapedEvent[]>([])
   const [importStatuses, setImportStatuses] = useState<ImportStatusMap>({})
+  const [eventMetadata, setEventMetadataState] = useState<Record<string, EventMetadataMap>>({})
+
+  const setEventMetadata = useCallback((venueSlug: string, metadata: EventMetadataMap) => {
+    setEventMetadataState(prev => ({ ...prev, [venueSlug]: metadata }))
+  }, [])
+
+  const updateEventIgnored = useCallback((venueSlug: string, eventId: string, ignored: boolean) => {
+    setEventMetadataState(prev => {
+      const venueMetadata = prev[venueSlug] ?? {}
+      const existing = venueMetadata[eventId] ?? {
+        isNew: false,
+        isIgnored: false,
+        firstSeenAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+        changes: [],
+      }
+      return {
+        ...prev,
+        [venueSlug]: {
+          ...venueMetadata,
+          [eventId]: { ...existing, isIgnored: ignored },
+        },
+      }
+    })
+  }, [])
 
   const selectVenues = useCallback((venues: VenueConfig[]) => {
     setSelectedVenues(venues)
@@ -71,13 +99,19 @@ export function WizardProvider({ children }: { children: ReactNode }) {
 
   const selectAllEvents = useCallback((venueSlug: string) => {
     const events = previewEvents[venueSlug] || []
+    const metadata = eventMetadata[venueSlug] || {}
     const today = getLocalDateString()
-    const futureEvents = events.filter(e => e.date >= today)
+    const futureEvents = events.filter(e => {
+      if (e.date < today) return false
+      if (metadata[e.id]?.isIgnored) return false
+      if (importStatuses[e.id]?.exists) return false
+      return true
+    })
     setSelectedEventIds(prev => ({
       ...prev,
       [venueSlug]: new Set(futureEvents.map(e => e.id)),
     }))
-  }, [previewEvents])
+  }, [previewEvents, eventMetadata, importStatuses])
 
   const clearEventSelection = useCallback((venueSlug: string) => {
     setSelectedEventIds(prev => ({
@@ -101,6 +135,7 @@ export function WizardProvider({ children }: { children: ReactNode }) {
     setSelectedEventIds({})
     setScrapedEvents([])
     setImportStatuses({})
+    setEventMetadataState({})
   }, [])
 
   const totalSelectedEvents = Object.values(selectedEventIds).reduce(
@@ -120,6 +155,7 @@ export function WizardProvider({ children }: { children: ReactNode }) {
     selectedEventIds,
     scrapedEvents,
     importStatuses,
+    eventMetadata,
     totalSelectedEvents,
     totalAvailableEvents,
     setStep,
@@ -130,6 +166,8 @@ export function WizardProvider({ children }: { children: ReactNode }) {
     clearEventSelection,
     addScrapedEvents,
     setImportStatuses,
+    setEventMetadata,
+    updateEventIgnored,
     startOver,
   }
 
