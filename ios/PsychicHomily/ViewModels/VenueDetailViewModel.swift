@@ -1,6 +1,6 @@
 import SwiftUI
 
-@Observable
+@MainActor @Observable
 final class VenueDetailViewModel {
     var venue: Venue?
     var shows: [Show] = []

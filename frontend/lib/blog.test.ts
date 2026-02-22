@@ -38,7 +38,7 @@ describe('blog utilities', () => {
         '2025-01-01-first-post.md',
         '2025-01-15-second-post.md',
         '2025-02-01-third-post.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       const { getBlogSlugs } = await import('./blog')
       const slugs = getBlogSlugs()
@@ -56,7 +56,7 @@ describe('blog utilities', () => {
         'readme.txt',
         'image.png',
         '2025-02-01-another.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       const { getBlogSlugs } = await import('./blog')
       vi.resetModules()
@@ -74,7 +74,7 @@ describe('blog utilities', () => {
         '_draft.md',
         '_template.md',
         '2025-01-01-published.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.resetModules()
       const { getBlogSlugs } = await import('./blog')
@@ -203,7 +203,7 @@ Listen to this track:
         '2025-01-01-old-post.md',
         '2025-03-01-new-post.md',
         '2025-02-01-middle-post.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.mocked(fs.existsSync).mockReturnValue(true)
 
@@ -244,7 +244,7 @@ Content`
     it('includes metadata for each post', async () => {
       vi.mocked(fs.readdirSync).mockReturnValue([
         '2025-01-15-test.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.mocked(fs.existsSync).mockReturnValue(true)
       vi.mocked(fs.readFileSync).mockReturnValue(`---
@@ -276,7 +276,7 @@ Post content here.`)
       vi.mocked(fs.readdirSync).mockReturnValue([
         'post1.md',
         'post2.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.mocked(fs.existsSync).mockReturnValue(true)
 
@@ -313,7 +313,7 @@ Content`
     it('returns empty array when no posts have categories', async () => {
       vi.mocked(fs.readdirSync).mockReturnValue([
         'post.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.mocked(fs.existsSync).mockReturnValue(true)
       vi.mocked(fs.readFileSync).mockReturnValue(`---
@@ -361,7 +361,7 @@ Content`)
     it('returns category name from slug', async () => {
       vi.mocked(fs.readdirSync).mockReturnValue([
         'post.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.mocked(fs.existsSync).mockReturnValue(true)
       vi.mocked(fs.readFileSync).mockReturnValue(`---
@@ -383,7 +383,7 @@ Content`)
     it('returns null for non-existent category', async () => {
       vi.mocked(fs.readdirSync).mockReturnValue([
         'post.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.mocked(fs.existsSync).mockReturnValue(true)
       vi.mocked(fs.readFileSync).mockReturnValue(`---
@@ -407,7 +407,7 @@ Content`)
         'post1.md',
         'post2.md',
         'post3.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.mocked(fs.existsSync).mockReturnValue(true)
 
@@ -453,7 +453,7 @@ Content`
     it('returns empty array for non-existent category', async () => {
       vi.mocked(fs.readdirSync).mockReturnValue([
         'post.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.mocked(fs.existsSync).mockReturnValue(true)
       vi.mocked(fs.readFileSync).mockReturnValue(`---
@@ -475,7 +475,7 @@ Content`)
       vi.mocked(fs.readdirSync).mockReturnValue([
         'old.md',
         'new.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.mocked(fs.existsSync).mockReturnValue(true)
 

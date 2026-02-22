@@ -148,7 +148,7 @@ describe('useIsShowSaved', () => {
   it('checks if a show is saved', async () => {
     mockApiRequest.mockResolvedValueOnce({ is_saved: true })
 
-    const { result } = renderHook(() => useIsShowSaved(123), {
+    const { result } = renderHook(() => useIsShowSaved(123, true), {
       wrapper: createWrapper(),
     })
 
@@ -166,7 +166,7 @@ describe('useIsShowSaved', () => {
   it('returns false for unsaved shows', async () => {
     mockApiRequest.mockResolvedValueOnce({ is_saved: false })
 
-    const { result } = renderHook(() => useIsShowSaved(456), {
+    const { result } = renderHook(() => useIsShowSaved(456, true), {
       wrapper: createWrapper(),
     })
 
@@ -176,7 +176,7 @@ describe('useIsShowSaved', () => {
   })
 
   it('does not fetch when showId is null', async () => {
-    const { result } = renderHook(() => useIsShowSaved(null), {
+    const { result } = renderHook(() => useIsShowSaved(null, true), {
       wrapper: createWrapper(),
     })
 
@@ -187,7 +187,7 @@ describe('useIsShowSaved', () => {
   it('accepts string showId', async () => {
     mockApiRequest.mockResolvedValueOnce({ is_saved: true })
 
-    const { result } = renderHook(() => useIsShowSaved('789'), {
+    const { result } = renderHook(() => useIsShowSaved('789', true), {
       wrapper: createWrapper(),
     })
 
@@ -206,7 +206,7 @@ describe('useIsShowSaved', () => {
     Object.assign(error, { status: 404 })
     mockApiRequest.mockRejectedValueOnce(error)
 
-    const { result } = renderHook(() => useIsShowSaved(999), {
+    const { result } = renderHook(() => useIsShowSaved(999, true), {
       wrapper: createWrapper(),
     })
 
@@ -357,7 +357,7 @@ describe('useSaveShowToggle', () => {
   it('returns isSaved false when show is not saved', async () => {
     mockApiRequest.mockResolvedValueOnce({ is_saved: false })
 
-    const { result } = renderHook(() => useSaveShowToggle(700), {
+    const { result } = renderHook(() => useSaveShowToggle(700, true), {
       wrapper: createWrapper(),
     })
 
@@ -369,7 +369,7 @@ describe('useSaveShowToggle', () => {
   it('returns isSaved true when show is saved', async () => {
     mockApiRequest.mockResolvedValueOnce({ is_saved: true })
 
-    const { result } = renderHook(() => useSaveShowToggle(800), {
+    const { result } = renderHook(() => useSaveShowToggle(800, true), {
       wrapper: createWrapper(),
     })
 
@@ -382,7 +382,7 @@ describe('useSaveShowToggle', () => {
     // Second call: save the show
     mockApiRequest.mockResolvedValueOnce({ message: 'Saved' })
 
-    const { result } = renderHook(() => useSaveShowToggle(900), {
+    const { result } = renderHook(() => useSaveShowToggle(900, true), {
       wrapper: createWrapper(),
     })
 
@@ -407,7 +407,7 @@ describe('useSaveShowToggle', () => {
     // Second call: unsave the show
     mockApiRequest.mockResolvedValueOnce({ message: 'Unsaved' })
 
-    const { result } = renderHook(() => useSaveShowToggle(1000), {
+    const { result } = renderHook(() => useSaveShowToggle(1000, true), {
       wrapper: createWrapper(),
     })
 
@@ -433,7 +433,7 @@ describe('useSaveShowToggle', () => {
     const error = new Error('Network error')
     mockApiRequest.mockRejectedValueOnce(error)
 
-    const { result } = renderHook(() => useSaveShowToggle(1100), {
+    const { result } = renderHook(() => useSaveShowToggle(1100, true), {
       wrapper: createWrapper(),
     })
 
@@ -458,7 +458,7 @@ describe('useSaveShowToggle', () => {
     const error = new Error('Save failed')
     mockApiRequest.mockRejectedValueOnce(error)
 
-    const { result } = renderHook(() => useSaveShowToggle(1200), {
+    const { result } = renderHook(() => useSaveShowToggle(1200, true), {
       wrapper: createWrapper(),
     })
 
@@ -480,7 +480,7 @@ describe('useSaveShowToggle', () => {
     const error = new Error('Unsave failed')
     mockApiRequest.mockRejectedValueOnce(error)
 
-    const { result } = renderHook(() => useSaveShowToggle(1300), {
+    const { result } = renderHook(() => useSaveShowToggle(1300, true), {
       wrapper: createWrapper(),
     })
 

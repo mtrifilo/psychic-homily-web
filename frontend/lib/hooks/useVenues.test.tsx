@@ -153,7 +153,7 @@ describe('useVenues', () => {
         city: 'Phoenix',
         state: 'AZ',
         address: '2303 E Indian School Rd',
-        is_verified: true,
+        verified: true,
       }
       mockApiRequest.mockResolvedValueOnce(mockVenue)
 
@@ -216,9 +216,8 @@ describe('useVenues', () => {
         city: 'Phoenix',
         state: 'AZ',
         address: '308 N 2nd Ave',
-        website: 'https://crescentphx.com',
-        phone: '602-716-2222',
-        is_verified: true,
+        social: { website: 'https://crescentphx.com' },
+        verified: true,
         show_count: 15,
       }
       mockApiRequest.mockResolvedValueOnce(mockVenue)
@@ -229,8 +228,8 @@ describe('useVenues', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-      expect(result.current.data?.website).toBe('https://crescentphx.com')
-      expect(result.current.data?.is_verified).toBe(true)
+      expect(result.current.data?.social?.website).toBe('https://crescentphx.com')
+      expect(result.current.data?.verified).toBe(true)
     })
   })
 

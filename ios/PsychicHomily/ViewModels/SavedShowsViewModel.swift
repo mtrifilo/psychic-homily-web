@@ -1,6 +1,6 @@
 import SwiftUI
 
-@Observable
+@MainActor @Observable
 final class SavedShowsViewModel {
     var shows: [Show] = []
     var isLoading = false

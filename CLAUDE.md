@@ -15,6 +15,7 @@ When starting a new task, read `docs/llm-context.md` first. It has a task-to-doc
 
 - `/frontend` - Next.js 16 app (React 19, TanStack Query, Tailwind CSS 4, Vitest)
 - `/backend` - Go API (Chi router, Huma v2, GORM, PostgreSQL 18)
+- `/ios` - Native iOS app (Swift 6, SwiftUI, iOS 18+, XcodeGen)
 - `/discovery` - Local Bun+Playwright app for scraping venue events and importing to the backend
 - `/docs` - LLM workspace: specs, strategy, plans, learnings (start with `docs/llm-context.md`)
 - `/human-docs` - Human-facing guides: contributing, workflow, release, FAQ, troubleshooting
@@ -113,4 +114,6 @@ Local tool for importing venue events. Lives in `/discovery` with Bun server + P
 **Provider types:**
 - `ticketweb` — Playwright-based, waits for `window.all_events` global (Valley Bar, Crescent Ballroom)
 - `jsonld` — HTTP fetch + JSON-LD `MusicEvent` parsing, Playwright enrichment for performer lineup (The Van Buren, Arizona Financial Theatre)
+- `seetickets` — Playwright-based, scrapes SeeTickets widget event containers (The Rebel Lounge)
+- `emptybottle` — Playwright-based, scrapes date-organized event listings (The Empty Bottle)
 - `wix` — HTTP-only (no Playwright), fetches sitemap XML → concurrent page fetches → JSON-LD `Event` extraction (Celebrity Theatre)

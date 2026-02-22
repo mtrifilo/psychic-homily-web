@@ -28,7 +28,7 @@ describe('API Module', () => {
 
     it('uses production URL in production mode', async () => {
       delete process.env.NEXT_PUBLIC_API_URL
-      process.env.NODE_ENV = 'production'
+      ;(process.env as Record<string, string>).NODE_ENV = 'production'
 
       const { API_BASE_URL } = await import('./api')
 
@@ -37,7 +37,7 @@ describe('API Module', () => {
 
     it('uses /api proxy in development browser-side', async () => {
       delete process.env.NEXT_PUBLIC_API_URL
-      process.env.NODE_ENV = 'development'
+      ;(process.env as Record<string, string>).NODE_ENV = 'development'
       // jsdom provides window, so this simulates browser environment
 
       const { API_BASE_URL } = await import('./api')
@@ -345,7 +345,7 @@ describe('API Module', () => {
         json: () => Promise.reject(new Error('Invalid JSON')),
         headers: new Headers(),
       }
-      vi.mocked(fetch).mockResolvedValue(mockResponse as Response)
+      vi.mocked(fetch).mockResolvedValue(mockResponse as unknown as Response)
 
       const { apiRequest } = await import('./api')
 

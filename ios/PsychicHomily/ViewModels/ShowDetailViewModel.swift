@@ -1,6 +1,6 @@
 import SwiftUI
 
-@Observable
+@MainActor @Observable
 final class ShowDetailViewModel {
     var show: Show?
     var isSaved = false

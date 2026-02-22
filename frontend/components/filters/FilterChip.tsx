@@ -1,7 +1,7 @@
 interface FilterChipProps {
   label: string
   isActive: boolean
-  onClick: () => void
+  onClick: (e: React.MouseEvent) => void
   count?: number
 }
 

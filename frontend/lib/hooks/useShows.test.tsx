@@ -157,8 +157,11 @@ describe('useShows', () => {
     it('returns has_more flag for pagination', async () => {
       mockApiRequest.mockResolvedValueOnce({
         shows: [{ id: 1 }],
-        has_more: true,
-        next_cursor: 'next-page',
+        pagination: {
+          has_more: true,
+          next_cursor: 'next-page',
+          limit: 25,
+        },
       })
 
       const { result } = renderHook(() => useUpcomingShows(), {
@@ -167,8 +170,8 @@ describe('useShows', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-      expect(result.current.data?.has_more).toBe(true)
-      expect(result.current.data?.next_cursor).toBe('next-page')
+      expect(result.current.data?.pagination.has_more).toBe(true)
+      expect(result.current.data?.pagination.next_cursor).toBe('next-page')
     })
   })
 

@@ -9,6 +9,7 @@ describe('Type Helper Functions', () => {
     it('returns city and state when both are present', () => {
       const artist: Artist = {
         id: 1,
+        slug: 'test-artist',
         name: 'Test Artist',
         city: 'Phoenix',
         state: 'AZ',
@@ -33,6 +34,7 @@ describe('Type Helper Functions', () => {
     it('returns only city when state is null', () => {
       const artist: Artist = {
         id: 2,
+        slug: 'city-artist',
         name: 'City Artist',
         city: 'Los Angeles',
         state: null,
@@ -57,6 +59,7 @@ describe('Type Helper Functions', () => {
     it('returns only state when city is null', () => {
       const artist: Artist = {
         id: 3,
+        slug: 'state-artist',
         name: 'State Artist',
         city: null,
         state: 'California',
@@ -81,6 +84,7 @@ describe('Type Helper Functions', () => {
     it('returns "Location Unknown" when both city and state are null', () => {
       const artist: Artist = {
         id: 4,
+        slug: 'unknown-artist',
         name: 'Unknown Artist',
         city: null,
         state: null,
@@ -105,6 +109,7 @@ describe('Type Helper Functions', () => {
     it('filters out empty strings', () => {
       const artist: Artist = {
         id: 5,
+        slug: 'empty-string-artist',
         name: 'Empty String Artist',
         city: '',
         state: 'AZ',
@@ -132,6 +137,7 @@ describe('Type Helper Functions', () => {
     it('returns city and state formatted correctly', () => {
       const venue: Venue = {
         id: 1,
+        slug: 'the-rebel-lounge',
         name: 'The Rebel Lounge',
         address: '2303 E Indian School Rd',
         city: 'Phoenix',
@@ -147,6 +153,7 @@ describe('Type Helper Functions', () => {
     it('handles different cities and states', () => {
       const venue: Venue = {
         id: 2,
+        slug: 'some-venue',
         name: 'Some Venue',
         address: null,
         city: 'Tempe',
@@ -162,6 +169,7 @@ describe('Type Helper Functions', () => {
     it('handles venues with full state names', () => {
       const venue: Venue = {
         id: 3,
+        slug: 'california-venue',
         name: 'California Venue',
         address: '123 Main St',
         city: 'Los Angeles',
@@ -177,6 +185,7 @@ describe('Type Helper Functions', () => {
     it('returns formatted location for venue with all optional fields', () => {
       const venue: Venue = {
         id: 4,
+        slug: 'full-venue',
         name: 'Full Venue',
         address: '456 Oak Ave',
         city: 'Scottsdale',

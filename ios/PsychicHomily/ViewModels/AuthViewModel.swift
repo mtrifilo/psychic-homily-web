@@ -1,7 +1,7 @@
 import SwiftUI
 import AuthenticationServices
 
-@Observable
+@MainActor @Observable
 final class AuthViewModel {
     var email = ""
     var password = ""
