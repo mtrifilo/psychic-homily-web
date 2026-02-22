@@ -26,6 +26,7 @@ Thumbs.db
 node_modules/
 
 # Backend specific
+backend/server
 backend/backups/
 backend/logs/
 backend/*.log
