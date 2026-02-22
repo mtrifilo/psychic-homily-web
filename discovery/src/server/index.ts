@@ -1,4 +1,11 @@
 import { getProvider } from './providers'
+import {
+  recordPreviewEvents,
+  recordScrapeResults,
+  setEventIgnored,
+  getEventMetadata,
+  getLastScrapeInfo,
+} from './db'
 
 const PORT = 3001
 
@@ -181,6 +188,7 @@ const server = Bun.serve({
                 const events = await provider.scrape(venueSlug, eventIds, (progress) => {
                   send('progress', progress)
                 })
+                try { recordScrapeResults(venueSlug, events) } catch (e) { console.error('[server] Failed to record scrape results:', e) }
                 send('complete', events)
               } catch (err) {
                 const message = err instanceof Error ? err.message : 'Scrape failed'
@@ -204,7 +212,38 @@ const server = Bun.serve({
         // Standard JSON mode (backward compatible)
         console.log(`[server] Scrape request for ${venueSlug}, ${eventIds.length} events`)
         const events = await provider.scrape(venueSlug, eventIds)
+        try { recordScrapeResults(venueSlug, events) } catch (e) { console.error('[server] Failed to record scrape results:', e) }
         return jsonResponse(events)
+      }
+
+      // POST /discovery/events/:venueSlug/record — Record preview events, returns new event IDs
+      if (path.match(/^\/discovery\/events\/[^/]+\/record$/) && req.method === 'POST') {
+        const venueSlug = path.split('/')[3]
+        const body = await req.json() as { events?: Array<{ id: string; title: string; date: string }> }
+        if (!Array.isArray(body.events) || body.events.length === 0) {
+          return errorResponse('events array is required')
+        }
+        const result = recordPreviewEvents(venueSlug, body.events)
+        const lastScrape = getLastScrapeInfo(venueSlug)
+        return jsonResponse({ ...result, lastScrape })
+      }
+
+      // GET /discovery/events/:venueSlug/metadata — Get event metadata (new/ignored/changes)
+      if (path.match(/^\/discovery\/events\/[^/]+\/metadata$/) && req.method === 'GET') {
+        const venueSlug = path.split('/')[3]
+        const metadata = getEventMetadata(venueSlug)
+        return jsonResponse(metadata)
+      }
+
+      // POST /discovery/events/:venueSlug/ignore — Toggle ignore on an event
+      if (path.match(/^\/discovery\/events\/[^/]+\/ignore$/) && req.method === 'POST') {
+        const venueSlug = path.split('/')[3]
+        const body = await req.json() as { eventId?: string; ignored?: boolean }
+        if (!body.eventId || typeof body.ignored !== 'boolean') {
+          return errorResponse('eventId (string) and ignored (boolean) are required')
+        }
+        setEventIgnored(venueSlug, body.eventId, body.ignored)
+        return jsonResponse({ ok: true })
       }
 
       // Health check
@@ -228,11 +267,14 @@ const bannerLines = [
   `  Running on http://localhost:${PORT}`,
   ``,
   `  Endpoints:`,
-  `    GET  /discovery/venues          - List venues`,
-  `    GET  /discovery/preview/:slug   - Preview events`,
-  `    POST /discovery/preview-batch   - Parallel preview`,
-  `    POST /discovery/scrape/:slug    - Scrape (SSE/JSON)`,
-  `    GET  /discovery/health          - Health check`,
+  `    GET  /discovery/venues               - List venues`,
+  `    GET  /discovery/preview/:slug        - Preview events`,
+  `    POST /discovery/preview-batch        - Parallel preview`,
+  `    POST /discovery/scrape/:slug         - Scrape (SSE/JSON)`,
+  `    POST /discovery/events/:slug/record  - Record preview`,
+  `    GET  /discovery/events/:slug/metadata- Event metadata`,
+  `    POST /discovery/events/:slug/ignore  - Toggle ignore`,
+  `    GET  /discovery/health               - Health check`,
   ``,
   `  Configured venues: ${Object.keys(VENUES).length}`,
 ]

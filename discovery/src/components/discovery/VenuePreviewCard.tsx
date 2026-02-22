@@ -1,10 +1,11 @@
 import { RefreshCw, AlertCircle } from 'lucide-react'
 import { Button } from '../ui/button'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs'
 import { LoadingSpinner } from '../shared/LoadingSpinner'
 import { ListSkeleton } from '../shared/LoadingSkeleton'
 import { EmptyState } from '../shared/EmptyState'
 import { EventList } from './EventList'
-import type { VenueConfig, PreviewEvent, ImportStatusMap } from '../../lib/types'
+import type { VenueConfig, PreviewEvent, ImportStatusMap, EventMetadataMap } from '../../lib/types'
 import { getLocalDateString } from '../../lib/dates'
 
 interface VenuePreviewCardProps {
@@ -16,10 +17,12 @@ interface VenuePreviewCardProps {
   onRetry?: () => void
   selectedIds?: Set<string>
   importStatuses?: ImportStatusMap
+  eventMetadata?: EventMetadataMap
   updatableIds?: Set<string>
   onToggle?: (eventId: string) => void
   onSelectAll?: () => void
   onSelectNone?: () => void
+  onIgnore?: (eventId: string, ignored: boolean) => void
 }
 
 export function VenuePreviewCard({
@@ -31,17 +34,22 @@ export function VenuePreviewCard({
   onRetry,
   selectedIds,
   importStatuses = {},
+  eventMetadata,
   updatableIds,
   onToggle,
   onSelectAll,
   onSelectNone,
+  onIgnore,
 }: VenuePreviewCardProps) {
   const hasEvents = events && events.length > 0
   const selectable = !!selectedIds && !!onToggle
 
-  // Count future events for selection display
+  // Count future events by category
   const today = getLocalDateString()
-  const futureEventCount = events?.filter(e => e.date >= today).length ?? 0
+  const futureEvents = events?.filter(e => e.date >= today) ?? []
+  const ignoredCount = futureEvents.filter(e => eventMetadata?.[e.id]?.isIgnored).length
+  const importedCount = futureEvents.filter(e => !eventMetadata?.[e.id]?.isIgnored && importStatuses[e.id]?.exists).length
+  const activeCount = futureEvents.length - ignoredCount - importedCount
 
   return (
     <div className="bg-card rounded-lg border overflow-hidden">
@@ -55,7 +63,7 @@ export function VenuePreviewCard({
           {hasEvents && (
             <span className="text-sm text-muted-foreground">
               {selectable
-                ? `${selectedIds!.size}/${futureEventCount} selected`
+                ? `${selectedIds!.size}/${activeCount} selected`
                 : `${events.length} events`
               }
             </span>
@@ -128,17 +136,81 @@ export function VenuePreviewCard({
         </div>
       )}
 
-      {/* Events list with checkboxes (selectable mode) */}
+      {/* Events list with tabs (selectable mode) */}
       {selectable && hasEvents && (
-        <div className="max-h-80 overflow-y-auto">
-          <EventList
-            events={events}
-            selectedIds={selectedIds!}
-            importStatuses={importStatuses}
-            updatableIds={updatableIds}
-            onToggle={onToggle!}
-          />
-        </div>
+        <Tabs defaultValue="active">
+          <div className="px-4 pt-2">
+            <TabsList>
+              <TabsTrigger value="active">
+                New{activeCount > 0 ? ` (${activeCount})` : ''}
+              </TabsTrigger>
+              <TabsTrigger value="imported">
+                Imported{importedCount > 0 ? ` (${importedCount})` : ''}
+              </TabsTrigger>
+              <TabsTrigger value="ignored">
+                Ignored{ignoredCount > 0 ? ` (${ignoredCount})` : ''}
+              </TabsTrigger>
+            </TabsList>
+          </div>
+          <TabsContent value="active">
+            <div className="max-h-80 overflow-y-auto">
+              <EventList
+                events={events}
+                selectedIds={selectedIds!}
+                importStatuses={importStatuses}
+                eventMetadata={eventMetadata}
+                updatableIds={updatableIds}
+                onToggle={onToggle!}
+                onIgnore={onIgnore}
+                filter="active"
+              />
+            </div>
+          </TabsContent>
+          <TabsContent value="imported">
+            <div className="max-h-80 overflow-y-auto">
+              {importedCount > 0 ? (
+                <EventList
+                  events={events}
+                  selectedIds={selectedIds!}
+                  importStatuses={importStatuses}
+                  eventMetadata={eventMetadata}
+                  updatableIds={updatableIds}
+                  onToggle={onToggle!}
+                  onIgnore={onIgnore}
+                  filter="imported"
+                />
+              ) : (
+                <EmptyState
+                  title="No imported events"
+                  description="Events you've imported will appear here"
+                  className="py-6"
+                />
+              )}
+            </div>
+          </TabsContent>
+          <TabsContent value="ignored">
+            <div className="max-h-80 overflow-y-auto">
+              {ignoredCount > 0 ? (
+                <EventList
+                  events={events}
+                  selectedIds={selectedIds!}
+                  importStatuses={importStatuses}
+                  eventMetadata={eventMetadata}
+                  updatableIds={updatableIds}
+                  onToggle={onToggle!}
+                  onIgnore={onIgnore}
+                  filter="ignored"
+                />
+              ) : (
+                <EmptyState
+                  title="No ignored events"
+                  description="Use the eye icon to ignore events you don't want to see"
+                  className="py-6"
+                />
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       )}
 
       {/* Events table (read-only mode) */}

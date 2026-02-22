@@ -196,6 +196,31 @@ export interface DataImportResult {
   venues: EntityImportStats
 }
 
+// ============================================================================
+// Local Persistence Types (SQLite event metadata)
+// ============================================================================
+
+export interface FieldChange {
+  field: 'isSoldOut' | 'isCancelled' | 'price' | 'date' | 'title'
+  oldValue: string | boolean | null
+  newValue: string | boolean | null
+}
+
+export interface EventMetadata {
+  isNew: boolean
+  isIgnored: boolean
+  firstSeenAt: string
+  lastSeenAt: string
+  changes: FieldChange[]
+}
+
+export type EventMetadataMap = Record<string, EventMetadata>
+
+export interface LastScrapeInfo {
+  lastScrapeAt: string
+  eventCount: number
+}
+
 // Multi-target import types
 export type ImportTarget = 'stage' | 'production' | 'both'
 

@@ -13,6 +13,8 @@ import type {
   ExportedShow,
   ExportedArtist,
   ExportedVenue,
+  EventMetadataMap,
+  LastScrapeInfo,
 } from './types'
 import { DISCOVERY_API_URL } from './config'
 
@@ -221,6 +223,51 @@ export async function scrapeVenueEventsWithProgress(
 
     read()
   })
+}
+
+// ============================================================================
+// Local Persistence API (SQLite event metadata)
+// ============================================================================
+
+// Record preview events and get new event IDs
+export async function recordPreviewEvents(
+  venueSlug: string,
+  events: Array<{ id: string; title: string; date: string }>,
+): Promise<{ newEventIds: string[]; lastScrape: LastScrapeInfo | null }> {
+  const response = await fetch(`${DISCOVERY_API_URL}/events/${venueSlug}/record`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ events }),
+  })
+  if (!response.ok) {
+    throw new Error('Failed to record preview events')
+  }
+  return response.json()
+}
+
+// Get event metadata (new/ignored/changes) for a venue
+export async function getEventMetadata(venueSlug: string): Promise<EventMetadataMap> {
+  const response = await fetch(`${DISCOVERY_API_URL}/events/${venueSlug}/metadata`)
+  if (!response.ok) {
+    throw new Error('Failed to get event metadata')
+  }
+  return response.json()
+}
+
+// Toggle ignore status for an event
+export async function toggleEventIgnored(
+  venueSlug: string,
+  eventId: string,
+  ignored: boolean,
+): Promise<void> {
+  const response = await fetch(`${DISCOVERY_API_URL}/events/${venueSlug}/ignore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ eventId, ignored }),
+  })
+  if (!response.ok) {
+    throw new Error('Failed to toggle event ignore status')
+  }
 }
 
 // Strip discovery-specific fields that older backends don't know about

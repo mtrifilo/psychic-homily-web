@@ -18,6 +18,7 @@ export default function App() {
     selectedEventIds,
     scrapedEvents,
     importStatuses,
+    eventMetadata,
     selectVenues,
     handlePreviewComplete,
     toggleEvent,
@@ -25,6 +26,8 @@ export default function App() {
     clearEventSelection,
     addScrapedEvents,
     setImportStatuses,
+    setEventMetadata,
+    updateEventIgnored,
     startOver,
   } = useWizard()
 
@@ -64,8 +67,11 @@ export default function App() {
             previewEvents={previewEvents}
             selectedEventIds={selectedEventIds}
             importStatuses={importStatuses}
+            eventMetadata={eventMetadata}
             onPreviewComplete={handlePreviewComplete}
             onSetImportStatuses={setImportStatuses}
+            onSetEventMetadata={setEventMetadata}
+            onUpdateEventIgnored={updateEventIgnored}
             onToggle={toggleEvent}
             onSelectAll={selectAllEvents}
             onSelectNone={clearEventSelection}
