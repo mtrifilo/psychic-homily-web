@@ -1,7 +1,7 @@
 import SwiftUI
 import PhotosUI
 
-@Observable
+@MainActor @Observable
 final class SubmitShowViewModel {
     // Image selection
     var selectedPhoto: PhotosPickerItem?

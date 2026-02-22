@@ -23,13 +23,13 @@ describe('authLogger', () => {
 
   afterEach(() => {
     // Restore original NODE_ENV
-    process.env.NODE_ENV = originalEnv
+    (process.env as Record<string, string>).NODE_ENV = originalEnv
     vi.restoreAllMocks()
   })
 
   describe('in development mode', () => {
     beforeEach(() => {
-      process.env.NODE_ENV = 'development'
+      (process.env as Record<string, string>).NODE_ENV = 'development'
     })
 
     it('logs debug messages', async () => {
@@ -188,7 +188,7 @@ describe('authLogger', () => {
 
   describe('in production mode', () => {
     beforeEach(() => {
-      process.env.NODE_ENV = 'production'
+      (process.env as Record<string, string>).NODE_ENV = 'production'
     })
 
     it('does not log debug messages', async () => {
@@ -232,7 +232,7 @@ describe('authLogger', () => {
 
   describe('email masking', () => {
     beforeEach(() => {
-      process.env.NODE_ENV = 'development'
+      (process.env as Record<string, string>).NODE_ENV = 'development'
     })
 
     it('masks email with 2 chars before @ and shows domain', async () => {
@@ -280,7 +280,7 @@ describe('authLogger', () => {
 
   describe('error serialization', () => {
     beforeEach(() => {
-      process.env.NODE_ENV = 'development'
+      (process.env as Record<string, string>).NODE_ENV = 'development'
     })
 
     it('serializes Error instances', async () => {

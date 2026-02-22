@@ -4,13 +4,13 @@ enum DateFormatting {
     /// Arizona timezone — no DST, always MST (UTC-7)
     static let arizonaTimeZone = TimeZone(identifier: "America/Phoenix")!
 
-    private static let isoParser: ISO8601DateFormatter = {
+    nonisolated(unsafe) private static let isoParser: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
     }()
 
-    private static let fallbackParser: ISO8601DateFormatter = {
+    nonisolated(unsafe) private static let fallbackParser: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         return f

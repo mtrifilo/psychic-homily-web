@@ -1,6 +1,6 @@
 import SwiftUI
 
-@Observable
+@MainActor @Observable
 final class ArtistDetailViewModel {
     var artist: Artist?
     var shows: [Show] = []

@@ -20,3 +20,11 @@ extension Color {
         )
     }
 }
+
+extension ShapeStyle where Self == Color {
+    static var phPrimary: Color { Color.phPrimary }
+    static var phSecondary: Color { Color.phSecondary }
+    static var phBackground: Color { Color.phBackground }
+    static var phSurface: Color { Color.phSurface }
+    static var phAccent: Color { Color.phAccent }
+}

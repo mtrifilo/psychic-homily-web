@@ -38,14 +38,22 @@ export function CityFilters({
   const isAllSelected = selectedCities.length === 0
   const selectedSet = new Set(selectedCities.map(cityKey))
 
-  const handleToggle = (city: string, state: string) => {
+  const handleToggle = (city: string, state: string, e: React.MouseEvent) => {
     const key = cityKey({ city, state })
-    if (selectedSet.has(key)) {
-      // Remove this city
-      onFilterChange(selectedCities.filter(c => cityKey(c) !== key))
+    if (e.shiftKey) {
+      // Shift+click: toggle this city in the multi-selection
+      if (selectedSet.has(key)) {
+        onFilterChange(selectedCities.filter(c => cityKey(c) !== key))
+      } else {
+        onFilterChange([...selectedCities, { city, state }])
+      }
     } else {
-      // Add this city
-      onFilterChange([...selectedCities, { city, state }])
+      // Single click: select only this city, or deselect if already the sole selection
+      if (selectedSet.has(key) && selectedCities.length === 1) {
+        onFilterChange([])
+      } else {
+        onFilterChange([{ city, state }])
+      }
     }
   }
 
@@ -65,7 +73,7 @@ export function CityFilters({
             key={`${city.city}-${city.state}`}
             label={label}
             isActive={isActive}
-            onClick={() => handleToggle(city.city, city.state)}
+            onClick={(e) => handleToggle(city.city, city.state, e)}
             count={city.count}
           />
         )

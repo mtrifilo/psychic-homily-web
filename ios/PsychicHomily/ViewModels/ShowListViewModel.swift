@@ -1,6 +1,6 @@
 import SwiftUI
 
-@Observable
+@MainActor @Observable
 final class ShowListViewModel {
     var shows: [Show] = []
     var cities: [ShowCity] = []

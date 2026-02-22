@@ -37,7 +37,7 @@ describe('mixes utilities', () => {
         '2025-01-01-mix-one.md',
         '2025-02-15-mix-two.md',
         '2025-03-01-mix-three.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.resetModules()
       const { getMixSlugs } = await import('./mixes')
@@ -56,7 +56,7 @@ describe('mixes utilities', () => {
         'cover.jpg',
         'tracklist.txt',
         '2025-02-01-another-mix.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.resetModules()
       const { getMixSlugs } = await import('./mixes')
@@ -73,7 +73,7 @@ describe('mixes utilities', () => {
         '_template.md',
         '_draft-mix.md',
         '2025-01-01-published-mix.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.resetModules()
       const { getMixSlugs } = await import('./mixes')
@@ -211,7 +211,7 @@ Content`)
         '2025-01-01-old-mix.md',
         '2025-03-01-new-mix.md',
         '2025-02-01-middle-mix.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.mocked(fs.existsSync).mockReturnValue(true)
 
@@ -256,7 +256,7 @@ Content`
     it('includes metadata for each mix', async () => {
       vi.mocked(fs.readdirSync).mockReturnValue([
         '2025-01-15-test-mix.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.mocked(fs.existsSync).mockReturnValue(true)
       vi.mocked(fs.readFileSync).mockReturnValue(`---
@@ -290,7 +290,7 @@ Mix content`)
       vi.mocked(fs.readdirSync).mockReturnValue([
         'valid.md',
         'invalid.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.mocked(fs.existsSync).mockImplementation(
         (path: fs.PathLike) => !path.toString().includes('invalid')
@@ -322,7 +322,7 @@ Content`)
     it('handles mixes with minimal frontmatter', async () => {
       vi.mocked(fs.readdirSync).mockReturnValue([
         'minimal.md',
-      ] as unknown as fs.Dirent[])
+      ] as unknown as ReturnType<typeof fs.readdirSync>)
 
       vi.mocked(fs.existsSync).mockReturnValue(true)
       vi.mocked(fs.readFileSync).mockReturnValue(`---

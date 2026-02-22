@@ -136,7 +136,7 @@ describe('useAuth hooks', () => {
       await waitFor(() => expect(result.current.isError).toBe(true))
 
       expect((result.current.error as Error).name).toBe('AuthError')
-      expect((result.current.error as { code: string }).code).toBe(
+      expect((result.current.error as unknown as { code: string }).code).toBe(
         AuthErrorCode.INVALID_CREDENTIALS
       )
     })
@@ -234,7 +234,7 @@ describe('useAuth hooks', () => {
       await waitFor(() => expect(result.current.isError).toBe(true))
 
       expect((result.current.error as Error).name).toBe('AuthError')
-      expect((result.current.error as { code: string }).code).toBe(
+      expect((result.current.error as unknown as { code: string }).code).toBe(
         AuthErrorCode.USER_EXISTS
       )
     })

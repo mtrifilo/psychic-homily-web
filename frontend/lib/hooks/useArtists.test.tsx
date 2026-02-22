@@ -52,8 +52,10 @@ describe('useArtists', () => {
       const mockArtist = {
         id: 1,
         name: 'Test Artist',
-        bandcamp_url: 'https://testartist.bandcamp.com',
-        spotify_url: null,
+        social: {
+          bandcamp: 'https://testartist.bandcamp.com',
+          spotify: null,
+        },
       }
       mockApiRequest.mockResolvedValueOnce(mockArtist)
 
@@ -113,10 +115,12 @@ describe('useArtists', () => {
       const mockArtist = {
         id: 2,
         name: 'Social Artist',
-        bandcamp_url: 'https://social.bandcamp.com/album/test',
-        spotify_url: 'https://open.spotify.com/artist/123',
-        website: 'https://socialartist.com',
-        instagram: '@socialartist',
+        social: {
+          bandcamp: 'https://social.bandcamp.com/album/test',
+          spotify: 'https://open.spotify.com/artist/123',
+          website: 'https://socialartist.com',
+          instagram: '@socialartist',
+        },
       }
       mockApiRequest.mockResolvedValueOnce(mockArtist)
 
@@ -126,10 +130,10 @@ describe('useArtists', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-      expect(result.current.data?.bandcamp_url).toBe(
+      expect(result.current.data?.social.bandcamp).toBe(
         'https://social.bandcamp.com/album/test'
       )
-      expect(result.current.data?.spotify_url).toBe(
+      expect(result.current.data?.social.spotify).toBe(
         'https://open.spotify.com/artist/123'
       )
     })

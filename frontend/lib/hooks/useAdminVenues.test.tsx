@@ -52,7 +52,7 @@ describe('useAdminVenues', () => {
       const mockResponse = {
         id: 1,
         name: 'Verified Venue',
-        is_verified: true,
+        verified: true,
       }
       mockApiRequest.mockResolvedValueOnce(mockResponse)
 
@@ -77,7 +77,7 @@ describe('useAdminVenues', () => {
         name: 'The Rebel Lounge',
         city: 'Phoenix',
         state: 'AZ',
-        is_verified: true,
+        verified: true,
       }
       mockApiRequest.mockResolvedValueOnce(mockVenue)
 
@@ -92,11 +92,11 @@ describe('useAdminVenues', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(result.current.data?.name).toBe('The Rebel Lounge')
-      expect(result.current.data?.is_verified).toBe(true)
+      expect(result.current.data?.verified).toBe(true)
     })
 
     it('invalidates venues and pending shows on success', async () => {
-      mockApiRequest.mockResolvedValueOnce({ id: 20, is_verified: true })
+      mockApiRequest.mockResolvedValueOnce({ id: 20, verified: true })
 
       const queryClient = createTestQueryClient()
       const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
