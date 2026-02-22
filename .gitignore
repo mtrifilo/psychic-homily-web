@@ -11,7 +11,10 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
-*.swo 
+*.swo
+*.xcuserstate
+xcuserdata/
+xcshareddata/
 
 # Environment files (CRITICAL - contains secrets)
 .env
