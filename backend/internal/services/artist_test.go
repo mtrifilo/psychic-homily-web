@@ -94,6 +94,13 @@ func TestArtistService_NilDatabase(t *testing.T) {
 		assert.Nil(t, resp)
 		assert.Zero(t, total)
 	})
+
+	t.Run("GetArtistCities", func(t *testing.T) {
+		resp, err := svc.GetArtistCities()
+		assert.Error(t, err)
+		assert.Equal(t, "database not initialized", err.Error())
+		assert.Nil(t, resp)
+	})
 }
 
 // =============================================================================
@@ -445,6 +452,24 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_FilterByCity() {
 	suite.Equal("PHX Artist", resp[0].Name)
 }
 
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_MultiCityFilter() {
+	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "PHX Band", City: stringPtr("Phoenix"), State: stringPtr("AZ")})
+	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Mesa Band", City: stringPtr("Mesa"), State: stringPtr("AZ")})
+	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "LA Band", City: stringPtr("Los Angeles"), State: stringPtr("CA")})
+
+	cities := []map[string]string{
+		{"city": "Phoenix", "state": "AZ"},
+		{"city": "Mesa", "state": "AZ"},
+	}
+	resp, err := suite.artistService.GetArtists(map[string]interface{}{"cities": cities})
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 2)
+	names := []string{resp[0].Name, resp[1].Name}
+	suite.Contains(names, "Mesa Band")
+	suite.Contains(names, "PHX Band")
+}
+
 func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_FilterByState() {
 	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "AZ Artist", State: stringPtr("AZ")})
 	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "CA Artist", State: stringPtr("CA")})
@@ -787,4 +812,46 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_RespectsLi
 	suite.Require().NoError(err)
 	suite.Equal(int64(5), total) // total count is still 5
 	suite.Len(resp, 3)           // but only 3 returned
+}
+
+// =============================================================================
+// Group 8: GetArtistCities
+// =============================================================================
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_Success() {
+	// Create artists in different cities
+	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "PHX Artist 1", City: stringPtr("Phoenix"), State: stringPtr("AZ")})
+	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "PHX Artist 2", City: stringPtr("Phoenix"), State: stringPtr("AZ")})
+	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Mesa Artist", City: stringPtr("Mesa"), State: stringPtr("AZ")})
+
+	resp, err := suite.artistService.GetArtistCities()
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 2)
+	// Ordered by count DESC, then city ASC
+	suite.Equal("Phoenix", resp[0].City)
+	suite.Equal("AZ", resp[0].State)
+	suite.Equal(2, resp[0].ArtistCount)
+	suite.Equal("Mesa", resp[1].City)
+	suite.Equal(1, resp[1].ArtistCount)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_ExcludesNullCity() {
+	// Artist with no city/state should not appear
+	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "No City Artist"})
+	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Has City", City: stringPtr("Tempe"), State: stringPtr("AZ")})
+
+	resp, err := suite.artistService.GetArtistCities()
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Equal("Tempe", resp[0].City)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_Empty() {
+	// No artists at all
+	resp, err := suite.artistService.GetArtistCities()
+
+	suite.Require().NoError(err)
+	suite.Empty(resp)
 }

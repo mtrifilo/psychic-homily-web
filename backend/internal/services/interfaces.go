@@ -77,6 +77,7 @@ type ArtistServiceInterface interface {
 	DeleteArtist(artistID uint) error
 	SearchArtists(query string) ([]*ArtistDetailResponse, error)
 	GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*ArtistShowResponse, int64, error)
+	GetArtistCities() ([]*ArtistCityResponse, error)
 }
 
 // SavedShowServiceInterface defines the contract for saved show operations.

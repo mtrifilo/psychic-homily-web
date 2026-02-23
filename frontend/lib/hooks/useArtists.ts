@@ -6,14 +6,66 @@
  * TanStack Query hooks for fetching artist data from the API.
  */
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../api'
 import { queryKeys } from '../queryClient'
+import type { CityState } from '@/components/filters'
 import type {
   Artist,
+  ArtistsListResponse,
+  ArtistCitiesResponse,
   ArtistShowsResponse,
   ArtistTimeFilter,
 } from '../types/artist'
+
+interface UseArtistsOptions {
+  cities?: CityState[]
+}
+
+/**
+ * Hook to fetch list of artists with optional city filtering
+ */
+export function useArtists(options: UseArtistsOptions = {}) {
+  const { cities } = options
+
+  // Build query params
+  const params = new URLSearchParams()
+  if (cities && cities.length > 0) {
+    params.set('cities', cities.map(c => `${c.city},${c.state}`).join('|'))
+  }
+
+  const queryString = params.toString()
+  const endpoint = queryString
+    ? `${API_ENDPOINTS.ARTISTS.LIST}?${queryString}`
+    : API_ENDPOINTS.ARTISTS.LIST
+
+  return useQuery({
+    queryKey: queryKeys.artists.list(cities ? { cities } : undefined),
+    queryFn: async (): Promise<ArtistsListResponse> => {
+      return apiRequest<ArtistsListResponse>(endpoint, {
+        method: 'GET',
+      })
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    placeholderData: keepPreviousData,
+  })
+}
+
+/**
+ * Hook to fetch distinct cities with artist counts for filtering
+ */
+export function useArtistCities() {
+  return useQuery({
+    queryKey: queryKeys.artists.cities,
+    queryFn: async (): Promise<ArtistCitiesResponse> => {
+      return apiRequest<ArtistCitiesResponse>(API_ENDPOINTS.ARTISTS.CITIES, {
+        method: 'GET',
+      })
+    },
+    staleTime: 10 * 60 * 1000, // 10 minutes - cities don't change often
+    placeholderData: keepPreviousData,
+  })
+}
 
 interface UseArtistOptions {
   artistId: string | number

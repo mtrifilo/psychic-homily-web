@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -178,11 +179,26 @@ func (s *ArtistService) GetArtists(filters map[string]interface{}) ([]*ArtistDet
 	query := s.db
 
 	// Apply filters
-	if state, ok := filters["state"].(string); ok && state != "" {
-		query = query.Where("state = ?", state)
-	}
-	if city, ok := filters["city"].(string); ok && city != "" {
-		query = query.Where("city = ?", city)
+	if cities, ok := filters["cities"].([]map[string]string); ok && len(cities) > 0 {
+		// Multi-city filter: (city = ? AND state = ?) OR ...
+		var conditions []string
+		var args []interface{}
+		for _, cs := range cities {
+			if cs["city"] != "" && cs["state"] != "" {
+				conditions = append(conditions, "(city = ? AND state = ?)")
+				args = append(args, cs["city"], cs["state"])
+			}
+		}
+		if len(conditions) > 0 {
+			query = query.Where(strings.Join(conditions, " OR "), args...)
+		}
+	} else {
+		if state, ok := filters["state"].(string); ok && state != "" {
+			query = query.Where("state = ?", state)
+		}
+		if city, ok := filters["city"].(string); ok && city != "" {
+			query = query.Where("city = ?", city)
+		}
 	}
 	if name, ok := filters["name"].(string); ok && name != "" {
 		query = query.Where("LOWER(name) LIKE LOWER(?)", "%"+name+"%")
@@ -324,6 +340,49 @@ func (s *ArtistService) SearchArtists(query string) ([]*ArtistDetailResponse, er
 	responses := make([]*ArtistDetailResponse, len(artists))
 	for i, artist := range artists {
 		responses[i] = s.buildArtistResponse(&artist)
+	}
+
+	return responses, nil
+}
+
+// ArtistCityResponse represents a city with artist count for filtering
+type ArtistCityResponse struct {
+	City        string `json:"city"`
+	State       string `json:"state"`
+	ArtistCount int    `json:"artist_count"`
+}
+
+// GetArtistCities returns distinct cities that have artists, with artist counts.
+// Results are sorted by artist count (descending) to show most active cities first.
+func (s *ArtistService) GetArtistCities() ([]*ArtistCityResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	type CityResult struct {
+		City        string
+		State       string
+		ArtistCount int64
+	}
+
+	var results []CityResult
+	err := s.db.Table("artists").
+		Select("city, state, COUNT(*) as artist_count").
+		Where("city IS NOT NULL AND city != '' AND state IS NOT NULL AND state != ''").
+		Group("city, state").
+		Order("artist_count DESC, city ASC").
+		Find(&results).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get artist cities: %w", err)
+	}
+
+	responses := make([]*ArtistCityResponse, len(results))
+	for i, r := range results {
+		responses[i] = &ArtistCityResponse{
+			City:        r.City,
+			State:       r.State,
+			ArtistCount: int(r.ArtistCount),
+		}
 	}
 
 	return responses, nil

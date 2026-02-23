@@ -891,6 +891,7 @@ type mockArtistService struct {
 	deleteArtistFn      func(artistID uint) error
 	searchArtistsFn     func(query string) ([]*services.ArtistDetailResponse, error)
 	getShowsForArtistFn func(artistID uint, timezone string, limit int, timeFilter string) ([]*services.ArtistShowResponse, int64, error)
+	getArtistCitiesFn   func() ([]*services.ArtistCityResponse, error)
 }
 
 func (m *mockArtistService) CreateArtist(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
@@ -946,6 +947,12 @@ func (m *mockArtistService) GetShowsForArtist(artistID uint, timezone string, li
 		return m.getShowsForArtistFn(artistID, timezone, limit, timeFilter)
 	}
 	return nil, 0, nil
+}
+func (m *mockArtistService) GetArtistCities() ([]*services.ArtistCityResponse, error) {
+	if m.getArtistCitiesFn != nil {
+		return m.getArtistCitiesFn()
+	}
+	return nil, nil
 }
 
 // ============================================================================
