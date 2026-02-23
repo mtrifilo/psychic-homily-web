@@ -1,4 +1,5 @@
 export { ArtistCard } from './ArtistCard'
+export { ArtistSearch } from './ArtistSearch'
 export { ArtistDetail } from './ArtistDetail'
 export { ArtistList } from './ArtistList'
 export { ArtistListSkeleton } from './ArtistListSkeleton'

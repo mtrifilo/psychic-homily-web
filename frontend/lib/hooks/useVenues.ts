@@ -16,9 +16,15 @@ import type {
   VenueCitiesResponse,
 } from '../types/venue'
 
+interface CityState {
+  city: string
+  state: string
+}
+
 interface UseVenuesOptions {
   state?: string
   city?: string
+  cities?: CityState[]
   limit?: number
   offset?: number
 }
@@ -27,12 +33,17 @@ interface UseVenuesOptions {
  * Hook to fetch list of venues with show counts
  */
 export const useVenues = (options: UseVenuesOptions = {}) => {
-  const { state, city, limit = 50, offset = 0 } = options
+  const { state, city, cities, limit = 50, offset = 0 } = options
 
   // Build query params
   const params = new URLSearchParams()
-  if (state) params.set('state', state)
-  if (city) params.set('city', city)
+  if (cities && cities.length > 0) {
+    // Multi-city filter: "Phoenix,AZ|Tucson,AZ"
+    params.set('cities', cities.map(c => `${c.city},${c.state}`).join('|'))
+  } else {
+    if (state) params.set('state', state)
+    if (city) params.set('city', city)
+  }
   if (limit) params.set('limit', limit.toString())
   if (offset) params.set('offset', offset.toString())
 
@@ -42,7 +53,7 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
     : API_ENDPOINTS.VENUES.LIST
 
   return useQuery({
-    queryKey: queryKeys.venues.list({ state, city, limit, offset }),
+    queryKey: queryKeys.venues.list({ state, city, cities, limit, offset }),
     queryFn: async (): Promise<VenuesListResponse> => {
       return apiRequest<VenuesListResponse>(endpoint, {
         method: 'GET',

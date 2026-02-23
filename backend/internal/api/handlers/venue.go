@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -54,6 +55,7 @@ func (h *VenueHandler) SearchVenuesHandler(ctx context.Context, req *SearchVenue
 type ListVenuesRequest struct {
 	State  string `query:"state" doc:"Filter by state" example:"AZ"`
 	City   string `query:"city" doc:"Filter by city" example:"Phoenix"`
+	Cities string `query:"cities" doc:"Pipe-delimited multi-city filter (max 10): Phoenix,AZ|Tucson,AZ" example:"Phoenix,AZ|Tucson,AZ"`
 	Limit  int    `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Maximum number of venues to return"`
 	Offset int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
@@ -70,9 +72,29 @@ type ListVenuesResponse struct {
 
 // ListVenuesHandler handles GET /venues - returns verified venues with upcoming show counts
 func (h *VenueHandler) ListVenuesHandler(ctx context.Context, req *ListVenuesRequest) (*ListVenuesResponse, error) {
-	filters := services.VenueListFilters{
-		State: req.State,
-		City:  req.City,
+	filters := services.VenueListFilters{}
+
+	if req.Cities != "" {
+		// Parse pipe-delimited multi-city param: "Phoenix,AZ|Tucson,AZ"
+		pairs := strings.Split(req.Cities, "|")
+		var cityFilters []services.CityStateFilter
+		for _, pair := range pairs {
+			parts := strings.SplitN(pair, ",", 2)
+			if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+				cityFilters = append(cityFilters, services.CityStateFilter{
+					City:  strings.TrimSpace(parts[0]),
+					State: strings.TrimSpace(parts[1]),
+				})
+			}
+		}
+		// Cap at 10 cities
+		if len(cityFilters) > 10 {
+			cityFilters = cityFilters[:10]
+		}
+		filters.Cities = cityFilters
+	} else {
+		filters.State = req.State
+		filters.City = req.City
 	}
 
 	limit := req.Limit

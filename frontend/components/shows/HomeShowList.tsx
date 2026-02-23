@@ -374,18 +374,20 @@ export function HomeShowList() {
   return (
     <div className="w-full">
       {cities.length > 1 && (
-        <CityFilters
-          cities={cities}
-          selectedCities={selectedCities}
-          onFilterChange={handleFilterChange}
-        >
-          {isAuthenticated && selectionDiffersFromFavorites && (
-            <SaveDefaultsButton
-              selectedCities={selectedCities}
-              favoriteCities={favoriteCities}
-            />
-          )}
-        </CityFilters>
+        <div className="mb-6">
+          <CityFilters
+            cities={cities}
+            selectedCities={selectedCities}
+            onFilterChange={handleFilterChange}
+          >
+            {isAuthenticated && selectionDiffersFromFavorites && (
+              <SaveDefaultsButton
+                selectedCities={selectedCities}
+                favoriteCities={favoriteCities}
+              />
+            )}
+          </CityFilters>
+        </div>
       )}
 
       <div className={isFetching ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>

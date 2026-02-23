@@ -1,4 +1,5 @@
 export { VenueCard } from './VenueCard'
+export { VenueSearch } from './VenueSearch'
 export { VenueDetail } from './VenueDetail'
 export { VenueList } from './VenueList'
 export { VenueLocationCard } from './VenueLocationCard'

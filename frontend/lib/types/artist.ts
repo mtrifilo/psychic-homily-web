@@ -52,8 +52,12 @@ export interface ArtistCitiesResponse {
   cities: ArtistCity[]
 }
 
+export interface ArtistListItem extends Artist {
+  upcoming_show_count: number
+}
+
 export interface ArtistsListResponse {
-  artists: Artist[]
+  artists: ArtistListItem[]
   count: number
 }
 

@@ -345,6 +345,78 @@ func (s *ArtistService) SearchArtists(query string) ([]*ArtistDetailResponse, er
 	return responses, nil
 }
 
+// ArtistWithCount is used internally for querying artists with their show counts
+type ArtistWithCount struct {
+	models.Artist
+	UpcomingShowCount int64 `gorm:"column:upcoming_show_count"`
+}
+
+// ArtistWithShowCountResponse represents an artist with its upcoming show count
+type ArtistWithShowCountResponse struct {
+	ArtistDetailResponse
+	UpcomingShowCount int `json:"upcoming_show_count"`
+}
+
+// GetArtistsWithShowCounts retrieves artists that have upcoming approved shows,
+// with their show counts. Results are sorted by show count (descending), then name (ascending).
+func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{}) ([]*ArtistWithShowCountResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now().UTC()
+
+	// Subquery: count upcoming approved shows per artist
+	subquery := s.db.Table("show_artists").
+		Select("show_artists.artist_id, COUNT(*) as show_count").
+		Joins("JOIN shows ON show_artists.show_id = shows.id").
+		Where("shows.event_date >= ? AND shows.status = ?", now, models.ShowStatusApproved).
+		Group("show_artists.artist_id")
+
+	// Main query: join artists with show counts, only include artists with upcoming shows
+	query := s.db.Table("artists").
+		Select("artists.*, COALESCE(sc.show_count, 0) as upcoming_show_count").
+		Joins("JOIN (?) as sc ON artists.id = sc.artist_id", subquery)
+
+	// Apply filters
+	if cities, ok := filters["cities"].([]map[string]string); ok && len(cities) > 0 {
+		var conditions []string
+		var args []interface{}
+		for _, cs := range cities {
+			if cs["city"] != "" && cs["state"] != "" {
+				conditions = append(conditions, "(artists.city = ? AND artists.state = ?)")
+				args = append(args, cs["city"], cs["state"])
+			}
+		}
+		if len(conditions) > 0 {
+			query = query.Where(strings.Join(conditions, " OR "), args...)
+		}
+	} else {
+		if state, ok := filters["state"].(string); ok && state != "" {
+			query = query.Where("artists.state = ?", state)
+		}
+		if city, ok := filters["city"].(string); ok && city != "" {
+			query = query.Where("artists.city = ?", city)
+		}
+	}
+
+	var artistsWithCount []ArtistWithCount
+	if err := query.Order("upcoming_show_count DESC, artists.name ASC").Find(&artistsWithCount).Error; err != nil {
+		return nil, fmt.Errorf("failed to get artists with show counts: %w", err)
+	}
+
+	// Build responses
+	responses := make([]*ArtistWithShowCountResponse, len(artistsWithCount))
+	for i, ac := range artistsWithCount {
+		responses[i] = &ArtistWithShowCountResponse{
+			ArtistDetailResponse: *s.buildArtistResponse(&ac.Artist),
+			UpcomingShowCount:    int(ac.UpcomingShowCount),
+		}
+	}
+
+	return responses, nil
+}
+
 // ArtistCityResponse represents a city with artist count for filtering
 type ArtistCityResponse struct {
 	City        string `json:"city"`
@@ -352,12 +424,15 @@ type ArtistCityResponse struct {
 	ArtistCount int    `json:"artist_count"`
 }
 
-// GetArtistCities returns distinct cities that have artists, with artist counts.
+// GetArtistCities returns distinct cities for artists that have upcoming approved shows.
+// Only artists with both city and state set are included.
 // Results are sorted by artist count (descending) to show most active cities first.
 func (s *ArtistService) GetArtistCities() ([]*ArtistCityResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
+
+	now := time.Now().UTC()
 
 	type CityResult struct {
 		City        string
@@ -365,10 +440,17 @@ func (s *ArtistService) GetArtistCities() ([]*ArtistCityResponse, error) {
 		ArtistCount int64
 	}
 
+	// Subquery: artist IDs that have upcoming approved shows
+	artistsWithShows := s.db.Table("show_artists").
+		Select("DISTINCT show_artists.artist_id").
+		Joins("JOIN shows ON show_artists.show_id = shows.id").
+		Where("shows.event_date >= ? AND shows.status = ?", now, models.ShowStatusApproved)
+
 	var results []CityResult
 	err := s.db.Table("artists").
 		Select("city, state, COUNT(*) as artist_count").
 		Where("city IS NOT NULL AND city != '' AND state IS NOT NULL AND state != ''").
+		Where("id IN (?)", artistsWithShows).
 		Group("city, state").
 		Order("artist_count DESC, city ASC").
 		Find(&results).Error

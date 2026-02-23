@@ -5,11 +5,29 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { useVenues, useVenueCities } from '@/lib/hooks/useVenues'
 import type { VenueWithShowCount } from '@/lib/types/venue'
 import { VenueCard } from './VenueCard'
+import { VenueSearch } from './VenueSearch'
 import { CityFilters, type CityWithCount, type CityState } from '@/components/filters'
 import { LoadingSpinner } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 
 const VENUES_PER_PAGE = 50
+
+/** Parse cities param from URL: "Phoenix,AZ|Tucson,AZ" -> CityState[] */
+function parseCitiesParam(param: string | null): CityState[] {
+  if (!param) return []
+  return param
+    .split('|')
+    .map(pair => {
+      const [city, state] = pair.split(',')
+      return city && state ? { city: city.trim(), state: state.trim() } : null
+    })
+    .filter((c): c is CityState => c !== null)
+}
+
+/** Build cities param for URL: CityState[] -> "Phoenix,AZ|Tucson,AZ" */
+function buildCitiesParam(cities: CityState[]): string {
+  return cities.map(c => `${c.city},${c.state}`).join('|')
+}
 
 export function VenueList() {
   const router = useRouter()
@@ -18,21 +36,15 @@ export function VenueList() {
   const [offset, setOffset] = useState(0)
   const [accumulatedVenues, setAccumulatedVenues] = useState<VenueWithShowCount[]>([])
 
-  const selectedCity = searchParams.get('city')
-  const selectedState = searchParams.get('state')
-
-  // Adapt single-select URL params to multi-select CityState[]
+  // Parse multi-city from URL
+  const citiesParam = searchParams.get('cities')
   const selectedCities: CityState[] = useMemo(() => {
-    if (selectedCity && selectedState) {
-      return [{ city: selectedCity, state: selectedState }]
-    }
-    return []
-  }, [selectedCity, selectedState])
+    return parseCitiesParam(citiesParam)
+  }, [citiesParam])
 
   const { data: citiesData, isLoading: citiesLoading, isFetching: citiesFetching } = useVenueCities()
   const { data, isLoading, isFetching, error, refetch } = useVenues({
-    city: selectedCity || undefined,
-    state: selectedState || undefined,
+    cities: selectedCities.length > 0 ? selectedCities : undefined,
     limit: VENUES_PER_PAGE,
     offset,
   })
@@ -44,7 +56,6 @@ export function VenueList() {
     }
   }, [data])
 
-  // Venues use single-select: take the last selected city (or clear all)
   const handleFilterChange = (cities: CityState[]) => {
     // Reset pagination on filter change
     setOffset(0)
@@ -52,10 +63,7 @@ export function VenueList() {
 
     const params = new URLSearchParams()
     if (cities.length > 0) {
-      // Take the most recently added city (last in array)
-      const city = cities[cities.length - 1]
-      params.set('city', city.city)
-      params.set('state', city.state)
+      params.set('cities', buildCitiesParam(cities))
     }
 
     const queryString = params.toString()
@@ -96,13 +104,16 @@ export function VenueList() {
 
   return (
     <section className="w-full max-w-4xl">
-      {cities.length > 1 && (
-        <CityFilters
-          cities={cities}
-          selectedCities={selectedCities}
-          onFilterChange={handleFilterChange}
-        />
-      )}
+      <div className="mb-6 space-y-4">
+        <VenueSearch />
+        {cities.length > 0 && (
+          <CityFilters
+            cities={cities}
+            selectedCities={selectedCities}
+            onFilterChange={handleFilterChange}
+          />
+        )}
+      </div>
 
       {/* Dim content while fetching, don't hide it */}
       <div className={isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
@@ -112,11 +123,11 @@ export function VenueList() {
             return (
               <div className="text-center py-12 text-muted-foreground">
                 <p>
-                  {selectedCity
-                    ? `No venues found in ${selectedCity}.`
+                  {selectedCities.length > 0
+                    ? 'No venues found in the selected cities.'
                     : 'No venues available at this time.'}
                 </p>
-                {selectedCity && (
+                {selectedCities.length > 0 && (
                   <button
                     onClick={() => handleFilterChange([])}
                     className="mt-4 text-primary hover:underline"

@@ -75,8 +75,8 @@ type ListArtistsRequest struct {
 // ListArtistsResponse represents the response for listing artists
 type ListArtistsResponse struct {
 	Body struct {
-		Artists []*services.ArtistDetailResponse `json:"artists" doc:"List of artists"`
-		Count   int                              `json:"count" doc:"Number of artists"`
+		Artists []*services.ArtistWithShowCountResponse `json:"artists" doc:"List of artists with upcoming show counts"`
+		Count   int                                     `json:"count" doc:"Number of artists"`
 	}
 }
 
@@ -113,7 +113,7 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 		}
 	}
 
-	artists, err := h.artistService.GetArtists(filters)
+	artists, err := h.artistService.GetArtistsWithShowCounts(filters)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to fetch artists", err)
 	}

@@ -4,6 +4,7 @@ import { useMemo, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useArtists, useArtistCities } from '@/lib/hooks/useArtists'
 import { ArtistCard } from './ArtistCard'
+import { ArtistSearch } from './ArtistSearch'
 import { CityFilters, type CityWithCount, type CityState } from '@/components/filters'
 import { LoadingSpinner } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -86,13 +87,16 @@ export function ArtistList() {
 
   return (
     <section className="w-full max-w-4xl">
-      {cities.length > 1 && (
-        <CityFilters
-          cities={cities}
-          selectedCities={selectedCities}
-          onFilterChange={handleFilterChange}
-        />
-      )}
+      <div className="mb-6 space-y-4">
+        <ArtistSearch />
+        {cities.length > 0 && (
+          <CityFilters
+            cities={cities}
+            selectedCities={selectedCities}
+            onFilterChange={handleFilterChange}
+          />
+        )}
+      </div>
 
       {/* Dim content while fetching, don't hide it */}
       <div className={isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
@@ -113,9 +117,11 @@ export function ArtistList() {
             )}
           </div>
         ) : (
-          artists.map(artist => (
-            <ArtistCard key={artist.id} artist={artist} />
-          ))
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-2">
+            {artists.map(artist => (
+              <ArtistCard key={artist.id} artist={artist} />
+            ))}
+          </div>
         )}
       </div>
     </section>

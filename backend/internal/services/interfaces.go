@@ -73,6 +73,7 @@ type ArtistServiceInterface interface {
 	GetArtistByName(name string) (*ArtistDetailResponse, error)
 	GetArtistBySlug(slug string) (*ArtistDetailResponse, error)
 	GetArtists(filters map[string]interface{}) ([]*ArtistDetailResponse, error)
+	GetArtistsWithShowCounts(filters map[string]interface{}) ([]*ArtistWithShowCountResponse, error)
 	UpdateArtist(artistID uint, updates map[string]interface{}) (*ArtistDetailResponse, error)
 	DeleteArtist(artistID uint) error
 	SearchArtists(query string) ([]*ArtistDetailResponse, error)
