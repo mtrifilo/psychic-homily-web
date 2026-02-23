@@ -1,5 +1,6 @@
 export const navLinks = [
   { href: '/shows', label: 'Shows' },
+  { href: '/artists', label: 'Artists' },
   { href: '/venues', label: 'Venues' },
   { href: '/blog', label: 'Blog' },
   { href: '/dj-sets', label: 'DJ Sets' },
