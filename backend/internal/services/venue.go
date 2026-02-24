@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -486,6 +487,7 @@ type VenueWithShowCountResponse struct {
 type VenueListFilters struct {
 	State    string
 	City     string
+	Cities   []CityStateFilter
 	Verified *bool
 }
 
@@ -520,21 +522,49 @@ func (s *VenueService) GetVenuesWithShowCounts(filters VenueListFilters, limit, 
 		Where("venues.verified = ?", true)
 
 	// Apply optional filters
-	if filters.State != "" {
-		query = query.Where("venues.state = ?", filters.State)
-	}
-	if filters.City != "" {
-		query = query.Where("venues.city = ?", filters.City)
+	if len(filters.Cities) > 0 {
+		var conditions []string
+		var args []interface{}
+		for _, cs := range filters.Cities {
+			if cs.City != "" && cs.State != "" {
+				conditions = append(conditions, "(venues.city = ? AND venues.state = ?)")
+				args = append(args, cs.City, cs.State)
+			}
+		}
+		if len(conditions) > 0 {
+			query = query.Where(strings.Join(conditions, " OR "), args...)
+		}
+	} else {
+		if filters.State != "" {
+			query = query.Where("venues.state = ?", filters.State)
+		}
+		if filters.City != "" {
+			query = query.Where("venues.city = ?", filters.City)
+		}
 	}
 
 	// Get total count of matching venues
 	var total int64
 	countQuery := s.db.Table("venues").Where("verified = ?", true)
-	if filters.State != "" {
-		countQuery = countQuery.Where("state = ?", filters.State)
-	}
-	if filters.City != "" {
-		countQuery = countQuery.Where("city = ?", filters.City)
+	if len(filters.Cities) > 0 {
+		var conditions []string
+		var args []interface{}
+		for _, cs := range filters.Cities {
+			if cs.City != "" && cs.State != "" {
+				conditions = append(conditions, "(city = ? AND state = ?)")
+				args = append(args, cs.City, cs.State)
+			}
+		}
+		if len(conditions) > 0 {
+			countQuery = countQuery.Where(strings.Join(conditions, " OR "), args...)
+		}
+	} else {
+		if filters.State != "" {
+			countQuery = countQuery.Where("state = ?", filters.State)
+		}
+		if filters.City != "" {
+			countQuery = countQuery.Where("city = ?", filters.City)
+		}
 	}
 	if err := countQuery.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count venues: %w", err)

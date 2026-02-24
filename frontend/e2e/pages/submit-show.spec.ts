@@ -14,7 +14,7 @@ test.describe('Submit a show', () => {
 
     // Artists section
     await expect(
-      authenticatedPage.getByText('Artists', { exact: true })
+      authenticatedPage.getByRole('heading', { name: 'Artists' })
     ).toBeVisible({ timeout: 5_000 })
 
     // Venue input

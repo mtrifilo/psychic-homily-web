@@ -94,6 +94,20 @@ func TestArtistService_NilDatabase(t *testing.T) {
 		assert.Nil(t, resp)
 		assert.Zero(t, total)
 	})
+
+	t.Run("GetArtistCities", func(t *testing.T) {
+		resp, err := svc.GetArtistCities()
+		assert.Error(t, err)
+		assert.Equal(t, "database not initialized", err.Error())
+		assert.Nil(t, resp)
+	})
+
+	t.Run("GetArtistsWithShowCounts", func(t *testing.T) {
+		resp, err := svc.GetArtistsWithShowCounts(nil)
+		assert.Error(t, err)
+		assert.Equal(t, "database not initialized", err.Error())
+		assert.Nil(t, resp)
+	})
 }
 
 // =============================================================================
@@ -445,6 +459,24 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_FilterByCity() {
 	suite.Equal("PHX Artist", resp[0].Name)
 }
 
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_MultiCityFilter() {
+	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "PHX Band", City: stringPtr("Phoenix"), State: stringPtr("AZ")})
+	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Mesa Band", City: stringPtr("Mesa"), State: stringPtr("AZ")})
+	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "LA Band", City: stringPtr("Los Angeles"), State: stringPtr("CA")})
+
+	cities := []map[string]string{
+		{"city": "Phoenix", "state": "AZ"},
+		{"city": "Mesa", "state": "AZ"},
+	}
+	resp, err := suite.artistService.GetArtists(map[string]interface{}{"cities": cities})
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 2)
+	names := []string{resp[0].Name, resp[1].Name}
+	suite.Contains(names, "Mesa Band")
+	suite.Contains(names, "PHX Band")
+}
+
 func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_FilterByState() {
 	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "AZ Artist", State: stringPtr("AZ")})
 	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "CA Artist", State: stringPtr("CA")})
@@ -787,4 +819,154 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_RespectsLi
 	suite.Require().NoError(err)
 	suite.Equal(int64(5), total) // total count is still 5
 	suite.Len(resp, 3)           // but only 3 returned
+}
+
+// =============================================================================
+// Group 8: GetArtistCities
+// =============================================================================
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_Success() {
+	venue := suite.createTestVenue("City Venue", "Phoenix", "AZ")
+	user := suite.createTestUser()
+
+	// Create artists in different cities with upcoming shows
+	a1, _ := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "PHX Artist 1", City: stringPtr("Phoenix"), State: stringPtr("AZ")})
+	a2, _ := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "PHX Artist 2", City: stringPtr("Phoenix"), State: stringPtr("AZ")})
+	a3, _ := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Mesa Artist", City: stringPtr("Mesa"), State: stringPtr("AZ")})
+
+	// Give all three artists upcoming shows
+	suite.createApprovedShowWithArtist(a1.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+	suite.createApprovedShowWithArtist(a2.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 14))
+	suite.createApprovedShowWithArtist(a3.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 21))
+
+	resp, err := suite.artistService.GetArtistCities()
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 2)
+	// Ordered by count DESC, then city ASC
+	suite.Equal("Phoenix", resp[0].City)
+	suite.Equal("AZ", resp[0].State)
+	suite.Equal(2, resp[0].ArtistCount)
+	suite.Equal("Mesa", resp[1].City)
+	suite.Equal(1, resp[1].ArtistCount)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_ExcludesNullCity() {
+	venue := suite.createTestVenue("NullCity Venue", "Phoenix", "AZ")
+	user := suite.createTestUser()
+
+	// Artist with no city/state should not appear even with upcoming show
+	noCityArtist := suite.createTestArtist("No City Artist")
+	suite.createApprovedShowWithArtist(noCityArtist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+
+	// Artist with city and upcoming show should appear
+	hasCityArtist, _ := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Has City", City: stringPtr("Tempe"), State: stringPtr("AZ")})
+	suite.createApprovedShowWithArtist(hasCityArtist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 14))
+
+	resp, err := suite.artistService.GetArtistCities()
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Equal("Tempe", resp[0].City)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_ExcludesArtistsWithoutUpcomingShows() {
+	venue := suite.createTestVenue("Past Venue", "Phoenix", "AZ")
+	user := suite.createTestUser()
+
+	// Artist with city but only past shows should not appear
+	pastArtist, _ := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Past Artist", City: stringPtr("Phoenix"), State: stringPtr("AZ")})
+	suite.createApprovedShowWithArtist(pastArtist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, -7))
+
+	// Artist with city but no shows at all should not appear
+	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "No Show Artist", City: stringPtr("Mesa"), State: stringPtr("AZ")})
+
+	resp, err := suite.artistService.GetArtistCities()
+
+	suite.Require().NoError(err)
+	suite.Empty(resp)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_Empty() {
+	// No artists at all
+	resp, err := suite.artistService.GetArtistCities()
+
+	suite.Require().NoError(err)
+	suite.Empty(resp)
+}
+
+// =============================================================================
+// Group 9: GetArtistsWithShowCounts
+// =============================================================================
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistsWithShowCounts_OnlyUpcoming() {
+	artist1 := suite.createTestArtist("Active Artist")
+	artist2 := suite.createTestArtist("Inactive Artist")
+	venue := suite.createTestVenue("Test Venue", "Phoenix", "AZ")
+	user := suite.createTestUser()
+
+	// artist1 has an upcoming show
+	suite.createApprovedShowWithArtist(artist1.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+	// artist2 has only a past show
+	suite.createApprovedShowWithArtist(artist2.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, -7))
+
+	resp, err := suite.artistService.GetArtistsWithShowCounts(map[string]interface{}{})
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Equal("Active Artist", resp[0].Name)
+	suite.Equal(1, resp[0].UpcomingShowCount)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistsWithShowCounts_SortedByCount() {
+	artist1 := suite.createTestArtist("Few Shows")
+	artist2 := suite.createTestArtist("Many Shows")
+	venue := suite.createTestVenue("Sort Venue", "Phoenix", "AZ")
+	user := suite.createTestUser()
+
+	// artist1: 1 upcoming show
+	suite.createApprovedShowWithArtist(artist1.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+	// artist2: 3 upcoming shows
+	suite.createApprovedShowWithArtist(artist2.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+	suite.createApprovedShowWithArtist(artist2.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 14))
+	suite.createApprovedShowWithArtist(artist2.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 21))
+
+	resp, err := suite.artistService.GetArtistsWithShowCounts(map[string]interface{}{})
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 2)
+	// Sorted by count DESC
+	suite.Equal("Many Shows", resp[0].Name)
+	suite.Equal(3, resp[0].UpcomingShowCount)
+	suite.Equal("Few Shows", resp[1].Name)
+	suite.Equal(1, resp[1].UpcomingShowCount)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistsWithShowCounts_Empty() {
+	// No artists with upcoming shows
+	suite.createTestArtist("No Shows Artist")
+
+	resp, err := suite.artistService.GetArtistsWithShowCounts(map[string]interface{}{})
+
+	suite.Require().NoError(err)
+	suite.Empty(resp)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistsWithShowCounts_WithCityFilter() {
+	artist1 := suite.createTestArtist("PHX Artist")
+	suite.db.Model(artist1).Updates(map[string]interface{}{"city": "Phoenix", "state": "AZ"})
+	artist2 := suite.createTestArtist("LA Artist")
+	suite.db.Model(artist2).Updates(map[string]interface{}{"city": "Los Angeles", "state": "CA"})
+	venue := suite.createTestVenue("Filter Venue", "Phoenix", "AZ")
+	user := suite.createTestUser()
+
+	suite.createApprovedShowWithArtist(artist1.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+	suite.createApprovedShowWithArtist(artist2.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+
+	cities := []map[string]string{{"city": "Phoenix", "state": "AZ"}}
+	resp, err := suite.artistService.GetArtistsWithShowCounts(map[string]interface{}{"cities": cities})
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Equal("PHX Artist", resp[0].Name)
 }

@@ -84,21 +84,46 @@ func (s *ArtistHandlerIntegrationSuite) TestSearchArtists_NoResults() {
 	s.Equal(0, resp.Body.Count)
 }
 
+// createArtistWithUpcomingShow creates an artist and gives it an upcoming approved show
+func (s *ArtistHandlerIntegrationSuite) createArtistWithUpcomingShow(name string) uint {
+	artistID := s.createArtistViaService(name)
+	user := createTestUser(s.deps.db)
+	venue := createVerifiedVenue(s.deps.db, fmt.Sprintf("Venue for %s", name), "Phoenix", "AZ")
+
+	show := &models.Show{
+		Title:       fmt.Sprintf("Show for %s", name),
+		EventDate:   time.Now().UTC().AddDate(0, 0, 30),
+		City:        stringPtr("Phoenix"),
+		State:       stringPtr("AZ"),
+		Status:      models.ShowStatusApproved,
+		SubmittedBy: &user.ID,
+	}
+	s.deps.db.Create(show)
+	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	s.deps.db.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artistID)
+	return artistID
+}
+
 // --- ListArtistsHandler ---
 
 func (s *ArtistHandlerIntegrationSuite) TestListArtists_Success() {
-	s.createArtistViaService("Artist A")
-	s.createArtistViaService("Artist B")
-	s.createArtistViaService("Artist C")
+	s.createArtistWithUpcomingShow("Artist A")
+	s.createArtistWithUpcomingShow("Artist B")
+	s.createArtistWithUpcomingShow("Artist C")
 
 	req := &ListArtistsRequest{}
 	resp, err := s.handler.ListArtistsHandler(s.deps.ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.GreaterOrEqual(resp.Body.Count, 3)
+	// Should include upcoming show counts
+	s.GreaterOrEqual(resp.Body.Artists[0].UpcomingShowCount, 1)
 }
 
 func (s *ArtistHandlerIntegrationSuite) TestListArtists_Empty() {
+	// Artists without upcoming shows should not appear
+	s.createArtistViaService("No Shows Artist")
+
 	req := &ListArtistsRequest{}
 	resp, err := s.handler.ListArtistsHandler(s.deps.ctx, req)
 	s.NoError(err)
@@ -107,8 +132,24 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_Empty() {
 }
 
 func (s *ArtistHandlerIntegrationSuite) TestListArtists_CityFilter() {
-	s.createArtistWithCity("Phoenix Band", "Phoenix", "AZ")
+	// Create artist with city + upcoming show
+	artist := s.createArtistWithCity("Phoenix Band", "Phoenix", "AZ")
 	s.createArtistWithCity("Tucson Band", "Tucson", "AZ")
+
+	// Give Phoenix Band an upcoming show
+	user := createTestUser(s.deps.db)
+	venue := createVerifiedVenue(s.deps.db, "PHX Venue", "Phoenix", "AZ")
+	show := &models.Show{
+		Title:       "PHX Show",
+		EventDate:   time.Now().UTC().AddDate(0, 0, 30),
+		City:        stringPtr("Phoenix"),
+		State:       stringPtr("AZ"),
+		Status:      models.ShowStatusApproved,
+		SubmittedBy: &user.ID,
+	}
+	s.deps.db.Create(show)
+	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	s.deps.db.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artist.ID)
 
 	req := &ListArtistsRequest{City: "Phoenix"}
 	resp, err := s.handler.ListArtistsHandler(s.deps.ctx, req)

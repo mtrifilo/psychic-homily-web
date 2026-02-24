@@ -123,15 +123,24 @@ test.describe('Collection page', () => {
         .getByRole('link', { name: 'Details' })
     ).toBeVisible()
 
-    // Clean up: go back to the show and unsave it
+    // Clean up: go back to the show and unsave it (wait for API response
+    // so the DELETE completes before the test ends and the page closes)
     await authenticatedPage.goto(showUrl)
     await expect(
       authenticatedPage.getByRole('heading', { level: 1 })
     ).toBeVisible({ timeout: 10_000 })
 
-    await authenticatedPage
-      .getByRole('button', { name: 'Remove from My List' })
-      .click()
+    await Promise.all([
+      authenticatedPage.waitForResponse(
+        (resp) =>
+          resp.url().includes('/saved-shows/') &&
+          resp.request().method() === 'DELETE',
+        { timeout: 10_000 }
+      ),
+      authenticatedPage
+        .getByRole('button', { name: 'Remove from My List' })
+        .click(),
+    ])
     await expect(
       authenticatedPage.getByRole('button', { name: 'Add to My List' })
     ).toBeVisible({ timeout: 5_000 })

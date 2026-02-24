@@ -67,29 +67,53 @@ func (h *ArtistHandler) SearchArtistsHandler(ctx context.Context, req *SearchArt
 
 // ListArtistsRequest represents the request for listing all artists
 type ListArtistsRequest struct {
-	State string `query:"state" doc:"Filter by state" example:"AZ"`
-	City  string `query:"city" doc:"Filter by city" example:"Phoenix"`
+	State  string `query:"state" doc:"Filter by state" example:"AZ"`
+	City   string `query:"city" doc:"Filter by city" example:"Phoenix"`
+	Cities string `query:"cities" doc:"Pipe-delimited multi-city filter (max 10): Phoenix,AZ|Mesa,AZ" example:"Phoenix,AZ|Mesa,AZ"`
 }
 
 // ListArtistsResponse represents the response for listing artists
 type ListArtistsResponse struct {
 	Body struct {
-		Artists []*services.ArtistDetailResponse `json:"artists" doc:"List of artists"`
-		Count   int                              `json:"count" doc:"Number of artists"`
+		Artists []*services.ArtistWithShowCountResponse `json:"artists" doc:"List of artists with upcoming show counts"`
+		Count   int                                     `json:"count" doc:"Number of artists"`
 	}
 }
 
 // ListArtistsHandler handles GET /artists - returns all artists
 func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtistsRequest) (*ListArtistsResponse, error) {
 	filters := make(map[string]interface{})
-	if req.State != "" {
-		filters["state"] = req.State
-	}
-	if req.City != "" {
-		filters["city"] = req.City
+
+	if req.Cities != "" {
+		// Parse pipe-delimited multi-city param: "Phoenix,AZ|Mesa,AZ"
+		pairs := strings.Split(req.Cities, "|")
+		var cityFilters []map[string]string
+		for _, pair := range pairs {
+			parts := strings.SplitN(pair, ",", 2)
+			if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+				cityFilters = append(cityFilters, map[string]string{
+					"city":  strings.TrimSpace(parts[0]),
+					"state": strings.TrimSpace(parts[1]),
+				})
+			}
+		}
+		// Cap at 10 cities
+		if len(cityFilters) > 10 {
+			cityFilters = cityFilters[:10]
+		}
+		if len(cityFilters) > 0 {
+			filters["cities"] = cityFilters
+		}
+	} else {
+		if req.State != "" {
+			filters["state"] = req.State
+		}
+		if req.City != "" {
+			filters["city"] = req.City
+		}
 	}
 
-	artists, err := h.artistService.GetArtists(filters)
+	artists, err := h.artistService.GetArtistsWithShowCounts(filters)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to fetch artists", err)
 	}
@@ -97,6 +121,29 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 	resp := &ListArtistsResponse{}
 	resp.Body.Artists = artists
 	resp.Body.Count = len(artists)
+
+	return resp, nil
+}
+
+// GetArtistCitiesRequest represents the request for getting artist cities
+type GetArtistCitiesRequest struct{}
+
+// GetArtistCitiesResponse represents the response for the artist cities endpoint
+type GetArtistCitiesResponse struct {
+	Body struct {
+		Cities []*services.ArtistCityResponse `json:"cities" doc:"List of cities with artist counts"`
+	}
+}
+
+// GetArtistCitiesHandler handles GET /artists/cities
+func (h *ArtistHandler) GetArtistCitiesHandler(ctx context.Context, req *GetArtistCitiesRequest) (*GetArtistCitiesResponse, error) {
+	cities, err := h.artistService.GetArtistCities()
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to fetch artist cities", err)
+	}
+
+	resp := &GetArtistCitiesResponse{}
+	resp.Body.Cities = cities
 
 	return resp, nil
 }

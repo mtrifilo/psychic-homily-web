@@ -42,6 +42,25 @@ export interface ArtistEditRequest {
   website?: string
 }
 
+export interface ArtistCity {
+  city: string
+  state: string
+  artist_count: number
+}
+
+export interface ArtistCitiesResponse {
+  cities: ArtistCity[]
+}
+
+export interface ArtistListItem extends Artist {
+  upcoming_show_count: number
+}
+
+export interface ArtistsListResponse {
+  artists: ArtistListItem[]
+  count: number
+}
+
 export interface ArtistSearchParams {
   query: string
 }

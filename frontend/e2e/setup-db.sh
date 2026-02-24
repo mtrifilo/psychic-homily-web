@@ -10,25 +10,17 @@ set -euo pipefail
 E2E_DB_URL="postgres://e2euser:e2epassword@localhost:5433/e2edb?sslmode=disable"
 
 echo "==> Waiting for migrate service to finish..."
-# Wait up to 60s for the migrate container to exit successfully
-for i in $(seq 1 30); do
-  STATUS=$(docker compose -p e2e -f docker-compose.e2e.yml ps migrate --format json 2>/dev/null | python3 -c "import sys,json; data=json.load(sys.stdin); print(data['State'] if isinstance(data, dict) else data[0]['State'])" 2>/dev/null || echo "unknown")
-  if [ "$STATUS" = "exited" ]; then
-    EXIT_CODE=$(docker compose -p e2e -f docker-compose.e2e.yml ps migrate --format json 2>/dev/null | python3 -c "import sys,json; data=json.load(sys.stdin); print(data['ExitCode'] if isinstance(data, dict) else data[0]['ExitCode'])" 2>/dev/null || echo "1")
-    if [ "$EXIT_CODE" = "0" ]; then
-      echo "    Migrations completed successfully."
-      break
-    else
-      echo "ERROR: Migrate exited with code $EXIT_CODE"
-      docker compose -p e2e -f docker-compose.e2e.yml logs migrate
-      exit 1
-    fi
-  fi
-  sleep 2
-done
+# Block until the migrate container exits; propagates its exit code.
+# (docker compose wait is available since Compose v2.23)
+if ! docker compose -p e2e -f docker-compose.e2e.yml wait migrate; then
+  echo "ERROR: Migrations failed. Container logs:"
+  docker compose -p e2e -f docker-compose.e2e.yml logs migrate
+  exit 1
+fi
+echo "    Migrations completed successfully."
 
 echo "==> Seeding venues and artists..."
-psql "$E2E_DB_URL" <<'SQL'
+psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
 -- Minimal set of venues for E2E tests
 INSERT INTO venues (name, address, city, state, zipcode, verified, created_at, updated_at, slug)
 VALUES
@@ -57,7 +49,7 @@ ON CONFLICT DO NOTHING;
 SQL
 
 echo "==> Inserting future-dated test shows..."
-psql "$E2E_DB_URL" <<'SQL'
+psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
 -- Insert 55 future-dated approved shows (enough to trigger pagination at limit=50).
 -- Uses venue/artist IDs from the seed data, cycling through them.
 DO $$
@@ -100,12 +92,12 @@ END $$;
 SQL
 
 echo "==> Verifying seeded venues (public API requires verified=true)..."
-psql "$E2E_DB_URL" <<'SQL'
+psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
 UPDATE venues SET verified = true WHERE verified = false;
 SQL
 
 echo "==> Backfilling slugs for any records missing them..."
-psql "$E2E_DB_URL" <<'SQL'
+psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
 -- Backfill show slugs (the SQL-inserted E2E shows don't have slugs)
 UPDATE shows
 SET slug = LOWER(
@@ -132,7 +124,7 @@ echo "==> Inserting test users..."
 # Pre-computed bcrypt hash for "e2e-test-password-123" (cost 10)
 BCRYPT_HASH='$2a$10$h7GdGcX7SxMFQCohXdTQnuVkygj7RPCcPhPrPMgHkWr50w.Fv0XoW'
 
-psql "$E2E_DB_URL" <<SQL
+psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<SQL
 -- Regular test user
 INSERT INTO users (email, password_hash, first_name, last_name, is_active, is_admin, email_verified, created_at, updated_at)
 VALUES ('e2e-user@test.local', '${BCRYPT_HASH}', 'Test', 'User', true, false, true, NOW(), NOW())
@@ -156,7 +148,7 @@ ON CONFLICT (user_id) DO NOTHING;
 SQL
 
 echo "==> Inserting admin workflow test data..."
-psql "$E2E_DB_URL" <<'SQL'
+psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
 -- Admin workflow seed data: pending shows, unverified venue, pending venue edits
 DO $$
 DECLARE

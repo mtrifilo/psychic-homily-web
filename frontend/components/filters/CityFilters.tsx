@@ -58,7 +58,7 @@ export function CityFilters({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 mb-6">
+    <div className="flex flex-wrap items-center gap-2">
       <FilterChip
         label={allLabel}
         isActive={isAllSelected}

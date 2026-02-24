@@ -90,6 +90,18 @@ func (s *VenueHandlerIntegrationSuite) TestListVenues_CityFilter() {
 	s.Equal(int64(1), resp.Body.Total)
 }
 
+func (s *VenueHandlerIntegrationSuite) TestListVenues_MultiCityFilter() {
+	createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
+	createVerifiedVenue(s.deps.db, "Club Congress", "Tucson", "AZ")
+	createVerifiedVenue(s.deps.db, "Empty Bottle", "Chicago", "IL")
+
+	req := &ListVenuesRequest{Cities: "Phoenix,AZ|Chicago,IL", Limit: 50, Offset: 0}
+	resp, err := s.handler.ListVenuesHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.Equal(int64(2), resp.Body.Total)
+	s.Len(resp.Body.Venues, 2)
+}
+
 // --- GetVenueHandler ---
 
 func (s *VenueHandlerIntegrationSuite) TestGetVenue_ByID() {

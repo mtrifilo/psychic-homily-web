@@ -157,6 +157,9 @@ export const queryKeys = {
   // Artist queries
   artists: {
     all: ['artists'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      ['artists', 'list', filters] as const,
+    cities: ['artists', 'cities'] as const,
     search: (query: string) =>
       ['artists', 'search', query.toLowerCase()] as const,
     detail: (idOrSlug: string | number) => ['artists', 'detail', String(idOrSlug)] as const,

@@ -12,6 +12,8 @@ vi.mock('../api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
   API_ENDPOINTS: {
     ARTISTS: {
+      LIST: '/artists',
+      CITIES: '/artists/cities',
       GET: (artistId: string | number) => `/artists/${artistId}`,
       SHOWS: (artistId: string | number) => `/artists/${artistId}/shows`,
     },
@@ -23,6 +25,8 @@ vi.mock('../api', () => ({
 vi.mock('../queryClient', () => ({
   queryKeys: {
     artists: {
+      list: (filters?: Record<string, unknown>) => ['artists', 'list', filters],
+      cities: ['artists', 'cities'],
       detail: (id: string | number) => ['artists', 'detail', String(id)],
       shows: (artistId: string | number) => ['artists', 'shows', String(artistId)],
     },
@@ -30,7 +34,7 @@ vi.mock('../queryClient', () => ({
 }))
 
 // Import hooks after mocks are set up
-import { useArtist, useArtistShows } from './useArtists'
+import { useArtists, useArtistCities, useArtist, useArtistShows } from './useArtists'
 
 // Helper to create wrapper with specific query client
 function createWrapperWithClient(queryClient: QueryClient) {
@@ -136,6 +140,88 @@ describe('useArtists', () => {
       expect(result.current.data?.social.spotify).toBe(
         'https://open.spotify.com/artist/123'
       )
+    })
+  })
+
+  describe('useArtists', () => {
+    it('fetches all artists without filters', async () => {
+      const mockResponse = {
+        artists: [{ id: 1, name: 'Artist A' }, { id: 2, name: 'Artist B' }],
+        count: 2,
+      }
+      mockApiRequest.mockResolvedValueOnce(mockResponse)
+
+      const { result } = renderHook(() => useArtists(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith('/artists', { method: 'GET' })
+      expect(result.current.data?.artists).toHaveLength(2)
+    })
+
+    it('includes cities filter in query params', async () => {
+      mockApiRequest.mockResolvedValueOnce({ artists: [], count: 0 })
+
+      const { result } = renderHook(
+        () => useArtists({ cities: [{ city: 'Phoenix', state: 'AZ' }, { city: 'Mesa', state: 'AZ' }] }),
+        { wrapper: createWrapper() }
+      )
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/artists?cities=Phoenix%2CAZ%7CMesa%2CAZ',
+        { method: 'GET' }
+      )
+    })
+
+    it('handles API errors', async () => {
+      const error = new Error('Server error')
+      Object.assign(error, { status: 500 })
+      mockApiRequest.mockRejectedValueOnce(error)
+
+      const { result } = renderHook(() => useArtists(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+    })
+  })
+
+  describe('useArtistCities', () => {
+    it('fetches artist cities', async () => {
+      const mockResponse = {
+        cities: [
+          { city: 'Phoenix', state: 'AZ', artist_count: 10 },
+          { city: 'Mesa', state: 'AZ', artist_count: 5 },
+        ],
+      }
+      mockApiRequest.mockResolvedValueOnce(mockResponse)
+
+      const { result } = renderHook(() => useArtistCities(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith('/artists/cities', { method: 'GET' })
+      expect(result.current.data?.cities).toHaveLength(2)
+      expect(result.current.data?.cities[0].city).toBe('Phoenix')
+      expect(result.current.data?.cities[0].artist_count).toBe(10)
+    })
+
+    it('handles API errors', async () => {
+      const error = new Error('Server error')
+      Object.assign(error, { status: 500 })
+      mockApiRequest.mockRejectedValueOnce(error)
+
+      const { result } = renderHook(() => useArtistCities(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
     })
   })
 

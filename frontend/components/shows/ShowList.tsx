@@ -456,18 +456,20 @@ export function ShowList() {
   return (
     <section className="w-full max-w-4xl">
       {cities.length > 1 && (
-        <CityFilters
-          cities={cities}
-          selectedCities={selectedCities}
-          onFilterChange={handleFilterChange}
-        >
-          {isAuthenticated && selectionDiffersFromFavorites && (
-            <SaveDefaultsButton
-              selectedCities={selectedCities}
-              favoriteCities={favoriteCities}
-            />
-          )}
-        </CityFilters>
+        <div className="mb-6">
+          <CityFilters
+            cities={cities}
+            selectedCities={selectedCities}
+            onFilterChange={handleFilterChange}
+          >
+            {isAuthenticated && selectionDiffersFromFavorites && (
+              <SaveDefaultsButton
+                selectedCities={selectedCities}
+                favoriteCities={favoriteCities}
+              />
+            )}
+          </CityFilters>
+        </div>
       )}
 
       {/* Dim content while fetching, don't hide it */}

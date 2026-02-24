@@ -292,8 +292,11 @@ func TestSearchArtists_ServiceError(t *testing.T) {
 
 func TestListArtists_Success(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistsFn: func(filters map[string]interface{}) ([]*services.ArtistDetailResponse, error) {
-			return []*services.ArtistDetailResponse{{ID: 1}, {ID: 2}}, nil
+		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*services.ArtistWithShowCountResponse, error) {
+			return []*services.ArtistWithShowCountResponse{
+				{ArtistDetailResponse: services.ArtistDetailResponse{ID: 1, Name: "Artist A"}, UpcomingShowCount: 3},
+				{ArtistDetailResponse: services.ArtistDetailResponse{ID: 2, Name: "Artist B"}, UpcomingShowCount: 1},
+			}, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil)
@@ -305,18 +308,23 @@ func TestListArtists_Success(t *testing.T) {
 	if resp.Body.Count != 2 {
 		t.Errorf("expected count=2, got %d", resp.Body.Count)
 	}
+	if resp.Body.Artists[0].UpcomingShowCount != 3 {
+		t.Errorf("expected first artist show count=3, got %d", resp.Body.Artists[0].UpcomingShowCount)
+	}
 }
 
 func TestListArtists_WithFilters(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistsFn: func(filters map[string]interface{}) ([]*services.ArtistDetailResponse, error) {
+		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*services.ArtistWithShowCountResponse, error) {
 			if filters["state"] != "AZ" {
 				t.Errorf("expected state='AZ', got %v", filters["state"])
 			}
 			if filters["city"] != "Phoenix" {
 				t.Errorf("expected city='Phoenix', got %v", filters["city"])
 			}
-			return []*services.ArtistDetailResponse{{ID: 1}}, nil
+			return []*services.ArtistWithShowCountResponse{
+				{ArtistDetailResponse: services.ArtistDetailResponse{ID: 1}, UpcomingShowCount: 2},
+			}, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil)
@@ -332,7 +340,7 @@ func TestListArtists_WithFilters(t *testing.T) {
 
 func TestListArtists_ServiceError(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistsFn: func(_ map[string]interface{}) ([]*services.ArtistDetailResponse, error) {
+		getArtistsWithShowCountsFn: func(_ map[string]interface{}) ([]*services.ArtistWithShowCountResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -716,5 +724,122 @@ func TestUpdateSpotify_Success(t *testing.T) {
 	}
 	if resp.Body.ID != 42 {
 		t.Errorf("expected ID=42, got %d", resp.Body.ID)
+	}
+}
+
+// ============================================================================
+// Mock-based tests: GetArtistCitiesHandler
+// ============================================================================
+
+func TestGetArtistCities_Success(t *testing.T) {
+	mock := &mockArtistService{
+		getArtistCitiesFn: func() ([]*services.ArtistCityResponse, error) {
+			return []*services.ArtistCityResponse{
+				{City: "Phoenix", State: "AZ", ArtistCount: 10},
+				{City: "Mesa", State: "AZ", ArtistCount: 5},
+			}, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+
+	resp, err := h.GetArtistCitiesHandler(context.Background(), &GetArtistCitiesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Body.Cities) != 2 {
+		t.Errorf("expected 2 cities, got %d", len(resp.Body.Cities))
+	}
+	if resp.Body.Cities[0].City != "Phoenix" {
+		t.Errorf("expected first city='Phoenix', got %q", resp.Body.Cities[0].City)
+	}
+	if resp.Body.Cities[0].ArtistCount != 10 {
+		t.Errorf("expected first count=10, got %d", resp.Body.Cities[0].ArtistCount)
+	}
+}
+
+func TestGetArtistCities_ServiceError(t *testing.T) {
+	mock := &mockArtistService{
+		getArtistCitiesFn: func() ([]*services.ArtistCityResponse, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+
+	_, err := h.GetArtistCitiesHandler(context.Background(), &GetArtistCitiesRequest{})
+	assertHumaError(t, err, 500)
+}
+
+func TestGetArtistCities_Empty(t *testing.T) {
+	mock := &mockArtistService{
+		getArtistCitiesFn: func() ([]*services.ArtistCityResponse, error) {
+			return []*services.ArtistCityResponse{}, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+
+	resp, err := h.GetArtistCitiesHandler(context.Background(), &GetArtistCitiesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Body.Cities) != 0 {
+		t.Errorf("expected 0 cities, got %d", len(resp.Body.Cities))
+	}
+}
+
+// ============================================================================
+// Mock-based tests: ListArtistsHandler with multi-city filter
+// ============================================================================
+
+func TestListArtists_WithCitiesFilter(t *testing.T) {
+	mock := &mockArtistService{
+		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*services.ArtistWithShowCountResponse, error) {
+			cities, ok := filters["cities"].([]map[string]string)
+			if !ok {
+				t.Error("expected cities filter to be []map[string]string")
+			}
+			if len(cities) != 2 {
+				t.Errorf("expected 2 city filters, got %d", len(cities))
+			}
+			if cities[0]["city"] != "Phoenix" || cities[0]["state"] != "AZ" {
+				t.Errorf("expected first city=Phoenix,AZ, got %v", cities[0])
+			}
+			return []*services.ArtistWithShowCountResponse{
+				{ArtistDetailResponse: services.ArtistDetailResponse{ID: 1}, UpcomingShowCount: 1},
+			}, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+
+	resp, err := h.ListArtistsHandler(context.Background(), &ListArtistsRequest{Cities: "Phoenix,AZ|Mesa,AZ"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Count != 1 {
+		t.Errorf("expected count=1, got %d", resp.Body.Count)
+	}
+}
+
+func TestListArtists_CitiesOverridesLegacy(t *testing.T) {
+	mock := &mockArtistService{
+		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*services.ArtistWithShowCountResponse, error) {
+			// When Cities param is set, legacy city/state should not be in filters
+			if _, ok := filters["city"]; ok {
+				t.Error("legacy city filter should not be set when Cities param is provided")
+			}
+			if _, ok := filters["state"]; ok {
+				t.Error("legacy state filter should not be set when Cities param is provided")
+			}
+			return []*services.ArtistWithShowCountResponse{}, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+
+	_, err := h.ListArtistsHandler(context.Background(), &ListArtistsRequest{
+		Cities: "Phoenix,AZ",
+		City:   "Tempe",
+		State:  "AZ",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

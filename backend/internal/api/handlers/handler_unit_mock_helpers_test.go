@@ -882,15 +882,17 @@ func (m *mockVenueService) GetUnverifiedVenues(limit, offset int) ([]*services.U
 // ============================================================================
 
 type mockArtistService struct {
-	createArtistFn      func(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error)
-	getArtistFn         func(artistID uint) (*services.ArtistDetailResponse, error)
-	getArtistByNameFn   func(name string) (*services.ArtistDetailResponse, error)
-	getArtistBySlugFn   func(slug string) (*services.ArtistDetailResponse, error)
-	getArtistsFn        func(filters map[string]interface{}) ([]*services.ArtistDetailResponse, error)
-	updateArtistFn      func(artistID uint, updates map[string]interface{}) (*services.ArtistDetailResponse, error)
-	deleteArtistFn      func(artistID uint) error
-	searchArtistsFn     func(query string) ([]*services.ArtistDetailResponse, error)
-	getShowsForArtistFn func(artistID uint, timezone string, limit int, timeFilter string) ([]*services.ArtistShowResponse, int64, error)
+	createArtistFn              func(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error)
+	getArtistFn                 func(artistID uint) (*services.ArtistDetailResponse, error)
+	getArtistByNameFn           func(name string) (*services.ArtistDetailResponse, error)
+	getArtistBySlugFn           func(slug string) (*services.ArtistDetailResponse, error)
+	getArtistsFn                func(filters map[string]interface{}) ([]*services.ArtistDetailResponse, error)
+	getArtistsWithShowCountsFn  func(filters map[string]interface{}) ([]*services.ArtistWithShowCountResponse, error)
+	updateArtistFn              func(artistID uint, updates map[string]interface{}) (*services.ArtistDetailResponse, error)
+	deleteArtistFn              func(artistID uint) error
+	searchArtistsFn             func(query string) ([]*services.ArtistDetailResponse, error)
+	getShowsForArtistFn         func(artistID uint, timezone string, limit int, timeFilter string) ([]*services.ArtistShowResponse, int64, error)
+	getArtistCitiesFn           func() ([]*services.ArtistCityResponse, error)
 }
 
 func (m *mockArtistService) CreateArtist(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
@@ -923,6 +925,12 @@ func (m *mockArtistService) GetArtists(filters map[string]interface{}) ([]*servi
 	}
 	return nil, nil
 }
+func (m *mockArtistService) GetArtistsWithShowCounts(filters map[string]interface{}) ([]*services.ArtistWithShowCountResponse, error) {
+	if m.getArtistsWithShowCountsFn != nil {
+		return m.getArtistsWithShowCountsFn(filters)
+	}
+	return nil, nil
+}
 func (m *mockArtistService) UpdateArtist(artistID uint, updates map[string]interface{}) (*services.ArtistDetailResponse, error) {
 	if m.updateArtistFn != nil {
 		return m.updateArtistFn(artistID, updates)
@@ -946,6 +954,12 @@ func (m *mockArtistService) GetShowsForArtist(artistID uint, timezone string, li
 		return m.getShowsForArtistFn(artistID, timezone, limit, timeFilter)
 	}
 	return nil, 0, nil
+}
+func (m *mockArtistService) GetArtistCities() ([]*services.ArtistCityResponse, error) {
+	if m.getArtistCitiesFn != nil {
+		return m.getArtistCitiesFn()
+	}
+	return nil, nil
 }
 
 // ============================================================================
