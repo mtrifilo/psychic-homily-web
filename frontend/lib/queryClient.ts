@@ -166,6 +166,12 @@ export const queryKeys = {
     shows: (artistIdOrSlug: string | number) => ['artists', 'shows', String(artistIdOrSlug)] as const,
   },
 
+  // Calendar feed queries
+  calendar: {
+    all: ['calendar'] as const,
+    tokenStatus: ['calendar', 'tokenStatus'] as const,
+  },
+
   // Saved shows queries (user's "My List")
   savedShows: {
     all: ['savedShows'] as const,
@@ -233,6 +239,10 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
 
   // Invalidate all venue-related queries
   venues: () => queryClient.invalidateQueries({ queryKey: ['venues'] }),
+
+  // Invalidate calendar queries
+  calendar: () =>
+    queryClient.invalidateQueries({ queryKey: ['calendar'] }),
 
   // Invalidate saved shows queries
   savedShows: () =>

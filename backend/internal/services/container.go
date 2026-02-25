@@ -17,6 +17,7 @@ type ServiceContainer struct {
 	Artist        *ArtistService
 	ArtistReport  *ArtistReportService
 	AuditLog      *AuditLogService
+	Calendar      *CalendarService
 	FavoriteVenue *FavoriteVenueService
 	SavedShow     *SavedShowService
 	Show          *ShowService
@@ -52,6 +53,8 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		log.Printf("Warning: WebAuthn service init failed (passkeys disabled): %v", err)
 	}
 
+	savedShow := NewSavedShowService(database)
+
 	return &ServiceContainer{
 		// DB-only leaf services
 		AdminStats:    NewAdminStatsService(database),
@@ -59,8 +62,9 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Artist:        NewArtistService(database),
 		ArtistReport:  NewArtistReportService(database),
 		AuditLog:      NewAuditLogService(database),
+		Calendar:      NewCalendarService(database, savedShow),
 		FavoriteVenue: NewFavoriteVenueService(database),
-		SavedShow:     NewSavedShowService(database),
+		SavedShow:     savedShow,
 		Show:          NewShowService(database),
 		ShowReport:    NewShowReportService(database),
 		User:          NewUserService(database),

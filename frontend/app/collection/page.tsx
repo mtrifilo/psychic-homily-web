@@ -38,6 +38,7 @@ import {
   PublishShowDialog,
 } from '@/components/shows'
 import { VenueDeniedDialog, FavoriteVenuesTab } from '@/components/venues'
+import { CalendarFeedSection } from '@/components/collection'
 import {
   useSetShowSoldOut,
   useSetShowCancelled,
@@ -659,6 +660,7 @@ function CollectionPageContent() {
         </TabsList>
 
         <TabsContent value="saved">
+          <CalendarFeedSection />
           <SavedShowsList
             currentUserId={currentUserId}
             isAdmin={user?.is_admin}

@@ -131,6 +131,11 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/venues/${venueIdOrSlug}/my-pending-edit`,
   },
 
+  // Calendar feed endpoints
+  CALENDAR: {
+    TOKEN: `${API_BASE_URL}/calendar/token`,
+  },
+
   // Saved shows (user's "My List") endpoints
   SAVED_SHOWS: {
     LIST: `${API_BASE_URL}/saved-shows`,
