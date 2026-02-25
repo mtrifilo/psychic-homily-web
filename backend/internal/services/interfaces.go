@@ -290,6 +290,15 @@ type AdminStatsServiceInterface interface {
 	GetDashboardStats() (*AdminDashboardStats, error)
 }
 
+// CalendarServiceInterface defines the contract for calendar feed operations.
+type CalendarServiceInterface interface {
+	CreateToken(userID uint, apiBaseURL string) (*CalendarTokenCreateResponse, error)
+	GetTokenStatus(userID uint) (*CalendarTokenStatusResponse, error)
+	DeleteToken(userID uint) error
+	ValidateCalendarToken(plainToken string) (*models.User, error)
+	GenerateICSFeed(userID uint, frontendURL string) ([]byte, error)
+}
+
 // Compile-time interface satisfaction checks.
 var (
 	_ ShowServiceInterface          = (*ShowService)(nil)
@@ -314,4 +323,5 @@ var (
 	_ APITokenServiceInterface      = (*APITokenService)(nil)
 	_ DataSyncServiceInterface      = (*DataSyncService)(nil)
 	_ AdminStatsServiceInterface    = (*AdminStatsService)(nil)
+	_ CalendarServiceInterface      = (*CalendarService)(nil)
 )

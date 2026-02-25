@@ -80,6 +80,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupShowRoutes(router, api, protectedGroup, sc, cfg)
 	setupArtistRoutes(api, protectedGroup, sc)
 	setupVenueRoutes(api, protectedGroup, sc)
+	setupCalendarRoutes(router, protectedGroup, sc, cfg)
 	setupSavedShowRoutes(protectedGroup, sc)
 	setupFavoriteVenueRoutes(protectedGroup, sc)
 	setupShowReportRoutes(router, protectedGroup, sc, cfg)
@@ -290,6 +291,19 @@ func setupVenueRoutes(api huma.API, protected *huma.Group, sc *services.ServiceC
 	huma.Delete(protected, "/venues/{venue_id}", venueHandler.DeleteVenueHandler)
 	huma.Get(protected, "/venues/{venue_id}/my-pending-edit", venueHandler.GetMyPendingEditHandler)
 	huma.Delete(protected, "/venues/{venue_id}/my-pending-edit", venueHandler.CancelMyPendingEditHandler)
+}
+
+// setupCalendarRoutes configures calendar feed and token management endpoints
+func setupCalendarRoutes(router *chi.Mux, protected *huma.Group, sc *services.ServiceContainer, cfg *config.Config) {
+	calendarHandler := handlers.NewCalendarHandler(sc.Calendar, cfg)
+
+	// Public Chi route for ICS feed (token-authenticated, not JWT)
+	router.Get("/calendar/{token}", calendarHandler.GetCalendarFeedHandler)
+
+	// Protected Huma routes for token CRUD
+	huma.Post(protected, "/calendar/token", calendarHandler.CreateCalendarTokenHandler)
+	huma.Get(protected, "/calendar/token", calendarHandler.GetCalendarTokenStatusHandler)
+	huma.Delete(protected, "/calendar/token", calendarHandler.DeleteCalendarTokenHandler)
 }
 
 // setupSavedShowRoutes configures saved show endpoints (user's personal "My List")

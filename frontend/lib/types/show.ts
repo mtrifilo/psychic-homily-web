@@ -211,3 +211,20 @@ export interface AdminReportActionRequest {
 export interface ResolveReportRequest extends AdminReportActionRequest {
   set_show_flag?: boolean
 }
+
+// Calendar feed types
+export interface CalendarTokenStatusResponse {
+  has_token: boolean
+  created_at?: string // ISO date string
+}
+
+export interface CalendarTokenCreateResponse {
+  token: string
+  feed_url: string
+  created_at: string // ISO date string
+}
+
+export interface CalendarTokenDeleteResponse {
+  success: boolean
+  message: string
+}
