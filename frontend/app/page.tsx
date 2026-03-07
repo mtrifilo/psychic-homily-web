@@ -67,7 +67,7 @@ export default function Home() {
     <>
     <JsonLd data={generateWebSiteSchema()} />
     <div className="flex min-h-screen items-start justify-center">
-      <main className="w-full max-w-4xl px-4 py-8 md:px-8">
+      <main className="w-full max-w-6xl px-4 py-8 md:px-8">
         {/* Upcoming Shows Section */}
         <section className="mb-14">
           <div className="flex justify-between items-center mb-5">

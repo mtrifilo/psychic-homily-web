@@ -454,7 +454,7 @@ export function ShowList() {
     })) ?? []
 
   return (
-    <section className="w-full max-w-4xl">
+    <section className="w-full max-w-6xl">
       {cities.length > 1 && (
         <div className="mb-6">
           <CityFilters

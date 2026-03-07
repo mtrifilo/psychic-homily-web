@@ -8,9 +8,9 @@ import {
   Footer,
   CookieConsentBanner,
   PostHogProvider,
+  SidebarLayout,
 } from '@/components/layout'
 import { CookieConsentProvider } from '@/lib/context/CookieConsentContext'
-import Nav from '@/app/nav'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateOrganizationSchema } from '@/lib/seo/jsonld'
 import { Analytics } from '@vercel/analytics/react'
@@ -75,11 +75,10 @@ export default function RootLayout({
           >
             <CookieConsentProvider>
               <PostHogProvider>
-                <div className="flex flex-col min-h-screen">
-                  <Nav />
+                <SidebarLayout>
                   <main className="flex-1">{children}</main>
                   <Footer />
-                </div>
+                </SidebarLayout>
                 <CookieConsentBanner />
                 <Analytics />
                 <SpeedInsights />
