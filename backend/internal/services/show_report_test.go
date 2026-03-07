@@ -3,9 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // =============================================================================
@@ -138,48 +137,7 @@ func (suite *ShowReportServiceIntegrationTestSuite) SetupSuite() {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
 
-	migrations := []string{
-		"000001_create_initial_schema.up.sql",
-		"000002_add_artist_search_indexes.up.sql",
-		"000003_add_venue_search_indexes.up.sql",
-		"000004_update_venue_constraints.up.sql",
-		"000005_add_show_status.up.sql",
-		"000007_add_private_show_status.up.sql",
-		"000008_add_pending_venue_edits.up.sql",
-		"000009_add_bandcamp_embed_url.up.sql",
-		"000010_add_scraper_source_fields.up.sql",
-		"000012_add_user_deletion_fields.up.sql",
-		"000013_add_slugs.up.sql",
-		"000014_add_account_lockout.up.sql",
-		"000018_add_show_reports.up.sql",
-		"000020_add_show_status_flags.up.sql",
-		"000023_rename_scraper_to_discovery.up.sql",
-		"000026_add_duplicate_of_show_id.up.sql",
-		"000028_change_event_date_to_timestamptz.up.sql",
-		"000031_add_user_terms_acceptance.up.sql",
-		"000032_add_favorite_cities.up.sql",
-	}
-	for _, m := range migrations {
-		migrationSQL, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", m))
-		if err != nil {
-			suite.T().Fatalf("failed to read migration file %s: %v", m, err)
-		}
-		_, err = sqlDB.Exec(string(migrationSQL))
-		if err != nil {
-			suite.T().Fatalf("failed to run migration %s: %v", m, err)
-		}
-	}
-
-	// Run migration 000027 with CONCURRENTLY stripped
-	migration27, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", "000027_add_index_duplicate_of_show_id.up.sql"))
-	if err != nil {
-		suite.T().Fatalf("failed to read migration 000027: %v", err)
-	}
-	sql27 := strings.ReplaceAll(string(migration27), "CONCURRENTLY ", "")
-	_, err = sqlDB.Exec(sql27)
-	if err != nil {
-		suite.T().Fatalf("failed to run migration 000027: %v", err)
-	}
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
 
 	suite.reportService = &ShowReportService{db: db}
 }

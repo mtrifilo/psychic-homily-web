@@ -77,6 +77,8 @@ export const API_ENDPOINTS = {
     CLI_TOKEN: `${API_BASE_URL}/auth/cli-token`,
     // User preferences
     FAVORITE_CITIES: `${API_BASE_URL}/auth/preferences/favorite-cities`,
+    SHOW_REMINDERS: `${API_BASE_URL}/auth/preferences/show-reminders`,
+    UNSUBSCRIBE_SHOW_REMINDERS: `${API_BASE_URL}/auth/unsubscribe/show-reminders`,
   },
 
   // Application endpoints

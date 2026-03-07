@@ -78,6 +78,7 @@ type UserPreferences struct {
 	Theme             string    `json:"theme" gorm:"default:light"`
 	Timezone          string    `json:"timezone" gorm:"default:UTC"`
 	Language          string           `json:"language" gorm:"default:en"`
+	ShowReminders     bool             `json:"show_reminders" gorm:"default:false"`
 	FavoriteCities    *json.RawMessage `json:"favorite_cities" gorm:"type:jsonb;default:'[]'"`
 	CreatedAt         time.Time        `json:"created_at"`
 	UpdatedAt         time.Time        `json:"updated_at"`

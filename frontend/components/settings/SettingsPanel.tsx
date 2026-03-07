@@ -25,6 +25,7 @@ import { DeleteAccountDialog } from '@/components/settings/delete-account-dialog
 import { OAuthAccounts } from '@/components/settings/oauth-accounts'
 import { APITokenManagement } from '@/components/settings/api-token-management'
 import { FavoriteCitiesSettings } from '@/components/settings/favorite-cities'
+import { NotificationSettings } from '@/components/settings/notification-settings'
 
 export function SettingsPanel() {
   const { user } = useAuthContext()
@@ -101,6 +102,9 @@ export function SettingsPanel() {
     <div className="space-y-6">
       {/* Favorite Cities Section */}
       <FavoriteCitiesSettings />
+
+      {/* Notification Settings */}
+      <NotificationSettings />
 
       {/* Email Verification Section */}
       <Card>
