@@ -141,8 +141,8 @@ VALUES ('e2e-unverified@test.local', '${BCRYPT_HASH}', 'Test', 'Unverified', tru
 ON CONFLICT (email) DO NOTHING;
 
 -- Create user_preferences for all test users
-INSERT INTO user_preferences (user_id, notification_email, notification_push, theme, timezone, language, created_at, updated_at)
-SELECT id, true, false, 'system', 'America/Phoenix', 'en', NOW(), NOW()
+INSERT INTO user_preferences (user_id, notification_email, notification_push, show_reminders, theme, timezone, language, created_at, updated_at)
+SELECT id, true, false, false, 'system', 'America/Phoenix', 'en', NOW(), NOW()
 FROM users WHERE email IN ('e2e-user@test.local', 'e2e-admin@test.local', 'e2e-unverified@test.local')
 ON CONFLICT (user_id) DO NOTHING;
 SQL

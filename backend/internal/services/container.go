@@ -42,6 +42,7 @@ type ServiceContainer struct {
 	Cleanup    *CleanupService
 	DataSync   *DataSyncService
 	Discovery  *DiscoveryService
+	Reminder   *ReminderService
 }
 
 // NewServiceContainer creates all services once. WebAuthn failure is non-fatal
@@ -54,6 +55,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	}
 
 	savedShow := NewSavedShowService(database)
+	email := NewEmailService(cfg)
 
 	return &ServiceContainer{
 		// DB-only leaf services
@@ -72,7 +74,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 
 		// Config-only services
 		Discord:        NewDiscordService(cfg),
-		Email:          NewEmailService(cfg),
+		Email:          email,
 		MusicDiscovery: NewMusicDiscoveryService(cfg),
 
 		// No-param service
@@ -87,5 +89,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Cleanup:    NewCleanupService(database),
 		DataSync:   NewDataSyncService(database),
 		Discovery:  NewDiscoveryService(database),
+		Reminder:   NewReminderService(database, email, cfg),
 	}
 }

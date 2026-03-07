@@ -15,12 +15,14 @@ import (
 // UserPreferencesHandler handles user preferences endpoints
 type UserPreferencesHandler struct {
 	userService services.UserServiceInterface
+	jwtSecret   string
 }
 
 // NewUserPreferencesHandler creates a new user preferences handler
-func NewUserPreferencesHandler(userService services.UserServiceInterface) *UserPreferencesHandler {
+func NewUserPreferencesHandler(userService services.UserServiceInterface, jwtSecret string) *UserPreferencesHandler {
 	return &UserPreferencesHandler{
 		userService: userService,
+		jwtSecret:   jwtSecret,
 	}
 }
 
@@ -79,6 +81,99 @@ func (h *UserPreferencesHandler) SetFavoriteCitiesHandler(ctx context.Context, r
 			Success: true,
 			Message: "Favorite cities updated",
 			Cities:  cities,
+		},
+	}, nil
+}
+
+// SetShowRemindersRequest represents the request to toggle show reminders
+type SetShowRemindersRequest struct {
+	Body struct {
+		Enabled bool `json:"enabled" doc:"Enable or disable show reminders"`
+	}
+}
+
+// SetShowRemindersResponse represents the response after toggling show reminders
+type SetShowRemindersResponse struct {
+	Body struct {
+		Success       bool `json:"success"`
+		ShowReminders bool `json:"show_reminders"`
+	}
+}
+
+// SetShowRemindersHandler handles PATCH /auth/preferences/show-reminders
+func (h *UserPreferencesHandler) SetShowRemindersHandler(ctx context.Context, req *SetShowRemindersRequest) (*SetShowRemindersResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	if err := h.userService.SetShowReminders(user.ID, req.Body.Enabled); err != nil {
+		logger.FromContext(ctx).Error("set_show_reminders_failed",
+			"error", err.Error(),
+			"user_id", user.ID,
+		)
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Failed to update show reminders: %s", err.Error()),
+		)
+	}
+
+	logger.FromContext(ctx).Info("set_show_reminders_success",
+		"user_id", user.ID,
+		"enabled", req.Body.Enabled,
+	)
+
+	return &SetShowRemindersResponse{
+		Body: struct {
+			Success       bool `json:"success"`
+			ShowReminders bool `json:"show_reminders"`
+		}{
+			Success:       true,
+			ShowReminders: req.Body.Enabled,
+		},
+	}, nil
+}
+
+// UnsubscribeShowRemindersRequest represents the unsubscribe request (public, no auth)
+type UnsubscribeShowRemindersRequest struct {
+	Body struct {
+		UID uint   `json:"uid" doc:"User ID"`
+		Sig string `json:"sig" doc:"HMAC signature"`
+	}
+}
+
+// UnsubscribeShowRemindersResponse represents the unsubscribe response
+type UnsubscribeShowRemindersResponse struct {
+	Body struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+}
+
+// UnsubscribeShowRemindersHandler handles POST /auth/unsubscribe/show-reminders (public, no auth)
+func (h *UserPreferencesHandler) UnsubscribeShowRemindersHandler(ctx context.Context, req *UnsubscribeShowRemindersRequest) (*UnsubscribeShowRemindersResponse, error) {
+	if !services.VerifyUnsubscribeSignature(req.Body.UID, req.Body.Sig, h.jwtSecret) {
+		return nil, huma.Error403Forbidden("Invalid unsubscribe link")
+	}
+
+	if err := h.userService.SetShowReminders(req.Body.UID, false); err != nil {
+		logger.FromContext(ctx).Error("unsubscribe_show_reminders_failed",
+			"error", err.Error(),
+			"user_id", req.Body.UID,
+		)
+		return nil, huma.Error500InternalServerError("Failed to unsubscribe")
+	}
+
+	logger.FromContext(ctx).Info("unsubscribe_show_reminders_success",
+		"user_id", req.Body.UID,
+	)
+
+	return &UnsubscribeShowRemindersResponse{
+		Body: struct {
+			Success bool   `json:"success"`
+			Message string `json:"message"`
+		}{
+			Success: true,
+			Message: "Show reminders disabled",
 		},
 	}, nil
 }

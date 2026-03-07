@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // =============================================================================
@@ -327,25 +327,7 @@ func (suite *CalendarIntegrationTestSuite) SetupSuite() {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
 
-	// Run required migrations
-	migrations := []string{
-		"000001_create_initial_schema.up.sql",
-		"000012_add_user_deletion_fields.up.sql",
-		"000014_add_account_lockout.up.sql",
-		"000031_add_user_terms_acceptance.up.sql",
-		"000032_add_favorite_cities.up.sql",
-		"000033_add_calendar_tokens.up.sql",
-	}
-	for _, m := range migrations {
-		migrationSQL, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", m))
-		if err != nil {
-			suite.T().Fatalf("failed to read migration file %s: %v", m, err)
-		}
-		_, err = sqlDB.Exec(string(migrationSQL))
-		if err != nil {
-			suite.T().Fatalf("failed to run migration %s: %v", m, err)
-		}
-	}
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
 
 	mockSavedShows := &mockSavedShowSvc{shows: []*SavedShowResponse{}, total: 0}
 	suite.svc = &CalendarService{db: db, savedShowSvc: mockSavedShows}

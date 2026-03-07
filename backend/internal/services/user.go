@@ -1201,6 +1201,33 @@ func (s *UserService) SetFavoriteCities(userID uint, cities []models.FavoriteCit
 	return nil
 }
 
+// SetShowReminders enables or disables show reminders for a user
+func (s *UserService) SetShowReminders(userID uint, enabled bool) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	result := s.db.Model(&models.UserPreferences{}).
+		Where("user_id = ?", userID).
+		Update("show_reminders", enabled)
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to update show reminders: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		prefs := &models.UserPreferences{
+			UserID:        userID,
+			ShowReminders: enabled,
+		}
+		if err := s.db.Create(prefs).Error; err != nil {
+			return fmt.Errorf("failed to create user preferences: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // GetOAuthAccounts returns all OAuth accounts linked to a user
 func (s *UserService) GetOAuthAccounts(userID uint) ([]models.OAuthAccount, error) {
 	var accounts []models.OAuthAccount

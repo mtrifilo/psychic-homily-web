@@ -65,8 +65,12 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	huma.Delete(protectedGroup, "/auth/oauth/accounts/{provider}", oauthAccountHandler.UnlinkOAuthAccountHandler)
 
 	// User preferences endpoints
-	userPrefsHandler := handlers.NewUserPreferencesHandler(sc.User)
+	userPrefsHandler := handlers.NewUserPreferencesHandler(sc.User, cfg.JWT.SecretKey)
 	huma.Put(protectedGroup, "/auth/preferences/favorite-cities", userPrefsHandler.SetFavoriteCitiesHandler)
+	huma.Patch(protectedGroup, "/auth/preferences/show-reminders", userPrefsHandler.SetShowRemindersHandler)
+
+	// Public unsubscribe endpoint (HMAC-signed, no auth required)
+	huma.Post(api, "/auth/unsubscribe/show-reminders", userPrefsHandler.UnsubscribeShowRemindersHandler)
 
 	// Public email verification confirm endpoint (user clicks link from email)
 	huma.Post(api, "/auth/verify-email/confirm", authHandler.ConfirmVerificationHandler)

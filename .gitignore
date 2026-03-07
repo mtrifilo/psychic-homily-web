@@ -80,3 +80,6 @@ human-docs/
 cli/ph-admin
 scripts/test-runner/test-runner
 .test-history.json
+
+# Claude Code worktrees
+.claude/worktrees/
