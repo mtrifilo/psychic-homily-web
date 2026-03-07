@@ -12,17 +12,24 @@ function CityFiltersSkeleton() {
 
 function ShowCardSkeleton() {
   return (
-    <div className="border-b border-border/50 py-5 -mx-3 px-3">
-      <div className="flex flex-col md:flex-row">
-        {/* Left column: Date */}
-        <div className="w-full md:w-1/5 md:pr-4 mb-2 md:mb-0">
-          <Skeleton className="h-4 w-24 mb-1.5" />
-          <Skeleton className="h-3 w-16" />
+    <div className="border border-border/50 rounded-lg px-3 py-3 sm:px-4 sm:py-4 mb-3">
+      <div className="flex gap-3 sm:gap-4">
+        {/* Date badge skeleton */}
+        <div className="shrink-0 w-14 sm:w-16 rounded-md bg-muted/50 flex flex-col items-center justify-center py-2">
+          <Skeleton className="h-3 w-8 mb-1" />
+          <Skeleton className="h-3.5 w-10" />
         </div>
-        {/* Right column: Artists + Venue */}
-        <div className="w-full md:w-4/5 md:pl-4">
-          <Skeleton className="h-5 w-3/4 mb-2" />
-          <Skeleton className="h-4 w-1/2" />
+        {/* Content skeleton */}
+        <div className="flex-1 min-w-0 flex items-start justify-between gap-2">
+          <div className="flex-1">
+            <Skeleton className="h-5 w-3/4 mb-1.5" />
+            <Skeleton className="h-3.5 w-1/3 mb-1.5" />
+            <Skeleton className="h-3.5 w-1/2" />
+          </div>
+          <div className="shrink-0 text-right">
+            <Skeleton className="h-4 w-16 mb-1" />
+            <Skeleton className="h-3 w-12 ml-auto" />
+          </div>
         </div>
       </div>
     </div>
