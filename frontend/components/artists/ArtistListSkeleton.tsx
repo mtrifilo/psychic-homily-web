@@ -15,12 +15,15 @@ export function ArtistListSkeleton() {
         </div>
       </div>
 
-      {/* Grid skeleton */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-2">
+      {/* Grid skeleton matching new card layout */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {Array.from({ length: 12 }).map((_, i) => (
-          <div key={i} className="py-2 px-3">
-            <div className="h-5 bg-muted rounded w-36 mb-1" />
-            <div className="h-3 bg-muted rounded w-24" />
+          <div key={i} className="rounded-lg border border-border/50 p-4">
+            <div className="h-5 bg-muted rounded w-36 mb-3" />
+            <div className="space-y-2">
+              <div className="h-4 bg-muted rounded w-24" />
+              <div className="h-4 bg-muted rounded w-20" />
+            </div>
           </div>
         ))}
       </div>
