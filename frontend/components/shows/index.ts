@@ -1,4 +1,5 @@
 export { ShowDetail } from './ShowDetail'
+export { ShowCard } from './ShowCard'
 export { ShowList } from './ShowList'
 export { ShowListSkeleton } from './ShowListSkeleton'
 export { HomeShowList } from './HomeShowList'
