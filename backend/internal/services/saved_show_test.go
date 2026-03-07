@@ -143,6 +143,7 @@ func (suite *SavedShowServiceIntegrationTestSuite) SetupSuite() {
 		"000028_change_event_date_to_timestamptz.up.sql",
 		"000031_add_user_terms_acceptance.up.sql",
 		"000032_add_favorite_cities.up.sql",
+		"000034_add_show_reminders.up.sql",
 	}
 	for _, m := range migrations {
 		migrationSQL, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", m))

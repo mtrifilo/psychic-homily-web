@@ -114,6 +114,7 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		"000030_add_artist_reports.up.sql",
 		"000031_add_user_terms_acceptance.up.sql",
 		"000032_add_favorite_cities.up.sql",
+		"000034_add_show_reminders.up.sql",
 	}
 
 	migrationDir := filepath.Join("..", "..", "..", "db", "migrations")

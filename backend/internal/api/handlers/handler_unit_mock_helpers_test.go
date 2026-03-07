@@ -538,6 +538,9 @@ func (m *mockUserService) GetFavoriteCities(userID uint) ([]models.FavoriteCity,
 func (m *mockUserService) SetFavoriteCities(userID uint, cities []models.FavoriteCity) error {
 	return nil
 }
+func (m *mockUserService) SetShowReminders(userID uint, enabled bool) error {
+	return nil
+}
 
 // ============================================================================
 // Mock: ShowServiceInterface
@@ -1302,6 +1305,9 @@ func (m *mockEmailService) SendAccountRecoveryEmail(toEmail, token string, daysR
 	if m.sendAccountRecoveryEmailFn != nil {
 		return m.sendAccountRecoveryEmailFn(toEmail, token, daysRemaining)
 	}
+	return nil
+}
+func (m *mockEmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventDate time.Time, venues []string) error {
 	return nil
 }
 
