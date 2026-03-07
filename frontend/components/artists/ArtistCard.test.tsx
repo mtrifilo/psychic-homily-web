@@ -38,16 +38,45 @@ describe('ArtistCard', () => {
     expect(link).toHaveAttribute('href', '/artists/test-artist')
   })
 
+  it('renders artist name as a heading', () => {
+    renderWithProviders(<ArtistCard artist={makeArtist()} />)
+
+    const heading = screen.getByRole('heading', { level: 3, name: 'Test Artist' })
+    expect(heading).toBeInTheDocument()
+  })
+
   it('renders upcoming show count', () => {
     renderWithProviders(<ArtistCard artist={makeArtist({ upcoming_show_count: 5 })} />)
 
     expect(screen.getByText('5 upcoming')).toBeInTheDocument()
   })
 
+  it('renders zero upcoming shows', () => {
+    renderWithProviders(<ArtistCard artist={makeArtist({ upcoming_show_count: 0 })} />)
+
+    expect(screen.getByText('0 upcoming')).toBeInTheDocument()
+  })
+
   it('renders location with city and state', () => {
     renderWithProviders(<ArtistCard artist={makeArtist()} />)
 
     expect(screen.getByText('Phoenix, AZ')).toBeInTheDocument()
+  })
+
+  it('renders location with only city', () => {
+    renderWithProviders(
+      <ArtistCard artist={makeArtist({ city: 'Chicago', state: null })} />
+    )
+
+    expect(screen.getByText('Chicago')).toBeInTheDocument()
+  })
+
+  it('renders location with only state', () => {
+    renderWithProviders(
+      <ArtistCard artist={makeArtist({ city: null, state: 'IL' })} />
+    )
+
+    expect(screen.getByText('IL')).toBeInTheDocument()
   })
 
   it('does not render location when city and state are null', () => {
@@ -65,5 +94,11 @@ describe('ArtistCard', () => {
 
     const link = screen.getByRole('link', { name: 'The National' })
     expect(link).toHaveAttribute('href', '/artists/the-national')
+  })
+
+  it('renders as an article element', () => {
+    renderWithProviders(<ArtistCard artist={makeArtist()} />)
+
+    expect(screen.getByRole('article')).toBeInTheDocument()
   })
 })
