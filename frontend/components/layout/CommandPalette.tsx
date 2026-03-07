@@ -2,16 +2,15 @@
 
 import { useCallback, useMemo, useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { Command as CommandPrimitive } from 'cmdk'
 import {
-  Command,
   CommandDialog,
   CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
   CommandList,
   CommandSeparator,
-} from 'cmdk'
+} from '@/components/ui/command'
 import {
   Calendar, Mic2, MapPin, BookOpen, Headphones, Send,
   Library, Settings, Shield, Search, Clock, X,
@@ -19,7 +18,6 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useCommandPalette } from '@/lib/hooks/useCommandPalette'
-import { cn } from '@/lib/utils'
 
 interface RouteItem {
   label: string
@@ -104,7 +102,6 @@ export function CommandPalette() {
   const [recentSearches, setRecentSearches] = useState<string[]>([])
   const [search, setSearch] = useState('')
 
-  // Load recent searches when dialog opens
   useEffect(() => {
     if (open) {
       setRecentSearches(getRecentSearches())
@@ -149,31 +146,12 @@ export function CommandPalette() {
   const showRecent = !search && recentSearches.length > 0
 
   return (
-    <CommandDialog
-      open={open}
-      onOpenChange={setOpen}
-      label="Command palette"
-      overlayClassName="bg-black/50 backdrop-blur-sm"
-      contentClassName={cn(
-        'fixed left-[50%] top-[20%] z-50 w-full max-w-[520px] translate-x-[-50%]',
-        'overflow-hidden rounded-xl border border-border/50 bg-popover shadow-2xl',
-        'data-[state=open]:animate-in data-[state=closed]:animate-out',
-        'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
-        'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
-        'data-[state=closed]:slide-out-to-left-1/2 data-[state=open]:slide-in-from-left-1/2',
-        'data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2',
-        'duration-200'
-      )}
-    >
+    <CommandDialog open={open} onOpenChange={setOpen}>
       <div className="flex items-center border-b border-border/50 px-3">
-        <Search className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
-        <CommandInput
+        <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+        <CommandPrimitive.Input
           placeholder="Search pages..."
-          className={cn(
-            'flex h-12 w-full bg-transparent py-3 text-sm',
-            'placeholder:text-muted-foreground',
-            'outline-none disabled:cursor-not-allowed disabled:opacity-50'
-          )}
+          className="flex h-11 w-full bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
           value={search}
           onValueChange={setSearch}
         />
@@ -188,15 +166,8 @@ export function CommandPalette() {
         )}
       </div>
 
-      <CommandList
-        className={cn(
-          'max-h-[320px] overflow-y-auto overflow-x-hidden',
-          'p-2'
-        )}
-      >
-        <CommandEmpty className="py-6 text-center text-sm text-muted-foreground">
-          No results found.
-        </CommandEmpty>
+      <CommandList className="max-h-[320px] p-2">
+        <CommandEmpty>No results found.</CommandEmpty>
 
         {showRecent && (
           <CommandGroup
@@ -211,7 +182,6 @@ export function CommandPalette() {
                 </button>
               </div>
             }
-            className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
           >
             {recentSearches.map(label => {
               const route = routes.find(
@@ -222,10 +192,7 @@ export function CommandPalette() {
                   key={`recent-${label}`}
                   value={`recent-${label}`}
                   onSelect={() => handleRecentSelect(label)}
-                  className={cn(
-                    'flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2.5 text-sm',
-                    'aria-selected:bg-accent aria-selected:text-accent-foreground'
-                  )}
+                  className="cursor-pointer gap-3 rounded-lg px-2 py-2.5"
                   keywords={[label]}
                 >
                   <Clock className="h-4 w-4 text-muted-foreground" />
@@ -241,12 +208,9 @@ export function CommandPalette() {
           </CommandGroup>
         )}
 
-        {showRecent && <CommandSeparator className="mx-2 my-1 bg-border/50" />}
+        {showRecent && <CommandSeparator className="mx-2 my-1" />}
 
-        <CommandGroup
-          heading="Pages"
-          className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
-        >
+        <CommandGroup heading="Pages">
           {availableRoutes.map(route => {
             const Icon = route.icon
             return (
@@ -255,10 +219,7 @@ export function CommandPalette() {
                 value={route.label}
                 onSelect={() => handleSelect(route.href, route.label)}
                 keywords={route.keywords}
-                className={cn(
-                  'flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2.5 text-sm',
-                  'aria-selected:bg-accent aria-selected:text-accent-foreground'
-                )}
+                className="cursor-pointer gap-3 rounded-lg px-2 py-2.5"
               >
                 <Icon className="h-4 w-4 text-muted-foreground" />
                 <span>{route.label}</span>
