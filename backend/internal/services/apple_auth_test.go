@@ -9,7 +9,6 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -25,6 +24,7 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // =============================================================================
@@ -377,27 +377,7 @@ func (s *AppleAuthIntegrationTestSuite) SetupSuite() {
 	if err != nil {
 		s.T().Fatalf("failed to get sql.DB: %v", err)
 	}
-
-	migrations := []string{
-		"000001_create_initial_schema.up.sql",
-		"000005_add_show_status.up.sql",
-		"000006_add_user_saved_shows.up.sql",
-		"000012_add_user_deletion_fields.up.sql",
-		"000014_add_account_lockout.up.sql",
-		"000031_add_user_terms_acceptance.up.sql",
-		"000032_add_favorite_cities.up.sql",
-		"000034_add_show_reminders.up.sql",
-	}
-	for _, m := range migrations {
-		migrationSQL, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", m))
-		if err != nil {
-			s.T().Fatalf("failed to read migration file %s: %v", m, err)
-		}
-		_, err = sqlDB.Exec(string(migrationSQL))
-		if err != nil {
-			s.T().Fatalf("failed to run migration %s: %v", m, err)
-		}
-	}
+	testutil.RunAllMigrations(s.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
 
 	s.cfg = &config.Config{
 		Apple: config.AppleConfig{BundleID: "com.test.app"},

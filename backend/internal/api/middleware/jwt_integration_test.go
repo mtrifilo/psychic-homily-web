@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +20,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // JWTMiddlewareIntegrationSuite tests JWT middleware with a real PostgreSQL database.
@@ -77,50 +76,7 @@ func (s *JWTMiddlewareIntegrationSuite) SetupSuite() {
 	sqlDB, err := db.DB()
 	s.Require().NoError(err, "failed to get sql.DB")
 
-	// Run migrations — same list as handler integration tests
-	migrations := []string{
-		"000001_create_initial_schema.up.sql",
-		"000002_add_artist_search_indexes.up.sql",
-		"000003_add_venue_search_indexes.up.sql",
-		"000004_update_venue_constraints.up.sql",
-		"000005_add_show_status.up.sql",
-		"000006_add_user_saved_shows.up.sql",
-		"000007_add_private_show_status.up.sql",
-		"000008_add_pending_venue_edits.up.sql",
-		"000009_add_bandcamp_embed_url.up.sql",
-		"000010_add_scraper_source_fields.up.sql",
-		"000011_add_webauthn_tables.up.sql",
-		"000012_add_user_deletion_fields.up.sql",
-		"000013_add_slugs.up.sql",
-		"000014_add_account_lockout.up.sql",
-		"000015_add_user_favorite_venues.up.sql",
-		"000018_add_show_reports.up.sql",
-		"000020_add_show_status_flags.up.sql",
-		"000021_add_api_tokens.up.sql",
-		"000022_add_audit_logs.up.sql",
-		"000023_rename_scraper_to_discovery.up.sql",
-		"000026_add_duplicate_of_show_id.up.sql",
-		"000028_change_event_date_to_timestamptz.up.sql",
-		"000029_fix_discovery_show_times.up.sql",
-		"000030_add_artist_reports.up.sql",
-		"000031_add_user_terms_acceptance.up.sql",
-	}
-
-	migrationDir := filepath.Join("..", "..", "..", "db", "migrations")
-
-	for _, m := range migrations {
-		migrationSQL, err := os.ReadFile(filepath.Join(migrationDir, m))
-		s.Require().NoError(err, "failed to read migration %s", m)
-		_, err = sqlDB.Exec(string(migrationSQL))
-		s.Require().NoError(err, "failed to run migration %s", m)
-	}
-
-	// Migration 27 uses CONCURRENTLY — strip it for test transactions
-	migration27, err := os.ReadFile(filepath.Join(migrationDir, "000027_add_index_duplicate_of_show_id.up.sql"))
-	s.Require().NoError(err, "failed to read migration 000027")
-	sql27 := strings.ReplaceAll(string(migration27), "CONCURRENTLY ", "")
-	_, err = sqlDB.Exec(sql27)
-	s.Require().NoError(err, "failed to run migration 000027")
+	testutil.RunAllMigrations(s.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	// Set up config and JWT service with real DB
 	s.cfg = &config.Config{

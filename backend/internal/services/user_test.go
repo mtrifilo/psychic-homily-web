@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -19,6 +18,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // =============================================================================
@@ -431,34 +431,11 @@ func (suite *UserServiceIntegrationTestSuite) SetupSuite() {
 	}
 	suite.db = db
 
-	// Run migrations
 	sqlDB, err := db.DB()
 	if err != nil {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
-
-	migrations := []string{
-		"000001_create_initial_schema.up.sql",
-		"000005_add_show_status.up.sql",
-		"000006_add_user_saved_shows.up.sql",
-		"000011_add_webauthn_tables.up.sql",
-		"000012_add_user_deletion_fields.up.sql",
-		"000014_add_account_lockout.up.sql",
-		"000015_add_user_favorite_venues.up.sql",
-		"000031_add_user_terms_acceptance.up.sql",
-		"000032_add_favorite_cities.up.sql",
-		"000034_add_show_reminders.up.sql",
-	}
-	for _, m := range migrations {
-		migrationSQL, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", m))
-		if err != nil {
-			suite.T().Fatalf("failed to read migration file %s: %v", m, err)
-		}
-		_, err = sqlDB.Exec(string(migrationSQL))
-		if err != nil {
-			suite.T().Fatalf("failed to run migration %s: %v", m, err)
-		}
-	}
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
 
 	// Create UserService
 	suite.userService = &UserService{db: db}
