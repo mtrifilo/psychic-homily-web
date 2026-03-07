@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -188,6 +189,7 @@ type UserServiceInterface interface {
 	UnlinkOAuthAccount(userID uint, provider string) error
 	GetFavoriteCities(userID uint) ([]models.FavoriteCity, error)
 	SetFavoriteCities(userID uint, cities []models.FavoriteCity) error
+	SetShowReminders(userID uint, enabled bool) error
 }
 
 // EmailServiceInterface defines the contract for email operations.
@@ -196,6 +198,14 @@ type EmailServiceInterface interface {
 	SendVerificationEmail(toEmail, token string) error
 	SendMagicLinkEmail(toEmail, token string) error
 	SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error
+	SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventDate time.Time, venues []string) error
+}
+
+// ReminderServiceInterface defines the contract for the show reminder background service.
+type ReminderServiceInterface interface {
+	Start(ctx context.Context)
+	Stop()
+	RunReminderCycleNow()
 }
 
 // DiscordServiceInterface defines the contract for Discord notification operations.
@@ -324,4 +334,5 @@ var (
 	_ DataSyncServiceInterface      = (*DataSyncService)(nil)
 	_ AdminStatsServiceInterface    = (*AdminStatsService)(nil)
 	_ CalendarServiceInterface      = (*CalendarService)(nil)
+	_ ReminderServiceInterface      = (*ReminderService)(nil)
 )

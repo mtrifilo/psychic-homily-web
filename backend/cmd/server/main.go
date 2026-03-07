@@ -156,6 +156,10 @@ func main() {
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	sc.Cleanup.Start(cleanupCtx)
 
+	// Start show reminder service (background job for 24h-before email reminders)
+	reminderCtx, reminderCancel := context.WithCancel(context.Background())
+	sc.Reminder.Start(reminderCtx)
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -183,6 +187,10 @@ func main() {
 	// Stop cleanup service
 	cleanupCancel()
 	sc.Cleanup.Stop()
+
+	// Stop reminder service
+	reminderCancel()
+	sc.Reminder.Stop()
 
 	// Graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

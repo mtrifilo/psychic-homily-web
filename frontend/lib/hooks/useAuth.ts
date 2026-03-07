@@ -52,6 +52,7 @@ interface FavoriteCity {
 interface UserPreferencesData {
   notification_email?: boolean
   notification_push?: boolean
+  show_reminders?: boolean
   theme?: string
   timezone?: string
   language?: string

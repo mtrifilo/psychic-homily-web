@@ -2,6 +2,8 @@ package services
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/getsentry/sentry-go"
 
@@ -205,6 +207,70 @@ func (s *EmailService) SendAccountRecoveryEmail(toEmail, token string, daysRemai
 			sentry.CaptureException(err)
 		})
 		return fmt.Errorf("failed to send account recovery email: %w", err)
+	}
+
+	return nil
+}
+
+// SendShowReminderEmail sends a reminder email ~24h before a saved show
+func (s *EmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventDate time.Time, venues []string) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service is not configured")
+	}
+
+	formattedDate := eventDate.Format("Monday, January 2, 2006 at 3:04 PM")
+	venueText := ""
+	if len(venues) > 0 {
+		venueText = fmt.Sprintf(`<p style="font-size: 16px; color: #444;">Venue: <strong>%s</strong></p>`, strings.Join(venues, ", "))
+	}
+
+	html := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
+    </div>
+
+    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
+        <h2 style="margin-top: 0; color: #1a1a1a;">%s is tomorrow!</h2>
+        <p style="font-size: 16px; color: #444;">%s</p>
+        %s
+        <p style="text-align: center; margin: 30px 0;">
+            <a href="%s" style="display: inline-block; background: #f97316; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600;">View Show</a>
+        </p>
+    </div>
+
+    <div style="text-align: center; font-size: 12px; color: #999;">
+        <p>Don't want these reminders? <a href="%s" style="color: #666;">Unsubscribe</a></p>
+    </div>
+</body>
+</html>
+`, showTitle, formattedDate, venueText, showURL, unsubscribeURL)
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: fmt.Sprintf("Reminder: %s is tomorrow", showTitle),
+		Html:    html,
+		Headers: map[string]string{
+			"List-Unsubscribe":      fmt.Sprintf("<%s>", unsubscribeURL),
+			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+		},
+	}
+
+	_, err := s.client.Emails.Send(params)
+	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "email")
+			scope.SetTag("email_type", "show_reminder")
+			sentry.CaptureException(err)
+		})
+		return fmt.Errorf("failed to send show reminder email: %w", err)
 	}
 
 	return nil
