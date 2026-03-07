@@ -620,7 +620,7 @@ function CollectionPageContent() {
   const currentUserId = user?.id ? Number(user.id) : undefined
 
   return (
-    <div className="container max-w-4xl mx-auto px-4 py-12">
+    <div className="container max-w-6xl mx-auto px-4 py-12">
       {/* Private Show Submission Success Dialog */}
       <SubmissionSuccessDialog
         open={showSuccessDialog}

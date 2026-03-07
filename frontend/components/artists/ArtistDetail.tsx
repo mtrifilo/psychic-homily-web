@@ -298,7 +298,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   const hasLocation = artist.city || artist.state
 
   return (
-    <div className="container max-w-4xl mx-auto px-4 py-6">
+    <div className="container max-w-6xl mx-auto px-4 py-6">
       {/* Back Navigation */}
       <div className="mb-6">
         <Link

@@ -90,7 +90,7 @@ export default async function ShowsPage() {
         { name: 'Home', url: 'https://psychichomily.com' },
         { name: 'Upcoming Shows', url: 'https://psychichomily.com/shows' },
       ])} />
-      <div className="w-full max-w-4xl mx-auto px-4 py-8 md:px-8">
+      <div className="w-full max-w-6xl mx-auto px-4 py-8 md:px-8">
         <h1 className="text-3xl font-bold text-center mb-8 leading-9">Upcoming Shows</h1>
         <Suspense fallback={<ShowListSkeleton />}>
           <ShowList />

@@ -44,6 +44,9 @@
 }
 
 :root {
+  --sidebar-width: 15rem;
+  --sidebar-width-collapsed: 3.5rem;
+  --topbar-height: 3.5rem;
   --radius: 0.625rem;
   --card: #ffffff;
   --card-foreground: #020618;

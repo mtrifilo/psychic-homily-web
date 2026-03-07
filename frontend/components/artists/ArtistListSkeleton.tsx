@@ -1,6 +1,6 @@
 export function ArtistListSkeleton() {
   return (
-    <div className="w-full max-w-4xl animate-pulse">
+    <div className="w-full max-w-6xl animate-pulse">
       {/* Search + filter chips skeleton */}
       <div className="mb-6 space-y-4">
         <div className="h-9 w-full max-w-sm rounded-md bg-muted" />

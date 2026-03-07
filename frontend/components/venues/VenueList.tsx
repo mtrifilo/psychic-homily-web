@@ -103,7 +103,7 @@ export function VenueList() {
   })) ?? []
 
   return (
-    <section className="w-full max-w-4xl">
+    <section className="w-full max-w-6xl">
       <div className="mb-6 space-y-4">
         <VenueSearch />
         {cities.length > 0 && (

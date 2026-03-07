@@ -90,7 +90,7 @@ export default async function VenuesPage() {
         { name: 'Venues', url: 'https://psychichomily.com/venues' },
       ])} />
       <div className="flex min-h-screen items-start justify-center">
-        <main className="w-full max-w-4xl px-4 py-8 md:px-8">
+        <main className="w-full max-w-6xl px-4 py-8 md:px-8">
           <h1 className="text-3xl font-bold text-center mb-8">Venues</h1>
           <Suspense fallback={<VenueListLoading />}>
             <VenueList />

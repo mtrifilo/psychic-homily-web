@@ -31,7 +31,7 @@ function ShowCardSkeleton() {
 
 export function ShowListSkeleton() {
   return (
-    <section className="w-full max-w-4xl">
+    <section className="w-full max-w-6xl">
       <CityFiltersSkeleton />
       {Array.from({ length: 6 }, (_, i) => (
         <ShowCardSkeleton key={i} />
