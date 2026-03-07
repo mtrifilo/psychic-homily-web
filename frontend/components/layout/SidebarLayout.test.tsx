@@ -19,6 +19,10 @@ vi.mock('./Sidebar', () => ({
   ),
 }))
 
+vi.mock('./CommandPalette', () => ({
+  CommandPalette: () => <div data-testid="command-palette" />,
+}))
+
 describe('SidebarLayout', () => {
   beforeEach(() => {
     localStorage.clear()
