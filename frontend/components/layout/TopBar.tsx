@@ -24,9 +24,10 @@ import { sidebarGroups } from './Sidebar'
 interface TopBarProps {
   mobileOpen: boolean
   onMobileOpenChange: (open: boolean) => void
+  onSearchClick?: () => void
 }
 
-export function TopBar({ mobileOpen, onMobileOpenChange }: TopBarProps) {
+export function TopBar({ mobileOpen, onMobileOpenChange, onSearchClick }: TopBarProps) {
   const { user, isAuthenticated, isLoading, logout } = useAuthContext()
   const { theme, setTheme } = useTheme()
   const pathname = usePathname()
@@ -212,8 +213,8 @@ export function TopBar({ mobileOpen, onMobileOpenChange }: TopBarProps) {
           <Button
             variant="outline"
             size="sm"
-            className="hidden h-8 w-48 justify-start text-xs text-muted-foreground sm:flex"
-            disabled
+            className="hidden h-8 w-48 cursor-pointer justify-start text-xs text-muted-foreground sm:flex"
+            onClick={onSearchClick}
           >
             <Search className="mr-2 h-3.5 w-3.5" />
             Search...
