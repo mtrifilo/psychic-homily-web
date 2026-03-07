@@ -92,10 +92,10 @@ HTTP Request → Chi Router → Global Middleware → Huma Adapter → Route Gro
 
 ### Backend Test Patterns
 
-- **Service integration tests**: Use testcontainers (`postgres:18`), `testify/suite`. Migrations loaded from `../../db/migrations/`.
+- **Service integration tests**: Use testcontainers (`postgres:18`), `testify/suite`. Migrations run via `testutil.RunAllMigrations()`.
 - **Handler integration tests**: Direct function calls (no httptest/router needed for Huma handlers). Shared setup in `handler_integration_helpers_test.go`.
 - **Unit tests**: Pure functions tested without DB. Nil DB → `"database not initialized"` error path.
-- **Migration 27 gotcha**: Uses `CREATE INDEX CONCURRENTLY` — must strip keyword in test migrations (not allowed in transactions).
+- **Migration helper**: `internal/testutil/migrations.go` — `RunAllMigrations(t, sqlDB, migrationDir)` globs all `*.up.sql` files, sorts them, strips `CONCURRENTLY`, and runs them. New migrations work automatically — no test files to update.
 - **GORM bool gotcha**: `IsActive: false` on Create is zero-value, GORM skips it → DB default wins. Fix: create as true, then Update to false.
 
 ### E2E Test Patterns (Playwright)
