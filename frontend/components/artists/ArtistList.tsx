@@ -117,7 +117,7 @@ export function ArtistList() {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {artists.map(artist => (
               <ArtistCard key={artist.id} artist={artist} />
             ))}

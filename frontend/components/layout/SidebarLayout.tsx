@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { TopBar } from './TopBar'
 import { Sidebar } from './Sidebar'
+import { CommandPalette } from './CommandPalette'
+import { openCommandPalette } from '@/lib/hooks/useCommandPalette'
 
 const STORAGE_KEY = 'sidebar-collapsed'
 
@@ -23,15 +25,24 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
+  const handleSearchClick = useCallback(() => {
+    openCommandPalette()
+  }, [])
+
   return (
     <div className="flex min-h-screen flex-col">
-      <TopBar mobileOpen={mobileOpen} onMobileOpenChange={setMobileOpen} />
+      <TopBar
+        mobileOpen={mobileOpen}
+        onMobileOpenChange={setMobileOpen}
+        onSearchClick={handleSearchClick}
+      />
       <div className="flex flex-1">
         <Sidebar collapsed={collapsed} onToggleCollapse={toggleCollapse} />
         <div className="flex min-w-0 flex-1 flex-col">
           {children}
         </div>
       </div>
+      <CommandPalette />
     </div>
   )
 }

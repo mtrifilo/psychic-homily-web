@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { MapPin } from 'lucide-react'
+import { MapPin, Music } from 'lucide-react'
 import type { ArtistListItem } from '@/lib/types/artist'
 import { getArtistLocation } from '@/lib/types/artist'
 
@@ -14,23 +14,31 @@ export function ArtistCard({ artist }: ArtistCardProps) {
   const location = hasLocation ? getArtistLocation(artist) : null
 
   return (
-    <article className="py-2 px-3 rounded-md hover:bg-muted/50 transition-colors">
+    <article className="rounded-lg border border-border/50 bg-card p-4 transition-shadow hover:shadow-sm">
       <Link
         href={`/artists/${artist.slug}`}
-        className="block hover:text-primary transition-colors"
+        className="block group"
       >
-        <span className="font-medium">{artist.name}</span>
+        <h3 className="font-semibold text-base text-foreground group-hover:text-primary transition-colors truncate">
+          {artist.name}
+        </h3>
       </Link>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-        <span>{artist.upcoming_show_count} upcoming</span>
+
+      {/* Space for future tag pills - renders nothing until tags exist */}
+
+      <div className="mt-2 space-y-1">
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <Music className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            {artist.upcoming_show_count} upcoming
+          </span>
+        </div>
+
         {hasLocation && (
-          <>
-            <span className="text-border">·</span>
-            <span className="flex items-center gap-0.5">
-              <MapPin className="h-3 w-3 shrink-0" />
-              {location}
-            </span>
-          </>
+          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <MapPin className="h-3.5 w-3.5 shrink-0" />
+            <span>{location}</span>
+          </div>
         )}
       </div>
     </article>
