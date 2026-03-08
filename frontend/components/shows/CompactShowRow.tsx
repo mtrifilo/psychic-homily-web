@@ -131,7 +131,7 @@ export function CompactShowRow({
           <div className="flex-1 min-w-0">
             {primaryLine === 'artists' ? (
               <>
-                <div className="text-sm font-semibold truncate">
+                <div className="text-sm font-bold truncate">
                   <ArtistLinks artists={show.artists} />
                 </div>
                 {showVenueLine && <VenueLine venue={venue} />}
@@ -143,12 +143,12 @@ export function CompactShowRow({
                     {venue.slug ? (
                       <Link
                         href={`/venues/${venue.slug}`}
-                        className="text-sm font-semibold hover:text-primary transition-colors"
+                        className="text-sm font-bold hover:text-primary transition-colors"
                       >
                         {venue.name}
                       </Link>
                     ) : (
-                      <span className="text-sm font-semibold">{venue.name}</span>
+                      <span className="text-sm font-bold">{venue.name}</span>
                     )}
                     {(venue.city || venue.state) && (
                       <span className="text-muted-foreground/80 text-sm">
@@ -158,7 +158,7 @@ export function CompactShowRow({
                     )}
                   </div>
                 ) : (
-                  <div className="text-sm font-semibold">Venue TBA</div>
+                  <div className="text-sm font-bold">Venue TBA</div>
                 )}
               </>
             )}

@@ -11,6 +11,7 @@ import {
   MapPin,
   ExternalLink,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import {
   formatShowTime,
   formatPrice,
@@ -119,14 +120,17 @@ function SupportLine({ artists }: { artists: ArtistResponse[] }) {
   )
 }
 
+export type ShowCardDensity = 'compact' | 'comfortable' | 'expanded'
+
 export interface ShowCardProps {
   show: ShowResponse
   isAdmin: boolean
   userId?: string
   isSaved?: boolean
+  density?: ShowCardDensity
 }
 
-export function ShowCard({ show, isAdmin, userId, isSaved }: ShowCardProps) {
+export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortable' }: ShowCardProps) {
   const { user } = useAuthContext()
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -162,13 +166,24 @@ export function ShowCard({ show, isAdmin, userId, isSaved }: ShowCardProps) {
 
   return (
     <article
-      className={`border border-border/50 rounded-lg px-3 py-3 sm:px-4 sm:py-4 mb-3 hover:shadow-sm transition-all duration-100 ${show.is_cancelled ? 'opacity-60' : ''}`}
+      className={cn(
+        'border border-border/50 rounded-lg bg-card hover:shadow-sm transition-all duration-100',
+        density === 'compact' && 'px-2.5 py-2 sm:px-3 sm:py-2.5 mb-2',
+        density === 'comfortable' && 'px-3 py-3 sm:px-4 sm:py-4 mb-3',
+        density === 'expanded' && 'px-4 py-4 sm:px-5 sm:py-5 mb-4',
+        show.is_cancelled && 'opacity-60'
+      )}
     >
       <div className="flex gap-3 sm:gap-4">
         {/* Date badge - stacked day/date */}
         <Link
           href={detailsHref}
-          className="shrink-0 flex flex-col items-center justify-center w-14 sm:w-16 rounded-md bg-muted/50 hover:bg-muted transition-colors py-2"
+          className={cn(
+            'shrink-0 flex flex-col items-center justify-center rounded-md bg-muted/50 hover:bg-muted transition-colors',
+            density === 'compact' && 'w-12 sm:w-14 py-1.5',
+            density === 'comfortable' && 'w-14 sm:w-16 py-2',
+            density === 'expanded' && 'w-16 sm:w-18 py-2.5'
+          )}
         >
           <span className="text-[10px] sm:text-xs font-bold tracking-widest uppercase text-primary leading-none">
             {dateBadge.dayOfWeek}
@@ -183,7 +198,12 @@ export function ShowCard({ show, isAdmin, userId, isSaved }: ShowCardProps) {
           <div className="flex items-start justify-between gap-2">
             {/* Bill hierarchy */}
             <div className="flex-1 min-w-0">
-              <h2 className="text-base sm:text-lg font-semibold leading-tight tracking-tight truncate">
+              <h2 className={cn(
+                'font-bold leading-tight tracking-tight truncate',
+                density === 'compact' && 'text-sm sm:text-base',
+                density === 'comfortable' && 'text-base sm:text-lg',
+                density === 'expanded' && 'text-lg sm:text-xl'
+              )}>
                 <HeadlinerLine artists={headliners} />
                 {/* Status badges inline with headliner */}
                 <ShowStatusBadge show={show} className="ml-2 inline-flex gap-1" />

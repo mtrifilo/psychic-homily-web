@@ -10,6 +10,8 @@ import { useSetFavoriteCities } from '@/lib/hooks/useFavoriteCities'
 import type { ShowResponse } from '@/lib/types/show'
 import type { CityState } from '@/components/filters'
 import { Button } from '@/components/ui/button'
+import { DensityToggle } from '@/components/shared'
+import { useDensity } from '@/lib/hooks/useDensity'
 import { ShowCard } from './ShowCard'
 import { ShowListSkeleton } from './ShowListSkeleton'
 import { CityFilters, type CityWithCount } from '@/components/filters'
@@ -47,6 +49,7 @@ export function ShowList() {
   const [isPending, startTransition] = useTransition()
   const { data: profileData } = useProfile()
   const hasAppliedDefaults = useRef(false)
+  const { density } = useDensity('shows')
 
   // Parse multi-city or legacy single-city from URL
   const citiesParam = searchParams.get('cities')
@@ -183,6 +186,10 @@ export function ShowList() {
         </div>
       )}
 
+      <div className="flex justify-end mb-4">
+        <DensityToggle storageKey="shows" />
+      </div>
+
       {/* Dim content while fetching, don't hide it */}
       <div
         className={
@@ -216,6 +223,7 @@ export function ShowList() {
                 isAdmin={isAdmin}
                 userId={user?.id}
                 isSaved={savedShowIds?.has(show.id)}
+                density={density}
               />
             ))}
 
