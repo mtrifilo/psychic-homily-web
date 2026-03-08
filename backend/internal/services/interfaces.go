@@ -300,6 +300,19 @@ type AdminStatsServiceInterface interface {
 	GetDashboardStats() (*AdminDashboardStats, error)
 }
 
+// ReleaseServiceInterface defines the contract for release operations.
+type ReleaseServiceInterface interface {
+	CreateRelease(req *CreateReleaseRequest) (*ReleaseDetailResponse, error)
+	GetRelease(releaseID uint) (*ReleaseDetailResponse, error)
+	GetReleaseBySlug(slug string) (*ReleaseDetailResponse, error)
+	ListReleases(filters map[string]interface{}) ([]*ReleaseListResponse, error)
+	UpdateRelease(releaseID uint, req *UpdateReleaseRequest) (*ReleaseDetailResponse, error)
+	DeleteRelease(releaseID uint) error
+	GetReleasesForArtist(artistID uint) ([]*ReleaseListResponse, error)
+	AddExternalLink(releaseID uint, platform, url string) (*ReleaseExternalLinkResponse, error)
+	RemoveExternalLink(linkID uint) error
+}
+
 // CalendarServiceInterface defines the contract for calendar feed operations.
 type CalendarServiceInterface interface {
 	CreateToken(userID uint, apiBaseURL string) (*CalendarTokenCreateResponse, error)
@@ -335,4 +348,5 @@ var (
 	_ AdminStatsServiceInterface    = (*AdminStatsService)(nil)
 	_ CalendarServiceInterface      = (*CalendarService)(nil)
 	_ ReminderServiceInterface      = (*ReminderService)(nil)
+	_ ReleaseServiceInterface       = (*ReleaseService)(nil)
 )

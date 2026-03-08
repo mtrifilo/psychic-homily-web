@@ -83,6 +83,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 
 	setupShowRoutes(router, api, protectedGroup, sc, cfg)
 	setupArtistRoutes(api, protectedGroup, sc)
+	setupReleaseRoutes(api, protectedGroup, sc)
 	setupVenueRoutes(api, protectedGroup, sc)
 	setupCalendarRoutes(router, protectedGroup, sc, cfg)
 	setupSavedShowRoutes(protectedGroup, sc)
@@ -277,6 +278,22 @@ func setupArtistRoutes(api huma.API, protected *huma.Group, sc *services.Service
 	// Protected artist endpoints
 	huma.Delete(protected, "/artists/{artist_id}", artistHandler.DeleteArtistHandler)
 	huma.Patch(protected, "/admin/artists/{artist_id}", artistHandler.AdminUpdateArtistHandler)
+}
+
+func setupReleaseRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
+	releaseHandler := handlers.NewReleaseHandler(sc.Release, sc.Artist, sc.AuditLog)
+
+	// Public release endpoints
+	huma.Get(api, "/releases", releaseHandler.ListReleasesHandler)
+	huma.Get(api, "/releases/{release_id}", releaseHandler.GetReleaseHandler)
+	huma.Get(api, "/artists/{artist_id}/releases", releaseHandler.GetArtistReleasesHandler)
+
+	// Protected release endpoints (admin-only checks inside handlers)
+	huma.Post(protected, "/releases", releaseHandler.CreateReleaseHandler)
+	huma.Put(protected, "/releases/{release_id}", releaseHandler.UpdateReleaseHandler)
+	huma.Delete(protected, "/releases/{release_id}", releaseHandler.DeleteReleaseHandler)
+	huma.Post(protected, "/releases/{release_id}/links", releaseHandler.AddExternalLinkHandler)
+	huma.Delete(protected, "/releases/{release_id}/links/{link_id}", releaseHandler.RemoveExternalLinkHandler)
 }
 
 func setupVenueRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
