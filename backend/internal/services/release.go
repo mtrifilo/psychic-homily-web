@@ -103,6 +103,12 @@ type ReleaseListResponse struct {
 	ArtistCount int     `json:"artist_count"`
 }
 
+// ArtistReleaseListResponse extends ReleaseListResponse with the artist's role on that release
+type ArtistReleaseListResponse struct {
+	ReleaseListResponse
+	Role string `json:"role"`
+}
+
 // CreateRelease creates a new release
 func (s *ReleaseService) CreateRelease(req *CreateReleaseRequest) (*ReleaseDetailResponse, error) {
 	if s.db == nil {
@@ -384,6 +390,90 @@ func (s *ReleaseService) GetReleasesForArtist(artistID uint) ([]*ReleaseListResp
 	}
 
 	return s.ListReleases(map[string]interface{}{"artist_id": artistID})
+}
+
+// GetReleasesForArtistWithRoles retrieves all releases for an artist, including their role on each release
+func (s *ReleaseService) GetReleasesForArtistWithRoles(artistID uint) ([]*ArtistReleaseListResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Verify artist exists
+	var artist models.Artist
+	if err := s.db.First(&artist, artistID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.ErrArtistNotFound(artistID)
+		}
+		return nil, fmt.Errorf("failed to get artist: %w", err)
+	}
+
+	// Get artist_releases junction entries for this artist (includes role)
+	var artistReleases []models.ArtistRelease
+	if err := s.db.Where("artist_id = ?", artistID).Find(&artistReleases).Error; err != nil {
+		return nil, fmt.Errorf("failed to get artist releases: %w", err)
+	}
+
+	if len(artistReleases) == 0 {
+		return []*ArtistReleaseListResponse{}, nil
+	}
+
+	// Build role map: releaseID -> role (an artist can have multiple roles on a release,
+	// but for grouping we use the first/primary one)
+	roleMap := make(map[uint]string)
+	releaseIDs := make([]uint, 0, len(artistReleases))
+	for _, ar := range artistReleases {
+		if _, exists := roleMap[ar.ReleaseID]; !exists {
+			releaseIDs = append(releaseIDs, ar.ReleaseID)
+		}
+		roleMap[ar.ReleaseID] = string(ar.Role)
+	}
+
+	// Fetch releases
+	var releases []models.Release
+	if err := s.db.Where("id IN ?", releaseIDs).Order("release_year DESC NULLS LAST, title ASC").Find(&releases).Error; err != nil {
+		return nil, fmt.Errorf("failed to get releases: %w", err)
+	}
+
+	// Batch-load artist counts
+	artistCounts := make(map[uint]int)
+	if len(releaseIDs) > 0 {
+		type CountResult struct {
+			ReleaseID uint
+			Count     int
+		}
+		var counts []CountResult
+		s.db.Table("artist_releases").
+			Select("release_id, COUNT(DISTINCT artist_id) as count").
+			Where("release_id IN ?", releaseIDs).
+			Group("release_id").
+			Find(&counts)
+		for _, c := range counts {
+			artistCounts[c.ReleaseID] = c.Count
+		}
+	}
+
+	// Build responses
+	responses := make([]*ArtistReleaseListResponse, len(releases))
+	for i, release := range releases {
+		slug := ""
+		if release.Slug != nil {
+			slug = *release.Slug
+		}
+		responses[i] = &ArtistReleaseListResponse{
+			ReleaseListResponse: ReleaseListResponse{
+				ID:          release.ID,
+				Title:       release.Title,
+				Slug:        slug,
+				ReleaseType: string(release.ReleaseType),
+				ReleaseYear: release.ReleaseYear,
+				CoverArtURL: release.CoverArtURL,
+				ArtistCount: artistCounts[release.ID],
+			},
+			Role: roleMap[release.ID],
+		}
+	}
+
+	return responses, nil
 }
 
 // AddExternalLink adds an external link to a release

@@ -896,6 +896,7 @@ type mockArtistService struct {
 	searchArtistsFn             func(query string) ([]*services.ArtistDetailResponse, error)
 	getShowsForArtistFn         func(artistID uint, timezone string, limit int, timeFilter string) ([]*services.ArtistShowResponse, int64, error)
 	getArtistCitiesFn           func() ([]*services.ArtistCityResponse, error)
+	getLabelsForArtistFn        func(artistID uint) ([]*services.ArtistLabelResponse, error)
 }
 
 func (m *mockArtistService) CreateArtist(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
@@ -961,6 +962,12 @@ func (m *mockArtistService) GetShowsForArtist(artistID uint, timezone string, li
 func (m *mockArtistService) GetArtistCities() ([]*services.ArtistCityResponse, error) {
 	if m.getArtistCitiesFn != nil {
 		return m.getArtistCitiesFn()
+	}
+	return nil, nil
+}
+func (m *mockArtistService) GetLabelsForArtist(artistID uint) ([]*services.ArtistLabelResponse, error) {
+	if m.getLabelsForArtistFn != nil {
+		return m.getLabelsForArtistFn(artistID)
 	}
 	return nil, nil
 }

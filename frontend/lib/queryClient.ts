@@ -164,6 +164,7 @@ export const queryKeys = {
       ['artists', 'search', query.toLowerCase()] as const,
     detail: (idOrSlug: string | number) => ['artists', 'detail', String(idOrSlug)] as const,
     shows: (artistIdOrSlug: string | number) => ['artists', 'shows', String(artistIdOrSlug)] as const,
+    labels: (artistIdOrSlug: string | number) => ['artists', 'labels', String(artistIdOrSlug)] as const,
   },
 
   // Release queries

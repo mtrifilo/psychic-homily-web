@@ -115,6 +115,7 @@ export const API_ENDPOINTS = {
     SEARCH: `${API_BASE_URL}/artists/search`,
     GET: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}`,
     SHOWS: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}/shows`,
+    LABELS: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}/labels`,
     DELETE: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}`,
     REPORT: (artistId: string | number) =>
       `${API_BASE_URL}/artists/${artistId}/report`,

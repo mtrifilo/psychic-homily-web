@@ -275,6 +275,7 @@ func setupArtistRoutes(api huma.API, protected *huma.Group, sc *services.Service
 	huma.Get(api, "/artists/search", artistHandler.SearchArtistsHandler)
 	huma.Get(api, "/artists/{artist_id}", artistHandler.GetArtistHandler)
 	huma.Get(api, "/artists/{artist_id}/shows", artistHandler.GetArtistShowsHandler)
+	huma.Get(api, "/artists/{artist_id}/labels", artistHandler.GetArtistLabelsHandler)
 
 	// Protected artist endpoints
 	huma.Delete(protected, "/artists/{artist_id}", artistHandler.DeleteArtistHandler)

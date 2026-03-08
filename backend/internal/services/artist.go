@@ -498,6 +498,64 @@ func (s *ArtistService) buildArtistResponse(artist *models.Artist) *ArtistDetail
 	}
 }
 
+// ArtistLabelResponse represents a label the artist is on
+type ArtistLabelResponse struct {
+	ID    uint    `json:"id"`
+	Name  string  `json:"name"`
+	Slug  string  `json:"slug"`
+	City  *string `json:"city"`
+	State *string `json:"state"`
+}
+
+// GetLabelsForArtist retrieves all labels associated with an artist
+func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*ArtistLabelResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Verify artist exists
+	var artist models.Artist
+	if err := s.db.First(&artist, artistID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.ErrArtistNotFound(artistID)
+		}
+		return nil, fmt.Errorf("failed to get artist: %w", err)
+	}
+
+	// Get label IDs from junction table
+	var artistLabels []models.ArtistLabel
+	s.db.Where("artist_id = ?", artistID).Find(&artistLabels)
+
+	if len(artistLabels) == 0 {
+		return []*ArtistLabelResponse{}, nil
+	}
+
+	labelIDs := make([]uint, len(artistLabels))
+	for i, al := range artistLabels {
+		labelIDs[i] = al.LabelID
+	}
+
+	var labels []models.Label
+	s.db.Where("id IN ?", labelIDs).Order("name ASC").Find(&labels)
+
+	responses := make([]*ArtistLabelResponse, len(labels))
+	for i, label := range labels {
+		slug := ""
+		if label.Slug != nil {
+			slug = *label.Slug
+		}
+		responses[i] = &ArtistLabelResponse{
+			ID:    label.ID,
+			Name:  label.Name,
+			Slug:  slug,
+			City:  label.City,
+			State: label.State,
+		}
+	}
+
+	return responses, nil
+}
+
 // ArtistShowResponse represents a show in the artist shows endpoint
 type ArtistShowResponse struct {
 	ID             uint                     `json:"id"`

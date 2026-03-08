@@ -79,10 +79,14 @@ export interface ReleasesListResponse {
   count: number
 }
 
+/** Release with the artist's role, returned from GET /artists/:id/releases */
+export interface ArtistReleaseListItem extends ReleaseListItem {
+  role: string
+}
+
 export interface ArtistReleasesResponse {
-  releases: ReleaseListItem[]
-  artist_id: number
-  total: number
+  releases: ArtistReleaseListItem[]
+  count: number
 }
 
 /**

@@ -286,7 +286,7 @@ func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_Success() {
 	})
 	s.deps.releaseService.CreateRelease(&services.CreateReleaseRequest{
 		Title:   "Album Two",
-		Artists: []services.CreateReleaseArtistEntry{{ArtistID: artistID, Role: "main"}},
+		Artists: []services.CreateReleaseArtistEntry{{ArtistID: artistID, Role: "featured"}},
 	})
 
 	req := &GetArtistReleasesRequest{ArtistID: fmt.Sprintf("%d", artistID)}
@@ -294,6 +294,14 @@ func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_Success() {
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(2, resp.Body.Count)
+
+	// Verify roles are present in the response
+	roleMap := make(map[string]string)
+	for _, r := range resp.Body.Releases {
+		roleMap[r.Title] = r.Role
+	}
+	s.Equal("main", roleMap["Album One"])
+	s.Equal("featured", roleMap["Album Two"])
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_BySlug() {

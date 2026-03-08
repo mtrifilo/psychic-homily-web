@@ -80,6 +80,7 @@ type ArtistServiceInterface interface {
 	SearchArtists(query string) ([]*ArtistDetailResponse, error)
 	GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*ArtistShowResponse, int64, error)
 	GetArtistCities() ([]*ArtistCityResponse, error)
+	GetLabelsForArtist(artistID uint) ([]*ArtistLabelResponse, error)
 }
 
 // SavedShowServiceInterface defines the contract for saved show operations.
@@ -321,6 +322,7 @@ type ReleaseServiceInterface interface {
 	UpdateRelease(releaseID uint, req *UpdateReleaseRequest) (*ReleaseDetailResponse, error)
 	DeleteRelease(releaseID uint) error
 	GetReleasesForArtist(artistID uint) ([]*ReleaseListResponse, error)
+	GetReleasesForArtistWithRoles(artistID uint) ([]*ArtistReleaseListResponse, error)
 	AddExternalLink(releaseID uint, platform, url string) (*ReleaseExternalLinkResponse, error)
 	RemoveExternalLink(linkID uint) error
 }
