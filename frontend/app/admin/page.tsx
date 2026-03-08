@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
-import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3 } from 'lucide-react'
+import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag } from 'lucide-react'
 import { usePendingVenueEdits } from '@/lib/hooks/useAdminVenueEdits'
 import { useUnverifiedVenues } from '@/lib/hooks/useAdminVenues'
 import { usePendingReports } from '@/lib/hooks/useAdminReports'
@@ -72,6 +72,14 @@ const DashboardPage = dynamic(() => import('./dashboard/page'), {
 })
 
 const ReleasesPage = dynamic(() => import('./releases/page'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
+const LabelsPage = dynamic(() => import('./labels/page'), {
   loading: () => (
     <div className="flex items-center justify-center py-12">
       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -178,6 +186,10 @@ export default function AdminPage() {
               <Disc3 className="h-4 w-4" />
               Releases
             </TabsTrigger>
+            <TabsTrigger value="labels" className="gap-2">
+              <Tag className="h-4 w-4" />
+              Labels
+            </TabsTrigger>
             <TabsTrigger value="users" className="gap-2">
               <Users className="h-4 w-4" />
               Users
@@ -214,6 +226,10 @@ export default function AdminPage() {
 
           <TabsContent value="releases" className="space-y-4">
             <ReleasesPage />
+          </TabsContent>
+
+          <TabsContent value="labels" className="space-y-4">
+            <LabelsPage />
           </TabsContent>
 
           <TabsContent value="users" className="space-y-4">
