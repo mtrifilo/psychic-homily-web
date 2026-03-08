@@ -132,7 +132,7 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) SetupSuite() {
 
 	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
 
-	suite.favoriteVenueService = &FavoriteVenueService{db: db}
+	suite.favoriteVenueService = NewFavoriteVenueService(db)
 }
 
 func (suite *FavoriteVenueServiceIntegrationTestSuite) TearDownSuite() {
@@ -146,7 +146,7 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TearDownSuite() {
 func (suite *FavoriteVenueServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
-	_, _ = sqlDB.Exec("DELETE FROM user_favorite_venues")
+	_, _ = sqlDB.Exec("DELETE FROM user_bookmarks")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
@@ -228,8 +228,8 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestFavoriteVenue_Success
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.UserFavoriteVenue{}).
-		Where("user_id = ? AND venue_id = ?", user.ID, venue.ID).
+	suite.db.Model(&models.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, models.BookmarkEntityVenue, venue.ID, models.BookmarkActionFollow).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -257,8 +257,8 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestFavoriteVenue_Idempot
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.UserFavoriteVenue{}).
-		Where("user_id = ? AND venue_id = ?", user.ID, venue.ID).
+	suite.db.Model(&models.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, models.BookmarkEntityVenue, venue.ID, models.BookmarkActionFollow).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -278,8 +278,8 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestUnfavoriteVenue_Succe
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.UserFavoriteVenue{}).
-		Where("user_id = ? AND venue_id = ?", user.ID, venue.ID).
+	suite.db.Model(&models.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, models.BookmarkEntityVenue, venue.ID, models.BookmarkActionFollow).
 		Count(&count)
 	suite.Equal(int64(0), count)
 }

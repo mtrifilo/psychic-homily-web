@@ -124,7 +124,7 @@ func (suite *SavedShowServiceIntegrationTestSuite) SetupSuite() {
 
 	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
 
-	suite.savedShowService = &SavedShowService{db: db}
+	suite.savedShowService = NewSavedShowService(db)
 }
 
 func (suite *SavedShowServiceIntegrationTestSuite) TearDownSuite() {
@@ -138,7 +138,7 @@ func (suite *SavedShowServiceIntegrationTestSuite) TearDownSuite() {
 func (suite *SavedShowServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
-	_, _ = sqlDB.Exec("DELETE FROM user_saved_shows")
+	_, _ = sqlDB.Exec("DELETE FROM user_bookmarks")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
@@ -215,8 +215,8 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestSaveShow_Success() {
 
 	// Verify in DB
 	var count int64
-	suite.db.Model(&models.UserSavedShow{}).
-		Where("user_id = ? AND show_id = ?", user.ID, show.ID).
+	suite.db.Model(&models.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionSave).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -245,8 +245,8 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestSaveShow_Idempotent() {
 
 	// Should still only be one record
 	var count int64
-	suite.db.Model(&models.UserSavedShow{}).
-		Where("user_id = ? AND show_id = ?", user.ID, show.ID).
+	suite.db.Model(&models.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionSave).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -267,8 +267,8 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestUnsaveShow_Success() {
 
 	// Verify removed
 	var count int64
-	suite.db.Model(&models.UserSavedShow{}).
-		Where("user_id = ? AND show_id = ?", user.ID, show.ID).
+	suite.db.Model(&models.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionSave).
 		Count(&count)
 	suite.Equal(int64(0), count)
 }

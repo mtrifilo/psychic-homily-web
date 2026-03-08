@@ -817,8 +817,8 @@ func (s *UserService) GetDeletionSummary(userID uint) (*DeletionSummary, error) 
 		return nil, fmt.Errorf("failed to count shows: %w", err)
 	}
 
-	// Count saved shows
-	if err := s.db.Model(&models.UserSavedShow{}).Where("user_id = ?", userID).Count(&summary.SavedShowsCount).Error; err != nil {
+	// Count saved shows (bookmarks with entity_type='show' and action='save')
+	if err := s.db.Model(&models.UserBookmark{}).Where("user_id = ? AND entity_type = ? AND action = ?", userID, models.BookmarkEntityShow, models.BookmarkActionSave).Count(&summary.SavedShowsCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count saved shows: %w", err)
 	}
 
@@ -1059,15 +1059,15 @@ func (s *UserService) ExportUserData(userID uint) (*UserDataExport, error) {
 		})
 	}
 
-	// Get saved shows with venue info
-	var savedShowRecords []models.UserSavedShow
-	if err := s.db.Where("user_id = ?", userID).Find(&savedShowRecords).Error; err != nil {
+	// Get saved shows with venue info (from user_bookmarks)
+	var savedBookmarks []models.UserBookmark
+	if err := s.db.Where("user_id = ? AND entity_type = ? AND action = ?", userID, models.BookmarkEntityShow, models.BookmarkActionSave).Find(&savedBookmarks).Error; err != nil {
 		return nil, fmt.Errorf("failed to get saved shows: %w", err)
 	}
 
-	for _, ss := range savedShowRecords {
+	for _, sb := range savedBookmarks {
 		var show models.Show
-		if err := s.db.Preload("Venues").First(&show, ss.ShowID).Error; err != nil {
+		if err := s.db.Preload("Venues").First(&show, sb.EntityID).Error; err != nil {
 			continue // Skip if show not found
 		}
 
@@ -1076,7 +1076,7 @@ func (s *UserService) ExportUserData(userID uint) (*UserDataExport, error) {
 			Title:     show.Title,
 			EventDate: show.EventDate,
 			City:      show.City,
-			SavedAt:   ss.SavedAt,
+			SavedAt:   sb.CreatedAt,
 		}
 
 		if len(show.Venues) > 0 {
