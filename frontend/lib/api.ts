@@ -132,6 +132,12 @@ export const API_ENDPOINTS = {
     MY_PENDING_EDIT: (venueIdOrSlug: string | number) =>
       `${API_BASE_URL}/venues/${venueIdOrSlug}/my-pending-edit`,
   },
+  RELEASES: {
+    LIST: `${API_BASE_URL}/releases`,
+    GET: (idOrSlug: string | number) => `${API_BASE_URL}/releases/${idOrSlug}`,
+    ARTIST_RELEASES: (artistIdOrSlug: string | number) =>
+      `${API_BASE_URL}/artists/${artistIdOrSlug}/releases`,
+  },
 
   // Calendar feed endpoints
   CALENDAR: {
