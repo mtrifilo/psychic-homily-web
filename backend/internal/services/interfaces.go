@@ -300,6 +300,18 @@ type AdminStatsServiceInterface interface {
 	GetDashboardStats() (*AdminDashboardStats, error)
 }
 
+// LabelServiceInterface defines the contract for label operations.
+type LabelServiceInterface interface {
+	CreateLabel(req *CreateLabelRequest) (*LabelDetailResponse, error)
+	GetLabel(labelID uint) (*LabelDetailResponse, error)
+	GetLabelBySlug(slug string) (*LabelDetailResponse, error)
+	ListLabels(filters map[string]interface{}) ([]*LabelListResponse, error)
+	UpdateLabel(labelID uint, req *UpdateLabelRequest) (*LabelDetailResponse, error)
+	DeleteLabel(labelID uint) error
+	GetLabelRoster(labelID uint) ([]*LabelArtistResponse, error)
+	GetLabelCatalog(labelID uint) ([]*LabelReleaseResponse, error)
+}
+
 // ReleaseServiceInterface defines the contract for release operations.
 type ReleaseServiceInterface interface {
 	CreateRelease(req *CreateReleaseRequest) (*ReleaseDetailResponse, error)
@@ -348,5 +360,6 @@ var (
 	_ AdminStatsServiceInterface    = (*AdminStatsService)(nil)
 	_ CalendarServiceInterface      = (*CalendarService)(nil)
 	_ ReminderServiceInterface      = (*ReminderService)(nil)
+	_ LabelServiceInterface          = (*LabelService)(nil)
 	_ ReleaseServiceInterface       = (*ReleaseService)(nil)
 )
