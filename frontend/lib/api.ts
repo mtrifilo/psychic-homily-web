@@ -157,6 +157,31 @@ export const API_ENDPOINTS = {
     RELEASES: (idOrSlug: string | number) =>
       `${API_BASE_URL}/labels/${idOrSlug}/releases`,
   },
+  FESTIVALS: {
+    LIST: `${API_BASE_URL}/festivals`,
+    GET: (idOrSlug: string | number) => `${API_BASE_URL}/festivals/${idOrSlug}`,
+    CREATE: `${API_BASE_URL}/festivals`,
+    UPDATE: (festivalId: string | number) =>
+      `${API_BASE_URL}/festivals/${festivalId}`,
+    DELETE: (festivalId: string | number) =>
+      `${API_BASE_URL}/festivals/${festivalId}`,
+    ARTISTS: (festivalId: string | number) =>
+      `${API_BASE_URL}/festivals/${festivalId}/artists`,
+    ADD_ARTIST: (festivalId: string | number) =>
+      `${API_BASE_URL}/festivals/${festivalId}/artists`,
+    UPDATE_ARTIST: (festivalId: string | number, artistId: string | number) =>
+      `${API_BASE_URL}/festivals/${festivalId}/artists/${artistId}`,
+    REMOVE_ARTIST: (festivalId: string | number, artistId: string | number) =>
+      `${API_BASE_URL}/festivals/${festivalId}/artists/${artistId}`,
+    VENUES: (festivalId: string | number) =>
+      `${API_BASE_URL}/festivals/${festivalId}/venues`,
+    ADD_VENUE: (festivalId: string | number) =>
+      `${API_BASE_URL}/festivals/${festivalId}/venues`,
+    REMOVE_VENUE: (festivalId: string | number, venueId: string | number) =>
+      `${API_BASE_URL}/festivals/${festivalId}/venues/${venueId}`,
+    ARTIST_FESTIVALS: (artistIdOrSlug: string | number) =>
+      `${API_BASE_URL}/artists/${artistIdOrSlug}/festivals`,
+  },
 
   // Calendar feed endpoints
   CALENDAR: {
