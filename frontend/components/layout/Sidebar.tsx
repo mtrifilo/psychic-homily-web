@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  Calendar, Mic2, MapPin, BookOpen, Headphones, Newspaper,
+  Calendar, Mic2, MapPin, Disc3, BookOpen, Headphones, Newspaper,
   Send, Library, Settings, Shield, PanelLeftClose, PanelLeft,
   ExternalLink,
 } from 'lucide-react'
@@ -33,6 +33,7 @@ export const sidebarGroups: SidebarGroup[] = [
       { href: '/shows', label: 'Shows', icon: Calendar },
       { href: '/artists', label: 'Artists', icon: Mic2 },
       { href: '/venues', label: 'Venues', icon: MapPin },
+      { href: '/releases', label: 'Releases', icon: Disc3 },
     ],
   },
   {

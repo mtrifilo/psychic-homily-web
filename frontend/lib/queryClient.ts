@@ -166,6 +166,16 @@ export const queryKeys = {
     shows: (artistIdOrSlug: string | number) => ['artists', 'shows', String(artistIdOrSlug)] as const,
   },
 
+  // Release queries
+  releases: {
+    all: ['releases'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      ['releases', 'list', filters] as const,
+    detail: (idOrSlug: string | number) => ['releases', 'detail', String(idOrSlug)] as const,
+    artistReleases: (artistIdOrSlug: string | number) =>
+      ['releases', 'artist', String(artistIdOrSlug)] as const,
+  },
+
   // Calendar feed queries
   calendar: {
     all: ['calendar'] as const,
@@ -236,6 +246,9 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
 
   // Invalidate artist queries
   artists: () => queryClient.invalidateQueries({ queryKey: ['artists'] }),
+
+  // Invalidate release queries
+  releases: () => queryClient.invalidateQueries({ queryKey: ['releases'] }),
 
   // Invalidate all venue-related queries
   venues: () => queryClient.invalidateQueries({ queryKey: ['venues'] }),
