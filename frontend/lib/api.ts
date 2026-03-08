@@ -149,6 +149,9 @@ export const API_ENDPOINTS = {
   LABELS: {
     LIST: `${API_BASE_URL}/labels`,
     GET: (idOrSlug: string | number) => `${API_BASE_URL}/labels/${idOrSlug}`,
+    CREATE: `${API_BASE_URL}/labels`,
+    UPDATE: (labelId: string | number) => `${API_BASE_URL}/labels/${labelId}`,
+    DELETE: (labelId: string | number) => `${API_BASE_URL}/labels/${labelId}`,
     ARTISTS: (idOrSlug: string | number) =>
       `${API_BASE_URL}/labels/${idOrSlug}/artists`,
     RELEASES: (idOrSlug: string | number) =>
