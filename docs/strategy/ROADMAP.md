@@ -14,7 +14,7 @@ Live shows are the gateway into the knowledge graph. Every phase builds outward 
 
 | Priority | Focus | What | Status |
 |----------|-------|------|--------|
-| 1 | Web | Email preferences UI, then knowledge graph vertical slice | In progress |
+| 1 | Web | Knowledge graph vertical slice (Releases + Labels landed, frontend pages + enriched artists next) | In progress |
 | 2 | iOS | Polish, test, ship to App Store | Blocked (Apple Developer enrollment) |
 | 3 | Discovery | Provider reliability, automated scheduling | Maintenance mode |
 
@@ -33,18 +33,16 @@ Live shows are the gateway into the knowledge graph. Every phase builds outward 
 
 ### Frontend Redesign (Phase 1, before and alongside entity work)
 
-Structural UI redesign to evolve from "show tracker" to "music knowledge graph." Current flat top nav and narrow `max-w-4xl` layout can't accommodate 15+ entity types. Full spec in `docs/strategy/ui-redesign.md`.
+Structural UI redesign to evolve from "show tracker" to "music knowledge graph." Full spec in `docs/strategy/ui-redesign.md`.
 
 **Build order (optimized for agent execution):**
 
-1. **Sidebar navigation + wider layout** -- collapsible sidebar replacing top nav, content area widened to `max-w-6xl`/`max-w-7xl`, 2-column grid for detail pages. Do BEFORE entity pages ship so new pages use the new layout from the start. (Frontend only, no backend deps)
-2. **Cmd+K command palette** -- global search dialog with route navigation and cross-entity search. Uses `cmdk` library. (Frontend only, can parallel with entity backend work)
-3. **Entity detail page template** -- reusable `EntityDetailLayout` with header zone, tabs, sidebar panel. Refactor Venue/Artist detail first, then new entities use it from day one. (Best done WITH first new entity page)
-4. **Show card redesign** -- bill hierarchy, date badge, inline save, tag pills. (Independent, anytime)
-5. **Artist card redesign** -- tag pills, label affiliation, card borders. (Independent, anytime)
-6. **Visual polish** -- bolder typography, card borders, density toggles. (Sweep after structural changes)
-
-**Design references:** Vercel (sidebar, command palette), Discogs (entity navigation), Linear (keyboard-first, density), Gazelle (tag voting, typed relationships, community curation patterns modernized).
+1. ~~**Sidebar navigation + wider layout**~~ — DONE (PSY-16, PR #11)
+2. ~~**Cmd+K command palette**~~ — DONE (PSY-17, PR #13)
+3. **Entity detail page template** — IN PROGRESS (PSY-18, building with Release frontend pages)
+4. ~~**Show card redesign**~~ — DONE (PSY-19, PR #14)
+5. ~~**Artist card redesign**~~ — DONE (PSY-20)
+6. ~~**Visual polish**~~ — DONE (PSY-21, PR #18) — bolder typography, card borders, density toggle, TagPill + RelationshipBadge placeholder components
 
 ### Data Layer Foundation + Knowledge Graph Vertical Slice (Phase 1.5)
 
@@ -65,18 +63,19 @@ Lay the schema foundation for the full knowledge graph, then prove the minimum v
    - URL structure: `/festivals/:series_slug/:year`
    - Festival listing page (`/festivals`) and series overview (`/festivals/:series_slug`)
 
-3. **Releases entity** — model, migrations, CRUD API, admin UI
-   - Type: LP, EP, single, compilation, live
-   - External links: Bandcamp, Spotify, Discogs, YouTube, Apple Music (the "Listen / Buy" section that replaces What.cd's download button)
-   - Cover art, year
-   - Artist <--> Release relationship with **role types** (main, featured, producer, remixer, composer, DJ) — bake in the What.cd credit model from day one
+3. ~~**Releases entity**~~ — DONE
+   - Model + migration 000035 (PSY-5), service + handler + routes with 57 tests (PSY-6)
+   - Type: LP, EP, single, compilation, live, remix, demo
+   - External links: Bandcamp, Spotify, Discogs, YouTube, Apple Music, Tidal, SoundCloud
+   - Artist <--> Release with role types (main, featured, producer, remixer, composer, DJ)
+   - Frontend pages IN PROGRESS (PSY-8)
 
-4. **Labels entity** — model, migrations, CRUD API, admin UI
-   - Name, city, founded year, status, socials, description
-   - Artist <--> Label relationship (junction table)
-   - Release <--> Label relationship
+4. ~~**Labels entity**~~ — model + migration 000036 DONE (PSY-9), service/handler/routes IN PROGRESS (PSY-10)
+   - Name, city, country, founded year, status, socials, description
+   - Artist <--> Label junction, Release <--> Label junction with catalog_number
+   - Frontend pages TODO (PSY-12)
 
-5. **Artist pages enriched** — discography section, label affiliations, festival appearances
+5. **Artist pages enriched** — discography section, label affiliations, festival appearances (PSY-13, TODO)
    - Artist detail page shows releases with external links, grouped by role (albums, guest appearances, production credits — like What.cd)
    - Artist detail page shows label affiliations and "Also on this label" (the discovery moment)
    - Artist detail page shows festival appearances with billing tier — visible career trajectory
