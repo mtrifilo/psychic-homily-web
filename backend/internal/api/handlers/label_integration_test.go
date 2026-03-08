@@ -1,0 +1,352 @@
+package handlers
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/stretchr/testify/suite"
+
+	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services"
+)
+
+type LabelHandlerIntegrationSuite struct {
+	suite.Suite
+	deps    *handlerIntegrationDeps
+	handler *LabelHandler
+}
+
+func (s *LabelHandlerIntegrationSuite) SetupSuite() {
+	s.deps = setupHandlerIntegrationDeps(s.T())
+	s.handler = NewLabelHandler(s.deps.labelService, s.deps.auditLogService)
+}
+
+func (s *LabelHandlerIntegrationSuite) TearDownTest() {
+	cleanupTables(s.deps.db)
+}
+
+func (s *LabelHandlerIntegrationSuite) TearDownSuite() {
+	if s.deps.container != nil {
+		s.deps.container.Terminate(s.deps.ctx)
+	}
+}
+
+func TestLabelHandlerIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	suite.Run(t, new(LabelHandlerIntegrationSuite))
+}
+
+// --- Helpers ---
+
+func (s *LabelHandlerIntegrationSuite) createLabelViaService(name string) *services.LabelDetailResponse {
+	resp, err := s.deps.labelService.CreateLabel(&services.CreateLabelRequest{Name: name})
+	s.Require().NoError(err)
+	return resp
+}
+
+func (s *LabelHandlerIntegrationSuite) createArtistForLabel(name string) *models.Artist {
+	artist := &models.Artist{Name: name}
+	s.deps.db.Create(artist)
+	return artist
+}
+
+func (s *LabelHandlerIntegrationSuite) createReleaseForLabel(title string) *models.Release {
+	slug := title
+	release := &models.Release{Title: title, Slug: &slug}
+	s.deps.db.Create(release)
+	return release
+}
+
+// --- ListLabelsHandler ---
+
+func (s *LabelHandlerIntegrationSuite) TestListLabels_Success() {
+	s.createLabelViaService("Label A")
+	s.createLabelViaService("Label B")
+	s.createLabelViaService("Label C")
+
+	req := &ListLabelsRequest{}
+	resp, err := s.handler.ListLabelsHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.GreaterOrEqual(resp.Body.Count, 3)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestListLabels_Empty() {
+	req := &ListLabelsRequest{}
+	resp, err := s.handler.ListLabelsHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal(0, resp.Body.Count)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestListLabels_FilterByStatus() {
+	s.deps.labelService.CreateLabel(&services.CreateLabelRequest{Name: "Active Label", Status: "active"})
+	s.deps.labelService.CreateLabel(&services.CreateLabelRequest{Name: "Defunct Label", Status: "defunct"})
+
+	req := &ListLabelsRequest{Status: "defunct"}
+	resp, err := s.handler.ListLabelsHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal(1, resp.Body.Count)
+	s.Equal("Defunct Label", resp.Body.Labels[0].Name)
+}
+
+// --- GetLabelHandler ---
+
+func (s *LabelHandlerIntegrationSuite) TestGetLabel_ByID() {
+	label := s.createLabelViaService("Test Label")
+
+	req := &GetLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	resp, err := s.handler.GetLabelHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal("Test Label", resp.Body.Name)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestGetLabel_BySlug() {
+	s.createLabelViaService("Slug Label")
+
+	req := &GetLabelRequest{LabelID: "slug-label"}
+	resp, err := s.handler.GetLabelHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal("Slug Label", resp.Body.Name)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestGetLabel_NotFound() {
+	req := &GetLabelRequest{LabelID: "99999"}
+	_, err := s.handler.GetLabelHandler(s.deps.ctx, req)
+	assertHumaError(s.T(), err, 404)
+}
+
+// --- CreateLabelHandler ---
+
+func (s *LabelHandlerIntegrationSuite) TestCreateLabel_AdminSuccess() {
+	admin := createAdminUser(s.deps.db)
+	ctx := ctxWithUser(admin)
+
+	year := 1988
+	req := &CreateLabelRequest{}
+	req.Body.Name = "New Label"
+	req.Body.FoundedYear = &year
+	req.Body.Status = "active"
+
+	resp, err := s.handler.CreateLabelHandler(ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal("New Label", resp.Body.Name)
+	s.Equal(1988, *resp.Body.FoundedYear)
+	s.Equal("active", resp.Body.Status)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestCreateLabel_NonAdminForbidden() {
+	user := createTestUser(s.deps.db)
+	ctx := ctxWithUser(user)
+
+	req := &CreateLabelRequest{}
+	req.Body.Name = "Forbidden Label"
+
+	_, err := s.handler.CreateLabelHandler(ctx, req)
+	assertHumaError(s.T(), err, 403)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestCreateLabel_NoAuth() {
+	req := &CreateLabelRequest{}
+	req.Body.Name = "No Auth Label"
+
+	_, err := s.handler.CreateLabelHandler(s.deps.ctx, req)
+	assertHumaError(s.T(), err, 403)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestCreateLabel_EmptyName() {
+	admin := createAdminUser(s.deps.db)
+	ctx := ctxWithUser(admin)
+
+	req := &CreateLabelRequest{}
+	req.Body.Name = ""
+
+	_, err := s.handler.CreateLabelHandler(ctx, req)
+	assertHumaError(s.T(), err, 400)
+}
+
+// --- UpdateLabelHandler ---
+
+func (s *LabelHandlerIntegrationSuite) TestUpdateLabel_Success() {
+	admin := createAdminUser(s.deps.db)
+	label := s.createLabelViaService("Original Label")
+
+	ctx := ctxWithUser(admin)
+	newName := "Updated Label"
+	req := &UpdateLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	req.Body.Name = &newName
+
+	resp, err := s.handler.UpdateLabelHandler(ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal("Updated Label", resp.Body.Name)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestUpdateLabel_BySlug() {
+	admin := createAdminUser(s.deps.db)
+	s.createLabelViaService("Slug Update Label")
+
+	ctx := ctxWithUser(admin)
+	newStatus := "inactive"
+	req := &UpdateLabelRequest{LabelID: "slug-update-label"}
+	req.Body.Status = &newStatus
+
+	resp, err := s.handler.UpdateLabelHandler(ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal("inactive", resp.Body.Status)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestUpdateLabel_NotFound() {
+	admin := createAdminUser(s.deps.db)
+	ctx := ctxWithUser(admin)
+	newName := "New Name"
+	req := &UpdateLabelRequest{LabelID: "99999"}
+	req.Body.Name = &newName
+
+	_, err := s.handler.UpdateLabelHandler(ctx, req)
+	assertHumaError(s.T(), err, 404)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestUpdateLabel_NonAdminForbidden() {
+	user := createTestUser(s.deps.db)
+	label := s.createLabelViaService("Forbidden Update Label")
+
+	ctx := ctxWithUser(user)
+	newName := "Hacked Name"
+	req := &UpdateLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	req.Body.Name = &newName
+
+	_, err := s.handler.UpdateLabelHandler(ctx, req)
+	assertHumaError(s.T(), err, 403)
+}
+
+// --- DeleteLabelHandler ---
+
+func (s *LabelHandlerIntegrationSuite) TestDeleteLabel_Success() {
+	admin := createAdminUser(s.deps.db)
+	label := s.createLabelViaService("Deletable Label")
+
+	ctx := ctxWithUser(admin)
+	req := &DeleteLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	_, err := s.handler.DeleteLabelHandler(ctx, req)
+	s.NoError(err)
+
+	// Verify label is gone
+	getReq := &GetLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	_, err = s.handler.GetLabelHandler(s.deps.ctx, getReq)
+	assertHumaError(s.T(), err, 404)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestDeleteLabel_NotFound() {
+	admin := createAdminUser(s.deps.db)
+	ctx := ctxWithUser(admin)
+	req := &DeleteLabelRequest{LabelID: "99999"}
+
+	_, err := s.handler.DeleteLabelHandler(ctx, req)
+	assertHumaError(s.T(), err, 404)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestDeleteLabel_NonAdminForbidden() {
+	user := createTestUser(s.deps.db)
+	label := s.createLabelViaService("Protected Label")
+
+	ctx := ctxWithUser(user)
+	req := &DeleteLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+
+	_, err := s.handler.DeleteLabelHandler(ctx, req)
+	assertHumaError(s.T(), err, 403)
+}
+
+// --- GetLabelRosterHandler ---
+
+func (s *LabelHandlerIntegrationSuite) TestGetLabelRoster_Success() {
+	label := s.createLabelViaService("Roster Label")
+	artist := s.createArtistForLabel("Roster Artist")
+	s.deps.db.Exec("INSERT INTO artist_labels (artist_id, label_id) VALUES (?, ?)", artist.ID, label.ID)
+
+	req := &GetLabelRosterRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	resp, err := s.handler.GetLabelRosterHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal(1, resp.Body.Count)
+	s.Equal("Roster Artist", resp.Body.Artists[0].Name)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestGetLabelRoster_BySlug() {
+	label := s.createLabelViaService("Slug Roster Label")
+	artist := s.createArtistForLabel("Slug Roster Artist")
+	s.deps.db.Exec("INSERT INTO artist_labels (artist_id, label_id) VALUES (?, ?)", artist.ID, label.ID)
+
+	req := &GetLabelRosterRequest{LabelID: "slug-roster-label"}
+	resp, err := s.handler.GetLabelRosterHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal(1, resp.Body.Count)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestGetLabelRoster_Empty() {
+	label := s.createLabelViaService("Empty Roster")
+
+	req := &GetLabelRosterRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	resp, err := s.handler.GetLabelRosterHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal(0, resp.Body.Count)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestGetLabelRoster_LabelNotFound() {
+	req := &GetLabelRosterRequest{LabelID: "99999"}
+	_, err := s.handler.GetLabelRosterHandler(s.deps.ctx, req)
+	assertHumaError(s.T(), err, 404)
+}
+
+// --- GetLabelCatalogHandler ---
+
+func (s *LabelHandlerIntegrationSuite) TestGetLabelCatalog_Success() {
+	label := s.createLabelViaService("Catalog Label")
+	release := s.createReleaseForLabel("Catalog Release")
+	s.deps.db.Exec("INSERT INTO release_labels (release_id, label_id, catalog_number) VALUES (?, ?, 'CAT-001')", release.ID, label.ID)
+
+	req := &GetLabelCatalogRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	resp, err := s.handler.GetLabelCatalogHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal(1, resp.Body.Count)
+	s.Equal("Catalog Release", resp.Body.Releases[0].Title)
+	s.Equal("CAT-001", *resp.Body.Releases[0].CatalogNumber)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestGetLabelCatalog_BySlug() {
+	label := s.createLabelViaService("Slug Catalog Label")
+	release := s.createReleaseForLabel("Slug Catalog Release")
+	s.deps.db.Exec("INSERT INTO release_labels (release_id, label_id) VALUES (?, ?)", release.ID, label.ID)
+
+	req := &GetLabelCatalogRequest{LabelID: "slug-catalog-label"}
+	resp, err := s.handler.GetLabelCatalogHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal(1, resp.Body.Count)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestGetLabelCatalog_Empty() {
+	label := s.createLabelViaService("Empty Catalog")
+
+	req := &GetLabelCatalogRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	resp, err := s.handler.GetLabelCatalogHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal(0, resp.Body.Count)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestGetLabelCatalog_LabelNotFound() {
+	req := &GetLabelCatalogRequest{LabelID: "99999"}
+	_, err := s.handler.GetLabelCatalogHandler(s.deps.ctx, req)
+	assertHumaError(s.T(), err, 404)
+}
