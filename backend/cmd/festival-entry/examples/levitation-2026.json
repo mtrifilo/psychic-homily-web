@@ -1,0 +1,39 @@
+{
+  "name": "Levitation 2026",
+  "series_slug": "levitation",
+  "edition_year": 2026,
+  "city": "Austin",
+  "state": "TX",
+  "country": "US",
+  "start_date": "2026-10-29",
+  "end_date": "2026-11-01",
+  "location_name": "Various venues in Austin",
+  "website": "https://levitation-austin.com",
+  "ticket_url": "https://levitation-austin.com/tickets",
+  "description": "Psychedelic music festival across multiple Austin venues",
+  "venues": [
+    {"name": "Stubb's BBQ", "is_primary": true},
+    {"name": "Mohawk", "is_primary": false},
+    {"name": "Hotel Vegas", "is_primary": false},
+    {"name": "The Ballroom", "is_primary": false}
+  ],
+  "lineup": [
+    {"artist": "King Gizzard & The Lizard Wizard", "billing_tier": "headliner", "day": "2026-10-29", "position": 0, "stage": "Stubb's BBQ"},
+    {"artist": "Ty Segall", "billing_tier": "headliner", "day": "2026-10-30", "position": 0, "stage": "Stubb's BBQ"},
+    {"artist": "Kikagaku Moyo", "billing_tier": "headliner", "day": "2026-10-31", "position": 0, "stage": "Stubb's BBQ"},
+    {"artist": "Osees", "billing_tier": "headliner", "day": "2026-11-01", "position": 0, "stage": "Stubb's BBQ"},
+    {"artist": "Black Midi", "billing_tier": "sub_headliner", "day": "2026-10-29", "position": 0, "stage": "Mohawk"},
+    {"artist": "Frankie and the Witch Fingers", "billing_tier": "sub_headliner", "day": "2026-10-30", "position": 0, "stage": "Mohawk"},
+    {"artist": "Acid Mothers Temple", "billing_tier": "sub_headliner", "day": "2026-10-31", "position": 0, "stage": "Mohawk"},
+    {"artist": "Earthless", "billing_tier": "sub_headliner", "day": "2026-11-01", "position": 0, "stage": "Mohawk"},
+    {"artist": "Fuzz", "billing_tier": "mid_card", "day": "2026-10-29", "position": 0, "stage": "Mohawk"},
+    {"artist": "Mildlife", "billing_tier": "mid_card", "day": "2026-10-30", "position": 0, "stage": "Hotel Vegas"},
+    {"artist": "La Luz", "billing_tier": "mid_card", "day": "2026-10-31", "position": 0, "stage": "Hotel Vegas"},
+    {"artist": "IDLES", "billing_tier": "mid_card", "day": "2026-11-01", "position": 0},
+    {"artist": "ORB", "billing_tier": "undercard", "day": "2026-10-29", "position": 0, "stage": "Hotel Vegas"},
+    {"artist": "Stonefield", "billing_tier": "undercard", "day": "2026-10-30", "position": 0, "stage": "The Ballroom"},
+    {"artist": "Automatic", "billing_tier": "undercard", "day": "2026-10-31", "position": 0, "stage": "The Ballroom"},
+    {"artist": "Night Beats", "billing_tier": "undercard", "day": "2026-11-01", "position": 0, "stage": "Hotel Vegas"},
+    {"artist": "Babe Rainbow", "billing_tier": "local", "day": "2026-10-30", "position": 0, "stage": "The Ballroom"}
+  ]
+}

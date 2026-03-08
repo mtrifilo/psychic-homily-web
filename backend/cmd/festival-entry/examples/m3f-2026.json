@@ -1,0 +1,36 @@
+{
+  "name": "M3F 2026",
+  "series_slug": "m3f",
+  "edition_year": 2026,
+  "city": "Phoenix",
+  "state": "AZ",
+  "country": "US",
+  "start_date": "2026-03-06",
+  "end_date": "2026-03-08",
+  "location_name": "Margaret T. Hance Park",
+  "website": "https://m3ffest.com",
+  "ticket_url": "https://m3ffest.com/tickets",
+  "description": "Music, art, and community festival in downtown Phoenix",
+  "venues": [
+    {"name": "Margaret T. Hance Park", "is_primary": true}
+  ],
+  "lineup": [
+    {"artist": "Khruangbin", "billing_tier": "headliner", "day": "2026-03-06", "position": 0},
+    {"artist": "LCD Soundsystem", "billing_tier": "headliner", "day": "2026-03-07", "position": 0},
+    {"artist": "Vampire Weekend", "billing_tier": "headliner", "day": "2026-03-08", "position": 0},
+    {"artist": "Toro y Moi", "billing_tier": "sub_headliner", "day": "2026-03-06", "position": 0},
+    {"artist": "Beach House", "billing_tier": "sub_headliner", "day": "2026-03-07", "position": 0},
+    {"artist": "Caribou", "billing_tier": "sub_headliner", "day": "2026-03-08", "position": 0},
+    {"artist": "Japanese Breakfast", "billing_tier": "mid_card", "day": "2026-03-06", "position": 0},
+    {"artist": "Mdou Moctar", "billing_tier": "mid_card", "day": "2026-03-06", "position": 1},
+    {"artist": "Magdalena Bay", "billing_tier": "mid_card", "day": "2026-03-07", "position": 0},
+    {"artist": "Unknown Mortal Orchestra", "billing_tier": "mid_card", "day": "2026-03-07", "position": 1},
+    {"artist": "Alvvays", "billing_tier": "mid_card", "day": "2026-03-08", "position": 0},
+    {"artist": "Amyl and the Sniffers", "billing_tier": "mid_card", "day": "2026-03-08", "position": 1},
+    {"artist": "Crumb", "billing_tier": "undercard", "day": "2026-03-06", "position": 0},
+    {"artist": "Eyedress", "billing_tier": "undercard", "day": "2026-03-07", "position": 0},
+    {"artist": "Horse Jumper of Love", "billing_tier": "undercard", "day": "2026-03-08", "position": 0},
+    {"artist": "DRAMA", "billing_tier": "local", "day": "2026-03-06", "position": 0},
+    {"artist": "DJ Holographic", "billing_tier": "dj", "day": "2026-03-07", "position": 0}
+  ]
+}
