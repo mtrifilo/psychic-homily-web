@@ -85,6 +85,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupArtistRoutes(api, protectedGroup, sc)
 	setupReleaseRoutes(api, protectedGroup, sc)
 	setupLabelRoutes(api, protectedGroup, sc)
+	setupFestivalRoutes(api, protectedGroup, sc)
 	setupVenueRoutes(api, protectedGroup, sc)
 	setupCalendarRoutes(router, protectedGroup, sc, cfg)
 	setupSavedShowRoutes(protectedGroup, sc)
@@ -311,6 +312,27 @@ func setupLabelRoutes(api huma.API, protected *huma.Group, sc *services.ServiceC
 	huma.Post(protected, "/labels", labelHandler.CreateLabelHandler)
 	huma.Put(protected, "/labels/{label_id}", labelHandler.UpdateLabelHandler)
 	huma.Delete(protected, "/labels/{label_id}", labelHandler.DeleteLabelHandler)
+}
+
+func setupFestivalRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
+	festivalHandler := handlers.NewFestivalHandler(sc.Festival, sc.Artist, sc.AuditLog)
+
+	// Public festival endpoints
+	huma.Get(api, "/festivals", festivalHandler.ListFestivalsHandler)
+	huma.Get(api, "/festivals/{festival_id}", festivalHandler.GetFestivalHandler)
+	huma.Get(api, "/festivals/{festival_id}/artists", festivalHandler.GetFestivalArtistsHandler)
+	huma.Get(api, "/festivals/{festival_id}/venues", festivalHandler.GetFestivalVenuesHandler)
+	huma.Get(api, "/artists/{artist_id}/festivals", festivalHandler.GetArtistFestivalsHandler)
+
+	// Protected festival endpoints (admin-only checks inside handlers)
+	huma.Post(protected, "/festivals", festivalHandler.CreateFestivalHandler)
+	huma.Put(protected, "/festivals/{festival_id}", festivalHandler.UpdateFestivalHandler)
+	huma.Delete(protected, "/festivals/{festival_id}", festivalHandler.DeleteFestivalHandler)
+	huma.Post(protected, "/festivals/{festival_id}/artists", festivalHandler.AddFestivalArtistHandler)
+	huma.Put(protected, "/festivals/{festival_id}/artists/{artist_id}", festivalHandler.UpdateFestivalArtistHandler)
+	huma.Delete(protected, "/festivals/{festival_id}/artists/{artist_id}", festivalHandler.RemoveFestivalArtistHandler)
+	huma.Post(protected, "/festivals/{festival_id}/venues", festivalHandler.AddFestivalVenueHandler)
+	huma.Delete(protected, "/festivals/{festival_id}/venues/{venue_id}", festivalHandler.RemoveFestivalVenueHandler)
 }
 
 func setupVenueRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
