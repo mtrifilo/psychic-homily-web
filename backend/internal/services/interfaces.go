@@ -324,6 +324,24 @@ type LabelServiceInterface interface {
 	GetLabelCatalog(labelID uint) ([]*LabelReleaseResponse, error)
 }
 
+// FestivalServiceInterface defines the contract for festival operations.
+type FestivalServiceInterface interface {
+	CreateFestival(req *CreateFestivalRequest) (*FestivalDetailResponse, error)
+	GetFestival(festivalID uint) (*FestivalDetailResponse, error)
+	GetFestivalBySlug(slug string) (*FestivalDetailResponse, error)
+	ListFestivals(filters map[string]interface{}) ([]*FestivalListResponse, error)
+	UpdateFestival(festivalID uint, req *UpdateFestivalRequest) (*FestivalDetailResponse, error)
+	DeleteFestival(festivalID uint) error
+	GetFestivalArtists(festivalID uint, dayDate *string) ([]*FestivalArtistResponse, error)
+	AddFestivalArtist(festivalID uint, req *AddFestivalArtistRequest) (*FestivalArtistResponse, error)
+	UpdateFestivalArtist(festivalID, artistID uint, req *UpdateFestivalArtistRequest) (*FestivalArtistResponse, error)
+	RemoveFestivalArtist(festivalID, artistID uint) error
+	GetFestivalVenues(festivalID uint) ([]*FestivalVenueResponse, error)
+	AddFestivalVenue(festivalID uint, req *AddFestivalVenueRequest) (*FestivalVenueResponse, error)
+	RemoveFestivalVenue(festivalID, venueID uint) error
+	GetFestivalsForArtist(artistID uint) ([]*ArtistFestivalListResponse, error)
+}
+
 // ReleaseServiceInterface defines the contract for release operations.
 type ReleaseServiceInterface interface {
 	CreateRelease(req *CreateReleaseRequest) (*ReleaseDetailResponse, error)
@@ -373,6 +391,7 @@ var (
 	_ AdminStatsServiceInterface    = (*AdminStatsService)(nil)
 	_ CalendarServiceInterface      = (*CalendarService)(nil)
 	_ ReminderServiceInterface      = (*ReminderService)(nil)
+	_ FestivalServiceInterface       = (*FestivalService)(nil)
 	_ LabelServiceInterface          = (*LabelService)(nil)
 	_ ReleaseServiceInterface       = (*ReleaseService)(nil)
 	_ BookmarkServiceInterface      = (*BookmarkService)(nil)
