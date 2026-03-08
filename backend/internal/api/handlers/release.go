@@ -362,8 +362,8 @@ type GetArtistReleasesRequest struct {
 // GetArtistReleasesResponse represents the response for the artist releases endpoint
 type GetArtistReleasesResponse struct {
 	Body struct {
-		Releases []*services.ReleaseListResponse `json:"releases" doc:"List of releases"`
-		Count    int                              `json:"count" doc:"Number of releases"`
+		Releases []*services.ArtistReleaseListResponse `json:"releases" doc:"List of releases with artist roles"`
+		Count    int                                    `json:"count" doc:"Number of releases"`
 	}
 }
 
@@ -386,7 +386,7 @@ func (h *ReleaseHandler) GetArtistReleasesHandler(ctx context.Context, req *GetA
 		artistID = artist.ID
 	}
 
-	releases, err := h.releaseService.GetReleasesForArtist(artistID)
+	releases, err := h.releaseService.GetReleasesForArtistWithRoles(artistID)
 	if err != nil {
 		var artistErr *apperrors.ArtistError
 		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {

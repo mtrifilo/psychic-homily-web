@@ -251,6 +251,58 @@ func (h *ArtistHandler) GetArtistShowsHandler(ctx context.Context, req *GetArtis
 }
 
 // ============================================================================
+// Artist Labels
+// ============================================================================
+
+// GetArtistLabelsRequest represents the request for getting labels for an artist
+type GetArtistLabelsRequest struct {
+	ArtistID string `path:"artist_id" doc:"Artist ID or slug" example:"nirvana"`
+}
+
+// GetArtistLabelsResponse represents the response for the artist labels endpoint
+type GetArtistLabelsResponse struct {
+	Body struct {
+		Labels []*services.ArtistLabelResponse `json:"labels" doc:"List of labels"`
+		Count  int                             `json:"count" doc:"Number of labels"`
+	}
+}
+
+// GetArtistLabelsHandler handles GET /artists/{artist_id}/labels
+func (h *ArtistHandler) GetArtistLabelsHandler(ctx context.Context, req *GetArtistLabelsRequest) (*GetArtistLabelsResponse, error) {
+	// Resolve artist ID from numeric ID or slug
+	var artistID uint
+	if id, parseErr := strconv.ParseUint(req.ArtistID, 10, 32); parseErr == nil {
+		artistID = uint(id)
+	} else {
+		// Look up by slug to get the ID
+		artist, err := h.artistService.GetArtistBySlug(req.ArtistID)
+		if err != nil {
+			var artistErr *apperrors.ArtistError
+			if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
+				return nil, huma.Error404NotFound("Artist not found")
+			}
+			return nil, huma.Error500InternalServerError("Failed to fetch artist", err)
+		}
+		artistID = artist.ID
+	}
+
+	labels, err := h.artistService.GetLabelsForArtist(artistID)
+	if err != nil {
+		var artistErr *apperrors.ArtistError
+		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
+			return nil, huma.Error404NotFound("Artist not found")
+		}
+		return nil, huma.Error500InternalServerError("Failed to fetch labels", err)
+	}
+
+	resp := &GetArtistLabelsResponse{}
+	resp.Body.Labels = labels
+	resp.Body.Count = len(labels)
+
+	return resp, nil
+}
+
+// ============================================================================
 // Admin Artist Handlers
 // ============================================================================
 

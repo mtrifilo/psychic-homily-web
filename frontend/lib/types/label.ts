@@ -77,6 +77,20 @@ export interface LabelsListResponse {
   count: number
 }
 
+/** Simplified label info for artist labels endpoint */
+export interface ArtistLabel {
+  id: number
+  name: string
+  slug: string
+  city: string | null
+  state: string | null
+}
+
+export interface ArtistLabelsResponse {
+  labels: ArtistLabel[]
+  count: number
+}
+
 export interface LabelArtist {
   id: number
   slug: string

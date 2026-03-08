@@ -14,6 +14,7 @@ import type {
   LabelDetail,
   LabelArtistsResponse,
   LabelReleasesResponse,
+  ArtistLabelsResponse,
 } from '../types/label'
 
 interface UseLabelsOptions {
@@ -76,6 +77,34 @@ export function useLabel(options: UseLabelOptions) {
     enabled:
       enabled &&
       (typeof idOrSlug === 'string' ? Boolean(idOrSlug) : idOrSlug > 0),
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+interface UseArtistLabelsOptions {
+  artistIdOrSlug: string | number
+  enabled?: boolean
+}
+
+/**
+ * Hook to fetch labels for a specific artist
+ */
+export function useArtistLabels(options: UseArtistLabelsOptions) {
+  const { artistIdOrSlug, enabled = true } = options
+
+  return useQuery({
+    queryKey: queryKeys.artists.labels(artistIdOrSlug),
+    queryFn: async (): Promise<ArtistLabelsResponse> => {
+      return apiRequest<ArtistLabelsResponse>(
+        API_ENDPOINTS.ARTISTS.LABELS(artistIdOrSlug),
+        { method: 'GET' }
+      )
+    },
+    enabled:
+      enabled &&
+      (typeof artistIdOrSlug === 'string'
+        ? Boolean(artistIdOrSlug)
+        : artistIdOrSlug > 0),
     staleTime: 5 * 60 * 1000,
   })
 }
