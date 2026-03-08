@@ -38,6 +38,7 @@ type handlerIntegrationDeps struct {
 	adminStatsService     *services.AdminStatsService
 	discoveryService      *services.DiscoveryService
 	artistService         *services.ArtistService
+	festivalService       *services.FestivalService
 	labelService          *services.LabelService
 	releaseService        *services.ReleaseService
 }
@@ -112,6 +113,7 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		adminStatsService:     services.NewAdminStatsService(db),
 		discoveryService:      services.NewDiscoveryService(db),
 		artistService:         services.NewArtistService(db),
+		festivalService:       services.NewFestivalService(db),
 		labelService:          services.NewLabelService(db),
 		releaseService:        services.NewReleaseService(db),
 	}
@@ -127,6 +129,9 @@ func cleanupTables(db *gorm.DB) {
 	_, _ = sqlDB.Exec("DELETE FROM show_reports")
 	_, _ = sqlDB.Exec("DELETE FROM user_bookmarks")
 	_, _ = sqlDB.Exec("DELETE FROM pending_venue_edits")
+	_, _ = sqlDB.Exec("DELETE FROM festival_artists")
+	_, _ = sqlDB.Exec("DELETE FROM festival_venues")
+	_, _ = sqlDB.Exec("DELETE FROM festivals")
 	_, _ = sqlDB.Exec("DELETE FROM release_labels")
 	_, _ = sqlDB.Exec("DELETE FROM artist_labels")
 	_, _ = sqlDB.Exec("DELETE FROM labels")
