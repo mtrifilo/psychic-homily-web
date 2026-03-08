@@ -84,6 +84,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupShowRoutes(router, api, protectedGroup, sc, cfg)
 	setupArtistRoutes(api, protectedGroup, sc)
 	setupReleaseRoutes(api, protectedGroup, sc)
+	setupLabelRoutes(api, protectedGroup, sc)
 	setupVenueRoutes(api, protectedGroup, sc)
 	setupCalendarRoutes(router, protectedGroup, sc, cfg)
 	setupSavedShowRoutes(protectedGroup, sc)
@@ -294,6 +295,21 @@ func setupReleaseRoutes(api huma.API, protected *huma.Group, sc *services.Servic
 	huma.Delete(protected, "/releases/{release_id}", releaseHandler.DeleteReleaseHandler)
 	huma.Post(protected, "/releases/{release_id}/links", releaseHandler.AddExternalLinkHandler)
 	huma.Delete(protected, "/releases/{release_id}/links/{link_id}", releaseHandler.RemoveExternalLinkHandler)
+}
+
+func setupLabelRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
+	labelHandler := handlers.NewLabelHandler(sc.Label, sc.AuditLog)
+
+	// Public label endpoints
+	huma.Get(api, "/labels", labelHandler.ListLabelsHandler)
+	huma.Get(api, "/labels/{label_id}", labelHandler.GetLabelHandler)
+	huma.Get(api, "/labels/{label_id}/artists", labelHandler.GetLabelRosterHandler)
+	huma.Get(api, "/labels/{label_id}/releases", labelHandler.GetLabelCatalogHandler)
+
+	// Protected label endpoints (admin-only checks inside handlers)
+	huma.Post(protected, "/labels", labelHandler.CreateLabelHandler)
+	huma.Put(protected, "/labels/{label_id}", labelHandler.UpdateLabelHandler)
+	huma.Delete(protected, "/labels/{label_id}", labelHandler.DeleteLabelHandler)
 }
 
 func setupVenueRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
