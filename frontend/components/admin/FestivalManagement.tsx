@@ -1156,7 +1156,7 @@ function LineupManagement({ festivalId }: { festivalId: number }) {
 
 function VenueManagement({ festivalId }: { festivalId: number }) {
   const { data: venuesData, isLoading } = useFestivalVenues({
-    festivalId,
+    festivalIdOrSlug: festivalId,
     enabled: festivalId > 0,
   })
   const addVenueMutation = useAddFestivalVenue()
