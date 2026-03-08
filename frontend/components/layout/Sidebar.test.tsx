@@ -25,7 +25,7 @@ describe('sidebarGroups', () => {
 
   it('Discover contains Shows, Artists, Venues', () => {
     const discover = sidebarGroups.find(g => g.label === 'Discover')!
-    expect(discover.items.map(i => i.label)).toEqual(['Shows', 'Artists', 'Venues', 'Releases', 'Labels'])
+    expect(discover.items.map(i => i.label)).toEqual(['Shows', 'Festivals', 'Artists', 'Venues', 'Releases', 'Labels'])
   })
 
   it('Community contains Blog, DJ Sets, Substack, Submissions', () => {
@@ -76,6 +76,7 @@ describe('Sidebar', () => {
   it('renders all nav item labels when expanded', () => {
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
     expect(screen.getByText('Shows')).toBeInTheDocument()
+    expect(screen.getByText('Festivals')).toBeInTheDocument()
     expect(screen.getByText('Artists')).toBeInTheDocument()
     expect(screen.getByText('Venues')).toBeInTheDocument()
     expect(screen.getByText('Blog')).toBeInTheDocument()

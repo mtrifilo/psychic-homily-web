@@ -85,28 +85,27 @@ export function useFestival(options: UseFestivalOptions) {
   })
 }
 
-interface UseFestivalLineupOptions {
-  festivalId: string | number
+interface UseFestivalArtistsOptions {
+  festivalIdOrSlug: string | number
   dayDate?: string
   enabled?: boolean
 }
 
 /**
- * Hook to fetch a festival's artist lineup
+ * Hook to fetch the lineup (artists) for a festival
  */
-export function useFestivalLineup(options: UseFestivalLineupOptions) {
-  const { festivalId, dayDate, enabled = true } = options
+export function useFestivalArtists(options: UseFestivalArtistsOptions) {
+  const { festivalIdOrSlug, dayDate, enabled = true } = options
 
   const params = new URLSearchParams()
   if (dayDate) params.set('day_date', dayDate)
-  const queryString = params.toString()
 
-  const endpoint = queryString
-    ? `${API_ENDPOINTS.FESTIVALS.ARTISTS(festivalId)}?${queryString}`
-    : API_ENDPOINTS.FESTIVALS.ARTISTS(festivalId)
+  const queryString = params.toString()
+  const baseUrl = API_ENDPOINTS.FESTIVALS.ARTISTS(festivalIdOrSlug)
+  const endpoint = queryString ? `${baseUrl}?${queryString}` : baseUrl
 
   return useQuery({
-    queryKey: queryKeys.festivals.artists(festivalId),
+    queryKey: queryKeys.festivals.artists(festivalIdOrSlug, dayDate),
     queryFn: async (): Promise<FestivalArtistsResponse> => {
       return apiRequest<FestivalArtistsResponse>(endpoint, {
         method: 'GET',
@@ -114,37 +113,46 @@ export function useFestivalLineup(options: UseFestivalLineupOptions) {
     },
     enabled:
       enabled &&
-      (typeof festivalId === 'string'
-        ? Boolean(festivalId)
-        : festivalId > 0),
+      (typeof festivalIdOrSlug === 'string'
+        ? Boolean(festivalIdOrSlug)
+        : festivalIdOrSlug > 0),
     staleTime: 5 * 60 * 1000,
   })
 }
 
+/** Alias for backward compatibility with admin components */
+export function useFestivalLineup(options: { festivalId: string | number; dayDate?: string; enabled?: boolean }) {
+  return useFestivalArtists({
+    festivalIdOrSlug: options.festivalId,
+    dayDate: options.dayDate,
+    enabled: options.enabled,
+  })
+}
+
 interface UseFestivalVenuesOptions {
-  festivalId: string | number
+  festivalIdOrSlug: string | number
   enabled?: boolean
 }
 
 /**
- * Hook to fetch a festival's venues
+ * Hook to fetch venues for a festival
  */
 export function useFestivalVenues(options: UseFestivalVenuesOptions) {
-  const { festivalId, enabled = true } = options
+  const { festivalIdOrSlug, enabled = true } = options
 
   return useQuery({
-    queryKey: queryKeys.festivals.venues(festivalId),
+    queryKey: queryKeys.festivals.venues(festivalIdOrSlug),
     queryFn: async (): Promise<FestivalVenuesResponse> => {
       return apiRequest<FestivalVenuesResponse>(
-        API_ENDPOINTS.FESTIVALS.VENUES(festivalId),
+        API_ENDPOINTS.FESTIVALS.VENUES(festivalIdOrSlug),
         { method: 'GET' }
       )
     },
     enabled:
       enabled &&
-      (typeof festivalId === 'string'
-        ? Boolean(festivalId)
-        : festivalId > 0),
+      (typeof festivalIdOrSlug === 'string'
+        ? Boolean(festivalIdOrSlug)
+        : festivalIdOrSlug > 0),
     staleTime: 5 * 60 * 1000,
   })
 }
