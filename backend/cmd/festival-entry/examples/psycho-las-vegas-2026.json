@@ -1,0 +1,41 @@
+{
+  "name": "Psycho Las Vegas 2026",
+  "series_slug": "psycho-las-vegas",
+  "edition_year": 2026,
+  "city": "Las Vegas",
+  "state": "NV",
+  "country": "US",
+  "start_date": "2026-08-14",
+  "end_date": "2026-08-17",
+  "location_name": "Mandalay Bay Resort & Casino",
+  "website": "https://psycholasvegas.com",
+  "ticket_url": "https://psycholasvegas.com/tickets",
+  "description": "Heavy rock and psychedelic music festival at Mandalay Bay",
+  "venues": [
+    {"name": "Mandalay Bay Events Center", "is_primary": true},
+    {"name": "House of Blues Las Vegas", "is_primary": false},
+    {"name": "Mandalay Bay Beach", "is_primary": false}
+  ],
+  "lineup": [
+    {"artist": "Mercyful Fate", "billing_tier": "headliner", "day": "2026-08-14", "position": 0},
+    {"artist": "King Diamond", "billing_tier": "headliner", "day": "2026-08-15", "position": 0},
+    {"artist": "Electric Wizard", "billing_tier": "headliner", "day": "2026-08-16", "position": 0},
+    {"artist": "Boris", "billing_tier": "headliner", "day": "2026-08-17", "position": 0},
+    {"artist": "Acid Bath", "billing_tier": "sub_headliner", "day": "2026-08-14", "position": 0},
+    {"artist": "Windhand", "billing_tier": "sub_headliner", "day": "2026-08-15", "position": 0},
+    {"artist": "Neurosis", "billing_tier": "sub_headliner", "day": "2026-08-16", "position": 0},
+    {"artist": "YOB", "billing_tier": "sub_headliner", "day": "2026-08-17", "position": 0},
+    {"artist": "All Them Witches", "billing_tier": "mid_card", "day": "2026-08-14", "position": 0},
+    {"artist": "King Buffalo", "billing_tier": "mid_card", "day": "2026-08-14", "position": 1},
+    {"artist": "Acid King", "billing_tier": "mid_card", "day": "2026-08-15", "position": 0},
+    {"artist": "Primitive Man", "billing_tier": "mid_card", "day": "2026-08-15", "position": 1, "stage": "House of Blues"},
+    {"artist": "Bongripper", "billing_tier": "mid_card", "day": "2026-08-16", "position": 0},
+    {"artist": "Monolord", "billing_tier": "mid_card", "day": "2026-08-16", "position": 1},
+    {"artist": "Weedeater", "billing_tier": "mid_card", "day": "2026-08-17", "position": 0},
+    {"artist": "Bell Witch", "billing_tier": "undercard", "day": "2026-08-14", "position": 0},
+    {"artist": "Cloakroom", "billing_tier": "undercard", "day": "2026-08-15", "position": 0},
+    {"artist": "Sumac", "billing_tier": "undercard", "day": "2026-08-16", "position": 0, "stage": "Mandalay Bay Beach"},
+    {"artist": "Thou", "billing_tier": "undercard", "day": "2026-08-17", "position": 0},
+    {"artist": "DJ Painkiller", "billing_tier": "dj", "day": "2026-08-14", "position": 0, "stage": "Mandalay Bay Beach"}
+  ]
+}
