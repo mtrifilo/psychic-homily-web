@@ -6,7 +6,8 @@ import { useArtists, useArtistCities } from '@/lib/hooks/useArtists'
 import { ArtistCard } from './ArtistCard'
 import { ArtistSearch } from './ArtistSearch'
 import { CityFilters, type CityWithCount, type CityState } from '@/components/filters'
-import { LoadingSpinner } from '@/components/shared'
+import { LoadingSpinner, DensityToggle } from '@/components/shared'
+import { useDensity } from '@/lib/hooks/useDensity'
 import { Button } from '@/components/ui/button'
 
 /** Parse cities param from URL: "Phoenix,AZ|Mesa,AZ" -> CityState[] */
@@ -30,6 +31,7 @@ export function ArtistList() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
+  const { density } = useDensity('artists')
 
   // Parse multi-city from URL
   const citiesParam = searchParams.get('cities')
@@ -98,6 +100,10 @@ export function ArtistList() {
         )}
       </div>
 
+      <div className="flex justify-end mb-4">
+        <DensityToggle storageKey="artists" />
+      </div>
+
       {/* Dim content while fetching, don't hide it */}
       <div className={isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
         {artists.length === 0 ? (
@@ -117,9 +123,15 @@ export function ArtistList() {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className={
+            density === 'compact'
+              ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2'
+              : density === 'expanded'
+                ? 'grid grid-cols-1 sm:grid-cols-2 gap-4'
+                : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3'
+          }>
             {artists.map(artist => (
-              <ArtistCard key={artist.id} artist={artist} />
+              <ArtistCard key={artist.id} artist={artist} density={density} />
             ))}
           </div>
         )}

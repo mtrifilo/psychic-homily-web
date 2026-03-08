@@ -52,7 +52,7 @@ export function VenueCard({ venue }: VenueCardProps) {
   const hasShows = venue.upcoming_show_count > 0
 
   return (
-    <article className="border border-border/50 rounded-lg mb-4 overflow-hidden bg-card">
+    <article className="border border-border/50 rounded-lg mb-4 overflow-hidden bg-card hover:shadow-sm transition-shadow">
       {/* Header - always visible */}
       <div
         onClick={() => hasShows && setIsExpanded(!isExpanded)}
@@ -73,7 +73,7 @@ export function VenueCard({ venue }: VenueCardProps) {
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold truncate">
+              <h2 className="text-lg font-bold truncate">
                 {venue.slug ? (
                   <Link
                     href={`/venues/${venue.slug}`}
