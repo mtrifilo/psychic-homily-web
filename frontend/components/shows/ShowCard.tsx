@@ -185,10 +185,10 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
             density === 'expanded' && 'w-16 sm:w-18 py-2.5'
           )}
         >
-          <span className="text-[10px] sm:text-xs font-bold tracking-widest uppercase text-primary leading-none">
+          <span className="text-[10px] sm:text-xs font-bold tracking-widest uppercase text-muted-foreground leading-none">
             {dateBadge.dayOfWeek}
           </span>
-          <span className="text-xs sm:text-sm font-semibold text-muted-foreground leading-tight mt-0.5">
+          <span className="text-xs sm:text-sm font-semibold text-primary leading-tight mt-0.5">
             {dateBadge.monthDay}
           </span>
         </Link>
