@@ -145,6 +145,14 @@ export const API_ENDPOINTS = {
     ARTIST_RELEASES: (artistIdOrSlug: string | number) =>
       `${API_BASE_URL}/artists/${artistIdOrSlug}/releases`,
   },
+  LABELS: {
+    LIST: `${API_BASE_URL}/labels`,
+    GET: (idOrSlug: string | number) => `${API_BASE_URL}/labels/${idOrSlug}`,
+    ARTISTS: (idOrSlug: string | number) =>
+      `${API_BASE_URL}/labels/${idOrSlug}/artists`,
+    RELEASES: (idOrSlug: string | number) =>
+      `${API_BASE_URL}/labels/${idOrSlug}/releases`,
+  },
 
   // Calendar feed endpoints
   CALENDAR: {
