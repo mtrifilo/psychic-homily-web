@@ -1455,11 +1455,13 @@ func (suite *UserServiceIntegrationTestSuite) TestGetDeletionSummary_Success() {
 		`INSERT INTO shows (title, event_date, submitted_by, created_at, updated_at) VALUES (?, NOW() + interval '2 days', ?, NOW(), NOW()) RETURNING id`,
 		"Summary Show 2", user.ID).Scan(&show2ID).Error)
 
-	// Create saved show
-	suite.Require().NoError(suite.db.Create(&models.UserSavedShow{
-		UserID:  user.ID,
-		ShowID:  show1ID,
-		SavedAt: time.Now(),
+	// Create saved show (as bookmark)
+	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
+		UserID:     user.ID,
+		EntityType: models.BookmarkEntityShow,
+		EntityID:   show1ID,
+		Action:     models.BookmarkActionSave,
+		CreatedAt:  time.Now(),
 	}).Error)
 
 	// Create a passkey (raw SQL to avoid GORM column name mismatch on aaguid)
@@ -1501,22 +1503,26 @@ func (suite *UserServiceIntegrationTestSuite) TestPermanentlyDeleteUser() {
 		`INSERT INTO shows (title, event_date, submitted_by, created_at, updated_at) VALUES (?, NOW() + interval '1 day', ?, NOW(), NOW()) RETURNING id`,
 		"Perm Delete Show", user.ID).Scan(&showID).Error)
 
-	// Create saved show
-	suite.Require().NoError(suite.db.Create(&models.UserSavedShow{
-		UserID:  user.ID,
-		ShowID:  showID,
-		SavedAt: time.Now(),
+	// Create saved show (as bookmark)
+	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
+		UserID:     user.ID,
+		EntityType: models.BookmarkEntityShow,
+		EntityID:   showID,
+		Action:     models.BookmarkActionSave,
+		CreatedAt:  time.Now(),
 	}).Error)
 
-	// Create favorite venue (raw SQL for venue insert)
+	// Create favorite venue (raw SQL for venue insert, then bookmark)
 	var venueID uint
 	suite.Require().NoError(suite.db.Raw(
 		`INSERT INTO venues (name, city, state, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW()) RETURNING id`,
 		"Del Venue", "Nashville", "TN").Scan(&venueID).Error)
-	suite.Require().NoError(suite.db.Create(&models.UserFavoriteVenue{
-		UserID:      user.ID,
-		VenueID:     venueID,
-		FavoritedAt: time.Now(),
+	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
+		UserID:     user.ID,
+		EntityType: models.BookmarkEntityVenue,
+		EntityID:   venueID,
+		Action:     models.BookmarkActionFollow,
+		CreatedAt:  time.Now(),
 	}).Error)
 
 	// Create passkey (raw SQL)
@@ -1540,10 +1546,7 @@ func (suite *UserServiceIntegrationTestSuite) TestPermanentlyDeleteUser() {
 	suite.db.Model(&models.UserPreferences{}).Where("user_id = ?", user.ID).Count(&count)
 	suite.Equal(int64(0), count)
 
-	suite.db.Model(&models.UserSavedShow{}).Where("user_id = ?", user.ID).Count(&count)
-	suite.Equal(int64(0), count)
-
-	suite.db.Model(&models.UserFavoriteVenue{}).Where("user_id = ?", user.ID).Count(&count)
+	suite.db.Model(&models.UserBookmark{}).Where("user_id = ?", user.ID).Count(&count)
 	suite.Equal(int64(0), count)
 
 	var passkeyCount int64
@@ -1612,11 +1615,13 @@ func (suite *UserServiceIntegrationTestSuite) TestExportUserData_Success() {
 		`INSERT INTO shows (title, event_date, submitted_by, created_at, updated_at) VALUES (?, NOW() + interval '1 day', ?, NOW(), NOW()) RETURNING id`,
 		"Export Show", user.ID).Scan(&showID).Error)
 
-	// Save the show
-	suite.Require().NoError(suite.db.Create(&models.UserSavedShow{
-		UserID:  user.ID,
-		ShowID:  showID,
-		SavedAt: time.Now(),
+	// Save the show (as bookmark)
+	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
+		UserID:     user.ID,
+		EntityType: models.BookmarkEntityShow,
+		EntityID:   showID,
+		Action:     models.BookmarkActionSave,
+		CreatedAt:  time.Now(),
 	}).Error)
 
 	// Create a passkey (raw SQL to avoid GORM column name mismatch on aaguid)

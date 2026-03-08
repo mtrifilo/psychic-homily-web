@@ -102,6 +102,17 @@ type FavoriteVenueServiceInterface interface {
 	GetFavoriteVenueIDs(userID uint, venueIDs []uint) (map[uint]bool, error)
 }
 
+// BookmarkServiceInterface defines the contract for generic bookmark operations.
+type BookmarkServiceInterface interface {
+	CreateBookmark(userID uint, entityType models.BookmarkEntityType, entityID uint, action models.BookmarkAction) error
+	DeleteBookmark(userID uint, entityType models.BookmarkEntityType, entityID uint, action models.BookmarkAction) error
+	IsBookmarked(userID uint, entityType models.BookmarkEntityType, entityID uint, action models.BookmarkAction) (bool, error)
+	GetBookmarkedEntityIDs(userID uint, entityType models.BookmarkEntityType, action models.BookmarkAction, entityIDs []uint) (map[uint]bool, error)
+	GetUserBookmarks(userID uint, entityType models.BookmarkEntityType, action models.BookmarkAction, limit, offset int) ([]models.UserBookmark, int64, error)
+	GetUserBookmarksByEntityType(userID uint, entityType models.BookmarkEntityType, action models.BookmarkAction) ([]models.UserBookmark, error)
+	CountUserBookmarks(userID uint, entityType models.BookmarkEntityType, action models.BookmarkAction) (int64, error)
+}
+
 // ShowReportServiceInterface defines the contract for show report operations.
 type ShowReportServiceInterface interface {
 	CreateReport(userID, showID uint, reportType string, details *string) (*ShowReportResponse, error)
@@ -364,4 +375,5 @@ var (
 	_ ReminderServiceInterface      = (*ReminderService)(nil)
 	_ LabelServiceInterface          = (*LabelService)(nil)
 	_ ReleaseServiceInterface       = (*ReleaseService)(nil)
+	_ BookmarkServiceInterface      = (*BookmarkService)(nil)
 )

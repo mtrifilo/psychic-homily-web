@@ -12,8 +12,10 @@ import (
 )
 
 // FavoriteVenueService handles favorite venue business logic
+// Backed by the generic user_bookmarks table via BookmarkService
 type FavoriteVenueService struct {
-	db *gorm.DB
+	db       *gorm.DB
+	bookmark *BookmarkService
 }
 
 // NewFavoriteVenueService creates a new favorite venue service
@@ -22,21 +24,22 @@ func NewFavoriteVenueService(database *gorm.DB) *FavoriteVenueService {
 		database = db.GetDB()
 	}
 	return &FavoriteVenueService{
-		db: database,
+		db:       database,
+		bookmark: NewBookmarkService(database),
 	}
 }
 
 // FavoriteVenueResponse represents a favorite venue with metadata
 type FavoriteVenueResponse struct {
-	ID                 uint      `json:"id"`
-	Slug               string    `json:"slug"`
-	Name               string    `json:"name"`
-	Address            *string   `json:"address"`
-	City               string    `json:"city"`
-	State              string    `json:"state"`
-	Verified           bool      `json:"verified"`
-	FavoritedAt        time.Time `json:"favorited_at"`
-	UpcomingShowCount  int       `json:"upcoming_show_count"`
+	ID                uint      `json:"id"`
+	Slug              string    `json:"slug"`
+	Name              string    `json:"name"`
+	Address           *string   `json:"address"`
+	City              string    `json:"city"`
+	State             string    `json:"state"`
+	Verified          bool      `json:"verified"`
+	FavoritedAt       time.Time `json:"favorited_at"`
+	UpcomingShowCount int       `json:"upcoming_show_count"`
 }
 
 // FavoriteVenueShowResponse represents a show from a favorite venue
@@ -70,19 +73,7 @@ func (s *FavoriteVenueService) FavoriteVenue(userID, venueID uint) error {
 		return fmt.Errorf("failed to verify venue: %w", err)
 	}
 
-	// Create favorite venue record (or update if exists)
-	favoriteVenue := models.UserFavoriteVenue{
-		UserID:      userID,
-		VenueID:     venueID,
-		FavoritedAt: time.Now().UTC(),
-	}
-
-	// Use FirstOrCreate to avoid duplicate key errors
-	err := s.db.Where(models.UserFavoriteVenue{UserID: userID, VenueID: venueID}).
-		Assign(models.UserFavoriteVenue{FavoritedAt: favoriteVenue.FavoritedAt}).
-		FirstOrCreate(&favoriteVenue).Error
-
-	if err != nil {
+	if err := s.bookmark.CreateBookmark(userID, models.BookmarkEntityVenue, venueID, models.BookmarkActionFollow); err != nil {
 		return fmt.Errorf("failed to favorite venue: %w", err)
 	}
 
@@ -95,15 +86,12 @@ func (s *FavoriteVenueService) UnfavoriteVenue(userID, venueID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Where("user_id = ? AND venue_id = ?", userID, venueID).
-		Delete(&models.UserFavoriteVenue{})
-
-	if result.Error != nil {
-		return fmt.Errorf("failed to unfavorite venue: %w", result.Error)
-	}
-
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("venue was not favorited")
+	err := s.bookmark.DeleteBookmark(userID, models.BookmarkEntityVenue, venueID, models.BookmarkActionFollow)
+	if err != nil {
+		if err.Error() == "bookmark not found" {
+			return fmt.Errorf("venue was not favorited")
+		}
+		return fmt.Errorf("failed to unfavorite venue: %w", err)
 	}
 
 	return nil
@@ -116,32 +104,18 @@ func (s *FavoriteVenueService) GetUserFavoriteVenues(userID uint, limit, offset 
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	// Get total count
-	var total int64
-	if err := s.db.Model(&models.UserFavoriteVenue{}).
-		Where("user_id = ?", userID).
-		Count(&total).Error; err != nil {
-		return nil, 0, fmt.Errorf("failed to count favorite venues: %w", err)
-	}
-
-	// Get favorite venue records with pagination, ordered by favorited_at DESC
-	var favoriteVenues []models.UserFavoriteVenue
-	err := s.db.Where("user_id = ?", userID).
-		Order("favorited_at DESC").
-		Limit(limit).
-		Offset(offset).
-		Find(&favoriteVenues).Error
-
+	// Get bookmarks with pagination
+	bookmarks, total, err := s.bookmark.GetUserBookmarks(userID, models.BookmarkEntityVenue, models.BookmarkActionFollow, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get favorite venues: %w", err)
 	}
 
 	// Extract venue IDs
-	venueIDs := make([]uint, len(favoriteVenues))
+	venueIDs := make([]uint, len(bookmarks))
 	favoritedAtMap := make(map[uint]time.Time)
-	for i, fv := range favoriteVenues {
-		venueIDs[i] = fv.VenueID
-		favoritedAtMap[fv.VenueID] = fv.FavoritedAt
+	for i, b := range bookmarks {
+		venueIDs[i] = b.EntityID
+		favoritedAtMap[b.EntityID] = b.CreatedAt
 	}
 
 	if len(venueIDs) == 0 {
@@ -186,10 +160,10 @@ func (s *FavoriteVenueService) GetUserFavoriteVenues(userID uint, limit, offset 
 		showCountMap[sc.VenueID] = sc.Count
 	}
 
-	// Build responses in the order of favoriteVenues (favorited_at DESC)
+	// Build responses in the order of bookmarks (created_at DESC)
 	responses := make([]*FavoriteVenueResponse, 0, len(venues))
-	for _, fv := range favoriteVenues {
-		if venue, ok := venueMap[fv.VenueID]; ok {
+	for _, b := range bookmarks {
+		if venue, ok := venueMap[b.EntityID]; ok {
 			var slug string
 			if venue.Slug != nil {
 				slug = *venue.Slug
@@ -202,7 +176,7 @@ func (s *FavoriteVenueService) GetUserFavoriteVenues(userID uint, limit, offset 
 				City:              venue.City,
 				State:             venue.State,
 				Verified:          venue.Verified,
-				FavoritedAt:       fv.FavoritedAt,
+				FavoritedAt:       b.CreatedAt,
 				UpcomingShowCount: showCountMap[venue.ID],
 			})
 		}
@@ -217,16 +191,7 @@ func (s *FavoriteVenueService) IsVenueFavorited(userID, venueID uint) (bool, err
 		return false, fmt.Errorf("database not initialized")
 	}
 
-	var count int64
-	err := s.db.Model(&models.UserFavoriteVenue{}).
-		Where("user_id = ? AND venue_id = ?", userID, venueID).
-		Count(&count).Error
-
-	if err != nil {
-		return false, fmt.Errorf("failed to check if venue is favorited: %w", err)
-	}
-
-	return count > 0, nil
+	return s.bookmark.IsBookmarked(userID, models.BookmarkEntityVenue, venueID, models.BookmarkActionFollow)
 }
 
 // GetUpcomingShowsFromFavorites retrieves all upcoming shows from a user's favorite venues
@@ -237,19 +202,18 @@ func (s *FavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezo
 	}
 
 	// Get favorite venue IDs for the user
-	var favoriteVenues []models.UserFavoriteVenue
-	err := s.db.Where("user_id = ?", userID).Find(&favoriteVenues).Error
+	favoriteBookmarks, err := s.bookmark.GetUserBookmarksByEntityType(userID, models.BookmarkEntityVenue, models.BookmarkActionFollow)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get favorite venues: %w", err)
 	}
 
-	if len(favoriteVenues) == 0 {
+	if len(favoriteBookmarks) == 0 {
 		return []*FavoriteVenueShowResponse{}, 0, nil
 	}
 
-	venueIDs := make([]uint, len(favoriteVenues))
-	for i, fv := range favoriteVenues {
-		venueIDs[i] = fv.VenueID
+	venueIDs := make([]uint, len(favoriteBookmarks))
+	for i, b := range favoriteBookmarks {
+		venueIDs[i] = b.EntityID
 	}
 
 	// Build subquery for show IDs that have venues in the favorites list
@@ -462,23 +426,5 @@ func (s *FavoriteVenueService) GetFavoriteVenueIDs(userID uint, venueIDs []uint)
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	result := make(map[uint]bool)
-
-	if len(venueIDs) == 0 {
-		return result, nil
-	}
-
-	var favoriteVenues []models.UserFavoriteVenue
-	err := s.db.Where("user_id = ? AND venue_id IN ?", userID, venueIDs).
-		Find(&favoriteVenues).Error
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to get favorite venue IDs: %w", err)
-	}
-
-	for _, fv := range favoriteVenues {
-		result[fv.VenueID] = true
-	}
-
-	return result, nil
+	return s.bookmark.GetBookmarkedEntityIDs(userID, models.BookmarkEntityVenue, models.BookmarkActionFollow, venueIDs)
 }

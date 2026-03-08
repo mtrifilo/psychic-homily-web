@@ -120,24 +120,26 @@ func (s *ReminderService) runReminderCycle() {
 	var rows []reminderRow
 	err := s.db.Raw(`
 		SELECT
-			uss.user_id,
-			uss.show_id,
+			ub.user_id,
+			ub.entity_id AS show_id,
 			u.email,
 			s.title AS show_title,
 			COALESCE(s.slug, CAST(s.id AS TEXT)) AS show_slug,
 			s.event_date
-		FROM user_saved_shows uss
-		JOIN shows s ON s.id = uss.show_id
-		JOIN users u ON u.id = uss.user_id
-		JOIN user_preferences up ON up.user_id = uss.user_id
-		WHERE s.event_date BETWEEN ? AND ?
+		FROM user_bookmarks ub
+		JOIN shows s ON s.id = ub.entity_id
+		JOIN users u ON u.id = ub.user_id
+		JOIN user_preferences up ON up.user_id = ub.user_id
+		WHERE ub.entity_type = 'show'
+			AND ub.action = 'save'
+			AND s.event_date BETWEEN ? AND ?
 			AND s.status = 'approved'
 			AND s.is_cancelled = false
 			AND up.show_reminders = true
 			AND u.is_active = true
 			AND u.deleted_at IS NULL
 			AND u.email IS NOT NULL
-			AND uss.reminder_sent_at IS NULL
+			AND ub.reminder_sent_at IS NULL
 	`, windowStart, windowEnd).Scan(&rows).Error
 	if err != nil {
 		s.logger.Error("failed to query reminder candidates", "error", err)
@@ -193,7 +195,7 @@ func (s *ReminderService) runReminderCycle() {
 
 		// Mark as sent for deduplication
 		if err := s.db.Exec(
-			"UPDATE user_saved_shows SET reminder_sent_at = ? WHERE user_id = ? AND show_id = ?",
+			"UPDATE user_bookmarks SET reminder_sent_at = ? WHERE user_id = ? AND entity_type = 'show' AND entity_id = ? AND action = 'save'",
 			now, row.UserID, row.ShowID,
 		).Error; err != nil {
 			s.logger.Error("failed to mark reminder as sent",

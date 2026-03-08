@@ -12,8 +12,10 @@ import (
 )
 
 // SavedShowService handles saved show business logic
+// Backed by the generic user_bookmarks table via BookmarkService
 type SavedShowService struct {
-	db *gorm.DB
+	db       *gorm.DB
+	bookmark *BookmarkService
 }
 
 // NewSavedShowService creates a new saved show service
@@ -22,7 +24,8 @@ func NewSavedShowService(database *gorm.DB) *SavedShowService {
 		database = db.GetDB()
 	}
 	return &SavedShowService{
-		db: database,
+		db:       database,
+		bookmark: NewBookmarkService(database),
 	}
 }
 
@@ -49,19 +52,7 @@ func (s *SavedShowService) SaveShow(userID, showID uint) error {
 		return fmt.Errorf("failed to verify show: %w", err)
 	}
 
-	// Create saved show record (or update if exists)
-	savedShow := models.UserSavedShow{
-		UserID:  userID,
-		ShowID:  showID,
-		SavedAt: time.Now().UTC(),
-	}
-
-	// Use FirstOrCreate to avoid duplicate key errors
-	err := s.db.Where(models.UserSavedShow{UserID: userID, ShowID: showID}).
-		Assign(models.UserSavedShow{SavedAt: savedShow.SavedAt}).
-		FirstOrCreate(&savedShow).Error
-
-	if err != nil {
+	if err := s.bookmark.CreateBookmark(userID, models.BookmarkEntityShow, showID, models.BookmarkActionSave); err != nil {
 		return fmt.Errorf("failed to save show: %w", err)
 	}
 
@@ -74,15 +65,12 @@ func (s *SavedShowService) UnsaveShow(userID, showID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Where("user_id = ? AND show_id = ?", userID, showID).
-		Delete(&models.UserSavedShow{})
-
-	if result.Error != nil {
-		return fmt.Errorf("failed to unsave show: %w", result.Error)
-	}
-
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("show was not saved")
+	err := s.bookmark.DeleteBookmark(userID, models.BookmarkEntityShow, showID, models.BookmarkActionSave)
+	if err != nil {
+		if err.Error() == "bookmark not found" {
+			return fmt.Errorf("show was not saved")
+		}
+		return fmt.Errorf("failed to unsave show: %w", err)
 	}
 
 	return nil
@@ -95,32 +83,18 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	// Get total count
-	var total int64
-	if err := s.db.Model(&models.UserSavedShow{}).
-		Where("user_id = ?", userID).
-		Count(&total).Error; err != nil {
-		return nil, 0, fmt.Errorf("failed to count saved shows: %w", err)
-	}
-
-	// Get saved show records with pagination, ordered by saved_at DESC
-	var savedShows []models.UserSavedShow
-	err := s.db.Where("user_id = ?", userID).
-		Order("saved_at DESC").
-		Limit(limit).
-		Offset(offset).
-		Find(&savedShows).Error
-
+	// Get bookmarks with pagination
+	bookmarks, total, err := s.bookmark.GetUserBookmarks(userID, models.BookmarkEntityShow, models.BookmarkActionSave, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get saved shows: %w", err)
 	}
 
-	// Extract show IDs
-	showIDs := make([]uint, len(savedShows))
+	// Extract show IDs preserving order
+	showIDs := make([]uint, len(bookmarks))
 	savedAtMap := make(map[uint]time.Time)
-	for i, ss := range savedShows {
-		showIDs[i] = ss.ShowID
-		savedAtMap[ss.ShowID] = ss.SavedAt
+	for i, b := range bookmarks {
+		showIDs[i] = b.EntityID
+		savedAtMap[b.EntityID] = b.CreatedAt
 	}
 
 	if len(showIDs) == 0 {
@@ -201,14 +175,14 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 		})
 	}
 
-	// Build responses in the order of savedShows (saved_at DESC)
+	// Build responses in the order of bookmarks (created_at DESC)
 	responses := make([]*SavedShowResponse, 0, len(shows))
-	for _, ss := range savedShows {
-		if show, ok := showMap[ss.ShowID]; ok {
+	for _, b := range bookmarks {
+		if show, ok := showMap[b.EntityID]; ok {
 			showResp := s.buildShowResponse(show, artistsByShow)
 			responses = append(responses, &SavedShowResponse{
 				ShowResponse: *showResp,
-				SavedAt:      ss.SavedAt,
+				SavedAt:      b.CreatedAt,
 			})
 		}
 	}
@@ -275,16 +249,7 @@ func (s *SavedShowService) IsShowSaved(userID, showID uint) (bool, error) {
 		return false, fmt.Errorf("database not initialized")
 	}
 
-	var count int64
-	err := s.db.Model(&models.UserSavedShow{}).
-		Where("user_id = ? AND show_id = ?", userID, showID).
-		Count(&count).Error
-
-	if err != nil {
-		return false, fmt.Errorf("failed to check if show is saved: %w", err)
-	}
-
-	return count > 0, nil
+	return s.bookmark.IsBookmarked(userID, models.BookmarkEntityShow, showID, models.BookmarkActionSave)
 }
 
 // GetSavedShowIDs returns a set of show IDs that a user has saved
@@ -294,23 +259,5 @@ func (s *SavedShowService) GetSavedShowIDs(userID uint, showIDs []uint) (map[uin
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	result := make(map[uint]bool)
-
-	if len(showIDs) == 0 {
-		return result, nil
-	}
-
-	var savedShows []models.UserSavedShow
-	err := s.db.Where("user_id = ? AND show_id IN ?", userID, showIDs).
-		Find(&savedShows).Error
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to get saved show IDs: %w", err)
-	}
-
-	for _, ss := range savedShows {
-		result[ss.ShowID] = true
-	}
-
-	return result, nil
+	return s.bookmark.GetBookmarkedEntityIDs(userID, models.BookmarkEntityShow, models.BookmarkActionSave, showIDs)
 }
