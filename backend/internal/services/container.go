@@ -52,6 +52,13 @@ type ServiceContainer struct {
 	Reminder   *ReminderService
 }
 
+// newFetcherWithChromedp creates a FetcherService with chromedp initialized at 3 workers.
+func newFetcherWithChromedp() *FetcherService {
+	f := NewFetcherService()
+	f.InitChromedp(3)
+	return f
+}
+
 // NewServiceContainer creates all services once. WebAuthn failure is non-fatal
 // (passkeys are optional) — all other services are infallible constructors.
 func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContainer {
@@ -91,7 +98,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		MusicDiscovery: NewMusicDiscoveryService(cfg),
 
 		// No-param services
-		Fetcher:           NewFetcherService(),
+		Fetcher:           newFetcherWithChromedp(),
 		PasswordValidator: NewPasswordValidator(),
 
 		// DB + Config composite services

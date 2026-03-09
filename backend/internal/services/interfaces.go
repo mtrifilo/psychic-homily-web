@@ -360,6 +360,9 @@ type ReleaseServiceInterface interface {
 // FetcherServiceInterface defines the contract for HTTP fetching with change detection.
 type FetcherServiceInterface interface {
 	Fetch(url string, lastETag string, lastContentHash string) (*FetchResult, error)
+	FetchDynamic(url string) (*FetchResult, error)
+	FetchScreenshot(url string) (*FetchResult, error)
+	DetectRenderMethod(url string) (string, error)
 }
 
 // ContributorProfileServiceInterface defines the contract for contributor profile operations.
