@@ -82,6 +82,9 @@ export const BILLING_TIERS: BillingTier[] = [
   'host',
 ]
 
+/** Ordered billing tiers for display (alias for BILLING_TIERS) */
+export const BILLING_TIER_ORDER = BILLING_TIERS
+
 /**
  * Get a display label for a billing tier
  */
@@ -187,6 +190,9 @@ export interface ArtistFestivalListItem extends FestivalListItem {
   stage: string | null
 }
 
+/** Alias for backward compatibility */
+export type ArtistFestival = ArtistFestivalListItem
+
 export interface ArtistFestivalsResponse {
   festivals: ArtistFestivalListItem[]
   count: number
@@ -196,37 +202,45 @@ export interface ArtistFestivalsResponse {
  * Format a festival's location string
  */
 export function formatFestivalLocation(festival: {
+  location_name?: string | null
   city: string | null
   state: string | null
 }): string | null {
-  if (festival.city && festival.state) return `${festival.city}, ${festival.state}`
-  if (festival.city) return festival.city
-  if (festival.state) return festival.state
-  return null
+  const parts: string[] = []
+  if (festival.location_name) parts.push(festival.location_name)
+  if (festival.city && festival.state) {
+    parts.push(`${festival.city}, ${festival.state}`)
+  } else if (festival.city) {
+    parts.push(festival.city)
+  } else if (festival.state) {
+    parts.push(festival.state)
+  }
+  return parts.length > 0 ? parts.join(' — ') : null
 }
 
 /**
- * Format a festival's date range string
+ * Format festival date range for display
  */
-export function formatFestivalDates(startDate: string, endDate: string): string {
-  try {
-    // Parse as local dates (YYYY-MM-DD format, avoid timezone issues)
-    const [startYear, startMonth, startDay] = startDate.split('-').map(Number)
-    const [endYear, endMonth, endDay] = endDate.split('-').map(Number)
-    const start = new Date(startYear, startMonth - 1, startDay)
-    const end = new Date(endYear, endMonth - 1, endDay)
+export function formatFestivalDateRange(startDate: string, endDate: string): string {
+  const start = new Date(startDate + 'T00:00:00')
+  const end = new Date(endDate + 'T00:00:00')
 
-    const startStr = start.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-    })
-    const endStr = end.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    })
-    return `${startStr} - ${endStr}`
-  } catch {
-    return `${startDate} - ${endDate}`
+  const startMonth = start.toLocaleDateString('en-US', { month: 'short' })
+  const startDay = start.getDate()
+  const endMonth = end.toLocaleDateString('en-US', { month: 'short' })
+  const endDay = end.getDate()
+  const year = start.getFullYear()
+
+  if (startDate === endDate) {
+    return `${startMonth} ${startDay}, ${year}`
   }
+
+  if (startMonth === endMonth) {
+    return `${startMonth} ${startDay}–${endDay}, ${year}`
+  }
+
+  return `${startMonth} ${startDay} – ${endMonth} ${endDay}, ${year}`
 }
+
+/** Alias for backward compatibility */
+export const formatFestivalDates = formatFestivalDateRange
