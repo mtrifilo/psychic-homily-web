@@ -49,6 +49,7 @@ type ServiceContainer struct {
 	Cleanup    *CleanupService
 	DataSync   *DataSyncService
 	Discovery  *DiscoveryService
+	Pipeline   *PipelineService
 	Reminder   *ReminderService
 }
 
@@ -71,6 +72,13 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	savedShow := NewSavedShowService(database)
 	email := NewEmailService(cfg)
 
+	// Services needed by PipelineService — created first so we can inject them.
+	fetcher := newFetcherWithChromedp()
+	extraction := NewExtractionService(database, cfg)
+	discovery := NewDiscoveryService(database)
+	venueSourceConfig := NewVenueSourceConfigService(database)
+	venue := NewVenueService(database)
+
 	return &ServiceContainer{
 		// DB-only leaf services
 		AdminStats:         NewAdminStatsService(database),
@@ -89,8 +97,8 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Show:          NewShowService(database),
 		ShowReport:    NewShowReportService(database),
 		User:          NewUserService(database),
-		Venue:             NewVenueService(database),
-		VenueSourceConfig: NewVenueSourceConfigService(database),
+		Venue:             venue,
+		VenueSourceConfig: venueSourceConfig,
 
 		// Config-only services
 		Discord:        NewDiscordService(cfg),
@@ -98,18 +106,19 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		MusicDiscovery: NewMusicDiscoveryService(cfg),
 
 		// No-param services
-		Fetcher:           newFetcherWithChromedp(),
+		Fetcher:           fetcher,
 		PasswordValidator: NewPasswordValidator(),
 
 		// DB + Config composite services
 		Auth:       NewAuthService(database, cfg),
 		JWT:        NewJWTService(database, cfg),
 		AppleAuth:  NewAppleAuthService(database, cfg),
-		Extraction: NewExtractionService(database, cfg),
+		Extraction: extraction,
 		WebAuthn:   webauthnService,
 		Cleanup:    NewCleanupService(database),
 		DataSync:   NewDataSyncService(database),
-		Discovery:  NewDiscoveryService(database),
+		Discovery:  discovery,
+		Pipeline:   NewPipelineService(fetcher, extraction, discovery, venueSourceConfig, venue),
 		Reminder:   NewReminderService(database, email, cfg),
 	}
 }
