@@ -27,8 +27,9 @@ type ServiceContainer struct {
 	SavedShow     *SavedShowService
 	Show          *ShowService
 	ShowReport    *ShowReportService
-	User          *UserService
-	Venue         *VenueService
+	User              *UserService
+	Venue             *VenueService
+	VenueSourceConfig *VenueSourceConfigService
 
 	// Config-only services
 	Discord        *DiscordService
@@ -80,7 +81,8 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Show:          NewShowService(database),
 		ShowReport:    NewShowReportService(database),
 		User:          NewUserService(database),
-		Venue:         NewVenueService(database),
+		Venue:             NewVenueService(database),
+		VenueSourceConfig: NewVenueSourceConfigService(database),
 
 		// Config-only services
 		Discord:        NewDiscordService(cfg),
