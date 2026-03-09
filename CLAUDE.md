@@ -77,6 +77,7 @@ HTTP Request → Chi Router → Global Middleware → Huma Adapter → Route Gro
 #### Huma API Framework Quirks
 
 - **All request body fields are required by default** — even pointer types (`*bool`, `*string`) are treated as required unless explicitly marked optional with struct tags
+- **Query/path/header params must NOT use pointer types** (`*uint`, `*string`) — Huma panics at route registration. Use value types with zero-value checks instead.
 - Huma returns 422 "validation failed" errors when required fields are missing from the request body
 - If you see "expected required property X to be present" errors, ensure the frontend always sends that field
 

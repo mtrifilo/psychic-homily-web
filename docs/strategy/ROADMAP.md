@@ -20,7 +20,7 @@ Live shows are the gateway into the knowledge graph. Every phase builds outward 
 
 | Priority | Focus | What | Status |
 |----------|-------|------|--------|
-| 1a | Discovery | Phase 1.6a: Minimum viable AI pipeline (PSY-29, PSY-32, PSY-34, PSY-36) | In progress |
+| 1a | Discovery | Phase 1.6a: AI pipeline foundation (PSY-29, PSY-75–81, PSY-83 DONE; PSY-82, PSY-34, PSY-36 remaining) | Nearly done |
 | 1b | Community | Phase 2a: Community foundations — contributor identity, collections, requests, revision history (PSY-63 through PSY-74) | In progress (PSY-63 done) |
 | 2 | Web | Phase 2b: Knowledge graph connective tissue — tags, relationships, scenes (PSY-45–54, PSY-59/60) | Planned |
 | 3 | Web | Phase 2c: Engagement & social — going/interested, follow, charts, notifications (PSY-55–57, PSY-61/62) | Planned |
@@ -87,12 +87,22 @@ These two tracks run **in parallel**. Phase 1.6a is backend-heavy pipeline infra
 4. Ticketing platform APIs — enrichment + cross-referencing (SeatGeek, Bandsintown, Ticketmaster)
 5. Festival lineups + community submissions — human-powered gap-filling
 
-**What ships now (minimum viable pipeline):**
+**What shipped (pipeline sprint, March 2026):**
 
 1. ~~**Provider reliability audit** (PSY-29)~~ — DONE. 2/7 passing. Conclusion: pivot to AI-first.
-2. **AI extraction pipeline** (PSY-32, elevated to core) — Tiered rendering: static HTTP → chromedp dynamic → chromedp screenshot, auto-detected per venue. Extend `extraction.go` for multi-event calendar pages. HTTP change detection (ETag/hash). Start with 3-5 Phoenix venues.
-3. **Data provenance tracking** (PSY-34) — `data_source`, `source_confidence`, `last_verified_at` on core entity tables.
-4. **Venue-level source config** (PSY-36) — Per-venue config: preferred source, calendar URL, feed URL, render_method, change detection state, strategy profile.
+2. ~~**Venue source config + extraction runs** (PSY-75)~~ — DONE. `venue_source_configs` and `venue_extraction_runs` tables with full service layer.
+3. ~~**Calendar extraction prompt** (PSY-76)~~ — DONE. Claude Haiku prompt for multi-event calendar pages with `IsMusicEvent` classification.
+4. ~~**HTTP fetcher with change detection** (PSY-77)~~ — DONE. ETag/hash-based change detection, skips unchanged pages.
+5. ~~**chromedp rendering** (PSY-78)~~ — DONE. Tiered: static HTTP → chromedp dynamic → chromedp screenshot. Auto-detected per venue.
+6. ~~**Pipeline orchestrator** (PSY-79)~~ — DONE. `PipelineService` orchestrates end-to-end: config → fetch → detect changes → extract → import. Admin trigger via `POST /admin/pipeline/extract`.
+7. ~~**Auto-approve wiring + non-music filtering** (PSY-80)~~ — DONE. Per-venue `auto_approve` flag (default false). AI-classified `IsMusicEvent` filtering before import. `ImportEvents` threaded with `initialStatus`.
+8. ~~**Batch review admin UI** (PSY-81)~~ — DONE. Batch approve/reject endpoints. `rejection_category` column. Frontend: batch selection, filter bar, keyboard shortcuts, quick "Not Music" reject.
+9. ~~**Huma query param fix** (PSY-83)~~ — DONE. Fixed pointer type panic in query params.
+
+**What remains:**
+- **PSY-82** (Rejection feedback loop) — venue-level rejection stats, extraction notes, auto-generated hints
+- **PSY-34** (Data provenance tracking) — `data_source`, `source_confidence`, `last_verified_at` on core entity tables
+- **PSY-36** (Venue source config admin UI) — admin interface for managing venue configs
 
 **What defers to Phase 1.6b (background track):**
 - PSY-30 (AI billing enrichment) — useful but not blocking
@@ -159,8 +169,8 @@ Required before opening edit flows to non-admin users. Accountability and rollba
 
 **Practical sprint sequence (single-person team):**
 ```
-Sprint 1: PSY-32 (AI extraction) + ~~PSY-63 (contributor profile backend)~~ DONE
-Sprint 2: PSY-34 + PSY-36 (provenance + venue config) + PSY-64 (contributor profile frontend)
+Sprint 1: ~~PSY-75–81, PSY-83 (pipeline foundation)~~ DONE + ~~PSY-63 (contributor profile backend)~~ DONE
+Sprint 2: PSY-82 (rejection feedback) + PSY-34 + PSY-36 (provenance + venue config UI) + PSY-64 (contributor profile frontend)
 Sprint 3: PSY-65 + PSY-66 (collections model + service)
 Sprint 4: PSY-67 + PSY-68 (collections admin + frontend)
 Sprint 5: PSY-70 + PSY-71 (requests model + service) + PSY-73 (revision history backend)
