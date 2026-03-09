@@ -4,41 +4,48 @@ import { Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { redirect } from 'next/navigation'
-import { Loader2, User, Settings } from 'lucide-react'
+import { Loader2, User, Settings, Shield, LayoutList } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { SettingsPanel } from '@/components/settings'
+import { ContributorProfilePreview, PrivacySettingsPanel, ProfileSectionsEditor } from '@/components/contributor'
 
 function ProfileTab() {
   const { user } = useAuthContext()
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Profile Information</CardTitle>
-        <CardDescription>Your account details</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-4">
-          <div className="space-y-1">
-            <p className="text-sm font-medium text-muted-foreground">Email</p>
-            <p className="text-sm">{user?.email}</p>
+    <div className="space-y-6">
+      {/* Contributor profile preview */}
+      <ContributorProfilePreview />
+
+      {/* Account details */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Account Details</CardTitle>
+          <CardDescription>Your account information</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-muted-foreground">Email</p>
+              <p className="text-sm">{user?.email}</p>
+            </div>
+            {user?.first_name && (
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">First Name</p>
+                <p className="text-sm">{user.first_name}</p>
+              </div>
+            )}
+            {user?.last_name && (
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">Last Name</p>
+                <p className="text-sm">{user.last_name}</p>
+              </div>
+            )}
           </div>
-          {user?.first_name && (
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">First Name</p>
-              <p className="text-sm">{user.first_name}</p>
-            </div>
-          )}
-          {user?.last_name && (
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">Last Name</p>
-              <p className="text-sm">{user.last_name}</p>
-            </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   )
 }
 
@@ -86,7 +93,7 @@ function ProfilePageContent() {
           <h1 className="text-3xl font-bold tracking-tight">My Profile</h1>
         </div>
         <p className="text-muted-foreground">
-          Manage your account and settings
+          Manage your profile, privacy, and settings
         </p>
       </div>
 
@@ -101,6 +108,14 @@ function ProfilePageContent() {
             <User className="h-4 w-4" />
             Profile
           </TabsTrigger>
+          <TabsTrigger value="privacy" className="gap-1.5">
+            <Shield className="h-4 w-4" />
+            Privacy
+          </TabsTrigger>
+          <TabsTrigger value="sections" className="gap-1.5">
+            <LayoutList className="h-4 w-4" />
+            Sections
+          </TabsTrigger>
           <TabsTrigger value="settings" className="gap-1.5">
             <Settings className="h-4 w-4" />
             Settings
@@ -109,6 +124,14 @@ function ProfilePageContent() {
 
         <TabsContent value="profile">
           <ProfileTab />
+        </TabsContent>
+
+        <TabsContent value="privacy">
+          <PrivacySettingsPanel />
+        </TabsContent>
+
+        <TabsContent value="sections">
+          <ProfileSectionsEditor />
         </TabsContent>
 
         <TabsContent value="settings">
