@@ -58,10 +58,10 @@ func NewAdminHandler(
 
 // GetPendingShowsRequest represents the HTTP request for listing pending shows
 type GetPendingShowsRequest struct {
-	Limit   int     `query:"limit" default:"50" doc:"Number of shows to return (max 100)"`
-	Offset  int     `query:"offset" default:"0" doc:"Offset for pagination"`
-	VenueID *uint   `query:"venue_id" required:"false" doc:"Filter by venue ID"`
-	Source  *string `query:"source" required:"false" doc:"Filter by source (discovery or user)"`
+	Limit   int    `query:"limit" default:"50" doc:"Number of shows to return (max 100)"`
+	Offset  int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	VenueID uint   `query:"venue_id" required:"false" doc:"Filter by venue ID (0 = no filter)"`
+	Source  string `query:"source" required:"false" doc:"Filter by source (discovery or user)"`
 }
 
 // GetPendingShowsResponse represents the HTTP response for listing pending shows
@@ -199,10 +199,24 @@ func (h *AdminHandler) GetPendingShowsHandler(ctx context.Context, req *GetPendi
 
 	// Build filters
 	var filters *services.PendingShowsFilter
-	if req.VenueID != nil || req.Source != nil {
+	if req.VenueID != 0 || req.Source != "" {
+		venueIDPtr := func() *uint {
+			if req.VenueID == 0 {
+				return nil
+			}
+			v := req.VenueID
+			return &v
+		}()
+		sourcePtr := func() *string {
+			if req.Source == "" {
+				return nil
+			}
+			s := req.Source
+			return &s
+		}()
 		filters = &services.PendingShowsFilter{
-			VenueID: req.VenueID,
-			Source:  req.Source,
+			VenueID: venueIDPtr,
+			Source:  sourcePtr,
 		}
 	}
 
