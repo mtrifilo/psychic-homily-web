@@ -471,6 +471,8 @@ func setupAdminRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 	huma.Get(protected, "/admin/shows/rejected", adminHandler.GetRejectedShowsHandler)
 	huma.Post(protected, "/admin/shows/{show_id}/approve", adminHandler.ApproveShowHandler)
 	huma.Post(protected, "/admin/shows/{show_id}/reject", adminHandler.RejectShowHandler)
+	huma.Post(protected, "/admin/shows/batch-approve", adminHandler.BatchApproveShowsHandler)
+	huma.Post(protected, "/admin/shows/batch-reject", adminHandler.BatchRejectShowsHandler)
 
 	// Admin show import endpoints (single)
 	huma.Post(protected, "/admin/shows/import/preview", adminHandler.ImportShowPreviewHandler)

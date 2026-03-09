@@ -10,21 +10,31 @@ import {
   XCircle,
   AlertTriangle,
   Radar,
+  Ban,
 } from 'lucide-react'
 import Link from 'next/link'
 import type { ShowResponse } from '@/lib/types/show'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import { formatAdminDate, formatAdminTime } from '@/lib/utils/formatters'
 import { ApproveShowDialog } from './ApproveShowDialog'
 import { RejectShowDialog } from './RejectShowDialog'
 
 interface PendingShowCardProps {
   show: ShowResponse
+  selected?: boolean
+  onSelectChange?: (selected: boolean) => void
+  onQuickRejectNotMusic?: (showId: number) => void
 }
 
-export function PendingShowCard({ show }: PendingShowCardProps) {
+export function PendingShowCard({
+  show,
+  selected,
+  onSelectChange,
+  onQuickRejectNotMusic,
+}: PendingShowCardProps) {
   const [showApproveDialog, setShowApproveDialog] = useState(false)
   const [showRejectDialog, setShowRejectDialog] = useState(false)
 
@@ -35,9 +45,18 @@ export function PendingShowCard({ show }: PendingShowCardProps) {
 
   return (
     <>
-      <Card className="border-amber-500/30 bg-card/50">
+      <Card className={`border-amber-500/30 bg-card/50 transition-colors ${selected ? 'ring-2 ring-primary/50 border-primary/50' : ''}`}>
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-4">
+            {onSelectChange && (
+              <div className="pt-1">
+                <Checkbox
+                  checked={selected}
+                  onCheckedChange={checked => onSelectChange(checked === true)}
+                  aria-label={`Select ${show.title || 'show'}`}
+                />
+              </div>
+            )}
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-lg truncate">
                 {show.title ||
@@ -58,6 +77,14 @@ export function PendingShowCard({ show }: PendingShowCardProps) {
                   >
                     <Radar className="h-3 w-3" />
                     Discovery Import
+                  </Badge>
+                )}
+                {show.source_venue && (
+                  <Badge
+                    variant="outline"
+                    className="text-muted-foreground border-muted-foreground/30 gap-1 text-xs"
+                  >
+                    {show.source_venue}
                   </Badge>
                 )}
                 {hasUnverifiedVenue && (
@@ -179,6 +206,18 @@ export function PendingShowCard({ show }: PendingShowCardProps) {
               <XCircle className="h-4 w-4" />
               Reject
             </Button>
+            {onQuickRejectNotMusic && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-muted-foreground hover:text-destructive"
+                onClick={() => onQuickRejectNotMusic(show.id)}
+                title="Quick reject: Not a music event"
+              >
+                <Ban className="h-3.5 w-3.5" />
+                Not Music
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>

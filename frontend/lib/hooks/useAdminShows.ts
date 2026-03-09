@@ -9,14 +9,17 @@ import type {
   RejectedShowsResponse,
   ApproveShowRequest,
   RejectShowRequest,
+  BatchApproveResponse,
+  BatchRejectResponse,
+  RejectionCategory,
 } from '../types/show'
 
 /**
  * Query key factory for admin queries
  */
 export const adminQueryKeys = {
-  pendingShows: (limit: number, offset: number) =>
-    ['admin', 'shows', 'pending', { limit, offset }] as const,
+  pendingShows: (limit: number, offset: number, venueId?: number, source?: string) =>
+    ['admin', 'shows', 'pending', { limit, offset, venueId, source }] as const,
   rejectedShows: (limit: number, offset: number, search?: string) =>
     ['admin', 'shows', 'rejected', { limit, offset, search }] as const,
 }
@@ -24,18 +27,28 @@ export const adminQueryKeys = {
 /**
  * Hook for fetching pending shows (admin only)
  */
-export function usePendingShows(options?: { limit?: number; offset?: number; enabled?: boolean }) {
+export function usePendingShows(options?: {
+  limit?: number
+  offset?: number
+  venueId?: number
+  source?: string
+  enabled?: boolean
+}) {
   const limit = options?.limit ?? 50
   const offset = options?.offset ?? 0
+  const venueId = options?.venueId
+  const source = options?.source
   const enabled = options?.enabled ?? true
 
   return useQuery({
-    queryKey: adminQueryKeys.pendingShows(limit, offset),
+    queryKey: adminQueryKeys.pendingShows(limit, offset, venueId, source),
     queryFn: async () => {
       const params = new URLSearchParams({
         limit: limit.toString(),
         offset: offset.toString(),
       })
+      if (venueId) params.set('venue_id', venueId.toString())
+      if (source) params.set('source', source)
       return apiRequest<PendingShowsResponse>(
         `${API_ENDPOINTS.ADMIN.SHOWS.PENDING}?${params}`
       )
@@ -202,6 +215,67 @@ export function useSetShowCancelled() {
     onSuccess: () => {
       // Invalidate shows list since display may change
       invalidateQueries.shows()
+    },
+  })
+}
+
+/**
+ * Hook for batch approving pending shows (admin only)
+ */
+export function useBatchApproveShows() {
+  const queryClient = useQueryClient()
+  const invalidateQueries = createInvalidateQueries(queryClient)
+
+  return useMutation({
+    mutationFn: async (showIds: number[]) => {
+      return apiRequest<BatchApproveResponse>(
+        API_ENDPOINTS.ADMIN.SHOWS.BATCH_APPROVE,
+        {
+          method: 'POST',
+          body: JSON.stringify({ show_ids: showIds }),
+        }
+      )
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'shows', 'pending'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'shows', 'rejected'] })
+      invalidateQueries.shows()
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] })
+    },
+  })
+}
+
+/**
+ * Hook for batch rejecting pending shows (admin only)
+ */
+export function useBatchRejectShows() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      showIds,
+      reason,
+      category,
+    }: {
+      showIds: number[]
+      reason: string
+      category?: RejectionCategory
+    }) => {
+      return apiRequest<BatchRejectResponse>(
+        API_ENDPOINTS.ADMIN.SHOWS.BATCH_REJECT,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            show_ids: showIds,
+            reason,
+            category,
+          }),
+        }
+      )
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'shows', 'pending'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] })
     },
   })
 }

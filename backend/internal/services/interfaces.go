@@ -25,10 +25,12 @@ type ShowServiceInterface interface {
 	GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *UpcomingShowsFilter) ([]*ShowResponse, *string, error)
 	GetShowCities(timezone string) ([]ShowCityResponse, error)
 	DeleteShow(showID uint) error
-	GetPendingShows(limit, offset int) ([]*ShowResponse, int64, error)
+	GetPendingShows(limit, offset int, filters *PendingShowsFilter) ([]*ShowResponse, int64, error)
 	GetRejectedShows(limit, offset int, search string) ([]*ShowResponse, int64, error)
 	ApproveShow(showID uint, verifyVenues bool) (*ShowResponse, error)
 	RejectShow(showID uint, reason string) (*ShowResponse, error)
+	BatchApproveShows(showIDs []uint) (*BatchShowResult, error)
+	BatchRejectShows(showIDs []uint, reason string, category string) (*BatchShowResult, error)
 	UnpublishShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error)
 	MakePrivateShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error)
 	PublishShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error)

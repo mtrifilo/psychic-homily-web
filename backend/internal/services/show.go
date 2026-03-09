@@ -94,8 +94,9 @@ type ShowResponse struct {
 	Description     *string          `json:"description"`
 	Status          string           `json:"status"`
 	SubmittedBy     *uint            `json:"submitted_by,omitempty"`
-	RejectionReason *string          `json:"rejection_reason,omitempty"`
-	Venues          []VenueResponse  `json:"venues"`
+	RejectionReason   *string          `json:"rejection_reason,omitempty"`
+	RejectionCategory *string          `json:"rejection_category,omitempty"`
+	Venues            []VenueResponse  `json:"venues"`
 	Artists         []ArtistResponse `json:"artists"`
 	CreatedAt       time.Time        `json:"created_at"`
 	UpdatedAt       time.Time        `json:"updated_at"`
@@ -148,6 +149,24 @@ type ArtistResponse struct {
 	IsNewArtist      *bool             `json:"is_new_artist"`
 	BandcampEmbedURL *string           `json:"bandcamp_embed_url"`
 	Socials          ShowArtistSocials `json:"socials"`
+}
+
+// BatchShowResult contains the outcome of a batch approve/reject operation.
+type BatchShowResult struct {
+	Succeeded []uint           `json:"succeeded"`
+	Errors    []BatchShowError `json:"errors"`
+}
+
+// BatchShowError describes a failure for a single show in a batch operation.
+type BatchShowError struct {
+	ShowID uint   `json:"show_id"`
+	Error  string `json:"error"`
+}
+
+// PendingShowsFilter contains optional filters for pending shows queries.
+type PendingShowsFilter struct {
+	VenueID *uint
+	Source  *string // "discovery" or "user"
 }
 
 // CreateShow creates a new show with associated venues and artists.
@@ -926,22 +945,45 @@ func (s *ShowService) DeleteShow(showID uint) error {
 
 // GetPendingShows retrieves shows with pending status for admin review.
 // Returns shows, total count, and error.
-func (s *ShowService) GetPendingShows(limit, offset int) ([]*ShowResponse, int64, error) {
+func (s *ShowService) GetPendingShows(limit, offset int, filters *PendingShowsFilter) ([]*ShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
+	// Build base query with optional filters
+	countQuery := s.db.Model(&models.Show{}).Where("status = ?", models.ShowStatusPending)
+	if filters != nil {
+		if filters.VenueID != nil {
+			countQuery = countQuery.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
+				Where("show_venues.venue_id = ?", *filters.VenueID)
+		}
+		if filters.Source != nil {
+			countQuery = countQuery.Where("source = ?", *filters.Source)
+		}
+	}
+
 	// Get total count
 	var total int64
-	if err := s.db.Model(&models.Show{}).Where("status = ?", models.ShowStatusPending).Count(&total).Error; err != nil {
+	if err := countQuery.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count pending shows: %w", err)
 	}
 
 	// Get pending shows with pagination
+	findQuery := s.db.Preload("Venues").Preload("Artists").
+		Where("status = ?", models.ShowStatusPending)
+	if filters != nil {
+		if filters.VenueID != nil {
+			findQuery = findQuery.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
+				Where("show_venues.venue_id = ?", *filters.VenueID)
+		}
+		if filters.Source != nil {
+			findQuery = findQuery.Where("source = ?", *filters.Source)
+		}
+	}
+
 	var shows []models.Show
-	err := s.db.Preload("Venues").Preload("Artists").
-		Where("status = ?", models.ShowStatusPending).
-		Order("created_at DESC").
+	err := findQuery.
+		Order("source_venue ASC NULLS LAST, event_date ASC").
 		Limit(limit).
 		Offset(offset).
 		Find(&shows).Error
@@ -1112,6 +1154,56 @@ func (s *ShowService) RejectShow(showID uint, reason string) (*ShowResponse, err
 	}
 
 	return response, nil
+}
+
+// BatchApproveShows approves multiple pending shows at once.
+func (s *ShowService) BatchApproveShows(showIDs []uint) (*BatchShowResult, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	result := &BatchShowResult{
+		Succeeded: make([]uint, 0),
+		Errors:    make([]BatchShowError, 0),
+	}
+
+	for _, id := range showIDs {
+		_, err := s.ApproveShow(id, false)
+		if err != nil {
+			result.Errors = append(result.Errors, BatchShowError{ShowID: id, Error: err.Error()})
+		} else {
+			result.Succeeded = append(result.Succeeded, id)
+		}
+	}
+
+	return result, nil
+}
+
+// BatchRejectShows rejects multiple pending shows at once with a reason and category.
+func (s *ShowService) BatchRejectShows(showIDs []uint, reason string, category string) (*BatchShowResult, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	result := &BatchShowResult{
+		Succeeded: make([]uint, 0),
+		Errors:    make([]BatchShowError, 0),
+	}
+
+	for _, id := range showIDs {
+		_, err := s.RejectShow(id, reason)
+		if err != nil {
+			result.Errors = append(result.Errors, BatchShowError{ShowID: id, Error: err.Error()})
+		} else {
+			// Update rejection_category separately since RejectShow doesn't handle it
+			if category != "" {
+				s.db.Model(&models.Show{}).Where("id = ?", id).Update("rejection_category", category)
+			}
+			result.Succeeded = append(result.Succeeded, id)
+		}
+	}
+
+	return result, nil
 }
 
 // UnpublishShow changes an approved show's status back to pending.
@@ -1563,8 +1655,9 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 		Description:     show.Description,
 		Status:          string(show.Status),
 		SubmittedBy:     show.SubmittedBy,
-		RejectionReason: show.RejectionReason,
-		Venues:          venues,
+		RejectionReason:   show.RejectionReason,
+		RejectionCategory: show.RejectionCategory,
+		Venues:            venues,
 		Artists:         artists,
 		CreatedAt:       show.CreatedAt,
 		UpdatedAt:       show.UpdatedAt,

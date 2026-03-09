@@ -82,7 +82,7 @@ func TestShowService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("GetPendingShows", func(t *testing.T) {
-		resp, count, err := svc.GetPendingShows(10, 0)
+		resp, count, err := svc.GetPendingShows(10, 0, nil)
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -1343,7 +1343,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_Success() {
 	_, err = suite.showService.CreateShow(req2)
 	suite.Require().NoError(err)
 
-	shows, total, err := suite.showService.GetPendingShows(10, 0)
+	shows, total, err := suite.showService.GetPendingShows(10, 0, nil)
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)

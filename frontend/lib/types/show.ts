@@ -60,6 +60,7 @@ export interface ShowResponse {
   status: ShowStatus
   submitted_by?: number
   rejection_reason?: string | null
+  rejection_category?: string | null
   venues: VenueResponse[]
   artists: ArtistResponse[]
   created_at: string
@@ -111,6 +112,34 @@ export interface ApproveShowRequest {
 
 export interface RejectShowRequest {
   reason: string
+  category?: string
+}
+
+export type RejectionCategory = 'non_music' | 'duplicate' | 'bad_data' | 'past_event' | 'other'
+
+export interface BatchApproveRequest {
+  show_ids: number[]
+}
+
+export interface BatchRejectRequest {
+  show_ids: number[]
+  reason: string
+  category?: RejectionCategory
+}
+
+export interface BatchShowError {
+  show_id: number
+  error: string
+}
+
+export interface BatchApproveResponse {
+  approved: number
+  errors: BatchShowError[]
+}
+
+export interface BatchRejectResponse {
+  rejected: number
+  errors: BatchShowError[]
 }
 
 // Saved shows (user's "My List") types

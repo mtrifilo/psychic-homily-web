@@ -18,6 +18,8 @@ vi.mock('../api', () => ({
         REJECTED: '/admin/shows/rejected',
         APPROVE: (showId: number) => `/admin/shows/${showId}/approve`,
         REJECT: (showId: number) => `/admin/shows/${showId}/reject`,
+        BATCH_APPROVE: '/admin/shows/batch-approve',
+        BATCH_REJECT: '/admin/shows/batch-reject',
       },
     },
   },
@@ -37,6 +39,8 @@ import {
   useRejectedShows,
   useApproveShow,
   useRejectShow,
+  useBatchApproveShows,
+  useBatchRejectShows,
   adminQueryKeys,
 } from './useAdminShows'
 
@@ -388,6 +392,168 @@ describe('useAdminShows', () => {
 
       await act(async () => {
         result.current.mutate({ showId: 123, reason: 'Test' })
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+    })
+  })
+
+  describe('useBatchApproveShows', () => {
+    it('batch approves shows', async () => {
+      const mockResponse = { approved: 3, errors: [] }
+      mockApiRequest.mockResolvedValueOnce(mockResponse)
+
+      const { result } = renderHook(() => useBatchApproveShows(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate([1, 2, 3])
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/admin/shows/batch-approve',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ show_ids: [1, 2, 3] }),
+        })
+      )
+    })
+
+    it('invalidates queries on success', async () => {
+      mockApiRequest.mockResolvedValueOnce({ approved: 2, errors: [] })
+
+      const queryClient = createTestQueryClient()
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+      const { result } = renderHook(() => useBatchApproveShows(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      await act(async () => {
+        result.current.mutate([1, 2])
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['admin', 'shows', 'pending'],
+      })
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['admin', 'shows', 'rejected'],
+      })
+      expect(mockInvalidateShows).toHaveBeenCalled()
+    })
+
+    it('handles errors', async () => {
+      mockApiRequest.mockRejectedValueOnce(new Error('Server error'))
+
+      const { result } = renderHook(() => useBatchApproveShows(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate([1])
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+    })
+  })
+
+  describe('useBatchRejectShows', () => {
+    it('batch rejects shows with reason and category', async () => {
+      const mockResponse = { rejected: 2, errors: [] }
+      mockApiRequest.mockResolvedValueOnce(mockResponse)
+
+      const { result } = renderHook(() => useBatchRejectShows(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({
+          showIds: [4, 5],
+          reason: 'Not music events',
+          category: 'non_music',
+        })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/admin/shows/batch-reject',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            show_ids: [4, 5],
+            reason: 'Not music events',
+            category: 'non_music',
+          }),
+        })
+      )
+    })
+
+    it('batch rejects without category', async () => {
+      mockApiRequest.mockResolvedValueOnce({ rejected: 1, errors: [] })
+
+      const { result } = renderHook(() => useBatchRejectShows(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({
+          showIds: [6],
+          reason: 'Duplicate',
+        })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/admin/shows/batch-reject',
+        expect.objectContaining({
+          body: JSON.stringify({
+            show_ids: [6],
+            reason: 'Duplicate',
+          }),
+        })
+      )
+    })
+
+    it('invalidates queries on success', async () => {
+      mockApiRequest.mockResolvedValueOnce({ rejected: 1, errors: [] })
+
+      const queryClient = createTestQueryClient()
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+      const { result } = renderHook(() => useBatchRejectShows(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      await act(async () => {
+        result.current.mutate({ showIds: [1], reason: 'Bad data' })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['admin', 'shows', 'pending'],
+      })
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['admin', 'stats'],
+      })
+    })
+
+    it('handles errors', async () => {
+      mockApiRequest.mockRejectedValueOnce(new Error('Forbidden'))
+
+      const { result } = renderHook(() => useBatchRejectShows(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ showIds: [1], reason: 'Test' })
       })
 
       await waitFor(() => expect(result.current.isError).toBe(true))
