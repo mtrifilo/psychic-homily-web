@@ -557,7 +557,7 @@ type mockShowService struct {
 	getUpcomingShowsFn      func(timezone string, cursor string, limit int, includeNonApproved bool, filters *services.UpcomingShowsFilter) ([]*services.ShowResponse, *string, error)
 	getShowCitiesFn         func(timezone string) ([]services.ShowCityResponse, error)
 	deleteShowFn            func(showID uint) error
-	getPendingShowsFn       func(limit, offset int) ([]*services.ShowResponse, int64, error)
+	getPendingShowsFn       func(limit, offset int, filters *services.PendingShowsFilter) ([]*services.ShowResponse, int64, error)
 	getRejectedShowsFn      func(limit, offset int, search string) ([]*services.ShowResponse, int64, error)
 	approveShowFn           func(showID uint, verifyVenues bool) (*services.ShowResponse, error)
 	rejectShowFn            func(showID uint, reason string) (*services.ShowResponse, error)
@@ -571,6 +571,8 @@ type mockShowService struct {
 	getAdminShowsFn         func(limit, offset int, filters services.AdminShowFilters) ([]*services.ShowResponse, int64, error)
 	setShowSoldOutFn        func(showID uint, isSoldOut bool) (*services.ShowResponse, error)
 	setShowCancelledFn      func(showID uint, isCancelled bool) (*services.ShowResponse, error)
+	batchApproveShowsFn     func(showIDs []uint) (*services.BatchShowResult, error)
+	batchRejectShowsFn      func(showIDs []uint, reason string, category string) (*services.BatchShowResult, error)
 }
 
 func (m *mockShowService) CreateShow(req *services.CreateShowRequest) (*services.ShowResponse, error) {
@@ -633,9 +635,9 @@ func (m *mockShowService) DeleteShow(showID uint) error {
 	}
 	return nil
 }
-func (m *mockShowService) GetPendingShows(limit, offset int) ([]*services.ShowResponse, int64, error) {
+func (m *mockShowService) GetPendingShows(limit, offset int, filters *services.PendingShowsFilter) ([]*services.ShowResponse, int64, error) {
 	if m.getPendingShowsFn != nil {
-		return m.getPendingShowsFn(limit, offset)
+		return m.getPendingShowsFn(limit, offset, filters)
 	}
 	return nil, 0, nil
 }
@@ -716,6 +718,18 @@ func (m *mockShowService) SetShowCancelled(showID uint, isCancelled bool) (*serv
 		return m.setShowCancelledFn(showID, isCancelled)
 	}
 	return nil, nil
+}
+func (m *mockShowService) BatchApproveShows(showIDs []uint) (*services.BatchShowResult, error) {
+	if m.batchApproveShowsFn != nil {
+		return m.batchApproveShowsFn(showIDs)
+	}
+	return &services.BatchShowResult{Succeeded: showIDs, Errors: []services.BatchShowError{}}, nil
+}
+func (m *mockShowService) BatchRejectShows(showIDs []uint, reason string, category string) (*services.BatchShowResult, error) {
+	if m.batchRejectShowsFn != nil {
+		return m.batchRejectShowsFn(showIDs, reason, category)
+	}
+	return &services.BatchShowResult{Succeeded: showIDs, Errors: []services.BatchShowError{}}, nil
 }
 
 // ============================================================================

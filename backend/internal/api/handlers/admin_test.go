@@ -142,6 +142,14 @@ func TestAdminHandler_RequiresAdmin(t *testing.T) {
 			_, err := h.GetAdminStatsHandler(ctx, &GetAdminStatsRequest{})
 			return err
 		}},
+		{"BatchApproveShows", func(ctx context.Context) error {
+			_, err := h.BatchApproveShowsHandler(ctx, &BatchApproveShowsRequest{})
+			return err
+		}},
+		{"BatchRejectShows", func(ctx context.Context) error {
+			_, err := h.BatchRejectShowsHandler(ctx, &BatchRejectShowsRequest{})
+			return err
+		}},
 	}
 
 	for _, tc := range tests {
@@ -411,7 +419,7 @@ func adminHandler(opts ...func(*AdminHandler)) *AdminHandler {
 func TestGetPendingShowsHandler_Success(t *testing.T) {
 	h := adminHandler(func(ah *AdminHandler) {
 		ah.showService = &mockShowService{
-			getPendingShowsFn: func(limit, offset int) ([]*services.ShowResponse, int64, error) {
+			getPendingShowsFn: func(limit, offset int, filters *services.PendingShowsFilter) ([]*services.ShowResponse, int64, error) {
 				return []*services.ShowResponse{{ID: 1}}, 1, nil
 			},
 		}
@@ -428,7 +436,7 @@ func TestGetPendingShowsHandler_Success(t *testing.T) {
 func TestGetPendingShowsHandler_ServiceError(t *testing.T) {
 	h := adminHandler(func(ah *AdminHandler) {
 		ah.showService = &mockShowService{
-			getPendingShowsFn: func(_, _ int) ([]*services.ShowResponse, int64, error) {
+			getPendingShowsFn: func(_, _ int, _ *services.PendingShowsFilter) ([]*services.ShowResponse, int64, error) {
 				return nil, 0, fmt.Errorf("db error")
 			},
 		}
@@ -1275,4 +1283,106 @@ func TestBulkImportConfirmHandler_MixedResults(t *testing.T) {
 	if resp.Body.ErrorCount != 1 {
 		t.Errorf("expected error_count=1, got %d", resp.Body.ErrorCount)
 	}
+}
+
+// ============================================================================
+// Batch approve/reject handler tests
+// ============================================================================
+
+func TestBatchApproveShowsHandler_Success(t *testing.T) {
+	h := adminHandler(func(ah *AdminHandler) {
+		ah.showService = &mockShowService{
+			batchApproveShowsFn: func(showIDs []uint) (*services.BatchShowResult, error) {
+				return &services.BatchShowResult{
+					Succeeded: showIDs,
+					Errors:    []services.BatchShowError{},
+				}, nil
+			},
+		}
+	})
+
+	req := &BatchApproveShowsRequest{}
+	req.Body.ShowIDs = []uint{1, 2, 3}
+	resp, err := h.BatchApproveShowsHandler(adminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Approved != 3 {
+		t.Errorf("expected approved=3, got %d", resp.Body.Approved)
+	}
+	if len(resp.Body.Errors) != 0 {
+		t.Errorf("expected 0 errors, got %d", len(resp.Body.Errors))
+	}
+}
+
+func TestBatchApproveShowsHandler_AdminRequired(t *testing.T) {
+	h := testAdminHandler()
+	req := &BatchApproveShowsRequest{}
+	req.Body.ShowIDs = []uint{1}
+
+	// No user context
+	_, err := h.BatchApproveShowsHandler(context.Background(), req)
+	assertHumaError(t, err, 403)
+
+	// Non-admin user
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	_, err = h.BatchApproveShowsHandler(ctx, req)
+	assertHumaError(t, err, 403)
+}
+
+func TestBatchRejectShowsHandler_Success(t *testing.T) {
+	h := adminHandler(func(ah *AdminHandler) {
+		ah.showService = &mockShowService{
+			batchRejectShowsFn: func(showIDs []uint, reason string, category string) (*services.BatchShowResult, error) {
+				return &services.BatchShowResult{
+					Succeeded: showIDs,
+					Errors:    []services.BatchShowError{},
+				}, nil
+			},
+		}
+	})
+
+	req := &BatchRejectShowsRequest{}
+	req.Body.ShowIDs = []uint{1, 2}
+	req.Body.Reason = "Not a music event"
+	req.Body.Category = "non_music"
+	resp, err := h.BatchRejectShowsHandler(adminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Rejected != 2 {
+		t.Errorf("expected rejected=2, got %d", resp.Body.Rejected)
+	}
+	if len(resp.Body.Errors) != 0 {
+		t.Errorf("expected 0 errors, got %d", len(resp.Body.Errors))
+	}
+}
+
+func TestBatchRejectShowsHandler_AdminRequired(t *testing.T) {
+	h := testAdminHandler()
+	req := &BatchRejectShowsRequest{}
+	req.Body.ShowIDs = []uint{1}
+	req.Body.Reason = "bad data"
+
+	// No user context
+	_, err := h.BatchRejectShowsHandler(context.Background(), req)
+	assertHumaError(t, err, 403)
+
+	// Non-admin user
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	_, err = h.BatchRejectShowsHandler(ctx, req)
+	assertHumaError(t, err, 403)
+}
+
+func TestBatchRejectShowsHandler_RequiresReason(t *testing.T) {
+	h := adminHandler(func(ah *AdminHandler) {
+		ah.showService = &mockShowService{}
+	})
+
+	req := &BatchRejectShowsRequest{}
+	req.Body.ShowIDs = []uint{1}
+	req.Body.Reason = ""
+
+	_, err := h.BatchRejectShowsHandler(adminCtx(), req)
+	assertHumaError(t, err, 400)
 }

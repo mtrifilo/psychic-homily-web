@@ -220,6 +220,8 @@ export const API_ENDPOINTS = {
         `${API_BASE_URL}/admin/shows/${showId}/approve`,
       REJECT: (showId: string | number) =>
         `${API_BASE_URL}/admin/shows/${showId}/reject`,
+      BATCH_APPROVE: `${API_BASE_URL}/admin/shows/batch-approve`,
+      BATCH_REJECT: `${API_BASE_URL}/admin/shows/batch-reject`,
       IMPORT_PREVIEW: `${API_BASE_URL}/admin/shows/import/preview`,
       IMPORT_CONFIRM: `${API_BASE_URL}/admin/shows/import/confirm`,
       SET_SOLD_OUT: (showId: string | number) =>

@@ -58,8 +58,10 @@ func NewAdminHandler(
 
 // GetPendingShowsRequest represents the HTTP request for listing pending shows
 type GetPendingShowsRequest struct {
-	Limit  int `query:"limit" default:"50" doc:"Number of shows to return (max 100)"`
-	Offset int `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit   int     `query:"limit" default:"50" doc:"Number of shows to return (max 100)"`
+	Offset  int     `query:"offset" default:"0" doc:"Offset for pagination"`
+	VenueID *uint   `query:"venue_id" required:"false" doc:"Filter by venue ID"`
+	Source  *string `query:"source" required:"false" doc:"Filter by source (discovery or user)"`
 }
 
 // GetPendingShowsResponse represents the HTTP response for listing pending shows
@@ -109,6 +111,38 @@ type RejectShowRequest struct {
 // RejectShowResponse represents the HTTP response for rejecting a show
 type RejectShowResponse struct {
 	Body services.ShowResponse `json:"body"`
+}
+
+// BatchApproveShowsRequest represents the HTTP request for batch approving shows
+type BatchApproveShowsRequest struct {
+	Body struct {
+		ShowIDs []uint `json:"show_ids" minItems:"1" maxItems:"100" doc:"List of show IDs to approve"`
+	}
+}
+
+// BatchApproveShowsResponse represents the HTTP response for batch approving shows
+type BatchApproveShowsResponse struct {
+	Body struct {
+		Approved int                      `json:"approved"`
+		Errors   []services.BatchShowError `json:"errors"`
+	}
+}
+
+// BatchRejectShowsRequest represents the HTTP request for batch rejecting shows
+type BatchRejectShowsRequest struct {
+	Body struct {
+		ShowIDs  []uint `json:"show_ids" minItems:"1" maxItems:"100" doc:"List of show IDs to reject"`
+		Reason   string `json:"reason" doc:"Reason for rejecting the shows"`
+		Category string `json:"category,omitempty" enum:"non_music,duplicate,bad_data,past_event,other" doc:"Rejection category"`
+	}
+}
+
+// BatchRejectShowsResponse represents the HTTP response for batch rejecting shows
+type BatchRejectShowsResponse struct {
+	Body struct {
+		Rejected int                      `json:"rejected"`
+		Errors   []services.BatchShowError `json:"errors"`
+	}
 }
 
 // VerifyVenueRequest represents the HTTP request for verifying a venue
@@ -163,13 +197,22 @@ func (h *AdminHandler) GetPendingShowsHandler(ctx context.Context, req *GetPendi
 		offset = 0
 	}
 
+	// Build filters
+	var filters *services.PendingShowsFilter
+	if req.VenueID != nil || req.Source != nil {
+		filters = &services.PendingShowsFilter{
+			VenueID: req.VenueID,
+			Source:  req.Source,
+		}
+	}
+
 	logger.FromContext(ctx).Debug("admin_pending_shows_attempt",
 		"limit", limit,
 		"offset", offset,
 	)
 
 	// Get pending shows
-	shows, total, err := h.showService.GetPendingShows(limit, offset)
+	shows, total, err := h.showService.GetPendingShows(limit, offset, filters)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_pending_shows_failed",
 			"error", err.Error(),
@@ -373,6 +416,87 @@ func (h *AdminHandler) RejectShowHandler(ctx context.Context, req *RejectShowReq
 	})
 
 	return &RejectShowResponse{Body: *show}, nil
+}
+
+// BatchApproveShowsHandler handles POST /admin/shows/batch-approve
+func (h *AdminHandler) BatchApproveShowsHandler(ctx context.Context, req *BatchApproveShowsRequest) (*BatchApproveShowsResponse, error) {
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	result, err := h.showService.BatchApproveShows(req.Body.ShowIDs)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to batch approve shows")
+	}
+
+	// Audit log each approved show (fire-and-forget)
+	for _, id := range result.Succeeded {
+		h.auditLogService.LogAction(user.ID, "approve_show", "show", id, map[string]interface{}{
+			"batch": true,
+		})
+	}
+
+	logger.FromContext(ctx).Info("admin_batch_approve_shows",
+		"approved", len(result.Succeeded),
+		"errors", len(result.Errors),
+		"admin_id", user.ID,
+	)
+
+	return &BatchApproveShowsResponse{
+		Body: struct {
+			Approved int                      `json:"approved"`
+			Errors   []services.BatchShowError `json:"errors"`
+		}{
+			Approved: len(result.Succeeded),
+			Errors:   result.Errors,
+		},
+	}, nil
+}
+
+// BatchRejectShowsHandler handles POST /admin/shows/batch-reject
+func (h *AdminHandler) BatchRejectShowsHandler(ctx context.Context, req *BatchRejectShowsRequest) (*BatchRejectShowsResponse, error) {
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Validate reason
+	if req.Body.Reason == "" {
+		return nil, huma.Error400BadRequest("Rejection reason is required")
+	}
+
+	result, err := h.showService.BatchRejectShows(req.Body.ShowIDs, req.Body.Reason, req.Body.Category)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to batch reject shows")
+	}
+
+	// Audit log each rejected show (fire-and-forget)
+	for _, id := range result.Succeeded {
+		h.auditLogService.LogAction(user.ID, "reject_show", "show", id, map[string]interface{}{
+			"batch":    true,
+			"reason":   req.Body.Reason,
+			"category": req.Body.Category,
+		})
+	}
+
+	logger.FromContext(ctx).Info("admin_batch_reject_shows",
+		"rejected", len(result.Succeeded),
+		"errors", len(result.Errors),
+		"admin_id", user.ID,
+	)
+
+	return &BatchRejectShowsResponse{
+		Body: struct {
+			Rejected int                      `json:"rejected"`
+			Errors   []services.BatchShowError `json:"errors"`
+		}{
+			Rejected: len(result.Succeeded),
+			Errors:   result.Errors,
+		},
+	}, nil
 }
 
 // VerifyVenueHandler handles POST /admin/venues/{venue_id}/verify

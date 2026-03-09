@@ -36,7 +36,8 @@ type Show struct {
 	// Approval workflow fields
 	Status          ShowStatus `gorm:"type:show_status;not null;default:'approved'"`
 	SubmittedBy     *uint      `gorm:"column:submitted_by"`
-	RejectionReason *string    `gorm:"column:rejection_reason"`
+	RejectionReason   *string `gorm:"column:rejection_reason"`
+	RejectionCategory *string `gorm:"column:rejection_category"`
 
 	// Source tracking fields (for discovered shows)
 	Source        ShowSource `gorm:"type:show_source;not null;default:'user'"`
