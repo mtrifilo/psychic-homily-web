@@ -93,6 +93,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupShowReportRoutes(router, protectedGroup, sc, cfg)
 	setupArtistReportRoutes(router, protectedGroup, sc, cfg)
 	setupAdminRoutes(protectedGroup, sc)
+	setupPipelineRoutes(protectedGroup, sc)
 	setupContributorProfileRoutes(api, protectedGroup, sc)
 
 	return api
@@ -537,6 +538,15 @@ func setupContributorProfileRoutes(api huma.API, protected *huma.Group, sc *serv
 	huma.Post(protected, "/auth/profile/sections", profileHandler.CreateSectionHandler)
 	huma.Put(protected, "/auth/profile/sections/{section_id}", profileHandler.UpdateSectionHandler)
 	huma.Delete(protected, "/auth/profile/sections/{section_id}", profileHandler.DeleteSectionHandler)
+}
+
+// setupPipelineRoutes configures AI extraction pipeline admin endpoints.
+// Admin check is performed inside handlers, JWT auth is required via protected group.
+func setupPipelineRoutes(protected *huma.Group, sc *services.ServiceContainer) {
+	pipelineHandler := handlers.NewPipelineHandler(sc.Pipeline, sc.VenueSourceConfig)
+
+	huma.Post(protected, "/admin/pipeline/extract/{venue_id}", pipelineHandler.ExtractVenueHandler)
+	huma.Get(protected, "/admin/pipeline/venues", pipelineHandler.ListPipelineVenuesHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON

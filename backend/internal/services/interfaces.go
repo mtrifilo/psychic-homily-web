@@ -388,6 +388,11 @@ type CalendarServiceInterface interface {
 	GenerateICSFeed(userID uint, frontendURL string) ([]byte, error)
 }
 
+// PipelineServiceInterface defines the contract for the AI extraction pipeline orchestrator.
+type PipelineServiceInterface interface {
+	ExtractVenue(venueID uint, dryRun bool) (*PipelineResult, error)
+}
+
 // VenueSourceConfigServiceInterface defines the contract for venue source config operations.
 type VenueSourceConfigServiceInterface interface {
 	GetByVenueID(venueID uint) (*models.VenueSourceConfig, error)
@@ -432,4 +437,5 @@ var (
 	_ ContributorProfileServiceInterface    = (*ContributorProfileService)(nil)
 	_ VenueSourceConfigServiceInterface     = (*VenueSourceConfigService)(nil)
 	_ FetcherServiceInterface               = (*FetcherService)(nil)
+	_ PipelineServiceInterface              = (*PipelineService)(nil)
 )
