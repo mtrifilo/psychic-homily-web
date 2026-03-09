@@ -356,6 +356,20 @@ type ReleaseServiceInterface interface {
 	RemoveExternalLink(linkID uint) error
 }
 
+// ContributorProfileServiceInterface defines the contract for contributor profile operations.
+type ContributorProfileServiceInterface interface {
+	GetPublicProfile(username string, viewerID *uint) (*PublicProfileResponse, error)
+	GetOwnProfile(userID uint) (*PublicProfileResponse, error)
+	GetContributionStats(userID uint) (*ContributionStats, error)
+	GetContributionHistory(userID uint, limit, offset int, entityType string) ([]*ContributionEntry, int64, error)
+	UpdatePrivacySettings(userID uint, settings PrivacySettings) (*PrivacySettings, error)
+	GetUserSections(userID uint) ([]*ProfileSectionResponse, error)
+	GetOwnSections(userID uint) ([]*ProfileSectionResponse, error)
+	CreateSection(userID uint, title string, content string, position int) (*ProfileSectionResponse, error)
+	UpdateSection(userID uint, sectionID uint, updates map[string]interface{}) (*ProfileSectionResponse, error)
+	DeleteSection(userID uint, sectionID uint) error
+}
+
 // CalendarServiceInterface defines the contract for calendar feed operations.
 type CalendarServiceInterface interface {
 	CreateToken(userID uint, apiBaseURL string) (*CalendarTokenCreateResponse, error)
@@ -394,5 +408,6 @@ var (
 	_ FestivalServiceInterface       = (*FestivalService)(nil)
 	_ LabelServiceInterface          = (*LabelService)(nil)
 	_ ReleaseServiceInterface       = (*ReleaseService)(nil)
-	_ BookmarkServiceInterface      = (*BookmarkService)(nil)
+	_ BookmarkServiceInterface           = (*BookmarkService)(nil)
+	_ ContributorProfileServiceInterface = (*ContributorProfileService)(nil)
 )

@@ -93,6 +93,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupShowReportRoutes(router, protectedGroup, sc, cfg)
 	setupArtistReportRoutes(router, protectedGroup, sc, cfg)
 	setupAdminRoutes(protectedGroup, sc)
+	setupContributorProfileRoutes(api, protectedGroup, sc)
 
 	return api
 }
@@ -514,6 +515,28 @@ func setupAdminRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 
 	// Admin user list endpoint
 	huma.Get(protected, "/admin/users", adminHandler.GetAdminUsersHandler)
+}
+
+// setupContributorProfileRoutes configures contributor profile endpoints
+func setupContributorProfileRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
+	profileHandler := handlers.NewContributorProfileHandler(sc.ContributorProfile, sc.User)
+
+	// Public profile endpoints with optional auth (so profile owner can see their own private profile)
+	optionalAuthGroup := huma.NewGroup(api, "")
+	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(sc.JWT))
+	huma.Get(optionalAuthGroup, "/users/{username}", profileHandler.GetPublicProfileHandler)
+	huma.Get(optionalAuthGroup, "/users/{username}/contributions", profileHandler.GetContributionHistoryHandler)
+	huma.Get(optionalAuthGroup, "/users/{username}/sections", profileHandler.GetUserSectionsHandler)
+
+	// Protected endpoints for authenticated user's own profile
+	huma.Get(protected, "/auth/profile/contributor", profileHandler.GetOwnProfileHandler)
+	huma.Get(protected, "/auth/profile/contributions", profileHandler.GetOwnContributionsHandler)
+	huma.Patch(protected, "/auth/profile/visibility", profileHandler.UpdateProfileVisibilityHandler)
+	huma.Patch(protected, "/auth/profile/privacy", profileHandler.UpdatePrivacySettingsHandler)
+	huma.Get(protected, "/auth/profile/sections", profileHandler.GetOwnSectionsHandler)
+	huma.Post(protected, "/auth/profile/sections", profileHandler.CreateSectionHandler)
+	huma.Put(protected, "/auth/profile/sections/{section_id}", profileHandler.UpdateSectionHandler)
+	huma.Delete(protected, "/auth/profile/sections/{section_id}", profileHandler.DeleteSectionHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON

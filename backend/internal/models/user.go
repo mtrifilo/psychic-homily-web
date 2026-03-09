@@ -21,7 +21,10 @@ type User struct {
 	LastName            *string    `json:"last_name" gorm:"column:last_name"`
 	AvatarURL           *string    `json:"avatar_url" gorm:"column:avatar_url"`
 	Bio                 *string    `json:"bio"`
-	IsActive            bool       `json:"is_active" gorm:"default:true"`
+	ProfileVisibility string           `json:"profile_visibility" gorm:"column:profile_visibility;not null;default:'public'"`
+	PrivacySettings   *json.RawMessage `json:"privacy_settings" gorm:"column:privacy_settings;type:jsonb;not null;default:'{\"contributions\":\"visible\",\"saved_shows\":\"hidden\",\"attendance\":\"hidden\",\"following\":\"count_only\",\"collections\":\"visible\",\"last_active\":\"visible\",\"profile_sections\":\"visible\"}'"`
+	UserTier          string           `json:"user_tier" gorm:"column:user_tier;not null;default:'new_user'"`
+	IsActive          bool             `json:"is_active" gorm:"default:true"`
 	IsAdmin             bool       `json:"is_admin" gorm:"default:false"`
 	EmailVerified       bool       `json:"email_verified" gorm:"default:false"`
 	TermsAcceptedAt     *time.Time `json:"-" gorm:"column:terms_accepted_at"` // Legal acceptance evidence

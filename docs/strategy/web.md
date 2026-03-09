@@ -4,21 +4,24 @@
 
 ## Current Status
 
-v1 feature-complete, pre-launch hardening. 69 E2E tests, 68.5% backend coverage, 836+ frontend unit tests. PostHog + Sentry live. ICS calendar feed and show reminders shipped.
+Phase 1.5 complete — knowledge graph vertical slice shipped. 69 E2E tests, 68.5% backend coverage, 897+ frontend unit tests. PostHog + Sentry live.
 
-Core entities: Artists, Venues, Shows with search, multi-city filters, saved shows, show reminders (email, 24h before), admin approval workflows, audit logging.
+Core entities: Artists, Venues, Shows, **Releases** (with artist roles + external links), **Labels** (with roster + catalog), **Festivals** (with tiered lineups, multi-venue). Enriched artist pages with discography, label affiliations, festival appearances. Generic bookmarks system. **Contributor profiles** (PSY-63): public profiles with contribution stats/history, 3-level granular privacy, user tiers, custom profile sections, 58 tests. Data seeding CLIs (MusicBrainz, Bandcamp, festival entry). Frontend redesign complete (sidebar nav, Cmd+K, entity detail template, card redesigns, visual polish).
 
-## Next Priorities
+## Next Priorities (Restructured March 2026)
 
-1. ~~**Show reminders** (email, 24h before)~~ -- done
-2. **Email preferences UI** -- in progress, close it out
-3. **Frontend redesign: sidebar nav + wider layout** -- structural foundation for knowledge graph UI. See `docs/strategy/ui-redesign.md`
-4. **Frontend redesign: Cmd+K search + entity detail template** -- can parallel with entity backend work
-5. **Data layer foundation** -- generic `user_bookmarks` table (replaces per-entity saved/favorite tables), TIMESTAMPTZ standardization
-6. **Festival entity** -- distinct from Show, with series_slug, billing tiers, multi-venue support
-7. **Knowledge graph vertical slice** -- Releases (with artist roles) + Labels + enriched artist pages + festival appearances (Phase 1.5)
-8. **Show/artist card redesign + visual polish** -- richer cards with bill hierarchy, tags, discovery cues
-9. **Knowledge graph expansion** -- Tags with voting, similar artists with voting/visualization, scene pages, notification filters (Phase 2)
+> Community curation is the moat, not the data pipeline. See `docs/learnings/whatcd-user-insights.md` for the What.cd user analysis that drove this restructuring.
+
+1. ~~**Show reminders** (email, 24h before)~~ — done
+2. **Email preferences UI** — in progress, close it out
+3. ~~**Frontend redesign**~~ — done
+4. ~~**Data layer foundation**~~ — done
+5. ~~**Knowledge graph vertical slice**~~ — done
+6. **Phase 1.6a + Phase 2a (parallel, NOW):**
+   - Pipeline foundation (PSY-32 AI extraction, PSY-34 provenance, PSY-36 venue config)
+   - Community foundations: contributor identity (PSY-63/64), collections (PSY-65–68), requests (PSY-70–72), revision history (PSY-73/74)
+7. **Phase 2b: Knowledge graph connective tissue** — tags (PSY-49–51), relationships (PSY-52/53), scenes (PSY-59/60), data quality (PSY-45/47), bill position (PSY-54)
+8. **Phase 2c: Engagement & social** — going/interested (PSY-55), follow (PSY-56), charts (PSY-57), notifications, venue profiles (PSY-61/62)
 
 ## Roadmap
 
@@ -28,63 +31,64 @@ Core entities: Artists, Venues, Shows with search, multi-city filters, saved sho
 - [x] Artists/venues pages with search + multi-city filters
 - [x] Show reminders (email, 24h before, with one-click unsubscribe)
 - [ ] Email preferences UI (in progress)
-- [ ] **Frontend redesign: sidebar nav + wider layout** -- collapsible sidebar replacing top nav bar, content area widened from `max-w-4xl` to `max-w-6xl`/`max-w-7xl`, 2-column grid for detail pages. Do BEFORE entity pages so new entities use the new layout from the start. See `docs/strategy/ui-redesign.md` Task 1.
-- [ ] **Frontend redesign: Cmd+K command palette** -- global search dialog (`cmdk` library), route navigation, cross-entity search. See `docs/strategy/ui-redesign.md` Task 2.
-- [ ] **Frontend redesign: entity detail template** -- reusable `EntityDetailLayout` with header zone, tabs, sidebar panel. Refactor Venue/Artist detail first, new entity pages (Festival, Release, Label) use it from the start. See `docs/strategy/ui-redesign.md` Task 3.
-- [ ] **Data layer foundation** — generic `user_bookmarks` table replacing `user_saved_shows` + `user_favorite_venues`. Supports all entity types and action types (save, follow, bookmark, going, interested). TIMESTAMPTZ standardization. Refactor services/handlers/hooks.
-- [ ] **Festival entity** — model, migrations, CRUD API, admin UI. `series_slug` + `edition_year` for recurring festivals. `festival_artists` with `billing_tier`/`day_date`/`stage`/`set_time`/`venue_id`. `festival_venues` for multi-venue takeover festivals. `location_name` for non-venue locations.
-- [ ] **Festival pages** — `/festivals` listing, `/festivals/:series_slug` series overview, `/festivals/:series_slug/:year` detail with tiered lineup display, day tabs, "artists you follow" highlights
-- [ ] **Releases entity** — model, migrations, CRUD API, admin UI, `/releases/:slug` pages with "Listen / Buy" external links (Bandcamp, Spotify, Discogs, YouTube, Apple Music). Artist-release roles: main, featured, producer, remixer, composer, DJ.
-- [ ] **Labels entity** — model, migrations, CRUD API, admin UI, `/labels` and `/labels/:slug` pages
-- [ ] **Artist pages enriched** — discography grouped by role (albums, guest appearances, production credits), label affiliations, "also on this label", festival appearances with billing tier
-- [ ] **Data seeding** -- admin festival entry (major US festivals), MusicBrainz + Bandcamp enrichment for Phoenix artists
-- [ ] **Show card redesign** -- bill hierarchy (headliner bold, support with "w/"), date badge, inline save, tag pills (placeholder-ready). See `docs/strategy/ui-redesign.md` Task 4.
-- [ ] **Artist card redesign** -- tag pills, label affiliation, consistent card borders. See `docs/strategy/ui-redesign.md` Task 5.
-- [ ] **Visual language polish** -- bolder typography, card border treatments, density toggles on list pages. See `docs/strategy/ui-redesign.md` Task 6.
+- [x] **Frontend redesign: sidebar nav + wider layout** (PSY-16)
+- [x] **Frontend redesign: Cmd+K command palette** (PSY-17)
+- [x] **Frontend redesign: entity detail template** (PSY-18)
+- [x] **Data layer foundation** — generic `user_bookmarks` table (PSY-22), TIMESTAMPTZ standardization (PSY-23)
+- [x] **Festival entity** — model (PSY-24), service/handlers 82 tests (PSY-25), admin UI (PSY-26), frontend pages (PSY-27), data entry CLI (PSY-28)
+- [x] **Festival pages** — `/festivals` listing, `/festivals/:slug` detail with tiered lineup display and day grouping
+- [x] **Releases entity** — model (PSY-5), service 57 tests (PSY-6), admin UI (PSY-7), frontend pages (PSY-8)
+- [x] **Labels entity** — model (PSY-9), service (PSY-10), admin UI (PSY-11), frontend pages (PSY-12)
+- [x] **Artist pages enriched** — discography, label affiliations, "also on this label", festival appearances (PSY-13)
+- [x] **Data seeding** — MusicBrainz CLI (PSY-14), Bandcamp CLI (PSY-15), festival entry CLI (PSY-28)
+- [x] **Show card redesign** (PSY-19)
+- [x] **Artist card redesign** (PSY-20)
+- [x] **Visual language polish** (PSY-21)
 
-### Next: Knowledge Graph Expansion (Phase 2, Q3 2026)
+### Now: Pipeline Foundation + Community Foundations (Phase 1.6a + 2a, parallel)
 
-- [ ] **Genre/tag system** — hierarchical taxonomy + freeform tags, **tag voting** (up/down per entity), tag browsing and filtering UI
-- [ ] **Artist <--> Artist relationships** — similar, side projects, members of
-- [ ] **Similar artist voting** — community votes on similarity, scores determine ranking
-- [ ] **Similar artist visualization** — interactive relationship map or cloud
-- [ ] **"Toured with" / "shared bills with"** — auto-derived from show data
-- [ ] **Scene pages** — `/scenes/:city` landing page with scene health metrics (shows/month, genre diversity, new artists, venue activity)
-- [ ] **Venue personality profiles** — auto-derived genre profiles from booking patterns, "venues like this one"
-- [ ] **Bill position surfacing & accuracy** — schema exists (`position` + `set_type` on `show_artists`, discovery service populates them). Remaining: expose `set_type` in API (beyond `is_headliner` bool), frontend display, admin correction UI
-- [ ] **Festival intelligence** — festival-to-festival lineup overlap, "artists you follow at this festival", breakout artist tracking
-- [ ] **Show-to-recording links** — connect live recordings to show entities
-- [ ] **Notification filters** — "notify me of [genre] shows at [venue]"
-- [ ] **Top charts** — trending shows, most-followed artists, popular tags, top contributors
-- [ ] "Going" / "Interested" buttons on shows and festivals (built on `user_bookmarks.action`)
-- [ ] Attendance counts on show cards and festival pages
+**Pipeline (Phase 1.6a):**
+- [ ] **AI extraction pipeline** (PSY-32) — tiered rendering, change detection, 5+ venues
+- [ ] **Data provenance tracking** (PSY-34) — source, confidence, last_verified on core tables
+- [ ] **Venue source config** (PSY-36) — per-venue config persisted in DB
+
+**Community (Phase 2a):**
+- [x] **Contributor profile backend** (PSY-63) — 58 tests, 11 API endpoints, 3-level privacy, user tiers, custom sections
+- [ ] **Contributor profile frontend** (PSY-64) — public profile page, "Added by" attribution, "Your Impact" section
+- [ ] **Collections** (PSY-65–68) — the record store at scale. No prescribed categories. Visual grids. Collaboration by default. Subscriptions.
+- [ ] **Request system** (PSY-70–72) — requests with voting, fulfillment workflow, auto-generated from data quality queries
+- [ ] **Revision history** (PSY-73/74) — JSONB diffs on entity updates, "View History", admin rollback
+
+### Next: Knowledge Graph Connective Tissue (Phase 2b)
+
+- [ ] **Genre/tag system** (PSY-49–51, PSY-46) — hierarchical taxonomy, freeform tags, tag voting, alias resolution, auto-pruning
+- [ ] **Artist relationships** (PSY-52/53) — similar, side projects, members of. "Shared bills" auto-derived from show data.
+- [ ] **Similar artist visualization** — interactive relationship map *(design doc: `docs/strategy/similar-artists.md`)*
+- [ ] **Scene pages** (PSY-59/60) — `/scenes/:slug` with Scene Pulse metrics *(design doc: `docs/strategy/scene-pages.md`)*
+- [ ] **"Needs Work" dashboard** (PSY-45) — incomplete entities, feeds auto-requests
+- [ ] **Artist merge/split** (PSY-47) — critical before geographic expansion
+- [ ] **Bill position surfacing** (PSY-54)
+- [ ] **Festival intelligence** *(design doc: `docs/strategy/festival-intelligence.md`)*
+- [ ] **Decade/year entity rankings** — Wilson score per time scope
+
+### Then: Engagement & Social (Phase 2c)
+
+- [ ] **Going/Interested** (PSY-55) + **Follow system** (PSY-56) + **Top charts** (PSY-57)
+- [ ] **Notification filters** *(design doc: `docs/strategy/notification-filters.md`)*
+- [ ] **Venue genre profiles** (PSY-61) + **Venue similarity** (PSY-62)
+- [ ] **Platform analytics** (PSY-48) — includes community health metrics
+- [ ] **Featured content** — "Featured Show" / "Featured Collection" badges
 - [ ] Artist claim flow (Spotify OAuth)
-- [ ] User follow system for artists, venues, labels (built on `user_bookmarks.action = 'follow'`)
-- [ ] Discogs integration (catalog data, genre taxonomy)
-- [ ] **Radio Station & Radio Show entities** — `/radio`, `/radio/:slug` pages with live stream embeds, donation links, pledge widgets
-- [ ] **Curated radio playlist parsing** — WFMU, NTS, KEXP as discovery/enrichment signals ("as heard on" badges, artist↔radio show links)
 
-### Later: Community & Scale (Phases 3-5)
+### Later: Community at Scale + Discovery Engine (Phases 3-5)
 
-- [ ] Community contribution flows (add/edit all entities with pending review)
-- [ ] **Revision history** — edit history on all community-editable content with revert
-- [ ] **"Needs Attention" dashboards** — artists without bios, releases missing links, labels without descriptions (Gazelle "Better" section successor)
-- [ ] **Request system with voting** — community fills gaps in the catalog, votes to prioritize
-- [ ] **Collections with categories** — Genre Introduction, Label Roster, Staff Picks, Scene Guide, Charts, Personal
-- [ ] **Show field notes** — brief attendee observations capturing the live experience
-- [ ] **Setlist integration** — community-contributed or setlist.fm-sourced track-level show data
-- [ ] **Promoter / Booker entity** — who books what, the hidden connectors that shape scenes
-- [ ] **Musician entity** — individual people with band membership history, enabling scene family trees
-- [ ] Reputation system (contribution quality --> trust level --> auto-approve)
-- [ ] Multi-city scene browsing and comparison
-- [ ] Travel mode, personalized recommendations
-- [ ] **Voter picks / collaborative filtering** — "People who saved this also saved..."
-- [ ] Similar artist discovery (shared labels, shared bills, genre overlap, touring patterns)
-- [ ] **Temporal scene graph** — time-slider to browse how a city's scene evolves over time
-- [ ] **Artist trajectory visualization** — career arc from house shows to headlining, with festival billing tier progression
-- [ ] **Bill composition intelligence** — opener-to-headliner patterns, cross-genre billing analysis
-- [ ] **Festival circuit analysis** — festival-to-festival artist overlap, genre clustering, "festivals like this one"
-- [ ] **Scene family tree visualization** — interactive band member crossover map
+- [ ] Open edit flows, trust tiers, unified moderation queue, contributor leaderboard
+- [ ] Show field notes, setlist integration, Promoter/Musician entities
+- [ ] Release editions (community-driven depth), knowledge graph export
+- [ ] Radio Station & Radio Show entities *(design doc: `docs/strategy/radio-entities.md`)*
+- [ ] Multi-city expansion, travel mode, personalized recommendations
+- [ ] Temporal scene graph, artist trajectory, bill composition intelligence
+- [ ] Collaborative filtering, scene family tree visualization
 - [ ] API / MCP server
 
 ## Key Files
@@ -96,5 +100,5 @@ Core entities: Artists, Venues, Shows with search, multi-city filters, saved sho
 | Backend routes | `backend/internal/api/routes/routes.go` |
 | Service container | `backend/internal/services/container.go` |
 | Models | `backend/internal/models/` |
-| Migrations | `backend/db/migrations/` (latest: 000034) |
+| Migrations | `backend/db/migrations/` (latest: 000041) |
 | E2E tests | `frontend/e2e/`, `frontend/playwright.config.ts` |
