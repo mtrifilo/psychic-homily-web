@@ -12,9 +12,10 @@ import (
 // Exported fields — no getters needed for a simple data-holding struct.
 type ServiceContainer struct {
 	// DB-only leaf services
-	AdminStats    *AdminStatsService
-	APIToken      *APITokenService
-	Artist        *ArtistService
+	AdminStats         *AdminStatsService
+	APIToken           *APITokenService
+	Artist             *ArtistService
+	ContributorProfile *ContributorProfileService
 	ArtistReport  *ArtistReportService
 	AuditLog      *AuditLogService
 	Bookmark      *BookmarkService
@@ -63,9 +64,10 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 
 	return &ServiceContainer{
 		// DB-only leaf services
-		AdminStats:    NewAdminStatsService(database),
-		APIToken:      NewAPITokenService(database),
-		Artist:        NewArtistService(database),
+		AdminStats:         NewAdminStatsService(database),
+		APIToken:           NewAPITokenService(database),
+		Artist:             NewArtistService(database),
+		ContributorProfile: NewContributorProfileService(database),
 		ArtistReport:  NewArtistReportService(database),
 		AuditLog:      NewAuditLogService(database),
 		Bookmark:      NewBookmarkService(database),
