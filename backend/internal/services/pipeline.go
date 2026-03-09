@@ -148,8 +148,12 @@ func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*PipelineResu
 		contentType = "image"
 	}
 
-	// 8. Extract events via AI
-	extractionResp, err := s.extraction.ExtractCalendarPage(venue.Name, fetchResult.Body, contentType)
+	// 8. Extract events via AI (include per-venue extraction notes if set)
+	var extractionNotes string
+	if config.ExtractionNotes != nil {
+		extractionNotes = *config.ExtractionNotes
+	}
+	extractionResp, err := s.extraction.ExtractCalendarPage(venue.Name, fetchResult.Body, contentType, extractionNotes)
 	if err != nil {
 		s.recordFailure(venueID, renderMethod, config.PreferredSource, start, err)
 		if incrementErr := s.venueConfig.IncrementFailures(venueID); incrementErr != nil {

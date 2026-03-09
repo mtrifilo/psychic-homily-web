@@ -74,8 +74,9 @@ type CalendarExtractionResponse struct {
 }
 
 // ExtractCalendarPage processes a venue calendar page (text or image) through Claude
-// and returns structured event data.
-func (s *ExtractionService) ExtractCalendarPage(venueName string, content string, contentType string) (*CalendarExtractionResponse, error) {
+// and returns structured event data. Optional extractionNotes provide per-venue hints
+// to improve extraction quality (e.g., "skip karaoke Tuesdays").
+func (s *ExtractionService) ExtractCalendarPage(venueName string, content string, contentType string, extractionNotes ...string) (*CalendarExtractionResponse, error) {
 	if s.config.Anthropic.APIKey == "" {
 		return &CalendarExtractionResponse{
 			Success: false,
@@ -93,6 +94,9 @@ func (s *ExtractionService) ExtractCalendarPage(venueName string, content string
 	// Build user content based on content type
 	var userContent []interface{}
 	contextMsg := fmt.Sprintf("Extract all events from this venue calendar page. Venue: %s", venueName)
+	if len(extractionNotes) > 0 && extractionNotes[0] != "" {
+		contextMsg += fmt.Sprintf("\n\nVenue-specific notes: %s", extractionNotes[0])
+	}
 
 	switch contentType {
 	case "text":

@@ -1013,7 +1013,7 @@ func (m *mockMusicDiscoveryService) DiscoverMusicForArtist(artistID uint, artist
 
 type mockExtractionService struct {
 	extractShowFn         func(req *services.ExtractShowRequest) (*services.ExtractShowResponse, error)
-	extractCalendarPageFn func(venueName, content, contentType string) (*services.CalendarExtractionResponse, error)
+	extractCalendarPageFn func(venueName, content, contentType string, extractionNotes ...string) (*services.CalendarExtractionResponse, error)
 }
 
 func (m *mockExtractionService) ExtractShow(req *services.ExtractShowRequest) (*services.ExtractShowResponse, error) {
@@ -1023,9 +1023,9 @@ func (m *mockExtractionService) ExtractShow(req *services.ExtractShowRequest) (*
 	return nil, nil
 }
 
-func (m *mockExtractionService) ExtractCalendarPage(venueName, content, contentType string) (*services.CalendarExtractionResponse, error) {
+func (m *mockExtractionService) ExtractCalendarPage(venueName, content, contentType string, extractionNotes ...string) (*services.CalendarExtractionResponse, error) {
 	if m.extractCalendarPageFn != nil {
-		return m.extractCalendarPageFn(venueName, content, contentType)
+		return m.extractCalendarPageFn(venueName, content, contentType, extractionNotes...)
 	}
 	return &services.CalendarExtractionResponse{Success: true, Events: []services.CalendarEvent{}}, nil
 }
