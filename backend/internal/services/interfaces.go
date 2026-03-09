@@ -244,6 +244,7 @@ type PasswordValidatorInterface interface {
 // ExtractionServiceInterface defines the contract for AI show extraction operations.
 type ExtractionServiceInterface interface {
 	ExtractShow(req *ExtractShowRequest) (*ExtractShowResponse, error)
+	ExtractCalendarPage(venueName string, content string, contentType string) (*CalendarExtractionResponse, error)
 }
 
 // MusicDiscoveryServiceInterface defines the contract for music discovery operations.

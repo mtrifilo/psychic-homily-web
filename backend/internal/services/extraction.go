@@ -334,7 +334,7 @@ type anthropicResponse struct {
 	} `json:"error"`
 }
 
-// callAnthropic sends a request to the Anthropic API
+// callAnthropic sends a request to the Anthropic API using the default extraction system prompt.
 func (s *ExtractionService) callAnthropic(userContent []interface{}) (string, error) {
 	reqBody := anthropicRequest{
 		Model:     "claude-haiku-4-5-20251001",
@@ -348,6 +348,11 @@ func (s *ExtractionService) callAnthropic(userContent []interface{}) (string, er
 		},
 	}
 
+	return s.sendAnthropicRequest(reqBody)
+}
+
+// sendAnthropicRequest sends a pre-built request to the Anthropic API and returns the response text.
+func (s *ExtractionService) sendAnthropicRequest(reqBody anthropicRequest) (string, error) {
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
