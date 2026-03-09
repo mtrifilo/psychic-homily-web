@@ -70,5 +70,5 @@ See `docs/vision.md` for the full north star, What.cd feature mapping, and entit
 - **Fire-and-forget** — Discord notifications and audit logs never fail parent operations
 - **JSONB columns** — use `*json.RawMessage` (not `datatypes.JSON`)
 - **Huma quirk** — all request body fields required by default, even pointers; mark optional explicitly
-- **Migration numbering** — latest is 000041 (profile_enhancements, PSY-63); next is 000042
+- **Migration numbering** — latest is 000044 (auto_approve_default_false, PSY-80); next is 000045
 

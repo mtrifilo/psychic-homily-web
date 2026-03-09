@@ -66,7 +66,7 @@ func (s *stubExtraction) ExtractCalendarPage(venueName, content, contentType str
 }
 
 type stubDiscovery struct {
-	importEventsFn func(events []DiscoveredEvent, dryRun bool, allowUpdates bool) (*ImportResult, error)
+	importEventsFn func(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error)
 }
 
 func (s *stubDiscovery) ImportFromJSON(filepath string, dryRun bool) (*ImportResult, error) {
@@ -78,9 +78,9 @@ func (s *stubDiscovery) ImportFromJSONWithDB(filepath string, dryRun bool, datab
 func (s *stubDiscovery) CheckEvents(events []CheckEventInput) (*CheckEventsResult, error) {
 	return nil, fmt.Errorf("not implemented in stub")
 }
-func (s *stubDiscovery) ImportEvents(events []DiscoveredEvent, dryRun bool, allowUpdates bool) (*ImportResult, error) {
+func (s *stubDiscovery) ImportEvents(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error) {
 	if s.importEventsFn != nil {
-		return s.importEventsFn(events, dryRun, allowUpdates)
+		return s.importEventsFn(events, dryRun, allowUpdates, initialStatus)
 	}
 	return &ImportResult{Total: len(events), Imported: len(events)}, nil
 }
@@ -355,7 +355,7 @@ func TestPipeline_ExtractVenue_DryRun(t *testing.T) {
 			},
 		}),
 		withDiscovery(&stubDiscovery{
-			importEventsFn: func(events []DiscoveredEvent, dryRun bool, allowUpdates bool) (*ImportResult, error) {
+			importEventsFn: func(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error) {
 				importCalled = true
 				return &ImportResult{Total: len(events), Imported: len(events)}, nil
 			},
@@ -812,7 +812,7 @@ func TestPipeline_ExtractVenue_ImportFails_NonFatal(t *testing.T) {
 	// Import failure should NOT cause the pipeline to error — extraction still succeeded
 	ps := newTestPipeline(
 		withDiscovery(&stubDiscovery{
-			importEventsFn: func(events []DiscoveredEvent, dryRun bool, allowUpdates bool) (*ImportResult, error) {
+			importEventsFn: func(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		}),
@@ -922,5 +922,171 @@ func TestPipeline_IntPtrIfNonZero(t *testing.T) {
 	p := intPtrIfNonZero(42)
 	if p == nil || *p != 42 {
 		t.Error("expected pointer to 42")
+	}
+}
+
+// ============================================================================
+// PSY-80: auto_approve + non-music filtering tests
+// ============================================================================
+
+func TestPipeline_ExtractVenue_AutoApproveFalse_ImportsPending(t *testing.T) {
+	var capturedStatus models.ShowStatus
+
+	ps := newTestPipeline(
+		withVenueConfig(&stubVenueConfig{
+			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+				cfg := defaultConfig()
+				cfg.AutoApprove = false // explicitly false
+				return cfg, nil
+			},
+		}),
+		withDiscovery(&stubDiscovery{
+			importEventsFn: func(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error) {
+				capturedStatus = initialStatus
+				return &ImportResult{Total: len(events), Imported: len(events)}, nil
+			},
+		}),
+	)
+
+	result, err := ps.ExtractVenue(1, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedStatus != models.ShowStatusPending {
+		t.Errorf("expected initial status=pending, got %s", capturedStatus)
+	}
+	if result.InitialStatus != string(models.ShowStatusPending) {
+		t.Errorf("expected result initial_status=pending, got %s", result.InitialStatus)
+	}
+}
+
+func TestPipeline_ExtractVenue_AutoApproveTrue_ImportsApproved(t *testing.T) {
+	var capturedStatus models.ShowStatus
+
+	ps := newTestPipeline(
+		withVenueConfig(&stubVenueConfig{
+			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+				cfg := defaultConfig()
+				cfg.AutoApprove = true
+				return cfg, nil
+			},
+		}),
+		withDiscovery(&stubDiscovery{
+			importEventsFn: func(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error) {
+				capturedStatus = initialStatus
+				return &ImportResult{Total: len(events), Imported: len(events)}, nil
+			},
+		}),
+	)
+
+	result, err := ps.ExtractVenue(1, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedStatus != models.ShowStatusApproved {
+		t.Errorf("expected initial status=approved, got %s", capturedStatus)
+	}
+	if result.InitialStatus != string(models.ShowStatusApproved) {
+		t.Errorf("expected result initial_status=approved, got %s", result.InitialStatus)
+	}
+}
+
+func TestPipeline_ExtractVenue_FiltersNonMusicEvents(t *testing.T) {
+	var importedEvents []DiscoveredEvent
+	isMusicTrue := true
+	isMusicFalse := false
+
+	ps := newTestPipeline(
+		withExtraction(&stubExtraction{
+			extractCalendarPageFn: func(venueName, content, contentType string) (*CalendarExtractionResponse, error) {
+				return &CalendarExtractionResponse{
+					Success: true,
+					Events: []CalendarEvent{
+						{Date: "2026-04-01", Title: "Real Concert", Artists: []CalendarArtist{{Name: "Band A", IsHeadliner: true}}, IsMusicEvent: &isMusicTrue},
+						{Date: "2026-04-02", Title: "Karaoke Night", Artists: []CalendarArtist{}, IsMusicEvent: &isMusicFalse},
+						{Date: "2026-04-03", Title: "Another Show", Artists: []CalendarArtist{{Name: "Band B", IsHeadliner: true}}, IsMusicEvent: nil}, // nil defaults to included
+					},
+				}, nil
+			},
+		}),
+		withVenueConfig(&stubVenueConfig{
+			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+				return defaultConfig(), nil
+			},
+		}),
+		withDiscovery(&stubDiscovery{
+			importEventsFn: func(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error) {
+				importedEvents = events
+				return &ImportResult{Total: len(events), Imported: len(events)}, nil
+			},
+		}),
+	)
+
+	result, err := ps.ExtractVenue(1, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.EventsExtracted != 3 {
+		t.Errorf("expected events_extracted=3, got %d", result.EventsExtracted)
+	}
+	if result.EventsSkippedNonMusic != 1 {
+		t.Errorf("expected events_skipped_non_music=1, got %d", result.EventsSkippedNonMusic)
+	}
+	if len(importedEvents) != 2 {
+		t.Errorf("expected 2 events to be imported, got %d", len(importedEvents))
+	}
+}
+
+func TestPipeline_FilterMusicEvents(t *testing.T) {
+	isTrue := true
+	isFalse := false
+
+	tests := []struct {
+		name     string
+		events   []CalendarEvent
+		expected int
+	}{
+		{
+			name:     "all music events",
+			events:   []CalendarEvent{{IsMusicEvent: &isTrue}, {IsMusicEvent: &isTrue}},
+			expected: 2,
+		},
+		{
+			name:     "no music events",
+			events:   []CalendarEvent{{IsMusicEvent: &isFalse}, {IsMusicEvent: &isFalse}},
+			expected: 0,
+		},
+		{
+			name:     "nil defaults to included",
+			events:   []CalendarEvent{{IsMusicEvent: nil}, {IsMusicEvent: nil}},
+			expected: 2,
+		},
+		{
+			name:     "mixed",
+			events:   []CalendarEvent{{IsMusicEvent: &isTrue}, {IsMusicEvent: &isFalse}, {IsMusicEvent: nil}},
+			expected: 2,
+		},
+		{
+			name:     "empty input",
+			events:   []CalendarEvent{},
+			expected: 0,
+		},
+		{
+			name:     "nil input",
+			events:   nil,
+			expected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := filterMusicEvents(tt.events)
+			if len(result) != tt.expected {
+				t.Errorf("expected %d events, got %d", tt.expected, len(result))
+			}
+		})
 	}
 }

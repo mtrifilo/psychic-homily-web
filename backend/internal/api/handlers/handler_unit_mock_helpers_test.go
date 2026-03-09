@@ -1024,7 +1024,7 @@ type mockDiscoveryService struct {
 	importFromJSONFn       func(filepath string, dryRun bool) (*services.ImportResult, error)
 	importFromJSONWithDBFn func(filepath string, dryRun bool, database *gorm.DB) (*services.ImportResult, error)
 	checkEventsFn          func(events []services.CheckEventInput) (*services.CheckEventsResult, error)
-	importEventsFn         func(events []services.DiscoveredEvent, dryRun bool, allowUpdates bool) (*services.ImportResult, error)
+	importEventsFn         func(events []services.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*services.ImportResult, error)
 }
 
 func (m *mockDiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*services.ImportResult, error) {
@@ -1045,9 +1045,9 @@ func (m *mockDiscoveryService) CheckEvents(events []services.CheckEventInput) (*
 	}
 	return nil, nil
 }
-func (m *mockDiscoveryService) ImportEvents(events []services.DiscoveredEvent, dryRun bool, allowUpdates bool) (*services.ImportResult, error) {
+func (m *mockDiscoveryService) ImportEvents(events []services.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*services.ImportResult, error) {
 	if m.importEventsFn != nil {
-		return m.importEventsFn(events, dryRun, allowUpdates)
+		return m.importEventsFn(events, dryRun, allowUpdates, initialStatus)
 	}
 	return nil, nil
 }

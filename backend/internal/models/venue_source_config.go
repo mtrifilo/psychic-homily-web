@@ -16,7 +16,7 @@ type VenueSourceConfig struct {
 	EventsExpected      int        `json:"events_expected" gorm:"column:events_expected;not null;default:0"`
 	ConsecutiveFailures int        `json:"consecutive_failures" gorm:"column:consecutive_failures;not null;default:0"`
 	StrategyLocked      bool       `json:"strategy_locked" gorm:"column:strategy_locked;not null;default:false"`
-	AutoApprove         bool       `json:"auto_approve" gorm:"column:auto_approve;not null;default:true"`
+	AutoApprove         bool       `json:"auto_approve" gorm:"column:auto_approve;not null;default:false"`
 	CreatedAt           time.Time  `json:"created_at"`
 	UpdatedAt           time.Time  `json:"updated_at"`
 

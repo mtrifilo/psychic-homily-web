@@ -165,7 +165,7 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*Import
 	}
 
 	for _, event := range events {
-		msg, status := s.importEvent(&event, dryRun, false)
+		msg, status := s.importEvent(&event, dryRun, false, models.ShowStatusApproved)
 		result.Messages = append(result.Messages, msg)
 
 		switch status {
@@ -212,7 +212,7 @@ func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName stri
 
 // importEvent imports a single scraped event
 // Returns a message and status ("imported", "duplicate", "rejected", "updated", "error")
-func (s *DiscoveryService) importEvent(event *DiscoveredEvent, dryRun bool, allowUpdates bool) (string, string) {
+func (s *DiscoveryService) importEvent(event *DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (string, string) {
 	// Validate required fields
 	if event.ID == "" || event.VenueSlug == "" {
 		return fmt.Sprintf("SKIP: Missing required fields (id=%s, venueSlug=%s)", event.ID, event.VenueSlug), "error"
@@ -275,7 +275,7 @@ func (s *DiscoveryService) importEvent(event *DiscoveredEvent, dryRun bool, allo
 	}
 
 	// Create the show
-	err = s.createShowFromEvent(event, eventDate, venueConfig, duplicateOfShowID)
+	err = s.createShowFromEvent(event, eventDate, venueConfig, duplicateOfShowID, initialStatus)
 	if err != nil {
 		return fmt.Sprintf("ERROR: Failed to create show: %v", err), "error"
 	}
@@ -293,7 +293,7 @@ func (s *DiscoveryService) createShowFromEvent(event *DiscoveredEvent, eventDate
 	City    string
 	State   string
 	Address string
-}, duplicateOfShowID *uint) error {
+}, duplicateOfShowID *uint, initialStatus models.ShowStatus) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Parse scraped_at timestamp
 		scrapedAt, err := time.Parse(time.RFC3339, event.ScrapedAt)
@@ -318,8 +318,8 @@ func (s *DiscoveryService) createShowFromEvent(event *DiscoveredEvent, eventDate
 			description = &desc
 		}
 
-		// Create the show
-		status := models.ShowStatusApproved
+		// Create the show — use initialStatus, but always override to pending for potential duplicates
+		status := initialStatus
 		if duplicateOfShowID != nil {
 			status = models.ShowStatusPending
 		}
@@ -803,7 +803,7 @@ func (s *DiscoveryService) buildCheckEventStatus(show models.Show) CheckEventSta
 
 // ImportEvents imports events from an array of DiscoveredEvent objects
 // This is used by the HTTP API endpoint for importing scraped data directly
-func (s *DiscoveryService) ImportEvents(events []DiscoveredEvent, dryRun bool, allowUpdates bool) (*ImportResult, error) {
+func (s *DiscoveryService) ImportEvents(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -814,7 +814,7 @@ func (s *DiscoveryService) ImportEvents(events []DiscoveredEvent, dryRun bool, a
 	}
 
 	for _, event := range events {
-		msg, status := s.importEvent(&event, dryRun, allowUpdates)
+		msg, status := s.importEvent(&event, dryRun, allowUpdates, initialStatus)
 		result.Messages = append(result.Messages, msg)
 
 		switch status {

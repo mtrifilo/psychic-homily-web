@@ -1345,7 +1345,7 @@ func (h *AdminHandler) DiscoveryImportHandler(ctx context.Context, req *Discover
 	}
 
 	// Import events
-	result, err := h.discoveryService.ImportEvents(events, req.Body.DryRun, req.Body.AllowUpdates)
+	result, err := h.discoveryService.ImportEvents(events, req.Body.DryRun, req.Body.AllowUpdates, models.ShowStatusApproved)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_discovery_import_failed",
 			"error", err.Error(),

@@ -170,7 +170,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestCreateOrUpdate_NewConfig() {
 	s.Equal(s.venueID, result.VenueID)
 	s.Equal(&url, result.CalendarURL)
 	s.Equal("ai", result.PreferredSource)
-	s.True(result.AutoApprove)
+	s.False(result.AutoApprove) // default is false — requires explicit opt-in
 	s.False(result.StrategyLocked)
 }
 

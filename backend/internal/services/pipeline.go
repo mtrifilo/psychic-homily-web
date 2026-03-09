@@ -37,17 +37,19 @@ func NewPipelineService(
 
 // PipelineResult contains the outcome of a single venue extraction run.
 type PipelineResult struct {
-	VenueID         uint     `json:"venue_id"`
-	VenueName       string   `json:"venue_name"`
-	RenderMethod    string   `json:"render_method"`
-	EventsExtracted int      `json:"events_extracted"`
-	EventsImported  int      `json:"events_imported"`
-	DurationMs      int64    `json:"duration_ms"`
-	Skipped         bool     `json:"skipped"`
-	SkipReason      string   `json:"skip_reason,omitempty"`
-	Error           string   `json:"error,omitempty"`
-	Warnings        []string `json:"warnings,omitempty"`
-	DryRun          bool     `json:"dry_run"`
+	VenueID              uint     `json:"venue_id"`
+	VenueName            string   `json:"venue_name"`
+	RenderMethod         string   `json:"render_method"`
+	EventsExtracted      int      `json:"events_extracted"`
+	EventsImported       int      `json:"events_imported"`
+	EventsSkippedNonMusic int     `json:"events_skipped_non_music"`
+	DurationMs           int64    `json:"duration_ms"`
+	Skipped              bool     `json:"skipped"`
+	SkipReason           string   `json:"skip_reason,omitempty"`
+	Error                string   `json:"error,omitempty"`
+	Warnings             []string `json:"warnings,omitempty"`
+	DryRun               bool     `json:"dry_run"`
+	InitialStatus        string   `json:"initial_status"`
 }
 
 // ExtractVenue runs the full extraction pipeline for a single venue.
@@ -134,6 +136,7 @@ func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*PipelineResu
 			SkipReason:   "page unchanged (hash match)",
 			DurationMs:   time.Since(start).Milliseconds(),
 			DryRun:       dryRun,
+			InitialStatus: string(models.ShowStatusPending),
 		}
 		s.recordRun(venueID, renderMethod, config.PreferredSource, 0, 0, &fetchResult.ContentHash, fetchResult.HTTPStatus, start, nil)
 		return result, nil
@@ -166,17 +169,30 @@ func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*PipelineResu
 
 	eventsExtracted := len(extractionResp.Events)
 
-	// 9. Convert to DiscoveredEvent format
+	// 9. Filter out non-music events
+	musicEvents := filterMusicEvents(extractionResp.Events)
+	eventsSkippedNonMusic := eventsExtracted - len(musicEvents)
+	if eventsSkippedNonMusic > 0 {
+		log.Printf("venue %d: filtered %d non-music events out of %d total", venueID, eventsSkippedNonMusic, eventsExtracted)
+	}
+
+	// 10. Convert to DiscoveredEvent format
 	venueSlug := ""
 	if venue.Slug != nil {
 		venueSlug = *venue.Slug
 	}
-	discoveredEvents := CalendarEventsToDiscoveredEvents(venueSlug, extractionResp.Events)
+	discoveredEvents := CalendarEventsToDiscoveredEvents(venueSlug, musicEvents)
 
-	// 10. Import events (unless dry run)
+	// 11. Determine initial status based on auto_approve
+	initialStatus := models.ShowStatusPending
+	if config.AutoApprove {
+		initialStatus = models.ShowStatusApproved
+	}
+
+	// 12. Import events (unless dry run)
 	eventsImported := 0
 	if !dryRun && len(discoveredEvents) > 0 {
-		importResult, importErr := s.discovery.ImportEvents(discoveredEvents, false, false)
+		importResult, importErr := s.discovery.ImportEvents(discoveredEvents, false, false, initialStatus)
 		if importErr != nil {
 			log.Printf("warning: import failed for venue %d: %v (extraction succeeded with %d events)", venueID, importErr, eventsExtracted)
 		} else {
@@ -186,24 +202,39 @@ func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*PipelineResu
 
 	duration := time.Since(start)
 
-	// 11. Record run
+	// 13. Record run
 	s.recordRun(venueID, renderMethod, config.PreferredSource, eventsExtracted, eventsImported, &fetchResult.ContentHash, fetchResult.HTTPStatus, start, nil)
 
-	// 12. Update config after successful run
+	// 14. Update config after successful run
 	if updateErr := s.venueConfig.UpdateAfterRun(venueID, &fetchResult.ContentHash, &fetchResult.ETag, eventsExtracted); updateErr != nil {
 		log.Printf("warning: failed to update config after run for venue %d: %v", venueID, updateErr)
 	}
 
 	return &PipelineResult{
-		VenueID:         venueID,
-		VenueName:       venue.Name,
-		RenderMethod:    renderMethod,
-		EventsExtracted: eventsExtracted,
-		EventsImported:  eventsImported,
-		DurationMs:      duration.Milliseconds(),
-		Warnings:        extractionResp.Warnings,
-		DryRun:          dryRun,
+		VenueID:               venueID,
+		VenueName:             venue.Name,
+		RenderMethod:          renderMethod,
+		EventsExtracted:       eventsExtracted,
+		EventsImported:        eventsImported,
+		EventsSkippedNonMusic: eventsSkippedNonMusic,
+		DurationMs:            duration.Milliseconds(),
+		Warnings:              extractionResp.Warnings,
+		DryRun:                dryRun,
+		InitialStatus:         string(initialStatus),
 	}, nil
+}
+
+// filterMusicEvents returns only events where IsMusicEvent is not explicitly false.
+// Events with IsMusicEvent=nil or IsMusicEvent=true are included.
+func filterMusicEvents(events []CalendarEvent) []CalendarEvent {
+	var filtered []CalendarEvent
+	for _, e := range events {
+		if e.IsMusicEvent != nil && !*e.IsMusicEvent {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+	return filtered
 }
 
 // recordRun persists an extraction run record (fire-and-forget).

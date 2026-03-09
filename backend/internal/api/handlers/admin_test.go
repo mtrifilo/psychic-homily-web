@@ -1037,7 +1037,7 @@ func TestDataImportHandler_ServiceError(t *testing.T) {
 func TestDiscoveryImportHandler_Success(t *testing.T) {
 	h := adminHandler(func(ah *AdminHandler) {
 		ah.discoveryService = &mockDiscoveryService{
-			importEventsFn: func(events []services.DiscoveredEvent, dryRun, allowUpdates bool) (*services.ImportResult, error) {
+			importEventsFn: func(events []services.DiscoveredEvent, dryRun, allowUpdates bool, initialStatus models.ShowStatus) (*services.ImportResult, error) {
 				return &services.ImportResult{Total: len(events), Imported: len(events)}, nil
 			},
 		}
@@ -1056,7 +1056,7 @@ func TestDiscoveryImportHandler_Success(t *testing.T) {
 func TestDiscoveryImportHandler_ServiceError(t *testing.T) {
 	h := adminHandler(func(ah *AdminHandler) {
 		ah.discoveryService = &mockDiscoveryService{
-			importEventsFn: func(_ []services.DiscoveredEvent, _, _ bool) (*services.ImportResult, error) {
+			importEventsFn: func(_ []services.DiscoveredEvent, _, _ bool, _ models.ShowStatus) (*services.ImportResult, error) {
 				return nil, fmt.Errorf("import failed")
 			},
 		}
