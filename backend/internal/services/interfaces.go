@@ -379,6 +379,17 @@ type CalendarServiceInterface interface {
 	GenerateICSFeed(userID uint, frontendURL string) ([]byte, error)
 }
 
+// VenueSourceConfigServiceInterface defines the contract for venue source config operations.
+type VenueSourceConfigServiceInterface interface {
+	GetByVenueID(venueID uint) (*models.VenueSourceConfig, error)
+	CreateOrUpdate(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error)
+	UpdateAfterRun(venueID uint, contentHash, etag *string, eventsExtracted int) error
+	IncrementFailures(venueID uint) error
+	RecordRun(run *models.VenueExtractionRun) error
+	GetRecentRuns(venueID uint, limit int) ([]models.VenueExtractionRun, error)
+	ListConfigured() ([]models.VenueSourceConfig, error)
+}
+
 // Compile-time interface satisfaction checks.
 var (
 	_ ShowServiceInterface          = (*ShowService)(nil)
@@ -408,6 +419,7 @@ var (
 	_ FestivalServiceInterface       = (*FestivalService)(nil)
 	_ LabelServiceInterface          = (*LabelService)(nil)
 	_ ReleaseServiceInterface       = (*ReleaseService)(nil)
-	_ BookmarkServiceInterface           = (*BookmarkService)(nil)
-	_ ContributorProfileServiceInterface = (*ContributorProfileService)(nil)
+	_ BookmarkServiceInterface              = (*BookmarkService)(nil)
+	_ ContributorProfileServiceInterface    = (*ContributorProfileService)(nil)
+	_ VenueSourceConfigServiceInterface     = (*VenueSourceConfigService)(nil)
 )
