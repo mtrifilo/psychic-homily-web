@@ -357,6 +357,11 @@ type ReleaseServiceInterface interface {
 	RemoveExternalLink(linkID uint) error
 }
 
+// FetcherServiceInterface defines the contract for HTTP fetching with change detection.
+type FetcherServiceInterface interface {
+	Fetch(url string, lastETag string, lastContentHash string) (*FetchResult, error)
+}
+
 // ContributorProfileServiceInterface defines the contract for contributor profile operations.
 type ContributorProfileServiceInterface interface {
 	GetPublicProfile(username string, viewerID *uint) (*PublicProfileResponse, error)
@@ -423,4 +428,5 @@ var (
 	_ BookmarkServiceInterface              = (*BookmarkService)(nil)
 	_ ContributorProfileServiceInterface    = (*ContributorProfileService)(nil)
 	_ VenueSourceConfigServiceInterface     = (*VenueSourceConfigService)(nil)
+	_ FetcherServiceInterface               = (*FetcherService)(nil)
 )

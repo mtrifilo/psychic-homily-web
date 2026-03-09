@@ -36,7 +36,8 @@ type ServiceContainer struct {
 	Email          *EmailService
 	MusicDiscovery *MusicDiscoveryService
 
-	// No-param service
+	// No-param services
+	Fetcher           *FetcherService
 	PasswordValidator *PasswordValidator
 
 	// DB + Config composite services
@@ -89,7 +90,8 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Email:          email,
 		MusicDiscovery: NewMusicDiscoveryService(cfg),
 
-		// No-param service
+		// No-param services
+		Fetcher:           NewFetcherService(),
 		PasswordValidator: NewPasswordValidator(),
 
 		// DB + Config composite services
