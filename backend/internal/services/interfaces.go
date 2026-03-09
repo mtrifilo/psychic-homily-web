@@ -287,7 +287,7 @@ type DiscoveryServiceInterface interface {
 	ImportFromJSON(filepath string, dryRun bool) (*ImportResult, error)
 	ImportFromJSONWithDB(filepath string, dryRun bool, database *gorm.DB) (*ImportResult, error)
 	CheckEvents(events []CheckEventInput) (*CheckEventsResult, error)
-	ImportEvents(events []DiscoveredEvent, dryRun bool, allowUpdates bool) (*ImportResult, error)
+	ImportEvents(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error)
 }
 
 // APITokenServiceInterface defines the contract for API token operations.

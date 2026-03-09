@@ -25,12 +25,14 @@ Output ONLY a valid JSON array with no additional text, markdown formatting, or 
     ],
     "cost": "$20",
     "ages": "21+",
-    "ticket_url": "https://..."
+    "ticket_url": "https://...",
+    "is_music_event": true
   }
 ]
 
 Rules:
 - Extract EVERY event visible on the page — do not skip any
+- Set is_music_event to false for non-music events like karaoke nights, trivia, comedy shows, open mic (non-music), DJ nights without named artists, private events, and venue closures. Set to true for concerts, live music, album release shows, and music festivals. Default to true if uncertain
 - Convert dates to YYYY-MM-DD format. If only a month/year header is shown, combine with day numbers
 - Convert times to 24-hour HH:MM format. If "doors" and "show" times are both listed, use the show time. Default to 20:00 if only doors time is given
 - The first or most prominent artist listed for an event is the headliner (is_headliner: true), others are is_headliner: false
@@ -47,13 +49,14 @@ Rules:
 
 // CalendarEvent represents a single event extracted from a venue calendar page.
 type CalendarEvent struct {
-	Date      string           `json:"date"`
-	Time      *string          `json:"time,omitempty"`
-	Title     string           `json:"title"`
-	Artists   []CalendarArtist `json:"artists"`
-	Cost      *string          `json:"cost,omitempty"`
-	Ages      *string          `json:"ages,omitempty"`
-	TicketURL *string          `json:"ticket_url,omitempty"`
+	Date         string           `json:"date"`
+	Time         *string          `json:"time,omitempty"`
+	Title        string           `json:"title"`
+	Artists      []CalendarArtist `json:"artists"`
+	Cost         *string          `json:"cost,omitempty"`
+	Ages         *string          `json:"ages,omitempty"`
+	TicketURL    *string          `json:"ticket_url,omitempty"`
+	IsMusicEvent *bool            `json:"is_music_event,omitempty"`
 }
 
 // CalendarArtist represents an artist entry within a calendar event.

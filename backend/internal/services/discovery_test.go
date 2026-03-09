@@ -259,7 +259,7 @@ func TestNewDiscoveryService(t *testing.T) {
 
 func TestImportEvents_NilDB(t *testing.T) {
 	svc := &DiscoveryService{db: nil}
-	result, err := svc.ImportEvents([]DiscoveredEvent{}, false, false)
+	result, err := svc.ImportEvents([]DiscoveredEvent{}, false, false, models.ShowStatusApproved)
 	assert.Error(t, err)
 	assert.Equal(t, "database not initialized", err.Error())
 	assert.Nil(t, result)
@@ -382,7 +382,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_Success() {
 		suite.makeEvent("evt-001", "The National", "valley-bar", "2026-06-15", []string{"The National"}),
 	}
 
-	result, err := suite.svc.ImportEvents(events, false, false)
+	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Total)
 	suite.Equal(1, result.Imported)
@@ -405,12 +405,12 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_SourceDuplicate() {
 	}
 
 	// First import
-	result1, err := suite.svc.ImportEvents(events, false, false)
+	result1, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result1.Imported)
 
 	// Second import — same source_venue + source_event_id
-	result2, err := suite.svc.ImportEvents(events, false, false)
+	result2, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(0, result2.Imported)
 	suite.Equal(1, result2.Duplicates)
@@ -421,7 +421,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UnknownVenue() {
 		suite.makeEvent("evt-003", "Test Band", "unknown-venue-xyz", "2026-08-01", []string{"Test Band"}),
 	}
 
-	result, err := suite.svc.ImportEvents(events, false, false)
+	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Errors)
 	suite.Contains(result.Messages[0], "Unknown venue slug")
@@ -432,7 +432,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate(
 	events1 := []DiscoveredEvent{
 		suite.makeEvent("evt-004a", "Bon Iver", "valley-bar", "2026-09-01", []string{"Bon Iver"}),
 	}
-	result1, err := suite.svc.ImportEvents(events1, false, false)
+	result1, err := suite.svc.ImportEvents(events1, false, false, models.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result1.Imported)
 
@@ -441,7 +441,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate(
 	events2 := []DiscoveredEvent{
 		suite.makeEvent("evt-004b", "Bon Iver (Late Show)", "valley-bar", "2026-09-01", []string{"Bon Iver"}),
 	}
-	result2, err := suite.svc.ImportEvents(events2, false, false)
+	result2, err := suite.svc.ImportEvents(events2, false, false, models.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result2.PendingReview)
 
@@ -477,7 +477,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_RejectedShowSkipped
 		suite.makeEvent("evt-005", "Some New Band", "valley-bar", "2026-10-01", []string{"Some New Band"}),
 	}
 
-	result, err := suite.svc.ImportEvents(events, false, false)
+	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Rejected)
 	suite.Contains(result.Messages[0], "REJECTED")
@@ -488,7 +488,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_DryRun() {
 		suite.makeEvent("evt-006", "Dry Run Band", "valley-bar", "2026-11-01", []string{"Dry Run Band"}),
 	}
 
-	result, err := suite.svc.ImportEvents(events, true, false)
+	result, err := suite.svc.ImportEvents(events, true, false, models.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Total)
 	// In dry run, nothing is actually imported but message says "WOULD IMPORT"
@@ -500,6 +500,22 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_DryRun() {
 	suite.Zero(count)
 }
 
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_PendingStatus() {
+	events := []DiscoveredEvent{
+		suite.makeEvent("evt-pending-1", "Pending Band", "valley-bar", "2026-11-15", []string{"Pending Band"}),
+	}
+
+	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusPending)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	// Verify show was created with pending status
+	var show models.Show
+	err = suite.db.Where("source_event_id = ?", "evt-pending-1").First(&show).Error
+	suite.Require().NoError(err)
+	suite.Equal(models.ShowStatusPending, show.Status)
+}
+
 // =============================================================================
 // CheckEvents tests
 // =============================================================================
@@ -509,7 +525,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_Found() {
 	events := []DiscoveredEvent{
 		suite.makeEvent("evt-check-1", "Check Band", "valley-bar", "2026-12-01", []string{"Check Band"}),
 	}
-	_, err := suite.svc.ImportEvents(events, false, false)
+	_, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
 	suite.Require().NoError(err)
 
 	// Check it
