@@ -192,6 +192,9 @@ func main() {
 	reminderCancel()
 	sc.Reminder.Stop()
 
+	// Shut down chromedp browser pool
+	sc.Fetcher.ShutdownChromedp()
+
 	// Graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

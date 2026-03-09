@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -21,8 +22,12 @@ type FetchResult struct {
 }
 
 // FetcherService handles HTTP fetching with ETag/hash-based change detection.
+// Optionally supports chromedp-based rendering for JS-heavy pages (call InitChromedp to enable).
 type FetcherService struct {
-	httpClient *http.Client
+	httpClient  *http.Client
+	allocCtx    context.Context    // chromedp exec allocator context (nil until InitChromedp)
+	allocCancel context.CancelFunc // cancels the allocator on shutdown
+	workerSem   chan struct{}       // semaphore limiting concurrent Chrome tabs
 }
 
 // NewFetcherService creates a new FetcherService with a 30-second timeout
