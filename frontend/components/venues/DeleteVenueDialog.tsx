@@ -1,7 +1,7 @@
 'use client'
 
 import { Trash2, Loader2 } from 'lucide-react'
-import { useVenueDelete } from '@/lib/hooks/useVenueEdit'
+import { useVenueDelete } from '@/lib/hooks/venues/useVenueEdit'
 import type { Venue, VenueWithShowCount } from '@/lib/types/venue'
 import {
   Dialog,

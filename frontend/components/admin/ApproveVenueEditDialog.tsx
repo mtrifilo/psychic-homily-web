@@ -1,7 +1,7 @@
 'use client'
 
 import { CheckCircle, Loader2 } from 'lucide-react'
-import { useApproveVenueEdit } from '@/lib/hooks/useAdminVenueEdits'
+import { useApproveVenueEdit } from '@/lib/hooks/admin/useAdminVenueEdits'
 import type { PendingVenueEdit } from '@/lib/types/venue'
 import {
   Dialog,

@@ -7,7 +7,7 @@ import type { ShowResponse } from '@/lib/types/show'
 const mockApproveMutate = vi.fn()
 const mockRejectMutate = vi.fn()
 
-vi.mock('@/lib/hooks/useAdminShows', () => ({
+vi.mock('@/lib/hooks/admin/useAdminShows', () => ({
   useApproveShow: () => ({
     mutate: mockApproveMutate,
     isPending: false,

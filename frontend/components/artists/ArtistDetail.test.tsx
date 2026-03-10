@@ -30,7 +30,7 @@ vi.mock('@/components/ui/tabs', () => ({
 
 // Mock hooks
 const mockUseArtist = vi.fn()
-vi.mock('@/lib/hooks/useArtists', () => ({
+vi.mock('@/lib/hooks/artists/useArtists', () => ({
   useArtist: (opts: unknown) => mockUseArtist(opts),
   useArtistShows: () => ({
     data: { shows: [], total: 0 },
@@ -40,17 +40,17 @@ vi.mock('@/lib/hooks/useArtists', () => ({
 }))
 
 const mockUseIsAuthenticated = vi.fn()
-vi.mock('@/lib/hooks/useAuth', () => ({
+vi.mock('@/lib/hooks/auth/useAuth', () => ({
   useIsAuthenticated: () => mockUseIsAuthenticated(),
 }))
 
 const mockUseArtistLabels = vi.fn()
-vi.mock('@/lib/hooks/useLabels', () => ({
+vi.mock('@/lib/hooks/labels/useLabels', () => ({
   useArtistLabels: (opts: unknown) => mockUseArtistLabels(opts),
   useLabelRoster: () => ({ data: null }),
 }))
 
-vi.mock('@/lib/hooks/useReleases', () => ({
+vi.mock('@/lib/hooks/releases/useReleases', () => ({
   useArtistReleases: () => ({
     data: null,
     isLoading: false,
@@ -58,7 +58,7 @@ vi.mock('@/lib/hooks/useReleases', () => ({
   }),
 }))
 
-vi.mock('@/lib/hooks/useAdminArtists', () => ({
+vi.mock('@/lib/hooks/admin/useAdminArtists', () => ({
   useDiscoverMusic: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateArtistBandcamp: () => ({ mutate: vi.fn(), isPending: false }),
   useClearArtistBandcamp: () => ({ mutate: vi.fn(), isPending: false }),

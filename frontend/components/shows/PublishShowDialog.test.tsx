@@ -12,7 +12,7 @@ const mockPublishHook = vi.fn(() => ({
   error: null,
 }))
 
-vi.mock('@/lib/hooks/useShowPublish', () => ({
+vi.mock('@/lib/hooks/shows/useShowPublish', () => ({
   useShowPublish: () => mockPublishHook(),
 }))
 

@@ -12,7 +12,7 @@ const mockMakePrivateHook = vi.fn(() => ({
   error: null,
 }))
 
-vi.mock('@/lib/hooks/useShowMakePrivate', () => ({
+vi.mock('@/lib/hooks/shows/useShowMakePrivate', () => ({
   useShowMakePrivate: () => mockMakePrivateHook(),
 }))
 

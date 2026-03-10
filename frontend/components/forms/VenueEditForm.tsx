@@ -11,7 +11,7 @@ import {
   Clock,
   X,
 } from 'lucide-react'
-import { useVenueUpdate, useMyPendingVenueEdit, useCancelPendingVenueEdit } from '@/lib/hooks/useVenueEdit'
+import { useVenueUpdate, useMyPendingVenueEdit, useCancelPendingVenueEdit } from '@/lib/hooks/venues/useVenueEdit'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { VenueWithShowCount, Venue } from '@/lib/types/venue'
 import { detectVenueChanges, type VenueEditFormValues } from './venue-edit-utils'

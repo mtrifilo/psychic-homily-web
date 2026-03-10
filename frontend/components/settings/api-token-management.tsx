@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
-import { useAPITokens, useCreateAPIToken, useRevokeAPIToken, type APIToken } from '@/lib/hooks/useAuth'
+import { useAPITokens, useCreateAPIToken, useRevokeAPIToken, type APIToken } from '@/lib/hooks/auth/useAuth'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'

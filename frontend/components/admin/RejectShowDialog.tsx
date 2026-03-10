@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { XCircle, Loader2 } from 'lucide-react'
-import { useRejectShow } from '@/lib/hooks/useAdminShows'
+import { useRejectShow } from '@/lib/hooks/admin/useAdminShows'
 import type { ShowResponse } from '@/lib/types/show'
 import {
   Dialog,

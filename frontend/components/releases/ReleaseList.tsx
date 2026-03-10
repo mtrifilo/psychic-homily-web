@@ -2,10 +2,10 @@
 
 import { useState, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useReleases } from '@/lib/hooks/useReleases'
+import { useReleases } from '@/lib/hooks/releases/useReleases'
 import { ReleaseCard } from './ReleaseCard'
 import { LoadingSpinner, DensityToggle } from '@/components/shared'
-import { useDensity } from '@/lib/hooks/useDensity'
+import { useDensity } from '@/lib/hooks/common/useDensity'
 import { Button } from '@/components/ui/button'
 import { RELEASE_TYPES, RELEASE_TYPE_LABELS } from '@/lib/types/release'
 import type { ReleaseType } from '@/lib/types/release'

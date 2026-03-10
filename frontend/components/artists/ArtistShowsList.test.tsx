@@ -6,7 +6,7 @@ import type { ArtistShow } from '@/lib/types/artist'
 
 // Mock the artist shows hook
 const mockUseArtistShows = vi.fn()
-vi.mock('@/lib/hooks/useArtists', () => ({
+vi.mock('@/lib/hooks/artists/useArtists', () => ({
   useArtistShows: (opts: unknown) => mockUseArtistShows(opts),
 }))
 

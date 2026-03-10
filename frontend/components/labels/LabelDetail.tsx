@@ -11,7 +11,7 @@ import {
   Disc3,
   Music,
 } from 'lucide-react'
-import { useLabel, useLabelRoster, useLabelCatalog } from '@/lib/hooks/useLabels'
+import { useLabel, useLabelRoster, useLabelCatalog } from '@/lib/hooks/labels/useLabels'
 import { EntityDetailLayout, EntityHeader, SocialLinks } from '@/components/shared'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
