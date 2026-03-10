@@ -8,13 +8,13 @@
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '../../api'
-import { createInvalidateQueries } from '../../queryClient'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { createInvalidateQueries } from '@/lib/queryClient'
 import type {
   FestivalDetail,
   FestivalArtist,
   FestivalVenue,
-} from '../../types/festival'
+} from '../types'
 
 // ============================================================================
 // Request Types

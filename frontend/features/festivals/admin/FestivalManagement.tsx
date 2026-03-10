@@ -28,7 +28,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { useFestivals, useFestival, useFestivalLineup, useFestivalVenues } from '@/lib/hooks/festivals/useFestivals'
+import { useFestivals, useFestival, useFestivalLineup, useFestivalVenues } from '../hooks/useFestivals'
 import { useArtistSearch } from '@/lib/hooks/artists/useArtistSearch'
 import { useVenueSearch } from '@/lib/hooks/venues/useVenueSearch'
 import {
@@ -40,7 +40,7 @@ import {
   useRemoveFestivalArtist,
   useAddFestivalVenue,
   useRemoveFestivalVenue,
-} from '@/lib/hooks/admin/useAdminFestivals'
+} from '../hooks/useAdminFestivals'
 import {
   FESTIVAL_STATUSES,
   FESTIVAL_STATUS_LABELS,
@@ -54,7 +54,7 @@ import {
   type FestivalStatus,
   type FestivalArtist,
   type FestivalVenue,
-} from '@/lib/types/festival'
+} from '../types'
 
 // ============================================================================
 // Constants

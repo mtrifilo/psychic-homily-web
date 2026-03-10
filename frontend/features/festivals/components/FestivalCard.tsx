@@ -8,8 +8,8 @@ import {
   getFestivalStatusLabel,
   getFestivalStatusVariant,
   formatFestivalDateRange,
-} from '@/lib/types/festival'
-import type { FestivalListItem } from '@/lib/types/festival'
+} from '../types'
+import type { FestivalListItem } from '../types'
 
 export type FestivalCardDensity = 'compact' | 'comfortable' | 'expanded'
 
