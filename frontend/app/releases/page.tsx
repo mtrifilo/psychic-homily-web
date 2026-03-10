@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import { ReleaseList } from '@/components/releases'
+import { ReleaseList } from '@/features/releases/components'
 import { LoadingSpinner } from '@/components/shared'
 
 export const metadata = {

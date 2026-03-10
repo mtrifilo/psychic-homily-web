@@ -50,7 +50,7 @@ vi.mock('@/lib/hooks/labels/useLabels', () => ({
   useLabelRoster: () => ({ data: null }),
 }))
 
-vi.mock('@/lib/hooks/releases/useReleases', () => ({
+vi.mock('@/features/releases/hooks/useReleases', () => ({
   useArtistReleases: () => ({
     data: null,
     isLoading: false,

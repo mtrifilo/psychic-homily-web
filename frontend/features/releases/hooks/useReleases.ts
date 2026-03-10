@@ -7,13 +7,13 @@
  */
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '../../api'
-import { queryKeys } from '../../queryClient'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { queryKeys } from '@/lib/queryClient'
 import type {
   ReleaseDetail,
   ReleasesListResponse,
   ArtistReleasesResponse,
-} from '../../types/release'
+} from '../types'
 
 interface UseReleasesOptions {
   releaseType?: string

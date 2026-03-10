@@ -10,12 +10,12 @@ import {
   Calendar,
   Users,
 } from 'lucide-react'
-import { useRelease } from '@/lib/hooks/releases/useReleases'
+import { useRelease } from '../hooks/useReleases'
 import { EntityDetailLayout, EntityHeader } from '@/components/shared'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { getReleaseTypeLabel } from '@/lib/types/release'
+import { getReleaseTypeLabel } from '../types'
 
 /** Known platform display info */
 const PLATFORM_CONFIG: Record<
