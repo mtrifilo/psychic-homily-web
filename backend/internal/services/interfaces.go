@@ -1,6 +1,9 @@
 package services
 
-import "psychic-homily-backend/internal/services/contracts"
+import (
+	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/contracts"
+)
 
 // Interface aliases — every interface now lives in contracts;
 // these aliases keep existing code compiling unchanged.
@@ -40,9 +43,9 @@ type VenueSourceConfigServiceInterface = contracts.VenueSourceConfigServiceInter
 
 // Compile-time interface satisfaction checks.
 var (
-	_ ShowServiceInterface          = (*ShowService)(nil)
-	_ VenueServiceInterface         = (*VenueService)(nil)
-	_ ArtistServiceInterface        = (*ArtistService)(nil)
+	_ ShowServiceInterface          = (*catalog.ShowService)(nil)
+	_ VenueServiceInterface         = (*catalog.VenueService)(nil)
+	_ ArtistServiceInterface        = (*catalog.ArtistService)(nil)
 	_ SavedShowServiceInterface     = (*SavedShowService)(nil)
 	_ FavoriteVenueServiceInterface = (*FavoriteVenueService)(nil)
 	_ ShowReportServiceInterface    = (*ShowReportService)(nil)
@@ -64,9 +67,9 @@ var (
 	_ AdminStatsServiceInterface    = (*AdminStatsService)(nil)
 	_ CalendarServiceInterface      = (*CalendarService)(nil)
 	_ ReminderServiceInterface      = (*ReminderService)(nil)
-	_ FestivalServiceInterface       = (*FestivalService)(nil)
-	_ LabelServiceInterface          = (*LabelService)(nil)
-	_ ReleaseServiceInterface       = (*ReleaseService)(nil)
+	_ FestivalServiceInterface       = (*catalog.FestivalService)(nil)
+	_ LabelServiceInterface          = (*catalog.LabelService)(nil)
+	_ ReleaseServiceInterface       = (*catalog.ReleaseService)(nil)
 	_ BookmarkServiceInterface              = (*BookmarkService)(nil)
 	_ ContributorProfileServiceInterface    = (*ContributorProfileService)(nil)
 	_ VenueSourceConfigServiceInterface     = (*VenueSourceConfigService)(nil)

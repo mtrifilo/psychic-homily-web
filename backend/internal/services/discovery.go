@@ -12,13 +12,14 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/utils"
 )
 
 // DiscoveryService handles importing discovered event data into the database
 type DiscoveryService struct {
 	db           *gorm.DB
-	venueService *VenueService
+	venueService *catalog.VenueService
 }
 
 // NewDiscoveryService creates a new discovery service
@@ -28,7 +29,7 @@ func NewDiscoveryService(database *gorm.DB) *DiscoveryService {
 	}
 	return &DiscoveryService{
 		db:           database,
-		venueService: NewVenueService(database),
+		venueService: catalog.NewVenueService(database),
 	}
 }
 

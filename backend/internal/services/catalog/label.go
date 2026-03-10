@@ -1,4 +1,4 @@
-package services
+package catalog
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/services/contracts"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/utils"
@@ -27,7 +28,7 @@ func NewLabelService(database *gorm.DB) *LabelService {
 }
 
 // CreateLabel creates a new label
-func (s *LabelService) CreateLabel(req *CreateLabelRequest) (*LabelDetailResponse, error) {
+func (s *LabelService) CreateLabel(req *contracts.CreateLabelRequest) (*contracts.LabelDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -76,7 +77,7 @@ func (s *LabelService) CreateLabel(req *CreateLabelRequest) (*LabelDetailRespons
 }
 
 // GetLabel retrieves a label by ID
-func (s *LabelService) GetLabel(labelID uint) (*LabelDetailResponse, error) {
+func (s *LabelService) GetLabel(labelID uint) (*contracts.LabelDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -94,7 +95,7 @@ func (s *LabelService) GetLabel(labelID uint) (*LabelDetailResponse, error) {
 }
 
 // GetLabelBySlug retrieves a label by slug
-func (s *LabelService) GetLabelBySlug(slug string) (*LabelDetailResponse, error) {
+func (s *LabelService) GetLabelBySlug(slug string) (*contracts.LabelDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -112,7 +113,7 @@ func (s *LabelService) GetLabelBySlug(slug string) (*LabelDetailResponse, error)
 }
 
 // ListLabels retrieves labels with optional filtering
-func (s *LabelService) ListLabels(filters map[string]interface{}) ([]*LabelListResponse, error) {
+func (s *LabelService) ListLabels(filters map[string]interface{}) ([]*contracts.LabelListResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -178,13 +179,13 @@ func (s *LabelService) ListLabels(filters map[string]interface{}) ([]*LabelListR
 	}
 
 	// Build responses
-	responses := make([]*LabelListResponse, len(labels))
+	responses := make([]*contracts.LabelListResponse, len(labels))
 	for i, label := range labels {
 		slug := ""
 		if label.Slug != nil {
 			slug = *label.Slug
 		}
-		responses[i] = &LabelListResponse{
+		responses[i] = &contracts.LabelListResponse{
 			ID:           label.ID,
 			Name:         label.Name,
 			Slug:         slug,
@@ -200,7 +201,7 @@ func (s *LabelService) ListLabels(filters map[string]interface{}) ([]*LabelListR
 }
 
 // UpdateLabel updates an existing label
-func (s *LabelService) UpdateLabel(labelID uint, req *UpdateLabelRequest) (*LabelDetailResponse, error) {
+func (s *LabelService) UpdateLabel(labelID uint, req *contracts.UpdateLabelRequest) (*contracts.LabelDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -307,7 +308,7 @@ func (s *LabelService) DeleteLabel(labelID uint) error {
 }
 
 // GetLabelRoster retrieves all artists on a label
-func (s *LabelService) GetLabelRoster(labelID uint) ([]*LabelArtistResponse, error) {
+func (s *LabelService) GetLabelRoster(labelID uint) ([]*contracts.LabelArtistResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -326,7 +327,7 @@ func (s *LabelService) GetLabelRoster(labelID uint) ([]*LabelArtistResponse, err
 	s.db.Where("label_id = ?", labelID).Find(&artistLabels)
 
 	if len(artistLabels) == 0 {
-		return []*LabelArtistResponse{}, nil
+		return []*contracts.LabelArtistResponse{}, nil
 	}
 
 	artistIDs := make([]uint, len(artistLabels))
@@ -337,13 +338,13 @@ func (s *LabelService) GetLabelRoster(labelID uint) ([]*LabelArtistResponse, err
 	var artists []models.Artist
 	s.db.Where("id IN ?", artistIDs).Order("name ASC").Find(&artists)
 
-	responses := make([]*LabelArtistResponse, len(artists))
+	responses := make([]*contracts.LabelArtistResponse, len(artists))
 	for i, artist := range artists {
 		slug := ""
 		if artist.Slug != nil {
 			slug = *artist.Slug
 		}
-		responses[i] = &LabelArtistResponse{
+		responses[i] = &contracts.LabelArtistResponse{
 			ID:   artist.ID,
 			Slug: slug,
 			Name: artist.Name,
@@ -354,7 +355,7 @@ func (s *LabelService) GetLabelRoster(labelID uint) ([]*LabelArtistResponse, err
 }
 
 // GetLabelCatalog retrieves all releases on a label
-func (s *LabelService) GetLabelCatalog(labelID uint) ([]*LabelReleaseResponse, error) {
+func (s *LabelService) GetLabelCatalog(labelID uint) ([]*contracts.LabelReleaseResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -373,7 +374,7 @@ func (s *LabelService) GetLabelCatalog(labelID uint) ([]*LabelReleaseResponse, e
 	s.db.Where("label_id = ?", labelID).Find(&releaseLabels)
 
 	if len(releaseLabels) == 0 {
-		return []*LabelReleaseResponse{}, nil
+		return []*contracts.LabelReleaseResponse{}, nil
 	}
 
 	releaseIDs := make([]uint, len(releaseLabels))
@@ -386,13 +387,13 @@ func (s *LabelService) GetLabelCatalog(labelID uint) ([]*LabelReleaseResponse, e
 	var releases []models.Release
 	s.db.Where("id IN ?", releaseIDs).Order("release_year DESC NULLS LAST, title ASC").Find(&releases)
 
-	responses := make([]*LabelReleaseResponse, len(releases))
+	responses := make([]*contracts.LabelReleaseResponse, len(releases))
 	for i, release := range releases {
 		slug := ""
 		if release.Slug != nil {
 			slug = *release.Slug
 		}
-		responses[i] = &LabelReleaseResponse{
+		responses[i] = &contracts.LabelReleaseResponse{
 			ID:            release.ID,
 			Title:         release.Title,
 			Slug:          slug,
@@ -406,8 +407,8 @@ func (s *LabelService) GetLabelCatalog(labelID uint) ([]*LabelReleaseResponse, e
 	return responses, nil
 }
 
-// buildDetailResponse converts a Label model to LabelDetailResponse
-func (s *LabelService) buildDetailResponse(label *models.Label) (*LabelDetailResponse, error) {
+// buildDetailResponse converts a Label model to contracts.LabelDetailResponse
+func (s *LabelService) buildDetailResponse(label *models.Label) (*contracts.LabelDetailResponse, error) {
 	slug := ""
 	if label.Slug != nil {
 		slug = *label.Slug
@@ -421,7 +422,7 @@ func (s *LabelService) buildDetailResponse(label *models.Label) (*LabelDetailRes
 	var releaseCount int64
 	s.db.Table("release_labels").Where("label_id = ?", label.ID).Count(&releaseCount)
 
-	return &LabelDetailResponse{
+	return &contracts.LabelDetailResponse{
 		ID:          label.ID,
 		Name:        label.Name,
 		Slug:        slug,
@@ -431,7 +432,7 @@ func (s *LabelService) buildDetailResponse(label *models.Label) (*LabelDetailRes
 		FoundedYear: label.FoundedYear,
 		Status:      string(label.Status),
 		Description: label.Description,
-		Social: SocialResponse{
+		Social: contracts.SocialResponse{
 			Instagram:  label.Social.Instagram,
 			Facebook:   label.Social.Facebook,
 			Twitter:    label.Social.Twitter,

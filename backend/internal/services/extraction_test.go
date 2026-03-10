@@ -22,6 +22,7 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -651,7 +652,7 @@ func TestCallAnthropic(t *testing.T) {
 func TestMatchArtists(t *testing.T) {
 	t.Run("empty_input", func(t *testing.T) {
 		svc := &ExtractionService{
-			artistService: &ArtistService{db: nil},
+			artistService: catalog.NewArtistService(nil),
 		}
 
 		result := svc.matchArtists([]rawArtist{})
@@ -661,7 +662,7 @@ func TestMatchArtists(t *testing.T) {
 
 	t.Run("nil_input", func(t *testing.T) {
 		svc := &ExtractionService{
-			artistService: &ArtistService{db: nil},
+			artistService: catalog.NewArtistService(nil),
 		}
 
 		result := svc.matchArtists(nil)
@@ -671,7 +672,7 @@ func TestMatchArtists(t *testing.T) {
 
 	t.Run("search_error_returns_unmatched", func(t *testing.T) {
 		svc := &ExtractionService{
-			artistService: &ArtistService{db: nil}, // nil db → "database not initialized" error
+			artistService: catalog.NewArtistService(nil), // nil db → "database not initialized" error
 		}
 
 		result := svc.matchArtists([]rawArtist{
@@ -693,7 +694,7 @@ func TestMatchArtists(t *testing.T) {
 func TestMatchVenue(t *testing.T) {
 	t.Run("no_venue_in_parsed", func(t *testing.T) {
 		svc := &ExtractionService{
-			venueService: &VenueService{db: nil},
+			venueService: catalog.NewVenueService(nil),
 		}
 
 		result := svc.matchVenue(map[string]interface{}{
@@ -705,7 +706,7 @@ func TestMatchVenue(t *testing.T) {
 
 	t.Run("venue_not_map", func(t *testing.T) {
 		svc := &ExtractionService{
-			venueService: &VenueService{db: nil},
+			venueService: catalog.NewVenueService(nil),
 		}
 
 		result := svc.matchVenue(map[string]interface{}{
@@ -717,7 +718,7 @@ func TestMatchVenue(t *testing.T) {
 
 	t.Run("empty_name", func(t *testing.T) {
 		svc := &ExtractionService{
-			venueService: &VenueService{db: nil},
+			venueService: catalog.NewVenueService(nil),
 		}
 
 		result := svc.matchVenue(map[string]interface{}{
@@ -731,7 +732,7 @@ func TestMatchVenue(t *testing.T) {
 
 	t.Run("search_error_returns_unmatched", func(t *testing.T) {
 		svc := &ExtractionService{
-			venueService: &VenueService{db: nil}, // nil db → error
+			venueService: catalog.NewVenueService(nil), // nil db → error
 		}
 
 		result := svc.matchVenue(map[string]interface{}{
@@ -810,8 +811,8 @@ func (suite *ExtractionIntegrationTestSuite) SetupSuite() {
 
 	suite.extractionService = &ExtractionService{
 		config:        &config.Config{},
-		artistService: &ArtistService{db: db},
-		venueService:  &VenueService{db: db},
+		artistService: catalog.NewArtistService(db),
+		venueService:  catalog.NewVenueService(db),
 	}
 }
 

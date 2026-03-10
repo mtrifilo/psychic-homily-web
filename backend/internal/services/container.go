@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/services/catalog"
 )
 
 // ServiceContainer eagerly creates all services once at startup.
@@ -14,21 +15,21 @@ type ServiceContainer struct {
 	// DB-only leaf services
 	AdminStats         *AdminStatsService
 	APIToken           *APITokenService
-	Artist             *ArtistService
+	Artist             *catalog.ArtistService
 	ContributorProfile *ContributorProfileService
 	ArtistReport  *ArtistReportService
 	AuditLog      *AuditLogService
 	Bookmark      *BookmarkService
 	Calendar      *CalendarService
 	FavoriteVenue *FavoriteVenueService
-	Festival      *FestivalService
-	Label         *LabelService
-	Release       *ReleaseService
+	Festival      *catalog.FestivalService
+	Label         *catalog.LabelService
+	Release       *catalog.ReleaseService
 	SavedShow     *SavedShowService
-	Show          *ShowService
+	Show          *catalog.ShowService
 	ShowReport    *ShowReportService
 	User              *UserService
-	Venue             *VenueService
+	Venue             *catalog.VenueService
 	VenueSourceConfig *VenueSourceConfigService
 
 	// Config-only services
@@ -77,24 +78,24 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	extraction := NewExtractionService(database, cfg)
 	discovery := NewDiscoveryService(database)
 	venueSourceConfig := NewVenueSourceConfigService(database)
-	venue := NewVenueService(database)
+	venue := catalog.NewVenueService(database)
 
 	return &ServiceContainer{
 		// DB-only leaf services
 		AdminStats:         NewAdminStatsService(database),
 		APIToken:           NewAPITokenService(database),
-		Artist:             NewArtistService(database),
+		Artist:             catalog.NewArtistService(database),
 		ContributorProfile: NewContributorProfileService(database),
 		ArtistReport:  NewArtistReportService(database),
 		AuditLog:      NewAuditLogService(database),
 		Bookmark:      NewBookmarkService(database),
 		Calendar:      NewCalendarService(database, savedShow),
 		FavoriteVenue: NewFavoriteVenueService(database),
-		Festival:      NewFestivalService(database),
-		Label:         NewLabelService(database),
-		Release:       NewReleaseService(database),
+		Festival:      catalog.NewFestivalService(database),
+		Label:         catalog.NewLabelService(database),
+		Release:       catalog.NewReleaseService(database),
 		SavedShow:     savedShow,
-		Show:          NewShowService(database),
+		Show:          catalog.NewShowService(database),
 		ShowReport:    NewShowReportService(database),
 		User:          NewUserService(database),
 		Venue:             venue,

@@ -1,4 +1,4 @@
-package services
+package catalog
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/services/contracts"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/utils"
@@ -27,7 +28,7 @@ func NewFestivalService(database *gorm.DB) *FestivalService {
 }
 
 // CreateFestival creates a new festival
-func (s *FestivalService) CreateFestival(req *CreateFestivalRequest) (*FestivalDetailResponse, error) {
+func (s *FestivalService) CreateFestival(req *contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -73,7 +74,7 @@ func (s *FestivalService) CreateFestival(req *CreateFestivalRequest) (*FestivalD
 }
 
 // GetFestival retrieves a festival by ID
-func (s *FestivalService) GetFestival(festivalID uint) (*FestivalDetailResponse, error) {
+func (s *FestivalService) GetFestival(festivalID uint) (*contracts.FestivalDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -91,7 +92,7 @@ func (s *FestivalService) GetFestival(festivalID uint) (*FestivalDetailResponse,
 }
 
 // GetFestivalBySlug retrieves a festival by slug
-func (s *FestivalService) GetFestivalBySlug(slug string) (*FestivalDetailResponse, error) {
+func (s *FestivalService) GetFestivalBySlug(slug string) (*contracts.FestivalDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -109,7 +110,7 @@ func (s *FestivalService) GetFestivalBySlug(slug string) (*FestivalDetailRespons
 }
 
 // ListFestivals retrieves festivals with optional filtering
-func (s *FestivalService) ListFestivals(filters map[string]interface{}) ([]*FestivalListResponse, error) {
+func (s *FestivalService) ListFestivals(filters map[string]interface{}) ([]*contracts.FestivalListResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -181,9 +182,9 @@ func (s *FestivalService) ListFestivals(filters map[string]interface{}) ([]*Fest
 	}
 
 	// Build responses
-	responses := make([]*FestivalListResponse, len(festivals))
+	responses := make([]*contracts.FestivalListResponse, len(festivals))
 	for i, festival := range festivals {
-		responses[i] = &FestivalListResponse{
+		responses[i] = &contracts.FestivalListResponse{
 			ID:          festival.ID,
 			Name:        festival.Name,
 			Slug:        festival.Slug,
@@ -203,7 +204,7 @@ func (s *FestivalService) ListFestivals(filters map[string]interface{}) ([]*Fest
 }
 
 // UpdateFestival updates an existing festival
-func (s *FestivalService) UpdateFestival(festivalID uint, req *UpdateFestivalRequest) (*FestivalDetailResponse, error) {
+func (s *FestivalService) UpdateFestival(festivalID uint, req *contracts.UpdateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -310,7 +311,7 @@ func (s *FestivalService) DeleteFestival(festivalID uint) error {
 }
 
 // GetFestivalArtists retrieves the lineup for a festival
-func (s *FestivalService) GetFestivalArtists(festivalID uint, dayDate *string) ([]*FestivalArtistResponse, error) {
+func (s *FestivalService) GetFestivalArtists(festivalID uint, dayDate *string) ([]*contracts.FestivalArtistResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -348,7 +349,7 @@ func (s *FestivalService) GetFestivalArtists(festivalID uint, dayDate *string) (
 	}
 
 	if len(festivalArtists) == 0 {
-		return []*FestivalArtistResponse{}, nil
+		return []*contracts.FestivalArtistResponse{}, nil
 	}
 
 	// Batch-load artist details
@@ -365,7 +366,7 @@ func (s *FestivalService) GetFestivalArtists(festivalID uint, dayDate *string) (
 	}
 
 	// Build responses
-	responses := make([]*FestivalArtistResponse, 0, len(festivalArtists))
+	responses := make([]*contracts.FestivalArtistResponse, 0, len(festivalArtists))
 	for _, fa := range festivalArtists {
 		artistModel, ok := artistMap[fa.ArtistID]
 		if !ok {
@@ -376,7 +377,7 @@ func (s *FestivalService) GetFestivalArtists(festivalID uint, dayDate *string) (
 			artistSlug = *artistModel.Slug
 		}
 
-		resp := &FestivalArtistResponse{
+		resp := &contracts.FestivalArtistResponse{
 			ID:          fa.ID,
 			ArtistID:    fa.ArtistID,
 			ArtistSlug:  artistSlug,
@@ -395,7 +396,7 @@ func (s *FestivalService) GetFestivalArtists(festivalID uint, dayDate *string) (
 }
 
 // AddFestivalArtist adds an artist to a festival lineup
-func (s *FestivalService) AddFestivalArtist(festivalID uint, req *AddFestivalArtistRequest) (*FestivalArtistResponse, error) {
+func (s *FestivalService) AddFestivalArtist(festivalID uint, req *contracts.AddFestivalArtistRequest) (*contracts.FestivalArtistResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -443,7 +444,7 @@ func (s *FestivalService) AddFestivalArtist(festivalID uint, req *AddFestivalArt
 		artistSlug = *artist.Slug
 	}
 
-	return &FestivalArtistResponse{
+	return &contracts.FestivalArtistResponse{
 		ID:          fa.ID,
 		ArtistID:    fa.ArtistID,
 		ArtistSlug:  artistSlug,
@@ -458,7 +459,7 @@ func (s *FestivalService) AddFestivalArtist(festivalID uint, req *AddFestivalArt
 }
 
 // UpdateFestivalArtist updates an artist's festival details
-func (s *FestivalService) UpdateFestivalArtist(festivalID, artistID uint, req *UpdateFestivalArtistRequest) (*FestivalArtistResponse, error) {
+func (s *FestivalService) UpdateFestivalArtist(festivalID, artistID uint, req *contracts.UpdateFestivalArtistRequest) (*contracts.FestivalArtistResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -511,7 +512,7 @@ func (s *FestivalService) UpdateFestivalArtist(festivalID, artistID uint, req *U
 		artistSlug = *artist.Slug
 	}
 
-	return &FestivalArtistResponse{
+	return &contracts.FestivalArtistResponse{
 		ID:          fa.ID,
 		ArtistID:    fa.ArtistID,
 		ArtistSlug:  artistSlug,
@@ -543,7 +544,7 @@ func (s *FestivalService) RemoveFestivalArtist(festivalID, artistID uint) error 
 }
 
 // GetFestivalVenues retrieves the venues for a festival
-func (s *FestivalService) GetFestivalVenues(festivalID uint) ([]*FestivalVenueResponse, error) {
+func (s *FestivalService) GetFestivalVenues(festivalID uint) ([]*contracts.FestivalVenueResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -564,7 +565,7 @@ func (s *FestivalService) GetFestivalVenues(festivalID uint) ([]*FestivalVenueRe
 	}
 
 	if len(festivalVenues) == 0 {
-		return []*FestivalVenueResponse{}, nil
+		return []*contracts.FestivalVenueResponse{}, nil
 	}
 
 	// Batch-load venue details
@@ -581,7 +582,7 @@ func (s *FestivalService) GetFestivalVenues(festivalID uint) ([]*FestivalVenueRe
 	}
 
 	// Build responses
-	responses := make([]*FestivalVenueResponse, 0, len(festivalVenues))
+	responses := make([]*contracts.FestivalVenueResponse, 0, len(festivalVenues))
 	for _, fv := range festivalVenues {
 		venueModel, ok := venueMap[fv.VenueID]
 		if !ok {
@@ -591,7 +592,7 @@ func (s *FestivalService) GetFestivalVenues(festivalID uint) ([]*FestivalVenueRe
 		if venueModel.Slug != nil {
 			venueSlug = *venueModel.Slug
 		}
-		responses = append(responses, &FestivalVenueResponse{
+		responses = append(responses, &contracts.FestivalVenueResponse{
 			ID:        fv.ID,
 			VenueID:   fv.VenueID,
 			VenueName: venueModel.Name,
@@ -606,7 +607,7 @@ func (s *FestivalService) GetFestivalVenues(festivalID uint) ([]*FestivalVenueRe
 }
 
 // AddFestivalVenue adds a venue to a festival
-func (s *FestivalService) AddFestivalVenue(festivalID uint, req *AddFestivalVenueRequest) (*FestivalVenueResponse, error) {
+func (s *FestivalService) AddFestivalVenue(festivalID uint, req *contracts.AddFestivalVenueRequest) (*contracts.FestivalVenueResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -644,7 +645,7 @@ func (s *FestivalService) AddFestivalVenue(festivalID uint, req *AddFestivalVenu
 		venueSlug = *venue.Slug
 	}
 
-	return &FestivalVenueResponse{
+	return &contracts.FestivalVenueResponse{
 		ID:        fv.ID,
 		VenueID:   fv.VenueID,
 		VenueName: venue.Name,
@@ -673,7 +674,7 @@ func (s *FestivalService) RemoveFestivalVenue(festivalID, venueID uint) error {
 }
 
 // GetFestivalsForArtist retrieves all festivals an artist has played
-func (s *FestivalService) GetFestivalsForArtist(artistID uint) ([]*ArtistFestivalListResponse, error) {
+func (s *FestivalService) GetFestivalsForArtist(artistID uint) ([]*contracts.ArtistFestivalListResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -694,7 +695,7 @@ func (s *FestivalService) GetFestivalsForArtist(artistID uint) ([]*ArtistFestiva
 	}
 
 	if len(festivalArtists) == 0 {
-		return []*ArtistFestivalListResponse{}, nil
+		return []*contracts.ArtistFestivalListResponse{}, nil
 	}
 
 	// Build mapping: festivalID -> festival artist details
@@ -747,10 +748,10 @@ func (s *FestivalService) GetFestivalsForArtist(artistID uint) ([]*ArtistFestiva
 	}
 
 	// Build responses
-	responses := make([]*ArtistFestivalListResponse, len(festivals))
+	responses := make([]*contracts.ArtistFestivalListResponse, len(festivals))
 	for i, festival := range festivals {
-		responses[i] = &ArtistFestivalListResponse{
-			FestivalListResponse: FestivalListResponse{
+		responses[i] = &contracts.ArtistFestivalListResponse{
+			FestivalListResponse: contracts.FestivalListResponse{
 				ID:          festival.ID,
 				Name:        festival.Name,
 				Slug:        festival.Slug,
@@ -773,8 +774,8 @@ func (s *FestivalService) GetFestivalsForArtist(artistID uint) ([]*ArtistFestiva
 	return responses, nil
 }
 
-// buildDetailResponse converts a Festival model to FestivalDetailResponse
-func (s *FestivalService) buildDetailResponse(festival *models.Festival) (*FestivalDetailResponse, error) {
+// buildDetailResponse converts a Festival model to contracts.FestivalDetailResponse
+func (s *FestivalService) buildDetailResponse(festival *models.Festival) (*contracts.FestivalDetailResponse, error) {
 	// Count artists
 	var artistCount int64
 	s.db.Table("festival_artists").Where("festival_id = ?", festival.ID).Count(&artistCount)
@@ -783,7 +784,7 @@ func (s *FestivalService) buildDetailResponse(festival *models.Festival) (*Festi
 	var venueCount int64
 	s.db.Table("festival_venues").Where("festival_id = ?", festival.ID).Count(&venueCount)
 
-	return &FestivalDetailResponse{
+	return &contracts.FestivalDetailResponse{
 		ID:           festival.ID,
 		Name:         festival.Name,
 		Slug:         festival.Slug,

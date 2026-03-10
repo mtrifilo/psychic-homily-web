@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/catalog"
 )
 
 type AdminHandlerIntegrationSuite struct {
@@ -580,5 +580,5 @@ func futureDate(daysFromNow int) time.Time {
 // Ensure imports are used
 var (
 	_ *models.Show
-	_ *services.ShowService
+	_ *catalog.ShowService
 )

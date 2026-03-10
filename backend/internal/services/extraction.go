@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/services/catalog"
 )
 
 const extractionSystemPrompt = `You are a show information extractor. Given text or an image of a show flyer, extract structured information.
@@ -41,8 +42,8 @@ Rules:
 // ExtractionService handles AI-powered show info extraction
 type ExtractionService struct {
 	config           *config.Config
-	artistService    *ArtistService
-	venueService     *VenueService
+	artistService    *catalog.ArtistService
+	venueService     *catalog.VenueService
 	httpClient       *http.Client
 	anthropicBaseURL string
 }
@@ -51,8 +52,8 @@ type ExtractionService struct {
 func NewExtractionService(database *gorm.DB, cfg *config.Config) *ExtractionService {
 	return &ExtractionService{
 		config:           cfg,
-		artistService:    NewArtistService(database),
-		venueService:     NewVenueService(database),
+		artistService:    catalog.NewArtistService(database),
+		venueService:     catalog.NewVenueService(database),
 		httpClient:       &http.Client{},
 		anthropicBaseURL: "https://api.anthropic.com",
 	}

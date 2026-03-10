@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -23,8 +24,8 @@ type handlerIntegrationDeps struct {
 	db                    *gorm.DB
 	container             testcontainers.Container
 	ctx                   context.Context
-	showService           *services.ShowService
-	venueService          *services.VenueService
+	showService           *catalog.ShowService
+	venueService          *catalog.VenueService
 	savedShowService      *services.SavedShowService
 	favoriteVenueService  *services.FavoriteVenueService
 	showReportService     *services.ShowReportService
@@ -37,10 +38,10 @@ type handlerIntegrationDeps struct {
 	dataSyncService       *services.DataSyncService
 	adminStatsService     *services.AdminStatsService
 	discoveryService      *services.DiscoveryService
-	artistService         *services.ArtistService
-	festivalService       *services.FestivalService
-	labelService          *services.LabelService
-	releaseService        *services.ReleaseService
+	artistService         *catalog.ArtistService
+	festivalService       *catalog.FestivalService
+	labelService          *catalog.LabelService
+	releaseService        *catalog.ReleaseService
 }
 
 func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
@@ -98,8 +99,8 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		db:                    db,
 		container:             container,
 		ctx:                   ctx,
-		showService:           services.NewShowService(db),
-		venueService:          services.NewVenueService(db),
+		showService:           catalog.NewShowService(db),
+		venueService:          catalog.NewVenueService(db),
 		savedShowService:      services.NewSavedShowService(db),
 		favoriteVenueService:  services.NewFavoriteVenueService(db),
 		showReportService:     services.NewShowReportService(db),
@@ -112,10 +113,10 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		dataSyncService:       services.NewDataSyncService(db),
 		adminStatsService:     services.NewAdminStatsService(db),
 		discoveryService:      services.NewDiscoveryService(db),
-		artistService:         services.NewArtistService(db),
-		festivalService:       services.NewFestivalService(db),
-		labelService:          services.NewLabelService(db),
-		releaseService:        services.NewReleaseService(db),
+		artistService:         catalog.NewArtistService(db),
+		festivalService:       catalog.NewFestivalService(db),
+		labelService:          catalog.NewLabelService(db),
+		releaseService:        catalog.NewReleaseService(db),
 	}
 
 	return deps

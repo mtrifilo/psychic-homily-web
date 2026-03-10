@@ -1,4 +1,4 @@
-package services
+package catalog
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -33,7 +34,7 @@ func TestShowService_NilDatabase(t *testing.T) {
 	svc := &ShowService{db: nil}
 
 	t.Run("CreateShow", func(t *testing.T) {
-		resp, err := svc.CreateShow(&CreateShowRequest{})
+		resp, err := svc.CreateShow(&contracts.CreateShowRequest{})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -192,7 +193,7 @@ func TestShowService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("GetAdminShows", func(t *testing.T) {
-		resp, count, err := svc.GetAdminShows(10, 0, AdminShowFilters{})
+		resp, count, err := svc.GetAdminShows(10, 0, contracts.AdminShowFilters{})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -256,7 +257,7 @@ func (suite *ShowServiceIntegrationTestSuite) SetupSuite() {
 	if err != nil {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	suite.showService = &ShowService{db: db}
 }
@@ -315,17 +316,17 @@ func (suite *ShowServiceIntegrationTestSuite) createTestVenue(name, city, state 
 	return venue
 }
 
-func (suite *ShowServiceIntegrationTestSuite) createTestShow(opts ...func(*CreateShowRequest)) *ShowResponse {
+func (suite *ShowServiceIntegrationTestSuite) createTestShow(opts ...func(*contracts.CreateShowRequest)) *contracts.ShowResponse {
 	user := suite.createTestUser()
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:     "Test Show",
 		EventDate: time.Date(2026, 6, 15, 20, 0, 0, 0, time.UTC),
 		City:      "Phoenix",
 		State:     "AZ",
-		Venues: []CreateShowVenue{
+		Venues: []contracts.CreateShowVenue{
 			{Name: "The Venue", City: "Phoenix", State: "AZ"},
 		},
-		Artists: []CreateShowArtist{
+		Artists: []contracts.CreateShowArtist{
 			{Name: "Test Artist", IsHeadliner: boolPtr(true)},
 		},
 		SubmittedByUserID: &user.ID,
@@ -354,15 +355,15 @@ func uintPtr(u uint) *uint {
 
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_Success() {
 	user := suite.createTestUser()
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:     "Rock Night",
 		EventDate: time.Date(2026, 7, 10, 21, 0, 0, 0, time.UTC),
 		City:      "Phoenix",
 		State:     "AZ",
-		Venues: []CreateShowVenue{
+		Venues: []contracts.CreateShowVenue{
 			{Name: "Valley Bar", City: "Phoenix", State: "AZ"},
 		},
-		Artists: []CreateShowArtist{
+		Artists: []contracts.CreateShowArtist{
 			{Name: "The Rockers", IsHeadliner: boolPtr(true)},
 			{Name: "Opening Act", IsHeadliner: boolPtr(false)},
 		},
@@ -388,15 +389,15 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_Success() {
 
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_Private() {
 	user := suite.createTestUser()
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:     "Private Gig",
 		EventDate: time.Date(2026, 8, 1, 19, 0, 0, 0, time.UTC),
 		City:      "Tempe",
 		State:     "AZ",
-		Venues: []CreateShowVenue{
+		Venues: []contracts.CreateShowVenue{
 			{Name: "Small Club", City: "Tempe", State: "AZ"},
 		},
-		Artists: []CreateShowArtist{
+		Artists: []contracts.CreateShowArtist{
 			{Name: "Solo Artist", IsHeadliner: boolPtr(true)},
 		},
 		SubmittedByUserID: &user.ID,
@@ -413,15 +414,15 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_ExistingVenue() {
 	existing := suite.createTestVenue("Existing Hall", "Phoenix", "AZ", true)
 	user := suite.createTestUser()
 
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:     "Show at Existing",
 		EventDate: time.Date(2026, 9, 5, 20, 0, 0, 0, time.UTC),
 		City:      "Phoenix",
 		State:     "AZ",
-		Venues: []CreateShowVenue{
+		Venues: []contracts.CreateShowVenue{
 			{Name: "Existing Hall", City: "Phoenix", State: "AZ"},
 		},
-		Artists: []CreateShowArtist{
+		Artists: []contracts.CreateShowArtist{
 			{Name: "Band One", IsHeadliner: boolPtr(true)},
 		},
 		SubmittedByUserID: &user.ID,
@@ -442,15 +443,15 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_ExistingVenue() {
 
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistAndVenue() {
 	user := suite.createTestUser()
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:     "Brand New Show",
 		EventDate: time.Date(2026, 10, 1, 20, 0, 0, 0, time.UTC),
 		City:      "Tucson",
 		State:     "AZ",
-		Venues: []CreateShowVenue{
+		Venues: []contracts.CreateShowVenue{
 			{Name: "New Place", City: "Tucson", State: "AZ"},
 		},
-		Artists: []CreateShowArtist{
+		Artists: []contracts.CreateShowArtist{
 			{Name: "Brand New Band", IsHeadliner: boolPtr(true)},
 		},
 		SubmittedByUserID: &user.ID,
@@ -477,15 +478,15 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistAndVenue()
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistWithInstagram() {
 	user := suite.createTestUser()
 	igHandle := "@ig_artist"
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:     "IG Show",
 		EventDate: time.Date(2026, 10, 2, 20, 0, 0, 0, time.UTC),
 		City:      "Phoenix",
 		State:     "AZ",
-		Venues: []CreateShowVenue{
+		Venues: []contracts.CreateShowVenue{
 			{Name: "IG Venue", City: "Phoenix", State: "AZ"},
 		},
-		Artists: []CreateShowArtist{
+		Artists: []contracts.CreateShowArtist{
 			{Name: "IG Artist", IsHeadliner: boolPtr(true), InstagramHandle: &igHandle},
 		},
 		SubmittedByUserID: &user.ID,
@@ -511,15 +512,15 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistWithInstag
 
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistWithoutInstagram() {
 	user := suite.createTestUser()
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:     "No IG Show",
 		EventDate: time.Date(2026, 10, 3, 20, 0, 0, 0, time.UTC),
 		City:      "Phoenix",
 		State:     "AZ",
-		Venues: []CreateShowVenue{
+		Venues: []contracts.CreateShowVenue{
 			{Name: "No IG Venue", City: "Phoenix", State: "AZ"},
 		},
-		Artists: []CreateShowArtist{
+		Artists: []contracts.CreateShowArtist{
 			{Name: "No IG Artist", IsHeadliner: boolPtr(true)},
 		},
 		SubmittedByUserID: &user.ID,
@@ -544,15 +545,15 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_ExistingArtistIgnor
 
 	user := suite.createTestUser()
 	igHandle := "@should_ignore"
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:     "Existing Artist IG Show",
 		EventDate: time.Date(2026, 10, 4, 20, 0, 0, 0, time.UTC),
 		City:      "Phoenix",
 		State:     "AZ",
-		Venues: []CreateShowVenue{
+		Venues: []contracts.CreateShowVenue{
 			{Name: "Some Venue", City: "Phoenix", State: "AZ"},
 		},
-		Artists: []CreateShowArtist{
+		Artists: []contracts.CreateShowArtist{
 			{Name: "Pre-existing Artist", IsHeadliner: boolPtr(true), InstagramHandle: &igHandle},
 		},
 		SubmittedByUserID: &user.ID,
@@ -576,15 +577,15 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_ExistingArtistIgnor
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistEmptyInstagramIgnored() {
 	user := suite.createTestUser()
 	emptyIG := ""
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:     "Empty IG Show",
 		EventDate: time.Date(2026, 10, 5, 20, 0, 0, 0, time.UTC),
 		City:      "Phoenix",
 		State:     "AZ",
-		Venues: []CreateShowVenue{
+		Venues: []contracts.CreateShowVenue{
 			{Name: "Empty IG Venue", City: "Phoenix", State: "AZ"},
 		},
-		Artists: []CreateShowArtist{
+		Artists: []contracts.CreateShowArtist{
 			{Name: "Empty IG Artist", IsHeadliner: boolPtr(true), InstagramHandle: &emptyIG},
 		},
 		SubmittedByUserID: &user.ID,
@@ -713,7 +714,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_EventDate_UTC() {
 func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_ReplaceArtists() {
 	created := suite.createTestShow()
 
-	newArtists := []CreateShowArtist{
+	newArtists := []contracts.CreateShowArtist{
 		{Name: "Replacement Headliner", IsHeadliner: boolPtr(true)},
 		{Name: "Replacement Opener", IsHeadliner: boolPtr(false)},
 	}
@@ -730,7 +731,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_Replac
 func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_ReplaceVenues() {
 	created := suite.createTestShow()
 
-	newVenues := []CreateShowVenue{
+	newVenues := []contracts.CreateShowVenue{
 		{Name: "Replacement Venue", City: "Tempe", State: "AZ"},
 	}
 
@@ -743,14 +744,14 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_Replac
 
 func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_OrphanedArtist() {
 	// Create a show with a unique artist
-	created := suite.createTestShow(func(req *CreateShowRequest) {
-		req.Artists = []CreateShowArtist{
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Artists = []contracts.CreateShowArtist{
 			{Name: "Soon Orphaned", IsHeadliner: boolPtr(true)},
 		}
 	})
 
 	// Replace artists with a different one
-	newArtists := []CreateShowArtist{
+	newArtists := []contracts.CreateShowArtist{
 		{Name: "Brand New Star", IsHeadliner: boolPtr(true)},
 	}
 
@@ -764,13 +765,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_Orphan
 func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_NoOrphanIfStillAssociated() {
 	// Create two shows sharing the same artist
 	user := suite.createTestUser()
-	req1 := &CreateShowRequest{
+	req1 := &contracts.CreateShowRequest{
 		Title:     "Show A",
 		EventDate: time.Date(2026, 6, 10, 20, 0, 0, 0, time.UTC),
 		City:      "Phoenix",
 		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Venue A", City: "Phoenix", State: "AZ"}},
-		Artists: []CreateShowArtist{
+		Venues:    []contracts.CreateShowVenue{{Name: "Venue A", City: "Phoenix", State: "AZ"}},
+		Artists: []contracts.CreateShowArtist{
 			{Name: "Shared Artist", IsHeadliner: boolPtr(true)},
 		},
 		SubmittedByUserID: &user.ID,
@@ -779,13 +780,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_NoOrph
 	showA, err := suite.showService.CreateShow(req1)
 	suite.Require().NoError(err)
 
-	req2 := &CreateShowRequest{
+	req2 := &contracts.CreateShowRequest{
 		Title:     "Show B",
 		EventDate: time.Date(2026, 6, 11, 20, 0, 0, 0, time.UTC),
 		City:      "Tempe",
 		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "Venue B", City: "Tempe", State: "AZ"}},
-		Artists: []CreateShowArtist{
+		Venues:    []contracts.CreateShowVenue{{Name: "Venue B", City: "Tempe", State: "AZ"}},
+		Artists: []contracts.CreateShowArtist{
 			{Name: "Shared Artist", IsHeadliner: boolPtr(true)},
 		},
 		SubmittedByUserID: &user.ID,
@@ -795,7 +796,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_NoOrph
 	suite.Require().NoError(err)
 
 	// Remove the shared artist from Show A
-	newArtists := []CreateShowArtist{
+	newArtists := []contracts.CreateShowArtist{
 		{Name: "Different Artist", IsHeadliner: boolPtr(true)},
 	}
 
@@ -841,15 +842,15 @@ func (suite *ShowServiceIntegrationTestSuite) TestApproveShow_FromRejected() {
 func (suite *ShowServiceIntegrationTestSuite) TestApproveShow_WithVenueVerification() {
 	// Create show with an unverified venue
 	user := suite.createTestUser()
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:     "Verify Venue Show",
 		EventDate: time.Date(2026, 7, 20, 20, 0, 0, 0, time.UTC),
 		City:      "Phoenix",
 		State:     "AZ",
-		Venues: []CreateShowVenue{
+		Venues: []contracts.CreateShowVenue{
 			{Name: "Unverified Place", City: "Phoenix", State: "AZ"},
 		},
-		Artists: []CreateShowArtist{
+		Artists: []contracts.CreateShowArtist{
 			{Name: "Verify Artist", IsHeadliner: boolPtr(true)},
 		},
 		SubmittedByUserID: &user.ID,
@@ -904,13 +905,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestRejectShow_NotPending_Fails() 
 
 func (suite *ShowServiceIntegrationTestSuite) TestUnpublishShow_AsSubmitter() {
 	user := suite.createTestUser()
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:             "Submitter Unpublish",
 		EventDate:         time.Date(2026, 8, 10, 20, 0, 0, 0, time.UTC),
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "Unpub Venue", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "Unpub Artist", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "Unpub Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Unpub Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -972,13 +973,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestMakePrivateShow_NotPending_Fai
 
 func (suite *ShowServiceIntegrationTestSuite) TestPublishShow_Success() {
 	user := suite.createTestUser()
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:             "To Publish",
 		EventDate:         time.Date(2026, 9, 1, 20, 0, 0, 0, time.UTC),
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "Pub Venue", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "Pub Artist", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "Pub Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Pub Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		IsPrivate:         true,
 	}
@@ -994,13 +995,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestPublishShow_Success() {
 
 func (suite *ShowServiceIntegrationTestSuite) TestPublishShow_Unauthorized() {
 	user := suite.createTestUser()
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:             "Unauth Publish",
 		EventDate:         time.Date(2026, 9, 2, 20, 0, 0, 0, time.UTC),
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "Unauth Pub Venue", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "Unauth Pub Artist", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "Unauth Pub Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Unauth Pub Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		IsPrivate:         true,
 	}
@@ -1024,13 +1025,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 	user := suite.createTestUser()
 	eventDate := time.Date(2026, 11, 1, 20, 0, 0, 0, time.UTC)
 
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:             "First Show",
 		EventDate:         eventDate,
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "Dup Venue", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "Dup Headliner", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "Dup Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Dup Headliner", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1038,13 +1039,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 	suite.Require().NoError(err)
 
 	// Try creating duplicate
-	req2 := &CreateShowRequest{
+	req2 := &contracts.CreateShowRequest{
 		Title:             "Second Show (duplicate)",
 		EventDate:         eventDate,
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "Dup Venue", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "Dup Headliner", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "Dup Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Dup Headliner", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1058,13 +1059,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 	user := suite.createTestUser()
 	eventDate := time.Date(2026, 11, 2, 20, 0, 0, 0, time.UTC)
 
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:             "Original Case Show",
 		EventDate:         eventDate,
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "Case Venue", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "The Band", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "Case Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "The Band", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1072,13 +1073,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 	suite.Require().NoError(err)
 
 	// Try with different case
-	req2 := &CreateShowRequest{
+	req2 := &contracts.CreateShowRequest{
 		Title:             "Case Insensitive Dup",
 		EventDate:         eventDate,
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "case venue", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "the band", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "case venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "the band", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1091,13 +1092,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_DifferentDay_OK() {
 	user := suite.createTestUser()
 
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:             "Day 1",
 		EventDate:         time.Date(2026, 11, 3, 20, 0, 0, 0, time.UTC),
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "Multi Day Venue", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "Day Headliner", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "Multi Day Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Day Headliner", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1105,13 +1106,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 	suite.Require().NoError(err)
 
 	// Same headliner, same venue, DIFFERENT day
-	req2 := &CreateShowRequest{
+	req2 := &contracts.CreateShowRequest{
 		Title:             "Day 2",
 		EventDate:         time.Date(2026, 11, 4, 20, 0, 0, 0, time.UTC),
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "Multi Day Venue", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "Day Headliner", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "Multi Day Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Day Headliner", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1125,13 +1126,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 	user := suite.createTestUser()
 	eventDate := time.Date(2026, 11, 5, 20, 0, 0, 0, time.UTC)
 
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:             "Venue 1",
 		EventDate:         eventDate,
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "Venue Alpha", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "Venue Hopper", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "Venue Alpha", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Venue Hopper", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1139,13 +1140,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 	suite.Require().NoError(err)
 
 	// Same headliner, same day, DIFFERENT venue
-	req2 := &CreateShowRequest{
+	req2 := &contracts.CreateShowRequest{
 		Title:             "Venue 2",
 		EventDate:         eventDate,
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "Venue Beta", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "Venue Hopper", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "Venue Beta", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Venue Hopper", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1161,13 +1162,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NoHeadliner_NoDupli
 
 	// First show with no explicit headliner (first artist defaults to headliner)
 	// We need both artists to be explicitly non-headliner for this test
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:     "No Headliner 1",
 		EventDate: eventDate,
 		City:      "Phoenix",
 		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "NH Venue", City: "Phoenix", State: "AZ"}},
-		Artists: []CreateShowArtist{
+		Venues:    []contracts.CreateShowVenue{{Name: "NH Venue", City: "Phoenix", State: "AZ"}},
+		Artists: []contracts.CreateShowArtist{
 			{Name: "Opener Only", IsHeadliner: boolPtr(false)},
 		},
 		SubmittedByUserID: &user.ID,
@@ -1177,13 +1178,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NoHeadliner_NoDupli
 	suite.Require().NoError(err)
 
 	// Same details, should succeed (no headliner means no dup check)
-	req2 := &CreateShowRequest{
+	req2 := &contracts.CreateShowRequest{
 		Title:     "No Headliner 2",
 		EventDate: eventDate,
 		City:      "Phoenix",
 		State:     "AZ",
-		Venues:    []CreateShowVenue{{Name: "NH Venue", City: "Phoenix", State: "AZ"}},
-		Artists: []CreateShowArtist{
+		Venues:    []contracts.CreateShowVenue{{Name: "NH Venue", City: "Phoenix", State: "AZ"}},
+		Artists: []contracts.CreateShowArtist{
 			{Name: "Opener Only 2", IsHeadliner: boolPtr(false)},
 		},
 		SubmittedByUserID: &user.ID,
@@ -1203,13 +1204,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShows_FilterByCity() {
 	user := suite.createTestUser()
 
 	// Phoenix show
-	req1 := &CreateShowRequest{
+	req1 := &contracts.CreateShowRequest{
 		Title:             "Phoenix Show",
 		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "PHX Venue", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "PHX Artist", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "PHX Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "PHX Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1217,13 +1218,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShows_FilterByCity() {
 	suite.Require().NoError(err)
 
 	// Tucson show
-	req2 := &CreateShowRequest{
+	req2 := &contracts.CreateShowRequest{
 		Title:             "Tucson Show",
 		EventDate:         time.Date(2026, 12, 2, 20, 0, 0, 0, time.UTC),
 		City:              "Tucson",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "TUC Venue", City: "Tucson", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "TUC Artist", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "TUC Venue", City: "Tucson", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "TUC Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1247,13 +1248,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShows_FilterByDateRange() {
 	}
 
 	for i, d := range dates {
-		req := &CreateShowRequest{
+		req := &contracts.CreateShowRequest{
 			Title:             fmt.Sprintf("Date Show %d", i),
 			EventDate:         d,
 			City:              "Phoenix",
 			State:             "AZ",
-			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("Date Venue %d", i), City: "Phoenix", State: "AZ"}},
-			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("Date Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Venues:            []contracts.CreateShowVenue{{Name: fmt.Sprintf("Date Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []contracts.CreateShowArtist{{Name: fmt.Sprintf("Date Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1277,13 +1278,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUserSubmissions_Success() {
 
 	// Create 2 shows for user
 	for i := 0; i < 2; i++ {
-		req := &CreateShowRequest{
+		req := &contracts.CreateShowRequest{
 			Title:             fmt.Sprintf("User Show %d", i),
 			EventDate:         time.Date(2026, 12, 1+i, 20, 0, 0, 0, time.UTC),
 			City:              "Phoenix",
 			State:             "AZ",
-			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("Sub Venue %d", i), City: "Phoenix", State: "AZ"}},
-			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("Sub Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Venues:            []contracts.CreateShowVenue{{Name: fmt.Sprintf("Sub Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []contracts.CreateShowArtist{{Name: fmt.Sprintf("Sub Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1292,13 +1293,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUserSubmissions_Success() {
 	}
 
 	// Create 1 show for other user
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:             "Other User Show",
 		EventDate:         time.Date(2026, 12, 3, 20, 0, 0, 0, time.UTC),
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "Other Venue", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "Other Artist", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "Other Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Other Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &otherUser.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1316,13 +1317,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_Success() {
 	user := suite.createTestUser()
 
 	// Create 2 shows, set one to pending
-	req1 := &CreateShowRequest{
+	req1 := &contracts.CreateShowRequest{
 		Title:             "Pending Show",
 		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "Pending Venue 1", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "Pending Artist 1", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "Pending Venue 1", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Pending Artist 1", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1330,13 +1331,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_Success() {
 	suite.Require().NoError(err)
 	suite.db.Model(&models.Show{}).Where("id = ?", show1.ID).Update("status", models.ShowStatusPending)
 
-	req2 := &CreateShowRequest{
+	req2 := &contracts.CreateShowRequest{
 		Title:             "Approved Show",
 		EventDate:         time.Date(2026, 12, 2, 20, 0, 0, 0, time.UTC),
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "Pending Venue 2", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "Pending Artist 2", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "Pending Venue 2", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Pending Artist 2", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1354,13 +1355,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_Success() {
 func (suite *ShowServiceIntegrationTestSuite) TestGetRejectedShows_Success() {
 	user := suite.createTestUser()
 
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:             "Rejected Show",
 		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "Reject Venue", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "Reject Artist", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "Reject Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Reject Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1384,13 +1385,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetRejectedShows_WithSearch() 
 
 	// Create 2 rejected shows
 	for i, reason := range []string{"Duplicate entry", "Spam content"} {
-		req := &CreateShowRequest{
+		req := &contracts.CreateShowRequest{
 			Title:             fmt.Sprintf("Rejected %d", i),
 			EventDate:         time.Date(2026, 12, 1+i, 20, 0, 0, 0, time.UTC),
 			City:              "Phoenix",
 			State:             "AZ",
-			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("Search Venue %d", i), City: "Phoenix", State: "AZ"}},
-			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("Search Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Venues:            []contracts.CreateShowVenue{{Name: fmt.Sprintf("Search Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []contracts.CreateShowArtist{{Name: fmt.Sprintf("Search Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1415,13 +1416,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_Pagination() 
 	// Create 5 future shows with distinct dates (no sub-second precision issues)
 	baseDate := time.Date(2027, 6, 1, 20, 0, 0, 0, time.UTC)
 	for i := 0; i < 5; i++ {
-		req := &CreateShowRequest{
+		req := &contracts.CreateShowRequest{
 			Title:             fmt.Sprintf("Upcoming %d", i),
 			EventDate:         baseDate.AddDate(0, 0, i),
 			City:              "Phoenix",
 			State:             "AZ",
-			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("Up Venue %d", i), City: "Phoenix", State: "AZ"}},
-			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("Up Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Venues:            []contracts.CreateShowVenue{{Name: fmt.Sprintf("Up Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []contracts.CreateShowArtist{{Name: fmt.Sprintf("Up Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1466,13 +1467,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_Success() {
 		{"Tucson", "AZ"},
 	}
 	for i, c := range cities {
-		req := &CreateShowRequest{
+		req := &contracts.CreateShowRequest{
 			Title:             fmt.Sprintf("City Show %d", i),
 			EventDate:         time.Now().UTC().AddDate(0, 0, i+1),
 			City:              c.city,
 			State:             c.state,
-			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("City Venue %d", i), City: c.city, State: c.state}},
-			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("City Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Venues:            []contracts.CreateShowVenue{{Name: fmt.Sprintf("City Venue %d", i), City: c.city, State: c.state}},
+			Artists:           []contracts.CreateShowArtist{{Name: fmt.Sprintf("City Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1748,7 +1749,7 @@ This should not be included.
 // =============================================================================
 
 func (suite *ShowServiceIntegrationTestSuite) TestExportShowToMarkdown_Success() {
-	created := suite.createTestShow(func(req *CreateShowRequest) {
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
 		req.Title = "Export Test Show"
 		req.Description = "A great test show"
 		price := 25.0
@@ -1779,7 +1780,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestExportShowToMarkdown_NotFound(
 }
 
 func (suite *ShowServiceIntegrationTestSuite) TestExportShowToMarkdown_RoundTrip() {
-	created := suite.createTestShow(func(req *CreateShowRequest) {
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
 		req.Title = "Round Trip Show"
 		req.Description = "Round trip description"
 		req.City = "Tempe"
@@ -1804,7 +1805,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestExportShowToMarkdown_RoundTrip
 }
 
 func (suite *ShowServiceIntegrationTestSuite) TestExportShowToMarkdown_FilenameFormat() {
-	created := suite.createTestShow(func(req *CreateShowRequest) {
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
 		req.Title = "Cool Show 2026"
 		req.EventDate = time.Date(2026, 3, 15, 20, 0, 0, 0, time.UTC)
 	})
@@ -1824,13 +1825,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestExportShowToMarkdown_FilenameF
 func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_NoFilters() {
 	user := suite.createTestUser()
 	for i := 0; i < 3; i++ {
-		req := &CreateShowRequest{
+		req := &contracts.CreateShowRequest{
 			Title:             fmt.Sprintf("Admin Show %d", i),
 			EventDate:         time.Date(2026, 12, 1+i, 20, 0, 0, 0, time.UTC),
 			City:              "Phoenix",
 			State:             "AZ",
-			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("Admin Venue %d", i), City: "Phoenix", State: "AZ"}},
-			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("Admin Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Venues:            []contracts.CreateShowVenue{{Name: fmt.Sprintf("Admin Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []contracts.CreateShowArtist{{Name: fmt.Sprintf("Admin Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1838,7 +1839,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_NoFilters() {
 		suite.Require().NoError(err)
 	}
 
-	shows, total, err := suite.showService.GetAdminShows(10, 0, AdminShowFilters{})
+	shows, total, err := suite.showService.GetAdminShows(10, 0, contracts.AdminShowFilters{})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(3), total)
@@ -1850,13 +1851,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_StatusFilter() {
 
 	// Create 2 approved shows
 	for i := 0; i < 2; i++ {
-		req := &CreateShowRequest{
+		req := &contracts.CreateShowRequest{
 			Title:             fmt.Sprintf("Approved Admin %d", i),
 			EventDate:         time.Date(2026, 12, 10+i, 20, 0, 0, 0, time.UTC),
 			City:              "Phoenix",
 			State:             "AZ",
-			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("StatusF Venue %d", i), City: "Phoenix", State: "AZ"}},
-			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("StatusF Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Venues:            []contracts.CreateShowVenue{{Name: fmt.Sprintf("StatusF Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []contracts.CreateShowArtist{{Name: fmt.Sprintf("StatusF Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1865,13 +1866,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_StatusFilter() {
 	}
 
 	// Create 1 pending show
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:             "Pending Admin Show",
 		EventDate:         time.Date(2026, 12, 15, 20, 0, 0, 0, time.UTC),
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "StatusF Venue P", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "StatusF Artist P", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "StatusF Venue P", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "StatusF Artist P", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1880,7 +1881,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_StatusFilter() {
 	suite.db.Model(&models.Show{}).Where("id = ?", pendingShow.ID).Update("status", models.ShowStatusPending)
 
 	// Filter by pending
-	shows, total, err := suite.showService.GetAdminShows(10, 0, AdminShowFilters{Status: "pending"})
+	shows, total, err := suite.showService.GetAdminShows(10, 0, contracts.AdminShowFilters{Status: "pending"})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -1891,13 +1892,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_StatusFilter() {
 func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_Pagination() {
 	user := suite.createTestUser()
 	for i := 0; i < 5; i++ {
-		req := &CreateShowRequest{
+		req := &contracts.CreateShowRequest{
 			Title:             fmt.Sprintf("Page Show %d", i),
 			EventDate:         time.Date(2026, 12, 20+i, 20, 0, 0, 0, time.UTC),
 			City:              "Phoenix",
 			State:             "AZ",
-			Venues:            []CreateShowVenue{{Name: fmt.Sprintf("Page Venue %d", i), City: "Phoenix", State: "AZ"}},
-			Artists:           []CreateShowArtist{{Name: fmt.Sprintf("Page Artist %d", i), IsHeadliner: boolPtr(true)}},
+			Venues:            []contracts.CreateShowVenue{{Name: fmt.Sprintf("Page Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []contracts.CreateShowArtist{{Name: fmt.Sprintf("Page Artist %d", i), IsHeadliner: boolPtr(true)}},
 			SubmittedByUserID: &user.ID,
 			SubmitterIsAdmin:  true,
 		}
@@ -1906,7 +1907,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_Pagination() {
 	}
 
 	// Get page with limit=2, offset=2
-	shows, total, err := suite.showService.GetAdminShows(2, 2, AdminShowFilters{})
+	shows, total, err := suite.showService.GetAdminShows(2, 2, contracts.AdminShowFilters{})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(5), total)
@@ -1917,13 +1918,13 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_CityFilter() {
 	user := suite.createTestUser()
 
 	// Phoenix show
-	req1 := &CreateShowRequest{
+	req1 := &contracts.CreateShowRequest{
 		Title:             "PHX Admin Show",
 		EventDate:         time.Date(2027, 1, 1, 20, 0, 0, 0, time.UTC),
 		City:              "Phoenix",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "PHX Admin Venue", City: "Phoenix", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "PHX Admin Artist", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "PHX Admin Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "PHX Admin Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
@@ -1931,20 +1932,20 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_CityFilter() {
 	suite.Require().NoError(err)
 
 	// Tucson show
-	req2 := &CreateShowRequest{
+	req2 := &contracts.CreateShowRequest{
 		Title:             "TUC Admin Show",
 		EventDate:         time.Date(2027, 1, 2, 20, 0, 0, 0, time.UTC),
 		City:              "Tucson",
 		State:             "AZ",
-		Venues:            []CreateShowVenue{{Name: "TUC Admin Venue", City: "Tucson", State: "AZ"}},
-		Artists:           []CreateShowArtist{{Name: "TUC Admin Artist", IsHeadliner: boolPtr(true)}},
+		Venues:            []contracts.CreateShowVenue{{Name: "TUC Admin Venue", City: "Tucson", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "TUC Admin Artist", IsHeadliner: boolPtr(true)}},
 		SubmittedByUserID: &user.ID,
 		SubmitterIsAdmin:  true,
 	}
 	_, err = suite.showService.CreateShow(req2)
 	suite.Require().NoError(err)
 
-	shows, total, err := suite.showService.GetAdminShows(10, 0, AdminShowFilters{City: "Tucson"})
+	shows, total, err := suite.showService.GetAdminShows(10, 0, contracts.AdminShowFilters{City: "Tucson"})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
