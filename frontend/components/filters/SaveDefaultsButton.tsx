@@ -1,7 +1,7 @@
 'use client'
 
 import { Loader2 } from 'lucide-react'
-import { useSetFavoriteCities } from '@/lib/hooks/useFavoriteCities'
+import { useSetFavoriteCities } from '@/lib/hooks/user/useFavoriteCities'
 
 interface CityState {
   city: string

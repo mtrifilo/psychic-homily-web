@@ -15,8 +15,8 @@ import {
 import {
   useFavoriteVenues,
   useFavoriteVenueShows,
-} from '@/lib/hooks/useFavoriteVenues'
-import { useVenueShows } from '@/lib/hooks/useVenues'
+} from '@/lib/hooks/user/useFavoriteVenues'
+import { useVenueShows } from '@/lib/hooks/venues/useVenues'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { CompactShowRow } from '@/components/shows/CompactShowRow'

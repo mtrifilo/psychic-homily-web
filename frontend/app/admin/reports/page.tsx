@@ -2,8 +2,8 @@
 
 import { useMemo } from 'react'
 import { Loader2, Flag, Inbox } from 'lucide-react'
-import { usePendingReports } from '@/lib/hooks/useAdminReports'
-import { usePendingArtistReports } from '@/lib/hooks/useAdminArtistReports'
+import { usePendingReports } from '@/lib/hooks/admin/useAdminReports'
+import { usePendingArtistReports } from '@/lib/hooks/admin/useAdminArtistReports'
 import { ShowReportCard, ArtistReportCard } from '@/components/admin'
 import type { ShowReportResponse } from '@/lib/types/show'
 import type { ArtistReportResponse } from '@/lib/types/artist'

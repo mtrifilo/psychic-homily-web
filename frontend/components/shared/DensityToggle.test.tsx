@@ -9,7 +9,7 @@ const mockUseDensity = vi.fn(() => ({
   setDensity: mockSetDensity,
 }))
 
-vi.mock('@/lib/hooks/useDensity', () => ({
+vi.mock('@/lib/hooks/common/useDensity', () => ({
   useDensity: (...args: unknown[]) => mockUseDensity(...args),
 }))
 

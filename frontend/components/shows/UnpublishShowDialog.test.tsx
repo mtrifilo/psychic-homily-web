@@ -12,7 +12,7 @@ const mockUnpublishHook = vi.fn(() => ({
   error: null,
 }))
 
-vi.mock('@/lib/hooks/useShowUnpublish', () => ({
+vi.mock('@/lib/hooks/shows/useShowUnpublish', () => ({
   useShowUnpublish: () => mockUnpublishHook(),
 }))
 

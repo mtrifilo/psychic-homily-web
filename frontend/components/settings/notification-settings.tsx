@@ -1,7 +1,7 @@
 'use client'
 
-import { useProfile } from '@/lib/hooks/useAuth'
-import { useSetShowReminders } from '@/lib/hooks/useShowReminders'
+import { useProfile } from '@/lib/hooks/auth/useAuth'
+import { useSetShowReminders } from '@/lib/hooks/shows/useShowReminders'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'

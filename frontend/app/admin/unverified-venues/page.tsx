@@ -10,7 +10,7 @@ import {
   Calendar,
   Music,
 } from 'lucide-react'
-import { useUnverifiedVenues, useVerifyVenue } from '@/lib/hooks/useAdminVenues'
+import { useUnverifiedVenues, useVerifyVenue } from '@/lib/hooks/admin/useAdminVenues'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { UnverifiedVenue } from '@/lib/types/venue'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'

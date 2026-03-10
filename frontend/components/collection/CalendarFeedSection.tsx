@@ -16,7 +16,7 @@ import {
   useCalendarTokenStatus,
   useCreateCalendarToken,
   useDeleteCalendarToken,
-} from '@/lib/hooks/useCalendarFeed'
+} from '@/lib/hooks/user/useCalendarFeed'
 
 export function CalendarFeedSection() {
   const { data: tokenStatus, isLoading } = useCalendarTokenStatus()

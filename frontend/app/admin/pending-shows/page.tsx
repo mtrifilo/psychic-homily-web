@@ -7,7 +7,7 @@ import {
   useRejectedShows,
   useBatchApproveShows,
   useBatchRejectShows,
-} from '@/lib/hooks/useAdminShows'
+} from '@/lib/hooks/admin/useAdminShows'
 import { PendingShowCard, RejectedShowCard } from '@/components/admin'
 import { BatchRejectDialog } from '@/components/admin/BatchRejectDialog'
 import { useAuthContext } from '@/lib/context/AuthContext'
