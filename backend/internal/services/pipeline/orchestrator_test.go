@@ -1,4 +1,4 @@
-package services
+package pipeline
 
 import (
 	"fmt"
@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ============================================================================
@@ -14,29 +15,29 @@ import (
 // ============================================================================
 
 type stubFetcher struct {
-	fetchFn              func(url, lastETag, lastContentHash string) (*FetchResult, error)
-	fetchDynamicFn       func(url string) (*FetchResult, error)
-	fetchScreenshotFn    func(url string) (*FetchResult, error)
+	fetchFn              func(url, lastETag, lastContentHash string) (*contracts.FetchResult, error)
+	fetchDynamicFn       func(url string) (*contracts.FetchResult, error)
+	fetchScreenshotFn    func(url string) (*contracts.FetchResult, error)
 	detectRenderMethodFn func(url string) (string, error)
 }
 
-func (s *stubFetcher) Fetch(url, lastETag, lastContentHash string) (*FetchResult, error) {
+func (s *stubFetcher) Fetch(url, lastETag, lastContentHash string) (*contracts.FetchResult, error) {
 	if s.fetchFn != nil {
 		return s.fetchFn(url, lastETag, lastContentHash)
 	}
-	return &FetchResult{Changed: true, Body: "<html>events</html>", ContentHash: "abc123", HTTPStatus: 200}, nil
+	return &contracts.FetchResult{Changed: true, Body: "<html>events</html>", ContentHash: "abc123", HTTPStatus: 200}, nil
 }
-func (s *stubFetcher) FetchDynamic(url string) (*FetchResult, error) {
+func (s *stubFetcher) FetchDynamic(url string) (*contracts.FetchResult, error) {
 	if s.fetchDynamicFn != nil {
 		return s.fetchDynamicFn(url)
 	}
-	return &FetchResult{Changed: true, Body: "<html>dynamic events</html>", ContentHash: "def456", HTTPStatus: 200}, nil
+	return &contracts.FetchResult{Changed: true, Body: "<html>dynamic events</html>", ContentHash: "def456", HTTPStatus: 200}, nil
 }
-func (s *stubFetcher) FetchScreenshot(url string) (*FetchResult, error) {
+func (s *stubFetcher) FetchScreenshot(url string) (*contracts.FetchResult, error) {
 	if s.fetchScreenshotFn != nil {
 		return s.fetchScreenshotFn(url)
 	}
-	return &FetchResult{Changed: true, Body: "base64screenshot", ContentHash: "ghi789", HTTPStatus: 200, ContentType: "image/png"}, nil
+	return &contracts.FetchResult{Changed: true, Body: "base64screenshot", ContentHash: "ghi789", HTTPStatus: 200, ContentType: "image/png"}, nil
 }
 func (s *stubFetcher) DetectRenderMethod(url string) (string, error) {
 	if s.detectRenderMethodFn != nil {
@@ -46,43 +47,43 @@ func (s *stubFetcher) DetectRenderMethod(url string) (string, error) {
 }
 
 type stubExtraction struct {
-	extractCalendarPageFn func(venueName, content, contentType string) (*CalendarExtractionResponse, error)
+	extractCalendarPageFn func(venueName, content, contentType string) (*contracts.CalendarExtractionResponse, error)
 }
 
-func (s *stubExtraction) ExtractShow(req *ExtractShowRequest) (*ExtractShowResponse, error) {
+func (s *stubExtraction) ExtractShow(req *contracts.ExtractShowRequest) (*contracts.ExtractShowResponse, error) {
 	return nil, fmt.Errorf("not implemented in stub")
 }
-func (s *stubExtraction) ExtractCalendarPage(venueName, content, contentType string) (*CalendarExtractionResponse, error) {
+func (s *stubExtraction) ExtractCalendarPage(venueName, content, contentType string) (*contracts.CalendarExtractionResponse, error) {
 	if s.extractCalendarPageFn != nil {
 		return s.extractCalendarPageFn(venueName, content, contentType)
 	}
-	return &CalendarExtractionResponse{
+	return &contracts.CalendarExtractionResponse{
 		Success: true,
-		Events: []CalendarEvent{
-			{Date: "2026-04-01", Title: "Test Band", Artists: []CalendarArtist{{Name: "Test Band", IsHeadliner: true}}},
-			{Date: "2026-04-02", Title: "Other Band", Artists: []CalendarArtist{{Name: "Other Band", IsHeadliner: true}}},
+		Events: []contracts.CalendarEvent{
+			{Date: "2026-04-01", Title: "Test Band", Artists: []contracts.CalendarArtist{{Name: "Test Band", IsHeadliner: true}}},
+			{Date: "2026-04-02", Title: "Other Band", Artists: []contracts.CalendarArtist{{Name: "Other Band", IsHeadliner: true}}},
 		},
 	}, nil
 }
 
 type stubDiscovery struct {
-	importEventsFn func(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error)
+	importEventsFn func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error)
 }
 
-func (s *stubDiscovery) ImportFromJSON(filepath string, dryRun bool) (*ImportResult, error) {
+func (s *stubDiscovery) ImportFromJSON(filepath string, dryRun bool) (*contracts.ImportResult, error) {
 	return nil, fmt.Errorf("not implemented in stub")
 }
-func (s *stubDiscovery) ImportFromJSONWithDB(filepath string, dryRun bool, database *gorm.DB) (*ImportResult, error) {
+func (s *stubDiscovery) ImportFromJSONWithDB(filepath string, dryRun bool, database *gorm.DB) (*contracts.ImportResult, error) {
 	return nil, fmt.Errorf("not implemented in stub")
 }
-func (s *stubDiscovery) CheckEvents(events []CheckEventInput) (*CheckEventsResult, error) {
+func (s *stubDiscovery) CheckEvents(events []contracts.CheckEventInput) (*contracts.CheckEventsResult, error) {
 	return nil, fmt.Errorf("not implemented in stub")
 }
-func (s *stubDiscovery) ImportEvents(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error) {
+func (s *stubDiscovery) ImportEvents(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
 	if s.importEventsFn != nil {
 		return s.importEventsFn(events, dryRun, allowUpdates, initialStatus)
 	}
-	return &ImportResult{Total: len(events), Imported: len(events)}, nil
+	return &contracts.ImportResult{Total: len(events), Imported: len(events)}, nil
 }
 
 type stubVenueConfig struct {
@@ -143,59 +144,59 @@ type stubVenueService struct {
 }
 
 // Satisfy the full VenueServiceInterface with panics for methods we don't use.
-func (s *stubVenueService) CreateVenue(req *CreateVenueRequest, isAdmin bool) (*VenueDetailResponse, error) {
+func (s *stubVenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bool) (*contracts.VenueDetailResponse, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) GetVenue(venueID uint) (*VenueDetailResponse, error) {
+func (s *stubVenueService) GetVenue(venueID uint) (*contracts.VenueDetailResponse, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) GetVenueBySlug(slug string) (*VenueDetailResponse, error) {
+func (s *stubVenueService) GetVenueBySlug(slug string) (*contracts.VenueDetailResponse, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) GetVenues(filters map[string]interface{}) ([]*VenueDetailResponse, error) {
+func (s *stubVenueService) GetVenues(filters map[string]interface{}) ([]*contracts.VenueDetailResponse, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) UpdateVenue(venueID uint, updates map[string]interface{}) (*VenueDetailResponse, error) {
+func (s *stubVenueService) UpdateVenue(venueID uint, updates map[string]interface{}) (*contracts.VenueDetailResponse, error) {
 	panic("not implemented")
 }
 func (s *stubVenueService) DeleteVenue(venueID uint) error { panic("not implemented") }
-func (s *stubVenueService) SearchVenues(query string) ([]*VenueDetailResponse, error) {
+func (s *stubVenueService) SearchVenues(query string) ([]*contracts.VenueDetailResponse, error) {
 	panic("not implemented")
 }
 func (s *stubVenueService) FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*models.Venue, bool, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) VerifyVenue(venueID uint) (*VenueDetailResponse, error) {
+func (s *stubVenueService) VerifyVenue(venueID uint) (*contracts.VenueDetailResponse, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) GetVenuesWithShowCounts(filters VenueListFilters, limit, offset int) ([]*VenueWithShowCountResponse, int64, error) {
+func (s *stubVenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilters, limit, offset int) ([]*contracts.VenueWithShowCountResponse, int64, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) GetUpcomingShowsForVenue(venueID uint, timezone string, limit int) ([]*VenueShowResponse, int64, error) {
+func (s *stubVenueService) GetUpcomingShowsForVenue(venueID uint, timezone string, limit int) ([]*contracts.VenueShowResponse, int64, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) GetShowsForVenue(venueID uint, timezone string, limit int, timeFilter string) ([]*VenueShowResponse, int64, error) {
+func (s *stubVenueService) GetShowsForVenue(venueID uint, timezone string, limit int, timeFilter string) ([]*contracts.VenueShowResponse, int64, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) GetVenueCities() ([]*VenueCityResponse, error) {
+func (s *stubVenueService) GetVenueCities() ([]*contracts.VenueCityResponse, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) CreatePendingVenueEdit(venueID uint, userID uint, req *VenueEditRequest) (*PendingVenueEditResponse, error) {
+func (s *stubVenueService) CreatePendingVenueEdit(venueID uint, userID uint, req *contracts.VenueEditRequest) (*contracts.PendingVenueEditResponse, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) GetPendingEditForVenue(venueID uint, userID uint) (*PendingVenueEditResponse, error) {
+func (s *stubVenueService) GetPendingEditForVenue(venueID uint, userID uint) (*contracts.PendingVenueEditResponse, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) GetPendingVenueEdits(limit, offset int) ([]*PendingVenueEditResponse, int64, error) {
+func (s *stubVenueService) GetPendingVenueEdits(limit, offset int) ([]*contracts.PendingVenueEditResponse, int64, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) GetPendingVenueEdit(editID uint) (*PendingVenueEditResponse, error) {
+func (s *stubVenueService) GetPendingVenueEdit(editID uint) (*contracts.PendingVenueEditResponse, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) ApproveVenueEdit(editID uint, reviewerID uint) (*VenueDetailResponse, error) {
+func (s *stubVenueService) ApproveVenueEdit(editID uint, reviewerID uint) (*contracts.VenueDetailResponse, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) RejectVenueEdit(editID uint, reviewerID uint, reason string) (*PendingVenueEditResponse, error) {
+func (s *stubVenueService) RejectVenueEdit(editID uint, reviewerID uint, reason string) (*contracts.PendingVenueEditResponse, error) {
 	panic("not implemented")
 }
 func (s *stubVenueService) CancelPendingVenueEdit(editID uint, userID uint) error {
@@ -208,7 +209,7 @@ func (s *stubVenueService) GetVenueModel(venueID uint) (*models.Venue, error) {
 	slug := "test-venue"
 	return &models.Venue{ID: venueID, Name: "Test Venue", Slug: &slug, City: "Phoenix", State: "AZ"}, nil
 }
-func (s *stubVenueService) GetUnverifiedVenues(limit, offset int) ([]*UnverifiedVenueResponse, int64, error) {
+func (s *stubVenueService) GetUnverifiedVenues(limit, offset int) ([]*contracts.UnverifiedVenueResponse, int64, error) {
 	panic("not implemented")
 }
 
@@ -231,26 +232,26 @@ func newTestPipeline(opts ...func(*testPipelineOpts)) *PipelineService {
 }
 
 type testPipelineOpts struct {
-	fetcher     FetcherServiceInterface
-	extraction  ExtractionServiceInterface
-	discovery   DiscoveryServiceInterface
-	venueConfig VenueSourceConfigServiceInterface
-	venue       VenueServiceInterface
+	fetcher     contracts.FetcherServiceInterface
+	extraction  contracts.ExtractionServiceInterface
+	discovery   contracts.DiscoveryServiceInterface
+	venueConfig contracts.VenueSourceConfigServiceInterface
+	venue       contracts.VenueServiceInterface
 }
 
-func withFetcher(f FetcherServiceInterface) func(*testPipelineOpts) {
+func withFetcher(f contracts.FetcherServiceInterface) func(*testPipelineOpts) {
 	return func(o *testPipelineOpts) { o.fetcher = f }
 }
-func withExtraction(e ExtractionServiceInterface) func(*testPipelineOpts) {
+func withExtraction(e contracts.ExtractionServiceInterface) func(*testPipelineOpts) {
 	return func(o *testPipelineOpts) { o.extraction = e }
 }
-func withDiscovery(d DiscoveryServiceInterface) func(*testPipelineOpts) {
+func withDiscovery(d contracts.DiscoveryServiceInterface) func(*testPipelineOpts) {
 	return func(o *testPipelineOpts) { o.discovery = d }
 }
-func withVenueConfig(vc VenueSourceConfigServiceInterface) func(*testPipelineOpts) {
+func withVenueConfig(vc contracts.VenueSourceConfigServiceInterface) func(*testPipelineOpts) {
 	return func(o *testPipelineOpts) { o.venueConfig = vc }
 }
-func withVenue(v VenueServiceInterface) func(*testPipelineOpts) {
+func withVenue(v contracts.VenueServiceInterface) func(*testPipelineOpts) {
 	return func(o *testPipelineOpts) { o.venue = v }
 }
 
@@ -355,9 +356,9 @@ func TestPipeline_ExtractVenue_DryRun(t *testing.T) {
 			},
 		}),
 		withDiscovery(&stubDiscovery{
-			importEventsFn: func(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error) {
+			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
 				importCalled = true
-				return &ImportResult{Total: len(events), Imported: len(events)}, nil
+				return &contracts.ImportResult{Total: len(events), Imported: len(events)}, nil
 			},
 		}),
 	)
@@ -446,8 +447,8 @@ func TestPipeline_ExtractVenue_UnchangedPage(t *testing.T) {
 
 	ps := newTestPipeline(
 		withFetcher(&stubFetcher{
-			fetchFn: func(url, lastETag, lastContentHash string) (*FetchResult, error) {
-				return &FetchResult{Changed: false, ContentHash: "same-hash", HTTPStatus: 200}, nil
+			fetchFn: func(url, lastETag, lastContentHash string) (*contracts.FetchResult, error) {
+				return &contracts.FetchResult{Changed: false, ContentHash: "same-hash", HTTPStatus: 200}, nil
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
@@ -491,8 +492,8 @@ func TestPipeline_ExtractVenue_AutoDetection(t *testing.T) {
 			detectRenderMethodFn: func(url string) (string, error) {
 				return "dynamic", nil
 			},
-			fetchDynamicFn: func(url string) (*FetchResult, error) {
-				return &FetchResult{Changed: true, Body: "<html>dynamic</html>", ContentHash: "dyn-hash", HTTPStatus: 200}, nil
+			fetchDynamicFn: func(url string) (*contracts.FetchResult, error) {
+				return &contracts.FetchResult{Changed: true, Body: "<html>dynamic</html>", ContentHash: "dyn-hash", HTTPStatus: 200}, nil
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
@@ -574,7 +575,7 @@ func TestPipeline_ExtractVenue_ExtractionFails(t *testing.T) {
 
 	ps := newTestPipeline(
 		withExtraction(&stubExtraction{
-			extractCalendarPageFn: func(venueName, content, contentType string) (*CalendarExtractionResponse, error) {
+			extractCalendarPageFn: func(venueName, content, contentType string) (*contracts.CalendarExtractionResponse, error) {
 				return nil, fmt.Errorf("AI service unavailable")
 			},
 		}),
@@ -610,8 +611,8 @@ func TestPipeline_ExtractVenue_ExtractionReturnsError(t *testing.T) {
 
 	ps := newTestPipeline(
 		withExtraction(&stubExtraction{
-			extractCalendarPageFn: func(venueName, content, contentType string) (*CalendarExtractionResponse, error) {
-				return &CalendarExtractionResponse{
+			extractCalendarPageFn: func(venueName, content, contentType string) (*contracts.CalendarExtractionResponse, error) {
+				return &contracts.CalendarExtractionResponse{
 					Success: false,
 					Error:   "AI service not configured",
 				}, nil
@@ -643,7 +644,7 @@ func TestPipeline_ExtractVenue_FetchFails(t *testing.T) {
 
 	ps := newTestPipeline(
 		withFetcher(&stubFetcher{
-			fetchFn: func(url, lastETag, lastContentHash string) (*FetchResult, error) {
+			fetchFn: func(url, lastETag, lastContentHash string) (*contracts.FetchResult, error) {
 				return nil, fmt.Errorf("HTTP 503 server error")
 			},
 		}),
@@ -679,9 +680,9 @@ func TestPipeline_ExtractVenue_DynamicRenderMethod(t *testing.T) {
 
 	ps := newTestPipeline(
 		withFetcher(&stubFetcher{
-			fetchDynamicFn: func(url string) (*FetchResult, error) {
+			fetchDynamicFn: func(url string) (*contracts.FetchResult, error) {
 				fetchedDynamic = true
-				return &FetchResult{Changed: true, Body: "<html>dynamic</html>", ContentHash: "dyn-hash", HTTPStatus: 200}, nil
+				return &contracts.FetchResult{Changed: true, Body: "<html>dynamic</html>", ContentHash: "dyn-hash", HTTPStatus: 200}, nil
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
@@ -717,17 +718,17 @@ func TestPipeline_ExtractVenue_ScreenshotRenderMethod(t *testing.T) {
 
 	ps := newTestPipeline(
 		withFetcher(&stubFetcher{
-			fetchScreenshotFn: func(url string) (*FetchResult, error) {
+			fetchScreenshotFn: func(url string) (*contracts.FetchResult, error) {
 				fetchedScreenshot = true
-				return &FetchResult{Changed: true, Body: "base64data", ContentHash: "ss-hash", HTTPStatus: 200, ContentType: "image/png"}, nil
+				return &contracts.FetchResult{Changed: true, Body: "base64data", ContentHash: "ss-hash", HTTPStatus: 200, ContentType: "image/png"}, nil
 			},
 		}),
 		withExtraction(&stubExtraction{
-			extractCalendarPageFn: func(venueName, content, contentType string) (*CalendarExtractionResponse, error) {
+			extractCalendarPageFn: func(venueName, content, contentType string) (*contracts.CalendarExtractionResponse, error) {
 				extractionContentType = contentType
-				return &CalendarExtractionResponse{
+				return &contracts.CalendarExtractionResponse{
 					Success: true,
-					Events:  []CalendarEvent{{Date: "2026-04-01", Title: "Test"}},
+					Events:  []contracts.CalendarEvent{{Date: "2026-04-01", Title: "Test"}},
 				}, nil
 			},
 		}),
@@ -812,7 +813,7 @@ func TestPipeline_ExtractVenue_ImportFails_NonFatal(t *testing.T) {
 	// Import failure should NOT cause the pipeline to error — extraction still succeeded
 	ps := newTestPipeline(
 		withDiscovery(&stubDiscovery{
-			importEventsFn: func(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error) {
+			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		}),
@@ -838,10 +839,10 @@ func TestPipeline_ExtractVenue_ImportFails_NonFatal(t *testing.T) {
 func TestPipeline_ExtractVenue_NoEventsExtracted(t *testing.T) {
 	ps := newTestPipeline(
 		withExtraction(&stubExtraction{
-			extractCalendarPageFn: func(venueName, content, contentType string) (*CalendarExtractionResponse, error) {
-				return &CalendarExtractionResponse{
+			extractCalendarPageFn: func(venueName, content, contentType string) (*contracts.CalendarExtractionResponse, error) {
+				return &contracts.CalendarExtractionResponse{
 					Success:  true,
-					Events:   []CalendarEvent{},
+					Events:   []contracts.CalendarEvent{},
 					Warnings: []string{"No events were found on the calendar page"},
 				}, nil
 			},
@@ -866,12 +867,10 @@ func TestPipeline_ExtractVenue_NoEventsExtracted(t *testing.T) {
 }
 
 func TestPipeline_ExtractVenue_DynamicAlwaysProceeds(t *testing.T) {
-	// Even when Changed=false (shouldn't happen for dynamic, but test the logic),
-	// dynamic should still proceed because we only check Changed for static.
 	ps := newTestPipeline(
 		withFetcher(&stubFetcher{
-			fetchDynamicFn: func(url string) (*FetchResult, error) {
-				return &FetchResult{Changed: false, Body: "<html>dynamic</html>", ContentHash: "dyn-hash", HTTPStatus: 200}, nil
+			fetchDynamicFn: func(url string) (*contracts.FetchResult, error) {
+				return &contracts.FetchResult{Changed: false, Body: "<html>dynamic</html>", ContentHash: "dyn-hash", HTTPStatus: 200}, nil
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
@@ -941,9 +940,9 @@ func TestPipeline_ExtractVenue_AutoApproveFalse_ImportsPending(t *testing.T) {
 			},
 		}),
 		withDiscovery(&stubDiscovery{
-			importEventsFn: func(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error) {
+			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
 				capturedStatus = initialStatus
-				return &ImportResult{Total: len(events), Imported: len(events)}, nil
+				return &contracts.ImportResult{Total: len(events), Imported: len(events)}, nil
 			},
 		}),
 	)
@@ -973,9 +972,9 @@ func TestPipeline_ExtractVenue_AutoApproveTrue_ImportsApproved(t *testing.T) {
 			},
 		}),
 		withDiscovery(&stubDiscovery{
-			importEventsFn: func(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error) {
+			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
 				capturedStatus = initialStatus
-				return &ImportResult{Total: len(events), Imported: len(events)}, nil
+				return &contracts.ImportResult{Total: len(events), Imported: len(events)}, nil
 			},
 		}),
 	)
@@ -994,19 +993,19 @@ func TestPipeline_ExtractVenue_AutoApproveTrue_ImportsApproved(t *testing.T) {
 }
 
 func TestPipeline_ExtractVenue_FiltersNonMusicEvents(t *testing.T) {
-	var importedEvents []DiscoveredEvent
+	var importedEvents []contracts.DiscoveredEvent
 	isMusicTrue := true
 	isMusicFalse := false
 
 	ps := newTestPipeline(
 		withExtraction(&stubExtraction{
-			extractCalendarPageFn: func(venueName, content, contentType string) (*CalendarExtractionResponse, error) {
-				return &CalendarExtractionResponse{
+			extractCalendarPageFn: func(venueName, content, contentType string) (*contracts.CalendarExtractionResponse, error) {
+				return &contracts.CalendarExtractionResponse{
 					Success: true,
-					Events: []CalendarEvent{
-						{Date: "2026-04-01", Title: "Real Concert", Artists: []CalendarArtist{{Name: "Band A", IsHeadliner: true}}, IsMusicEvent: &isMusicTrue},
-						{Date: "2026-04-02", Title: "Karaoke Night", Artists: []CalendarArtist{}, IsMusicEvent: &isMusicFalse},
-						{Date: "2026-04-03", Title: "Another Show", Artists: []CalendarArtist{{Name: "Band B", IsHeadliner: true}}, IsMusicEvent: nil}, // nil defaults to included
+					Events: []contracts.CalendarEvent{
+						{Date: "2026-04-01", Title: "Real Concert", Artists: []contracts.CalendarArtist{{Name: "Band A", IsHeadliner: true}}, IsMusicEvent: &isMusicTrue},
+						{Date: "2026-04-02", Title: "Karaoke Night", Artists: []contracts.CalendarArtist{}, IsMusicEvent: &isMusicFalse},
+						{Date: "2026-04-03", Title: "Another Show", Artists: []contracts.CalendarArtist{{Name: "Band B", IsHeadliner: true}}, IsMusicEvent: nil}, // nil defaults to included
 					},
 				}, nil
 			},
@@ -1017,9 +1016,9 @@ func TestPipeline_ExtractVenue_FiltersNonMusicEvents(t *testing.T) {
 			},
 		}),
 		withDiscovery(&stubDiscovery{
-			importEventsFn: func(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error) {
+			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
 				importedEvents = events
-				return &ImportResult{Total: len(events), Imported: len(events)}, nil
+				return &contracts.ImportResult{Total: len(events), Imported: len(events)}, nil
 			},
 		}),
 	)
@@ -1046,32 +1045,32 @@ func TestPipeline_FilterMusicEvents(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		events   []CalendarEvent
+		events   []contracts.CalendarEvent
 		expected int
 	}{
 		{
 			name:     "all music events",
-			events:   []CalendarEvent{{IsMusicEvent: &isTrue}, {IsMusicEvent: &isTrue}},
+			events:   []contracts.CalendarEvent{{IsMusicEvent: &isTrue}, {IsMusicEvent: &isTrue}},
 			expected: 2,
 		},
 		{
 			name:     "no music events",
-			events:   []CalendarEvent{{IsMusicEvent: &isFalse}, {IsMusicEvent: &isFalse}},
+			events:   []contracts.CalendarEvent{{IsMusicEvent: &isFalse}, {IsMusicEvent: &isFalse}},
 			expected: 0,
 		},
 		{
 			name:     "nil defaults to included",
-			events:   []CalendarEvent{{IsMusicEvent: nil}, {IsMusicEvent: nil}},
+			events:   []contracts.CalendarEvent{{IsMusicEvent: nil}, {IsMusicEvent: nil}},
 			expected: 2,
 		},
 		{
 			name:     "mixed",
-			events:   []CalendarEvent{{IsMusicEvent: &isTrue}, {IsMusicEvent: &isFalse}, {IsMusicEvent: nil}},
+			events:   []contracts.CalendarEvent{{IsMusicEvent: &isTrue}, {IsMusicEvent: &isFalse}, {IsMusicEvent: nil}},
 			expected: 2,
 		},
 		{
 			name:     "empty input",
-			events:   []CalendarEvent{},
+			events:   []contracts.CalendarEvent{},
 			expected: 0,
 		},
 		{

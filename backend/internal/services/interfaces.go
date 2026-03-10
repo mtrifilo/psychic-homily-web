@@ -39,6 +39,8 @@ type PipelineServiceInterface = contracts.PipelineServiceInterface
 type VenueSourceConfigServiceInterface = contracts.VenueSourceConfigServiceInterface
 
 // Compile-time interface satisfaction checks.
+// Pipeline services (Extraction, MusicDiscovery, Discovery, VenueSourceConfig,
+// Fetcher, Pipeline) are checked in internal/services/pipeline/interfaces.go.
 var (
 	_ ShowServiceInterface          = (*ShowService)(nil)
 	_ VenueServiceInterface         = (*VenueService)(nil)
@@ -54,11 +56,8 @@ var (
 	_ EmailServiceInterface         = (*EmailService)(nil)
 	_ DiscordServiceInterface       = (*DiscordService)(nil)
 	_ PasswordValidatorInterface    = (*PasswordValidator)(nil)
-	_ ExtractionServiceInterface    = (*ExtractionService)(nil)
-	_ MusicDiscoveryServiceInterface = (*MusicDiscoveryService)(nil)
 	_ AppleAuthServiceInterface     = (*AppleAuthService)(nil)
 	_ WebAuthnServiceInterface      = (*WebAuthnService)(nil)
-	_ DiscoveryServiceInterface     = (*DiscoveryService)(nil)
 	_ APITokenServiceInterface      = (*APITokenService)(nil)
 	_ DataSyncServiceInterface      = (*DataSyncService)(nil)
 	_ AdminStatsServiceInterface    = (*AdminStatsService)(nil)
@@ -69,7 +68,4 @@ var (
 	_ ReleaseServiceInterface       = (*ReleaseService)(nil)
 	_ BookmarkServiceInterface              = (*BookmarkService)(nil)
 	_ ContributorProfileServiceInterface    = (*ContributorProfileService)(nil)
-	_ VenueSourceConfigServiceInterface     = (*VenueSourceConfigService)(nil)
-	_ FetcherServiceInterface               = (*FetcherService)(nil)
-	_ PipelineServiceInterface              = (*PipelineService)(nil)
 )

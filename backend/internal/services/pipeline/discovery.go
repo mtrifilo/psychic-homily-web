@@ -1,4 +1,4 @@
-package services
+package pipeline
 
 import (
 	"encoding/json"
@@ -12,23 +12,29 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
 
 // DiscoveryService handles importing discovered event data into the database
 type DiscoveryService struct {
 	db           *gorm.DB
-	venueService *VenueService
+	venueService venueFinderCreator
+}
+
+// venueFinderCreator is the subset of VenueService used by DiscoveryService.
+type venueFinderCreator interface {
+	FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*models.Venue, bool, error)
 }
 
 // NewDiscoveryService creates a new discovery service
-func NewDiscoveryService(database *gorm.DB) *DiscoveryService {
+func NewDiscoveryService(database *gorm.DB, venueSvc venueFinderCreator) *DiscoveryService {
 	if database == nil {
 		database = db.GetDB()
 	}
 	return &DiscoveryService{
 		db:           database,
-		venueService: NewVenueService(database),
+		venueService: venueSvc,
 	}
 }
 
@@ -102,7 +108,7 @@ var VenueConfig = map[string]struct {
 }
 
 // ImportFromJSON imports events from a JSON file
-func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*ImportResult, error) {
+func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*contracts.ImportResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -114,12 +120,12 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*Import
 	}
 
 	// Parse JSON - could be a single venue's events or multiple venues
-	var events []DiscoveredEvent
+	var events []contracts.DiscoveredEvent
 
 	// Try parsing as array first
 	if err := json.Unmarshal(data, &events); err != nil {
 		// Try parsing as object with venue keys
-		var venueEvents map[string][]DiscoveredEvent
+		var venueEvents map[string][]contracts.DiscoveredEvent
 		if err := json.Unmarshal(data, &venueEvents); err != nil {
 			return nil, fmt.Errorf("failed to parse JSON: %w", err)
 		}
@@ -129,7 +135,7 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*Import
 		}
 	}
 
-	result := &ImportResult{
+	result := &contracts.ImportResult{
 		Total:    len(events),
 		Messages: make([]string, 0),
 	}
@@ -182,7 +188,7 @@ func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName stri
 
 // importEvent imports a single scraped event
 // Returns a message and status ("imported", "duplicate", "rejected", "updated", "error")
-func (s *DiscoveryService) importEvent(event *DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (string, string) {
+func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (string, string) {
 	// Validate required fields
 	if event.ID == "" || event.VenueSlug == "" {
 		return fmt.Sprintf("SKIP: Missing required fields (id=%s, venueSlug=%s)", event.ID, event.VenueSlug), "error"
@@ -258,7 +264,7 @@ func (s *DiscoveryService) importEvent(event *DiscoveredEvent, dryRun bool, allo
 }
 
 // createShowFromEvent creates a show record from a scraped event
-func (s *DiscoveryService) createShowFromEvent(event *DiscoveredEvent, eventDate time.Time, venueConfig struct {
+func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent, eventDate time.Time, venueConfig struct {
 	Name    string
 	City    string
 	State   string
@@ -417,7 +423,7 @@ func (s *DiscoveryService) createShowFromEvent(event *DiscoveredEvent, eventDate
 
 // updateShowFromEvent compares scraped event data against an existing show and updates changed fields.
 // Returns a message and status ("updated" or "duplicate").
-func (s *DiscoveryService) updateShowFromEvent(existing *models.Show, event *DiscoveredEvent, dryRun bool) (string, string) {
+func (s *DiscoveryService) updateShowFromEvent(existing *models.Show, event *contracts.DiscoveredEvent, dryRun bool) (string, string) {
 	updates := make(map[string]interface{})
 	var changes []string
 
@@ -431,7 +437,7 @@ func (s *DiscoveryService) updateShowFromEvent(existing *models.Show, event *Dis
 				if existing.Price != nil {
 					oldStr = fmt.Sprintf("$%.2f", *existing.Price)
 				}
-				changes = append(changes, fmt.Sprintf("price: %s → $%.2f", oldStr, *newPrice))
+				changes = append(changes, fmt.Sprintf("price: %s -> $%.2f", oldStr, *newPrice))
 			}
 		}
 	}
@@ -444,20 +450,20 @@ func (s *DiscoveryService) updateShowFromEvent(existing *models.Show, event *Dis
 			if existing.AgeRequirement != nil {
 				oldStr = *existing.AgeRequirement
 			}
-			changes = append(changes, fmt.Sprintf("age: %s → %s", oldStr, *event.AgeRestriction))
+			changes = append(changes, fmt.Sprintf("age: %s -> %s", oldStr, *event.AgeRestriction))
 		}
 	}
 
 	// Compare sold out status
 	if event.IsSoldOut != nil && *event.IsSoldOut != existing.IsSoldOut {
 		updates["is_sold_out"] = *event.IsSoldOut
-		changes = append(changes, fmt.Sprintf("soldOut: %v → %v", existing.IsSoldOut, *event.IsSoldOut))
+		changes = append(changes, fmt.Sprintf("soldOut: %v -> %v", existing.IsSoldOut, *event.IsSoldOut))
 	}
 
 	// Compare cancelled status
 	if event.IsCancelled != nil && *event.IsCancelled != existing.IsCancelled {
 		updates["is_cancelled"] = *event.IsCancelled
-		changes = append(changes, fmt.Sprintf("cancelled: %v → %v", existing.IsCancelled, *event.IsCancelled))
+		changes = append(changes, fmt.Sprintf("cancelled: %v -> %v", existing.IsCancelled, *event.IsCancelled))
 	}
 
 	if len(updates) == 0 {
@@ -467,14 +473,14 @@ func (s *DiscoveryService) updateShowFromEvent(existing *models.Show, event *Dis
 	changeStr := strings.Join(changes, ", ")
 
 	if dryRun {
-		return fmt.Sprintf("WOULD UPDATE: %s (show #%d) — %s", event.Title, existing.ID, changeStr), "updated"
+		return fmt.Sprintf("WOULD UPDATE: %s (show #%d) -- %s", event.Title, existing.ID, changeStr), "updated"
 	}
 
 	if err := s.db.Model(existing).Updates(updates).Error; err != nil {
 		return fmt.Sprintf("ERROR: Failed to update show #%d: %v", existing.ID, err), "error"
 	}
 
-	return fmt.Sprintf("UPDATED: %s (show #%d) — %s", event.Title, existing.ID, changeStr), "updated"
+	return fmt.Sprintf("UPDATED: %s (show #%d) -- %s", event.Title, existing.ID, changeStr), "updated"
 }
 
 // stateTimezones maps US state abbreviations to IANA timezone names
@@ -621,7 +627,7 @@ func splitAndTrim(s, sep string) []string {
 
 // ImportFromJSONWithDB imports events using a provided database connection
 // Useful for testing or CLI tools that manage their own DB connection
-func (s *DiscoveryService) ImportFromJSONWithDB(filepath string, dryRun bool, database *gorm.DB) (*ImportResult, error) {
+func (s *DiscoveryService) ImportFromJSONWithDB(filepath string, dryRun bool, database *gorm.DB) (*contracts.ImportResult, error) {
 	if database == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -638,13 +644,13 @@ func (s *DiscoveryService) ImportFromJSONWithDB(filepath string, dryRun bool, da
 
 // CheckEventInput represents a single event to check for import status
 // CheckEvents checks whether scraped events already exist in the database
-func (s *DiscoveryService) CheckEvents(events []CheckEventInput) (*CheckEventsResult, error) {
+func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*contracts.CheckEventsResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	result := &CheckEventsResult{
-		Events: make(map[string]CheckEventStatus),
+	result := &contracts.CheckEventsResult{
+		Events: make(map[string]contracts.CheckEventStatus),
 	}
 
 	if len(events) == 0 {
@@ -718,18 +724,18 @@ func (s *DiscoveryService) CheckEvents(events []CheckEventInput) (*CheckEventsRe
 }
 
 // buildCheckEventStatus creates a CheckEventStatus from a Show model
-func (s *DiscoveryService) buildCheckEventStatus(show models.Show) CheckEventStatus {
+func (s *DiscoveryService) buildCheckEventStatus(show models.Show) contracts.CheckEventStatus {
 	var artistNames []string
 	s.db.Raw(`SELECT artists.name FROM show_artists
 		JOIN artists ON show_artists.artist_id = artists.id
 		WHERE show_artists.show_id = ?
 		ORDER BY show_artists.position`, show.ID).Scan(&artistNames)
 
-	return CheckEventStatus{
+	return contracts.CheckEventStatus{
 		Exists: true,
 		ShowID: show.ID,
 		Status: string(show.Status),
-		CurrentData: &ShowCurrentData{
+		CurrentData: &contracts.ShowCurrentData{
 			Price:          show.Price,
 			AgeRequirement: show.AgeRequirement,
 			Description:    show.Description,
@@ -743,12 +749,12 @@ func (s *DiscoveryService) buildCheckEventStatus(show models.Show) CheckEventSta
 
 // ImportEvents imports events from an array of DiscoveredEvent objects
 // This is used by the HTTP API endpoint for importing scraped data directly
-func (s *DiscoveryService) ImportEvents(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error) {
+func (s *DiscoveryService) ImportEvents(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	result := &ImportResult{
+	result := &contracts.ImportResult{
 		Total:    len(events),
 		Messages: make([]string, 0),
 	}

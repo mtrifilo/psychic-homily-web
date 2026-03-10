@@ -1,4 +1,4 @@
-package services
+package pipeline
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 
@@ -44,7 +46,7 @@ func NewFetcherServiceWithTimeout(timeout time.Duration) *FetcherService {
 // If lastETag is non-empty, an If-None-Match header is sent.
 // If lastContentHash is non-empty, it is compared against the SHA256 of the
 // response body to detect content changes even without ETag support.
-func (s *FetcherService) Fetch(url string, lastETag string, lastContentHash string) (*FetchResult, error) {
+func (s *FetcherService) Fetch(url string, lastETag string, lastContentHash string) (*contracts.FetchResult, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
@@ -65,14 +67,14 @@ func (s *FetcherService) Fetch(url string, lastETag string, lastContentHash stri
 	switch {
 	case resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusPermanentRedirect:
 		location := resp.Header.Get("Location")
-		return &FetchResult{
+		return &contracts.FetchResult{
 			HTTPStatus:  resp.StatusCode,
 			RedirectURL: location,
 			Changed:     true,
 		}, nil
 
 	case resp.StatusCode == http.StatusNotModified:
-		return &FetchResult{
+		return &contracts.FetchResult{
 			HTTPStatus: http.StatusNotModified,
 			Changed:    false,
 		}, nil
@@ -90,7 +92,7 @@ func (s *FetcherService) Fetch(url string, lastETag string, lastContentHash stri
 
 		changed := lastContentHash == "" || hash != lastContentHash
 
-		result := &FetchResult{
+		result := &contracts.FetchResult{
 			HTTPStatus:  http.StatusOK,
 			Changed:     changed,
 			ContentHash: hash,
@@ -123,4 +125,3 @@ func computeContentHash(content string) string {
 	h := sha256.Sum256([]byte(content))
 	return fmt.Sprintf("%x", h)
 }
-
