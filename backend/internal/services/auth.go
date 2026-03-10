@@ -14,11 +14,6 @@ import (
 	"psychic-homily-backend/internal/models"
 )
 
-// OAuthCompleter interface for mocking OAuth completion
-type OAuthCompleter interface {
-	CompleteUserAuth(w http.ResponseWriter, r *http.Request) (goth.User, error)
-}
-
 // RealOAuthCompleter implements OAuthCompleter using gothic
 type RealOAuthCompleter struct{}
 

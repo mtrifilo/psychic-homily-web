@@ -43,131 +43,6 @@ func NewShowService(database *gorm.DB) *ShowService {
 	}
 }
 
-// CreateShowVenue represents a venue in a show creation request.
-type CreateShowVenue struct {
-	ID      *uint  `json:"id"`
-	Name    string `json:"name"`
-	City    string `json:"city"`
-	State   string `json:"state"`
-	Address string `json:"address,omitempty"`
-}
-
-// CreateShowArtist represents an artist in a show creation request.
-// IsHeadliner is used for duplicate prevention (headliners can't perform at same venue on same date).
-type CreateShowArtist struct {
-	ID              *uint   `json:"id"`
-	Name            string  `json:"name"`
-	IsHeadliner     *bool   `json:"is_headliner"`
-	InstagramHandle *string `json:"instagram_handle,omitempty"`
-}
-
-// CreateShowRequest represents the data needed to create a new show.
-// The service will prevent duplicate headliners at the same venue on the same date/time
-// and reuse existing venues by name and city (venues are unique by name within a city).
-type CreateShowRequest struct {
-	Title          string             `json:"title" validate:"required"`
-	EventDate      time.Time          `json:"event_date" validate:"required"`
-	City           string             `json:"city"`
-	State          string             `json:"state"`
-	Price          *float64           `json:"price"`
-	AgeRequirement string             `json:"age_requirement"`
-	Description    string             `json:"description"`
-	Venues         []CreateShowVenue  `json:"venues" validate:"required,min=1"`
-	Artists        []CreateShowArtist `json:"artists" validate:"required,min=1"`
-
-	// User context for determining show status
-	SubmittedByUserID *uint `json:"-"` // User ID of submitter (set by handler)
-	SubmitterIsAdmin  bool  `json:"-"` // Whether submitter is admin (set by handler)
-	IsPrivate         bool  `json:"-"` // Whether show should be private (user's list only)
-}
-
-// ShowResponse represents the show data returned to clients
-type ShowResponse struct {
-	ID              uint             `json:"id"`
-	Slug            string           `json:"slug"`
-	Title           string           `json:"title"`
-	EventDate       time.Time        `json:"event_date"`
-	City            *string          `json:"city"`
-	State           *string          `json:"state"`
-	Price           *float64         `json:"price"`
-	AgeRequirement  *string          `json:"age_requirement"`
-	Description     *string          `json:"description"`
-	Status          string           `json:"status"`
-	SubmittedBy     *uint            `json:"submitted_by,omitempty"`
-	RejectionReason   *string          `json:"rejection_reason,omitempty"`
-	RejectionCategory *string          `json:"rejection_category,omitempty"`
-	Venues            []VenueResponse  `json:"venues"`
-	Artists         []ArtistResponse `json:"artists"`
-	CreatedAt       time.Time        `json:"created_at"`
-	UpdatedAt       time.Time        `json:"updated_at"`
-
-	// Status flags (admin-controlled)
-	IsSoldOut   bool `json:"is_sold_out"`
-	IsCancelled bool `json:"is_cancelled"`
-
-	// Source tracking (for admin view to identify discovered shows)
-	Source      string     `json:"source,omitempty"`       // "user" or "discovery"
-	SourceVenue *string    `json:"source_venue,omitempty"` // Venue slug for scraped shows
-	ScrapedAt   *time.Time `json:"scraped_at,omitempty"`   // When the show was scraped
-
-	// Duplicate detection context
-	DuplicateOfShowID *uint `json:"duplicate_of_show_id,omitempty"` // ID of show this may duplicate
-}
-
-// VenueResponse represents venue data in show responses
-type VenueResponse struct {
-	ID         uint    `json:"id"`
-	Slug       string  `json:"slug"`
-	Name       string  `json:"name"`
-	Address    *string `json:"address"`
-	City       string  `json:"city"`
-	State      string  `json:"state"`
-	Verified   bool    `json:"verified"`    // Admin-verified as legitimate venue
-	IsNewVenue *bool   `json:"is_new_venue"` // True if venue was created during this show submission
-}
-
-// ShowArtistSocials represents social media links for artists in show responses
-type ShowArtistSocials struct {
-	Instagram  *string `json:"instagram"`
-	Facebook   *string `json:"facebook"`
-	Twitter    *string `json:"twitter"`
-	YouTube    *string `json:"youtube"`
-	Spotify    *string `json:"spotify"`
-	SoundCloud *string `json:"soundcloud"`
-	Bandcamp   *string `json:"bandcamp"`
-	Website    *string `json:"website"`
-}
-
-// ArtistResponse represents artist data in show responses
-type ArtistResponse struct {
-	ID               uint              `json:"id"`
-	Slug             string            `json:"slug"`
-	Name             string            `json:"name"`
-	State            *string           `json:"state"`
-	City             *string           `json:"city"`
-	IsHeadliner      *bool             `json:"is_headliner"`
-	IsNewArtist      *bool             `json:"is_new_artist"`
-	BandcampEmbedURL *string           `json:"bandcamp_embed_url"`
-	Socials          ShowArtistSocials `json:"socials"`
-}
-
-// BatchShowResult contains the outcome of a batch approve/reject operation.
-type BatchShowResult struct {
-	Succeeded []uint           `json:"succeeded"`
-	Errors    []BatchShowError `json:"errors"`
-}
-
-// BatchShowError describes a failure for a single show in a batch operation.
-type BatchShowError struct {
-	ShowID uint   `json:"show_id"`
-	Error  string `json:"error"`
-}
-
-// PendingShowsFilter contains optional filters for pending shows queries.
-type PendingShowsFilter struct {
-	VenueID *uint
-	Source  *string // "discovery" or "user"
-}
 
 // CreateShow creates a new show with associated venues and artists.
 // Prevents duplicate headliners at the same venue on the same date/time.
@@ -490,11 +365,6 @@ func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*
 
 // OrphanedArtist represents an artist that has no remaining show associations
 // after a show update replaced its artist list
-type OrphanedArtist struct {
-	ID   uint   `json:"id"`
-	Name string `json:"name"`
-	Slug string `json:"slug"`
-}
 
 // UpdateShowWithRelations updates a show including its artist and venue associations.
 // If venues or artists slices are provided (non-nil), they replace the existing associations.
@@ -761,17 +631,6 @@ func decodeCursor(cursor string) (time.Time, uint, error) {
 }
 
 // CityStateFilter represents a city+state pair for multi-city filtering
-type CityStateFilter struct {
-	City  string
-	State string
-}
-
-// UpcomingShowsFilter contains optional filters for GetUpcomingShows
-type UpcomingShowsFilter struct {
-	City   string
-	State  string
-	Cities []CityStateFilter
-}
 
 // GetUpcomingShows retrieves shows from today onwards in the specified timezone with cursor pagination.
 // Includes tonight's shows by filtering from the start of today in the user's timezone.
@@ -875,12 +734,6 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 	return responses, nextCursor, nil
 }
 
-// ShowCityResponse represents a city with the count of upcoming shows
-type ShowCityResponse struct {
-	City      string `json:"city"`
-	State     string `json:"state"`
-	ShowCount int    `json:"show_count"`
-}
 
 // GetShowCities retrieves cities that have upcoming approved shows, with counts.
 // Returns cities sorted by show count (descending).
@@ -1675,68 +1528,6 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 // ============================================================================
 
 // ExportShowData represents the show data in the markdown frontmatter
-type ExportShowData struct {
-	Title          string   `yaml:"title" json:"title"`
-	EventDate      string   `yaml:"event_date" json:"event_date"`
-	City           string   `yaml:"city,omitempty" json:"city,omitempty"`
-	State          string   `yaml:"state,omitempty" json:"state,omitempty"`
-	Price          *float64 `yaml:"price,omitempty" json:"price,omitempty"`
-	AgeRequirement string   `yaml:"age_requirement,omitempty" json:"age_requirement,omitempty"`
-	Status         string   `yaml:"status" json:"status"`
-}
-
-// ExportVenueSocial represents venue social links in export
-type ExportVenueSocial struct {
-	Instagram  string `yaml:"instagram,omitempty"`
-	Facebook   string `yaml:"facebook,omitempty"`
-	Twitter    string `yaml:"twitter,omitempty"`
-	YouTube    string `yaml:"youtube,omitempty"`
-	Spotify    string `yaml:"spotify,omitempty"`
-	SoundCloud string `yaml:"soundcloud,omitempty"`
-	Bandcamp   string `yaml:"bandcamp,omitempty"`
-	Website    string `yaml:"website,omitempty"`
-}
-
-// ExportVenueData represents a venue in the markdown frontmatter
-type ExportVenueData struct {
-	Name    string            `yaml:"name"`
-	City    string            `yaml:"city"`
-	State   string            `yaml:"state"`
-	Address string            `yaml:"address,omitempty"`
-	Zipcode string            `yaml:"zipcode,omitempty"`
-	Social  ExportVenueSocial `yaml:"social,omitempty"`
-}
-
-// ExportArtistSocial represents artist social links in export
-type ExportArtistSocial struct {
-	Instagram  string `yaml:"instagram,omitempty"`
-	Facebook   string `yaml:"facebook,omitempty"`
-	Twitter    string `yaml:"twitter,omitempty"`
-	YouTube    string `yaml:"youtube,omitempty"`
-	Spotify    string `yaml:"spotify,omitempty"`
-	SoundCloud string `yaml:"soundcloud,omitempty"`
-	Bandcamp   string `yaml:"bandcamp,omitempty"`
-	Website    string `yaml:"website,omitempty"`
-}
-
-// ExportArtistData represents an artist in the markdown frontmatter
-type ExportArtistData struct {
-	Name     string             `yaml:"name"`
-	Position int                `yaml:"position"`
-	SetType  string             `yaml:"set_type"`
-	City     string             `yaml:"city,omitempty"`
-	State    string             `yaml:"state,omitempty"`
-	Social   ExportArtistSocial `yaml:"social,omitempty"`
-}
-
-// ExportFrontmatter represents the complete markdown frontmatter
-type ExportFrontmatter struct {
-	Version    string             `yaml:"version"`
-	ExportedAt string             `yaml:"exported_at"`
-	Show       ExportShowData     `yaml:"show"`
-	Venues     []ExportVenueData  `yaml:"venues"`
-	Artists    []ExportArtistData `yaml:"artists"`
-}
 
 // ExportShowToMarkdown exports a show to markdown format
 // Returns the markdown content, suggested filename, and error
@@ -1913,37 +1704,6 @@ func (s *ShowService) ExportShowToMarkdown(showID uint) ([]byte, string, error) 
 }
 
 // ParsedShowImport represents the parsed markdown data for import preview
-type ParsedShowImport struct {
-	Frontmatter ExportFrontmatter
-	Description string
-}
-
-// VenueMatchResult represents the result of matching a venue
-type VenueMatchResult struct {
-	Name       string `json:"name"`
-	City       string `json:"city"`
-	State      string `json:"state"`
-	ExistingID *uint  `json:"existing_id,omitempty"`
-	WillCreate bool   `json:"will_create"`
-}
-
-// ArtistMatchResult represents the result of matching an artist
-type ArtistMatchResult struct {
-	Name       string `json:"name"`
-	Position   int    `json:"position"`
-	SetType    string `json:"set_type"`
-	ExistingID *uint  `json:"existing_id,omitempty"`
-	WillCreate bool   `json:"will_create"`
-}
-
-// ImportPreviewResponse represents the preview response for show import
-type ImportPreviewResponse struct {
-	Show      ExportShowData      `json:"show"`
-	Venues    []VenueMatchResult  `json:"venues"`
-	Artists   []ArtistMatchResult `json:"artists"`
-	Warnings  []string            `json:"warnings"`
-	CanImport bool                `json:"can_import"`
-}
 
 // ParseShowMarkdown parses a markdown file and returns the parsed data
 func (s *ShowService) ParseShowMarkdown(content []byte) (*ParsedShowImport, error) {
@@ -2119,12 +1879,6 @@ func (s *ShowService) PreviewShowImport(content []byte) (*ImportPreviewResponse,
 }
 
 // AdminShowFilters contains filters for GetAdminShows
-type AdminShowFilters struct {
-	Status   string // pending, approved, rejected, private
-	FromDate string // RFC3339 format
-	ToDate   string // RFC3339 format
-	City     string
-}
 
 // GetAdminShows retrieves shows for admin with optional filters (for CLI export)
 // Returns shows with all statuses including pending, rejected, and private

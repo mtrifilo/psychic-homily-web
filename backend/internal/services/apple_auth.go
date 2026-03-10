@@ -53,24 +53,6 @@ func NewAppleAuthService(database *gorm.DB, cfg *config.Config) *AppleAuthServic
 	}
 }
 
-// AppleIdentityTokenClaims represents the claims in an Apple identity token
-type AppleIdentityTokenClaims struct {
-	Email         string `json:"email"`
-	EmailVerified any    `json:"email_verified"` // Apple sends this as string "true" or bool
-	jwt.RegisteredClaims
-}
-
-// IsEmailVerified returns whether the email is verified, handling both string and bool types
-func (c *AppleIdentityTokenClaims) IsEmailVerified() bool {
-	switch v := c.EmailVerified.(type) {
-	case bool:
-		return v
-	case string:
-		return v == "true"
-	default:
-		return false
-	}
-}
 
 // appleJWKSet represents Apple's JWK set response
 type appleJWKSet struct {

@@ -20,50 +20,6 @@ const (
 	AccountLockDuration    = 15 * time.Minute
 )
 
-// LegalAcceptance records terms/privacy agreement metadata at account creation.
-type LegalAcceptance struct {
-	TermsAcceptedAt time.Time
-	TermsVersion    string
-	PrivacyVersion  string
-}
-
-// OAuthSignupConsent carries consent details from OAuth signup initiation.
-type OAuthSignupConsent struct {
-	TermsAccepted  bool
-	TermsVersion   string
-	PrivacyVersion string
-	AcceptedAt     time.Time
-}
-
-// AdminUserFilters contains filter criteria for listing users
-type AdminUserFilters struct {
-	Search string // ILIKE match on email or username
-}
-
-// UserSubmissionStats contains show submission counts by status
-type UserSubmissionStats struct {
-	Approved int64 `json:"approved"`
-	Pending  int64 `json:"pending"`
-	Rejected int64 `json:"rejected"`
-	Total    int64 `json:"total"`
-}
-
-// AdminUserResponse is the response type for the admin user list
-type AdminUserResponse struct {
-	ID              uint                `json:"id"`
-	Email           *string             `json:"email"`
-	Username        *string             `json:"username"`
-	FirstName       *string             `json:"first_name"`
-	LastName        *string             `json:"last_name"`
-	AvatarURL       *string             `json:"avatar_url"`
-	IsActive        bool                `json:"is_active"`
-	IsAdmin         bool                `json:"is_admin"`
-	EmailVerified   bool                `json:"email_verified"`
-	AuthMethods     []string            `json:"auth_methods"`
-	SubmissionStats UserSubmissionStats `json:"submission_stats"`
-	CreatedAt       time.Time           `json:"created_at"`
-	DeletedAt       *time.Time          `json:"deleted_at,omitempty"`
-}
 
 // ListUsers returns a paginated list of users for the admin console
 func (s *UserService) ListUsers(limit, offset int, filters AdminUserFilters) ([]*AdminUserResponse, int64, error) {
@@ -798,11 +754,6 @@ func (s *UserService) SetEmailVerified(userID uint, verified bool) error {
 }
 
 // DeletionSummary contains counts of user data that will be affected by deletion
-type DeletionSummary struct {
-	ShowsCount      int64 `json:"shows_count"`
-	SavedShowsCount int64 `json:"saved_shows_count"`
-	PasskeysCount   int64 `json:"passkeys_count"`
-}
 
 // GetDeletionSummary returns counts of data that will be affected by account deletion
 func (s *UserService) GetDeletionSummary(userID uint) (*DeletionSummary, error) {
@@ -919,79 +870,6 @@ func (s *UserService) CreateUserWithoutPassword(email string) (*models.User, err
 	return user, nil
 }
 
-// UserDataExport represents all user data in a portable format (GDPR compliance)
-type UserDataExport struct {
-	ExportedAt     time.Time              `json:"exported_at"`
-	ExportVersion  string                 `json:"export_version"`
-	Profile        UserProfileExport      `json:"profile"`
-	Preferences    *UserPreferencesExport `json:"preferences,omitempty"`
-	OAuthAccounts  []OAuthAccountExport   `json:"oauth_accounts,omitempty"`
-	Passkeys       []PasskeyExport        `json:"passkeys,omitempty"`
-	SavedShows     []SavedShowExport      `json:"saved_shows,omitempty"`
-	SubmittedShows []SubmittedShowExport  `json:"submitted_shows,omitempty"`
-}
-
-// UserProfileExport contains user profile data for export
-type UserProfileExport struct {
-	ID            uint      `json:"id"`
-	Email         *string   `json:"email"`
-	Username      *string   `json:"username,omitempty"`
-	FirstName     *string   `json:"first_name,omitempty"`
-	LastName      *string   `json:"last_name,omitempty"`
-	AvatarURL     *string   `json:"avatar_url,omitempty"`
-	Bio           *string   `json:"bio,omitempty"`
-	EmailVerified bool      `json:"email_verified"`
-	CreatedAt     time.Time `json:"account_created_at"`
-	UpdatedAt     time.Time `json:"last_updated_at"`
-}
-
-// UserPreferencesExport contains user preferences for export
-type UserPreferencesExport struct {
-	NotificationEmail bool   `json:"notification_email"`
-	NotificationPush  bool   `json:"notification_push"`
-	Theme             string `json:"theme"`
-	Timezone          string `json:"timezone"`
-	Language          string `json:"language"`
-}
-
-// OAuthAccountExport contains OAuth account data for export (no tokens)
-type OAuthAccountExport struct {
-	Provider      string    `json:"provider"`
-	ProviderEmail *string   `json:"provider_email,omitempty"`
-	ProviderName  *string   `json:"provider_name,omitempty"`
-	LinkedAt      time.Time `json:"linked_at"`
-}
-
-// PasskeyExport contains passkey metadata for export (no keys)
-type PasskeyExport struct {
-	DisplayName    string     `json:"display_name"`
-	CreatedAt      time.Time  `json:"created_at"`
-	LastUsedAt     *time.Time `json:"last_used_at,omitempty"`
-	BackupEligible bool       `json:"backup_eligible"`
-	BackupState    bool       `json:"backup_state"`
-}
-
-// SavedShowExport contains saved show data for export
-type SavedShowExport struct {
-	ShowID    uint      `json:"show_id"`
-	Title     string    `json:"title"`
-	EventDate time.Time `json:"event_date"`
-	Venue     *string   `json:"venue,omitempty"`
-	City      *string   `json:"city,omitempty"`
-	SavedAt   time.Time `json:"saved_at"`
-}
-
-// SubmittedShowExport contains submitted show data for export
-type SubmittedShowExport struct {
-	ShowID      uint      `json:"show_id"`
-	Title       string    `json:"title"`
-	EventDate   time.Time `json:"event_date"`
-	Status      string    `json:"status"`
-	SubmittedAt time.Time `json:"submitted_at"`
-	Venue       *string   `json:"venue,omitempty"`
-	City        *string   `json:"city,omitempty"`
-	Artists     []string  `json:"artists,omitempty"`
-}
 
 // ExportUserData exports all user data in a portable JSON format
 // This supports GDPR Article 20 - Right to data portability
