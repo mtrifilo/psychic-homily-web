@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useCommandPalette } from '@/lib/hooks/useCommandPalette'
+import { useCommandPalette } from '@/lib/hooks/common/useCommandPalette'
 
 interface RouteItem {
   label: string

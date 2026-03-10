@@ -2,8 +2,8 @@
 
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useSavedShows } from '@/lib/hooks/useSavedShows'
-import { useMySubmissions } from '@/lib/hooks/useMySubmissions'
+import { useSavedShows } from '@/lib/hooks/shows/useSavedShows'
+import { useMySubmissions } from '@/lib/hooks/shows/useMySubmissions'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
@@ -42,7 +42,7 @@ import { CalendarFeedSection } from '@/components/collection'
 import {
   useSetShowSoldOut,
   useSetShowCancelled,
-} from '@/lib/hooks/useAdminShows'
+} from '@/lib/hooks/admin/useAdminShows'
 import { ShowForm } from '@/components/forms'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'

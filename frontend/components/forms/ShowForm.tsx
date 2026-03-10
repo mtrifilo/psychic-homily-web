@@ -17,12 +17,12 @@ import {
   Info,
   EyeOff,
 } from 'lucide-react'
-import { useShowSubmit, type ShowSubmission } from '@/lib/hooks/useShowSubmit'
+import { useShowSubmit, type ShowSubmission } from '@/lib/hooks/shows/useShowSubmit'
 import {
   useShowUpdate,
   type ShowUpdate,
   type ShowUpdateResponse,
-} from '@/lib/hooks/useShowUpdate'
+} from '@/lib/hooks/shows/useShowUpdate'
 import {
   combineDateTimeToUTC,
   getTimezoneForState,

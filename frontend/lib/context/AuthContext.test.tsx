@@ -8,7 +8,7 @@ import { createTestQueryClient } from '@/test/utils'
 const mockUseProfile = vi.fn()
 const mockUseLogout = vi.fn()
 
-vi.mock('@/lib/hooks/useAuth', () => ({
+vi.mock('@/lib/hooks/auth/useAuth', () => ({
   useProfile: () => mockUseProfile(),
   useLogout: () => mockUseLogout(),
 }))

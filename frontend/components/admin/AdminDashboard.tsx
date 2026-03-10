@@ -14,7 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
-import { useAdminStats } from '@/lib/hooks/useAdminStats'
+import { useAdminStats } from '@/lib/hooks/admin/useAdminStats'
 import { Loader2 } from 'lucide-react'
 
 interface StatCardProps {

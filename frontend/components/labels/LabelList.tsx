@@ -2,10 +2,10 @@
 
 import { useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useLabels } from '@/lib/hooks/useLabels'
+import { useLabels } from '@/lib/hooks/labels/useLabels'
 import { LabelCard } from './LabelCard'
 import { LoadingSpinner, DensityToggle } from '@/components/shared'
-import { useDensity } from '@/lib/hooks/useDensity'
+import { useDensity } from '@/lib/hooks/common/useDensity'
 import { Button } from '@/components/ui/button'
 import { LABEL_STATUSES, LABEL_STATUS_LABELS } from '@/lib/types/label'
 import type { LabelStatus } from '@/lib/types/label'

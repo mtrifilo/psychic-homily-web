@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { CheckCircle, Loader2 } from 'lucide-react'
-import { useResolveArtistReport } from '@/lib/hooks/useAdminArtistReports'
+import { useResolveArtistReport } from '@/lib/hooks/admin/useAdminArtistReports'
 import type { ArtistReportResponse } from '@/lib/types/artist'
 import {
   Dialog,

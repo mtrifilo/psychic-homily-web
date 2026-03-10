@@ -14,7 +14,7 @@ vi.mock('next/navigation', () => ({
 }))
 
 const mockRegisterMutate = vi.fn()
-vi.mock('@/lib/hooks/useAuth', () => ({
+vi.mock('@/lib/hooks/auth/useAuth', () => ({
   useRegister: () => ({
     mutate: mockRegisterMutate,
     isPending: false,

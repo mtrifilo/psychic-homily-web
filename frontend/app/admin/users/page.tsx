@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Loader2, Users, Inbox, Search } from 'lucide-react'
-import { useAdminUsers } from '@/lib/hooks/useAdminUsers'
+import { useAdminUsers } from '@/lib/hooks/admin/useAdminUsers'
 import { AdminUserCard } from '@/components/admin'
 import { Input } from '@/components/ui/input'
 

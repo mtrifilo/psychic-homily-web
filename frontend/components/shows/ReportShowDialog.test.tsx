@@ -11,7 +11,7 @@ const mockReportHook = vi.fn(() => ({
   error: null,
 }))
 
-vi.mock('@/lib/hooks/useShowReports', () => ({
+vi.mock('@/lib/hooks/shows/useShowReports', () => ({
   useReportShow: () => mockReportHook(),
 }))
 

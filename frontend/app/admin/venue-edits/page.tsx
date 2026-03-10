@@ -8,7 +8,7 @@ import {
   XCircle,
   ArrowRight,
 } from 'lucide-react'
-import { usePendingVenueEdits } from '@/lib/hooks/useAdminVenueEdits'
+import { usePendingVenueEdits } from '@/lib/hooks/admin/useAdminVenueEdits'
 import type { PendingVenueEdit } from '@/lib/types/venue'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'

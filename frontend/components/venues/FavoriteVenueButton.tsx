@@ -2,7 +2,7 @@
 
 import { Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useFavoriteVenueToggle } from '@/lib/hooks/useFavoriteVenues'
+import { useFavoriteVenueToggle } from '@/lib/hooks/user/useFavoriteVenues'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useState } from 'react'
 

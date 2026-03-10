@@ -39,7 +39,7 @@ let mockRevokeMutationState = {
   error: null as Error | null,
 }
 
-vi.mock('@/lib/hooks/useAuth', () => ({
+vi.mock('@/lib/hooks/auth/useAuth', () => ({
   useAPITokens: () => ({
     data: mockTokensData,
     isLoading: mockTokensLoading,

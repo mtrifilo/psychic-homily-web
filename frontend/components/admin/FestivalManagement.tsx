@@ -28,9 +28,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { useFestivals, useFestival, useFestivalLineup, useFestivalVenues } from '@/lib/hooks/useFestivals'
-import { useArtistSearch } from '@/lib/hooks/useArtistSearch'
-import { useVenueSearch } from '@/lib/hooks/useVenueSearch'
+import { useFestivals, useFestival, useFestivalLineup, useFestivalVenues } from '@/lib/hooks/festivals/useFestivals'
+import { useArtistSearch } from '@/lib/hooks/artists/useArtistSearch'
+import { useVenueSearch } from '@/lib/hooks/venues/useVenueSearch'
 import {
   useCreateFestival,
   useUpdateFestival,
@@ -40,7 +40,7 @@ import {
   useRemoveFestivalArtist,
   useAddFestivalVenue,
   useRemoveFestivalVenue,
-} from '@/lib/hooks/useAdminFestivals'
+} from '@/lib/hooks/admin/useAdminFestivals'
 import {
   FESTIVAL_STATUSES,
   FESTIVAL_STATUS_LABELS,

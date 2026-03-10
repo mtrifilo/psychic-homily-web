@@ -11,7 +11,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import Link from 'next/link'
-import { useVenueShows } from '@/lib/hooks/useVenues'
+import { useVenueShows } from '@/lib/hooks/venues/useVenues'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useQueryClient } from '@tanstack/react-query'
 import { createInvalidateQueries } from '@/lib/queryClient'

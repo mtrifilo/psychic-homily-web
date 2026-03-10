@@ -23,12 +23,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { useLabels, useLabel } from '@/lib/hooks/useLabels'
+import { useLabels, useLabel } from '@/lib/hooks/labels/useLabels'
 import {
   useCreateLabel,
   useUpdateLabel,
   useDeleteLabel,
-} from '@/lib/hooks/useAdminLabels'
+} from '@/lib/hooks/admin/useAdminLabels'
 import {
   LABEL_STATUSES,
   LABEL_STATUS_LABELS,

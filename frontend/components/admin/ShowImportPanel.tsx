@@ -10,7 +10,7 @@ import {
   useShowImportPreview,
   useShowImportConfirm,
   type ImportPreviewResponse,
-} from '@/lib/hooks/useShowImport'
+} from '@/lib/hooks/shows/useShowImport'
 
 type ImportState = 'idle' | 'parsing' | 'preview' | 'success'
 

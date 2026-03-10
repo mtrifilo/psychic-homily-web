@@ -10,7 +10,7 @@ import {
   Calendar,
   Users,
 } from 'lucide-react'
-import { useRelease } from '@/lib/hooks/useReleases'
+import { useRelease } from '@/lib/hooks/releases/useReleases'
 import { EntityDetailLayout, EntityHeader } from '@/components/shared'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'

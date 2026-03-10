@@ -4,7 +4,7 @@ import { Suspense, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Loader2, CheckCircle2, AlertCircle, Mail, ArrowRight } from 'lucide-react'
-import { useConfirmVerification } from '@/lib/hooks/useAuth'
+import { useConfirmVerification } from '@/lib/hooks/auth/useAuth'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 

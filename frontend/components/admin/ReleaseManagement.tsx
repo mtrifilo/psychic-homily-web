@@ -26,8 +26,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { useReleases, useRelease } from '@/lib/hooks/useReleases'
-import { useArtistSearch } from '@/lib/hooks/useArtistSearch'
+import { useReleases, useRelease } from '@/lib/hooks/releases/useReleases'
+import { useArtistSearch } from '@/lib/hooks/artists/useArtistSearch'
 import {
   useCreateRelease,
   useUpdateRelease,
@@ -36,7 +36,7 @@ import {
   useRemoveReleaseLink,
   type CreateReleaseArtistInput,
   type CreateReleaseLinkInput,
-} from '@/lib/hooks/useAdminReleases'
+} from '@/lib/hooks/admin/useAdminReleases'
 import {
   RELEASE_TYPES,
   RELEASE_TYPE_LABELS,

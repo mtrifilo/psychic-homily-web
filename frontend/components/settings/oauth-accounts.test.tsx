@@ -27,7 +27,7 @@ let mockUnlinkMutationState = {
   error: null as Error | null,
 }
 
-vi.mock('@/lib/hooks/useAuth', () => ({
+vi.mock('@/lib/hooks/auth/useAuth', () => ({
   useOAuthAccounts: () => ({
     data: mockOAuthData,
     isLoading: mockOAuthLoading,
