@@ -13,7 +13,7 @@ When starting a new task, read `docs/llm-context.md` first. It has a task-to-doc
 
 ## Project Structure
 
-- `/frontend` - Next.js 16 app (React 19, TanStack Query, Tailwind CSS 4, Vitest)
+- `/frontend` - Next.js 16 app (React 19, TanStack Query, Tailwind CSS 4, Vitest). New features use `features/` modules (co-located components/hooks/types); existing features remain in `components/` + `lib/hooks/`.
 - `/backend` - Go API (Chi router, Huma v2, GORM, PostgreSQL 18)
 - `/ios` - Native iOS app (Swift 6, SwiftUI, iOS 18+, XcodeGen)
 - `/discovery` - Local Bun+Playwright app for scraping venue events and importing to the backend
@@ -84,11 +84,12 @@ HTTP Request → Chi Router → Global Middleware → Huma Adapter → Route Gro
 ### Frontend Conventions
 
 - **API client** (`lib/api.ts`): `apiRequest()` utility with `credentials: 'include'` for HTTP-only cookie auth. In development, browser requests proxy through Next.js (`/api/*` → `localhost:8080`); in production, requests go direct to `api.psychichomily.com`.
-- **Hooks** (`lib/hooks/`): TanStack Query hooks per domain. Queries use `queryKeys` from `lib/queryClient.ts`. Mutations invalidate via `createInvalidateQueries()`.
+- **Hooks** (`lib/hooks/`): TanStack Query hooks organized into domain subdirectories (`admin/`, `shows/`, `artists/`, `venues/`, `releases/`, `labels/`, `festivals/`, `auth/`, `user/`, `common/`). Each has a barrel `index.ts`. Import from subdirectory: `@/lib/hooks/shows/useShows`. Queries use `queryKeys` from `lib/queryClient.ts`. Mutations invalidate via `createInvalidateQueries()`.
 - **Query client** (`lib/queryClient.ts`): 5-min staleTime, smart retry (no retry on 4xx, up to 3 on 5xx). Global error handlers detect session expiry and invalidate auth profile.
 - **Auth**: `AuthContext` wraps app, checks `/auth/profile` on mount. Auth token is HTTP-only cookie — frontend never accesses it directly. Supports email/password, magic link, OAuth (Google/GitHub), and passkeys (WebAuthn).
 - **Admin**: Tab-based UI in `app/admin/page.tsx` with dynamic imports. Components in `components/admin/` with barrel export in `index.ts`.
 - **Component dirs**: Domain directories (artists, shows, venues) have `index.ts` barrel files. Shadcn primitives in `components/ui/` — don't modify directly.
+- **Feature modules** (`features/`): New features use co-located feature modules instead of spreading across `components/`, `lib/hooks/`, and `lib/types/`. Each module has `components/`, `hooks/`, `types.ts`, and a root `index.ts` public API. Other features import from the root `index.ts` only, never internal paths. Shared code used by 2+ features stays in `lib/` or `components/shared/`. Existing features (shows, artists, etc.) stay in their current locations — adopt this pattern for new features only.
 - **URLs**: Artists, venues, and shows use SEO-friendly slugs. Handlers support both numeric IDs and slugs.
 
 ### Backend Test Patterns
