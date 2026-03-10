@@ -3,12 +3,11 @@
 import { useMemo } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
-import type { FestivalArtist } from '@/lib/types/festival'
+import type { FestivalArtist, BillingTier } from '../types'
 import {
   BILLING_TIER_ORDER,
   getBillingTierLabel,
-} from '@/lib/types/festival'
-import type { BillingTier } from '@/lib/types/festival'
+} from '../types'
 
 interface FestivalLineupProps {
   artists: FestivalArtist[]

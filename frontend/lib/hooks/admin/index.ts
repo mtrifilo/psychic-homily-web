@@ -22,22 +22,6 @@ export {
 export { useAuditLogs } from './useAdminAuditLogs'
 
 export {
-  type CreateFestivalInput,
-  type UpdateFestivalInput,
-  type AddFestivalArtistInput,
-  type UpdateFestivalArtistInput,
-  type AddFestivalVenueInput,
-  useCreateFestival,
-  useUpdateFestival,
-  useDeleteFestival,
-  useAddFestivalArtist,
-  useUpdateFestivalArtist,
-  useRemoveFestivalArtist,
-  useAddFestivalVenue,
-  useRemoveFestivalVenue,
-} from './useAdminFestivals'
-
-export {
   type CreateLabelInput,
   type UpdateLabelInput,
   useCreateLabel,

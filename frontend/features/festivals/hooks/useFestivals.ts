@@ -7,15 +7,15 @@
  */
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '../../api'
-import { queryKeys } from '../../queryClient'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { queryKeys } from '@/lib/queryClient'
 import type {
   FestivalsListResponse,
   FestivalDetail,
   FestivalArtistsResponse,
   FestivalVenuesResponse,
   ArtistFestivalsResponse,
-} from '../../types/festival'
+} from '../types'
 
 interface UseFestivalsOptions {
   status?: string

@@ -15,7 +15,7 @@ import {
   useFestival,
   useFestivalArtists,
   useFestivalVenues,
-} from '@/lib/hooks/festivals/useFestivals'
+} from '../hooks/useFestivals'
 import { EntityDetailLayout, EntityHeader, SocialLinks } from '@/components/shared'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -26,7 +26,7 @@ import {
   getFestivalStatusVariant,
   formatFestivalLocation,
   formatFestivalDateRange,
-} from '@/lib/types/festival'
+} from '../types'
 
 interface FestivalDetailProps {
   idOrSlug: string | number
