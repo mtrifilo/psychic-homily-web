@@ -1,6 +1,6 @@
 'use client'
 
-import { LabelManagement } from '@/app/admin/labels/_components/LabelManagement'
+import { LabelManagement } from '@/features/labels/admin/LabelManagement'
 
 export default function AdminLabelsPage() {
   return <LabelManagement />

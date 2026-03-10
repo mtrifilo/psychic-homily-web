@@ -38,14 +38,6 @@ export {
 } from './useAdminFestivals'
 
 export {
-  type CreateLabelInput,
-  type UpdateLabelInput,
-  useCreateLabel,
-  useUpdateLabel,
-  useDeleteLabel,
-} from './useAdminLabels'
-
-export {
   type CreateReleaseArtistInput,
   type CreateReleaseLinkInput,
   type CreateReleaseInput,

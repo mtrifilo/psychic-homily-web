@@ -18,7 +18,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { useArtist } from '@/lib/hooks/artists/useArtists'
 import { useArtistReleases } from '@/lib/hooks/releases/useReleases'
-import { useArtistLabels, useLabelRoster } from '@/lib/hooks/labels/useLabels'
+import { useArtistLabels, useLabelRoster } from '@/features/labels/hooks/useLabels'
 import { queryKeys } from '@/lib/queryClient'
 import { useIsAuthenticated } from '@/lib/hooks/auth/useAuth'
 import {
@@ -40,7 +40,7 @@ import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { getReleaseTypeLabel } from '@/lib/types/release'
 import type { ArtistReleaseListItem } from '@/lib/types/release'
-import type { ArtistLabel } from '@/lib/types/label'
+import type { ArtistLabel } from '@/features/labels/types'
 
 interface ArtistDetailProps {
   artistId: string | number

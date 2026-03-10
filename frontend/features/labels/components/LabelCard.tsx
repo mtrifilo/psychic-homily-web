@@ -8,8 +8,8 @@ import {
   getLabelStatusLabel,
   getLabelStatusVariant,
   formatLabelLocation,
-} from '@/lib/types/label'
-import type { LabelListItem } from '@/lib/types/label'
+} from '../types'
+import type { LabelListItem } from '../types'
 
 export type LabelCardDensity = 'compact' | 'comfortable' | 'expanded'
 
