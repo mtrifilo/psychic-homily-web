@@ -35,23 +35,6 @@ func NewPipelineService(
 	}
 }
 
-// PipelineResult contains the outcome of a single venue extraction run.
-type PipelineResult struct {
-	VenueID              uint     `json:"venue_id"`
-	VenueName            string   `json:"venue_name"`
-	RenderMethod         string   `json:"render_method"`
-	EventsExtracted      int      `json:"events_extracted"`
-	EventsImported       int      `json:"events_imported"`
-	EventsSkippedNonMusic int     `json:"events_skipped_non_music"`
-	DurationMs           int64    `json:"duration_ms"`
-	Skipped              bool     `json:"skipped"`
-	SkipReason           string   `json:"skip_reason,omitempty"`
-	Error                string   `json:"error,omitempty"`
-	Warnings             []string `json:"warnings,omitempty"`
-	DryRun               bool     `json:"dry_run"`
-	InitialStatus        string   `json:"initial_status"`
-}
-
 // ExtractVenue runs the full extraction pipeline for a single venue.
 func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*PipelineResult, error) {
 	start := time.Now()

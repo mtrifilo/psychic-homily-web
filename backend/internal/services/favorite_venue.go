@@ -29,34 +29,6 @@ func NewFavoriteVenueService(database *gorm.DB) *FavoriteVenueService {
 	}
 }
 
-// FavoriteVenueResponse represents a favorite venue with metadata
-type FavoriteVenueResponse struct {
-	ID                uint      `json:"id"`
-	Slug              string    `json:"slug"`
-	Name              string    `json:"name"`
-	Address           *string   `json:"address"`
-	City              string    `json:"city"`
-	State             string    `json:"state"`
-	Verified          bool      `json:"verified"`
-	FavoritedAt       time.Time `json:"favorited_at"`
-	UpcomingShowCount int       `json:"upcoming_show_count"`
-}
-
-// FavoriteVenueShowResponse represents a show from a favorite venue
-type FavoriteVenueShowResponse struct {
-	ID             uint             `json:"id"`
-	Slug           string           `json:"slug"`
-	Title          string           `json:"title"`
-	EventDate      time.Time        `json:"event_date"`
-	City           *string          `json:"city"`
-	State          *string          `json:"state"`
-	Price          *float64         `json:"price"`
-	AgeRequirement *string          `json:"age_requirement"`
-	VenueID        uint             `json:"venue_id"`
-	VenueName      string           `json:"venue_name"`
-	VenueSlug      string           `json:"venue_slug"`
-	Artists        []ArtistResponse `json:"artists"`
-}
 
 // FavoriteVenue adds a venue to user's favorites
 func (s *FavoriteVenueService) FavoriteVenue(userID, venueID uint) error {

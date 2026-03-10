@@ -37,26 +37,6 @@ func NewAPITokenService(database *gorm.DB) *APITokenService {
 	}
 }
 
-// APITokenResponse represents a token in API responses
-type APITokenResponse struct {
-	ID          uint       `json:"id"`
-	Description *string    `json:"description"`
-	Scope       string     `json:"scope"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-	LastUsedAt  *time.Time `json:"last_used_at"`
-	IsExpired   bool       `json:"is_expired"`
-}
-
-// APITokenCreateResponse includes the plaintext token (only returned on creation)
-type APITokenCreateResponse struct {
-	ID          uint       `json:"id"`
-	Token       string     `json:"token"` // Plaintext token - only shown once!
-	Description *string    `json:"description"`
-	Scope       string     `json:"scope"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-}
 
 // generateToken creates a cryptographically secure random token
 func generateToken() (string, error) {
