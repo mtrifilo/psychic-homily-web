@@ -1,4 +1,4 @@
-package services
+package engagement
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -84,9 +85,9 @@ func TestGenerateCalendarToken_Unique(t *testing.T) {
 
 func TestGenerateICSFeed_Format(t *testing.T) {
 	// Create a service with a mock saved show service
-	mockShows := []*SavedShowResponse{
+	mockShows := []*contracts.SavedShowResponse{
 		{
-			ShowResponse: ShowResponse{
+			ShowResponse: contracts.ShowResponse{
 				ID:        1,
 				Slug:      "test-show",
 				Title:     "Test Show",
@@ -94,10 +95,10 @@ func TestGenerateICSFeed_Format(t *testing.T) {
 				City:      ptrString("Phoenix"),
 				State:     ptrString("AZ"),
 				Status:    "approved",
-				Venues: []VenueResponse{
+				Venues: []contracts.VenueResponse{
 					{ID: 1, Name: "The Venue", City: "Phoenix", State: "AZ"},
 				},
-				Artists: []ArtistResponse{
+				Artists: []contracts.ArtistResponse{
 					{ID: 1, Name: "Artist One"},
 					{ID: 2, Name: "Artist Two"},
 				},
@@ -131,9 +132,9 @@ func TestGenerateICSFeed_Format(t *testing.T) {
 }
 
 func TestGenerateICSFeed_SoldOutLabel(t *testing.T) {
-	mockShows := []*SavedShowResponse{
+	mockShows := []*contracts.SavedShowResponse{
 		{
-			ShowResponse: ShowResponse{
+			ShowResponse: contracts.ShowResponse{
 				ID:        2,
 				Slug:      "sold-out-show",
 				Title:     "Hot Show",
@@ -154,9 +155,9 @@ func TestGenerateICSFeed_SoldOutLabel(t *testing.T) {
 }
 
 func TestGenerateICSFeed_FiltersCancelled(t *testing.T) {
-	mockShows := []*SavedShowResponse{
+	mockShows := []*contracts.SavedShowResponse{
 		{
-			ShowResponse: ShowResponse{
+			ShowResponse: contracts.ShowResponse{
 				ID:          3,
 				Title:       "Cancelled Show",
 				EventDate:   time.Now().Add(24 * time.Hour),
@@ -177,9 +178,9 @@ func TestGenerateICSFeed_FiltersCancelled(t *testing.T) {
 }
 
 func TestGenerateICSFeed_FiltersNonApproved(t *testing.T) {
-	mockShows := []*SavedShowResponse{
+	mockShows := []*contracts.SavedShowResponse{
 		{
-			ShowResponse: ShowResponse{
+			ShowResponse: contracts.ShowResponse{
 				ID:        4,
 				Title:     "Pending Show",
 				EventDate: time.Now().Add(24 * time.Hour),
@@ -198,9 +199,9 @@ func TestGenerateICSFeed_FiltersNonApproved(t *testing.T) {
 }
 
 func TestGenerateICSFeed_FiltersOldShows(t *testing.T) {
-	mockShows := []*SavedShowResponse{
+	mockShows := []*contracts.SavedShowResponse{
 		{
-			ShowResponse: ShowResponse{
+			ShowResponse: contracts.ShowResponse{
 				ID:        5,
 				Title:     "Old Show",
 				EventDate: time.Now().AddDate(0, 0, -60), // 60 days ago
@@ -219,7 +220,7 @@ func TestGenerateICSFeed_FiltersOldShows(t *testing.T) {
 }
 
 func TestGenerateICSFeed_EmptyList(t *testing.T) {
-	mockSvc := &mockSavedShowSvc{shows: []*SavedShowResponse{}, total: 0}
+	mockSvc := &mockSavedShowSvc{shows: []*contracts.SavedShowResponse{}, total: 0}
 	svc := &CalendarService{db: &gorm.DB{}, savedShowSvc: mockSvc}
 	data, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
 	assert.NoError(t, err)
@@ -228,9 +229,9 @@ func TestGenerateICSFeed_EmptyList(t *testing.T) {
 }
 
 func TestGenerateICSFeed_FallbackToID(t *testing.T) {
-	mockShows := []*SavedShowResponse{
+	mockShows := []*contracts.SavedShowResponse{
 		{
-			ShowResponse: ShowResponse{
+			ShowResponse: contracts.ShowResponse{
 				ID:        42,
 				Slug:      "", // no slug
 				Title:     "No Slug Show",
@@ -254,14 +255,14 @@ func TestGenerateICSFeed_FallbackToID(t *testing.T) {
 // =============================================================================
 
 type mockSavedShowSvc struct {
-	shows []*SavedShowResponse
+	shows []*contracts.SavedShowResponse
 	total int64
 	err   error
 }
 
 func (m *mockSavedShowSvc) SaveShow(_, _ uint) error { return nil }
 func (m *mockSavedShowSvc) UnsaveShow(_, _ uint) error { return nil }
-func (m *mockSavedShowSvc) GetUserSavedShows(_ uint, _, _ int) ([]*SavedShowResponse, int64, error) {
+func (m *mockSavedShowSvc) GetUserSavedShows(_ uint, _, _ int) ([]*contracts.SavedShowResponse, int64, error) {
 	return m.shows, m.total, m.err
 }
 func (m *mockSavedShowSvc) IsShowSaved(_, _ uint) (bool, error) { return false, nil }
@@ -327,9 +328,9 @@ func (suite *CalendarIntegrationTestSuite) SetupSuite() {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
 
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
-	mockSavedShows := &mockSavedShowSvc{shows: []*SavedShowResponse{}, total: 0}
+	mockSavedShows := &mockSavedShowSvc{shows: []*contracts.SavedShowResponse{}, total: 0}
 	suite.svc = &CalendarService{db: db, savedShowSvc: mockSavedShows}
 }
 

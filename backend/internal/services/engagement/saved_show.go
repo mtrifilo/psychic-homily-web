@@ -1,4 +1,4 @@
-package services
+package engagement
 
 import (
 	"fmt"
@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/services/contracts"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 )
@@ -73,7 +74,7 @@ func (s *SavedShowService) UnsaveShow(userID, showID uint) error {
 
 // GetUserSavedShows retrieves all shows saved by a user
 // Returns shows ordered by most recently saved first
-func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]*SavedShowResponse, int64, error) {
+func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]*contracts.SavedShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -93,7 +94,7 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 	}
 
 	if len(showIDs) == 0 {
-		return []*SavedShowResponse{}, total, nil
+		return []*contracts.SavedShowResponse{}, total, nil
 	}
 
 	// Fetch shows with associations (no status filter - user can save any show)
@@ -135,13 +136,13 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 	}
 
 	// Build per-show artist response slices
-	artistsByShow := make(map[uint][]ArtistResponse)
+	artistsByShow := make(map[uint][]contracts.ArtistResponse)
 	for _, sa := range allShowArtists {
 		artist, ok := artistMap[sa.ArtistID]
 		if !ok {
 			continue
 		}
-		socials := ShowArtistSocials{
+		socials := contracts.ShowArtistSocials{
 			Instagram:  artist.Social.Instagram,
 			Facebook:   artist.Social.Facebook,
 			Twitter:    artist.Social.Twitter,
@@ -157,7 +158,7 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 		if artist.Slug != nil {
 			slug = *artist.Slug
 		}
-		artistsByShow[sa.ShowID] = append(artistsByShow[sa.ShowID], ArtistResponse{
+		artistsByShow[sa.ShowID] = append(artistsByShow[sa.ShowID], contracts.ArtistResponse{
 			ID:               artist.ID,
 			Slug:             slug,
 			Name:             artist.Name,
@@ -171,11 +172,11 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 	}
 
 	// Build responses in the order of bookmarks (created_at DESC)
-	responses := make([]*SavedShowResponse, 0, len(shows))
+	responses := make([]*contracts.SavedShowResponse, 0, len(shows))
 	for _, b := range bookmarks {
 		if show, ok := showMap[b.EntityID]; ok {
 			showResp := s.buildShowResponse(show, artistsByShow)
-			responses = append(responses, &SavedShowResponse{
+			responses = append(responses, &contracts.SavedShowResponse{
 				ShowResponse: *showResp,
 				SavedAt:      b.CreatedAt,
 			})
@@ -187,15 +188,15 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 
 // buildShowResponse builds a ShowResponse from a models.Show
 // artistsByShow contains pre-loaded artist responses keyed by show ID
-func (s *SavedShowService) buildShowResponse(show *models.Show, artistsByShow map[uint][]ArtistResponse) *ShowResponse {
+func (s *SavedShowService) buildShowResponse(show *models.Show, artistsByShow map[uint][]contracts.ArtistResponse) *contracts.ShowResponse {
 	// Build venue responses
-	venues := make([]VenueResponse, len(show.Venues))
+	venues := make([]contracts.VenueResponse, len(show.Venues))
 	for i, venue := range show.Venues {
 		var venueSlug string
 		if venue.Slug != nil {
 			venueSlug = *venue.Slug
 		}
-		venues[i] = VenueResponse{
+		venues[i] = contracts.VenueResponse{
 			ID:       venue.ID,
 			Slug:     venueSlug,
 			Name:     venue.Name,
@@ -212,7 +213,7 @@ func (s *SavedShowService) buildShowResponse(show *models.Show, artistsByShow ma
 	if show.Slug != nil {
 		showSlug = *show.Slug
 	}
-	return &ShowResponse{
+	return &contracts.ShowResponse{
 		ID:                show.ID,
 		Slug:              showSlug,
 		Title:             show.Title,

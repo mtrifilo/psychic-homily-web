@@ -1,4 +1,4 @@
-package services
+package engagement
 
 import (
 	"context"
@@ -135,7 +135,7 @@ func (suite *BookmarkServiceIntegrationTestSuite) SetupSuite() {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
 
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	suite.bookmarkService = &BookmarkService{db: db}
 }

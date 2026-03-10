@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -25,8 +26,8 @@ type handlerIntegrationDeps struct {
 	ctx                   context.Context
 	showService           *services.ShowService
 	venueService          *services.VenueService
-	savedShowService      *services.SavedShowService
-	favoriteVenueService  *services.FavoriteVenueService
+	savedShowService      *engagement.SavedShowService
+	favoriteVenueService  *engagement.FavoriteVenueService
 	showReportService     *services.ShowReportService
 	userService           *services.UserService
 	auditLogService       *services.AuditLogService
@@ -100,8 +101,8 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		ctx:                   ctx,
 		showService:           services.NewShowService(db),
 		venueService:          services.NewVenueService(db),
-		savedShowService:      services.NewSavedShowService(db),
-		favoriteVenueService:  services.NewFavoriteVenueService(db),
+		savedShowService:      engagement.NewSavedShowService(db),
+		favoriteVenueService:  engagement.NewFavoriteVenueService(db),
 		showReportService:     services.NewShowReportService(db),
 		userService:           services.NewUserService(db),
 		auditLogService:       services.NewAuditLogService(db),
