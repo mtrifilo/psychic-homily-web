@@ -25,33 +25,6 @@ func NewShowReportService(database *gorm.DB) *ShowReportService {
 	}
 }
 
-// ShowReportResponse represents a show report response with show info
-type ShowReportResponse struct {
-	ID         uint      `json:"id"`
-	ShowID     uint      `json:"show_id"`
-	ReportType string    `json:"report_type"`
-	Details    *string   `json:"details"`
-	Status     string    `json:"status"`
-	AdminNotes *string   `json:"admin_notes,omitempty"`
-	ReviewedBy *uint     `json:"reviewed_by,omitempty"`
-	ReviewedAt *string   `json:"reviewed_at,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
-
-	// Show info (for admin view)
-	Show *ShowReportShowInfo `json:"show,omitempty"`
-}
-
-// ShowReportShowInfo contains show information for report responses
-type ShowReportShowInfo struct {
-	ID        uint      `json:"id"`
-	Title     string    `json:"title"`
-	Slug      string    `json:"slug"`
-	EventDate time.Time `json:"event_date"`
-	City      *string   `json:"city"`
-	State     *string   `json:"state"`
-}
-
 // CreateReport creates a new show report
 func (s *ShowReportService) CreateReport(userID, showID uint, reportType string, details *string) (*ShowReportResponse, error) {
 	if s.db == nil {

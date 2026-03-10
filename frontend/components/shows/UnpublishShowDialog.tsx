@@ -1,7 +1,7 @@
 'use client'
 
 import { EyeOff, Loader2 } from 'lucide-react'
-import { useShowUnpublish } from '@/lib/hooks/useShowUnpublish'
+import { useShowUnpublish } from '@/lib/hooks/shows/useShowUnpublish'
 import type { ShowResponse } from '@/lib/types/show'
 import {
   Dialog,

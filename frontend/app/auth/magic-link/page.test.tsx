@@ -19,7 +19,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
   }),
 }))
 
-vi.mock('@/lib/hooks/useAuth', () => ({
+vi.mock('@/lib/hooks/auth/useAuth', () => ({
   useVerifyMagicLink: () => mockUseVerifyMagicLink(),
 }))
 

@@ -36,7 +36,7 @@ let mockDeleteMutationState = {
   reset: vi.fn(),
 }
 
-vi.mock('@/lib/hooks/useAuth', () => ({
+vi.mock('@/lib/hooks/auth/useAuth', () => ({
   useDeletionSummary: () => ({
     ...mockDeletionSummaryState,
   }),

@@ -11,7 +11,7 @@ import {
   Disc3,
   Music,
 } from 'lucide-react'
-import { useLabel, useLabelRoster, useLabelCatalog } from '@/lib/hooks/useLabels'
+import { useLabel, useLabelRoster, useLabelCatalog } from '@/lib/hooks/labels/useLabels'
 import { EntityDetailLayout, EntityHeader, SocialLinks } from '@/components/shared'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -21,7 +21,7 @@ import {
   getLabelStatusVariant,
   formatLabelLocation,
 } from '@/lib/types/label'
-import { getReleaseTypeLabel } from '@/lib/types/release'
+import { getReleaseTypeLabel } from '@/features/releases/types'
 
 interface LabelDetailProps {
   idOrSlug: string | number

@@ -1,8 +1,8 @@
 'use client'
 
 import { Loader2, ScrollText, Inbox } from 'lucide-react'
-import { useAuditLogs } from '@/lib/hooks/useAdminAuditLogs'
-import { AuditLogEntry } from '@/components/admin'
+import { useAuditLogs } from '@/lib/hooks/admin/useAdminAuditLogs'
+import { AuditLogEntry } from '@/app/admin/audit-log/_components/AuditLogEntry'
 
 export default function AdminAuditLogPage() {
   const { data, isLoading, error } = useAuditLogs()

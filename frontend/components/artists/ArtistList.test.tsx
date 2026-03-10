@@ -17,13 +17,13 @@ vi.mock('next/navigation', () => ({
 // Mock hooks
 const mockUseArtists = vi.fn()
 const mockUseArtistCities = vi.fn()
-vi.mock('@/lib/hooks/useArtists', () => ({
+vi.mock('@/lib/hooks/artists/useArtists', () => ({
   useArtists: (opts: unknown) => mockUseArtists(opts),
   useArtistCities: () => mockUseArtistCities(),
 }))
 
 const mockUseDensity = vi.fn()
-vi.mock('@/lib/hooks/useDensity', () => ({
+vi.mock('@/lib/hooks/common/useDensity', () => ({
   useDensity: (key: string) => mockUseDensity(key),
 }))
 

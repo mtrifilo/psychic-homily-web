@@ -4,7 +4,7 @@ import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { useVenueSearch } from '@/lib/hooks/useVenueSearch'
+import { useVenueSearch } from '@/lib/hooks/venues/useVenueSearch'
 import { getVenueLocation } from '@/lib/types/venue'
 
 /**

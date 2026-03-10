@@ -1,7 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import { type Density, useDensity } from '@/lib/hooks/useDensity'
+import { type Density, useDensity } from '@/lib/hooks/common/useDensity'
 
 const DENSITY_OPTIONS: { value: Density; label: string }[] = [
   { value: 'compact', label: 'Compact' },

@@ -3,17 +3,17 @@
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
 import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tent } from 'lucide-react'
-import { usePendingVenueEdits } from '@/lib/hooks/useAdminVenueEdits'
-import { useUnverifiedVenues } from '@/lib/hooks/useAdminVenues'
-import { usePendingReports } from '@/lib/hooks/useAdminReports'
-import { usePendingArtistReports } from '@/lib/hooks/useAdminArtistReports'
-import { usePendingShows } from '@/lib/hooks/useAdminShows'
+import { usePendingVenueEdits } from '@/lib/hooks/admin/useAdminVenueEdits'
+import { useUnverifiedVenues } from '@/lib/hooks/admin/useAdminVenues'
+import { usePendingReports } from '@/lib/hooks/admin/useAdminReports'
+import { usePendingArtistReports } from '@/lib/hooks/admin/useAdminArtistReports'
+import { usePendingShows } from '@/lib/hooks/admin/useAdminShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 // Dynamic imports for heavy components - only loaded when their tab is active
 const ShowImportPanel = dynamic(
-  () => import('@/components/admin/ShowImportPanel').then(m => m.ShowImportPanel),
+  () => import('@/app/admin/_components/ShowImportPanel').then(m => m.ShowImportPanel),
   {
     loading: () => (
       <div className="flex items-center justify-center py-12">

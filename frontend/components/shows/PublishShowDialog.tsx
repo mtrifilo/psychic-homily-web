@@ -1,7 +1,7 @@
 'use client'
 
 import { Globe, Loader2, AlertTriangle } from 'lucide-react'
-import { useShowPublish } from '@/lib/hooks/useShowPublish'
+import { useShowPublish } from '@/lib/hooks/shows/useShowPublish'
 import type { ShowResponse } from '@/lib/types/show'
 import {
   Dialog,

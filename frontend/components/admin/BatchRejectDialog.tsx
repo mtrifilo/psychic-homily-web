@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { XCircle, Loader2 } from 'lucide-react'
-import { useBatchRejectShows } from '@/lib/hooks/useAdminShows'
+import { useBatchRejectShows } from '@/lib/hooks/admin/useAdminShows'
 import type { RejectionCategory } from '@/lib/types/show'
 import {
   Dialog,
