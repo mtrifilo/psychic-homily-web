@@ -28,38 +28,6 @@ func NewVenueService(database *gorm.DB) *VenueService {
 	}
 }
 
-// CreateVenueRequest represents the data needed to create a new venue
-type CreateVenueRequest struct {
-	Name       string  `json:"name" validate:"required"`
-	Address    *string `json:"address"`
-	City       string  `json:"city" validate:"required"`
-	State      string  `json:"state" validate:"required"`
-	Zipcode    *string `json:"zipcode"`
-	Instagram  *string `json:"instagram"`
-	Facebook   *string `json:"facebook"`
-	Twitter    *string `json:"twitter"`
-	YouTube    *string `json:"youtube"`
-	Spotify    *string `json:"spotify"`
-	SoundCloud *string `json:"soundcloud"`
-	Bandcamp   *string `json:"bandcamp"`
-	Website    *string `json:"website"`
-}
-
-// VenueDetailResponse represents the venue data returned to clients
-type VenueDetailResponse struct {
-	ID          uint           `json:"id"`
-	Slug        string         `json:"slug"`
-	Name        string         `json:"name"`
-	Address     *string        `json:"address"`
-	City        string         `json:"city"`
-	State       string         `json:"state"`
-	Zipcode     *string        `json:"zipcode"`
-	Verified    bool           `json:"verified"`    // Admin-verified as legitimate venue
-	SubmittedBy *uint          `json:"submitted_by"` // User ID who originally submitted this venue
-	Social      SocialResponse `json:"social"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
-}
 
 // CreateVenue creates a new venue
 // If isAdmin is true, the venue is automatically verified.
@@ -478,18 +446,6 @@ func (s *VenueService) buildVenueResponse(venue *models.Venue) *VenueDetailRespo
 }
 
 // VenueWithShowCountResponse represents a venue with its upcoming show count
-type VenueWithShowCountResponse struct {
-	VenueDetailResponse
-	UpcomingShowCount int `json:"upcoming_show_count"`
-}
-
-// VenueListFilters contains filter options for listing venues
-type VenueListFilters struct {
-	State    string
-	City     string
-	Cities   []CityStateFilter
-	Verified *bool
-}
 
 // VenueWithCount is used internally for querying venues with their show counts
 type VenueWithCount struct {
@@ -588,17 +544,6 @@ func (s *VenueService) GetVenuesWithShowCounts(filters VenueListFilters, limit, 
 	return responses, total, nil
 }
 
-// VenueShowResponse represents a show in the venue shows endpoint
-type VenueShowResponse struct {
-	ID             uint             `json:"id"`
-	Title          string           `json:"title"`
-	EventDate      time.Time        `json:"event_date"`
-	City           *string          `json:"city"`
-	State          *string          `json:"state"`
-	Price          *float64         `json:"price"`
-	AgeRequirement *string          `json:"age_requirement"`
-	Artists        []ArtistResponse `json:"artists"`
-}
 
 // GetUpcomingShowsForVenue retrieves upcoming shows at a specific venue.
 // Only returns approved shows with event_date >= today in the specified timezone.
@@ -769,11 +714,6 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 }
 
 // VenueCityResponse represents a city with venue count for filtering
-type VenueCityResponse struct {
-	City       string `json:"city"`
-	State      string `json:"state"`
-	VenueCount int    `json:"venue_count"`
-}
 
 // GetVenueCities returns distinct cities that have verified venues, with venue counts.
 // Results are sorted by venue count (descending) to show most active cities first.
@@ -815,58 +755,6 @@ func (s *VenueService) GetVenueCities() ([]*VenueCityResponse, error) {
 // Pending Venue Edit Types and Methods
 // ============================================================================
 
-// VenueEditRequest represents the data for updating a venue
-type VenueEditRequest struct {
-	Name       *string `json:"name"`
-	Address    *string `json:"address"`
-	City       *string `json:"city"`
-	State      *string `json:"state"`
-	Zipcode    *string `json:"zipcode"`
-	Instagram  *string `json:"instagram"`
-	Facebook   *string `json:"facebook"`
-	Twitter    *string `json:"twitter"`
-	YouTube    *string `json:"youtube"`
-	Spotify    *string `json:"spotify"`
-	SoundCloud *string `json:"soundcloud"`
-	Bandcamp   *string `json:"bandcamp"`
-	Website    *string `json:"website"`
-}
-
-// PendingVenueEditResponse represents a pending venue edit returned to clients
-type PendingVenueEditResponse struct {
-	ID          uint                    `json:"id"`
-	VenueID     uint                    `json:"venue_id"`
-	SubmittedBy uint                    `json:"submitted_by"`
-	Status      models.VenueEditStatus  `json:"status"`
-
-	// Proposed changes
-	Name       *string `json:"name,omitempty"`
-	Address    *string `json:"address,omitempty"`
-	City       *string `json:"city,omitempty"`
-	State      *string `json:"state,omitempty"`
-	Zipcode    *string `json:"zipcode,omitempty"`
-	Instagram  *string `json:"instagram,omitempty"`
-	Facebook   *string `json:"facebook,omitempty"`
-	Twitter    *string `json:"twitter,omitempty"`
-	YouTube    *string `json:"youtube,omitempty"`
-	Spotify    *string `json:"spotify,omitempty"`
-	SoundCloud *string `json:"soundcloud,omitempty"`
-	Bandcamp   *string `json:"bandcamp,omitempty"`
-	Website    *string `json:"website,omitempty"`
-
-	// Workflow fields
-	RejectionReason *string    `json:"rejection_reason,omitempty"`
-	ReviewedBy      *uint      `json:"reviewed_by,omitempty"`
-	ReviewedAt      *time.Time `json:"reviewed_at,omitempty"`
-
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-
-	// Embedded venue info for context
-	Venue         *VenueDetailResponse `json:"venue,omitempty"`
-	SubmitterName *string              `json:"submitter_name,omitempty"`
-	ReviewerName  *string              `json:"reviewer_name,omitempty"`
-}
 
 // buildPendingVenueEditResponse converts a PendingVenueEdit model to response
 func (s *VenueService) buildPendingVenueEditResponse(edit *models.PendingVenueEdit, includeVenue bool) *PendingVenueEditResponse {
@@ -1246,18 +1134,6 @@ func (s *VenueService) GetVenueModel(venueID uint) (*models.Venue, error) {
 }
 
 // UnverifiedVenueResponse represents an unverified venue for admin review
-type UnverifiedVenueResponse struct {
-	ID          uint      `json:"id"`
-	Slug        string    `json:"slug"`
-	Name        string    `json:"name"`
-	Address     *string   `json:"address"`
-	City        string    `json:"city"`
-	State       string    `json:"state"`
-	Zipcode     *string   `json:"zipcode"`
-	SubmittedBy *uint     `json:"submitted_by"`
-	CreatedAt   time.Time `json:"created_at"`
-	ShowCount   int       `json:"show_count"` // Number of shows using this venue
-}
 
 // GetUnverifiedVenues retrieves all unverified venues for admin review.
 // Results are sorted by creation date (newest first).

@@ -15,7 +15,7 @@ import {
   useFestival,
   useFestivalArtists,
   useFestivalVenues,
-} from '@/lib/hooks/useFestivals'
+} from '@/lib/hooks/festivals/useFestivals'
 import { EntityDetailLayout, EntityHeader, SocialLinks } from '@/components/shared'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'

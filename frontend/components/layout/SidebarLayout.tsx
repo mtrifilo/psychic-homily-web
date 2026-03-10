@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { TopBar } from './TopBar'
 import { Sidebar } from './Sidebar'
 import { CommandPalette } from './CommandPalette'
-import { openCommandPalette } from '@/lib/hooks/useCommandPalette'
+import { openCommandPalette } from '@/lib/hooks/common/useCommandPalette'
 
 const STORAGE_KEY = 'sidebar-collapsed'
 

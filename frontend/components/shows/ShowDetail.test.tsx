@@ -24,14 +24,14 @@ vi.mock('next/link', () => ({
 
 // Mock useShow hook
 const mockUseShow = vi.fn()
-vi.mock('@/lib/hooks/useShows', () => ({
+vi.mock('@/lib/hooks/shows/useShows', () => ({
   useShow: (...args: unknown[]) => mockUseShow(...args),
 }))
 
 // Mock admin hooks
 const mockSetSoldOut = vi.fn()
 const mockSetCancelled = vi.fn()
-vi.mock('@/lib/hooks/useAdminShows', () => ({
+vi.mock('@/lib/hooks/admin/useAdminShows', () => ({
   useSetShowSoldOut: () => ({
     mutate: mockSetSoldOut,
     isPending: false,

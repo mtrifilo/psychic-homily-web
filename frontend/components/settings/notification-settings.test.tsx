@@ -21,13 +21,13 @@ let mockProfileData: {
   }
 } = {}
 
-vi.mock('@/lib/hooks/useAuth', () => ({
+vi.mock('@/lib/hooks/auth/useAuth', () => ({
   useProfile: () => ({
     data: mockProfileData,
   }),
 }))
 
-vi.mock('@/lib/hooks/useShowReminders', () => ({
+vi.mock('@/lib/hooks/shows/useShowReminders', () => ({
   useSetShowReminders: () => ({
     mutate: mockMutate,
     ...mockMutationState,

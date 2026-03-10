@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Flag, Loader2, AlertCircle, BanIcon, CalendarX } from 'lucide-react'
-import { useReportShow } from '@/lib/hooks/useShowReports'
+import { useReportShow } from '@/lib/hooks/shows/useShowReports'
 import type { ShowReportType } from '@/lib/types/show'
 import {
   Dialog,

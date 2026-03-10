@@ -11,7 +11,7 @@ const mockUseSaveShowToggle = vi.fn(() => ({
   error: null,
 }))
 
-vi.mock('@/lib/hooks/useSavedShows', () => ({
+vi.mock('@/lib/hooks/shows/useSavedShows', () => ({
   useSaveShowToggle: (...args: unknown[]) => mockUseSaveShowToggle(...args),
 }))
 

@@ -24,28 +24,6 @@ func NewAdminStatsService(database *gorm.DB) *AdminStatsService {
 	}
 }
 
-// AdminDashboardStats contains all dashboard statistics
-type AdminDashboardStats struct {
-	// Action items (things that need admin attention)
-	PendingShows         int64 `json:"pending_shows"`
-	PendingVenueEdits    int64 `json:"pending_venue_edits"`
-	PendingReports       int64 `json:"pending_reports"`
-	PendingArtistReports int64 `json:"pending_artist_reports"`
-	UnverifiedVenues     int64 `json:"unverified_venues"`
-
-	// Content totals
-	TotalShows   int64 `json:"total_shows"`
-	TotalVenues  int64 `json:"total_venues"`
-	TotalArtists int64 `json:"total_artists"`
-
-	// Users
-	TotalUsers int64 `json:"total_users"`
-
-	// Recent activity (last 7 days)
-	ShowsSubmittedLast7Days  int64 `json:"shows_submitted_last_7_days"`
-	UsersRegisteredLast7Days int64 `json:"users_registered_last_7_days"`
-}
-
 // GetDashboardStats returns all dashboard statistics
 func (s *AdminStatsService) GetDashboardStats() (*AdminDashboardStats, error) {
 	stats := &AdminDashboardStats{}

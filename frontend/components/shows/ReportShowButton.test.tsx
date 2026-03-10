@@ -21,7 +21,7 @@ const mockMyShowReport = vi.fn(() => ({
   data: { report: null },
   isLoading: false,
 }))
-vi.mock('@/lib/hooks/useShowReports', () => ({
+vi.mock('@/lib/hooks/shows/useShowReports', () => ({
   useMyShowReport: (...args: unknown[]) => mockMyShowReport(...args),
 }))
 

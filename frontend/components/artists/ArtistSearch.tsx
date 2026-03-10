@@ -4,7 +4,7 @@ import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { useArtistSearch } from '@/lib/hooks/useArtistSearch'
+import { useArtistSearch } from '@/lib/hooks/artists/useArtistSearch'
 import { getArtistLocation } from '@/lib/types/artist'
 
 /**

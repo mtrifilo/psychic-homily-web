@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { XCircle, Loader2 } from 'lucide-react'
-import { useRejectVenueEdit } from '@/lib/hooks/useAdminVenueEdits'
+import { useRejectVenueEdit } from '@/lib/hooks/admin/useAdminVenueEdits'
 import type { PendingVenueEdit } from '@/lib/types/venue'
 import {
   Dialog,

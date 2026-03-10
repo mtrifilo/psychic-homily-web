@@ -2,10 +2,10 @@
 
 import { useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useFestivals } from '@/lib/hooks/useFestivals'
+import { useFestivals } from '@/lib/hooks/festivals/useFestivals'
 import { FestivalCard } from './FestivalCard'
 import { LoadingSpinner, DensityToggle } from '@/components/shared'
-import { useDensity } from '@/lib/hooks/useDensity'
+import { useDensity } from '@/lib/hooks/common/useDensity'
 import { Button } from '@/components/ui/button'
 import { FESTIVAL_STATUSES, FESTIVAL_STATUS_LABELS } from '@/lib/types/festival'
 import type { FestivalStatus } from '@/lib/types/festival'

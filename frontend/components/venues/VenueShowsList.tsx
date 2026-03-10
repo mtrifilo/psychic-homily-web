@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Loader2, Calendar, History, Plus } from 'lucide-react'
-import { useVenueShows, type TimeFilter } from '@/lib/hooks/useVenues'
+import { useVenueShows, type TimeFilter } from '@/lib/hooks/venues/useVenues'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'

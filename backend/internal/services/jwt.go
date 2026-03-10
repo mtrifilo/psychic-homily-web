@@ -149,11 +149,6 @@ func (s *JWTService) ValidateTokenLenient(tokenString string, gracePeriod time.D
 }
 
 // VerificationTokenClaims holds the claims for email verification tokens
-type VerificationTokenClaims struct {
-	UserID uint   `json:"user_id"`
-	Email  string `json:"email"`
-	jwt.RegisteredClaims
-}
 
 // CreateVerificationToken generates a JWT token for email verification
 // Token expires in 24 hours
@@ -200,11 +195,6 @@ func (s *JWTService) ValidateVerificationToken(tokenString string) (*Verificatio
 }
 
 // MagicLinkTokenClaims holds the claims for magic link tokens
-type MagicLinkTokenClaims struct {
-	UserID uint   `json:"user_id"`
-	Email  string `json:"email"`
-	jwt.RegisteredClaims
-}
 
 // CreateMagicLinkToken generates a JWT token for magic link login
 // Token expires in 15 minutes for security
@@ -251,11 +241,6 @@ func (s *JWTService) ValidateMagicLinkToken(tokenString string) (*MagicLinkToken
 }
 
 // AccountRecoveryTokenClaims holds the claims for account recovery tokens
-type AccountRecoveryTokenClaims struct {
-	UserID uint   `json:"user_id"`
-	Email  string `json:"email"`
-	jwt.RegisteredClaims
-}
 
 // CreateAccountRecoveryToken generates a JWT token for account recovery
 // Token expires in 1 hour for security

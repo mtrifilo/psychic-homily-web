@@ -5,7 +5,7 @@ import { BatchRejectDialog } from './BatchRejectDialog'
 
 const mockMutate = vi.fn()
 
-vi.mock('@/lib/hooks/useAdminShows', () => ({
+vi.mock('@/lib/hooks/admin/useAdminShows', () => ({
   useBatchRejectShows: () => ({
     mutate: mockMutate,
     isPending: false,

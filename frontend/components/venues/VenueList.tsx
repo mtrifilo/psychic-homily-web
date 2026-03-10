@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useVenues, useVenueCities } from '@/lib/hooks/useVenues'
+import { useVenues, useVenueCities } from '@/lib/hooks/venues/useVenues'
 import type { VenueWithShowCount } from '@/lib/types/venue'
 import { VenueCard } from './VenueCard'
 import { VenueSearch } from './VenueSearch'
