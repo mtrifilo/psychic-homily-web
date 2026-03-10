@@ -36,19 +36,6 @@ func NewCalendarService(database *gorm.DB, savedShowSvc SavedShowServiceInterfac
 	}
 }
 
-// CalendarTokenCreateResponse is returned when a token is created
-type CalendarTokenCreateResponse struct {
-	Token     string    `json:"token"`
-	FeedURL   string    `json:"feed_url"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-// CalendarTokenStatusResponse is returned for token status checks
-type CalendarTokenStatusResponse struct {
-	HasToken  bool       `json:"has_token"`
-	CreatedAt *time.Time `json:"created_at,omitempty"`
-}
-
 // generateCalendarToken creates a cryptographically secure random calendar token
 func generateCalendarToken() (string, error) {
 	bytes := make([]byte, TokenLength)

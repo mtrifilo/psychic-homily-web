@@ -32,36 +32,6 @@ func NewDiscoveryService(database *gorm.DB) *DiscoveryService {
 	}
 }
 
-// DiscoveredEvent represents an event from the Node.js discovery app JSON output
-type DiscoveredEvent struct {
-	ID         string   `json:"id"`         // External event ID (from the venue's system)
-	Title      string   `json:"title"`      // Event title (typically artist names)
-	Date       string   `json:"date"`       // Event date in ISO format (e.g., "2026-01-25")
-	Venue      string   `json:"venue"`      // Venue name
-	VenueSlug  string   `json:"venueSlug"`  // Venue identifier (e.g., "valley-bar")
-	ImageURL   *string  `json:"imageUrl"`   // Event image URL (optional)
-	DoorsTime  *string  `json:"doorsTime"`  // Doors time (e.g., "6:30 pm")
-	ShowTime   *string  `json:"showTime"`   // Show time (e.g., "7:00 pm")
-	TicketURL  *string  `json:"ticketUrl"`  // Ticket purchase URL (optional)
-	Artists        []string `json:"artists"`        // List of artists (from event detail page)
-	ScrapedAt      string   `json:"scrapedAt"`      // When the event was scraped (ISO timestamp)
-	Price          *string  `json:"price"`          // Price string (e.g., "$18", "Free")
-	AgeRestriction *string  `json:"ageRestriction"` // Age restriction (e.g., "16+", "All Ages")
-	IsSoldOut      *bool    `json:"isSoldOut"`      // Whether the event is sold out
-	IsCancelled    *bool    `json:"isCancelled"`    // Whether the event is cancelled
-}
-
-// ImportResult contains statistics about the import operation
-type ImportResult struct {
-	Total         int      `json:"total"`          // Total events processed
-	Imported      int      `json:"imported"`       // Successfully imported
-	Duplicates    int      `json:"duplicates"`     // Skipped due to deduplication
-	Rejected      int      `json:"rejected"`       // Skipped due to matching rejected shows
-	PendingReview int      `json:"pending_review"` // Flagged as potential duplicates for admin review
-	Updated       int      `json:"updated"`        // Updated existing shows with new data
-	Errors        int      `json:"errors"`         // Failed to import
-	Messages      []string `json:"messages"`       // Detailed messages for each event
-}
 
 // VenueConfig maps venue slugs to their database info
 // NOTE: When adding venues, also update:
@@ -667,36 +637,6 @@ func (s *DiscoveryService) ImportFromJSONWithDB(filepath string, dryRun bool, da
 }
 
 // CheckEventInput represents a single event to check for import status
-type CheckEventInput struct {
-	ID        string `json:"id"`
-	VenueSlug string `json:"venueSlug"`
-	Date      string `json:"date"` // YYYY-MM-DD, used for venue+date fallback match
-}
-
-// ShowCurrentData contains the current stored data for a show, used for diff comparison
-type ShowCurrentData struct {
-	Price          *float64 `json:"price,omitempty"`
-	AgeRequirement *string  `json:"ageRequirement,omitempty"`
-	Description    *string  `json:"description,omitempty"`
-	EventDate      string   `json:"eventDate,omitempty"`
-	IsSoldOut      bool     `json:"isSoldOut"`
-	IsCancelled    bool     `json:"isCancelled"`
-	Artists        []string `json:"artists,omitempty"`
-}
-
-// CheckEventStatus represents the import status of a single event
-type CheckEventStatus struct {
-	Exists      bool             `json:"exists"`
-	ShowID      uint             `json:"showId,omitempty"`
-	Status      string           `json:"status,omitempty"`
-	CurrentData *ShowCurrentData `json:"currentData,omitempty"`
-}
-
-// CheckEventsResult contains the import status of multiple events
-type CheckEventsResult struct {
-	Events map[string]CheckEventStatus `json:"events"`
-}
-
 // CheckEvents checks whether scraped events already exist in the database
 func (s *DiscoveryService) CheckEvents(events []CheckEventInput) (*CheckEventsResult, error) {
 	if s.db == nil {

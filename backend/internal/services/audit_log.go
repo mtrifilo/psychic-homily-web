@@ -27,25 +27,6 @@ func NewAuditLogService(database *gorm.DB) *AuditLogService {
 	}
 }
 
-// AuditLogFilters represents optional filters for querying audit logs
-type AuditLogFilters struct {
-	EntityType string
-	Action     string
-	ActorID    *uint
-}
-
-// AuditLogResponse represents an audit log entry in API responses
-type AuditLogResponse struct {
-	ID         uint                   `json:"id"`
-	ActorID    *uint                  `json:"actor_id"`
-	ActorEmail string                 `json:"actor_email,omitempty"`
-	Action     string                 `json:"action"`
-	EntityType string                 `json:"entity_type"`
-	EntityID   uint                   `json:"entity_id"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt  time.Time              `json:"created_at"`
-}
-
 // LogAction records an admin action in the audit log.
 // Errors are logged but not returned — audit logging should not fail the parent operation.
 func (s *AuditLogService) LogAction(actorID uint, action string, entityType string, entityID uint, metadata map[string]interface{}) {
