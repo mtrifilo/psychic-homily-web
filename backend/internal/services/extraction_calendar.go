@@ -47,32 +47,6 @@ Rules:
 - Return ONLY the JSON array, no explanation or markdown code blocks
 - If no events are found, return an empty array: []`
 
-// CalendarEvent represents a single event extracted from a venue calendar page.
-type CalendarEvent struct {
-	Date         string           `json:"date"`
-	Time         *string          `json:"time,omitempty"`
-	Title        string           `json:"title"`
-	Artists      []CalendarArtist `json:"artists"`
-	Cost         *string          `json:"cost,omitempty"`
-	Ages         *string          `json:"ages,omitempty"`
-	TicketURL    *string          `json:"ticket_url,omitempty"`
-	IsMusicEvent *bool            `json:"is_music_event,omitempty"`
-}
-
-// CalendarArtist represents an artist entry within a calendar event.
-type CalendarArtist struct {
-	Name        string `json:"name"`
-	IsHeadliner bool   `json:"is_headliner"`
-}
-
-// CalendarExtractionResponse is the response from calendar page extraction.
-type CalendarExtractionResponse struct {
-	Success  bool            `json:"success"`
-	Events   []CalendarEvent `json:"events,omitempty"`
-	Error    string          `json:"error,omitempty"`
-	Warnings []string        `json:"warnings,omitempty"`
-}
-
 // ExtractCalendarPage processes a venue calendar page (text or image) through Claude
 // and returns structured event data.
 func (s *ExtractionService) ExtractCalendarPage(venueName string, content string, contentType string) (*CalendarExtractionResponse, error) {

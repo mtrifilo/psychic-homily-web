@@ -29,11 +29,6 @@ func NewSavedShowService(database *gorm.DB) *SavedShowService {
 	}
 }
 
-// SavedShowResponse represents a saved show with metadata
-type SavedShowResponse struct {
-	ShowResponse
-	SavedAt time.Time `json:"saved_at"`
-}
 
 // SaveShow saves a show to a user's list
 // Note: Unlike the original plan, this allows saving shows of any status (pending/approved/rejected)

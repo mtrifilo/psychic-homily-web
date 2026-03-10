@@ -28,45 +28,6 @@ func NewArtistService(database *gorm.DB) *ArtistService {
 	}
 }
 
-// CreateArtistRequest represents the data needed to create a new artist
-type CreateArtistRequest struct {
-	Name       string  `json:"name" validate:"required"`
-	State      *string `json:"state"`
-	City       *string `json:"city"`
-	Instagram  *string `json:"instagram"`
-	Facebook   *string `json:"facebook"`
-	Twitter    *string `json:"twitter"`
-	YouTube    *string `json:"youtube"`
-	Spotify    *string `json:"spotify"`
-	SoundCloud *string `json:"soundcloud"`
-	Bandcamp   *string `json:"bandcamp"`
-	Website    *string `json:"website"`
-}
-
-// ArtistDetailResponse represents the artist data returned to clients
-type ArtistDetailResponse struct {
-	ID               uint           `json:"id"`
-	Slug             string         `json:"slug"`
-	Name             string         `json:"name"`
-	State            *string        `json:"state"`
-	City             *string        `json:"city"`
-	BandcampEmbedURL *string        `json:"bandcamp_embed_url"`
-	Social           SocialResponse `json:"social"`
-	CreatedAt        time.Time      `json:"created_at"`
-	UpdatedAt        time.Time      `json:"updated_at"`
-}
-
-// SocialResponse represents social media links
-type SocialResponse struct {
-	Instagram  *string `json:"instagram"`
-	Facebook   *string `json:"facebook"`
-	Twitter    *string `json:"twitter"`
-	YouTube    *string `json:"youtube"`
-	Spotify    *string `json:"spotify"`
-	SoundCloud *string `json:"soundcloud"`
-	Bandcamp   *string `json:"bandcamp"`
-	Website    *string `json:"website"`
-}
 
 // CreateArtist creates a new artist
 func (s *ArtistService) CreateArtist(req *CreateArtistRequest) (*ArtistDetailResponse, error) {
@@ -352,10 +313,6 @@ type ArtistWithCount struct {
 }
 
 // ArtistWithShowCountResponse represents an artist with its upcoming show count
-type ArtistWithShowCountResponse struct {
-	ArtistDetailResponse
-	UpcomingShowCount int `json:"upcoming_show_count"`
-}
 
 // GetArtistsWithShowCounts retrieves artists that have upcoming approved shows,
 // with their show counts. Results are sorted by show count (descending), then name (ascending).
@@ -417,12 +374,6 @@ func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{})
 	return responses, nil
 }
 
-// ArtistCityResponse represents a city with artist count for filtering
-type ArtistCityResponse struct {
-	City        string `json:"city"`
-	State       string `json:"state"`
-	ArtistCount int    `json:"artist_count"`
-}
 
 // GetArtistCities returns distinct cities for artists that have upcoming approved shows.
 // Only artists with both city and state set are included.
@@ -499,13 +450,6 @@ func (s *ArtistService) buildArtistResponse(artist *models.Artist) *ArtistDetail
 }
 
 // ArtistLabelResponse represents a label the artist is on
-type ArtistLabelResponse struct {
-	ID    uint    `json:"id"`
-	Name  string  `json:"name"`
-	Slug  string  `json:"slug"`
-	City  *string `json:"city"`
-	State *string `json:"state"`
-}
 
 // GetLabelsForArtist retrieves all labels associated with an artist
 func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*ArtistLabelResponse, error) {
@@ -556,32 +500,6 @@ func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*ArtistLabelRespons
 	return responses, nil
 }
 
-// ArtistShowResponse represents a show in the artist shows endpoint
-type ArtistShowResponse struct {
-	ID             uint                     `json:"id"`
-	Title          string                   `json:"title"`
-	EventDate      time.Time                `json:"event_date"`
-	Price          *float64                 `json:"price"`
-	AgeRequirement *string                  `json:"age_requirement"`
-	Venue          *ArtistShowVenueResponse `json:"venue"`
-	Artists        []ArtistShowArtist       `json:"artists"`
-}
-
-// ArtistShowVenueResponse represents venue info in artist show response
-type ArtistShowVenueResponse struct {
-	ID    uint   `json:"id"`
-	Slug  string `json:"slug"`
-	Name  string `json:"name"`
-	City  string `json:"city"`
-	State string `json:"state"`
-}
-
-// ArtistShowArtist represents an artist on a show bill
-type ArtistShowArtist struct {
-	ID   uint   `json:"id"`
-	Slug string `json:"slug"`
-	Name string `json:"name"`
-}
 
 // GetShowsForArtist retrieves shows for a specific artist with time filtering.
 // timeFilter can be: "upcoming" (event_date >= today), "past" (event_date < today), or "all"

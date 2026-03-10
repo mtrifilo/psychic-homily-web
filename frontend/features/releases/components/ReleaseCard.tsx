@@ -4,8 +4,8 @@ import Link from 'next/link'
 import { Disc3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
-import { getReleaseTypeLabel } from '@/lib/types/release'
-import type { ReleaseListItem } from '@/lib/types/release'
+import { getReleaseTypeLabel } from '../types'
+import type { ReleaseListItem } from '../types'
 
 export type ReleaseCardDensity = 'compact' | 'comfortable' | 'expanded'
 

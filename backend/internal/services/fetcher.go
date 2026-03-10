@@ -3,23 +3,12 @@ package services
 import (
 	"context"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 )
 
-// FetchResult contains the result of an HTTP fetch with change detection.
-type FetchResult struct {
-	Changed     bool   // Whether content changed since last fetch
-	Body        string // HTML content (empty if unchanged)
-	ContentHash string // SHA256 hex of body
-	ETag        string // ETag from response header
-	HTTPStatus  int    // HTTP status code
-	RedirectURL string // New URL if 301/308 redirect
-	ContentType string // Content-Type header value
-}
 
 // FetcherService handles HTTP fetching with ETag/hash-based change detection.
 // Optionally supports chromedp-based rendering for JS-heavy pages (call InitChromedp to enable).
@@ -135,26 +124,3 @@ func computeContentHash(content string) string {
 	return fmt.Sprintf("%x", h)
 }
 
-// FetchError wraps HTTP status errors for callers that need to inspect the code.
-type FetchError struct {
-	StatusCode int
-	URL        string
-	Err        error
-}
-
-func (e *FetchError) Error() string {
-	return e.Err.Error()
-}
-
-func (e *FetchError) Unwrap() error {
-	return e.Err
-}
-
-// IsFetchError checks if an error is a FetchError and returns it.
-func IsFetchError(err error) (*FetchError, bool) {
-	var fe *FetchError
-	if errors.As(err, &fe) {
-		return fe, true
-	}
-	return nil, false
-}

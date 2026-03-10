@@ -30,18 +30,6 @@ export {
 } from './useAdminLabels'
 
 export {
-  type CreateReleaseArtistInput,
-  type CreateReleaseLinkInput,
-  type CreateReleaseInput,
-  type UpdateReleaseInput,
-  useCreateRelease,
-  useUpdateRelease,
-  useDeleteRelease,
-  useAddReleaseLink,
-  useRemoveReleaseLink,
-} from './useAdminReleases'
-
-export {
   usePendingReports,
   useDismissReport,
   useResolveReport,

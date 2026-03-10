@@ -251,6 +251,16 @@ export const queryKeys = {
       ['artistReports', 'pending', { limit, offset }] as const,
   },
 
+  // Contributor profile queries
+  contributor: {
+    profile: (username: string) => ['contributor', 'profile', username] as const,
+    ownProfile: ['contributor', 'ownProfile'] as const,
+    contributions: (username: string) => ['contributor', 'contributions', username] as const,
+    ownContributions: ['contributor', 'ownContributions'] as const,
+    sections: (username: string) => ['contributor', 'sections', username] as const,
+    ownSections: ['contributor', 'ownSections'] as const,
+  },
+
   // System queries
   system: {
     health: ['system', 'health'] as const,
@@ -315,4 +325,16 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate admin users queries
   adminUsers: () =>
     queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+
+  // Invalidate contributor profile queries
+  contributor: () =>
+    queryClient.invalidateQueries({ queryKey: ['contributor'] }),
+
+  // Invalidate own contributor profile queries
+  ownContributor: () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['contributor', 'ownProfile'] }),
+      queryClient.invalidateQueries({ queryKey: ['contributor', 'ownSections'] }),
+      queryClient.invalidateQueries({ queryKey: ['contributor', 'ownContributions'] }),
+    ]),
 })

@@ -8,9 +8,9 @@
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '../../api'
-import { createInvalidateQueries } from '../../queryClient'
-import type { ReleaseDetail, ReleaseExternalLink } from '../../types/release'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { createInvalidateQueries } from '@/lib/queryClient'
+import type { ReleaseDetail, ReleaseExternalLink } from '../types'
 
 // ============================================================================
 // Request Types
