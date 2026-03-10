@@ -26,39 +26,6 @@ func NewContributorProfileService(database *gorm.DB) *ContributorProfileService 
 	}
 }
 
-// PrivacyLevel represents the visibility level for a profile field.
-type PrivacyLevel string
-
-const (
-	PrivacyVisible   PrivacyLevel = "visible"
-	PrivacyCountOnly PrivacyLevel = "count_only"
-	PrivacyHidden    PrivacyLevel = "hidden"
-)
-
-// PrivacySettings represents the granular privacy configuration for a user profile.
-type PrivacySettings struct {
-	Contributions   PrivacyLevel `json:"contributions"`
-	SavedShows      PrivacyLevel `json:"saved_shows"`
-	Attendance      PrivacyLevel `json:"attendance"`
-	Following       PrivacyLevel `json:"following"`
-	Collections     PrivacyLevel `json:"collections"`
-	LastActive      PrivacyLevel `json:"last_active"`
-	ProfileSections PrivacyLevel `json:"profile_sections"`
-}
-
-// DefaultPrivacySettings returns the default privacy configuration.
-func DefaultPrivacySettings() PrivacySettings {
-	return PrivacySettings{
-		Contributions:   PrivacyVisible,
-		SavedShows:      PrivacyHidden,
-		Attendance:      PrivacyHidden,
-		Following:       PrivacyCountOnly,
-		Collections:     PrivacyVisible,
-		LastActive:      PrivacyVisible,
-		ProfileSections: PrivacyVisible,
-	}
-}
-
 // binaryOnlyFields are privacy fields that only support visible/hidden (not count_only).
 var binaryOnlyFields = map[string]bool{
 	"last_active":      true,
@@ -99,57 +66,6 @@ func parsePrivacySettings(raw *json.RawMessage) PrivacySettings {
 	return ps
 }
 
-// ContributionStats represents aggregated contribution counts.
-type ContributionStats struct {
-	ShowsSubmitted      int64 `json:"shows_submitted"`
-	VenuesSubmitted     int64 `json:"venues_submitted"`
-	VenueEditsSubmitted int64 `json:"venue_edits_submitted"`
-	ReleasesCreated     int64 `json:"releases_created"`
-	LabelsCreated       int64 `json:"labels_created"`
-	FestivalsCreated    int64 `json:"festivals_created"`
-	ArtistsEdited       int64 `json:"artists_edited"`
-	ModerationActions   int64 `json:"moderation_actions"`
-	TotalContributions  int64 `json:"total_contributions"`
-}
-
-// PublicProfileResponse is the response for the public profile endpoint.
-type PublicProfileResponse struct {
-	Username          string                   `json:"username"`
-	Bio               *string                  `json:"bio,omitempty"`
-	AvatarURL         *string                  `json:"avatar_url,omitempty"`
-	FirstName         *string                  `json:"first_name,omitempty"`
-	ProfileVisibility string                   `json:"profile_visibility"`
-	UserTier          string                   `json:"user_tier"`
-	PrivacySettings   *PrivacySettings         `json:"privacy_settings,omitempty"`
-	JoinedAt          time.Time                `json:"joined_at"`
-	LastActive        *time.Time               `json:"last_active,omitempty"`
-	Stats             *ContributionStats       `json:"stats,omitempty"`
-	StatsCount        *int64                   `json:"stats_count,omitempty"`
-	Sections          []*ProfileSectionResponse `json:"sections,omitempty"`
-}
-
-// ProfileSectionResponse represents a profile section in API responses.
-type ProfileSectionResponse struct {
-	ID        uint      `json:"id"`
-	Title     string    `json:"title"`
-	Content   string    `json:"content"`
-	Position  int       `json:"position"`
-	IsVisible bool      `json:"is_visible"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// ContributionEntry represents a single contribution in the history.
-type ContributionEntry struct {
-	ID         uint                   `json:"id"`
-	Action     string                 `json:"action"`
-	EntityType string                 `json:"entity_type"`
-	EntityID   uint                   `json:"entity_id"`
-	EntityName string                 `json:"entity_name,omitempty"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt  time.Time              `json:"created_at"`
-	Source     string                 `json:"source"`
-}
 
 // contributionRow is a raw scan target for the UNION query.
 type contributionRow struct {
