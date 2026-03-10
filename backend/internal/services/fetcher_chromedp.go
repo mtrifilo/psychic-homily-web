@@ -293,9 +293,3 @@ func hasEventMarkers(html string) bool {
 	return markers >= 2
 }
 
-// RenderMethod constants for the three rendering tiers.
-const (
-	RenderMethodStatic     = "static"
-	RenderMethodDynamic    = "dynamic"
-	RenderMethodScreenshot = "screenshot"
-)

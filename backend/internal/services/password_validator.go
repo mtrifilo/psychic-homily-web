@@ -16,13 +16,6 @@ const (
 	MaxPasswordLength = 128
 )
 
-// PasswordValidationResult contains the result of password validation
-type PasswordValidationResult struct {
-	Valid    bool
-	Errors   []string
-	Warnings []string
-}
-
 // PasswordValidator validates passwords against security requirements
 type PasswordValidator struct {
 	httpClient      *http.Client
