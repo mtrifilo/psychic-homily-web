@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import matter from 'gray-matter'
 import * as Sentry from '@sentry/nextjs'
-import type { BlogPost, BlogPostMeta, BlogPostFrontmatter } from './types/blog'
+import type { BlogPost, BlogPostMeta, BlogPostFrontmatter } from '../types'
 
 // Path to blog content (inside frontend directory)
 const BLOG_CONTENT_PATH = path.join(process.cwd(), 'content', 'blog')

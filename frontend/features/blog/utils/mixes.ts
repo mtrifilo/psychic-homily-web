@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import matter from 'gray-matter'
 import * as Sentry from '@sentry/nextjs'
-import type { Mix, MixMeta, MixFrontmatter } from './types/mix'
+import type { Mix, MixMeta, MixFrontmatter } from '../types'
 
 // Path to mixes content (inside frontend directory)
 const MIXES_CONTENT_PATH = path.join(process.cwd(), 'content', 'mixes')
@@ -102,4 +102,3 @@ export function getAllMixes(): MixMeta[] {
 
   return mixes
 }
-

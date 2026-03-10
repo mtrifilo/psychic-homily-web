@@ -1,6 +1,5 @@
 import { MetadataRoute } from 'next'
-import { getBlogSlugs, getBlogPost } from '@/lib/blog'
-import { getMixSlugs, getMix } from '@/lib/mixes'
+import { getBlogSlugs, getBlogPost, getMixSlugs, getMix } from '@/features/blog'
 import * as Sentry from '@sentry/nextjs'
 
 const BASE_URL = 'https://psychichomily.com'
