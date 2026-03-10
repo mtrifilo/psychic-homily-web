@@ -1,6 +1,5 @@
 import Link from 'next/link'
-import { getAllMixes } from '@/lib/mixes'
-import { SoundCloud } from '@/components/blog/soundcloud-embed'
+import { getAllMixes, SoundCloud } from '@/features/blog'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { formatContentDate } from '@/lib/utils/formatters'

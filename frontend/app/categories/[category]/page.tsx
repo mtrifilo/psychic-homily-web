@@ -5,8 +5,8 @@ import {
   getCategorySlug,
   getCategoryFromSlug,
   getPostsByCategory,
-} from '@/lib/blog'
-import { MDXContent } from '@/components/blog/mdx-content'
+  MDXContent,
+} from '@/features/blog'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { formatContentDate } from '@/lib/utils/formatters'

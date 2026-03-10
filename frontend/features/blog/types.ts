@@ -1,4 +1,31 @@
 /**
+ * Blog-related TypeScript types
+ */
+
+export interface BlogPostFrontmatter {
+  title: string
+  date: string
+  categories?: string[]
+  description?: string
+}
+
+export interface BlogPost {
+  slug: string
+  frontmatter: BlogPostFrontmatter
+  content: string
+  excerpt: string
+}
+
+export interface BlogPostMeta {
+  slug: string
+  title: string
+  date: string
+  categories: string[]
+  description?: string
+  excerpt: string
+}
+
+/**
  * Mix/DJ Set related TypeScript types
  */
 
@@ -28,4 +55,3 @@ export interface MixMeta {
   artist_url?: string
   track_url?: string
 }
-
