@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Loader2, Users, Inbox, Search } from 'lucide-react'
 import { useAdminUsers } from '@/lib/hooks/admin/useAdminUsers'
-import { AdminUserCard } from '@/components/admin'
+import { AdminUserCard } from '@/app/admin/users/_components/AdminUserCard'
 import { Input } from '@/components/ui/input'
 
 export default function AdminUsersPage() {

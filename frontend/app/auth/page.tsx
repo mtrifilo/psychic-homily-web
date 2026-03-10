@@ -21,9 +21,9 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { PasswordStrengthMeter } from '@/components/ui/password-strength-meter'
-import { PasskeyLoginButton } from '@/components/auth/passkey-login'
-import { PasskeySignupButton } from '@/components/auth/passkey-signup'
-import { GoogleOAuthButton } from '@/components/auth/google-oauth-button'
+import { PasskeyLoginButton } from '@/app/auth/_components/passkey-login'
+import { PasskeySignupButton } from '@/app/auth/_components/passkey-signup'
+import { GoogleOAuthButton } from '@/app/auth/_components/google-oauth-button'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '@/lib/legal'
 import {

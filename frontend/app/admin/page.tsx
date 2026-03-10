@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 // Dynamic imports for heavy components - only loaded when their tab is active
 const ShowImportPanel = dynamic(
-  () => import('@/components/admin/ShowImportPanel').then(m => m.ShowImportPanel),
+  () => import('@/app/admin/_components/ShowImportPanel').then(m => m.ShowImportPanel),
   {
     loading: () => (
       <div className="flex items-center justify-center py-12">

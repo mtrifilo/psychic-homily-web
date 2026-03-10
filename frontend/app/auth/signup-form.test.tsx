@@ -39,15 +39,15 @@ vi.mock('@/lib/context/AuthContext', () => ({
   }),
 }))
 
-vi.mock('@/components/auth/passkey-login', () => ({
+vi.mock('@/app/auth/_components/passkey-login', () => ({
   PasskeyLoginButton: () => null,
 }))
 
-vi.mock('@/components/auth/passkey-signup', () => ({
+vi.mock('@/app/auth/_components/passkey-signup', () => ({
   PasskeySignupButton: () => null,
 }))
 
-vi.mock('@/components/auth/google-oauth-button', () => ({
+vi.mock('@/app/auth/_components/google-oauth-button', () => ({
   GoogleOAuthButton: () => null,
 }))
 
