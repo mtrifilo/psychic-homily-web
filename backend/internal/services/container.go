@@ -7,6 +7,8 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/engagement"
+	"psychic-homily-backend/internal/services/pipeline"
 )
 
 // ServiceContainer eagerly creates all services once at startup.
@@ -19,44 +21,44 @@ type ServiceContainer struct {
 	ContributorProfile *ContributorProfileService
 	ArtistReport  *ArtistReportService
 	AuditLog      *AuditLogService
-	Bookmark      *BookmarkService
-	Calendar      *CalendarService
-	FavoriteVenue *FavoriteVenueService
+	Bookmark      *engagement.BookmarkService
+	Calendar      *engagement.CalendarService
+	FavoriteVenue *engagement.FavoriteVenueService
 	Festival      *catalog.FestivalService
 	Label         *catalog.LabelService
 	Release       *catalog.ReleaseService
-	SavedShow     *SavedShowService
+	SavedShow     *engagement.SavedShowService
 	Show          *catalog.ShowService
 	ShowReport    *ShowReportService
 	User              *UserService
 	Venue             *catalog.VenueService
-	VenueSourceConfig *VenueSourceConfigService
+	VenueSourceConfig *pipeline.VenueSourceConfigService
 
 	// Config-only services
 	Discord        *DiscordService
 	Email          *EmailService
-	MusicDiscovery *MusicDiscoveryService
+	MusicDiscovery *pipeline.MusicDiscoveryService
 
 	// No-param services
-	Fetcher           *FetcherService
+	Fetcher           *pipeline.FetcherService
 	PasswordValidator *PasswordValidator
 
 	// DB + Config composite services
 	Auth       *AuthService
 	JWT        *JWTService
 	AppleAuth  *AppleAuthService
-	Extraction *ExtractionService
+	Extraction *pipeline.ExtractionService
 	WebAuthn   *WebAuthnService // nil if init fails (passkeys optional)
 	Cleanup    *CleanupService
 	DataSync   *DataSyncService
-	Discovery  *DiscoveryService
-	Pipeline   *PipelineService
-	Reminder   *ReminderService
+	Discovery  *pipeline.DiscoveryService
+	Pipeline   *pipeline.PipelineService
+	Reminder   *engagement.ReminderService
 }
 
 // newFetcherWithChromedp creates a FetcherService with chromedp initialized at 3 workers.
-func newFetcherWithChromedp() *FetcherService {
-	f := NewFetcherService()
+func newFetcherWithChromedp() *pipeline.FetcherService {
+	f := pipeline.NewFetcherService()
 	f.InitChromedp(3)
 	return f
 }
@@ -70,27 +72,28 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		log.Printf("Warning: WebAuthn service init failed (passkeys disabled): %v", err)
 	}
 
-	savedShow := NewSavedShowService(database)
+	savedShow := engagement.NewSavedShowService(database)
 	email := NewEmailService(cfg)
 
 	// Services needed by PipelineService — created first so we can inject them.
-	fetcher := newFetcherWithChromedp()
-	extraction := NewExtractionService(database, cfg)
-	discovery := NewDiscoveryService(database)
-	venueSourceConfig := NewVenueSourceConfigService(database)
+	artist := catalog.NewArtistService(database)
 	venue := catalog.NewVenueService(database)
+	fetcher := newFetcherWithChromedp()
+	extraction := pipeline.NewExtractionService(database, cfg, artist, venue)
+	discovery := pipeline.NewDiscoveryService(database, venue)
+	venueSourceConfig := pipeline.NewVenueSourceConfigService(database)
 
 	return &ServiceContainer{
 		// DB-only leaf services
 		AdminStats:         NewAdminStatsService(database),
 		APIToken:           NewAPITokenService(database),
-		Artist:             catalog.NewArtistService(database),
+		Artist:             artist,
 		ContributorProfile: NewContributorProfileService(database),
 		ArtistReport:  NewArtistReportService(database),
 		AuditLog:      NewAuditLogService(database),
-		Bookmark:      NewBookmarkService(database),
-		Calendar:      NewCalendarService(database, savedShow),
-		FavoriteVenue: NewFavoriteVenueService(database),
+		Bookmark:      engagement.NewBookmarkService(database),
+		Calendar:      engagement.NewCalendarService(database, savedShow),
+		FavoriteVenue: engagement.NewFavoriteVenueService(database),
 		Festival:      catalog.NewFestivalService(database),
 		Label:         catalog.NewLabelService(database),
 		Release:       catalog.NewReleaseService(database),
@@ -104,7 +107,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		// Config-only services
 		Discord:        NewDiscordService(cfg),
 		Email:          email,
-		MusicDiscovery: NewMusicDiscoveryService(cfg),
+		MusicDiscovery: pipeline.NewMusicDiscoveryService(cfg),
 
 		// No-param services
 		Fetcher:           fetcher,
@@ -119,7 +122,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Cleanup:    NewCleanupService(database),
 		DataSync:   NewDataSyncService(database),
 		Discovery:  discovery,
-		Pipeline:   NewPipelineService(fetcher, extraction, discovery, venueSourceConfig, venue),
-		Reminder:   NewReminderService(database, email, cfg),
+		Pipeline:   pipeline.NewPipelineService(fetcher, extraction, discovery, venueSourceConfig, venue),
+		Reminder:   engagement.NewReminderService(database, email, cfg),
 	}
 }

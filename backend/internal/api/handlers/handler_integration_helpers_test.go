@@ -16,6 +16,8 @@ import (
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/engagement"
+	"psychic-homily-backend/internal/services/pipeline"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -26,18 +28,18 @@ type handlerIntegrationDeps struct {
 	ctx                   context.Context
 	showService           *catalog.ShowService
 	venueService          *catalog.VenueService
-	savedShowService      *services.SavedShowService
-	favoriteVenueService  *services.FavoriteVenueService
+	savedShowService      *engagement.SavedShowService
+	favoriteVenueService  *engagement.FavoriteVenueService
 	showReportService     *services.ShowReportService
 	userService           *services.UserService
 	auditLogService       *services.AuditLogService
 	discordService        *services.DiscordService
-	musicDiscoveryService *services.MusicDiscoveryService
-	extractionService     *services.ExtractionService
+	musicDiscoveryService *pipeline.MusicDiscoveryService
+	extractionService     *pipeline.ExtractionService
 	apiTokenService       *services.APITokenService
 	dataSyncService       *services.DataSyncService
 	adminStatsService     *services.AdminStatsService
-	discoveryService      *services.DiscoveryService
+	discoveryService      *pipeline.DiscoveryService
 	artistService         *catalog.ArtistService
 	festivalService       *catalog.FestivalService
 	labelService          *catalog.LabelService
@@ -101,18 +103,18 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		ctx:                   ctx,
 		showService:           catalog.NewShowService(db),
 		venueService:          catalog.NewVenueService(db),
-		savedShowService:      services.NewSavedShowService(db),
-		favoriteVenueService:  services.NewFavoriteVenueService(db),
+		savedShowService:      engagement.NewSavedShowService(db),
+		favoriteVenueService:  engagement.NewFavoriteVenueService(db),
 		showReportService:     services.NewShowReportService(db),
 		userService:           services.NewUserService(db),
 		auditLogService:       services.NewAuditLogService(db),
 		discordService:        services.NewDiscordService(emptyCfg),
-		musicDiscoveryService: services.NewMusicDiscoveryService(emptyCfg),
-		extractionService:     services.NewExtractionService(db, emptyCfg),
+		musicDiscoveryService: pipeline.NewMusicDiscoveryService(emptyCfg),
+		extractionService:     pipeline.NewExtractionService(db, emptyCfg, catalog.NewArtistService(db), catalog.NewVenueService(db)),
 		apiTokenService:       services.NewAPITokenService(db),
 		dataSyncService:       services.NewDataSyncService(db),
 		adminStatsService:     services.NewAdminStatsService(db),
-		discoveryService:      services.NewDiscoveryService(db),
+		discoveryService:      pipeline.NewDiscoveryService(db, catalog.NewVenueService(db)),
 		artistService:         catalog.NewArtistService(db),
 		festivalService:       catalog.NewFestivalService(db),
 		labelService:          catalog.NewLabelService(db),

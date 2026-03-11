@@ -273,6 +273,15 @@ export const API_ENDPOINTS = {
     DISCOVERY: {
       IMPORT: `${API_BASE_URL}/admin/discovery/import`,
     },
+    PIPELINE: {
+      VENUES: `${API_BASE_URL}/admin/pipeline/venues`,
+      EXTRACT: (venueId: string | number) =>
+        `${API_BASE_URL}/admin/pipeline/extract/${venueId}`,
+      VENUE_STATS: (venueId: string | number) =>
+        `${API_BASE_URL}/admin/pipeline/venues/${venueId}/stats`,
+      VENUE_NOTES: (venueId: string | number) =>
+        `${API_BASE_URL}/admin/pipeline/venues/${venueId}/notes`,
+    },
   },
 
   // Contributor profile endpoints (public)

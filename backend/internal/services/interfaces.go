@@ -42,12 +42,14 @@ type PipelineServiceInterface = contracts.PipelineServiceInterface
 type VenueSourceConfigServiceInterface = contracts.VenueSourceConfigServiceInterface
 
 // Compile-time interface satisfaction checks.
+// Engagement services (Bookmark, SavedShow, FavoriteVenue, Calendar, Reminder)
+// have their checks in internal/services/engagement/interfaces.go.
+// Pipeline services (Extraction, MusicDiscovery, Discovery, VenueSourceConfig,
+// Fetcher, Pipeline) are checked in internal/services/pipeline/interfaces.go.
 var (
 	_ ShowServiceInterface          = (*catalog.ShowService)(nil)
 	_ VenueServiceInterface         = (*catalog.VenueService)(nil)
 	_ ArtistServiceInterface        = (*catalog.ArtistService)(nil)
-	_ SavedShowServiceInterface     = (*SavedShowService)(nil)
-	_ FavoriteVenueServiceInterface = (*FavoriteVenueService)(nil)
 	_ ShowReportServiceInterface    = (*ShowReportService)(nil)
 	_ ArtistReportServiceInterface  = (*ArtistReportService)(nil)
 	_ AuditLogServiceInterface      = (*AuditLogService)(nil)
@@ -57,22 +59,13 @@ var (
 	_ EmailServiceInterface         = (*EmailService)(nil)
 	_ DiscordServiceInterface       = (*DiscordService)(nil)
 	_ PasswordValidatorInterface    = (*PasswordValidator)(nil)
-	_ ExtractionServiceInterface    = (*ExtractionService)(nil)
-	_ MusicDiscoveryServiceInterface = (*MusicDiscoveryService)(nil)
 	_ AppleAuthServiceInterface     = (*AppleAuthService)(nil)
 	_ WebAuthnServiceInterface      = (*WebAuthnService)(nil)
-	_ DiscoveryServiceInterface     = (*DiscoveryService)(nil)
 	_ APITokenServiceInterface      = (*APITokenService)(nil)
 	_ DataSyncServiceInterface      = (*DataSyncService)(nil)
 	_ AdminStatsServiceInterface    = (*AdminStatsService)(nil)
-	_ CalendarServiceInterface      = (*CalendarService)(nil)
-	_ ReminderServiceInterface      = (*ReminderService)(nil)
 	_ FestivalServiceInterface       = (*catalog.FestivalService)(nil)
 	_ LabelServiceInterface          = (*catalog.LabelService)(nil)
 	_ ReleaseServiceInterface       = (*catalog.ReleaseService)(nil)
-	_ BookmarkServiceInterface              = (*BookmarkService)(nil)
 	_ ContributorProfileServiceInterface    = (*ContributorProfileService)(nil)
-	_ VenueSourceConfigServiceInterface     = (*VenueSourceConfigService)(nil)
-	_ FetcherServiceInterface               = (*FetcherService)(nil)
-	_ PipelineServiceInterface              = (*PipelineService)(nil)
 )
