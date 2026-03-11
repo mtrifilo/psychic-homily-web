@@ -1,4 +1,4 @@
-package services
+package pipeline
 
 import (
 	"crypto/sha256"
@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 const calendarExtractionSystemPrompt = `You are a venue calendar event extractor. Given text or an image of a venue's event calendar page, extract ALL upcoming events into structured JSON.
@@ -49,16 +51,16 @@ Rules:
 
 // ExtractCalendarPage processes a venue calendar page (text or image) through Claude
 // and returns structured event data.
-func (s *ExtractionService) ExtractCalendarPage(venueName string, content string, contentType string) (*CalendarExtractionResponse, error) {
+func (s *ExtractionService) ExtractCalendarPage(venueName string, content string, contentType string) (*contracts.CalendarExtractionResponse, error) {
 	if s.config.Anthropic.APIKey == "" {
-		return &CalendarExtractionResponse{
+		return &contracts.CalendarExtractionResponse{
 			Success: false,
 			Error:   "AI service not configured",
 		}, nil
 	}
 
 	if strings.TrimSpace(content) == "" {
-		return &CalendarExtractionResponse{
+		return &contracts.CalendarExtractionResponse{
 			Success: false,
 			Error:   "Content is required",
 		}, nil
@@ -71,7 +73,7 @@ func (s *ExtractionService) ExtractCalendarPage(venueName string, content string
 	switch contentType {
 	case "text":
 		if len(content) > 100000 {
-			return &CalendarExtractionResponse{
+			return &contracts.CalendarExtractionResponse{
 				Success: false,
 				Error:   "Content exceeds maximum length of 100,000 characters",
 			}, nil
@@ -98,7 +100,7 @@ func (s *ExtractionService) ExtractCalendarPage(venueName string, content string
 			},
 		}
 	default:
-		return &CalendarExtractionResponse{
+		return &contracts.CalendarExtractionResponse{
 			Success: false,
 			Error:   "Invalid content type. Use \"text\" or \"image\"",
 		}, nil
@@ -108,15 +110,15 @@ func (s *ExtractionService) ExtractCalendarPage(venueName string, content string
 	responseText, err := s.callAnthropicWithOptions(userContent, calendarExtractionSystemPrompt, 4096)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "credit") || strings.Contains(strings.ToLower(err.Error()), "billing") {
-			return &CalendarExtractionResponse{Success: false, Error: "AI service temporarily unavailable. Please try again later."}, nil
+			return &contracts.CalendarExtractionResponse{Success: false, Error: "AI service temporarily unavailable. Please try again later."}, nil
 		}
-		return &CalendarExtractionResponse{Success: false, Error: "AI service error. Please try again."}, nil
+		return &contracts.CalendarExtractionResponse{Success: false, Error: "AI service error. Please try again."}, nil
 	}
 
 	// Parse the JSON array response
 	events := parseCalendarExtractionResponse(responseText)
 	if events == nil {
-		return &CalendarExtractionResponse{
+		return &contracts.CalendarExtractionResponse{
 			Success:  false,
 			Error:    "Failed to parse AI response",
 			Warnings: []string{"The AI response could not be parsed as a JSON array. Please try again."},
@@ -146,7 +148,7 @@ func (s *ExtractionService) ExtractCalendarPage(venueName string, content string
 		warnings = append(warnings, fmt.Sprintf("%d event(s) have no artist information", missingArtists))
 	}
 
-	resp := &CalendarExtractionResponse{
+	resp := &contracts.CalendarExtractionResponse{
 		Success: true,
 		Events:  events,
 	}
@@ -175,11 +177,11 @@ func (s *ExtractionService) callAnthropicWithOptions(userContent []interface{}, 
 }
 
 // parseCalendarExtractionResponse tries to parse Claude's response as a JSON array of CalendarEvents.
-func parseCalendarExtractionResponse(text string) []CalendarEvent {
+func parseCalendarExtractionResponse(text string) []contracts.CalendarEvent {
 	text = strings.TrimSpace(text)
 
 	// Try direct JSON array parse
-	var events []CalendarEvent
+	var events []contracts.CalendarEvent
 	if err := json.Unmarshal([]byte(text), &events); err == nil {
 		return events
 	}
@@ -205,8 +207,8 @@ func parseCalendarExtractionResponse(text string) []CalendarEvent {
 
 // CalendarEventsToDiscoveredEvents converts calendar extraction results to DiscoveredEvent format
 // for import into the discovery pipeline.
-func CalendarEventsToDiscoveredEvents(venueSlug string, events []CalendarEvent) []DiscoveredEvent {
-	var discovered []DiscoveredEvent
+func CalendarEventsToDiscoveredEvents(venueSlug string, events []contracts.CalendarEvent) []contracts.DiscoveredEvent {
+	var discovered []contracts.DiscoveredEvent
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	for _, event := range events {
@@ -224,7 +226,7 @@ func CalendarEventsToDiscoveredEvents(venueSlug string, events []CalendarEvent) 
 			artists = append(artists, a.Name)
 		}
 
-		de := DiscoveredEvent{
+		de := contracts.DiscoveredEvent{
 			ID:        sourceEventID,
 			Title:     event.Title,
 			Date:      event.Date,

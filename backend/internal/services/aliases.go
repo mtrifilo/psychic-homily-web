@@ -213,9 +213,8 @@ type CheckEventsResult = contracts.CheckEventsResult
 // IsFetchError re-exported via var (Go cannot alias functions).
 var IsFetchError = contracts.IsFetchError
 
-// CalendarEventsToDiscoveredEvents is defined in extraction_calendar.go
-// and uses types from contracts. It stays in the services package because
-// it contains business logic (hash generation, field mapping).
+// CalendarEventsToDiscoveredEvents is defined in the pipeline sub-package
+// (internal/services/pipeline/extraction_calendar.go). Use pipeline.CalendarEventsToDiscoveredEvents.
 
 // RenderMethod constants — Go cannot alias const, so we re-export.
 const (

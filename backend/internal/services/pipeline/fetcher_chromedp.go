@@ -1,4 +1,4 @@
-package services
+package pipeline
 
 import (
 	"context"
@@ -9,14 +9,16 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // Default chromedp configuration constants.
 const (
-	defaultMaxWorkers   = 3
+	defaultMaxWorkers       = 3
 	semaphoreAcquireTimeout = 30 * time.Second
-	pageWaitTimeout     = 8 * time.Second
-	screenshotQuality   = 90
+	pageWaitTimeout         = 8 * time.Second
+	screenshotQuality       = 90
 )
 
 // Common CSS selectors for event containers on venue calendar pages.
@@ -95,7 +97,7 @@ func (s *FetcherService) releaseSemaphore() {
 // FetchDynamic renders a URL with headless Chrome and returns the fully rendered DOM HTML.
 // Used for Tier 2 (dynamic) venue calendar pages where content is JS-rendered.
 // Never uses networkidle — waits for event container CSS selectors with an 8s timeout.
-func (s *FetcherService) FetchDynamic(url string) (*FetchResult, error) {
+func (s *FetcherService) FetchDynamic(url string) (*contracts.FetchResult, error) {
 	if err := s.acquireSemaphore(); err != nil {
 		return nil, err
 	}
@@ -144,7 +146,7 @@ func (s *FetcherService) FetchDynamic(url string) (*FetchResult, error) {
 
 	hash := computeContentHash(html)
 
-	return &FetchResult{
+	return &contracts.FetchResult{
 		Changed:     true,
 		Body:        html,
 		ContentHash: hash,
@@ -156,7 +158,7 @@ func (s *FetcherService) FetchDynamic(url string) (*FetchResult, error) {
 // FetchScreenshot renders a URL with headless Chrome and captures a full-page PNG screenshot.
 // Used for Tier 3 (screenshot) venue calendar pages where DOM is obfuscated.
 // Returns the screenshot as a base64-encoded string in FetchResult.Body.
-func (s *FetcherService) FetchScreenshot(url string) (*FetchResult, error) {
+func (s *FetcherService) FetchScreenshot(url string) (*contracts.FetchResult, error) {
 	if err := s.acquireSemaphore(); err != nil {
 		return nil, err
 	}
@@ -207,7 +209,7 @@ func (s *FetcherService) FetchScreenshot(url string) (*FetchResult, error) {
 		contentType = "image/png"
 	}
 
-	return &FetchResult{
+	return &contracts.FetchResult{
 		Changed:     true,
 		Body:        b64,
 		ContentHash: hash,
@@ -252,7 +254,7 @@ var (
 	yearPattern  = regexp.MustCompile(`\b20[2-3]\d\b`)
 
 	// Time patterns: "7pm", "8:00", "7:30 PM", "doors"
-	timePattern = regexp.MustCompile(`(?i)\b\d{1,2}(:\d{2})?\s*(am|pm|AM|PM)\b`)
+	timePattern  = regexp.MustCompile(`(?i)\b\d{1,2}(:\d{2})?\s*(am|pm|AM|PM)\b`)
 	doorsPattern = regexp.MustCompile(`(?i)\bdoors\b`)
 
 	// Price patterns: "$10", "$25.00"
@@ -292,4 +294,3 @@ func hasEventMarkers(html string) bool {
 	// A single match (e.g., just a year) could be any page.
 	return markers >= 2
 }
-

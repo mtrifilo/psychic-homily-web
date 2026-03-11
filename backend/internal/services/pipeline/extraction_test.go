@@ -1,4 +1,4 @@
-package services
+package pipeline
 
 import (
 	"context"
@@ -22,6 +22,7 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -33,7 +34,8 @@ func TestNewExtractionService(t *testing.T) {
 	cfg := &config.Config{
 		Anthropic: config.AnthropicConfig{APIKey: "test-key"},
 	}
-	svc := NewExtractionService(nil, cfg)
+	// Use nil-returning stubs for the local interfaces
+	svc := NewExtractionService(nil, cfg, &testArtistSearcher{}, &testVenueSearcher{})
 	assert.NotNil(t, svc)
 	assert.NotNil(t, svc.config)
 	assert.NotNil(t, svc.artistService)
@@ -252,7 +254,7 @@ func TestBuildUserContent(t *testing.T) {
 	svc := &ExtractionService{config: cfg}
 
 	t.Run("text_type", func(t *testing.T) {
-		req := &ExtractShowRequest{Type: "text", Text: "Show at Crescent Ballroom, March 15"}
+		req := &contracts.ExtractShowRequest{Type: "text", Text: "Show at Crescent Ballroom, March 15"}
 		content := svc.buildUserContent(req)
 
 		require.Len(t, content, 1)
@@ -262,7 +264,7 @@ func TestBuildUserContent(t *testing.T) {
 	})
 
 	t.Run("image_type", func(t *testing.T) {
-		req := &ExtractShowRequest{
+		req := &contracts.ExtractShowRequest{
 			Type:      "image",
 			ImageData: "base64data",
 			MediaType: "image/jpeg",
@@ -282,7 +284,7 @@ func TestBuildUserContent(t *testing.T) {
 	})
 
 	t.Run("both_type_with_text", func(t *testing.T) {
-		req := &ExtractShowRequest{
+		req := &contracts.ExtractShowRequest{
 			Type:      "both",
 			Text:      "Extra context",
 			ImageData: "base64data",
@@ -296,7 +298,7 @@ func TestBuildUserContent(t *testing.T) {
 	})
 
 	t.Run("both_type_empty_text", func(t *testing.T) {
-		req := &ExtractShowRequest{
+		req := &contracts.ExtractShowRequest{
 			Type:      "both",
 			Text:      "",
 			ImageData: "base64data",
@@ -318,8 +320,6 @@ func TestExtractShowValidation(t *testing.T) {
 	cfg := &config.Config{
 		Anthropic: config.AnthropicConfig{APIKey: "test-key"},
 	}
-	// Use a local server that returns a non-validation error so tests that pass
-	// validation but call callAnthropic fail fast instead of timing out.
 	validationServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		w.Write([]byte("test server"))
@@ -329,7 +329,7 @@ func TestExtractShowValidation(t *testing.T) {
 
 	t.Run("missing_api_key", func(t *testing.T) {
 		svc := &ExtractionService{config: &config.Config{}}
-		req := &ExtractShowRequest{Type: "text", Text: "test"}
+		req := &contracts.ExtractShowRequest{Type: "text", Text: "test"}
 
 		resp, err := svc.ExtractShow(req)
 
@@ -339,7 +339,7 @@ func TestExtractShowValidation(t *testing.T) {
 	})
 
 	t.Run("invalid_type", func(t *testing.T) {
-		req := &ExtractShowRequest{Type: "invalid"}
+		req := &contracts.ExtractShowRequest{Type: "invalid"}
 
 		resp, err := svc.ExtractShow(req)
 
@@ -349,7 +349,7 @@ func TestExtractShowValidation(t *testing.T) {
 	})
 
 	t.Run("text_type_empty_text", func(t *testing.T) {
-		req := &ExtractShowRequest{Type: "text", Text: ""}
+		req := &contracts.ExtractShowRequest{Type: "text", Text: ""}
 
 		resp, err := svc.ExtractShow(req)
 
@@ -359,7 +359,7 @@ func TestExtractShowValidation(t *testing.T) {
 	})
 
 	t.Run("text_type_whitespace_only", func(t *testing.T) {
-		req := &ExtractShowRequest{Type: "text", Text: "   \n\t  "}
+		req := &contracts.ExtractShowRequest{Type: "text", Text: "   \n\t  "}
 
 		resp, err := svc.ExtractShow(req)
 
@@ -373,7 +373,7 @@ func TestExtractShowValidation(t *testing.T) {
 		for i := range longText {
 			longText[i] = 'a'
 		}
-		req := &ExtractShowRequest{Type: "text", Text: string(longText)}
+		req := &contracts.ExtractShowRequest{Type: "text", Text: string(longText)}
 
 		resp, err := svc.ExtractShow(req)
 
@@ -383,7 +383,7 @@ func TestExtractShowValidation(t *testing.T) {
 	})
 
 	t.Run("image_type_missing_data", func(t *testing.T) {
-		req := &ExtractShowRequest{Type: "image", ImageData: "", MediaType: "image/jpeg"}
+		req := &contracts.ExtractShowRequest{Type: "image", ImageData: "", MediaType: "image/jpeg"}
 
 		resp, err := svc.ExtractShow(req)
 
@@ -393,7 +393,7 @@ func TestExtractShowValidation(t *testing.T) {
 	})
 
 	t.Run("image_type_missing_media_type", func(t *testing.T) {
-		req := &ExtractShowRequest{Type: "image", ImageData: "base64data", MediaType: ""}
+		req := &contracts.ExtractShowRequest{Type: "image", ImageData: "base64data", MediaType: ""}
 
 		resp, err := svc.ExtractShow(req)
 
@@ -403,7 +403,7 @@ func TestExtractShowValidation(t *testing.T) {
 	})
 
 	t.Run("image_type_invalid_media_type", func(t *testing.T) {
-		req := &ExtractShowRequest{Type: "image", ImageData: "base64data", MediaType: "image/bmp"}
+		req := &contracts.ExtractShowRequest{Type: "image", ImageData: "base64data", MediaType: "image/bmp"}
 
 		resp, err := svc.ExtractShow(req)
 
@@ -415,10 +415,9 @@ func TestExtractShowValidation(t *testing.T) {
 	t.Run("image_type_valid_media_types", func(t *testing.T) {
 		validTypes := []string{"image/jpeg", "image/png", "image/gif", "image/webp"}
 		for _, mt := range validTypes {
-			req := &ExtractShowRequest{Type: "image", ImageData: "base64data", MediaType: mt}
+			req := &contracts.ExtractShowRequest{Type: "image", ImageData: "base64data", MediaType: mt}
 			resp, err := svc.ExtractShow(req)
 			assert.NoError(t, err)
-			// Should get past validation (fail on the API call, not validation)
 			if !resp.Success {
 				assert.NotContains(t, resp.Error, "Invalid image type", "media type %s should be valid", mt)
 			}
@@ -430,7 +429,7 @@ func TestExtractShowValidation(t *testing.T) {
 		for i := range longText {
 			longText[i] = 'a'
 		}
-		req := &ExtractShowRequest{
+		req := &contracts.ExtractShowRequest{
 			Type:      "both",
 			Text:      string(longText),
 			ImageData: "base64data",
@@ -449,7 +448,6 @@ func TestExtractShowValidation(t *testing.T) {
 // callAnthropic TESTS (httptest mock)
 // =============================================================================
 
-// newTestExtractionService creates an ExtractionService with an httptest server
 func newTestExtractionService(handler http.HandlerFunc) (*ExtractionService, *httptest.Server) {
 	server := httptest.NewServer(handler)
 	svc := &ExtractionService{
@@ -525,7 +523,6 @@ func TestCallAnthropic(t *testing.T) {
 	t.Run("non_text_blocks_ignored", func(t *testing.T) {
 		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			// Write raw JSON to include non-text blocks
 			w.Write([]byte(`{"content":[{"type":"tool_use","text":"ignored"},{"type":"text","text":"kept"}]}`))
 		})
 		defer server.Close()
@@ -645,13 +642,77 @@ func TestCallAnthropic(t *testing.T) {
 }
 
 // =============================================================================
+// Test implementations of local interfaces for unit tests
+// =============================================================================
+
+// testArtistSearcher implements artistSearcher for unit tests with nil DB behavior.
+type testArtistSearcher struct {
+	db *gorm.DB
+}
+
+func (s *testArtistSearcher) SearchArtists(query string) ([]*contracts.ArtistDetailResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	var artists []models.Artist
+	err := s.db.Where("LOWER(name) LIKE LOWER(?)", "%"+query+"%").Limit(10).Find(&artists).Error
+	if err != nil {
+		return nil, err
+	}
+	var results []*contracts.ArtistDetailResponse
+	for _, a := range artists {
+		slug := ""
+		if a.Slug != nil {
+			slug = *a.Slug
+		}
+		results = append(results, &contracts.ArtistDetailResponse{
+			ID:   a.ID,
+			Name: a.Name,
+			Slug: slug,
+		})
+	}
+	return results, nil
+}
+
+// testVenueSearcher implements venueSearcher for unit tests with nil DB behavior.
+type testVenueSearcher struct {
+	db *gorm.DB
+}
+
+func (s *testVenueSearcher) SearchVenues(query string) ([]*contracts.VenueDetailResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	var venues []models.Venue
+	err := s.db.Where("LOWER(name) LIKE LOWER(?)", "%"+query+"%").Limit(10).Find(&venues).Error
+	if err != nil {
+		return nil, err
+	}
+	var results []*contracts.VenueDetailResponse
+	for _, v := range venues {
+		slug := ""
+		if v.Slug != nil {
+			slug = *v.Slug
+		}
+		results = append(results, &contracts.VenueDetailResponse{
+			ID:    v.ID,
+			Name:  v.Name,
+			Slug:  slug,
+			City:  v.City,
+			State: v.State,
+		})
+	}
+	return results, nil
+}
+
+// =============================================================================
 // matchArtists UNIT TESTS (edge cases, no DB)
 // =============================================================================
 
 func TestMatchArtists(t *testing.T) {
 	t.Run("empty_input", func(t *testing.T) {
 		svc := &ExtractionService{
-			artistService: &ArtistService{db: nil},
+			artistService: &testArtistSearcher{db: nil},
 		}
 
 		result := svc.matchArtists([]rawArtist{})
@@ -661,7 +722,7 @@ func TestMatchArtists(t *testing.T) {
 
 	t.Run("nil_input", func(t *testing.T) {
 		svc := &ExtractionService{
-			artistService: &ArtistService{db: nil},
+			artistService: &testArtistSearcher{db: nil},
 		}
 
 		result := svc.matchArtists(nil)
@@ -671,7 +732,7 @@ func TestMatchArtists(t *testing.T) {
 
 	t.Run("search_error_returns_unmatched", func(t *testing.T) {
 		svc := &ExtractionService{
-			artistService: &ArtistService{db: nil}, // nil db → "database not initialized" error
+			artistService: &testArtistSearcher{db: nil}, // nil db -> error
 		}
 
 		result := svc.matchArtists([]rawArtist{
@@ -693,7 +754,7 @@ func TestMatchArtists(t *testing.T) {
 func TestMatchVenue(t *testing.T) {
 	t.Run("no_venue_in_parsed", func(t *testing.T) {
 		svc := &ExtractionService{
-			venueService: &VenueService{db: nil},
+			venueService: &testVenueSearcher{db: nil},
 		}
 
 		result := svc.matchVenue(map[string]interface{}{
@@ -705,7 +766,7 @@ func TestMatchVenue(t *testing.T) {
 
 	t.Run("venue_not_map", func(t *testing.T) {
 		svc := &ExtractionService{
-			venueService: &VenueService{db: nil},
+			venueService: &testVenueSearcher{db: nil},
 		}
 
 		result := svc.matchVenue(map[string]interface{}{
@@ -717,7 +778,7 @@ func TestMatchVenue(t *testing.T) {
 
 	t.Run("empty_name", func(t *testing.T) {
 		svc := &ExtractionService{
-			venueService: &VenueService{db: nil},
+			venueService: &testVenueSearcher{db: nil},
 		}
 
 		result := svc.matchVenue(map[string]interface{}{
@@ -731,7 +792,7 @@ func TestMatchVenue(t *testing.T) {
 
 	t.Run("search_error_returns_unmatched", func(t *testing.T) {
 		svc := &ExtractionService{
-			venueService: &VenueService{db: nil}, // nil db → error
+			venueService: &testVenueSearcher{db: nil}, // nil db -> error
 		}
 
 		result := svc.matchVenue(map[string]interface{}{
@@ -763,10 +824,10 @@ type ExtractionIntegrationTestSuite struct {
 	ctx               context.Context
 }
 
-func (suite *ExtractionIntegrationTestSuite) SetupSuite() {
-	suite.ctx = context.Background()
+func (s *ExtractionIntegrationTestSuite) SetupSuite() {
+	s.ctx = context.Background()
 
-	container, err := testcontainers.GenericContainer(suite.ctx, testcontainers.GenericContainerRequest{
+	container, err := testcontainers.GenericContainer(s.ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        "postgres:18",
 			ExposedPorts: []string{"5432/tcp"},
@@ -780,17 +841,17 @@ func (suite *ExtractionIntegrationTestSuite) SetupSuite() {
 		Started: true,
 	})
 	if err != nil {
-		suite.T().Fatalf("failed to start postgres container: %v", err)
+		s.T().Fatalf("failed to start postgres container: %v", err)
 	}
-	suite.container = container
+	s.container = container
 
-	host, err := container.Host(suite.ctx)
+	host, err := container.Host(s.ctx)
 	if err != nil {
-		suite.T().Fatalf("failed to get host: %v", err)
+		s.T().Fatalf("failed to get host: %v", err)
 	}
-	port, err := container.MappedPort(suite.ctx, "5432")
+	port, err := container.MappedPort(s.ctx, "5432")
 	if err != nil {
-		suite.T().Fatalf("failed to get port: %v", err)
+		s.T().Fatalf("failed to get port: %v", err)
 	}
 
 	dsn := fmt.Sprintf("host=%s port=%s user=test_user password=test_password dbname=test_db sslmode=disable",
@@ -798,34 +859,34 @@ func (suite *ExtractionIntegrationTestSuite) SetupSuite() {
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		suite.T().Fatalf("failed to connect to test database: %v", err)
+		s.T().Fatalf("failed to connect to test database: %v", err)
 	}
-	suite.db = db
+	s.db = db
 
 	sqlDB, err := db.DB()
 	if err != nil {
-		suite.T().Fatalf("failed to get sql.DB: %v", err)
+		s.T().Fatalf("failed to get sql.DB: %v", err)
 	}
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(s.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
-	suite.extractionService = &ExtractionService{
+	s.extractionService = &ExtractionService{
 		config:        &config.Config{},
-		artistService: &ArtistService{db: db},
-		venueService:  &VenueService{db: db},
+		artistService: &testArtistSearcher{db: db},
+		venueService:  &testVenueSearcher{db: db},
 	}
 }
 
-func (suite *ExtractionIntegrationTestSuite) TearDownSuite() {
-	if suite.container != nil {
-		if err := suite.container.Terminate(suite.ctx); err != nil {
-			suite.T().Logf("failed to terminate container: %v", err)
+func (s *ExtractionIntegrationTestSuite) TearDownSuite() {
+	if s.container != nil {
+		if err := s.container.Terminate(s.ctx); err != nil {
+			s.T().Logf("failed to terminate container: %v", err)
 		}
 	}
 }
 
-func (suite *ExtractionIntegrationTestSuite) TearDownTest() {
-	sqlDB, err := suite.db.DB()
-	suite.Require().NoError(err)
+func (s *ExtractionIntegrationTestSuite) TearDownTest() {
+	sqlDB, err := s.db.DB()
+	s.Require().NoError(err)
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
@@ -833,158 +894,155 @@ func (suite *ExtractionIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 }
 
-func (suite *ExtractionIntegrationTestSuite) createArtist(name string) models.Artist {
+func (s *ExtractionIntegrationTestSuite) createArtist(name string) models.Artist {
 	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
 	artist := models.Artist{Name: name, Slug: &slug}
-	err := suite.db.Create(&artist).Error
-	suite.Require().NoError(err)
+	err := s.db.Create(&artist).Error
+	s.Require().NoError(err)
 	return artist
 }
 
-func (suite *ExtractionIntegrationTestSuite) createVenue(name, city, state string) models.Venue {
+func (s *ExtractionIntegrationTestSuite) createVenue(name, city, state string) models.Venue {
 	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
 	venue := models.Venue{Name: name, City: city, State: state, Slug: &slug}
-	err := suite.db.Create(&venue).Error
-	suite.Require().NoError(err)
+	err := s.db.Create(&venue).Error
+	s.Require().NoError(err)
 	return venue
 }
 
 // --- matchArtists integration tests ---
 
-func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_ExactMatch() {
-	suite.createArtist("Radiohead")
+func (s *ExtractionIntegrationTestSuite) TestMatchArtists_ExactMatch() {
+	s.createArtist("Radiohead")
 
-	result := suite.extractionService.matchArtists([]rawArtist{
+	result := s.extractionService.matchArtists([]rawArtist{
 		{Name: "Radiohead", IsHeadliner: true},
 	})
 
-	suite.Require().Len(result, 1)
-	suite.NotNil(result[0].MatchedID)
-	suite.Equal("Radiohead", *result[0].MatchedName)
-	suite.Equal("radiohead", *result[0].MatchedSlug)
-	suite.True(result[0].IsHeadliner)
+	s.Require().Len(result, 1)
+	s.NotNil(result[0].MatchedID)
+	s.Equal("Radiohead", *result[0].MatchedName)
+	s.Equal("radiohead", *result[0].MatchedSlug)
+	s.True(result[0].IsHeadliner)
 }
 
-func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_CaseInsensitive() {
-	suite.createArtist("The National")
+func (s *ExtractionIntegrationTestSuite) TestMatchArtists_CaseInsensitive() {
+	s.createArtist("The National")
 
-	result := suite.extractionService.matchArtists([]rawArtist{
+	result := s.extractionService.matchArtists([]rawArtist{
 		{Name: "the national", IsHeadliner: false},
 	})
 
-	suite.Require().Len(result, 1)
-	suite.NotNil(result[0].MatchedID)
-	suite.Equal("The National", *result[0].MatchedName)
-	suite.False(result[0].IsHeadliner)
+	s.Require().Len(result, 1)
+	s.NotNil(result[0].MatchedID)
+	s.Equal("The National", *result[0].MatchedName)
+	s.False(result[0].IsHeadliner)
 }
 
-func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_NoMatchEmptyDB() {
-	result := suite.extractionService.matchArtists([]rawArtist{
+func (s *ExtractionIntegrationTestSuite) TestMatchArtists_NoMatchEmptyDB() {
+	result := s.extractionService.matchArtists([]rawArtist{
 		{Name: "Nonexistent Band", IsHeadliner: true},
 	})
 
-	suite.Require().Len(result, 1)
-	suite.Nil(result[0].MatchedID)
-	suite.Empty(result[0].Suggestions)
+	s.Require().Len(result, 1)
+	s.Nil(result[0].MatchedID)
+	s.Empty(result[0].Suggestions)
 }
 
-func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_SuggestionsWhenNoExact() {
-	suite.createArtist("Radio Moscow")
-	suite.createArtist("Radio Dept")
-	suite.createArtist("Radio Birdman")
+func (s *ExtractionIntegrationTestSuite) TestMatchArtists_SuggestionsWhenNoExact() {
+	s.createArtist("Radio Moscow")
+	s.createArtist("Radio Dept")
+	s.createArtist("Radio Birdman")
 
-	result := suite.extractionService.matchArtists([]rawArtist{
+	result := s.extractionService.matchArtists([]rawArtist{
 		{Name: "Radio", IsHeadliner: false},
 	})
 
-	suite.Require().Len(result, 1)
-	suite.Nil(result[0].MatchedID, "Should not have exact match")
-	suite.NotEmpty(result[0].Suggestions)
-	for _, s := range result[0].Suggestions {
-		suite.NotZero(s.ID)
-		suite.NotEmpty(s.Name)
-		suite.NotEmpty(s.Slug)
+	s.Require().Len(result, 1)
+	s.Nil(result[0].MatchedID, "Should not have exact match")
+	s.NotEmpty(result[0].Suggestions)
+	for _, sg := range result[0].Suggestions {
+		s.NotZero(sg.ID)
+		s.NotEmpty(sg.Name)
+		s.NotEmpty(sg.Slug)
 	}
 }
 
-func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_SuggestionsCappedAt3() {
+func (s *ExtractionIntegrationTestSuite) TestMatchArtists_SuggestionsCappedAt3() {
 	for i := 0; i < 5; i++ {
-		suite.createArtist(fmt.Sprintf("TestBand%d", i))
+		s.createArtist(fmt.Sprintf("TestBand%d", i))
 	}
 
-	result := suite.extractionService.matchArtists([]rawArtist{
+	result := s.extractionService.matchArtists([]rawArtist{
 		{Name: "TestBand", IsHeadliner: false},
 	})
 
-	suite.Require().Len(result, 1)
-	suite.Nil(result[0].MatchedID)
-	suite.LessOrEqual(len(result[0].Suggestions), 3)
+	s.Require().Len(result, 1)
+	s.Nil(result[0].MatchedID)
+	s.LessOrEqual(len(result[0].Suggestions), 3)
 }
 
-func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_MultipleArtists() {
-	suite.createArtist("Turnstile")
-	suite.createArtist("Ceremony")
+func (s *ExtractionIntegrationTestSuite) TestMatchArtists_MultipleArtists() {
+	s.createArtist("Turnstile")
+	s.createArtist("Ceremony")
 
-	result := suite.extractionService.matchArtists([]rawArtist{
+	result := s.extractionService.matchArtists([]rawArtist{
 		{Name: "Turnstile", IsHeadliner: true},
 		{Name: "Ceremony", IsHeadliner: false},
 	})
 
-	suite.Require().Len(result, 2)
-	suite.NotNil(result[0].MatchedID)
-	suite.Equal("Turnstile", *result[0].MatchedName)
-	suite.True(result[0].IsHeadliner)
-	suite.NotNil(result[1].MatchedID)
-	suite.Equal("Ceremony", *result[1].MatchedName)
-	suite.False(result[1].IsHeadliner)
+	s.Require().Len(result, 2)
+	s.NotNil(result[0].MatchedID)
+	s.Equal("Turnstile", *result[0].MatchedName)
+	s.True(result[0].IsHeadliner)
+	s.NotNil(result[1].MatchedID)
+	s.Equal("Ceremony", *result[1].MatchedName)
+	s.False(result[1].IsHeadliner)
 }
 
-func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_InstagramPreservedForNewArtist() {
-	// No artists in DB — new artist should preserve instagram handle
-	result := suite.extractionService.matchArtists([]rawArtist{
+func (s *ExtractionIntegrationTestSuite) TestMatchArtists_InstagramPreservedForNewArtist() {
+	result := s.extractionService.matchArtists([]rawArtist{
 		{Name: "New Band", IsHeadliner: true, InstagramHandle: "@newband"},
 	})
 
-	suite.Require().Len(result, 1)
-	suite.Equal("@newband", result[0].InstagramHandle)
-	suite.Nil(result[0].MatchedID)
+	s.Require().Len(result, 1)
+	s.Equal("@newband", result[0].InstagramHandle)
+	s.Nil(result[0].MatchedID)
 }
 
-func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_InstagramClearedForMatchedArtist() {
-	suite.createArtist("Existing Band")
+func (s *ExtractionIntegrationTestSuite) TestMatchArtists_InstagramClearedForMatchedArtist() {
+	s.createArtist("Existing Band")
 
-	result := suite.extractionService.matchArtists([]rawArtist{
+	result := s.extractionService.matchArtists([]rawArtist{
 		{Name: "Existing Band", IsHeadliner: false, InstagramHandle: "@existing_ig"},
 	})
 
-	suite.Require().Len(result, 1)
-	suite.NotNil(result[0].MatchedID)
-	suite.Equal("", result[0].InstagramHandle, "Instagram handle should be cleared for matched artists")
+	s.Require().Len(result, 1)
+	s.NotNil(result[0].MatchedID)
+	s.Equal("", result[0].InstagramHandle, "Instagram handle should be cleared for matched artists")
 }
 
-func (suite *ExtractionIntegrationTestSuite) TestMatchArtists_InstagramMixedMatchAndNew() {
-	suite.createArtist("Known Artist")
+func (s *ExtractionIntegrationTestSuite) TestMatchArtists_InstagramMixedMatchAndNew() {
+	s.createArtist("Known Artist")
 
-	result := suite.extractionService.matchArtists([]rawArtist{
+	result := s.extractionService.matchArtists([]rawArtist{
 		{Name: "Known Artist", IsHeadliner: true, InstagramHandle: "@known_ig"},
 		{Name: "Unknown Artist", IsHeadliner: false, InstagramHandle: "@unknown_ig"},
 	})
 
-	suite.Require().Len(result, 2)
-	// Matched artist: instagram cleared
-	suite.NotNil(result[0].MatchedID)
-	suite.Equal("", result[0].InstagramHandle)
-	// New artist: instagram preserved
-	suite.Nil(result[1].MatchedID)
-	suite.Equal("@unknown_ig", result[1].InstagramHandle)
+	s.Require().Len(result, 2)
+	s.NotNil(result[0].MatchedID)
+	s.Equal("", result[0].InstagramHandle)
+	s.Nil(result[1].MatchedID)
+	s.Equal("@unknown_ig", result[1].InstagramHandle)
 }
 
 // --- matchVenue integration tests ---
 
-func (suite *ExtractionIntegrationTestSuite) TestMatchVenue_ExactMatch() {
-	suite.createVenue("Crescent Ballroom", "Phoenix", "AZ")
+func (s *ExtractionIntegrationTestSuite) TestMatchVenue_ExactMatch() {
+	s.createVenue("Crescent Ballroom", "Phoenix", "AZ")
 
-	result := suite.extractionService.matchVenue(map[string]interface{}{
+	result := s.extractionService.matchVenue(map[string]interface{}{
 		"venue": map[string]interface{}{
 			"name":  "Crescent Ballroom",
 			"city":  "Tempe",
@@ -992,31 +1050,30 @@ func (suite *ExtractionIntegrationTestSuite) TestMatchVenue_ExactMatch() {
 		},
 	})
 
-	suite.Require().NotNil(result)
-	suite.NotNil(result.MatchedID)
-	suite.Equal("Crescent Ballroom", *result.MatchedName)
-	suite.Equal("crescent-ballroom", *result.MatchedSlug)
-	// City/State overridden from DB
-	suite.Equal("Phoenix", result.City)
-	suite.Equal("AZ", result.State)
+	s.Require().NotNil(result)
+	s.NotNil(result.MatchedID)
+	s.Equal("Crescent Ballroom", *result.MatchedName)
+	s.Equal("crescent-ballroom", *result.MatchedSlug)
+	s.Equal("Phoenix", result.City)
+	s.Equal("AZ", result.State)
 }
 
-func (suite *ExtractionIntegrationTestSuite) TestMatchVenue_CaseInsensitive() {
-	suite.createVenue("Valley Bar", "Phoenix", "AZ")
+func (s *ExtractionIntegrationTestSuite) TestMatchVenue_CaseInsensitive() {
+	s.createVenue("Valley Bar", "Phoenix", "AZ")
 
-	result := suite.extractionService.matchVenue(map[string]interface{}{
+	result := s.extractionService.matchVenue(map[string]interface{}{
 		"venue": map[string]interface{}{
 			"name": "valley bar",
 		},
 	})
 
-	suite.Require().NotNil(result)
-	suite.NotNil(result.MatchedID)
-	suite.Equal("Valley Bar", *result.MatchedName)
+	s.Require().NotNil(result)
+	s.NotNil(result.MatchedID)
+	s.Equal("Valley Bar", *result.MatchedName)
 }
 
-func (suite *ExtractionIntegrationTestSuite) TestMatchVenue_NoMatchEmptyDB() {
-	result := suite.extractionService.matchVenue(map[string]interface{}{
+func (s *ExtractionIntegrationTestSuite) TestMatchVenue_NoMatchEmptyDB() {
+	result := s.extractionService.matchVenue(map[string]interface{}{
 		"venue": map[string]interface{}{
 			"name":  "Nonexistent Venue",
 			"city":  "Phoenix",
@@ -1024,47 +1081,47 @@ func (suite *ExtractionIntegrationTestSuite) TestMatchVenue_NoMatchEmptyDB() {
 		},
 	})
 
-	suite.Require().NotNil(result)
-	suite.Nil(result.MatchedID)
-	suite.Empty(result.Suggestions)
+	s.Require().NotNil(result)
+	s.Nil(result.MatchedID)
+	s.Empty(result.Suggestions)
 }
 
-func (suite *ExtractionIntegrationTestSuite) TestMatchVenue_SuggestionsWhenNoExact() {
-	suite.createVenue("The Rebel Lounge", "Phoenix", "AZ")
-	suite.createVenue("The Rebel Room", "Mesa", "AZ")
+func (s *ExtractionIntegrationTestSuite) TestMatchVenue_SuggestionsWhenNoExact() {
+	s.createVenue("The Rebel Lounge", "Phoenix", "AZ")
+	s.createVenue("The Rebel Room", "Mesa", "AZ")
 
-	result := suite.extractionService.matchVenue(map[string]interface{}{
+	result := s.extractionService.matchVenue(map[string]interface{}{
 		"venue": map[string]interface{}{
 			"name": "Rebel",
 		},
 	})
 
-	suite.Require().NotNil(result)
-	suite.Nil(result.MatchedID, "Should not have exact match")
-	suite.NotEmpty(result.Suggestions)
-	for _, s := range result.Suggestions {
-		suite.NotZero(s.ID)
-		suite.NotEmpty(s.Name)
-		suite.NotEmpty(s.Slug)
-		suite.NotEmpty(s.City)
-		suite.NotEmpty(s.State)
+	s.Require().NotNil(result)
+	s.Nil(result.MatchedID, "Should not have exact match")
+	s.NotEmpty(result.Suggestions)
+	for _, sg := range result.Suggestions {
+		s.NotZero(sg.ID)
+		s.NotEmpty(sg.Name)
+		s.NotEmpty(sg.Slug)
+		s.NotEmpty(sg.City)
+		s.NotEmpty(sg.State)
 	}
 }
 
-func (suite *ExtractionIntegrationTestSuite) TestMatchVenue_SuggestionsCappedAt3() {
+func (s *ExtractionIntegrationTestSuite) TestMatchVenue_SuggestionsCappedAt3() {
 	for i := 0; i < 5; i++ {
-		suite.createVenue(fmt.Sprintf("TestVenue%d", i), "Phoenix", "AZ")
+		s.createVenue(fmt.Sprintf("TestVenue%d", i), "Phoenix", "AZ")
 	}
 
-	result := suite.extractionService.matchVenue(map[string]interface{}{
+	result := s.extractionService.matchVenue(map[string]interface{}{
 		"venue": map[string]interface{}{
 			"name": "TestVenue",
 		},
 	})
 
-	suite.Require().NotNil(result)
-	suite.Nil(result.MatchedID)
-	suite.LessOrEqual(len(result.Suggestions), 3)
+	s.Require().NotNil(result)
+	s.Nil(result.MatchedID)
+	s.LessOrEqual(len(result.Suggestions), 3)
 }
 
 func TestExtractionIntegrationTestSuite(t *testing.T) {

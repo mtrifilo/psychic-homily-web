@@ -1,4 +1,4 @@
-package services
+package pipeline
 
 import (
 	"bytes"
@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 const extractionSystemPrompt = `You are a show information extractor. Given text or an image of a show flyer, extract structured information.
@@ -41,27 +42,38 @@ Rules:
 // ExtractionService handles AI-powered show info extraction
 type ExtractionService struct {
 	config           *config.Config
-	artistService    *ArtistService
-	venueService     *VenueService
+	artistService    artistSearcher
+	venueService     venueSearcher
 	httpClient       *http.Client
 	anthropicBaseURL string
 }
 
-// NewExtractionService creates a new extraction service
-func NewExtractionService(database *gorm.DB, cfg *config.Config) *ExtractionService {
+// artistSearcher is the subset of ArtistService used by ExtractionService.
+type artistSearcher interface {
+	SearchArtists(query string) ([]*contracts.ArtistDetailResponse, error)
+}
+
+// venueSearcher is the subset of VenueService used by ExtractionService.
+type venueSearcher interface {
+	SearchVenues(query string) ([]*contracts.VenueDetailResponse, error)
+}
+
+// NewExtractionService creates a new extraction service.
+// It accepts a *gorm.DB to instantiate internal artist/venue search helpers.
+func NewExtractionService(database *gorm.DB, cfg *config.Config, artistSvc artistSearcher, venueSvc venueSearcher) *ExtractionService {
 	return &ExtractionService{
 		config:           cfg,
-		artistService:    NewArtistService(database),
-		venueService:     NewVenueService(database),
+		artistService:    artistSvc,
+		venueService:     venueSvc,
 		httpClient:       &http.Client{},
 		anthropicBaseURL: "https://api.anthropic.com",
 	}
 }
 
 // ExtractShow processes text or image input through Claude and matches against the database
-func (s *ExtractionService) ExtractShow(req *ExtractShowRequest) (*ExtractShowResponse, error) {
+func (s *ExtractionService) ExtractShow(req *contracts.ExtractShowRequest) (*contracts.ExtractShowResponse, error) {
 	if s.config.Anthropic.APIKey == "" {
-		return &ExtractShowResponse{
+		return &contracts.ExtractShowResponse{
 			Success: false,
 			Error:   "AI service not configured",
 		}, nil
@@ -78,26 +90,26 @@ func (s *ExtractionService) ExtractShow(req *ExtractShowRequest) (*ExtractShowRe
 	switch req.Type {
 	case "text":
 		if strings.TrimSpace(req.Text) == "" {
-			return &ExtractShowResponse{Success: false, Error: "Text content is required"}, nil
+			return &contracts.ExtractShowResponse{Success: false, Error: "Text content is required"}, nil
 		}
 		if len(req.Text) > 10000 {
-			return &ExtractShowResponse{Success: false, Error: "Text content exceeds maximum length of 10,000 characters"}, nil
+			return &contracts.ExtractShowResponse{Success: false, Error: "Text content exceeds maximum length of 10,000 characters"}, nil
 		}
 	case "image", "both":
 		if req.ImageData == "" {
-			return &ExtractShowResponse{Success: false, Error: "Image data is required"}, nil
+			return &contracts.ExtractShowResponse{Success: false, Error: "Image data is required"}, nil
 		}
 		if req.MediaType == "" {
-			return &ExtractShowResponse{Success: false, Error: "Image media type is required"}, nil
+			return &contracts.ExtractShowResponse{Success: false, Error: "Image media type is required"}, nil
 		}
 		if !validMediaTypes[req.MediaType] {
-			return &ExtractShowResponse{Success: false, Error: "Invalid image type. Supported formats: image/jpeg, image/png, image/gif, image/webp"}, nil
+			return &contracts.ExtractShowResponse{Success: false, Error: "Invalid image type. Supported formats: image/jpeg, image/png, image/gif, image/webp"}, nil
 		}
 		if req.Type == "both" && len(req.Text) > 10000 {
-			return &ExtractShowResponse{Success: false, Error: "Text content exceeds maximum length of 10,000 characters"}, nil
+			return &contracts.ExtractShowResponse{Success: false, Error: "Text content exceeds maximum length of 10,000 characters"}, nil
 		}
 	default:
-		return &ExtractShowResponse{Success: false, Error: "Invalid request type. Use \"text\", \"image\", or \"both\""}, nil
+		return &contracts.ExtractShowResponse{Success: false, Error: "Invalid request type. Use \"text\", \"image\", or \"both\""}, nil
 	}
 
 	// Build the Anthropic API request
@@ -107,15 +119,15 @@ func (s *ExtractionService) ExtractShow(req *ExtractShowRequest) (*ExtractShowRe
 	responseText, err := s.callAnthropic(userContent)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "credit") || strings.Contains(strings.ToLower(err.Error()), "billing") {
-			return &ExtractShowResponse{Success: false, Error: "AI service temporarily unavailable. Please try again later."}, nil
+			return &contracts.ExtractShowResponse{Success: false, Error: "AI service temporarily unavailable. Please try again later."}, nil
 		}
-		return &ExtractShowResponse{Success: false, Error: "AI service error. Please try again."}, nil
+		return &contracts.ExtractShowResponse{Success: false, Error: "AI service error. Please try again."}, nil
 	}
 
 	// Parse the JSON response from Claude
 	parsed := parseExtractionResponse(responseText)
 	if parsed == nil {
-		return &ExtractShowResponse{
+		return &contracts.ExtractShowResponse{
 			Success:  false,
 			Error:    "Failed to parse AI response",
 			Warnings: []string{"The AI response could not be parsed as JSON. Please try again."},
@@ -167,7 +179,7 @@ func (s *ExtractionService) ExtractShow(req *ExtractShowRequest) (*ExtractShowRe
 	}
 
 	// Build the extracted data
-	data := &ExtractedShowData{
+	data := &contracts.ExtractedShowData{
 		Artists: matchedArtists,
 		Venue:   matchedVenue,
 	}
@@ -187,7 +199,7 @@ func (s *ExtractionService) ExtractShow(req *ExtractShowRequest) (*ExtractShowRe
 		data.Description = descStr
 	}
 
-	resp := &ExtractShowResponse{
+	resp := &contracts.ExtractShowResponse{
 		Success: true,
 		Data:    data,
 	}
@@ -199,7 +211,7 @@ func (s *ExtractionService) ExtractShow(req *ExtractShowRequest) (*ExtractShowRe
 }
 
 // buildUserContent constructs the Anthropic API message content
-func (s *ExtractionService) buildUserContent(req *ExtractShowRequest) []interface{} {
+func (s *ExtractionService) buildUserContent(req *contracts.ExtractShowRequest) []interface{} {
 	switch req.Type {
 	case "text":
 		return []interface{}{
@@ -247,9 +259,9 @@ func (s *ExtractionService) buildUserContent(req *ExtractShowRequest) []interfac
 
 // anthropicRequest is the Anthropic API request structure
 type anthropicRequest struct {
-	Model     string        `json:"model"`
-	MaxTokens int           `json:"max_tokens"`
-	System    string        `json:"system"`
+	Model     string             `json:"model"`
+	MaxTokens int                `json:"max_tokens"`
+	System    string             `json:"system"`
 	Messages  []anthropicMessage `json:"messages"`
 }
 
@@ -401,11 +413,11 @@ func extractRawArtists(parsed map[string]interface{}) []rawArtist {
 }
 
 // matchArtists matches extracted artists against the database
-func (s *ExtractionService) matchArtists(rawArtists []rawArtist) []ExtractedArtist {
-	var matched []ExtractedArtist
+func (s *ExtractionService) matchArtists(rawArtists []rawArtist) []contracts.ExtractedArtist {
+	var matched []contracts.ExtractedArtist
 
 	for _, raw := range rawArtists {
-		result := ExtractedArtist{
+		result := contracts.ExtractedArtist{
 			Name:            raw.Name,
 			IsHeadliner:     raw.IsHeadliner,
 			InstagramHandle: raw.InstagramHandle,
@@ -415,7 +427,7 @@ func (s *ExtractionService) matchArtists(rawArtists []rawArtist) []ExtractedArti
 		searchResults, err := s.artistService.SearchArtists(raw.Name)
 		if err == nil && len(searchResults) > 0 {
 			// Look for exact match (case-insensitive)
-			var exactMatch *ArtistDetailResponse
+			var exactMatch *contracts.ArtistDetailResponse
 			for _, a := range searchResults {
 				if strings.EqualFold(a.Name, raw.Name) {
 					exactMatch = a
@@ -435,9 +447,9 @@ func (s *ExtractionService) matchArtists(rawArtists []rawArtist) []ExtractedArti
 				if len(searchResults) < limit {
 					limit = len(searchResults)
 				}
-				suggestions := make([]MatchSuggestion, limit)
+				suggestions := make([]contracts.MatchSuggestion, limit)
 				for i := 0; i < limit; i++ {
-					suggestions[i] = MatchSuggestion{
+					suggestions[i] = contracts.MatchSuggestion{
 						ID:   searchResults[i].ID,
 						Name: searchResults[i].Name,
 						Slug: searchResults[i].Slug,
@@ -454,7 +466,7 @@ func (s *ExtractionService) matchArtists(rawArtists []rawArtist) []ExtractedArti
 }
 
 // matchVenue matches the extracted venue against the database
-func (s *ExtractionService) matchVenue(parsed map[string]interface{}) *ExtractedVenue {
+func (s *ExtractionService) matchVenue(parsed map[string]interface{}) *contracts.ExtractedVenue {
 	venueRaw, ok := parsed["venue"]
 	if !ok {
 		return nil
@@ -473,7 +485,7 @@ func (s *ExtractionService) matchVenue(parsed map[string]interface{}) *Extracted
 	city, _ := venueMap["city"].(string)
 	state, _ := venueMap["state"].(string)
 
-	result := &ExtractedVenue{
+	result := &contracts.ExtractedVenue{
 		Name:  name,
 		City:  city,
 		State: state,
@@ -483,7 +495,7 @@ func (s *ExtractionService) matchVenue(parsed map[string]interface{}) *Extracted
 	searchResults, err := s.venueService.SearchVenues(name)
 	if err == nil && len(searchResults) > 0 {
 		// Look for exact match (case-insensitive)
-		var exactMatch *VenueDetailResponse
+		var exactMatch *contracts.VenueDetailResponse
 		for _, v := range searchResults {
 			if strings.EqualFold(v.Name, name) {
 				exactMatch = v
@@ -503,9 +515,9 @@ func (s *ExtractionService) matchVenue(parsed map[string]interface{}) *Extracted
 			if len(searchResults) < limit {
 				limit = len(searchResults)
 			}
-			suggestions := make([]VenueMatchSuggestion, limit)
+			suggestions := make([]contracts.VenueMatchSuggestion, limit)
 			for i := 0; i < limit; i++ {
-				suggestions[i] = VenueMatchSuggestion{
+				suggestions[i] = contracts.VenueMatchSuggestion{
 					ID:    searchResults[i].ID,
 					Name:  searchResults[i].Name,
 					Slug:  searchResults[i].Slug,
