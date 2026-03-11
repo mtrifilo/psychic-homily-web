@@ -1,4 +1,4 @@
-package services
+package engagement
 
 import (
 	"fmt"
@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/services/contracts"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 )
@@ -71,7 +72,7 @@ func (s *FavoriteVenueService) UnfavoriteVenue(userID, venueID uint) error {
 
 // GetUserFavoriteVenues retrieves all venues favorited by a user
 // Returns venues ordered by most recently favorited first
-func (s *FavoriteVenueService) GetUserFavoriteVenues(userID uint, limit, offset int) ([]*FavoriteVenueResponse, int64, error) {
+func (s *FavoriteVenueService) GetUserFavoriteVenues(userID uint, limit, offset int) ([]*contracts.FavoriteVenueResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -91,7 +92,7 @@ func (s *FavoriteVenueService) GetUserFavoriteVenues(userID uint, limit, offset 
 	}
 
 	if len(venueIDs) == 0 {
-		return []*FavoriteVenueResponse{}, total, nil
+		return []*contracts.FavoriteVenueResponse{}, total, nil
 	}
 
 	// Fetch venues
@@ -133,14 +134,14 @@ func (s *FavoriteVenueService) GetUserFavoriteVenues(userID uint, limit, offset 
 	}
 
 	// Build responses in the order of bookmarks (created_at DESC)
-	responses := make([]*FavoriteVenueResponse, 0, len(venues))
+	responses := make([]*contracts.FavoriteVenueResponse, 0, len(venues))
 	for _, b := range bookmarks {
 		if venue, ok := venueMap[b.EntityID]; ok {
 			var slug string
 			if venue.Slug != nil {
 				slug = *venue.Slug
 			}
-			responses = append(responses, &FavoriteVenueResponse{
+			responses = append(responses, &contracts.FavoriteVenueResponse{
 				ID:                venue.ID,
 				Slug:              slug,
 				Name:              venue.Name,
@@ -168,7 +169,7 @@ func (s *FavoriteVenueService) IsVenueFavorited(userID, venueID uint) (bool, err
 
 // GetUpcomingShowsFromFavorites retrieves all upcoming shows from a user's favorite venues
 // Shows are sorted by event date (soonest first)
-func (s *FavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezone string, limit, offset int) ([]*FavoriteVenueShowResponse, int64, error) {
+func (s *FavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezone string, limit, offset int) ([]*contracts.FavoriteVenueShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -180,7 +181,7 @@ func (s *FavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezo
 	}
 
 	if len(favoriteBookmarks) == 0 {
-		return []*FavoriteVenueShowResponse{}, 0, nil
+		return []*contracts.FavoriteVenueShowResponse{}, 0, nil
 	}
 
 	venueIDs := make([]uint, len(favoriteBookmarks))
@@ -222,7 +223,7 @@ func (s *FavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezo
 	}
 
 	if len(shows) == 0 {
-		return []*FavoriteVenueShowResponse{}, total, nil
+		return []*contracts.FavoriteVenueShowResponse{}, total, nil
 	}
 
 	// Collect show IDs for fetching venues
@@ -284,7 +285,7 @@ func (s *FavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezo
 	artistsByShow := s.getOrderedArtistsForShows(showIDs)
 
 	// Build responses
-	responses := make([]*FavoriteVenueShowResponse, 0, len(shows))
+	responses := make([]*contracts.FavoriteVenueShowResponse, 0, len(shows))
 	for _, show := range shows {
 		var venueName, venueSlug string
 		var venueID uint
@@ -304,7 +305,7 @@ func (s *FavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezo
 			slug = *show.Slug
 		}
 
-		responses = append(responses, &FavoriteVenueShowResponse{
+		responses = append(responses, &contracts.FavoriteVenueShowResponse{
 			ID:             show.ID,
 			Slug:           slug,
 			Title:          show.Title,
@@ -324,8 +325,8 @@ func (s *FavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezo
 }
 
 // getOrderedArtistsForShows batch-loads artists for multiple shows in display order
-func (s *FavoriteVenueService) getOrderedArtistsForShows(showIDs []uint) map[uint][]ArtistResponse {
-	result := make(map[uint][]ArtistResponse)
+func (s *FavoriteVenueService) getOrderedArtistsForShows(showIDs []uint) map[uint][]contracts.ArtistResponse {
+	result := make(map[uint][]contracts.ArtistResponse)
 	if len(showIDs) == 0 {
 		return result
 	}
@@ -356,7 +357,7 @@ func (s *FavoriteVenueService) getOrderedArtistsForShows(showIDs []uint) map[uin
 		if !ok {
 			continue
 		}
-		socials := ShowArtistSocials{
+		socials := contracts.ShowArtistSocials{
 			Instagram:  artist.Social.Instagram,
 			Facebook:   artist.Social.Facebook,
 			Twitter:    artist.Social.Twitter,
@@ -375,7 +376,7 @@ func (s *FavoriteVenueService) getOrderedArtistsForShows(showIDs []uint) map[uin
 			slug = *artist.Slug
 		}
 
-		result[sa.ShowID] = append(result[sa.ShowID], ArtistResponse{
+		result[sa.ShowID] = append(result[sa.ShowID], contracts.ArtistResponse{
 			ID:               artist.ID,
 			Slug:             slug,
 			Name:             artist.Name,

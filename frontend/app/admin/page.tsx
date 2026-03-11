@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
-import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tent } from 'lucide-react'
+import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tent, Workflow } from 'lucide-react'
 import { usePendingVenueEdits } from '@/lib/hooks/admin/useAdminVenueEdits'
 import { useUnverifiedVenues } from '@/lib/hooks/admin/useAdminVenues'
 import { usePendingReports } from '@/lib/hooks/admin/useAdminReports'
@@ -94,6 +94,17 @@ const FestivalsPage = dynamic(() => import('./festivals/page'), {
     </div>
   ),
 })
+
+const PipelineVenuesComponent = dynamic(
+  () => import('@/components/admin/PipelineVenues').then(m => m.PipelineVenues),
+  {
+    loading: () => (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    ),
+  }
+)
 
 const UsersPage = dynamic(() => import('./users/page'), {
   loading: () => (
@@ -202,6 +213,10 @@ export default function AdminPage() {
               <Tent className="h-4 w-4" />
               Festivals
             </TabsTrigger>
+            <TabsTrigger value="pipeline" className="gap-2">
+              <Workflow className="h-4 w-4" />
+              Pipeline
+            </TabsTrigger>
             <TabsTrigger value="users" className="gap-2">
               <Users className="h-4 w-4" />
               Users
@@ -246,6 +261,10 @@ export default function AdminPage() {
 
           <TabsContent value="festivals" className="space-y-4">
             <FestivalsPage />
+          </TabsContent>
+
+          <TabsContent value="pipeline" className="space-y-4">
+            <PipelineVenuesComponent />
           </TabsContent>
 
           <TabsContent value="users" className="space-y-4">

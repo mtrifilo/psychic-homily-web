@@ -251,6 +251,13 @@ export const queryKeys = {
       ['artistReports', 'pending', { limit, offset }] as const,
   },
 
+  // Pipeline queries
+  pipeline: {
+    venues: ['pipeline', 'venues'] as const,
+    venueStats: (venueId: string | number) =>
+      ['pipeline', 'venueStats', String(venueId)] as const,
+  },
+
   // Contributor profile queries
   contributor: {
     profile: (username: string) => ['contributor', 'profile', username] as const,

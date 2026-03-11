@@ -53,7 +53,7 @@ type stubExtraction struct {
 func (s *stubExtraction) ExtractShow(req *contracts.ExtractShowRequest) (*contracts.ExtractShowResponse, error) {
 	return nil, fmt.Errorf("not implemented in stub")
 }
-func (s *stubExtraction) ExtractCalendarPage(venueName, content, contentType string) (*contracts.CalendarExtractionResponse, error) {
+func (s *stubExtraction) ExtractCalendarPage(venueName, content, contentType string, extractionNotes ...string) (*contracts.CalendarExtractionResponse, error) {
 	if s.extractCalendarPageFn != nil {
 		return s.extractCalendarPageFn(venueName, content, contentType)
 	}
@@ -137,6 +137,12 @@ func (s *stubVenueConfig) ListConfigured() ([]models.VenueSourceConfig, error) {
 		return s.listConfiguredFn()
 	}
 	return nil, nil
+}
+func (s *stubVenueConfig) GetRejectionStats(venueID uint) (*VenueRejectionStats, error) {
+	return &VenueRejectionStats{RejectionBreakdown: make(map[string]int64)}, nil
+}
+func (s *stubVenueConfig) UpdateExtractionNotes(venueID uint, notes *string) error {
+	return nil
 }
 
 type stubVenueService struct {

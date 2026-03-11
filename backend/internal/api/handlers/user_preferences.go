@@ -10,6 +10,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/engagement"
 )
 
 // UserPreferencesHandler handles user preferences endpoints
@@ -151,7 +152,7 @@ type UnsubscribeShowRemindersResponse struct {
 
 // UnsubscribeShowRemindersHandler handles POST /auth/unsubscribe/show-reminders (public, no auth)
 func (h *UserPreferencesHandler) UnsubscribeShowRemindersHandler(ctx context.Context, req *UnsubscribeShowRemindersRequest) (*UnsubscribeShowRemindersResponse, error) {
-	if !services.VerifyUnsubscribeSignature(req.Body.UID, req.Body.Sig, h.jwtSecret) {
+	if !engagement.VerifyUnsubscribeSignature(req.Body.UID, req.Body.Sig, h.jwtSecret) {
 		return nil, huma.Error403Forbidden("Invalid unsubscribe link")
 	}
 

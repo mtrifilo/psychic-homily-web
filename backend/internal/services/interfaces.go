@@ -40,14 +40,14 @@ type VenueSourceConfigServiceInterface = contracts.VenueSourceConfigServiceInter
 type CollectionServiceInterface = contracts.CollectionServiceInterface
 
 // Compile-time interface satisfaction checks.
+// Engagement services (Bookmark, SavedShow, FavoriteVenue, Calendar, Reminder)
+// have their checks in internal/services/engagement/interfaces.go.
 // Pipeline services (Extraction, MusicDiscovery, Discovery, VenueSourceConfig,
 // Fetcher, Pipeline) are checked in internal/services/pipeline/interfaces.go.
 var (
 	_ ShowServiceInterface          = (*ShowService)(nil)
 	_ VenueServiceInterface         = (*VenueService)(nil)
 	_ ArtistServiceInterface        = (*ArtistService)(nil)
-	_ SavedShowServiceInterface     = (*SavedShowService)(nil)
-	_ FavoriteVenueServiceInterface = (*FavoriteVenueService)(nil)
 	_ ShowReportServiceInterface    = (*ShowReportService)(nil)
 	_ ArtistReportServiceInterface  = (*ArtistReportService)(nil)
 	_ AuditLogServiceInterface      = (*AuditLogService)(nil)
@@ -62,12 +62,9 @@ var (
 	_ APITokenServiceInterface      = (*APITokenService)(nil)
 	_ DataSyncServiceInterface      = (*DataSyncService)(nil)
 	_ AdminStatsServiceInterface    = (*AdminStatsService)(nil)
-	_ CalendarServiceInterface      = (*CalendarService)(nil)
-	_ ReminderServiceInterface      = (*ReminderService)(nil)
 	_ FestivalServiceInterface       = (*FestivalService)(nil)
 	_ LabelServiceInterface          = (*LabelService)(nil)
 	_ ReleaseServiceInterface       = (*ReleaseService)(nil)
-	_ BookmarkServiceInterface              = (*BookmarkService)(nil)
 	_ ContributorProfileServiceInterface    = (*ContributorProfileService)(nil)
 	_ CollectionServiceInterface            = (*CollectionService)(nil)
 )
