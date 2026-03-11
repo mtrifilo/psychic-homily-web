@@ -275,6 +275,26 @@ export const API_ENDPOINTS = {
     },
   },
 
+  // Contributor profile endpoints (public)
+  USERS: {
+    PROFILE: (username: string) => `${API_BASE_URL}/users/${username}`,
+    CONTRIBUTIONS: (username: string) =>
+      `${API_BASE_URL}/users/${username}/contributions`,
+    SECTIONS: (username: string) =>
+      `${API_BASE_URL}/users/${username}/sections`,
+  },
+
+  // Contributor profile endpoints (authenticated)
+  CONTRIBUTOR: {
+    OWN_PROFILE: `${API_BASE_URL}/auth/profile/contributor`,
+    OWN_CONTRIBUTIONS: `${API_BASE_URL}/auth/profile/contributions`,
+    VISIBILITY: `${API_BASE_URL}/auth/profile/visibility`,
+    PRIVACY: `${API_BASE_URL}/auth/profile/privacy`,
+    OWN_SECTIONS: `${API_BASE_URL}/auth/profile/sections`,
+    SECTION: (sectionId: number) =>
+      `${API_BASE_URL}/auth/profile/sections/${sectionId}`,
+  },
+
   // System endpoints
   HEALTH: `${API_BASE_URL}/health`,
   OPENAPI: `${API_BASE_URL}/openapi.json`,

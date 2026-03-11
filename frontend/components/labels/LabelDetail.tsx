@@ -21,7 +21,7 @@ import {
   getLabelStatusVariant,
   formatLabelLocation,
 } from '@/lib/types/label'
-import { getReleaseTypeLabel } from '@/lib/types/release'
+import { getReleaseTypeLabel } from '@/features/releases/types'
 
 interface LabelDetailProps {
   idOrSlug: string | number

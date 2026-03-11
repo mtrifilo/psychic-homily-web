@@ -1,6 +1,5 @@
 import { notFound } from 'next/navigation'
-import { getMix, getMixSlugs } from '@/lib/mixes'
-import { MDXContent } from '@/components/blog/mdx-content'
+import { getMix, getMixSlugs, MDXContent } from '@/features/blog'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicRecordingSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { formatContentDate } from '@/lib/utils/formatters'

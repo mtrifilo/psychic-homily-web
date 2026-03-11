@@ -3,7 +3,7 @@ import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
-import { FestivalDetail } from '@/components/festivals'
+import { FestivalDetail } from '@/features/festivals/components'
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||
