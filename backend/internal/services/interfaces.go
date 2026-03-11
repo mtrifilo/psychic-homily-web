@@ -37,6 +37,7 @@ type ContributorProfileServiceInterface = contracts.ContributorProfileServiceInt
 type CalendarServiceInterface = contracts.CalendarServiceInterface
 type PipelineServiceInterface = contracts.PipelineServiceInterface
 type VenueSourceConfigServiceInterface = contracts.VenueSourceConfigServiceInterface
+type CollectionServiceInterface = contracts.CollectionServiceInterface
 
 // Compile-time interface satisfaction checks.
 // Pipeline services (Extraction, MusicDiscovery, Discovery, VenueSourceConfig,
@@ -68,4 +69,5 @@ var (
 	_ ReleaseServiceInterface       = (*ReleaseService)(nil)
 	_ BookmarkServiceInterface              = (*BookmarkService)(nil)
 	_ ContributorProfileServiceInterface    = (*ContributorProfileService)(nil)
+	_ CollectionServiceInterface            = (*CollectionService)(nil)
 )

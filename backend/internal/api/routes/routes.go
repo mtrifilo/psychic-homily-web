@@ -95,6 +95,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupAdminRoutes(protectedGroup, sc)
 	setupPipelineRoutes(protectedGroup, sc)
 	setupContributorProfileRoutes(api, protectedGroup, sc)
+	setupCollectionRoutes(api, protectedGroup, sc)
 
 	return api
 }
@@ -549,6 +550,40 @@ func setupPipelineRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 
 	huma.Post(protected, "/admin/pipeline/extract/{venue_id}", pipelineHandler.ExtractVenueHandler)
 	huma.Get(protected, "/admin/pipeline/venues", pipelineHandler.ListPipelineVenuesHandler)
+}
+
+// setupCollectionRoutes configures collection endpoints.
+// Public endpoints use optional auth (for private collection access checks).
+// CRUD, item management, and subscription endpoints require authentication.
+func setupCollectionRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
+	collectionHandler := handlers.NewCollectionHandler(sc.Collection, sc.AuditLog)
+
+	// Public collection endpoints with optional auth
+	optionalAuthGroup := huma.NewGroup(api, "")
+	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(sc.JWT))
+	huma.Get(optionalAuthGroup, "/collections", collectionHandler.ListCollectionsHandler)
+	huma.Get(optionalAuthGroup, "/collections/{slug}", collectionHandler.GetCollectionHandler)
+	huma.Get(optionalAuthGroup, "/collections/{slug}/stats", collectionHandler.GetCollectionStatsHandler)
+
+	// Protected collection endpoints
+	huma.Post(protected, "/collections", collectionHandler.CreateCollectionHandler)
+	huma.Put(protected, "/collections/{slug}", collectionHandler.UpdateCollectionHandler)
+	huma.Delete(protected, "/collections/{slug}", collectionHandler.DeleteCollectionHandler)
+
+	// Collection item management
+	huma.Post(protected, "/collections/{slug}/items", collectionHandler.AddItemHandler)
+	huma.Delete(protected, "/collections/{slug}/items/{item_id}", collectionHandler.RemoveItemHandler)
+	huma.Put(protected, "/collections/{slug}/items/reorder", collectionHandler.ReorderItemsHandler)
+
+	// Collection subscription
+	huma.Post(protected, "/collections/{slug}/subscribe", collectionHandler.SubscribeHandler)
+	huma.Delete(protected, "/collections/{slug}/subscribe", collectionHandler.UnsubscribeHandler)
+
+	// Admin: feature/unfeature collections
+	huma.Put(protected, "/collections/{slug}/feature", collectionHandler.SetFeaturedHandler)
+
+	// User's own collections (created + subscribed)
+	huma.Get(protected, "/auth/collections", collectionHandler.GetUserCollectionsHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON

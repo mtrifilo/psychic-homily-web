@@ -21,6 +21,7 @@ type ServiceContainer struct {
 	AuditLog      *AuditLogService
 	Bookmark      *BookmarkService
 	Calendar      *CalendarService
+	Collection    *CollectionService
 	FavoriteVenue *FavoriteVenueService
 	Festival      *FestivalService
 	Label         *LabelService
@@ -91,6 +92,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		AuditLog:      NewAuditLogService(database),
 		Bookmark:      NewBookmarkService(database),
 		Calendar:      NewCalendarService(database, savedShow),
+		Collection:    NewCollectionService(database),
 		FavoriteVenue: NewFavoriteVenueService(database),
 		Festival:      NewFestivalService(database),
 		Label:         NewLabelService(database),
