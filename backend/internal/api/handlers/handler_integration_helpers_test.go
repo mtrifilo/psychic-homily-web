@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/pipeline"
 	"psychic-homily-backend/internal/testutil"
@@ -25,8 +26,8 @@ type handlerIntegrationDeps struct {
 	db                    *gorm.DB
 	container             testcontainers.Container
 	ctx                   context.Context
-	showService           *services.ShowService
-	venueService          *services.VenueService
+	showService           *catalog.ShowService
+	venueService          *catalog.VenueService
 	savedShowService      *engagement.SavedShowService
 	favoriteVenueService  *engagement.FavoriteVenueService
 	showReportService     *services.ShowReportService
@@ -39,10 +40,10 @@ type handlerIntegrationDeps struct {
 	dataSyncService       *services.DataSyncService
 	adminStatsService     *services.AdminStatsService
 	discoveryService      *pipeline.DiscoveryService
-	artistService         *services.ArtistService
-	festivalService       *services.FestivalService
-	labelService          *services.LabelService
-	releaseService        *services.ReleaseService
+	artistService         *catalog.ArtistService
+	festivalService       *catalog.FestivalService
+	labelService          *catalog.LabelService
+	releaseService        *catalog.ReleaseService
 }
 
 func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
@@ -100,8 +101,8 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		db:                    db,
 		container:             container,
 		ctx:                   ctx,
-		showService:           services.NewShowService(db),
-		venueService:          services.NewVenueService(db),
+		showService:           catalog.NewShowService(db),
+		venueService:          catalog.NewVenueService(db),
 		savedShowService:      engagement.NewSavedShowService(db),
 		favoriteVenueService:  engagement.NewFavoriteVenueService(db),
 		showReportService:     services.NewShowReportService(db),
@@ -109,15 +110,15 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		auditLogService:       services.NewAuditLogService(db),
 		discordService:        services.NewDiscordService(emptyCfg),
 		musicDiscoveryService: pipeline.NewMusicDiscoveryService(emptyCfg),
-		extractionService:     pipeline.NewExtractionService(db, emptyCfg, services.NewArtistService(db), services.NewVenueService(db)),
+		extractionService:     pipeline.NewExtractionService(db, emptyCfg, catalog.NewArtistService(db), catalog.NewVenueService(db)),
 		apiTokenService:       services.NewAPITokenService(db),
 		dataSyncService:       services.NewDataSyncService(db),
 		adminStatsService:     services.NewAdminStatsService(db),
-		discoveryService:      pipeline.NewDiscoveryService(db, services.NewVenueService(db)),
-		artistService:         services.NewArtistService(db),
-		festivalService:       services.NewFestivalService(db),
-		labelService:          services.NewLabelService(db),
-		releaseService:        services.NewReleaseService(db),
+		discoveryService:      pipeline.NewDiscoveryService(db, catalog.NewVenueService(db)),
+		artistService:         catalog.NewArtistService(db),
+		festivalService:       catalog.NewFestivalService(db),
+		labelService:          catalog.NewLabelService(db),
+		releaseService:        catalog.NewReleaseService(db),
 	}
 
 	return deps

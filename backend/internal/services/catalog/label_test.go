@@ -1,4 +1,4 @@
-package services
+package catalog
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -32,7 +33,7 @@ func TestLabelService_NilDatabase(t *testing.T) {
 	svc := &LabelService{db: nil}
 
 	t.Run("CreateLabel", func(t *testing.T) {
-		resp, err := svc.CreateLabel(&CreateLabelRequest{Name: "Test"})
+		resp, err := svc.CreateLabel(&contracts.CreateLabelRequest{Name: "Test"})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -60,7 +61,7 @@ func TestLabelService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("UpdateLabel", func(t *testing.T) {
-		resp, err := svc.UpdateLabel(1, &UpdateLabelRequest{})
+		resp, err := svc.UpdateLabel(1, &contracts.UpdateLabelRequest{})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -145,7 +146,7 @@ func (suite *LabelServiceIntegrationTestSuite) SetupSuite() {
 	if err != nil {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	suite.labelService = &LabelService{db: db}
 	suite.artistService = &ArtistService{db: db}
@@ -185,8 +186,8 @@ func TestLabelServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *LabelServiceIntegrationTestSuite) createTestLabel(name string) *LabelDetailResponse {
-	resp, err := suite.labelService.CreateLabel(&CreateLabelRequest{Name: name})
+func (suite *LabelServiceIntegrationTestSuite) createTestLabel(name string) *contracts.LabelDetailResponse {
+	resp, err := suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: name})
 	suite.Require().NoError(err)
 	return resp
 }
@@ -219,7 +220,7 @@ func (suite *LabelServiceIntegrationTestSuite) TestCreateLabel_Success() {
 	city := "Seattle"
 	state := "WA"
 	year := 1988
-	req := &CreateLabelRequest{
+	req := &contracts.CreateLabelRequest{
 		Name:        "Sub Pop",
 		City:        &city,
 		State:       &state,
@@ -242,7 +243,7 @@ func (suite *LabelServiceIntegrationTestSuite) TestCreateLabel_Success() {
 }
 
 func (suite *LabelServiceIntegrationTestSuite) TestCreateLabel_DefaultStatus() {
-	req := &CreateLabelRequest{
+	req := &contracts.CreateLabelRequest{
 		Name: "Mystery Label",
 	}
 
@@ -253,7 +254,7 @@ func (suite *LabelServiceIntegrationTestSuite) TestCreateLabel_DefaultStatus() {
 }
 
 func (suite *LabelServiceIntegrationTestSuite) TestCreateLabel_CustomStatus() {
-	req := &CreateLabelRequest{
+	req := &contracts.CreateLabelRequest{
 		Name:   "Old Label",
 		Status: "defunct",
 	}
@@ -267,7 +268,7 @@ func (suite *LabelServiceIntegrationTestSuite) TestCreateLabel_CustomStatus() {
 func (suite *LabelServiceIntegrationTestSuite) TestCreateLabel_WithSocial() {
 	website := "https://subpop.com"
 	instagram := "subpop"
-	req := &CreateLabelRequest{
+	req := &contracts.CreateLabelRequest{
 		Name:      "Social Label",
 		Website:   &website,
 		Instagram: &instagram,
@@ -281,11 +282,11 @@ func (suite *LabelServiceIntegrationTestSuite) TestCreateLabel_WithSocial() {
 }
 
 func (suite *LabelServiceIntegrationTestSuite) TestCreateLabel_UniqueSlug() {
-	req1 := &CreateLabelRequest{Name: "Merge Records"}
+	req1 := &contracts.CreateLabelRequest{Name: "Merge Records"}
 	resp1, err := suite.labelService.CreateLabel(req1)
 	suite.Require().NoError(err)
 
-	req2 := &CreateLabelRequest{Name: "Merge Records"}
+	req2 := &contracts.CreateLabelRequest{Name: "Merge Records"}
 	resp2, err := suite.labelService.CreateLabel(req2)
 	suite.Require().NoError(err)
 
@@ -343,9 +344,9 @@ func (suite *LabelServiceIntegrationTestSuite) TestGetLabelBySlug_NotFound() {
 // =============================================================================
 
 func (suite *LabelServiceIntegrationTestSuite) TestListLabels_All() {
-	suite.labelService.CreateLabel(&CreateLabelRequest{Name: "Alpha Records"})
-	suite.labelService.CreateLabel(&CreateLabelRequest{Name: "Beta Records"})
-	suite.labelService.CreateLabel(&CreateLabelRequest{Name: "Charlie Records"})
+	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Alpha Records"})
+	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Beta Records"})
+	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Charlie Records"})
 
 	resp, err := suite.labelService.ListLabels(map[string]interface{}{})
 
@@ -358,8 +359,8 @@ func (suite *LabelServiceIntegrationTestSuite) TestListLabels_All() {
 }
 
 func (suite *LabelServiceIntegrationTestSuite) TestListLabels_FilterByStatus() {
-	suite.labelService.CreateLabel(&CreateLabelRequest{Name: "Active Label", Status: "active"})
-	suite.labelService.CreateLabel(&CreateLabelRequest{Name: "Defunct Label", Status: "defunct"})
+	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Active Label", Status: "active"})
+	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Defunct Label", Status: "defunct"})
 
 	resp, err := suite.labelService.ListLabels(map[string]interface{}{"status": "defunct"})
 
@@ -371,8 +372,8 @@ func (suite *LabelServiceIntegrationTestSuite) TestListLabels_FilterByStatus() {
 func (suite *LabelServiceIntegrationTestSuite) TestListLabels_FilterByCity() {
 	city1 := "Seattle"
 	city2 := "Portland"
-	suite.labelService.CreateLabel(&CreateLabelRequest{Name: "Seattle Label", City: &city1})
-	suite.labelService.CreateLabel(&CreateLabelRequest{Name: "Portland Label", City: &city2})
+	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Seattle Label", City: &city1})
+	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Portland Label", City: &city2})
 
 	resp, err := suite.labelService.ListLabels(map[string]interface{}{"city": "Seattle"})
 
@@ -384,8 +385,8 @@ func (suite *LabelServiceIntegrationTestSuite) TestListLabels_FilterByCity() {
 func (suite *LabelServiceIntegrationTestSuite) TestListLabels_FilterByState() {
 	state1 := "WA"
 	state2 := "OR"
-	suite.labelService.CreateLabel(&CreateLabelRequest{Name: "WA Label", State: &state1})
-	suite.labelService.CreateLabel(&CreateLabelRequest{Name: "OR Label", State: &state2})
+	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "WA Label", State: &state1})
+	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "OR Label", State: &state2})
 
 	resp, err := suite.labelService.ListLabels(map[string]interface{}{"state": "WA"})
 
@@ -420,7 +421,7 @@ func (suite *LabelServiceIntegrationTestSuite) TestUpdateLabel_BasicFields() {
 
 	newName := "Updated Label"
 	newCity := "Portland"
-	resp, err := suite.labelService.UpdateLabel(created.ID, &UpdateLabelRequest{
+	resp, err := suite.labelService.UpdateLabel(created.ID, &contracts.UpdateLabelRequest{
 		Name: &newName,
 		City: &newCity,
 	})
@@ -435,7 +436,7 @@ func (suite *LabelServiceIntegrationTestSuite) TestUpdateLabel_NameChangeRegener
 	oldSlug := created.Slug
 
 	newName := "New Label Name"
-	resp, err := suite.labelService.UpdateLabel(created.ID, &UpdateLabelRequest{
+	resp, err := suite.labelService.UpdateLabel(created.ID, &contracts.UpdateLabelRequest{
 		Name: &newName,
 	})
 
@@ -447,7 +448,7 @@ func (suite *LabelServiceIntegrationTestSuite) TestUpdateLabel_NameChangeRegener
 
 func (suite *LabelServiceIntegrationTestSuite) TestUpdateLabel_NotFound() {
 	newName := "Anything"
-	resp, err := suite.labelService.UpdateLabel(99999, &UpdateLabelRequest{Name: &newName})
+	resp, err := suite.labelService.UpdateLabel(99999, &contracts.UpdateLabelRequest{Name: &newName})
 
 	suite.Require().Error(err)
 	suite.Nil(resp)
@@ -459,7 +460,7 @@ func (suite *LabelServiceIntegrationTestSuite) TestUpdateLabel_NotFound() {
 func (suite *LabelServiceIntegrationTestSuite) TestUpdateLabel_NoChanges() {
 	created := suite.createTestLabel("Stable Label")
 
-	resp, err := suite.labelService.UpdateLabel(created.ID, &UpdateLabelRequest{})
+	resp, err := suite.labelService.UpdateLabel(created.ID, &contracts.UpdateLabelRequest{})
 
 	suite.Require().NoError(err)
 	suite.Equal("Stable Label", resp.Name)
@@ -470,7 +471,7 @@ func (suite *LabelServiceIntegrationTestSuite) TestUpdateLabel_SocialFields() {
 
 	instagram := "newhandle"
 	website := "https://newsite.com"
-	resp, err := suite.labelService.UpdateLabel(created.ID, &UpdateLabelRequest{
+	resp, err := suite.labelService.UpdateLabel(created.ID, &contracts.UpdateLabelRequest{
 		Instagram: &instagram,
 		Website:   &website,
 	})
@@ -586,7 +587,7 @@ func (suite *LabelServiceIntegrationTestSuite) TestGetLabelCatalog_Success() {
 	suite.Require().Len(resp, 2)
 
 	// Check catalog number is returned for the one that has it
-	var withCatalog *LabelReleaseResponse
+	var withCatalog *contracts.LabelReleaseResponse
 	for _, r := range resp {
 		if r.CatalogNumber != nil {
 			withCatalog = r

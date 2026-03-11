@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/pipeline"
 )
@@ -16,21 +17,21 @@ type ServiceContainer struct {
 	// DB-only leaf services
 	AdminStats         *AdminStatsService
 	APIToken           *APITokenService
-	Artist             *ArtistService
+	Artist             *catalog.ArtistService
 	ContributorProfile *ContributorProfileService
 	ArtistReport  *ArtistReportService
 	AuditLog      *AuditLogService
 	Bookmark      *engagement.BookmarkService
 	Calendar      *engagement.CalendarService
 	FavoriteVenue *engagement.FavoriteVenueService
-	Festival      *FestivalService
-	Label         *LabelService
-	Release       *ReleaseService
+	Festival      *catalog.FestivalService
+	Label         *catalog.LabelService
+	Release       *catalog.ReleaseService
 	SavedShow     *engagement.SavedShowService
-	Show          *ShowService
+	Show          *catalog.ShowService
 	ShowReport    *ShowReportService
 	User              *UserService
-	Venue             *VenueService
+	Venue             *catalog.VenueService
 	VenueSourceConfig *pipeline.VenueSourceConfigService
 
 	// Config-only services
@@ -75,8 +76,8 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	email := NewEmailService(cfg)
 
 	// Services needed by PipelineService — created first so we can inject them.
-	artist := NewArtistService(database)
-	venue := NewVenueService(database)
+	artist := catalog.NewArtistService(database)
+	venue := catalog.NewVenueService(database)
 	fetcher := newFetcherWithChromedp()
 	extraction := pipeline.NewExtractionService(database, cfg, artist, venue)
 	discovery := pipeline.NewDiscoveryService(database, venue)
@@ -93,11 +94,11 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Bookmark:      engagement.NewBookmarkService(database),
 		Calendar:      engagement.NewCalendarService(database, savedShow),
 		FavoriteVenue: engagement.NewFavoriteVenueService(database),
-		Festival:      NewFestivalService(database),
-		Label:         NewLabelService(database),
-		Release:       NewReleaseService(database),
+		Festival:      catalog.NewFestivalService(database),
+		Label:         catalog.NewLabelService(database),
+		Release:       catalog.NewReleaseService(database),
 		SavedShow:     savedShow,
-		Show:          NewShowService(database),
+		Show:          catalog.NewShowService(database),
 		ShowReport:    NewShowReportService(database),
 		User:          NewUserService(database),
 		Venue:             venue,

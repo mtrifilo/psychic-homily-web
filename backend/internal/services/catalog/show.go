@@ -1,4 +1,4 @@
-package services
+package catalog
 
 import (
 	"bufio"
@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/services/contracts"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/utils"
@@ -48,13 +49,13 @@ func NewShowService(database *gorm.DB) *ShowService {
 // Prevents duplicate headliners at the same venue on the same date/time.
 // Prevents duplicate venues with the same name in the same city.
 // Status is determined based on venue verification and submitter admin status.
-func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) {
+func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
 	// Use transaction for data consistency
-	var response *ShowResponse
+	var response *contracts.ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Check for duplicate headliner-venue-date conflicts
 		if err := s.checkDuplicateHeadlinerConflicts(tx, req); err != nil {
@@ -122,7 +123,7 @@ func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) 
 		}
 
 		// Build response
-		response = &ShowResponse{
+		response = &contracts.ShowResponse{
 			ID:              show.ID,
 			Slug:            slug,
 			Title:           show.Title,
@@ -154,7 +155,7 @@ func (s *ShowService) CreateShow(req *CreateShowRequest) (*ShowResponse, error) 
 // determineShowStatus determines whether a show should be approved or private.
 // Shows from unverified venues are now approved but display city-only until venue is verified.
 // Private shows remain private (user's list only).
-func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []CreateShowVenue, isAdmin bool, isPrivate bool) models.ShowStatus {
+func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.CreateShowVenue, isAdmin bool, isPrivate bool) models.ShowStatus {
 	// Private shows stay private regardless of venue status
 	if isPrivate {
 		return models.ShowStatusPrivate
@@ -168,7 +169,7 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []CreateShowVenue,
 // at the same venue on the same date/time.
 // Uses pg_advisory_xact_lock to prevent race conditions where two concurrent
 // requests could both pass the check before either commits.
-func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *CreateShowRequest) error {
+func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contracts.CreateShowRequest) error {
 	// Get all headliners from the request
 	var headlinerNames []string
 	for _, artist := range req.Artists {
@@ -235,7 +236,7 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *CreateS
 }
 
 // GetShow retrieves a show by ID with all associations
-func (s *ShowService) GetShow(showID uint) (*ShowResponse, error) {
+func (s *ShowService) GetShow(showID uint) (*contracts.ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -253,7 +254,7 @@ func (s *ShowService) GetShow(showID uint) (*ShowResponse, error) {
 }
 
 // GetShowBySlug retrieves a show by slug with all associations
-func (s *ShowService) GetShowBySlug(slug string) (*ShowResponse, error) {
+func (s *ShowService) GetShowBySlug(slug string) (*contracts.ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -271,7 +272,7 @@ func (s *ShowService) GetShowBySlug(slug string) (*ShowResponse, error) {
 }
 
 // GetShows retrieves shows with optional filtering
-func (s *ShowService) GetShows(filters map[string]interface{}) ([]*ShowResponse, error) {
+func (s *ShowService) GetShows(filters map[string]interface{}) ([]*contracts.ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -303,7 +304,7 @@ func (s *ShowService) GetShows(filters map[string]interface{}) ([]*ShowResponse,
 	}
 
 	// Build responses
-	responses := make([]*ShowResponse, len(shows))
+	responses := make([]*contracts.ShowResponse, len(shows))
 	for i, show := range shows {
 		responses[i] = s.buildShowResponse(&show)
 	}
@@ -312,7 +313,7 @@ func (s *ShowService) GetShows(filters map[string]interface{}) ([]*ShowResponse,
 }
 
 // GetUserSubmissions returns all shows submitted by a specific user
-func (s *ShowService) GetUserSubmissions(userID uint, limit, offset int) ([]ShowResponse, int, error) {
+func (s *ShowService) GetUserSubmissions(userID uint, limit, offset int) ([]contracts.ShowResponse, int, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -336,7 +337,7 @@ func (s *ShowService) GetUserSubmissions(userID uint, limit, offset int) ([]Show
 	}
 
 	// Build responses
-	responses := make([]ShowResponse, len(shows))
+	responses := make([]contracts.ShowResponse, len(shows))
 	for i, show := range shows {
 		responses[i] = *s.buildShowResponse(&show)
 	}
@@ -345,7 +346,7 @@ func (s *ShowService) GetUserSubmissions(userID uint, limit, offset int) ([]Show
 }
 
 // UpdateShow updates an existing show (basic fields only)
-func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*ShowResponse, error) {
+func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*contracts.ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -363,7 +364,7 @@ func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*
 	return s.GetShow(showID)
 }
 
-// OrphanedArtist represents an artist that has no remaining show associations
+// contracts.OrphanedArtist represents an artist that has no remaining show associations
 // after a show update replaced its artist list
 
 // UpdateShowWithRelations updates a show including its artist and venue associations.
@@ -374,10 +375,10 @@ func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*
 func (s *ShowService) UpdateShowWithRelations(
 	showID uint,
 	updates map[string]interface{},
-	venues []CreateShowVenue,
-	artists []CreateShowArtist,
+	venues []contracts.CreateShowVenue,
+	artists []contracts.CreateShowArtist,
 	isAdmin bool,
-) (*ShowResponse, []OrphanedArtist, error) {
+) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
 	if s.db == nil {
 		return nil, nil, fmt.Errorf("database not initialized")
 	}
@@ -387,8 +388,8 @@ func (s *ShowService) UpdateShowWithRelations(
 		updates["event_date"] = eventDate.UTC()
 	}
 
-	var response *ShowResponse
-	var orphanedArtists []OrphanedArtist
+	var response *contracts.ShowResponse
+	var orphanedArtists []contracts.OrphanedArtist
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// First, verify the show exists
 		var show models.Show
@@ -411,7 +412,7 @@ func (s *ShowService) UpdateShowWithRelations(
 		}
 
 		// Update venue associations if venues are provided
-		var venueResponses []VenueResponse
+		var venueResponses []contracts.VenueResponse
 		if venues != nil {
 			// Delete existing show-venue associations
 			if err := tx.Where("show_id = ?", showID).Delete(&models.ShowVenue{}).Error; err != nil {
@@ -427,7 +428,7 @@ func (s *ShowService) UpdateShowWithRelations(
 		}
 
 		// Update artist associations if artists are provided
-		var artistResponses []ArtistResponse
+		var artistResponses []contracts.ArtistResponse
 		if artists != nil {
 			// Capture old artist IDs before deleting associations
 			var oldShowArtists []models.ShowArtist
@@ -473,7 +474,7 @@ func (s *ShowService) UpdateShowWithRelations(
 						if artist.Slug != nil {
 							slug = *artist.Slug
 						}
-						orphanedArtists = append(orphanedArtists, OrphanedArtist{
+						orphanedArtists = append(orphanedArtists, contracts.OrphanedArtist{
 							ID:   artist.ID,
 							Name: artist.Name,
 							Slug: slug,
@@ -509,7 +510,7 @@ func (s *ShowService) UpdateShowWithRelations(
 						if venue.Verified {
 							addr = venue.Address
 						}
-						venueResponses = append(venueResponses, VenueResponse{
+						venueResponses = append(venueResponses, contracts.VenueResponse{
 							ID:       venue.ID,
 							Name:     venue.Name,
 							Address:  addr,
@@ -545,7 +546,7 @@ func (s *ShowService) UpdateShowWithRelations(
 					if artist, ok := artistMap[sa.ArtistID]; ok {
 						isHeadliner := sa.SetType == "headliner"
 						isNewArtist := false
-						socials := ShowArtistSocials{
+						socials := contracts.ShowArtistSocials{
 							Instagram:  artist.Social.Instagram,
 							Facebook:   artist.Social.Facebook,
 							Twitter:    artist.Social.Twitter,
@@ -555,7 +556,7 @@ func (s *ShowService) UpdateShowWithRelations(
 							Bandcamp:   artist.Social.Bandcamp,
 							Website:    artist.Social.Website,
 						}
-						artistResponses = append(artistResponses, ArtistResponse{
+						artistResponses = append(artistResponses, contracts.ArtistResponse{
 							ID:               artist.ID,
 							Name:             artist.Name,
 							State:            artist.State,
@@ -570,7 +571,7 @@ func (s *ShowService) UpdateShowWithRelations(
 			}
 		}
 
-		response = &ShowResponse{
+		response = &contracts.ShowResponse{
 			ID:              show.ID,
 			Title:           show.Title,
 			EventDate:       show.EventDate,
@@ -630,7 +631,7 @@ func decodeCursor(cursor string) (time.Time, uint, error) {
 	return time.Unix(0, unixNano), uint(id), nil
 }
 
-// CityStateFilter represents a city+state pair for multi-city filtering
+// contracts.CityStateFilter represents a city+state pair for multi-city filtering
 
 // GetUpcomingShows retrieves shows from today onwards in the specified timezone with cursor pagination.
 // Includes tonight's shows by filtering from the start of today in the user's timezone.
@@ -638,7 +639,7 @@ func decodeCursor(cursor string) (time.Time, uint, error) {
 // If includeNonApproved is true, all shows are returned including pending/rejected (admin view).
 // Optional filters can be provided to filter by city and state.
 // Returns shows, next cursor (nil if no more), and error.
-func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *UpcomingShowsFilter) ([]*ShowResponse, *string, error) {
+func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error) {
 	if s.db == nil {
 		return nil, nil, fmt.Errorf("database not initialized")
 	}
@@ -726,7 +727,7 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 	}
 
 	// Build responses
-	responses := make([]*ShowResponse, len(shows))
+	responses := make([]*contracts.ShowResponse, len(shows))
 	for i, show := range shows {
 		responses[i] = s.buildShowResponse(&show)
 	}
@@ -737,7 +738,7 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 
 // GetShowCities retrieves cities that have upcoming approved shows, with counts.
 // Returns cities sorted by show count (descending).
-func (s *ShowService) GetShowCities(timezone string) ([]ShowCityResponse, error) {
+func (s *ShowService) GetShowCities(timezone string) ([]contracts.ShowCityResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -753,7 +754,7 @@ func (s *ShowService) GetShowCities(timezone string) ([]ShowCityResponse, error)
 	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	startOfTodayUTC := startOfToday.UTC()
 
-	var results []ShowCityResponse
+	var results []contracts.ShowCityResponse
 
 	err = s.db.Model(&models.Show{}).
 		Select("city, state, COUNT(*) as show_count").
@@ -798,7 +799,7 @@ func (s *ShowService) DeleteShow(showID uint) error {
 
 // GetPendingShows retrieves shows with pending status for admin review.
 // Returns shows, total count, and error.
-func (s *ShowService) GetPendingShows(limit, offset int, filters *PendingShowsFilter) ([]*ShowResponse, int64, error) {
+func (s *ShowService) GetPendingShows(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -845,7 +846,7 @@ func (s *ShowService) GetPendingShows(limit, offset int, filters *PendingShowsFi
 	}
 
 	// Build responses
-	responses := make([]*ShowResponse, len(shows))
+	responses := make([]*contracts.ShowResponse, len(shows))
 	for i, show := range shows {
 		responses[i] = s.buildShowResponse(&show)
 	}
@@ -856,7 +857,7 @@ func (s *ShowService) GetPendingShows(limit, offset int, filters *PendingShowsFi
 // GetRejectedShows retrieves shows with rejected status for admin reference.
 // Supports optional search by title or rejection reason.
 // Returns shows, total count, and error.
-func (s *ShowService) GetRejectedShows(limit, offset int, search string) ([]*ShowResponse, int64, error) {
+func (s *ShowService) GetRejectedShows(limit, offset int, search string) ([]*contracts.ShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -896,7 +897,7 @@ func (s *ShowService) GetRejectedShows(limit, offset int, search string) ([]*Sho
 	}
 
 	// Build responses
-	responses := make([]*ShowResponse, len(shows))
+	responses := make([]*contracts.ShowResponse, len(shows))
 	for i, show := range shows {
 		responses[i] = s.buildShowResponse(&show)
 	}
@@ -905,12 +906,12 @@ func (s *ShowService) GetRejectedShows(limit, offset int, search string) ([]*Sho
 }
 
 // ApproveShow approves a pending show and optionally verifies its venues.
-func (s *ShowService) ApproveShow(showID uint, verifyVenues bool) (*ShowResponse, error) {
+func (s *ShowService) ApproveShow(showID uint, verifyVenues bool) (*contracts.ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var response *ShowResponse
+	var response *contracts.ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Get the show
 		var show models.Show
@@ -963,12 +964,12 @@ func (s *ShowService) ApproveShow(showID uint, verifyVenues bool) (*ShowResponse
 }
 
 // RejectShow rejects a pending show with a reason.
-func (s *ShowService) RejectShow(showID uint, reason string) (*ShowResponse, error) {
+func (s *ShowService) RejectShow(showID uint, reason string) (*contracts.ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var response *ShowResponse
+	var response *contracts.ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Get the show
 		var show models.Show
@@ -1010,20 +1011,20 @@ func (s *ShowService) RejectShow(showID uint, reason string) (*ShowResponse, err
 }
 
 // BatchApproveShows approves multiple pending shows at once.
-func (s *ShowService) BatchApproveShows(showIDs []uint) (*BatchShowResult, error) {
+func (s *ShowService) BatchApproveShows(showIDs []uint) (*contracts.BatchShowResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	result := &BatchShowResult{
+	result := &contracts.BatchShowResult{
 		Succeeded: make([]uint, 0),
-		Errors:    make([]BatchShowError, 0),
+		Errors:    make([]contracts.BatchShowError, 0),
 	}
 
 	for _, id := range showIDs {
 		_, err := s.ApproveShow(id, false)
 		if err != nil {
-			result.Errors = append(result.Errors, BatchShowError{ShowID: id, Error: err.Error()})
+			result.Errors = append(result.Errors, contracts.BatchShowError{ShowID: id, Error: err.Error()})
 		} else {
 			result.Succeeded = append(result.Succeeded, id)
 		}
@@ -1033,20 +1034,20 @@ func (s *ShowService) BatchApproveShows(showIDs []uint) (*BatchShowResult, error
 }
 
 // BatchRejectShows rejects multiple pending shows at once with a reason and category.
-func (s *ShowService) BatchRejectShows(showIDs []uint, reason string, category string) (*BatchShowResult, error) {
+func (s *ShowService) BatchRejectShows(showIDs []uint, reason string, category string) (*contracts.BatchShowResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	result := &BatchShowResult{
+	result := &contracts.BatchShowResult{
 		Succeeded: make([]uint, 0),
-		Errors:    make([]BatchShowError, 0),
+		Errors:    make([]contracts.BatchShowError, 0),
 	}
 
 	for _, id := range showIDs {
 		_, err := s.RejectShow(id, reason)
 		if err != nil {
-			result.Errors = append(result.Errors, BatchShowError{ShowID: id, Error: err.Error()})
+			result.Errors = append(result.Errors, contracts.BatchShowError{ShowID: id, Error: err.Error()})
 		} else {
 			// Update rejection_category separately since RejectShow doesn't handle it
 			if category != "" {
@@ -1061,12 +1062,12 @@ func (s *ShowService) BatchRejectShows(showIDs []uint, reason string, category s
 
 // UnpublishShow changes an approved show's status back to pending.
 // Only the submitter or an admin can unpublish a show.
-func (s *ShowService) UnpublishShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error) {
+func (s *ShowService) UnpublishShow(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var response *ShowResponse
+	var response *contracts.ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Get the show
 		var show models.Show
@@ -1112,12 +1113,12 @@ func (s *ShowService) UnpublishShow(showID uint, userID uint, isAdmin bool) (*Sh
 
 // MakePrivateShow changes a pending show's status to private.
 // Only the submitter or an admin can make a show private.
-func (s *ShowService) MakePrivateShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error) {
+func (s *ShowService) MakePrivateShow(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var response *ShowResponse
+	var response *contracts.ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Get the show
 		var show models.Show
@@ -1165,12 +1166,12 @@ func (s *ShowService) MakePrivateShow(showID uint, userID uint, isAdmin bool) (*
 // Shows are always approved regardless of venue verification status.
 // Unverified venues will display city-only until verified by an admin.
 // Only the submitter or an admin can publish a show.
-func (s *ShowService) PublishShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error) {
+func (s *ShowService) PublishShow(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var response *ShowResponse
+	var response *contracts.ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Get the show with venues preloaded
 		var show models.Show
@@ -1217,8 +1218,8 @@ func (s *ShowService) PublishShow(showID uint, userID uint, isAdmin bool) (*Show
 // associateVenues associates venues with a show, creating new venues if needed.
 // Uses VenueService to ensure consistent venue creation logic.
 // If isAdmin is true, new venues are automatically verified.
-func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []CreateShowVenue, isAdmin bool) ([]VenueResponse, error) {
-	var venues []VenueResponse
+func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []contracts.CreateShowVenue, isAdmin bool) ([]contracts.VenueResponse, error) {
+	var venues []contracts.VenueResponse
 
 	// Create venue service for venue operations
 	venueService := NewVenueService(s.db)
@@ -1280,7 +1281,7 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 			venueAddr = venue.Address
 		}
 
-		venues = append(venues, VenueResponse{
+		venues = append(venues, contracts.VenueResponse{
 			ID:         venue.ID,
 			Slug:       venueSlug,
 			Name:       venue.Name,
@@ -1296,8 +1297,8 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 }
 
 // associateArtists associates artists with a show, creating new artists if needed
-func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists []CreateShowArtist) ([]ArtistResponse, error) {
-	var artists []ArtistResponse
+func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists []contracts.CreateShowArtist) ([]contracts.ArtistResponse, error) {
+	var artists []contracts.ArtistResponse
 
 	for position, requestArtist := range requestArtists {
 		var artist models.Artist
@@ -1370,7 +1371,7 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 		}
 
 		// Convert artist socials to response format
-		socials := ShowArtistSocials{
+		socials := contracts.ShowArtistSocials{
 			Instagram:  artist.Social.Instagram,
 			Facebook:   artist.Social.Facebook,
 			Twitter:    artist.Social.Twitter,
@@ -1385,7 +1386,7 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 		if artist.Slug != nil {
 			artistSlug = *artist.Slug
 		}
-		artists = append(artists, ArtistResponse{
+		artists = append(artists, contracts.ArtistResponse{
 			ID:               artist.ID,
 			Slug:             artistSlug,
 			Name:             artist.Name,
@@ -1401,10 +1402,10 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 	return artists, nil
 }
 
-// buildShowResponse converts a Show model to ShowResponse
-func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
+// buildShowResponse converts a Show model to contracts.ShowResponse
+func (s *ShowService) buildShowResponse(show *models.Show) *contracts.ShowResponse {
 	// Build venue responses
-	venues := make([]VenueResponse, len(show.Venues))
+	venues := make([]contracts.VenueResponse, len(show.Venues))
 	for i, venue := range show.Venues {
 		venueSlug := ""
 		if venue.Slug != nil {
@@ -1415,7 +1416,7 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 		if venue.Verified {
 			address = venue.Address
 		}
-		venues[i] = VenueResponse{
+		venues[i] = contracts.VenueResponse{
 			ID:       venue.ID,
 			Slug:     venueSlug,
 			Name:     venue.Name,
@@ -1427,7 +1428,7 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 	}
 
 	// Build artist responses (need to get ordered artists)
-	artists := make([]ArtistResponse, 0, len(show.Artists))
+	artists := make([]contracts.ArtistResponse, 0, len(show.Artists))
 
 	// Get ordered artists from show_artists table
 	var showArtists []models.ShowArtist
@@ -1460,7 +1461,7 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 				continue
 			}
 
-			socials := ShowArtistSocials{
+			socials := contracts.ShowArtistSocials{
 				Instagram:  artist.Social.Instagram,
 				Facebook:   artist.Social.Facebook,
 				Twitter:    artist.Social.Twitter,
@@ -1478,7 +1479,7 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 			if artist.Slug != nil {
 				artistSlug = *artist.Slug
 			}
-			artists = append(artists, ArtistResponse{
+			artists = append(artists, contracts.ArtistResponse{
 				ID:               artist.ID,
 				Slug:             artistSlug,
 				Name:             artist.Name,
@@ -1496,7 +1497,7 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 	if show.Slug != nil {
 		showSlug = *show.Slug
 	}
-	return &ShowResponse{
+	return &contracts.ShowResponse{
 		ID:              show.ID,
 		Slug:            showSlug,
 		Title:           show.Title,
@@ -1527,7 +1528,7 @@ func (s *ShowService) buildShowResponse(show *models.Show) *ShowResponse {
 // Show Export/Import Feature
 // ============================================================================
 
-// ExportShowData represents the show data in the markdown frontmatter
+// contracts.ExportShowData represents the show data in the markdown frontmatter
 
 // ExportShowToMarkdown exports a show to markdown format
 // Returns the markdown content, suggested filename, and error
@@ -1551,10 +1552,10 @@ func (s *ShowService) ExportShowToMarkdown(showID uint) ([]byte, string, error) 
 	s.db.Where("show_id = ?", show.ID).Order("position ASC").Find(&showArtists)
 
 	// Build frontmatter data
-	frontmatter := ExportFrontmatter{
+	frontmatter := contracts.ExportFrontmatter{
 		Version:    "1.0",
 		ExportedAt: time.Now().UTC().Format(time.RFC3339),
-		Show: ExportShowData{
+		Show: contracts.ExportShowData{
 			Title:     show.Title,
 			EventDate: show.EventDate.UTC().Format(time.RFC3339),
 			Status:    string(show.Status),
@@ -1577,7 +1578,7 @@ func (s *ShowService) ExportShowToMarkdown(showID uint) ([]byte, string, error) 
 
 	// Build venues
 	for _, venue := range show.Venues {
-		venueData := ExportVenueData{
+		venueData := contracts.ExportVenueData{
 			Name:  venue.Name,
 			City:  venue.City,
 			State: venue.State,
@@ -1635,7 +1636,7 @@ func (s *ShowService) ExportShowToMarkdown(showID uint) ([]byte, string, error) 
 			continue
 		}
 
-		artistData := ExportArtistData{
+		artistData := contracts.ExportArtistData{
 			Name:     artist.Name,
 			Position: sa.Position,
 			SetType:  sa.SetType,
@@ -1703,10 +1704,10 @@ func (s *ShowService) ExportShowToMarkdown(showID uint) ([]byte, string, error) 
 	return buf.Bytes(), filename, nil
 }
 
-// ParsedShowImport represents the parsed markdown data for import preview
+// contracts.ParsedShowImport represents the parsed markdown data for import preview
 
 // ParseShowMarkdown parses a markdown file and returns the parsed data
-func (s *ShowService) ParseShowMarkdown(content []byte) (*ParsedShowImport, error) {
+func (s *ShowService) ParseShowMarkdown(content []byte) (*contracts.ParsedShowImport, error) {
 	// Split frontmatter and body
 	str := string(content)
 
@@ -1725,7 +1726,7 @@ func (s *ShowService) ParseShowMarkdown(content []byte) (*ParsedShowImport, erro
 	body := strings.TrimSpace(parts[1])
 
 	// Parse frontmatter
-	var frontmatter ExportFrontmatter
+	var frontmatter contracts.ExportFrontmatter
 	if err := yaml.Unmarshal([]byte(frontmatterYAML), &frontmatter); err != nil {
 		return nil, fmt.Errorf("failed to parse frontmatter: %w", err)
 	}
@@ -1754,14 +1755,14 @@ func (s *ShowService) ParseShowMarkdown(content []byte) (*ParsedShowImport, erro
 		description = strings.TrimSpace(strings.Join(descLines, "\n"))
 	}
 
-	return &ParsedShowImport{
+	return &contracts.ParsedShowImport{
 		Frontmatter: frontmatter,
 		Description: description,
 	}, nil
 }
 
 // PreviewShowImport previews the import by checking for existing venues and artists
-func (s *ShowService) PreviewShowImport(content []byte) (*ImportPreviewResponse, error) {
+func (s *ShowService) PreviewShowImport(content []byte) (*contracts.ImportPreviewResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -1772,10 +1773,10 @@ func (s *ShowService) PreviewShowImport(content []byte) (*ImportPreviewResponse,
 		return nil, err
 	}
 
-	response := &ImportPreviewResponse{
+	response := &contracts.ImportPreviewResponse{
 		Show:      parsed.Frontmatter.Show,
-		Venues:    make([]VenueMatchResult, 0),
-		Artists:   make([]ArtistMatchResult, 0),
+		Venues:    make([]contracts.VenueMatchResult, 0),
+		Artists:   make([]contracts.ArtistMatchResult, 0),
 		Warnings:  make([]string, 0),
 		CanImport: true,
 	}
@@ -1798,7 +1799,7 @@ func (s *ShowService) PreviewShowImport(content []byte) (*ImportPreviewResponse,
 
 	// Check venues
 	for _, venueData := range parsed.Frontmatter.Venues {
-		result := VenueMatchResult{
+		result := contracts.VenueMatchResult{
 			Name:  venueData.Name,
 			City:  venueData.City,
 			State: venueData.State,
@@ -1825,7 +1826,7 @@ func (s *ShowService) PreviewShowImport(content []byte) (*ImportPreviewResponse,
 
 	// Check artists
 	for _, artistData := range parsed.Frontmatter.Artists {
-		result := ArtistMatchResult{
+		result := contracts.ArtistMatchResult{
 			Name:     artistData.Name,
 			Position: artistData.Position,
 			SetType:  artistData.SetType,
@@ -1878,11 +1879,11 @@ func (s *ShowService) PreviewShowImport(content []byte) (*ImportPreviewResponse,
 	return response, nil
 }
 
-// AdminShowFilters contains filters for GetAdminShows
+// contracts.AdminShowFilters contains filters for GetAdminShows
 
 // GetAdminShows retrieves shows for admin with optional filters (for CLI export)
 // Returns shows with all statuses including pending, rejected, and private
-func (s *ShowService) GetAdminShows(limit, offset int, filters AdminShowFilters) ([]*ShowResponse, int64, error) {
+func (s *ShowService) GetAdminShows(limit, offset int, filters contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -1953,7 +1954,7 @@ func (s *ShowService) GetAdminShows(limit, offset int, filters AdminShowFilters)
 	}
 
 	// Build responses
-	responses := make([]*ShowResponse, len(shows))
+	responses := make([]*contracts.ShowResponse, len(shows))
 	for i, show := range shows {
 		responses[i] = s.buildShowResponse(&show)
 	}
@@ -1963,7 +1964,7 @@ func (s *ShowService) GetAdminShows(limit, offset int, filters AdminShowFilters)
 
 // ConfirmShowImport creates a show from the parsed markdown content
 // Admin imports auto-verify venues
-func (s *ShowService) ConfirmShowImport(content []byte, isAdmin bool) (*ShowResponse, error) {
+func (s *ShowService) ConfirmShowImport(content []byte, isAdmin bool) (*contracts.ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -1980,10 +1981,10 @@ func (s *ShowService) ConfirmShowImport(content []byte, isAdmin bool) (*ShowResp
 		return nil, fmt.Errorf("invalid event date: %w", err)
 	}
 
-	// Build venues for CreateShowRequest
-	var requestVenues []CreateShowVenue
+	// Build venues for contracts.CreateShowRequest
+	var requestVenues []contracts.CreateShowVenue
 	for _, venueData := range parsed.Frontmatter.Venues {
-		requestVenues = append(requestVenues, CreateShowVenue{
+		requestVenues = append(requestVenues, contracts.CreateShowVenue{
 			Name:    venueData.Name,
 			City:    venueData.City,
 			State:   venueData.State,
@@ -1991,18 +1992,18 @@ func (s *ShowService) ConfirmShowImport(content []byte, isAdmin bool) (*ShowResp
 		})
 	}
 
-	// Build artists for CreateShowRequest
-	var requestArtists []CreateShowArtist
+	// Build artists for contracts.CreateShowRequest
+	var requestArtists []contracts.CreateShowArtist
 	for _, artistData := range parsed.Frontmatter.Artists {
 		isHeadliner := artistData.SetType == "headliner"
-		requestArtists = append(requestArtists, CreateShowArtist{
+		requestArtists = append(requestArtists, contracts.CreateShowArtist{
 			Name:        artistData.Name,
 			IsHeadliner: &isHeadliner,
 		})
 	}
 
 	// Build the create request
-	req := &CreateShowRequest{
+	req := &contracts.CreateShowRequest{
 		Title:            parsed.Frontmatter.Show.Title,
 		EventDate:        eventDate,
 		City:             parsed.Frontmatter.Show.City,
@@ -2024,7 +2025,7 @@ func (s *ShowService) ConfirmShowImport(content []byte, isAdmin bool) (*ShowResp
 // ============================================================================
 
 // SetShowSoldOut sets or clears the is_sold_out flag on a show
-func (s *ShowService) SetShowSoldOut(showID uint, isSoldOut bool) (*ShowResponse, error) {
+func (s *ShowService) SetShowSoldOut(showID uint, isSoldOut bool) (*contracts.ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -2045,7 +2046,7 @@ func (s *ShowService) SetShowSoldOut(showID uint, isSoldOut bool) (*ShowResponse
 }
 
 // SetShowCancelled sets or clears the is_cancelled flag on a show
-func (s *ShowService) SetShowCancelled(showID uint, isCancelled bool) (*ShowResponse, error) {
+func (s *ShowService) SetShowCancelled(showID uint, isCancelled bool) (*contracts.ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}

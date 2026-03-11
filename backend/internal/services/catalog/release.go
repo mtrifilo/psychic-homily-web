@@ -1,4 +1,4 @@
-package services
+package catalog
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/services/contracts"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/utils"
@@ -27,7 +28,7 @@ func NewReleaseService(database *gorm.DB) *ReleaseService {
 }
 
 // CreateRelease creates a new release
-func (s *ReleaseService) CreateRelease(req *CreateReleaseRequest) (*ReleaseDetailResponse, error) {
+func (s *ReleaseService) CreateRelease(req *contracts.CreateReleaseRequest) (*contracts.ReleaseDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -102,7 +103,7 @@ func (s *ReleaseService) CreateRelease(req *CreateReleaseRequest) (*ReleaseDetai
 }
 
 // GetRelease retrieves a release by ID
-func (s *ReleaseService) GetRelease(releaseID uint) (*ReleaseDetailResponse, error) {
+func (s *ReleaseService) GetRelease(releaseID uint) (*contracts.ReleaseDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -120,7 +121,7 @@ func (s *ReleaseService) GetRelease(releaseID uint) (*ReleaseDetailResponse, err
 }
 
 // GetReleaseBySlug retrieves a release by slug
-func (s *ReleaseService) GetReleaseBySlug(slug string) (*ReleaseDetailResponse, error) {
+func (s *ReleaseService) GetReleaseBySlug(slug string) (*contracts.ReleaseDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -138,7 +139,7 @@ func (s *ReleaseService) GetReleaseBySlug(slug string) (*ReleaseDetailResponse, 
 }
 
 // ListReleases retrieves releases with optional filtering
-func (s *ReleaseService) ListReleases(filters map[string]interface{}) ([]*ReleaseListResponse, error) {
+func (s *ReleaseService) ListReleases(filters map[string]interface{}) ([]*contracts.ReleaseListResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -191,13 +192,13 @@ func (s *ReleaseService) ListReleases(filters map[string]interface{}) ([]*Releas
 	}
 
 	// Build responses
-	responses := make([]*ReleaseListResponse, len(releases))
+	responses := make([]*contracts.ReleaseListResponse, len(releases))
 	for i, release := range releases {
 		slug := ""
 		if release.Slug != nil {
 			slug = *release.Slug
 		}
-		responses[i] = &ReleaseListResponse{
+		responses[i] = &contracts.ReleaseListResponse{
 			ID:          release.ID,
 			Title:       release.Title,
 			Slug:        slug,
@@ -212,7 +213,7 @@ func (s *ReleaseService) ListReleases(filters map[string]interface{}) ([]*Releas
 }
 
 // UpdateRelease updates an existing release
-func (s *ReleaseService) UpdateRelease(releaseID uint, req *UpdateReleaseRequest) (*ReleaseDetailResponse, error) {
+func (s *ReleaseService) UpdateRelease(releaseID uint, req *contracts.UpdateReleaseRequest) (*contracts.ReleaseDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -292,7 +293,7 @@ func (s *ReleaseService) DeleteRelease(releaseID uint) error {
 }
 
 // GetReleasesForArtist retrieves all releases for a given artist
-func (s *ReleaseService) GetReleasesForArtist(artistID uint) ([]*ReleaseListResponse, error) {
+func (s *ReleaseService) GetReleasesForArtist(artistID uint) ([]*contracts.ReleaseListResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -310,7 +311,7 @@ func (s *ReleaseService) GetReleasesForArtist(artistID uint) ([]*ReleaseListResp
 }
 
 // GetReleasesForArtistWithRoles retrieves all releases for an artist, including their role on each release
-func (s *ReleaseService) GetReleasesForArtistWithRoles(artistID uint) ([]*ArtistReleaseListResponse, error) {
+func (s *ReleaseService) GetReleasesForArtistWithRoles(artistID uint) ([]*contracts.ArtistReleaseListResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -331,7 +332,7 @@ func (s *ReleaseService) GetReleasesForArtistWithRoles(artistID uint) ([]*Artist
 	}
 
 	if len(artistReleases) == 0 {
-		return []*ArtistReleaseListResponse{}, nil
+		return []*contracts.ArtistReleaseListResponse{}, nil
 	}
 
 	// Build role map: releaseID -> role (an artist can have multiple roles on a release,
@@ -370,14 +371,14 @@ func (s *ReleaseService) GetReleasesForArtistWithRoles(artistID uint) ([]*Artist
 	}
 
 	// Build responses
-	responses := make([]*ArtistReleaseListResponse, len(releases))
+	responses := make([]*contracts.ArtistReleaseListResponse, len(releases))
 	for i, release := range releases {
 		slug := ""
 		if release.Slug != nil {
 			slug = *release.Slug
 		}
-		responses[i] = &ArtistReleaseListResponse{
-			ReleaseListResponse: ReleaseListResponse{
+		responses[i] = &contracts.ArtistReleaseListResponse{
+			ReleaseListResponse: contracts.ReleaseListResponse{
 				ID:          release.ID,
 				Title:       release.Title,
 				Slug:        slug,
@@ -394,7 +395,7 @@ func (s *ReleaseService) GetReleasesForArtistWithRoles(artistID uint) ([]*Artist
 }
 
 // AddExternalLink adds an external link to a release
-func (s *ReleaseService) AddExternalLink(releaseID uint, platform, url string) (*ReleaseExternalLinkResponse, error) {
+func (s *ReleaseService) AddExternalLink(releaseID uint, platform, url string) (*contracts.ReleaseExternalLinkResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -418,7 +419,7 @@ func (s *ReleaseService) AddExternalLink(releaseID uint, platform, url string) (
 		return nil, fmt.Errorf("failed to create external link: %w", err)
 	}
 
-	return &ReleaseExternalLinkResponse{
+	return &contracts.ReleaseExternalLinkResponse{
 		ID:       link.ID,
 		Platform: link.Platform,
 		URL:      link.URL,
@@ -442,8 +443,8 @@ func (s *ReleaseService) RemoveExternalLink(linkID uint) error {
 	return nil
 }
 
-// buildDetailResponse converts a Release model to ReleaseDetailResponse
-func (s *ReleaseService) buildDetailResponse(release *models.Release) (*ReleaseDetailResponse, error) {
+// buildDetailResponse converts a Release model to contracts.ReleaseDetailResponse
+func (s *ReleaseService) buildDetailResponse(release *models.Release) (*contracts.ReleaseDetailResponse, error) {
 	slug := ""
 	if release.Slug != nil {
 		slug = *release.Slug
@@ -469,14 +470,14 @@ func (s *ReleaseService) buildDetailResponse(release *models.Release) (*ReleaseD
 	}
 
 	// Build artist responses
-	artistResponses := make([]ReleaseArtistResponse, 0, len(artistReleases))
+	artistResponses := make([]contracts.ReleaseArtistResponse, 0, len(artistReleases))
 	for _, ar := range artistReleases {
 		if artistModel, ok := artistMap[ar.ArtistID]; ok {
 			artistSlug := ""
 			if artistModel.Slug != nil {
 				artistSlug = *artistModel.Slug
 			}
-			artistResponses = append(artistResponses, ReleaseArtistResponse{
+			artistResponses = append(artistResponses, contracts.ReleaseArtistResponse{
 				ID:   artistModel.ID,
 				Slug: artistSlug,
 				Name: artistModel.Name,
@@ -486,16 +487,16 @@ func (s *ReleaseService) buildDetailResponse(release *models.Release) (*ReleaseD
 	}
 
 	// Build external link responses
-	linkResponses := make([]ReleaseExternalLinkResponse, len(release.ExternalLinks))
+	linkResponses := make([]contracts.ReleaseExternalLinkResponse, len(release.ExternalLinks))
 	for i, link := range release.ExternalLinks {
-		linkResponses[i] = ReleaseExternalLinkResponse{
+		linkResponses[i] = contracts.ReleaseExternalLinkResponse{
 			ID:       link.ID,
 			Platform: link.Platform,
 			URL:      link.URL,
 		}
 	}
 
-	return &ReleaseDetailResponse{
+	return &contracts.ReleaseDetailResponse{
 		ID:            release.ID,
 		Title:         release.Title,
 		Slug:          slug,

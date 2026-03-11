@@ -1,4 +1,4 @@
-package services
+package catalog
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -32,7 +33,7 @@ func TestReleaseService_NilDatabase(t *testing.T) {
 	svc := &ReleaseService{db: nil}
 
 	t.Run("CreateRelease", func(t *testing.T) {
-		resp, err := svc.CreateRelease(&CreateReleaseRequest{Title: "Test"})
+		resp, err := svc.CreateRelease(&contracts.CreateReleaseRequest{Title: "Test"})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -60,7 +61,7 @@ func TestReleaseService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("UpdateRelease", func(t *testing.T) {
-		resp, err := svc.UpdateRelease(1, &UpdateReleaseRequest{})
+		resp, err := svc.UpdateRelease(1, &contracts.UpdateReleaseRequest{})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -150,7 +151,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) SetupSuite() {
 	if err != nil {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	suite.releaseService = &ReleaseService{db: db}
 	suite.artistService = &ArtistService{db: db}
@@ -195,17 +196,13 @@ func (suite *ReleaseServiceIntegrationTestSuite) createTestArtist(name string) *
 	return artist
 }
 
-func intPtr(i int) *int {
-	return &i
-}
-
 // =============================================================================
 // Group 1: CreateRelease
 // =============================================================================
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestCreateRelease_Success() {
 	year := 2024
-	req := &CreateReleaseRequest{
+	req := &contracts.CreateReleaseRequest{
 		Title:       "Nevermind",
 		ReleaseType: "lp",
 		ReleaseYear: &year,
@@ -229,11 +226,11 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestCreateRelease_WithArtists()
 	artist2 := suite.createTestArtist("Butch Vig")
 
 	year := 1991
-	req := &CreateReleaseRequest{
+	req := &contracts.CreateReleaseRequest{
 		Title:       "Nevermind",
 		ReleaseType: "lp",
 		ReleaseYear: &year,
-		Artists: []CreateReleaseArtistEntry{
+		Artists: []contracts.CreateReleaseArtistEntry{
 			{ArtistID: artist1.ID, Role: "main"},
 			{ArtistID: artist2.ID, Role: "producer"},
 		},
@@ -251,10 +248,10 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestCreateRelease_WithArtists()
 }
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestCreateRelease_WithExternalLinks() {
-	req := &CreateReleaseRequest{
+	req := &contracts.CreateReleaseRequest{
 		Title:       "In Utero",
 		ReleaseType: "lp",
-		ExternalLinks: []CreateReleaseLinkEntry{
+		ExternalLinks: []contracts.CreateReleaseLinkEntry{
 			{Platform: "bandcamp", URL: "https://nirvana.bandcamp.com/album/in-utero"},
 			{Platform: "spotify", URL: "https://open.spotify.com/album/abc123"},
 		},
@@ -270,7 +267,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestCreateRelease_WithExternalL
 }
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestCreateRelease_DefaultReleaseType() {
-	req := &CreateReleaseRequest{
+	req := &contracts.CreateReleaseRequest{
 		Title: "Mystery Release",
 	}
 
@@ -281,11 +278,11 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestCreateRelease_DefaultReleas
 }
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestCreateRelease_UniqueSlug() {
-	req1 := &CreateReleaseRequest{Title: "Homesick"}
+	req1 := &contracts.CreateReleaseRequest{Title: "Homesick"}
 	resp1, err := suite.releaseService.CreateRelease(req1)
 	suite.Require().NoError(err)
 
-	req2 := &CreateReleaseRequest{Title: "Homesick"}
+	req2 := &contracts.CreateReleaseRequest{Title: "Homesick"}
 	resp2, err := suite.releaseService.CreateRelease(req2)
 	suite.Require().NoError(err)
 
@@ -299,7 +296,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestCreateRelease_UniqueSlug() 
 // =============================================================================
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestGetRelease_Success() {
-	created, err := suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "Test Album"})
+	created, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Test Album"})
 	suite.Require().NoError(err)
 
 	resp, err := suite.releaseService.GetRelease(created.ID)
@@ -320,7 +317,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestGetRelease_NotFound() {
 }
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestGetReleaseBySlug_Success() {
-	created, err := suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "Slug Test Album"})
+	created, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Slug Test Album"})
 	suite.Require().NoError(err)
 
 	resp, err := suite.releaseService.GetReleaseBySlug(created.Slug)
@@ -345,9 +342,9 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestGetReleaseBySlug_NotFound()
 // =============================================================================
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_All() {
-	suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "Album A", ReleaseYear: intPtr(2020)})
-	suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "Album B", ReleaseYear: intPtr(2023)})
-	suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "Album C", ReleaseYear: intPtr(2021)})
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Album A", ReleaseYear: intPtr(2020)})
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Album B", ReleaseYear: intPtr(2023)})
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Album C", ReleaseYear: intPtr(2021)})
 
 	resp, err := suite.releaseService.ListReleases(map[string]interface{}{})
 
@@ -360,9 +357,9 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_All() {
 }
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_FilterByType() {
-	suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "LP Release", ReleaseType: "lp"})
-	suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "EP Release", ReleaseType: "ep"})
-	suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "Single Release", ReleaseType: "single"})
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "LP Release", ReleaseType: "lp"})
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "EP Release", ReleaseType: "ep"})
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Single Release", ReleaseType: "single"})
 
 	resp, err := suite.releaseService.ListReleases(map[string]interface{}{"release_type": "ep"})
 
@@ -372,8 +369,8 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_FilterByType()
 }
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_FilterByYear() {
-	suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "Old Album", ReleaseYear: intPtr(2020)})
-	suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "New Album", ReleaseYear: intPtr(2024)})
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Old Album", ReleaseYear: intPtr(2020)})
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "New Album", ReleaseYear: intPtr(2024)})
 
 	resp, err := suite.releaseService.ListReleases(map[string]interface{}{"year": 2024})
 
@@ -386,13 +383,13 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_FilterByArtist
 	artist1 := suite.createTestArtist("Artist One")
 	artist2 := suite.createTestArtist("Artist Two")
 
-	suite.releaseService.CreateRelease(&CreateReleaseRequest{
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Artist One Album",
-		Artists: []CreateReleaseArtistEntry{{ArtistID: artist1.ID, Role: "main"}},
+		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artist1.ID, Role: "main"}},
 	})
-	suite.releaseService.CreateRelease(&CreateReleaseRequest{
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Artist Two Album",
-		Artists: []CreateReleaseArtistEntry{{ArtistID: artist2.ID, Role: "main"}},
+		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artist2.ID, Role: "main"}},
 	})
 
 	resp, err := suite.releaseService.ListReleases(map[string]interface{}{"artist_id": artist1.ID})
@@ -406,9 +403,9 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_ArtistCount() 
 	artist1 := suite.createTestArtist("Count Artist 1")
 	artist2 := suite.createTestArtist("Count Artist 2")
 
-	suite.releaseService.CreateRelease(&CreateReleaseRequest{
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title: "Multi Artist Album",
-		Artists: []CreateReleaseArtistEntry{
+		Artists: []contracts.CreateReleaseArtistEntry{
 			{ArtistID: artist1.ID, Role: "main"},
 			{ArtistID: artist2.ID, Role: "featured"},
 		},
@@ -426,12 +423,12 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_ArtistCount() 
 // =============================================================================
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestUpdateRelease_BasicFields() {
-	created, err := suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "Original Title", ReleaseYear: intPtr(2020)})
+	created, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Original Title", ReleaseYear: intPtr(2020)})
 	suite.Require().NoError(err)
 
 	newTitle := "Updated Title"
 	newYear := 2021
-	resp, err := suite.releaseService.UpdateRelease(created.ID, &UpdateReleaseRequest{
+	resp, err := suite.releaseService.UpdateRelease(created.ID, &contracts.UpdateReleaseRequest{
 		Title:       &newTitle,
 		ReleaseYear: &newYear,
 	})
@@ -442,12 +439,12 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestUpdateRelease_BasicFields()
 }
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestUpdateRelease_TitleChangeRegeneratesSlug() {
-	created, err := suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "Old Title"})
+	created, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Old Title"})
 	suite.Require().NoError(err)
 	oldSlug := created.Slug
 
 	newTitle := "New Title"
-	resp, err := suite.releaseService.UpdateRelease(created.ID, &UpdateReleaseRequest{
+	resp, err := suite.releaseService.UpdateRelease(created.ID, &contracts.UpdateReleaseRequest{
 		Title: &newTitle,
 	})
 
@@ -459,7 +456,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestUpdateRelease_TitleChangeRe
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestUpdateRelease_NotFound() {
 	newTitle := "Anything"
-	resp, err := suite.releaseService.UpdateRelease(99999, &UpdateReleaseRequest{Title: &newTitle})
+	resp, err := suite.releaseService.UpdateRelease(99999, &contracts.UpdateReleaseRequest{Title: &newTitle})
 
 	suite.Require().Error(err)
 	suite.Nil(resp)
@@ -469,11 +466,11 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestUpdateRelease_NotFound() {
 }
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestUpdateRelease_NoChanges() {
-	created, err := suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "Stable Title"})
+	created, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Stable Title"})
 	suite.Require().NoError(err)
 
 	// Update with no fields set
-	resp, err := suite.releaseService.UpdateRelease(created.ID, &UpdateReleaseRequest{})
+	resp, err := suite.releaseService.UpdateRelease(created.ID, &contracts.UpdateReleaseRequest{})
 
 	suite.Require().NoError(err)
 	suite.Equal("Stable Title", resp.Title)
@@ -484,7 +481,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestUpdateRelease_NoChanges() {
 // =============================================================================
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestDeleteRelease_Success() {
-	created, err := suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "Delete Me"})
+	created, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Delete Me"})
 	suite.Require().NoError(err)
 
 	err = suite.releaseService.DeleteRelease(created.ID)
@@ -507,10 +504,10 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestDeleteRelease_NotFound() {
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestDeleteRelease_CascadesJunctions() {
 	artist := suite.createTestArtist("Cascade Artist")
-	created, err := suite.releaseService.CreateRelease(&CreateReleaseRequest{
+	created, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Cascade Album",
-		Artists: []CreateReleaseArtistEntry{{ArtistID: artist.ID, Role: "main"}},
-		ExternalLinks: []CreateReleaseLinkEntry{
+		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artist.ID, Role: "main"}},
+		ExternalLinks: []contracts.CreateReleaseLinkEntry{
 			{Platform: "bandcamp", URL: "https://test.bandcamp.com"},
 		},
 	})
@@ -538,19 +535,19 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestGetReleasesForArtist_Succes
 	artist := suite.createTestArtist("Discography Artist")
 	otherArtist := suite.createTestArtist("Other Artist")
 
-	suite.releaseService.CreateRelease(&CreateReleaseRequest{
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:       "Album A",
 		ReleaseYear: intPtr(2020),
-		Artists:     []CreateReleaseArtistEntry{{ArtistID: artist.ID, Role: "main"}},
+		Artists:     []contracts.CreateReleaseArtistEntry{{ArtistID: artist.ID, Role: "main"}},
 	})
-	suite.releaseService.CreateRelease(&CreateReleaseRequest{
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:       "Album B",
 		ReleaseYear: intPtr(2023),
-		Artists:     []CreateReleaseArtistEntry{{ArtistID: artist.ID, Role: "main"}},
+		Artists:     []contracts.CreateReleaseArtistEntry{{ArtistID: artist.ID, Role: "main"}},
 	})
-	suite.releaseService.CreateRelease(&CreateReleaseRequest{
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Other Album",
-		Artists: []CreateReleaseArtistEntry{{ArtistID: otherArtist.ID, Role: "main"}},
+		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: otherArtist.ID, Role: "main"}},
 	})
 
 	resp, err := suite.releaseService.GetReleasesForArtist(artist.ID)
@@ -586,7 +583,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestGetReleasesForArtist_Empty(
 // =============================================================================
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestAddExternalLink_Success() {
-	created, err := suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "Link Album"})
+	created, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Link Album"})
 	suite.Require().NoError(err)
 
 	link, err := suite.releaseService.AddExternalLink(created.ID, "bandcamp", "https://test.bandcamp.com/album/test")
@@ -609,9 +606,9 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestAddExternalLink_ReleaseNotF
 }
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestRemoveExternalLink_Success() {
-	created, err := suite.releaseService.CreateRelease(&CreateReleaseRequest{
+	created, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title: "Remove Link Album",
-		ExternalLinks: []CreateReleaseLinkEntry{
+		ExternalLinks: []contracts.CreateReleaseLinkEntry{
 			{Platform: "spotify", URL: "https://open.spotify.com/album/abc"},
 		},
 	})
@@ -635,7 +632,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestRemoveExternalLink_NotFound
 }
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestAddMultipleExternalLinks() {
-	created, err := suite.releaseService.CreateRelease(&CreateReleaseRequest{Title: "Multi Link Album"})
+	created, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Multi Link Album"})
 	suite.Require().NoError(err)
 
 	_, err = suite.releaseService.AddExternalLink(created.ID, "bandcamp", "https://test.bandcamp.com")

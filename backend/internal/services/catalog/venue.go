@@ -1,4 +1,4 @@
-package services
+package catalog
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/services/contracts"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/utils"
@@ -32,7 +33,7 @@ func NewVenueService(database *gorm.DB) *VenueService {
 // CreateVenue creates a new venue
 // If isAdmin is true, the venue is automatically verified.
 // If isAdmin is false, the venue requires admin approval (verified = false).
-func (s *VenueService) CreateVenue(req *CreateVenueRequest, isAdmin bool) (*VenueDetailResponse, error) {
+func (s *VenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bool) (*contracts.VenueDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -83,7 +84,7 @@ func (s *VenueService) CreateVenue(req *CreateVenueRequest, isAdmin bool) (*Venu
 }
 
 // GetVenue retrieves a venue by ID
-func (s *VenueService) GetVenue(venueID uint) (*VenueDetailResponse, error) {
+func (s *VenueService) GetVenue(venueID uint) (*contracts.VenueDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -101,7 +102,7 @@ func (s *VenueService) GetVenue(venueID uint) (*VenueDetailResponse, error) {
 }
 
 // GetVenueBySlug retrieves a venue by slug
-func (s *VenueService) GetVenueBySlug(slug string) (*VenueDetailResponse, error) {
+func (s *VenueService) GetVenueBySlug(slug string) (*contracts.VenueDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -119,7 +120,7 @@ func (s *VenueService) GetVenueBySlug(slug string) (*VenueDetailResponse, error)
 }
 
 // GetVenues retrieves venues with optional filtering
-func (s *VenueService) GetVenues(filters map[string]interface{}) ([]*VenueDetailResponse, error) {
+func (s *VenueService) GetVenues(filters map[string]interface{}) ([]*contracts.VenueDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -147,7 +148,7 @@ func (s *VenueService) GetVenues(filters map[string]interface{}) ([]*VenueDetail
 	}
 
 	// Build responses
-	responses := make([]*VenueDetailResponse, len(venues))
+	responses := make([]*contracts.VenueDetailResponse, len(venues))
 	for i, venue := range venues {
 		responses[i] = s.buildVenueResponse(&venue)
 	}
@@ -156,7 +157,7 @@ func (s *VenueService) GetVenues(filters map[string]interface{}) ([]*VenueDetail
 }
 
 // UpdateVenue updates an existing venue
-func (s *VenueService) UpdateVenue(venueID uint, updates map[string]interface{}) (*VenueDetailResponse, error) {
+func (s *VenueService) UpdateVenue(venueID uint, updates map[string]interface{}) (*contracts.VenueDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -244,13 +245,13 @@ func (s *VenueService) DeleteVenue(venueID uint) error {
 	return nil
 }
 
-func (venueService *VenueService) SearchVenues(query string) ([]*VenueDetailResponse, error) {
+func (venueService *VenueService) SearchVenues(query string) ([]*contracts.VenueDetailResponse, error) {
 	if venueService.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
 	if query == "" {
-		return []*VenueDetailResponse{}, nil
+		return []*contracts.VenueDetailResponse{}, nil
 	}
 
 	var venues []models.Venue
@@ -275,7 +276,7 @@ func (venueService *VenueService) SearchVenues(query string) ([]*VenueDetailResp
 		return nil, fmt.Errorf("failed to search venues: %w", err)
 	}
 
-	responses := make([]*VenueDetailResponse, len(venues))
+	responses := make([]*contracts.VenueDetailResponse, len(venues))
 	for i, venue := range venues {
 		responses[i] = venueService.buildVenueResponse(&venue)
 	}
@@ -361,7 +362,7 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 }
 
 // VerifyVenue marks a venue as verified by an admin.
-func (s *VenueService) VerifyVenue(venueID uint) (*VenueDetailResponse, error) {
+func (s *VenueService) VerifyVenue(venueID uint) (*contracts.VenueDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -406,8 +407,8 @@ func (s *VenueService) VerifyVenue(venueID uint) (*VenueDetailResponse, error) {
 	return s.buildVenueResponse(&venue), nil
 }
 
-// buildVenueResponse converts a Venue model to VenueDetailResponse
-func (s *VenueService) buildVenueResponse(venue *models.Venue) *VenueDetailResponse {
+// buildVenueResponse converts a Venue model to contracts.VenueDetailResponse
+func (s *VenueService) buildVenueResponse(venue *models.Venue) *contracts.VenueDetailResponse {
 	slug := ""
 	if venue.Slug != nil {
 		slug = *venue.Slug
@@ -420,7 +421,7 @@ func (s *VenueService) buildVenueResponse(venue *models.Venue) *VenueDetailRespo
 		zipcode = venue.Zipcode
 	}
 
-	return &VenueDetailResponse{
+	return &contracts.VenueDetailResponse{
 		ID:          venue.ID,
 		Slug:        slug,
 		Name:        venue.Name,
@@ -430,7 +431,7 @@ func (s *VenueService) buildVenueResponse(venue *models.Venue) *VenueDetailRespo
 		Zipcode:     zipcode,
 		Verified:    venue.Verified,
 		SubmittedBy: venue.SubmittedBy,
-		Social: SocialResponse{
+		Social: contracts.SocialResponse{
 			Instagram:  venue.Social.Instagram,
 			Facebook:   venue.Social.Facebook,
 			Twitter:    venue.Social.Twitter,
@@ -445,7 +446,7 @@ func (s *VenueService) buildVenueResponse(venue *models.Venue) *VenueDetailRespo
 	}
 }
 
-// VenueWithShowCountResponse represents a venue with its upcoming show count
+// contracts.VenueWithShowCountResponse represents a venue with its upcoming show count
 
 // VenueWithCount is used internally for querying venues with their show counts
 type VenueWithCount struct {
@@ -456,7 +457,7 @@ type VenueWithCount struct {
 // GetVenuesWithShowCounts retrieves verified venues with their upcoming show counts.
 // Results are sorted by upcoming show count (descending), then by name (ascending),
 // so venues with upcoming shows appear first.
-func (s *VenueService) GetVenuesWithShowCounts(filters VenueListFilters, limit, offset int) ([]*VenueWithShowCountResponse, int64, error) {
+func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilters, limit, offset int) ([]*contracts.VenueWithShowCountResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -533,9 +534,9 @@ func (s *VenueService) GetVenuesWithShowCounts(filters VenueListFilters, limit, 
 	}
 
 	// Build responses
-	responses := make([]*VenueWithShowCountResponse, len(venuesWithCount))
+	responses := make([]*contracts.VenueWithShowCountResponse, len(venuesWithCount))
 	for i, vc := range venuesWithCount {
-		responses[i] = &VenueWithShowCountResponse{
+		responses[i] = &contracts.VenueWithShowCountResponse{
 			VenueDetailResponse: *s.buildVenueResponse(&vc.Venue),
 			UpcomingShowCount:   int(vc.UpcomingShowCount),
 		}
@@ -548,14 +549,14 @@ func (s *VenueService) GetVenuesWithShowCounts(filters VenueListFilters, limit, 
 // GetUpcomingShowsForVenue retrieves upcoming shows at a specific venue.
 // Only returns approved shows with event_date >= today in the specified timezone.
 // Deprecated: Use GetShowsForVenue with timeFilter="upcoming" instead.
-func (s *VenueService) GetUpcomingShowsForVenue(venueID uint, timezone string, limit int) ([]*VenueShowResponse, int64, error) {
+func (s *VenueService) GetUpcomingShowsForVenue(venueID uint, timezone string, limit int) ([]*contracts.VenueShowResponse, int64, error) {
 	return s.GetShowsForVenue(venueID, timezone, limit, "upcoming")
 }
 
 // GetShowsForVenue retrieves shows at a specific venue with time filtering.
 // timeFilter can be: "upcoming" (event_date >= today), "past" (event_date < today), or "all"
 // Only returns approved shows.
-func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int, timeFilter string) ([]*VenueShowResponse, int64, error) {
+func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int, timeFilter string) ([]*contracts.VenueShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -662,9 +663,9 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 	}
 
 	// Build responses using map lookup
-	responses := make([]*VenueShowResponse, len(shows))
+	responses := make([]*contracts.VenueShowResponse, len(shows))
 	for i, show := range shows {
-		artists := make([]ArtistResponse, 0)
+		artists := make([]contracts.ArtistResponse, 0)
 		for _, sa := range allShowArtists[show.ID] {
 			artist, ok := artistMap[sa.ArtistID]
 			if !ok {
@@ -672,7 +673,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 			}
 			isHeadliner := sa.SetType == "headliner"
 			isNewArtist := false
-			socials := ShowArtistSocials{
+			socials := contracts.ShowArtistSocials{
 				Instagram:  artist.Social.Instagram,
 				Facebook:   artist.Social.Facebook,
 				Twitter:    artist.Social.Twitter,
@@ -686,7 +687,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 			if artist.Slug != nil {
 				slug = *artist.Slug
 			}
-			artists = append(artists, ArtistResponse{
+			artists = append(artists, contracts.ArtistResponse{
 				ID:          artist.ID,
 				Slug:        slug,
 				Name:        artist.Name,
@@ -698,7 +699,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 			})
 		}
 
-		responses[i] = &VenueShowResponse{
+		responses[i] = &contracts.VenueShowResponse{
 			ID:             show.ID,
 			Title:          show.Title,
 			EventDate:      show.EventDate,
@@ -713,11 +714,11 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 	return responses, total, nil
 }
 
-// VenueCityResponse represents a city with venue count for filtering
+// contracts.VenueCityResponse represents a city with venue count for filtering
 
 // GetVenueCities returns distinct cities that have verified venues, with venue counts.
 // Results are sorted by venue count (descending) to show most active cities first.
-func (s *VenueService) GetVenueCities() ([]*VenueCityResponse, error) {
+func (s *VenueService) GetVenueCities() ([]*contracts.VenueCityResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -739,9 +740,9 @@ func (s *VenueService) GetVenueCities() ([]*VenueCityResponse, error) {
 		return nil, fmt.Errorf("failed to get venue cities: %w", err)
 	}
 
-	responses := make([]*VenueCityResponse, len(results))
+	responses := make([]*contracts.VenueCityResponse, len(results))
 	for i, r := range results {
-		responses[i] = &VenueCityResponse{
+		responses[i] = &contracts.VenueCityResponse{
 			City:       r.City,
 			State:      r.State,
 			VenueCount: int(r.VenueCount),
@@ -757,8 +758,8 @@ func (s *VenueService) GetVenueCities() ([]*VenueCityResponse, error) {
 
 
 // buildPendingVenueEditResponse converts a PendingVenueEdit model to response
-func (s *VenueService) buildPendingVenueEditResponse(edit *models.PendingVenueEdit, includeVenue bool) *PendingVenueEditResponse {
-	resp := &PendingVenueEditResponse{
+func (s *VenueService) buildPendingVenueEditResponse(edit *models.PendingVenueEdit, includeVenue bool) *contracts.PendingVenueEditResponse {
+	resp := &contracts.PendingVenueEditResponse{
 		ID:              edit.ID,
 		VenueID:         edit.VenueID,
 		SubmittedBy:     edit.SubmittedBy,
@@ -818,7 +819,7 @@ func buildUserDisplayName(user *models.User) string {
 }
 
 // CreatePendingVenueEdit creates a new pending edit for a venue (for non-admin users)
-func (s *VenueService) CreatePendingVenueEdit(venueID uint, userID uint, req *VenueEditRequest) (*PendingVenueEditResponse, error) {
+func (s *VenueService) CreatePendingVenueEdit(venueID uint, userID uint, req *contracts.VenueEditRequest) (*contracts.PendingVenueEditResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -874,7 +875,7 @@ func (s *VenueService) CreatePendingVenueEdit(venueID uint, userID uint, req *Ve
 }
 
 // GetPendingEditForVenue retrieves a user's pending edit for a specific venue
-func (s *VenueService) GetPendingEditForVenue(venueID uint, userID uint) (*PendingVenueEditResponse, error) {
+func (s *VenueService) GetPendingEditForVenue(venueID uint, userID uint) (*contracts.PendingVenueEditResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -894,7 +895,7 @@ func (s *VenueService) GetPendingEditForVenue(venueID uint, userID uint) (*Pendi
 }
 
 // GetPendingVenueEdits retrieves all pending venue edits for admin review
-func (s *VenueService) GetPendingVenueEdits(limit, offset int) ([]*PendingVenueEditResponse, int64, error) {
+func (s *VenueService) GetPendingVenueEdits(limit, offset int) ([]*contracts.PendingVenueEditResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -914,7 +915,7 @@ func (s *VenueService) GetPendingVenueEdits(limit, offset int) ([]*PendingVenueE
 		return nil, 0, fmt.Errorf("failed to get pending edits: %w", err)
 	}
 
-	responses := make([]*PendingVenueEditResponse, len(edits))
+	responses := make([]*contracts.PendingVenueEditResponse, len(edits))
 	for i, edit := range edits {
 		responses[i] = s.buildPendingVenueEditResponse(&edit, true)
 	}
@@ -923,7 +924,7 @@ func (s *VenueService) GetPendingVenueEdits(limit, offset int) ([]*PendingVenueE
 }
 
 // GetPendingVenueEdit retrieves a single pending venue edit by ID
-func (s *VenueService) GetPendingVenueEdit(editID uint) (*PendingVenueEditResponse, error) {
+func (s *VenueService) GetPendingVenueEdit(editID uint) (*contracts.PendingVenueEditResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -942,7 +943,7 @@ func (s *VenueService) GetPendingVenueEdit(editID uint) (*PendingVenueEditRespon
 }
 
 // ApproveVenueEdit approves a pending venue edit and applies changes to the venue
-func (s *VenueService) ApproveVenueEdit(editID uint, reviewerID uint) (*VenueDetailResponse, error) {
+func (s *VenueService) ApproveVenueEdit(editID uint, reviewerID uint) (*contracts.VenueDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -1047,7 +1048,7 @@ func (s *VenueService) ApproveVenueEdit(editID uint, reviewerID uint) (*VenueDet
 }
 
 // RejectVenueEdit rejects a pending venue edit
-func (s *VenueService) RejectVenueEdit(editID uint, reviewerID uint, reason string) (*PendingVenueEditResponse, error) {
+func (s *VenueService) RejectVenueEdit(editID uint, reviewerID uint, reason string) (*contracts.PendingVenueEditResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -1133,11 +1134,11 @@ func (s *VenueService) GetVenueModel(venueID uint) (*models.Venue, error) {
 	return &venue, nil
 }
 
-// UnverifiedVenueResponse represents an unverified venue for admin review
+// contracts.UnverifiedVenueResponse represents an unverified venue for admin review
 
 // GetUnverifiedVenues retrieves all unverified venues for admin review.
 // Results are sorted by creation date (newest first).
-func (s *VenueService) GetUnverifiedVenues(limit, offset int) ([]*UnverifiedVenueResponse, int64, error) {
+func (s *VenueService) GetUnverifiedVenues(limit, offset int) ([]*contracts.UnverifiedVenueResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -1172,13 +1173,13 @@ func (s *VenueService) GetUnverifiedVenues(limit, offset int) ([]*UnverifiedVenu
 	}
 
 	// Build responses
-	responses := make([]*UnverifiedVenueResponse, len(results))
+	responses := make([]*contracts.UnverifiedVenueResponse, len(results))
 	for i, r := range results {
 		slug := ""
 		if r.Slug != nil {
 			slug = *r.Slug
 		}
-		responses[i] = &UnverifiedVenueResponse{
+		responses[i] = &contracts.UnverifiedVenueResponse{
 			ID:          r.ID,
 			Slug:        slug,
 			Name:        r.Name,

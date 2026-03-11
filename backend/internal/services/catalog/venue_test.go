@@ -1,4 +1,4 @@
-package services
+package catalog
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -32,7 +33,7 @@ func TestVenueService_NilDatabase(t *testing.T) {
 	svc := &VenueService{db: nil}
 
 	t.Run("CreateVenue", func(t *testing.T) {
-		resp, err := svc.CreateVenue(&CreateVenueRequest{Name: "Test", City: "Phoenix", State: "AZ"}, false)
+		resp, err := svc.CreateVenue(&contracts.CreateVenueRequest{Name: "Test", City: "Phoenix", State: "AZ"}, false)
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -95,7 +96,7 @@ func TestVenueService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("GetVenuesWithShowCounts", func(t *testing.T) {
-		resp, total, err := svc.GetVenuesWithShowCounts(VenueListFilters{}, 10, 0)
+		resp, total, err := svc.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -126,7 +127,7 @@ func TestVenueService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("CreatePendingVenueEdit", func(t *testing.T) {
-		resp, err := svc.CreatePendingVenueEdit(1, 1, &VenueEditRequest{})
+		resp, err := svc.CreatePendingVenueEdit(1, 1, &contracts.VenueEditRequest{})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -246,7 +247,7 @@ func (suite *VenueServiceIntegrationTestSuite) SetupSuite() {
 	if err != nil {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	suite.venueService = &VenueService{db: db}
 }
@@ -334,7 +335,7 @@ func (suite *VenueServiceIntegrationTestSuite) createApprovedShow(venueID, userI
 // =============================================================================
 
 func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_Success() {
-	req := &CreateVenueRequest{
+	req := &contracts.CreateVenueRequest{
 		Name:    "Valley Bar",
 		City:    "Phoenix",
 		State:   "AZ",
@@ -357,7 +358,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_Success() {
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_AdminAutoVerified() {
-	req := &CreateVenueRequest{
+	req := &contracts.CreateVenueRequest{
 		Name:  "Admin Venue",
 		City:  "Tempe",
 		State: "AZ",
@@ -370,7 +371,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_AdminAutoVerified
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_NonAdminUnverified() {
-	req := &CreateVenueRequest{
+	req := &contracts.CreateVenueRequest{
 		Name:  "User Venue",
 		City:  "Mesa",
 		State: "AZ",
@@ -383,7 +384,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_NonAdminUnverifie
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_DuplicateNameCity_Fails() {
-	req := &CreateVenueRequest{
+	req := &contracts.CreateVenueRequest{
 		Name:  "The Rebel Lounge",
 		City:  "Phoenix",
 		State: "AZ",
@@ -392,7 +393,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_DuplicateNameCity
 	suite.Require().NoError(err)
 
 	// Same name, same city (case insensitive)
-	req2 := &CreateVenueRequest{
+	req2 := &contracts.CreateVenueRequest{
 		Name:  "the rebel lounge",
 		City:  "phoenix",
 		State: "AZ",
@@ -404,7 +405,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_DuplicateNameCity
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_SameNameDifferentCity_OK() {
-	req := &CreateVenueRequest{
+	req := &contracts.CreateVenueRequest{
 		Name:  "The Local",
 		City:  "Phoenix",
 		State: "AZ",
@@ -412,7 +413,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_SameNameDifferent
 	_, err := suite.venueService.CreateVenue(req, true)
 	suite.Require().NoError(err)
 
-	req2 := &CreateVenueRequest{
+	req2 := &contracts.CreateVenueRequest{
 		Name:  "The Local",
 		City:  "Tucson",
 		State: "AZ",
@@ -428,7 +429,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_SameNameDifferent
 // =============================================================================
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_Success() {
-	req := &CreateVenueRequest{
+	req := &contracts.CreateVenueRequest{
 		Name:  "Get Test Venue",
 		City:  "Phoenix",
 		State: "AZ",
@@ -455,7 +456,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_NotFound() {
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenueBySlug_Success() {
-	req := &CreateVenueRequest{
+	req := &contracts.CreateVenueRequest{
 		Name:  "Slug Test Venue",
 		City:  "Phoenix",
 		State: "AZ",
@@ -485,8 +486,8 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueBySlug_NotFound() {
 // =============================================================================
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenues_FilterByCity() {
-	suite.venueService.CreateVenue(&CreateVenueRequest{Name: "PHX Venue", City: "Phoenix", State: "AZ"}, true)
-	suite.venueService.CreateVenue(&CreateVenueRequest{Name: "TUC Venue", City: "Tucson", State: "AZ"}, true)
+	suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "PHX Venue", City: "Phoenix", State: "AZ"}, true)
+	suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "TUC Venue", City: "Tucson", State: "AZ"}, true)
 
 	resp, err := suite.venueService.GetVenues(map[string]interface{}{"city": "Phoenix"})
 
@@ -496,8 +497,8 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenues_FilterByCity() {
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenues_FilterByState() {
-	suite.venueService.CreateVenue(&CreateVenueRequest{Name: "AZ Venue", City: "Phoenix", State: "AZ"}, true)
-	suite.venueService.CreateVenue(&CreateVenueRequest{Name: "CA Venue", City: "Los Angeles", State: "CA"}, true)
+	suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "AZ Venue", City: "Phoenix", State: "AZ"}, true)
+	suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "CA Venue", City: "Los Angeles", State: "CA"}, true)
 
 	resp, err := suite.venueService.GetVenues(map[string]interface{}{"state": "CA"})
 
@@ -507,8 +508,8 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenues_FilterByState() {
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenues_FilterByName() {
-	suite.venueService.CreateVenue(&CreateVenueRequest{Name: "Crescent Ballroom", City: "Phoenix", State: "AZ"}, true)
-	suite.venueService.CreateVenue(&CreateVenueRequest{Name: "Valley Bar", City: "Phoenix", State: "AZ"}, true)
+	suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "Crescent Ballroom", City: "Phoenix", State: "AZ"}, true)
+	suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "Valley Bar", City: "Phoenix", State: "AZ"}, true)
 
 	resp, err := suite.venueService.GetVenues(map[string]interface{}{"name": "crescent"})
 
@@ -522,7 +523,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenues_FilterByName() {
 // =============================================================================
 
 func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_BasicFields() {
-	created, err := suite.venueService.CreateVenue(&CreateVenueRequest{
+	created, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Original Name",
 		City:  "Phoenix",
 		State: "AZ",
@@ -550,12 +551,12 @@ func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_NotFound() {
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_DuplicateNameCity_Fails() {
-	suite.venueService.CreateVenue(&CreateVenueRequest{
+	suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Existing Venue",
 		City:  "Phoenix",
 		State: "AZ",
 	}, true)
-	other, err := suite.venueService.CreateVenue(&CreateVenueRequest{
+	other, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Other Venue",
 		City:  "Phoenix",
 		State: "AZ",
@@ -570,7 +571,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_DuplicateNameCity
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_SameNameSameVenue_OK() {
-	created, err := suite.venueService.CreateVenue(&CreateVenueRequest{
+	created, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Keep My Name",
 		City:  "Phoenix",
 		State: "AZ",
@@ -593,7 +594,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_SameNameSameVenue
 // =============================================================================
 
 func (suite *VenueServiceIntegrationTestSuite) TestDeleteVenue_Success() {
-	created, err := suite.venueService.CreateVenue(&CreateVenueRequest{
+	created, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Delete Me",
 		City:  "Phoenix",
 		State: "AZ",
@@ -636,7 +637,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestDeleteVenue_HasShows_Fails() 
 // =============================================================================
 
 func (suite *VenueServiceIntegrationTestSuite) TestSearchVenues_EmptyQuery() {
-	suite.venueService.CreateVenue(&CreateVenueRequest{Name: "Some Venue", City: "Phoenix", State: "AZ"}, true)
+	suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "Some Venue", City: "Phoenix", State: "AZ"}, true)
 
 	resp, err := suite.venueService.SearchVenues("")
 
@@ -645,8 +646,8 @@ func (suite *VenueServiceIntegrationTestSuite) TestSearchVenues_EmptyQuery() {
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestSearchVenues_ShortQuery_PrefixMatch() {
-	suite.venueService.CreateVenue(&CreateVenueRequest{Name: "Valley Bar", City: "Phoenix", State: "AZ"}, true)
-	suite.venueService.CreateVenue(&CreateVenueRequest{Name: "Crescent Ballroom", City: "Phoenix", State: "AZ"}, true)
+	suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "Valley Bar", City: "Phoenix", State: "AZ"}, true)
+	suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "Crescent Ballroom", City: "Phoenix", State: "AZ"}, true)
 
 	resp, err := suite.venueService.SearchVenues("Va")
 
@@ -656,8 +657,8 @@ func (suite *VenueServiceIntegrationTestSuite) TestSearchVenues_ShortQuery_Prefi
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestSearchVenues_LongQuery_TrigramMatch() {
-	suite.venueService.CreateVenue(&CreateVenueRequest{Name: "Crescent Ballroom", City: "Phoenix", State: "AZ"}, true)
-	suite.venueService.CreateVenue(&CreateVenueRequest{Name: "The Rebel Lounge", City: "Phoenix", State: "AZ"}, true)
+	suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "Crescent Ballroom", City: "Phoenix", State: "AZ"}, true)
+	suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "The Rebel Lounge", City: "Phoenix", State: "AZ"}, true)
 
 	resp, err := suite.venueService.SearchVenues("Crescent")
 
@@ -667,7 +668,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestSearchVenues_LongQuery_Trigra
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestSearchVenues_NoMatch() {
-	suite.venueService.CreateVenue(&CreateVenueRequest{Name: "Real Venue", City: "Phoenix", State: "AZ"}, true)
+	suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "Real Venue", City: "Phoenix", State: "AZ"}, true)
 
 	resp, err := suite.venueService.SearchVenues("zzzznonexistent")
 
@@ -692,7 +693,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_CreatesNew(
 
 func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_FindsExisting() {
 	// Create a venue first
-	suite.venueService.CreateVenue(&CreateVenueRequest{
+	suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Existing Place",
 		City:  "Phoenix",
 		State: "AZ",
@@ -706,7 +707,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_FindsExisti
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_CaseInsensitive() {
-	suite.venueService.CreateVenue(&CreateVenueRequest{
+	suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "The Venue",
 		City:  "Phoenix",
 		State: "AZ",
@@ -764,7 +765,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_ValidationE
 // =============================================================================
 
 func (suite *VenueServiceIntegrationTestSuite) TestVerifyVenue_Success() {
-	created, err := suite.venueService.CreateVenue(&CreateVenueRequest{
+	created, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Unverified Spot",
 		City:  "Phoenix",
 		State: "AZ",
@@ -779,7 +780,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestVerifyVenue_Success() {
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestVerifyVenue_AlreadyVerified() {
-	created, err := suite.venueService.CreateVenue(&CreateVenueRequest{
+	created, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Already Verified",
 		City:  "Phoenix",
 		State: "AZ",
@@ -810,7 +811,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_OnlyV
 	suite.createTestVenue("Verified Venue", "Phoenix", "AZ", true)
 	suite.createTestVenue("Unverified Venue", "Phoenix", "AZ", false)
 
-	resp, total, err := suite.venueService.GetVenuesWithShowCounts(VenueListFilters{}, 10, 0)
+	resp, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -828,7 +829,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_SortB
 	suite.createApprovedShow(venue2.ID, user.ID)
 	suite.createApprovedShow(venue1.ID, user.ID)
 
-	resp, _, err := suite.venueService.GetVenuesWithShowCounts(VenueListFilters{}, 10, 0)
+	resp, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 2)
@@ -843,7 +844,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Filte
 	suite.createTestVenue("PHX Counted", "Phoenix", "AZ", true)
 	suite.createTestVenue("TUC Counted", "Tucson", "AZ", true)
 
-	resp, total, err := suite.venueService.GetVenuesWithShowCounts(VenueListFilters{City: "Phoenix"}, 10, 0)
+	resp, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{City: "Phoenix"}, 10, 0)
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -857,18 +858,18 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Pagin
 	}
 
 	// Page 1
-	resp1, total, err := suite.venueService.GetVenuesWithShowCounts(VenueListFilters{}, 2, 0)
+	resp1, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 2, 0)
 	suite.Require().NoError(err)
 	suite.Equal(int64(5), total)
 	suite.Len(resp1, 2)
 
 	// Page 2
-	resp2, _, err := suite.venueService.GetVenuesWithShowCounts(VenueListFilters{}, 2, 2)
+	resp2, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 2, 2)
 	suite.Require().NoError(err)
 	suite.Len(resp2, 2)
 
 	// Page 3 (last)
-	resp3, _, err := suite.venueService.GetVenuesWithShowCounts(VenueListFilters{}, 2, 4)
+	resp3, _, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 2, 4)
 	suite.Require().NoError(err)
 	suite.Len(resp3, 1)
 
@@ -1022,14 +1023,14 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueCities_OnlyVerified()
 // =============================================================================
 
 func (suite *VenueServiceIntegrationTestSuite) TestCreatePendingVenueEdit_Success() {
-	venue, _ := suite.venueService.CreateVenue(&CreateVenueRequest{
+	venue, _ := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Edit Target",
 		City:  "Phoenix",
 		State: "AZ",
 	}, true)
 	user := suite.createTestUser()
 
-	resp, err := suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &VenueEditRequest{
+	resp, err := suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &contracts.VenueEditRequest{
 		Name:    stringPtr("New Name"),
 		Address: stringPtr("789 Edit St"),
 	})
@@ -1044,19 +1045,19 @@ func (suite *VenueServiceIntegrationTestSuite) TestCreatePendingVenueEdit_Succes
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestCreatePendingVenueEdit_DuplicatePending_Fails() {
-	venue, _ := suite.venueService.CreateVenue(&CreateVenueRequest{
+	venue, _ := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Dup Edit Target",
 		City:  "Phoenix",
 		State: "AZ",
 	}, true)
 	user := suite.createTestUser()
 
-	_, err := suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &VenueEditRequest{
+	_, err := suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &contracts.VenueEditRequest{
 		Name: stringPtr("First Edit"),
 	})
 	suite.Require().NoError(err)
 
-	_, err = suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &VenueEditRequest{
+	_, err = suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &contracts.VenueEditRequest{
 		Name: stringPtr("Second Edit"),
 	})
 
@@ -1069,7 +1070,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestCreatePendingVenueEdit_Duplic
 func (suite *VenueServiceIntegrationTestSuite) TestCreatePendingVenueEdit_VenueNotFound() {
 	user := suite.createTestUser()
 
-	_, err := suite.venueService.CreatePendingVenueEdit(99999, user.ID, &VenueEditRequest{
+	_, err := suite.venueService.CreatePendingVenueEdit(99999, user.ID, &contracts.VenueEditRequest{
 		Name: stringPtr("Edit"),
 	})
 
@@ -1080,14 +1081,14 @@ func (suite *VenueServiceIntegrationTestSuite) TestCreatePendingVenueEdit_VenueN
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetPendingEditForVenue_Success() {
-	venue, _ := suite.venueService.CreateVenue(&CreateVenueRequest{
+	venue, _ := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Get Edit Target",
 		City:  "Phoenix",
 		State: "AZ",
 	}, true)
 	user := suite.createTestUser()
 
-	suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &VenueEditRequest{
+	suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &contracts.VenueEditRequest{
 		Name: stringPtr("Proposed Name"),
 	})
 
@@ -1099,7 +1100,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetPendingEditForVenue_Succes
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetPendingEditForVenue_NoPendingEdit() {
-	venue, _ := suite.venueService.CreateVenue(&CreateVenueRequest{
+	venue, _ := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "No Edits Here",
 		City:  "Phoenix",
 		State: "AZ",
@@ -1117,12 +1118,12 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetPendingVenueEdits_Paginati
 
 	// Create 3 venues with pending edits
 	for i := 0; i < 3; i++ {
-		venue, _ := suite.venueService.CreateVenue(&CreateVenueRequest{
+		venue, _ := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 			Name:  fmt.Sprintf("Edit Venue %d", i),
 			City:  "Phoenix",
 			State: "AZ",
 		}, true)
-		suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &VenueEditRequest{
+		suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &contracts.VenueEditRequest{
 			Name: stringPtr(fmt.Sprintf("New Name %d", i)),
 		})
 	}
@@ -1140,7 +1141,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetPendingVenueEdits_Paginati
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestApproveVenueEdit_Success() {
-	venue, _ := suite.venueService.CreateVenue(&CreateVenueRequest{
+	venue, _ := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Approve Target",
 		City:  "Phoenix",
 		State: "AZ",
@@ -1148,7 +1149,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestApproveVenueEdit_Success() {
 	user := suite.createTestUser()
 	reviewer := suite.createTestUser()
 
-	editResp, err := suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &VenueEditRequest{
+	editResp, err := suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &contracts.VenueEditRequest{
 		Name:    stringPtr("Approved Name"),
 		Address: stringPtr("111 Approved St"),
 	})
@@ -1169,7 +1170,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestApproveVenueEdit_Success() {
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestRejectVenueEdit_Success() {
-	venue, _ := suite.venueService.CreateVenue(&CreateVenueRequest{
+	venue, _ := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Reject Target",
 		City:  "Phoenix",
 		State: "AZ",
@@ -1177,7 +1178,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestRejectVenueEdit_Success() {
 	user := suite.createTestUser()
 	reviewer := suite.createTestUser()
 
-	editResp, err := suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &VenueEditRequest{
+	editResp, err := suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &contracts.VenueEditRequest{
 		Name: stringPtr("Bad Name"),
 	})
 	suite.Require().NoError(err)
@@ -1200,7 +1201,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestRejectVenueEdit_Success() {
 // =============================================================================
 
 func (suite *VenueServiceIntegrationTestSuite) TestApproveVenueEdit_AlreadyReviewed_Fails() {
-	venue, _ := suite.venueService.CreateVenue(&CreateVenueRequest{
+	venue, _ := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Already Reviewed A",
 		City:  "Phoenix",
 		State: "AZ",
@@ -1208,7 +1209,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestApproveVenueEdit_AlreadyRevie
 	user := suite.createTestUser()
 	reviewer := suite.createTestUser()
 
-	editResp, _ := suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &VenueEditRequest{
+	editResp, _ := suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &contracts.VenueEditRequest{
 		Name: stringPtr("X"),
 	})
 	// Approve it first
@@ -1222,7 +1223,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestApproveVenueEdit_AlreadyRevie
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestRejectVenueEdit_AlreadyReviewed_Fails() {
-	venue, _ := suite.venueService.CreateVenue(&CreateVenueRequest{
+	venue, _ := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Already Reviewed R",
 		City:  "Phoenix",
 		State: "AZ",
@@ -1230,7 +1231,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestRejectVenueEdit_AlreadyReview
 	user := suite.createTestUser()
 	reviewer := suite.createTestUser()
 
-	editResp, _ := suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &VenueEditRequest{
+	editResp, _ := suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &contracts.VenueEditRequest{
 		Name: stringPtr("X"),
 	})
 	// Reject it first
@@ -1244,14 +1245,14 @@ func (suite *VenueServiceIntegrationTestSuite) TestRejectVenueEdit_AlreadyReview
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestCancelPendingVenueEdit_Success() {
-	venue, _ := suite.venueService.CreateVenue(&CreateVenueRequest{
+	venue, _ := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Cancel Target",
 		City:  "Phoenix",
 		State: "AZ",
 	}, true)
 	user := suite.createTestUser()
 
-	editResp, _ := suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &VenueEditRequest{
+	editResp, _ := suite.venueService.CreatePendingVenueEdit(venue.ID, user.ID, &contracts.VenueEditRequest{
 		Name: stringPtr("Cancel Me"),
 	})
 
@@ -1266,7 +1267,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestCancelPendingVenueEdit_Succes
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestCancelPendingVenueEdit_WrongUser_Fails() {
-	venue, _ := suite.venueService.CreateVenue(&CreateVenueRequest{
+	venue, _ := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:  "Wrong User Target",
 		City:  "Phoenix",
 		State: "AZ",
@@ -1274,7 +1275,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestCancelPendingVenueEdit_WrongU
 	owner := suite.createTestUser()
 	otherUser := suite.createTestUser()
 
-	editResp, _ := suite.venueService.CreatePendingVenueEdit(venue.ID, owner.ID, &VenueEditRequest{
+	editResp, _ := suite.venueService.CreatePendingVenueEdit(venue.ID, owner.ID, &contracts.VenueEditRequest{
 		Name: stringPtr("Owner Edit"),
 	})
 
@@ -1289,7 +1290,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestCancelPendingVenueEdit_WrongU
 // =============================================================================
 
 func (suite *VenueServiceIntegrationTestSuite) TestBuildVenueResponse_UnverifiedHidesAddress() {
-	resp, err := suite.venueService.CreateVenue(&CreateVenueRequest{
+	resp, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:    "Hidden Address",
 		City:    "Phoenix",
 		State:   "AZ",
@@ -1303,7 +1304,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestBuildVenueResponse_Unverified
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestBuildVenueResponse_VerifiedShowsAddress() {
-	resp, err := suite.venueService.CreateVenue(&CreateVenueRequest{
+	resp, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:    "Visible Address",
 		City:    "Phoenix",
 		State:   "AZ",

@@ -1,4 +1,4 @@
-package services
+package catalog
 
 import (
 	"fmt"
@@ -10,6 +10,7 @@ import (
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -30,7 +31,7 @@ func NewArtistService(database *gorm.DB) *ArtistService {
 
 
 // CreateArtist creates a new artist
-func (s *ArtistService) CreateArtist(req *CreateArtistRequest) (*ArtistDetailResponse, error) {
+func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -78,7 +79,7 @@ func (s *ArtistService) CreateArtist(req *CreateArtistRequest) (*ArtistDetailRes
 }
 
 // GetArtist retrieves an artist by ID
-func (s *ArtistService) GetArtist(artistID uint) (*ArtistDetailResponse, error) {
+func (s *ArtistService) GetArtist(artistID uint) (*contracts.ArtistDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -96,7 +97,7 @@ func (s *ArtistService) GetArtist(artistID uint) (*ArtistDetailResponse, error) 
 }
 
 // GetArtistByName retrieves an artist by name (case-insensitive)
-func (s *ArtistService) GetArtistByName(name string) (*ArtistDetailResponse, error) {
+func (s *ArtistService) GetArtistByName(name string) (*contracts.ArtistDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -114,7 +115,7 @@ func (s *ArtistService) GetArtistByName(name string) (*ArtistDetailResponse, err
 }
 
 // GetArtistBySlug retrieves an artist by slug
-func (s *ArtistService) GetArtistBySlug(slug string) (*ArtistDetailResponse, error) {
+func (s *ArtistService) GetArtistBySlug(slug string) (*contracts.ArtistDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -132,7 +133,7 @@ func (s *ArtistService) GetArtistBySlug(slug string) (*ArtistDetailResponse, err
 }
 
 // GetArtists retrieves artists with optional filtering
-func (s *ArtistService) GetArtists(filters map[string]interface{}) ([]*ArtistDetailResponse, error) {
+func (s *ArtistService) GetArtists(filters map[string]interface{}) ([]*contracts.ArtistDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -175,7 +176,7 @@ func (s *ArtistService) GetArtists(filters map[string]interface{}) ([]*ArtistDet
 	}
 
 	// Build responses
-	responses := make([]*ArtistDetailResponse, len(artists))
+	responses := make([]*contracts.ArtistDetailResponse, len(artists))
 	for i, artist := range artists {
 		responses[i] = s.buildArtistResponse(&artist)
 	}
@@ -184,7 +185,7 @@ func (s *ArtistService) GetArtists(filters map[string]interface{}) ([]*ArtistDet
 }
 
 // UpdateArtist updates an existing artist
-func (s *ArtistService) UpdateArtist(artistID uint, updates map[string]interface{}) (*ArtistDetailResponse, error) {
+func (s *ArtistService) UpdateArtist(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -257,14 +258,14 @@ func (s *ArtistService) DeleteArtist(artistID uint) error {
 // Uses pg_trgm extension for performant fuzzy matching with intelligent query strategy:
 // - Short queries (1-2 chars): Fast case-insensitive prefix search
 // - Longer queries (3+ chars): Similarity-based fuzzy matching with ranking
-func (s *ArtistService) SearchArtists(query string) ([]*ArtistDetailResponse, error) {
+func (s *ArtistService) SearchArtists(query string) ([]*contracts.ArtistDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
 	// Return empty results for empty query
 	if query == "" {
-		return []*ArtistDetailResponse{}, nil
+		return []*contracts.ArtistDetailResponse{}, nil
 	}
 
 	var artists []models.Artist
@@ -298,7 +299,7 @@ func (s *ArtistService) SearchArtists(query string) ([]*ArtistDetailResponse, er
 	}
 
 	// Build response
-	responses := make([]*ArtistDetailResponse, len(artists))
+	responses := make([]*contracts.ArtistDetailResponse, len(artists))
 	for i, artist := range artists {
 		responses[i] = s.buildArtistResponse(&artist)
 	}
@@ -312,11 +313,11 @@ type ArtistWithCount struct {
 	UpcomingShowCount int64 `gorm:"column:upcoming_show_count"`
 }
 
-// ArtistWithShowCountResponse represents an artist with its upcoming show count
+// contracts.ArtistWithShowCountResponse represents an artist with its upcoming show count
 
 // GetArtistsWithShowCounts retrieves artists that have upcoming approved shows,
 // with their show counts. Results are sorted by show count (descending), then name (ascending).
-func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{}) ([]*ArtistWithShowCountResponse, error) {
+func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -363,9 +364,9 @@ func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{})
 	}
 
 	// Build responses
-	responses := make([]*ArtistWithShowCountResponse, len(artistsWithCount))
+	responses := make([]*contracts.ArtistWithShowCountResponse, len(artistsWithCount))
 	for i, ac := range artistsWithCount {
-		responses[i] = &ArtistWithShowCountResponse{
+		responses[i] = &contracts.ArtistWithShowCountResponse{
 			ArtistDetailResponse: *s.buildArtistResponse(&ac.Artist),
 			UpcomingShowCount:    int(ac.UpcomingShowCount),
 		}
@@ -378,7 +379,7 @@ func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{})
 // GetArtistCities returns distinct cities for artists that have upcoming approved shows.
 // Only artists with both city and state set are included.
 // Results are sorted by artist count (descending) to show most active cities first.
-func (s *ArtistService) GetArtistCities() ([]*ArtistCityResponse, error) {
+func (s *ArtistService) GetArtistCities() ([]*contracts.ArtistCityResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -409,9 +410,9 @@ func (s *ArtistService) GetArtistCities() ([]*ArtistCityResponse, error) {
 		return nil, fmt.Errorf("failed to get artist cities: %w", err)
 	}
 
-	responses := make([]*ArtistCityResponse, len(results))
+	responses := make([]*contracts.ArtistCityResponse, len(results))
 	for i, r := range results {
-		responses[i] = &ArtistCityResponse{
+		responses[i] = &contracts.ArtistCityResponse{
 			City:        r.City,
 			State:       r.State,
 			ArtistCount: int(r.ArtistCount),
@@ -421,20 +422,20 @@ func (s *ArtistService) GetArtistCities() ([]*ArtistCityResponse, error) {
 	return responses, nil
 }
 
-// buildArtistResponse converts an Artist model to ArtistDetailResponse
-func (s *ArtistService) buildArtistResponse(artist *models.Artist) *ArtistDetailResponse {
+// buildArtistResponse converts an Artist model to contracts.ArtistDetailResponse
+func (s *ArtistService) buildArtistResponse(artist *models.Artist) *contracts.ArtistDetailResponse {
 	slug := ""
 	if artist.Slug != nil {
 		slug = *artist.Slug
 	}
-	return &ArtistDetailResponse{
+	return &contracts.ArtistDetailResponse{
 		ID:               artist.ID,
 		Slug:             slug,
 		Name:             artist.Name,
 		State:            artist.State,
 		City:             artist.City,
 		BandcampEmbedURL: artist.BandcampEmbedURL,
-		Social: SocialResponse{
+		Social: contracts.SocialResponse{
 			Instagram:  artist.Social.Instagram,
 			Facebook:   artist.Social.Facebook,
 			Twitter:    artist.Social.Twitter,
@@ -449,10 +450,10 @@ func (s *ArtistService) buildArtistResponse(artist *models.Artist) *ArtistDetail
 	}
 }
 
-// ArtistLabelResponse represents a label the artist is on
+// contracts.ArtistLabelResponse represents a label the artist is on
 
 // GetLabelsForArtist retrieves all labels associated with an artist
-func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*ArtistLabelResponse, error) {
+func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*contracts.ArtistLabelResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -471,7 +472,7 @@ func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*ArtistLabelRespons
 	s.db.Where("artist_id = ?", artistID).Find(&artistLabels)
 
 	if len(artistLabels) == 0 {
-		return []*ArtistLabelResponse{}, nil
+		return []*contracts.ArtistLabelResponse{}, nil
 	}
 
 	labelIDs := make([]uint, len(artistLabels))
@@ -482,13 +483,13 @@ func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*ArtistLabelRespons
 	var labels []models.Label
 	s.db.Where("id IN ?", labelIDs).Order("name ASC").Find(&labels)
 
-	responses := make([]*ArtistLabelResponse, len(labels))
+	responses := make([]*contracts.ArtistLabelResponse, len(labels))
 	for i, label := range labels {
 		slug := ""
 		if label.Slug != nil {
 			slug = *label.Slug
 		}
-		responses[i] = &ArtistLabelResponse{
+		responses[i] = &contracts.ArtistLabelResponse{
 			ID:    label.ID,
 			Name:  label.Name,
 			Slug:  slug,
@@ -504,7 +505,7 @@ func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*ArtistLabelRespons
 // GetShowsForArtist retrieves shows for a specific artist with time filtering.
 // timeFilter can be: "upcoming" (event_date >= today), "past" (event_date < today), or "all"
 // Only returns approved shows.
-func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*ArtistShowResponse, int64, error) {
+func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*contracts.ArtistShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -628,17 +629,17 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	}
 
 	// Build responses
-	responses := make([]*ArtistShowResponse, len(shows))
+	responses := make([]*contracts.ArtistShowResponse, len(shows))
 	for i, show := range shows {
 		// Look up venue for this show
-		var venue *ArtistShowVenueResponse
+		var venue *contracts.ArtistShowVenueResponse
 		if venueID, ok := showVenueMap[show.ID]; ok {
 			if venueModel, ok := venueMap[venueID]; ok {
 				var venueSlug string
 				if venueModel.Slug != nil {
 					venueSlug = *venueModel.Slug
 				}
-				venue = &ArtistShowVenueResponse{
+				venue = &contracts.ArtistShowVenueResponse{
 					ID:    venueModel.ID,
 					Slug:  venueSlug,
 					Name:  venueModel.Name,
@@ -649,14 +650,14 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 		}
 
 		// Look up ordered artists for this show
-		artists := make([]ArtistShowArtist, 0)
+		artists := make([]contracts.ArtistShowArtist, 0)
 		for _, sa := range showArtistsMap[show.ID] {
 			if artistModel, ok := artistMap[sa.ArtistID]; ok {
 				var artistSlug string
 				if artistModel.Slug != nil {
 					artistSlug = *artistModel.Slug
 				}
-				artists = append(artists, ArtistShowArtist{
+				artists = append(artists, contracts.ArtistShowArtist{
 					ID:   artistModel.ID,
 					Slug: artistSlug,
 					Name: artistModel.Name,
@@ -664,7 +665,7 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 			}
 		}
 
-		responses[i] = &ArtistShowResponse{
+		responses[i] = &contracts.ArtistShowResponse{
 			ID:             show.ID,
 			Title:          show.Title,
 			EventDate:      show.EventDate,
