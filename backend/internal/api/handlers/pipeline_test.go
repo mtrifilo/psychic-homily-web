@@ -37,13 +37,15 @@ func (m *mockPipelineService) ExtractVenue(venueID uint, dryRun bool) (*services
 // ============================================================================
 
 type mockVenueSourceConfigService struct {
-	getByVenueIDFn      func(venueID uint) (*models.VenueSourceConfig, error)
-	createOrUpdateFn    func(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error)
-	updateAfterRunFn    func(venueID uint, contentHash, etag *string, eventsExtracted int) error
-	incrementFailuresFn func(venueID uint) error
-	recordRunFn         func(run *models.VenueExtractionRun) error
-	getRecentRunsFn     func(venueID uint, limit int) ([]models.VenueExtractionRun, error)
-	listConfiguredFn    func() ([]models.VenueSourceConfig, error)
+	getByVenueIDFn        func(venueID uint) (*models.VenueSourceConfig, error)
+	createOrUpdateFn      func(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error)
+	updateAfterRunFn      func(venueID uint, contentHash, etag *string, eventsExtracted int) error
+	incrementFailuresFn   func(venueID uint) error
+	recordRunFn           func(run *models.VenueExtractionRun) error
+	getRecentRunsFn       func(venueID uint, limit int) ([]models.VenueExtractionRun, error)
+	listConfiguredFn      func() ([]models.VenueSourceConfig, error)
+	getRejectionStatsFn   func(venueID uint) (*services.VenueRejectionStats, error)
+	updateExtractionNotesFn func(venueID uint, notes *string) error
 }
 
 func (m *mockVenueSourceConfigService) GetByVenueID(venueID uint) (*models.VenueSourceConfig, error) {
@@ -87,6 +89,18 @@ func (m *mockVenueSourceConfigService) ListConfigured() ([]models.VenueSourceCon
 		return m.listConfiguredFn()
 	}
 	return nil, nil
+}
+func (m *mockVenueSourceConfigService) GetRejectionStats(venueID uint) (*services.VenueRejectionStats, error) {
+	if m.getRejectionStatsFn != nil {
+		return m.getRejectionStatsFn(venueID)
+	}
+	return &services.VenueRejectionStats{RejectionBreakdown: make(map[string]int64)}, nil
+}
+func (m *mockVenueSourceConfigService) UpdateExtractionNotes(venueID uint, notes *string) error {
+	if m.updateExtractionNotesFn != nil {
+		return m.updateExtractionNotesFn(venueID, notes)
+	}
+	return nil
 }
 
 // ============================================================================
@@ -133,6 +147,14 @@ func TestPipelineHandler_RequiresAdmin(t *testing.T) {
 		}},
 		{"ListPipelineVenues", func(ctx context.Context) error {
 			_, err := h.ListPipelineVenuesHandler(ctx, &ListPipelineVenuesRequest{})
+			return err
+		}},
+		{"VenueRejectionStats", func(ctx context.Context) error {
+			_, err := h.VenueRejectionStatsHandler(ctx, &VenueRejectionStatsRequest{VenueID: "1"})
+			return err
+		}},
+		{"UpdateExtractionNotes", func(ctx context.Context) error {
+			_, err := h.UpdateExtractionNotesHandler(ctx, &UpdateExtractionNotesRequest{VenueID: "1"})
 			return err
 		}},
 	}
@@ -317,4 +339,142 @@ func TestPipelineHandler_ListVenues_ServiceError(t *testing.T) {
 
 	_, err := h.ListPipelineVenuesHandler(pipelineAdminCtx(), &ListPipelineVenuesRequest{})
 	assertHumaError(t, err, 500)
+}
+
+// ============================================================================
+// Tests: VenueRejectionStatsHandler
+// ============================================================================
+
+func TestPipelineHandler_RejectionStats_Success(t *testing.T) {
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{
+			getRejectionStatsFn: func(venueID uint) (*services.VenueRejectionStats, error) {
+				return &services.VenueRejectionStats{
+					TotalExtracted:       100,
+					Approved:             85,
+					Rejected:             10,
+					Pending:              5,
+					RejectionBreakdown:   map[string]int64{"non_music": 7, "duplicate": 3},
+					ApprovalRate:         0.8947,
+					SuggestedAutoApprove: false,
+				}, nil
+			},
+		},
+	)
+
+	resp, err := h.VenueRejectionStatsHandler(pipelineAdminCtx(), &VenueRejectionStatsRequest{VenueID: "1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.TotalExtracted != 100 {
+		t.Errorf("expected total_extracted=100, got %d", resp.Body.TotalExtracted)
+	}
+	if resp.Body.Approved != 85 {
+		t.Errorf("expected approved=85, got %d", resp.Body.Approved)
+	}
+	if resp.Body.RejectionBreakdown["non_music"] != 7 {
+		t.Errorf("expected non_music=7, got %d", resp.Body.RejectionBreakdown["non_music"])
+	}
+}
+
+func TestPipelineHandler_RejectionStats_InvalidVenueID(t *testing.T) {
+	h := NewPipelineHandler(&mockPipelineService{}, &mockVenueSourceConfigService{})
+
+	_, err := h.VenueRejectionStatsHandler(pipelineAdminCtx(), &VenueRejectionStatsRequest{VenueID: "abc"})
+	assertHumaError(t, err, 400)
+}
+
+func TestPipelineHandler_RejectionStats_ServiceError(t *testing.T) {
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{
+			getRejectionStatsFn: func(venueID uint) (*services.VenueRejectionStats, error) {
+				return nil, fmt.Errorf("venue not found")
+			},
+		},
+	)
+
+	_, err := h.VenueRejectionStatsHandler(pipelineAdminCtx(), &VenueRejectionStatsRequest{VenueID: "999"})
+	assertHumaError(t, err, 422)
+}
+
+// ============================================================================
+// Tests: UpdateExtractionNotesHandler
+// ============================================================================
+
+func TestPipelineHandler_UpdateNotes_Success(t *testing.T) {
+	var receivedVenueID uint
+	var receivedNotes *string
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{
+			updateExtractionNotesFn: func(venueID uint, notes *string) error {
+				receivedVenueID = venueID
+				receivedNotes = notes
+				return nil
+			},
+		},
+	)
+
+	notes := "Skip karaoke Tuesdays and trivia Wednesdays"
+	req := &UpdateExtractionNotesRequest{VenueID: "10"}
+	req.Body.ExtractionNotes = &notes
+
+	resp, err := h.UpdateExtractionNotesHandler(pipelineAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Error("expected success=true")
+	}
+	if receivedVenueID != 10 {
+		t.Errorf("expected venueID=10, got %d", receivedVenueID)
+	}
+	if receivedNotes == nil || *receivedNotes != notes {
+		t.Errorf("expected notes=%q, got %v", notes, receivedNotes)
+	}
+}
+
+func TestPipelineHandler_UpdateNotes_ClearNotes(t *testing.T) {
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{},
+	)
+
+	req := &UpdateExtractionNotesRequest{VenueID: "10"}
+	req.Body.ExtractionNotes = nil
+
+	resp, err := h.UpdateExtractionNotesHandler(pipelineAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Error("expected success=true")
+	}
+}
+
+func TestPipelineHandler_UpdateNotes_InvalidVenueID(t *testing.T) {
+	h := NewPipelineHandler(&mockPipelineService{}, &mockVenueSourceConfigService{})
+
+	_, err := h.UpdateExtractionNotesHandler(pipelineAdminCtx(), &UpdateExtractionNotesRequest{VenueID: "abc"})
+	assertHumaError(t, err, 400)
+}
+
+func TestPipelineHandler_UpdateNotes_ServiceError(t *testing.T) {
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{
+			updateExtractionNotesFn: func(venueID uint, notes *string) error {
+				return fmt.Errorf("venue source config not found for venue 999")
+			},
+		},
+	)
+
+	req := &UpdateExtractionNotesRequest{VenueID: "999"}
+	notes := "some notes"
+	req.Body.ExtractionNotes = &notes
+
+	_, err := h.UpdateExtractionNotesHandler(pipelineAdminCtx(), req)
+	assertHumaError(t, err, 422)
 }

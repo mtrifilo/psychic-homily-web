@@ -246,7 +246,7 @@ type PasswordValidatorInterface interface {
 // ExtractionServiceInterface defines the contract for AI show extraction operations.
 type ExtractionServiceInterface interface {
 	ExtractShow(req *ExtractShowRequest) (*ExtractShowResponse, error)
-	ExtractCalendarPage(venueName string, content string, contentType string) (*CalendarExtractionResponse, error)
+	ExtractCalendarPage(venueName string, content string, contentType string, extractionNotes ...string) (*CalendarExtractionResponse, error)
 }
 
 // MusicDiscoveryServiceInterface defines the contract for music discovery operations.
@@ -404,4 +404,6 @@ type VenueSourceConfigServiceInterface interface {
 	RecordRun(run *models.VenueExtractionRun) error
 	GetRecentRuns(venueID uint, limit int) ([]models.VenueExtractionRun, error)
 	ListConfigured() ([]models.VenueSourceConfig, error)
+	GetRejectionStats(venueID uint) (*VenueRejectionStats, error)
+	UpdateExtractionNotes(venueID uint, notes *string) error
 }

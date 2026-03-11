@@ -9,13 +9,14 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/utils"
 )
 
 // DataSyncService handles exporting and importing data between environments
 type DataSyncService struct {
 	db           *gorm.DB
-	venueService *VenueService
+	venueService *catalog.VenueService
 }
 
 // NewDataSyncService creates a new data sync service
@@ -25,7 +26,7 @@ func NewDataSyncService(database *gorm.DB) *DataSyncService {
 	}
 	return &DataSyncService{
 		db:           database,
-		venueService: NewVenueService(database),
+		venueService: catalog.NewVenueService(database),
 	}
 }
 

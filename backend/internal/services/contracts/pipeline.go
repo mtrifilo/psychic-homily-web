@@ -168,6 +168,17 @@ type PipelineResult struct {
 	InitialStatus        string   `json:"initial_status"`
 }
 
+// VenueRejectionStats contains rejection breakdown and approval rate for a venue's pipeline shows.
+type VenueRejectionStats struct {
+	TotalExtracted       int64            `json:"total_extracted"`
+	Approved             int64            `json:"approved"`
+	Rejected             int64            `json:"rejected"`
+	Pending              int64            `json:"pending"`
+	RejectionBreakdown   map[string]int64 `json:"rejection_breakdown"`
+	ApprovalRate         float64          `json:"approval_rate"`
+	SuggestedAutoApprove bool             `json:"suggested_auto_approve"`
+}
+
 // ──────────────────────────────────────────────
 // Discovery types
 // ──────────────────────────────────────────────
