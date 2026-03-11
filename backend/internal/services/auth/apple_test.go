@@ -1,4 +1,4 @@
-package services
+package auth
 
 import (
 	"context"
@@ -24,6 +24,7 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -36,10 +37,10 @@ func TestNewAppleAuthService(t *testing.T) {
 		Apple: config.AppleConfig{BundleID: "com.test.app"},
 		JWT:   config.JWTConfig{SecretKey: "test-key", Expiry: 24},
 	}
-	svc := NewAppleAuthService(nil, cfg)
+	jwtSvc := NewJWTService(nil, cfg, newNilDBUserService())
+	svc := NewAppleAuthService(nil, cfg, jwtSvc)
 	assert.NotNil(t, svc)
 	assert.NotNil(t, svc.config)
-	assert.NotNil(t, svc.userService)
 	assert.NotNil(t, svc.jwtService)
 	assert.NotNil(t, svc.keys)
 	assert.Empty(t, svc.keys)
@@ -54,7 +55,8 @@ func TestAppleAuthService_GenerateToken(t *testing.T) {
 		Apple: config.AppleConfig{BundleID: "com.test.app"},
 		JWT:   config.JWTConfig{SecretKey: "test-key-for-apple-generate", Expiry: 24},
 	}
-	svc := NewAppleAuthService(nil, cfg)
+	jwtSvc := NewJWTService(nil, cfg, newNilDBUserService())
+	svc := NewAppleAuthService(nil, cfg, jwtSvc)
 
 	user := &models.User{ID: 42, Email: stringPtr("apple@example.com")}
 	token, err := svc.GenerateToken(user)
@@ -77,32 +79,32 @@ func TestAppleAuthService_GenerateToken(t *testing.T) {
 
 func TestAppleIdentityTokenClaims_IsEmailVerified(t *testing.T) {
 	t.Run("bool_true", func(t *testing.T) {
-		claims := &AppleIdentityTokenClaims{EmailVerified: true}
+		claims := &contracts.AppleIdentityTokenClaims{EmailVerified: true}
 		assert.True(t, claims.IsEmailVerified())
 	})
 
 	t.Run("bool_false", func(t *testing.T) {
-		claims := &AppleIdentityTokenClaims{EmailVerified: false}
+		claims := &contracts.AppleIdentityTokenClaims{EmailVerified: false}
 		assert.False(t, claims.IsEmailVerified())
 	})
 
 	t.Run("string_true", func(t *testing.T) {
-		claims := &AppleIdentityTokenClaims{EmailVerified: "true"}
+		claims := &contracts.AppleIdentityTokenClaims{EmailVerified: "true"}
 		assert.True(t, claims.IsEmailVerified())
 	})
 
 	t.Run("string_false", func(t *testing.T) {
-		claims := &AppleIdentityTokenClaims{EmailVerified: "false"}
+		claims := &contracts.AppleIdentityTokenClaims{EmailVerified: "false"}
 		assert.False(t, claims.IsEmailVerified())
 	})
 
 	t.Run("nil_value", func(t *testing.T) {
-		claims := &AppleIdentityTokenClaims{EmailVerified: nil}
+		claims := &contracts.AppleIdentityTokenClaims{EmailVerified: nil}
 		assert.False(t, claims.IsEmailVerified())
 	})
 
 	t.Run("unexpected_type_int", func(t *testing.T) {
-		claims := &AppleIdentityTokenClaims{EmailVerified: 1}
+		claims := &contracts.AppleIdentityTokenClaims{EmailVerified: 1}
 		assert.False(t, claims.IsEmailVerified())
 	})
 }
@@ -294,7 +296,7 @@ func TestAppleKeyFetching(t *testing.T) {
 func createTestAppleService(cfg *config.Config, mockKeysURL string) *AppleAuthService {
 	svc := &AppleAuthService{
 		config:                cfg,
-		jwtService:            NewJWTService(nil, cfg),
+		jwtService:            NewJWTService(nil, cfg, newNilDBUserService()),
 		keys:                  make(map[string]*rsa.PublicKey),
 		fetchAppleKeysFromURL: mockKeysURL,
 	}
@@ -377,7 +379,7 @@ func (s *AppleAuthIntegrationTestSuite) SetupSuite() {
 	if err != nil {
 		s.T().Fatalf("failed to get sql.DB: %v", err)
 	}
-	testutil.RunAllMigrations(s.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(s.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	s.cfg = &config.Config{
 		Apple: config.AppleConfig{BundleID: "com.test.app"},
@@ -402,11 +404,10 @@ func (s *AppleAuthIntegrationTestSuite) TearDownTest() {
 
 func (s *AppleAuthIntegrationTestSuite) newService() *AppleAuthService {
 	return &AppleAuthService{
-		db:          s.db,
-		config:      s.cfg,
-		userService: &UserService{db: s.db},
-		jwtService:  NewJWTService(s.db, s.cfg),
-		keys:        make(map[string]*rsa.PublicKey),
+		db:         s.db,
+		config:     s.cfg,
+		jwtService: NewJWTService(s.db, s.cfg, newNilDBUserService()),
+		keys:       make(map[string]*rsa.PublicKey),
 	}
 }
 
@@ -416,7 +417,7 @@ func (s *AppleAuthIntegrationTestSuite) newService() *AppleAuthService {
 
 func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_NewUser_CreatesUserAndOAuth() {
 	svc := s.newService()
-	claims := &AppleIdentityTokenClaims{
+	claims := &contracts.AppleIdentityTokenClaims{
 		Email:         "apple@example.com",
 		EmailVerified: true,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -448,7 +449,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_NewUser_Create
 
 func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_NewUser_NoEmail() {
 	svc := s.newService()
-	claims := &AppleIdentityTokenClaims{
+	claims := &contracts.AppleIdentityTokenClaims{
 		Email: "",
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-no-email",
@@ -469,7 +470,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingAppleU
 	svc := s.newService()
 
 	// Pre-create user via first call
-	claims := &AppleIdentityTokenClaims{
+	claims := &contracts.AppleIdentityTokenClaims{
 		Email: "existing-apple@example.com",
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-existing",
@@ -493,16 +494,16 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingAppleU
 func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_LinksAppleAccount() {
 	// Pre-create a user with email but no OAuth
 	existingUser := &models.User{
-		Email:         strPtr("link-apple@example.com"),
-		FirstName:     strPtr("Existing"),
-		LastName:      strPtr("User"),
+		Email:         stringPtr("link-apple@example.com"),
+		FirstName:     stringPtr("Existing"),
+		LastName:      stringPtr("User"),
 		IsActive:      true,
 		EmailVerified: true,
 	}
 	s.Require().NoError(s.db.Create(existingUser).Error)
 
 	svc := s.newService()
-	claims := &AppleIdentityTokenClaims{
+	claims := &contracts.AppleIdentityTokenClaims{
 		Email: "link-apple@example.com",
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-link",
@@ -522,7 +523,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 	svc := s.newService()
 
 	// Create first user with apple account
-	claims1 := &AppleIdentityTokenClaims{
+	claims1 := &contracts.AppleIdentityTokenClaims{
 		Email: "shared-email@example.com",
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-first",
@@ -534,7 +535,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 	// Second call with different apple subject but same email
 	// Since first user already has an apple OAuth, this looks up by apple subject (not found),
 	// then finds user by email and links the new apple ID
-	claims2 := &AppleIdentityTokenClaims{
+	claims2 := &contracts.AppleIdentityTokenClaims{
 		Email: "shared-email@example.com",
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: "apple-sub-second",
@@ -559,9 +560,9 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 func (s *AppleAuthIntegrationTestSuite) TestLinkAppleAccount_Success() {
 	// Pre-create user
 	user := &models.User{
-		Email:     strPtr("link-test@example.com"),
-		FirstName: strPtr("Link"),
-		LastName:  strPtr("Test"),
+		Email:     stringPtr("link-test@example.com"),
+		FirstName: stringPtr("Link"),
+		LastName:  stringPtr("Test"),
 		IsActive:  true,
 	}
 	s.Require().NoError(s.db.Create(user).Error)
@@ -583,9 +584,9 @@ func (s *AppleAuthIntegrationTestSuite) TestLinkAppleAccount_Success() {
 func (s *AppleAuthIntegrationTestSuite) TestLinkAppleAccount_UserHasPreferences() {
 	// Pre-create user with preferences
 	user := &models.User{
-		Email:     strPtr("prefs-test@example.com"),
-		FirstName: strPtr("Prefs"),
-		LastName:  strPtr("Test"),
+		Email:     stringPtr("prefs-test@example.com"),
+		FirstName: stringPtr("Prefs"),
+		LastName:  stringPtr("Test"),
 		IsActive:  true,
 	}
 	s.Require().NoError(s.db.Create(user).Error)
@@ -645,7 +646,7 @@ func (s *AppleAuthIntegrationTestSuite) TestCreateAppleUser_NoEmail() {
 func (s *AppleAuthIntegrationTestSuite) TestCreateAppleUser_DuplicateEmail() {
 	// Pre-create a user with the same email
 	existing := &models.User{
-		Email:    strPtr("dupe@example.com"),
+		Email:    stringPtr("dupe@example.com"),
 		IsActive: true,
 	}
 	s.Require().NoError(s.db.Create(existing).Error)
@@ -664,9 +665,4 @@ func (s *AppleAuthIntegrationTestSuite) TestCreateAppleUser_DuplicateEmail() {
 
 func TestAppleAuthIntegrationTestSuite(t *testing.T) {
 	suite.Run(t, new(AppleAuthIntegrationTestSuite))
-}
-
-// strPtr is a local helper for string pointer literals
-func strPtr(s string) *string {
-	return &s
 }

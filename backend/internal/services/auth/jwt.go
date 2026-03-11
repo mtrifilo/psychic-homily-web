@@ -1,28 +1,27 @@
-package services
+package auth
 
 import (
 	"errors"
 	"fmt"
 	"time"
 
-	"gorm.io/gorm"
+	"github.com/golang-jwt/jwt/v5"
 
 	"psychic-homily-backend/internal/config"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
-
-	"github.com/golang-jwt/jwt/v5"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 type JWTService struct {
 	config      *config.Config
-	userService *UserService
+	userService contracts.UserServiceInterface
 }
 
-func NewJWTService(database *gorm.DB, cfg *config.Config) *JWTService {
+func NewJWTService(database interface{}, cfg *config.Config, userService contracts.UserServiceInterface) *JWTService {
 	return &JWTService{
 		config:      cfg,
-		userService: NewUserService(database),
+		userService: userService,
 	}
 }
 
@@ -148,12 +147,10 @@ func (s *JWTService) ValidateTokenLenient(tokenString string, gracePeriod time.D
 	return user, nil
 }
 
-// VerificationTokenClaims holds the claims for email verification tokens
-
 // CreateVerificationToken generates a JWT token for email verification
 // Token expires in 24 hours
 func (s *JWTService) CreateVerificationToken(userID uint, email string) (string, error) {
-	claims := VerificationTokenClaims{
+	claims := contracts.VerificationTokenClaims{
 		UserID: userID,
 		Email:  email,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -169,8 +166,8 @@ func (s *JWTService) CreateVerificationToken(userID uint, email string) (string,
 }
 
 // ValidateVerificationToken validates an email verification token and returns the claims
-func (s *JWTService) ValidateVerificationToken(tokenString string) (*VerificationTokenClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &VerificationTokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+func (s *JWTService) ValidateVerificationToken(tokenString string) (*contracts.VerificationTokenClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &contracts.VerificationTokenClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -181,7 +178,7 @@ func (s *JWTService) ValidateVerificationToken(tokenString string) (*Verificatio
 		return nil, fmt.Errorf("invalid verification token: %w", err)
 	}
 
-	claims, ok := token.Claims.(*VerificationTokenClaims)
+	claims, ok := token.Claims.(*contracts.VerificationTokenClaims)
 	if !ok || !token.Valid {
 		return nil, fmt.Errorf("invalid verification token claims")
 	}
@@ -194,12 +191,10 @@ func (s *JWTService) ValidateVerificationToken(tokenString string) (*Verificatio
 	return claims, nil
 }
 
-// MagicLinkTokenClaims holds the claims for magic link tokens
-
 // CreateMagicLinkToken generates a JWT token for magic link login
 // Token expires in 15 minutes for security
 func (s *JWTService) CreateMagicLinkToken(userID uint, email string) (string, error) {
-	claims := MagicLinkTokenClaims{
+	claims := contracts.MagicLinkTokenClaims{
 		UserID: userID,
 		Email:  email,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -215,8 +210,8 @@ func (s *JWTService) CreateMagicLinkToken(userID uint, email string) (string, er
 }
 
 // ValidateMagicLinkToken validates a magic link token and returns the claims
-func (s *JWTService) ValidateMagicLinkToken(tokenString string) (*MagicLinkTokenClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &MagicLinkTokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+func (s *JWTService) ValidateMagicLinkToken(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &contracts.MagicLinkTokenClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -227,7 +222,7 @@ func (s *JWTService) ValidateMagicLinkToken(tokenString string) (*MagicLinkToken
 		return nil, fmt.Errorf("invalid magic link token: %w", err)
 	}
 
-	claims, ok := token.Claims.(*MagicLinkTokenClaims)
+	claims, ok := token.Claims.(*contracts.MagicLinkTokenClaims)
 	if !ok || !token.Valid {
 		return nil, fmt.Errorf("invalid magic link token claims")
 	}
@@ -240,12 +235,10 @@ func (s *JWTService) ValidateMagicLinkToken(tokenString string) (*MagicLinkToken
 	return claims, nil
 }
 
-// AccountRecoveryTokenClaims holds the claims for account recovery tokens
-
 // CreateAccountRecoveryToken generates a JWT token for account recovery
 // Token expires in 1 hour for security
 func (s *JWTService) CreateAccountRecoveryToken(userID uint, email string) (string, error) {
-	claims := AccountRecoveryTokenClaims{
+	claims := contracts.AccountRecoveryTokenClaims{
 		UserID: userID,
 		Email:  email,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -261,8 +254,8 @@ func (s *JWTService) CreateAccountRecoveryToken(userID uint, email string) (stri
 }
 
 // ValidateAccountRecoveryToken validates an account recovery token and returns the claims
-func (s *JWTService) ValidateAccountRecoveryToken(tokenString string) (*AccountRecoveryTokenClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &AccountRecoveryTokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+func (s *JWTService) ValidateAccountRecoveryToken(tokenString string) (*contracts.AccountRecoveryTokenClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &contracts.AccountRecoveryTokenClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -273,7 +266,7 @@ func (s *JWTService) ValidateAccountRecoveryToken(tokenString string) (*AccountR
 		return nil, fmt.Errorf("invalid account recovery token: %w", err)
 	}
 
-	claims, ok := token.Claims.(*AccountRecoveryTokenClaims)
+	claims, ok := token.Claims.(*contracts.AccountRecoveryTokenClaims)
 	if !ok || !token.Valid {
 		return nil, fmt.Errorf("invalid account recovery token claims")
 	}

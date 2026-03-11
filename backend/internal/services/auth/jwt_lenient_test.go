@@ -1,4 +1,4 @@
-package services
+package auth
 
 import (
 	"testing"
@@ -20,7 +20,7 @@ func TestValidateTokenLenient(t *testing.T) {
 			Expiry:    24,
 		},
 	}
-	jwtService := NewJWTService(nil, cfg)
+	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 	gracePeriod := 7 * 24 * time.Hour // 7 days
 
 	t.Run("valid_token_passes_strict", func(t *testing.T) {

@@ -1,4 +1,4 @@
-package services
+package auth
 
 import (
 	"testing"
@@ -10,6 +10,7 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // =============================================================================
@@ -25,7 +26,7 @@ func TestNewJWTService(t *testing.T) {
 		},
 	}
 
-	jwtService := NewJWTService(nil, cfg)
+	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
 	assert.NotNil(t, jwtService)
 	assert.Equal(t, cfg, jwtService.config)
@@ -40,7 +41,7 @@ func TestJWTService_CreateToken(t *testing.T) {
 		},
 	}
 
-	jwtService := NewJWTService(nil, cfg)
+	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
 	t.Run("CreateToken_Success", func(t *testing.T) {
 		user := &models.User{
@@ -139,7 +140,7 @@ func TestJWTService_ValidateToken(t *testing.T) {
 		},
 	}
 
-	jwtService := NewJWTService(nil, cfg)
+	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
 	t.Run("ValidateToken_Success", func(t *testing.T) {
 		// Create a valid token first
@@ -201,7 +202,7 @@ func TestJWTService_ValidateToken(t *testing.T) {
 				Expiry:    24,
 			},
 		}
-		jwtService1 := NewJWTService(nil, cfg1)
+		jwtService1 := NewJWTService(nil, cfg1, newNilDBUserService())
 
 		user := &models.User{
 			ID:    123,
@@ -227,7 +228,7 @@ func TestJWTService_ValidateToken(t *testing.T) {
 				Expiry:    0, // 0 hours = immediate expiry
 			},
 		}
-		jwtServiceShort := NewJWTService(nil, cfgShort)
+		jwtServiceShort := NewJWTService(nil, cfgShort, newNilDBUserService())
 
 		user := &models.User{
 			ID:    123,
@@ -285,7 +286,7 @@ func TestJWTService_RefreshToken(t *testing.T) {
 		},
 	}
 
-	jwtService := NewJWTService(nil, cfg)
+	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
 	t.Run("RefreshToken_Success", func(t *testing.T) {
 		// Create an original token
@@ -332,7 +333,7 @@ func TestJWTService_RefreshToken(t *testing.T) {
 				Expiry:    0, // 0 hours = immediate expiry
 			},
 		}
-		jwtServiceShort := NewJWTService(nil, cfgShort)
+		jwtServiceShort := NewJWTService(nil, cfgShort, newNilDBUserService())
 
 		user := &models.User{
 			ID:    123,
@@ -363,7 +364,7 @@ func TestJWTService_EdgeCases(t *testing.T) {
 		},
 	}
 
-	jwtService := NewJWTService(nil, cfg)
+	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
 	t.Run("CreateToken_ZeroUserID", func(t *testing.T) {
 		user := &models.User{
@@ -428,7 +429,7 @@ func TestJWTService_Integration(t *testing.T) {
 		},
 	}
 
-	jwtService := NewJWTService(nil, cfg)
+	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
 	t.Run("Complete_Token_Lifecycle", func(t *testing.T) {
 		// 1. Create a user
@@ -498,7 +499,7 @@ func TestJWTService_VerificationToken(t *testing.T) {
 			Expiry:    24,
 		},
 	}
-	jwtService := NewJWTService(nil, cfg)
+	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
 	t.Run("CreateAndValidate_Success", func(t *testing.T) {
 		token, err := jwtService.CreateVerificationToken(123, "verify@example.com")
@@ -515,7 +516,7 @@ func TestJWTService_VerificationToken(t *testing.T) {
 
 	t.Run("Validate_ExpiredToken", func(t *testing.T) {
 		// Create a token that's already expired
-		claims := VerificationTokenClaims{
+		claims := contracts.VerificationTokenClaims{
 			UserID: 456,
 			Email:  "expired@example.com",
 			RegisteredClaims: jwt.RegisteredClaims{
@@ -536,7 +537,7 @@ func TestJWTService_VerificationToken(t *testing.T) {
 
 	t.Run("Validate_WrongSubject", func(t *testing.T) {
 		// Create a token with wrong subject
-		claims := VerificationTokenClaims{
+		claims := contracts.VerificationTokenClaims{
 			UserID: 789,
 			Email:  "wrong@example.com",
 			RegisteredClaims: jwt.RegisteredClaims{
@@ -563,7 +564,7 @@ func TestJWTService_VerificationToken(t *testing.T) {
 
 	t.Run("Validate_WrongSecret", func(t *testing.T) {
 		otherCfg := &config.Config{JWT: config.JWTConfig{SecretKey: "other-key", Expiry: 24}}
-		otherService := NewJWTService(nil, otherCfg)
+		otherService := NewJWTService(nil, otherCfg, newNilDBUserService())
 		token, err := otherService.CreateVerificationToken(123, "wrong-key@example.com")
 		require.NoError(t, err)
 
@@ -584,7 +585,7 @@ func TestJWTService_MagicLinkToken(t *testing.T) {
 			Expiry:    24,
 		},
 	}
-	jwtService := NewJWTService(nil, cfg)
+	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
 	t.Run("CreateAndValidate_Success", func(t *testing.T) {
 		token, err := jwtService.CreateMagicLinkToken(123, "magic@example.com")
@@ -600,7 +601,7 @@ func TestJWTService_MagicLinkToken(t *testing.T) {
 	})
 
 	t.Run("Validate_ExpiredToken", func(t *testing.T) {
-		claims := MagicLinkTokenClaims{
+		claims := contracts.MagicLinkTokenClaims{
 			UserID: 456,
 			Email:  "expired@example.com",
 			RegisteredClaims: jwt.RegisteredClaims{
@@ -620,7 +621,7 @@ func TestJWTService_MagicLinkToken(t *testing.T) {
 	})
 
 	t.Run("Validate_WrongSubject", func(t *testing.T) {
-		claims := MagicLinkTokenClaims{
+		claims := contracts.MagicLinkTokenClaims{
 			UserID: 789,
 			Email:  "wrong@example.com",
 			RegisteredClaims: jwt.RegisteredClaims{
@@ -657,7 +658,7 @@ func TestJWTService_AccountRecoveryToken(t *testing.T) {
 			Expiry:    24,
 		},
 	}
-	jwtService := NewJWTService(nil, cfg)
+	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
 	t.Run("CreateAndValidate_Success", func(t *testing.T) {
 		token, err := jwtService.CreateAccountRecoveryToken(123, "recover@example.com")
@@ -673,7 +674,7 @@ func TestJWTService_AccountRecoveryToken(t *testing.T) {
 	})
 
 	t.Run("Validate_ExpiredToken", func(t *testing.T) {
-		claims := AccountRecoveryTokenClaims{
+		claims := contracts.AccountRecoveryTokenClaims{
 			UserID: 456,
 			Email:  "expired@example.com",
 			RegisteredClaims: jwt.RegisteredClaims{
@@ -693,7 +694,7 @@ func TestJWTService_AccountRecoveryToken(t *testing.T) {
 	})
 
 	t.Run("Validate_WrongSubject", func(t *testing.T) {
-		claims := AccountRecoveryTokenClaims{
+		claims := contracts.AccountRecoveryTokenClaims{
 			UserID: 789,
 			Email:  "wrong@example.com",
 			RegisteredClaims: jwt.RegisteredClaims{
@@ -719,7 +720,7 @@ func TestJWTService_AccountRecoveryToken(t *testing.T) {
 
 	t.Run("Validate_WrongSecret", func(t *testing.T) {
 		otherCfg := &config.Config{JWT: config.JWTConfig{SecretKey: "other-key", Expiry: 24}}
-		otherService := NewJWTService(nil, otherCfg)
+		otherService := NewJWTService(nil, otherCfg, newNilDBUserService())
 		token, err := otherService.CreateAccountRecoveryToken(123, "wrong-key@example.com")
 		require.NoError(t, err)
 

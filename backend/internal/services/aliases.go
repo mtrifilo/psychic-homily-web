@@ -1,9 +1,70 @@
 package services
 
-// This file re-exports all types from the contracts sub-package as type aliases.
-// Existing code that references services.FooType continues to work unchanged.
+// This file re-exports all types from the contracts sub-package as type aliases,
+// and concrete types from sub-packages (auth, engagement, pipeline) for backward
+// compatibility. Existing code that references services.FooType continues to work.
 
-import "psychic-homily-backend/internal/services/contracts"
+import (
+	"gorm.io/gorm"
+
+	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/services/auth"
+	"psychic-homily-backend/internal/services/contracts"
+)
+
+// ──────────────────────────────────────────────
+// Auth concrete type aliases (from auth sub-package)
+// ──────────────────────────────────────────────
+
+type AuthService = auth.AuthService
+type JWTService = auth.JWTService
+type AppleAuthService = auth.AppleAuthService
+type WebAuthnService = auth.WebAuthnService
+type PasswordValidator = auth.PasswordValidator
+
+// Backward-compatible constructor wrappers for auth sub-package.
+// These maintain the old signatures so callers outside services/ keep compiling.
+
+// NewAuthService creates an AuthService.
+// Deprecated: prefer auth.NewAuthService with explicit userService dependency.
+func NewAuthService(database *gorm.DB, cfg *config.Config) *auth.AuthService {
+	return auth.NewAuthService(database, cfg, NewUserService(database))
+}
+
+// NewJWTService creates a JWTService.
+// Deprecated: prefer auth.NewJWTService with explicit userService dependency.
+func NewJWTService(database *gorm.DB, cfg *config.Config) *auth.JWTService {
+	return auth.NewJWTService(database, cfg, NewUserService(database))
+}
+
+// NewAppleAuthService creates an AppleAuthService.
+// Deprecated: prefer auth.NewAppleAuthService with explicit jwtService dependency.
+func NewAppleAuthService(database *gorm.DB, cfg *config.Config) *auth.AppleAuthService {
+	jwtSvc := auth.NewJWTService(database, cfg, NewUserService(database))
+	return auth.NewAppleAuthService(database, cfg, jwtSvc)
+}
+
+// NewPasswordValidator creates a PasswordValidator.
+func NewPasswordValidator() *auth.PasswordValidator {
+	return auth.NewPasswordValidator()
+}
+
+// NewWebAuthnService creates a WebAuthnService.
+func NewWebAuthnService(database *gorm.DB, cfg *config.Config) (*auth.WebAuthnService, error) {
+	return auth.NewWebAuthnService(database, cfg)
+}
+
+// CalculatePasswordStrength re-exports auth.CalculatePasswordStrength.
+var CalculatePasswordStrength = auth.CalculatePasswordStrength
+
+// GetStrengthLabel re-exports auth.GetStrengthLabel.
+var GetStrengthLabel = auth.GetStrengthLabel
+
+// MinPasswordLength re-exports auth.MinPasswordLength.
+const (
+	MinPasswordLength = auth.MinPasswordLength
+	MaxPasswordLength = auth.MaxPasswordLength
+)
 
 // ──────────────────────────────────────────────
 // Catalog types (show, venue, artist)

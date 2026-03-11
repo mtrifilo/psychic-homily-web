@@ -1,4 +1,4 @@
-package services
+package auth
 
 import (
 	"fmt"
@@ -12,6 +12,7 @@ import (
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // RealOAuthCompleter implements OAuthCompleter using gothic
@@ -24,20 +25,20 @@ func (r *RealOAuthCompleter) CompleteUserAuth(w http.ResponseWriter, req *http.R
 // AuthService handles authentication business logic
 type AuthService struct {
 	db             *gorm.DB
-	userService    *UserService
+	userService    contracts.UserServiceInterface
 	jwtService     *JWTService
-	oauthCompleter OAuthCompleter
+	oauthCompleter contracts.OAuthCompleter
 }
 
 // NewAuthService creates a new authentication service
-func NewAuthService(database *gorm.DB, cfg *config.Config) *AuthService {
+func NewAuthService(database *gorm.DB, cfg *config.Config, userService contracts.UserServiceInterface) *AuthService {
 	if database == nil {
 		database = db.GetDB()
 	}
 	return &AuthService{
 		db:             database,
-		userService:    NewUserService(database),
-		jwtService:     NewJWTService(database, cfg),
+		userService:    userService,
+		jwtService:     NewJWTService(database, cfg, userService),
 		oauthCompleter: &RealOAuthCompleter{},
 	}
 }
@@ -70,7 +71,7 @@ func (s *AuthService) OAuthCallbackWithConsent(
 	w http.ResponseWriter,
 	r *http.Request,
 	provider string,
-	consent *OAuthSignupConsent,
+	consent *contracts.OAuthSignupConsent,
 ) (*models.User, string, error) {
 	return s.oauthCallbackInternal(w, r, provider, consent, true)
 }
@@ -79,7 +80,7 @@ func (s *AuthService) oauthCallbackInternal(
 	w http.ResponseWriter,
 	r *http.Request,
 	provider string,
-	consent *OAuthSignupConsent,
+	consent *contracts.OAuthSignupConsent,
 	enforceConsent bool,
 ) (*models.User, string, error) {
 	// Check for nil request
@@ -119,7 +120,6 @@ func (s *AuthService) oauthCallbackInternal(
 	return user, token, nil
 }
 
-// Add this to backend/internal/services/auth.go
 // GetUserProfile retrieves user profile using the user service
 func (s *AuthService) GetUserProfile(userID uint) (*models.User, error) {
 	return s.userService.GetUserByID(userID)
@@ -138,6 +138,6 @@ func (s *AuthService) Logout(w http.ResponseWriter, r *http.Request) error {
 }
 
 // SetOAuthCompleter allows setting a mock OAuth completer for testing
-func (s *AuthService) SetOAuthCompleter(completer OAuthCompleter) {
+func (s *AuthService) SetOAuthCompleter(completer contracts.OAuthCompleter) {
 	s.oauthCompleter = completer
 }

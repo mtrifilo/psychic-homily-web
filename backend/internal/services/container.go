@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/pipeline"
@@ -42,14 +43,14 @@ type ServiceContainer struct {
 
 	// No-param services
 	Fetcher           *pipeline.FetcherService
-	PasswordValidator *PasswordValidator
+	PasswordValidator *auth.PasswordValidator
 
 	// DB + Config composite services
-	Auth       *AuthService
-	JWT        *JWTService
-	AppleAuth  *AppleAuthService
+	Auth       *auth.AuthService
+	JWT        *auth.JWTService
+	AppleAuth  *auth.AppleAuthService
 	Extraction *pipeline.ExtractionService
-	WebAuthn   *WebAuthnService // nil if init fails (passkeys optional)
+	WebAuthn   *auth.WebAuthnService // nil if init fails (passkeys optional)
 	Cleanup    *CleanupService
 	DataSync   *DataSyncService
 	Discovery  *pipeline.DiscoveryService
@@ -68,13 +69,14 @@ func newFetcherWithChromedp() *pipeline.FetcherService {
 // (passkeys are optional) — all other services are infallible constructors.
 func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContainer {
 	// WebAuthn may fail — log warning, store nil
-	webauthnService, err := NewWebAuthnService(database, cfg)
+	webauthnService, err := auth.NewWebAuthnService(database, cfg)
 	if err != nil {
 		log.Printf("Warning: WebAuthn service init failed (passkeys disabled): %v", err)
 	}
 
 	savedShow := engagement.NewSavedShowService(database)
 	email := NewEmailService(cfg)
+	userService := NewUserService(database)
 
 	// Services needed by PipelineService — created first so we can inject them.
 	artist := catalog.NewArtistService(database)
@@ -83,6 +85,9 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	extraction := pipeline.NewExtractionService(database, cfg, artist, venue)
 	discovery := pipeline.NewDiscoveryService(database, venue)
 	venueSourceConfig := pipeline.NewVenueSourceConfigService(database)
+
+	// Auth services — created first so we can share the JWT service with AppleAuth.
+	jwtService := auth.NewJWTService(database, cfg, userService)
 
 	return &ServiceContainer{
 		// DB-only leaf services
@@ -102,7 +107,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		SavedShow:     savedShow,
 		Show:          catalog.NewShowService(database),
 		ShowReport:    NewShowReportService(database),
-		User:          NewUserService(database),
+		User:          userService,
 		Venue:             venue,
 		VenueSourceConfig: venueSourceConfig,
 
@@ -113,12 +118,12 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 
 		// No-param services
 		Fetcher:           fetcher,
-		PasswordValidator: NewPasswordValidator(),
+		PasswordValidator: auth.NewPasswordValidator(),
 
 		// DB + Config composite services
-		Auth:       NewAuthService(database, cfg),
-		JWT:        NewJWTService(database, cfg),
-		AppleAuth:  NewAppleAuthService(database, cfg),
+		Auth:       auth.NewAuthService(database, cfg, userService),
+		JWT:        jwtService,
+		AppleAuth:  auth.NewAppleAuthService(database, cfg, jwtService),
 		Extraction: extraction,
 		WebAuthn:   webauthnService,
 		Cleanup:    NewCleanupService(database),
