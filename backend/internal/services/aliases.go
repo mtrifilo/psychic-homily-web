@@ -96,6 +96,21 @@ type UpdateFestivalArtistRequest = contracts.UpdateFestivalArtistRequest
 type AddFestivalVenueRequest = contracts.AddFestivalVenueRequest
 
 // ──────────────────────────────────────────────
+// Collection types
+// ──────────────────────────────────────────────
+
+type CreateCollectionRequest = contracts.CreateCollectionRequest
+type UpdateCollectionRequest = contracts.UpdateCollectionRequest
+type AddCollectionItemRequest = contracts.AddCollectionItemRequest
+type ReorderCollectionItemsRequest = contracts.ReorderCollectionItemsRequest
+type ReorderItem = contracts.ReorderItem
+type CollectionFilters = contracts.CollectionFilters
+type CollectionDetailResponse = contracts.CollectionDetailResponse
+type CollectionListResponse = contracts.CollectionListResponse
+type CollectionItemResponse = contracts.CollectionItemResponse
+type CollectionStatsResponse = contracts.CollectionStatsResponse
+
+// ──────────────────────────────────────────────
 // Auth / JWT / Apple / Password types
 // ──────────────────────────────────────────────
 

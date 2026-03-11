@@ -40,6 +40,7 @@ type ContributorProfileServiceInterface = contracts.ContributorProfileServiceInt
 type CalendarServiceInterface = contracts.CalendarServiceInterface
 type PipelineServiceInterface = contracts.PipelineServiceInterface
 type VenueSourceConfigServiceInterface = contracts.VenueSourceConfigServiceInterface
+type CollectionServiceInterface = contracts.CollectionServiceInterface
 
 // Compile-time interface satisfaction checks.
 // Engagement services (Bookmark, SavedShow, FavoriteVenue, Calendar, Reminder)
@@ -68,4 +69,5 @@ var (
 	_ LabelServiceInterface          = (*catalog.LabelService)(nil)
 	_ ReleaseServiceInterface       = (*catalog.ReleaseService)(nil)
 	_ ContributorProfileServiceInterface    = (*ContributorProfileService)(nil)
+	_ CollectionServiceInterface            = (*CollectionService)(nil)
 )
