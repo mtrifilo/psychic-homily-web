@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/services/notification"
 )
 
 // Default cleanup interval (24 hours)
@@ -125,7 +126,7 @@ func (s *CleanupService) runCleanupCycle() {
 
 		s.logger.Info("purging expired account",
 			"user_id", account.ID,
-			"email_hash", hashEmail(email),
+			"email_hash", notification.HashEmail(email),
 			"deleted_at", deletedAt,
 		)
 

@@ -17,6 +17,7 @@ import (
 	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/engagement"
+	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -33,7 +34,7 @@ type handlerIntegrationDeps struct {
 	showReportService     *services.ShowReportService
 	userService           *services.UserService
 	auditLogService       *services.AuditLogService
-	discordService        *services.DiscordService
+	discordService        *notification.DiscordService
 	musicDiscoveryService *pipeline.MusicDiscoveryService
 	extractionService     *pipeline.ExtractionService
 	apiTokenService       *services.APITokenService
@@ -109,7 +110,7 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		showReportService:     services.NewShowReportService(db),
 		userService:           services.NewUserService(db),
 		auditLogService:       services.NewAuditLogService(db),
-		discordService:        services.NewDiscordService(emptyCfg),
+		discordService:        notification.NewDiscordService(emptyCfg),
 		musicDiscoveryService: pipeline.NewMusicDiscoveryService(emptyCfg),
 		extractionService:     pipeline.NewExtractionService(db, emptyCfg, catalog.NewArtistService(db), catalog.NewVenueService(db)),
 		apiTokenService:       services.NewAPITokenService(db),

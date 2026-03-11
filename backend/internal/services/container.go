@@ -9,6 +9,7 @@ import (
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/engagement"
+	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
 )
 
@@ -37,8 +38,8 @@ type ServiceContainer struct {
 	VenueSourceConfig *pipeline.VenueSourceConfigService
 
 	// Config-only services
-	Discord        *DiscordService
-	Email          *EmailService
+	Discord        *notification.DiscordService
+	Email          *notification.EmailService
 	MusicDiscovery *pipeline.MusicDiscoveryService
 
 	// No-param services
@@ -75,7 +76,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	}
 
 	savedShow := engagement.NewSavedShowService(database)
-	email := NewEmailService(cfg)
+	email := notification.NewEmailService(cfg)
 	userService := NewUserService(database)
 
 	// Services needed by PipelineService — created first so we can inject them.
@@ -112,7 +113,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		VenueSourceConfig: venueSourceConfig,
 
 		// Config-only services
-		Discord:        NewDiscordService(cfg),
+		Discord:        notification.NewDiscordService(cfg),
 		Email:          email,
 		MusicDiscovery: pipeline.NewMusicDiscoveryService(cfg),
 
