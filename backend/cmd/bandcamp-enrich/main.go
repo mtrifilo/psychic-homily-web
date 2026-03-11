@@ -18,7 +18,8 @@ import (
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 
 	"github.com/joho/godotenv"
 	"gorm.io/gorm"
@@ -105,8 +106,8 @@ func main() {
 	fmt.Println()
 
 	database := connectToDatabase()
-	releaseService := services.NewReleaseService(database)
-	labelService := services.NewLabelService(database)
+	releaseService := catalog.NewReleaseService(database)
+	labelService := catalog.NewLabelService(database)
 
 	// Get artists with Bandcamp URLs
 	artists := getArtistsWithBandcamp(database)
@@ -631,26 +632,26 @@ func normalizeTitle(title string) string {
 }
 
 // addBandcampLink adds a Bandcamp external link to an existing release
-func addBandcampLink(database *gorm.DB, releaseService *services.ReleaseService, releaseID uint, bandcampURL string) error {
+func addBandcampLink(database *gorm.DB, releaseService *catalog.ReleaseService, releaseID uint, bandcampURL string) error {
 	_, err := releaseService.AddExternalLink(releaseID, "bandcamp", bandcampURL)
 	return err
 }
 
 // createNewRelease creates a new release from Bandcamp data
-func createNewRelease(database *gorm.DB, releaseService *services.ReleaseService, labelService *services.LabelService, artistID uint, bcRelease BandcampRelease) error {
-	req := &services.CreateReleaseRequest{
+func createNewRelease(database *gorm.DB, releaseService *catalog.ReleaseService, labelService *catalog.LabelService, artistID uint, bcRelease BandcampRelease) error {
+	req := &contracts.CreateReleaseRequest{
 		Title:       bcRelease.Title,
 		ReleaseType: string(bcRelease.ReleaseType),
 		ReleaseYear: bcRelease.ReleaseYear,
 		ReleaseDate: bcRelease.ReleaseDate,
 		CoverArtURL: bcRelease.CoverArtURL,
-		Artists: []services.CreateReleaseArtistEntry{
+		Artists: []contracts.CreateReleaseArtistEntry{
 			{
 				ArtistID: artistID,
 				Role:     string(models.ArtistReleaseRoleMain),
 			},
 		},
-		ExternalLinks: []services.CreateReleaseLinkEntry{
+		ExternalLinks: []contracts.CreateReleaseLinkEntry{
 			{
 				Platform: "bandcamp",
 				URL:      bcRelease.URL,
@@ -676,7 +677,7 @@ func createNewRelease(database *gorm.DB, releaseService *services.ReleaseService
 }
 
 // handleLabelAssociation creates a label if needed and associates it with the release and artist
-func handleLabelAssociation(database *gorm.DB, labelService *services.LabelService, releaseID uint, artistID uint, labelName string) error {
+func handleLabelAssociation(database *gorm.DB, labelService *catalog.LabelService, releaseID uint, artistID uint, labelName string) error {
 	// Skip if label name matches the artist name (Bandcamp uses artist name as label for self-released)
 	var artist models.Artist
 	if err := database.First(&artist, artistID).Error; err == nil {
@@ -701,7 +702,7 @@ func handleLabelAssociation(database *gorm.DB, labelService *services.LabelServi
 	}
 
 	// Create new label
-	newLabel, err := labelService.CreateLabel(&services.CreateLabelRequest{
+	newLabel, err := labelService.CreateLabel(&contracts.CreateLabelRequest{
 		Name: labelName,
 	})
 	if err != nil {

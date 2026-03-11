@@ -1,6 +1,9 @@
 package services
 
-import "psychic-homily-backend/internal/services/contracts"
+import (
+	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/contracts"
+)
 
 // Interface aliases — every interface now lives in contracts;
 // these aliases keep existing code compiling unchanged.
@@ -45,9 +48,9 @@ type CollectionServiceInterface = contracts.CollectionServiceInterface
 // Pipeline services (Extraction, MusicDiscovery, Discovery, VenueSourceConfig,
 // Fetcher, Pipeline) are checked in internal/services/pipeline/interfaces.go.
 var (
-	_ ShowServiceInterface          = (*ShowService)(nil)
-	_ VenueServiceInterface         = (*VenueService)(nil)
-	_ ArtistServiceInterface        = (*ArtistService)(nil)
+	_ ShowServiceInterface          = (*catalog.ShowService)(nil)
+	_ VenueServiceInterface         = (*catalog.VenueService)(nil)
+	_ ArtistServiceInterface        = (*catalog.ArtistService)(nil)
 	_ ShowReportServiceInterface    = (*ShowReportService)(nil)
 	_ ArtistReportServiceInterface  = (*ArtistReportService)(nil)
 	_ AuditLogServiceInterface      = (*AuditLogService)(nil)
@@ -62,9 +65,9 @@ var (
 	_ APITokenServiceInterface      = (*APITokenService)(nil)
 	_ DataSyncServiceInterface      = (*DataSyncService)(nil)
 	_ AdminStatsServiceInterface    = (*AdminStatsService)(nil)
-	_ FestivalServiceInterface       = (*FestivalService)(nil)
-	_ LabelServiceInterface          = (*LabelService)(nil)
-	_ ReleaseServiceInterface       = (*ReleaseService)(nil)
+	_ FestivalServiceInterface       = (*catalog.FestivalService)(nil)
+	_ LabelServiceInterface          = (*catalog.LabelService)(nil)
+	_ ReleaseServiceInterface       = (*catalog.ReleaseService)(nil)
 	_ ContributorProfileServiceInterface    = (*ContributorProfileService)(nil)
 	_ CollectionServiceInterface            = (*CollectionService)(nil)
 )

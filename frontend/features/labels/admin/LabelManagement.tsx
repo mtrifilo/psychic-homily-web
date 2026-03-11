@@ -23,12 +23,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { useLabels, useLabel } from '@/lib/hooks/labels/useLabels'
+import { useLabels, useLabel } from '../hooks/useLabels'
 import {
   useCreateLabel,
   useUpdateLabel,
   useDeleteLabel,
-} from '@/lib/hooks/admin/useAdminLabels'
+} from '../hooks/useAdminLabels'
 import {
   LABEL_STATUSES,
   LABEL_STATUS_LABELS,
@@ -36,7 +36,7 @@ import {
   getLabelStatusVariant,
   formatLabelLocation,
   type LabelStatus,
-} from '@/lib/types/label'
+} from '../types'
 
 // ============================================================================
 // Constants

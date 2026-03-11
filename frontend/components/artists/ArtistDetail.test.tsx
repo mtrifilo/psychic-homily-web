@@ -45,7 +45,7 @@ vi.mock('@/lib/hooks/auth/useAuth', () => ({
 }))
 
 const mockUseArtistLabels = vi.fn()
-vi.mock('@/lib/hooks/labels/useLabels', () => ({
+vi.mock('@/features/labels/hooks/useLabels', () => ({
   useArtistLabels: (opts: unknown) => mockUseArtistLabels(opts),
   useLabelRoster: () => ({ data: null }),
 }))

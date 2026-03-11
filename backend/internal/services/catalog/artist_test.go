@@ -1,4 +1,4 @@
-package services
+package catalog
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -32,7 +33,7 @@ func TestArtistService_NilDatabase(t *testing.T) {
 	svc := &ArtistService{db: nil}
 
 	t.Run("CreateArtist", func(t *testing.T) {
-		resp, err := svc.CreateArtist(&CreateArtistRequest{Name: "Test"})
+		resp, err := svc.CreateArtist(&contracts.CreateArtistRequest{Name: "Test"})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -165,7 +166,7 @@ func (suite *ArtistServiceIntegrationTestSuite) SetupSuite() {
 	if err != nil {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	suite.artistService = &ArtistService{db: db}
 }
@@ -260,7 +261,7 @@ func (suite *ArtistServiceIntegrationTestSuite) createApprovedShowWithArtist(art
 // =============================================================================
 
 func (suite *ArtistServiceIntegrationTestSuite) TestCreateArtist_Success() {
-	req := &CreateArtistRequest{
+	req := &contracts.CreateArtistRequest{
 		Name:    "Radiohead",
 		State:   stringPtr("AZ"),
 		City:    stringPtr("Phoenix"),
@@ -280,12 +281,12 @@ func (suite *ArtistServiceIntegrationTestSuite) TestCreateArtist_Success() {
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestCreateArtist_DuplicateName_Fails() {
-	req := &CreateArtistRequest{Name: "The National"}
+	req := &contracts.CreateArtistRequest{Name: "The National"}
 	_, err := suite.artistService.CreateArtist(req)
 	suite.Require().NoError(err)
 
 	// Same name, different case
-	req2 := &CreateArtistRequest{Name: "the national"}
+	req2 := &contracts.CreateArtistRequest{Name: "the national"}
 	_, err = suite.artistService.CreateArtist(req2)
 
 	suite.Require().Error(err)
@@ -293,7 +294,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestCreateArtist_DuplicateName_F
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestCreateArtist_WithSocialFields() {
-	req := &CreateArtistRequest{
+	req := &contracts.CreateArtistRequest{
 		Name:       "Social Band",
 		Instagram:  stringPtr("@socialband"),
 		Facebook:   stringPtr("facebook.com/socialband"),
@@ -319,7 +320,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestCreateArtist_WithSocialField
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestCreateArtist_WithCityState() {
-	req := &CreateArtistRequest{
+	req := &contracts.CreateArtistRequest{
 		Name:  "Local Band",
 		City:  stringPtr("Tempe"),
 		State: stringPtr("AZ"),
@@ -337,7 +338,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestCreateArtist_WithCityState()
 // =============================================================================
 
 func (suite *ArtistServiceIntegrationTestSuite) TestGetArtist_Success() {
-	created, err := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Get Test Artist"})
+	created, err := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Get Test Artist"})
 	suite.Require().NoError(err)
 
 	resp, err := suite.artistService.GetArtist(created.ID)
@@ -359,7 +360,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtist_NotFound() {
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistBySlug_Success() {
-	created, err := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Slug Test Artist"})
+	created, err := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Slug Test Artist"})
 	suite.Require().NoError(err)
 
 	resp, err := suite.artistService.GetArtistBySlug(created.Slug)
@@ -380,7 +381,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistBySlug_NotFound() {
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistByName_Success() {
-	_, err := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "The Beatles"})
+	_, err := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "The Beatles"})
 	suite.Require().NoError(err)
 
 	// Case-insensitive lookup
@@ -405,8 +406,8 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistByName_NotFound() {
 // =============================================================================
 
 func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_FilterByCity() {
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "PHX Artist", City: stringPtr("Phoenix")})
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "TUC Artist", City: stringPtr("Tucson")})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "PHX Artist", City: stringPtr("Phoenix")})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "TUC Artist", City: stringPtr("Tucson")})
 
 	resp, err := suite.artistService.GetArtists(map[string]interface{}{"city": "Phoenix"})
 
@@ -416,9 +417,9 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_FilterByCity() {
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_MultiCityFilter() {
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "PHX Band", City: stringPtr("Phoenix"), State: stringPtr("AZ")})
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Mesa Band", City: stringPtr("Mesa"), State: stringPtr("AZ")})
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "LA Band", City: stringPtr("Los Angeles"), State: stringPtr("CA")})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "PHX Band", City: stringPtr("Phoenix"), State: stringPtr("AZ")})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Mesa Band", City: stringPtr("Mesa"), State: stringPtr("AZ")})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "LA Band", City: stringPtr("Los Angeles"), State: stringPtr("CA")})
 
 	cities := []map[string]string{
 		{"city": "Phoenix", "state": "AZ"},
@@ -434,8 +435,8 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_MultiCityFilter()
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_FilterByState() {
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "AZ Artist", State: stringPtr("AZ")})
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "CA Artist", State: stringPtr("CA")})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "AZ Artist", State: stringPtr("AZ")})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "CA Artist", State: stringPtr("CA")})
 
 	resp, err := suite.artistService.GetArtists(map[string]interface{}{"state": "CA"})
 
@@ -445,8 +446,8 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_FilterByState() {
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_FilterByName() {
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Crescent Band"})
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Valley Group"})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Crescent Band"})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Valley Group"})
 
 	resp, err := suite.artistService.GetArtists(map[string]interface{}{"name": "crescent"})
 
@@ -460,7 +461,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_FilterByName() {
 // =============================================================================
 
 func (suite *ArtistServiceIntegrationTestSuite) TestUpdateArtist_BasicFields() {
-	created, err := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Original Artist"})
+	created, err := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Original Artist"})
 	suite.Require().NoError(err)
 
 	resp, err := suite.artistService.UpdateArtist(created.ID, map[string]interface{}{
@@ -475,7 +476,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestUpdateArtist_BasicFields() {
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestUpdateArtist_NameChangeRegeneratesSlug() {
-	created, err := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Old Name Band"})
+	created, err := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Old Name Band"})
 	suite.Require().NoError(err)
 	oldSlug := created.Slug
 
@@ -490,10 +491,10 @@ func (suite *ArtistServiceIntegrationTestSuite) TestUpdateArtist_NameChangeRegen
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestUpdateArtist_DuplicateName_Fails() {
-	_, err := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Existing Artist"})
+	_, err := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Existing Artist"})
 	suite.Require().NoError(err)
 
-	other, err := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Other Artist"})
+	other, err := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Other Artist"})
 	suite.Require().NoError(err)
 
 	// Try to rename "Other Artist" to "Existing Artist"
@@ -504,7 +505,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestUpdateArtist_DuplicateName_F
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestUpdateArtist_SameNameSameArtist_OK() {
-	created, err := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Keep My Name"})
+	created, err := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Keep My Name"})
 	suite.Require().NoError(err)
 
 	// Update city while keeping the same name — should not conflict with self
@@ -535,7 +536,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestUpdateArtist_NotFound() {
 // =============================================================================
 
 func (suite *ArtistServiceIntegrationTestSuite) TestDeleteArtist_Success() {
-	created, err := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Delete Me"})
+	created, err := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Delete Me"})
 	suite.Require().NoError(err)
 
 	err = suite.artistService.DeleteArtist(created.ID)
@@ -575,7 +576,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestDeleteArtist_HasShows_Fails(
 // =============================================================================
 
 func (suite *ArtistServiceIntegrationTestSuite) TestSearchArtists_EmptyQuery() {
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Some Artist"})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Some Artist"})
 
 	resp, err := suite.artistService.SearchArtists("")
 
@@ -584,8 +585,8 @@ func (suite *ArtistServiceIntegrationTestSuite) TestSearchArtists_EmptyQuery() {
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestSearchArtists_ShortQuery_PrefixMatch() {
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Valley Heat"})
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Crescent Moon"})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Valley Heat"})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Crescent Moon"})
 
 	resp, err := suite.artistService.SearchArtists("Va")
 
@@ -595,8 +596,8 @@ func (suite *ArtistServiceIntegrationTestSuite) TestSearchArtists_ShortQuery_Pre
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestSearchArtists_LongQuery_TrigramMatch() {
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Radiohead"})
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "The Rebel Lounge Band"})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Radiohead"})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "The Rebel Lounge Band"})
 
 	resp, err := suite.artistService.SearchArtists("Radiohead")
 
@@ -606,7 +607,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestSearchArtists_LongQuery_Trig
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestSearchArtists_NoMatch() {
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Real Artist"})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Real Artist"})
 
 	resp, err := suite.artistService.SearchArtists("zzzznonexistent")
 
@@ -786,9 +787,9 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_Success() {
 	user := suite.createTestUser()
 
 	// Create artists in different cities with upcoming shows
-	a1, _ := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "PHX Artist 1", City: stringPtr("Phoenix"), State: stringPtr("AZ")})
-	a2, _ := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "PHX Artist 2", City: stringPtr("Phoenix"), State: stringPtr("AZ")})
-	a3, _ := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Mesa Artist", City: stringPtr("Mesa"), State: stringPtr("AZ")})
+	a1, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "PHX Artist 1", City: stringPtr("Phoenix"), State: stringPtr("AZ")})
+	a2, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "PHX Artist 2", City: stringPtr("Phoenix"), State: stringPtr("AZ")})
+	a3, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Mesa Artist", City: stringPtr("Mesa"), State: stringPtr("AZ")})
 
 	// Give all three artists upcoming shows
 	suite.createApprovedShowWithArtist(a1.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
@@ -816,7 +817,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_ExcludesNull
 	suite.createApprovedShowWithArtist(noCityArtist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
 
 	// Artist with city and upcoming show should appear
-	hasCityArtist, _ := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Has City", City: stringPtr("Tempe"), State: stringPtr("AZ")})
+	hasCityArtist, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Has City", City: stringPtr("Tempe"), State: stringPtr("AZ")})
 	suite.createApprovedShowWithArtist(hasCityArtist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 14))
 
 	resp, err := suite.artistService.GetArtistCities()
@@ -831,11 +832,11 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistCities_ExcludesArti
 	user := suite.createTestUser()
 
 	// Artist with city but only past shows should not appear
-	pastArtist, _ := suite.artistService.CreateArtist(&CreateArtistRequest{Name: "Past Artist", City: stringPtr("Phoenix"), State: stringPtr("AZ")})
+	pastArtist, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Past Artist", City: stringPtr("Phoenix"), State: stringPtr("AZ")})
 	suite.createApprovedShowWithArtist(pastArtist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, -7))
 
 	// Artist with city but no shows at all should not appear
-	suite.artistService.CreateArtist(&CreateArtistRequest{Name: "No Show Artist", City: stringPtr("Mesa"), State: stringPtr("AZ")})
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "No Show Artist", City: stringPtr("Mesa"), State: stringPtr("AZ")})
 
 	resp, err := suite.artistService.GetArtistCities()
 

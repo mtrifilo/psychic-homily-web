@@ -1,4 +1,4 @@
-package services
+package catalog
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/testutil"
 	"psychic-homily-backend/internal/utils"
@@ -33,7 +34,7 @@ func TestFestivalService_NilDatabase(t *testing.T) {
 	svc := &FestivalService{db: nil}
 
 	t.Run("CreateFestival", func(t *testing.T) {
-		resp, err := svc.CreateFestival(&CreateFestivalRequest{Name: "Test"})
+		resp, err := svc.CreateFestival(&contracts.CreateFestivalRequest{Name: "Test"})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -61,7 +62,7 @@ func TestFestivalService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("UpdateFestival", func(t *testing.T) {
-		resp, err := svc.UpdateFestival(1, &UpdateFestivalRequest{})
+		resp, err := svc.UpdateFestival(1, &contracts.UpdateFestivalRequest{})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -81,14 +82,14 @@ func TestFestivalService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("AddFestivalArtist", func(t *testing.T) {
-		resp, err := svc.AddFestivalArtist(1, &AddFestivalArtistRequest{ArtistID: 1})
+		resp, err := svc.AddFestivalArtist(1, &contracts.AddFestivalArtistRequest{ArtistID: 1})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
 	})
 
 	t.Run("UpdateFestivalArtist", func(t *testing.T) {
-		resp, err := svc.UpdateFestivalArtist(1, 1, &UpdateFestivalArtistRequest{})
+		resp, err := svc.UpdateFestivalArtist(1, 1, &contracts.UpdateFestivalArtistRequest{})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -108,7 +109,7 @@ func TestFestivalService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("AddFestivalVenue", func(t *testing.T) {
-		resp, err := svc.AddFestivalVenue(1, &AddFestivalVenueRequest{VenueID: 1})
+		resp, err := svc.AddFestivalVenue(1, &contracts.AddFestivalVenueRequest{VenueID: 1})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -186,7 +187,7 @@ func (suite *FestivalServiceIntegrationTestSuite) SetupSuite() {
 	if err != nil {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	suite.festivalService = &FestivalService{db: db}
 	suite.artistService = &ArtistService{db: db}
@@ -247,12 +248,12 @@ func (suite *FestivalServiceIntegrationTestSuite) createTestVenue(name, city, st
 
 var festivalCounter int
 
-func (suite *FestivalServiceIntegrationTestSuite) createBasicFestival(name string) *FestivalDetailResponse {
+func (suite *FestivalServiceIntegrationTestSuite) createBasicFestival(name string) *contracts.FestivalDetailResponse {
 	festivalCounter++
 	city := "Phoenix"
 	state := "AZ"
 	slug := utils.GenerateArtistSlug(name)
-	req := &CreateFestivalRequest{
+	req := &contracts.CreateFestivalRequest{
 		Name:        name,
 		SeriesSlug:  slug,
 		EditionYear: 2026 + festivalCounter,
@@ -277,7 +278,7 @@ func strPtrFestival(s string) *string {
 func (suite *FestivalServiceIntegrationTestSuite) TestCreateFestival_Success() {
 	city := "Phoenix"
 	state := "AZ"
-	req := &CreateFestivalRequest{
+	req := &contracts.CreateFestivalRequest{
 		Name:        "M3F Festival",
 		SeriesSlug:  "m3f",
 		EditionYear: 2026,
@@ -306,7 +307,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestCreateFestival_Success() {
 }
 
 func (suite *FestivalServiceIntegrationTestSuite) TestCreateFestival_DefaultStatus() {
-	req := &CreateFestivalRequest{
+	req := &contracts.CreateFestivalRequest{
 		Name:        "Default Status Fest",
 		SeriesSlug:  "default-fest",
 		EditionYear: 2026,
@@ -321,7 +322,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestCreateFestival_DefaultStat
 }
 
 func (suite *FestivalServiceIntegrationTestSuite) TestCreateFestival_CustomStatus() {
-	req := &CreateFestivalRequest{
+	req := &contracts.CreateFestivalRequest{
 		Name:        "Confirmed Fest",
 		SeriesSlug:  "confirmed-fest",
 		EditionYear: 2026,
@@ -337,7 +338,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestCreateFestival_CustomStatu
 }
 
 func (suite *FestivalServiceIntegrationTestSuite) TestCreateFestival_UniqueSlug() {
-	req1 := &CreateFestivalRequest{
+	req1 := &contracts.CreateFestivalRequest{
 		Name:        "Lollapalooza",
 		SeriesSlug:  "lollapalooza",
 		EditionYear: 2025,
@@ -347,7 +348,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestCreateFestival_UniqueSlug(
 	resp1, err := suite.festivalService.CreateFestival(req1)
 	suite.Require().NoError(err)
 
-	req2 := &CreateFestivalRequest{
+	req2 := &contracts.CreateFestivalRequest{
 		Name:        "Lollapalooza",
 		SeriesSlug:  "lollapalooza",
 		EditionYear: 2026,
@@ -425,11 +426,11 @@ func (suite *FestivalServiceIntegrationTestSuite) TestListFestivals_FilterByStat
 	// Create a confirmed festival
 	city := "Phoenix"
 	state := "AZ"
-	suite.festivalService.CreateFestival(&CreateFestivalRequest{
+	suite.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name: "Confirmed Fest", SeriesSlug: "cf", EditionYear: 2026,
 		City: &city, State: &state, StartDate: "2026-03-01", EndDate: "2026-03-03", Status: "confirmed",
 	})
-	suite.festivalService.CreateFestival(&CreateFestivalRequest{
+	suite.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name: "Announced Fest", SeriesSlug: "af", EditionYear: 2026,
 		StartDate: "2026-04-01", EndDate: "2026-04-03",
 	})
@@ -442,10 +443,10 @@ func (suite *FestivalServiceIntegrationTestSuite) TestListFestivals_FilterByStat
 }
 
 func (suite *FestivalServiceIntegrationTestSuite) TestListFestivals_FilterByYear() {
-	suite.festivalService.CreateFestival(&CreateFestivalRequest{
+	suite.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name: "2025 Fest", SeriesSlug: "f25", EditionYear: 2025, StartDate: "2025-06-01", EndDate: "2025-06-03",
 	})
-	suite.festivalService.CreateFestival(&CreateFestivalRequest{
+	suite.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name: "2026 Fest", SeriesSlug: "f26", EditionYear: 2026, StartDate: "2026-06-01", EndDate: "2026-06-03",
 	})
 
@@ -459,10 +460,10 @@ func (suite *FestivalServiceIntegrationTestSuite) TestListFestivals_FilterByYear
 func (suite *FestivalServiceIntegrationTestSuite) TestListFestivals_FilterByCity() {
 	city1 := "Phoenix"
 	city2 := "Chicago"
-	suite.festivalService.CreateFestival(&CreateFestivalRequest{
+	suite.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name: "PHX Fest", SeriesSlug: "phx", EditionYear: 2026, City: &city1, StartDate: "2026-03-01", EndDate: "2026-03-03",
 	})
-	suite.festivalService.CreateFestival(&CreateFestivalRequest{
+	suite.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name: "CHI Fest", SeriesSlug: "chi", EditionYear: 2026, City: &city2, StartDate: "2026-07-01", EndDate: "2026-07-03",
 	})
 
@@ -474,13 +475,13 @@ func (suite *FestivalServiceIntegrationTestSuite) TestListFestivals_FilterByCity
 }
 
 func (suite *FestivalServiceIntegrationTestSuite) TestListFestivals_FilterBySeriesSlug() {
-	suite.festivalService.CreateFestival(&CreateFestivalRequest{
+	suite.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name: "M3F 2025", SeriesSlug: "m3f", EditionYear: 2025, StartDate: "2025-03-01", EndDate: "2025-03-03",
 	})
-	suite.festivalService.CreateFestival(&CreateFestivalRequest{
+	suite.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name: "M3F 2026", SeriesSlug: "m3f", EditionYear: 2026, StartDate: "2026-03-01", EndDate: "2026-03-03",
 	})
-	suite.festivalService.CreateFestival(&CreateFestivalRequest{
+	suite.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name: "Other Fest", SeriesSlug: "other", EditionYear: 2026, StartDate: "2026-06-01", EndDate: "2026-06-03",
 	})
 
@@ -499,7 +500,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestUpdateFestival_BasicFields
 
 	newName := "Updated Festival"
 	newStatus := "confirmed"
-	resp, err := suite.festivalService.UpdateFestival(created.ID, &UpdateFestivalRequest{
+	resp, err := suite.festivalService.UpdateFestival(created.ID, &contracts.UpdateFestivalRequest{
 		Name:   &newName,
 		Status: &newStatus,
 	})
@@ -514,7 +515,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestUpdateFestival_NameChangeR
 	oldSlug := created.Slug
 
 	newName := "New Festival Name"
-	resp, err := suite.festivalService.UpdateFestival(created.ID, &UpdateFestivalRequest{
+	resp, err := suite.festivalService.UpdateFestival(created.ID, &contracts.UpdateFestivalRequest{
 		Name: &newName,
 	})
 
@@ -526,7 +527,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestUpdateFestival_NameChangeR
 
 func (suite *FestivalServiceIntegrationTestSuite) TestUpdateFestival_NotFound() {
 	newName := "Anything"
-	resp, err := suite.festivalService.UpdateFestival(99999, &UpdateFestivalRequest{Name: &newName})
+	resp, err := suite.festivalService.UpdateFestival(99999, &contracts.UpdateFestivalRequest{Name: &newName})
 
 	suite.Require().Error(err)
 	suite.Nil(resp)
@@ -538,7 +539,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestUpdateFestival_NotFound() 
 func (suite *FestivalServiceIntegrationTestSuite) TestUpdateFestival_NoChanges() {
 	created := suite.createBasicFestival("Stable Festival")
 
-	resp, err := suite.festivalService.UpdateFestival(created.ID, &UpdateFestivalRequest{})
+	resp, err := suite.festivalService.UpdateFestival(created.ID, &contracts.UpdateFestivalRequest{})
 
 	suite.Require().NoError(err)
 	suite.Equal("Stable Festival", resp.Name)
@@ -574,11 +575,11 @@ func (suite *FestivalServiceIntegrationTestSuite) TestDeleteFestival_CascadesJun
 	artist := suite.createTestArtistForFestival("Cascade Artist")
 	venue := suite.createTestVenue("Cascade Venue", "Phoenix", "AZ")
 
-	suite.festivalService.AddFestivalArtist(created.ID, &AddFestivalArtistRequest{
+	suite.festivalService.AddFestivalArtist(created.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID:    artist.ID,
 		BillingTier: "headliner",
 	})
-	suite.festivalService.AddFestivalVenue(created.ID, &AddFestivalVenueRequest{
+	suite.festivalService.AddFestivalVenue(created.ID, &contracts.AddFestivalVenueRequest{
 		VenueID:   venue.ID,
 		IsPrimary: true,
 	})
@@ -622,7 +623,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestAddFestivalArtist_Success(
 	festival := suite.createBasicFestival("Lineup Festival")
 	artist := suite.createTestArtistForFestival("Headliner Band")
 
-	resp, err := suite.festivalService.AddFestivalArtist(festival.ID, &AddFestivalArtistRequest{
+	resp, err := suite.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID:    artist.ID,
 		BillingTier: "headliner",
 		Position:    0,
@@ -645,7 +646,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestAddFestivalArtist_DefaultB
 	festival := suite.createBasicFestival("Default Tier Festival")
 	artist := suite.createTestArtistForFestival("Default Tier Band")
 
-	resp, err := suite.festivalService.AddFestivalArtist(festival.ID, &AddFestivalArtistRequest{
+	resp, err := suite.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: artist.ID,
 	})
 
@@ -656,7 +657,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestAddFestivalArtist_DefaultB
 func (suite *FestivalServiceIntegrationTestSuite) TestAddFestivalArtist_FestivalNotFound() {
 	artist := suite.createTestArtistForFestival("Orphan Band")
 
-	resp, err := suite.festivalService.AddFestivalArtist(99999, &AddFestivalArtistRequest{ArtistID: artist.ID})
+	resp, err := suite.festivalService.AddFestivalArtist(99999, &contracts.AddFestivalArtistRequest{ArtistID: artist.ID})
 
 	suite.Require().Error(err)
 	suite.Nil(resp)
@@ -665,7 +666,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestAddFestivalArtist_Festival
 func (suite *FestivalServiceIntegrationTestSuite) TestAddFestivalArtist_ArtistNotFound() {
 	festival := suite.createBasicFestival("Missing Artist Festival")
 
-	resp, err := suite.festivalService.AddFestivalArtist(festival.ID, &AddFestivalArtistRequest{ArtistID: 99999})
+	resp, err := suite.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{ArtistID: 99999})
 
 	suite.Require().Error(err)
 	suite.Nil(resp)
@@ -679,13 +680,13 @@ func (suite *FestivalServiceIntegrationTestSuite) TestGetFestivalArtists_Ordered
 	local := suite.createTestArtistForFestival("Local Opener")
 
 	// Add in reverse order to test ordering
-	suite.festivalService.AddFestivalArtist(festival.ID, &AddFestivalArtistRequest{
+	suite.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: local.ID, BillingTier: "local", Position: 0,
 	})
-	suite.festivalService.AddFestivalArtist(festival.ID, &AddFestivalArtistRequest{
+	suite.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: headliner.ID, BillingTier: "headliner", Position: 0,
 	})
-	suite.festivalService.AddFestivalArtist(festival.ID, &AddFestivalArtistRequest{
+	suite.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: undercard.ID, BillingTier: "undercard", Position: 0,
 	})
 
@@ -703,10 +704,10 @@ func (suite *FestivalServiceIntegrationTestSuite) TestGetFestivalArtists_FilterB
 	day1Artist := suite.createTestArtistForFestival("Day 1 Artist")
 	day2Artist := suite.createTestArtistForFestival("Day 2 Artist")
 
-	suite.festivalService.AddFestivalArtist(festival.ID, &AddFestivalArtistRequest{
+	suite.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: day1Artist.ID, BillingTier: "headliner", DayDate: strPtrFestival("2026-03-06"),
 	})
-	suite.festivalService.AddFestivalArtist(festival.ID, &AddFestivalArtistRequest{
+	suite.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: day2Artist.ID, BillingTier: "headliner", DayDate: strPtrFestival("2026-03-07"),
 	})
 
@@ -722,14 +723,14 @@ func (suite *FestivalServiceIntegrationTestSuite) TestUpdateFestivalArtist_Succe
 	festival := suite.createBasicFestival("Update Artist Festival")
 	artist := suite.createTestArtistForFestival("Promoted Band")
 
-	suite.festivalService.AddFestivalArtist(festival.ID, &AddFestivalArtistRequest{
+	suite.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID:    artist.ID,
 		BillingTier: "undercard",
 	})
 
 	newTier := "headliner"
 	newStage := "Main Stage"
-	resp, err := suite.festivalService.UpdateFestivalArtist(festival.ID, artist.ID, &UpdateFestivalArtistRequest{
+	resp, err := suite.festivalService.UpdateFestivalArtist(festival.ID, artist.ID, &contracts.UpdateFestivalArtistRequest{
 		BillingTier: &newTier,
 		Stage:       &newStage,
 	})
@@ -741,7 +742,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestUpdateFestivalArtist_Succe
 
 func (suite *FestivalServiceIntegrationTestSuite) TestUpdateFestivalArtist_NotFound() {
 	newTier := "headliner"
-	resp, err := suite.festivalService.UpdateFestivalArtist(99999, 99999, &UpdateFestivalArtistRequest{
+	resp, err := suite.festivalService.UpdateFestivalArtist(99999, 99999, &contracts.UpdateFestivalArtistRequest{
 		BillingTier: &newTier,
 	})
 
@@ -754,7 +755,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestRemoveFestivalArtist_Succe
 	festival := suite.createBasicFestival("Remove Artist Festival")
 	artist := suite.createTestArtistForFestival("Removed Band")
 
-	suite.festivalService.AddFestivalArtist(festival.ID, &AddFestivalArtistRequest{
+	suite.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: artist.ID,
 	})
 
@@ -799,7 +800,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestAddFestivalVenue_Success()
 	festival := suite.createBasicFestival("Venue Festival")
 	venue := suite.createTestVenue("Main Park", "Phoenix", "AZ")
 
-	resp, err := suite.festivalService.AddFestivalVenue(festival.ID, &AddFestivalVenueRequest{
+	resp, err := suite.festivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
 		VenueID:   venue.ID,
 		IsPrimary: true,
 	})
@@ -815,7 +816,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestAddFestivalVenue_Success()
 func (suite *FestivalServiceIntegrationTestSuite) TestAddFestivalVenue_FestivalNotFound() {
 	venue := suite.createTestVenue("Orphan Venue", "Phoenix", "AZ")
 
-	resp, err := suite.festivalService.AddFestivalVenue(99999, &AddFestivalVenueRequest{VenueID: venue.ID})
+	resp, err := suite.festivalService.AddFestivalVenue(99999, &contracts.AddFestivalVenueRequest{VenueID: venue.ID})
 
 	suite.Require().Error(err)
 	suite.Nil(resp)
@@ -824,7 +825,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestAddFestivalVenue_FestivalN
 func (suite *FestivalServiceIntegrationTestSuite) TestAddFestivalVenue_VenueNotFound() {
 	festival := suite.createBasicFestival("Missing Venue Festival")
 
-	resp, err := suite.festivalService.AddFestivalVenue(festival.ID, &AddFestivalVenueRequest{VenueID: 99999})
+	resp, err := suite.festivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{VenueID: 99999})
 
 	suite.Require().Error(err)
 	suite.Nil(resp)
@@ -835,7 +836,7 @@ func (suite *FestivalServiceIntegrationTestSuite) TestRemoveFestivalVenue_Succes
 	festival := suite.createBasicFestival("Remove Venue Festival")
 	venue := suite.createTestVenue("Removable Venue", "Phoenix", "AZ")
 
-	suite.festivalService.AddFestivalVenue(festival.ID, &AddFestivalVenueRequest{VenueID: venue.ID})
+	suite.festivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{VenueID: venue.ID})
 
 	err := suite.festivalService.RemoveFestivalVenue(festival.ID, venue.ID)
 
@@ -859,10 +860,10 @@ func (suite *FestivalServiceIntegrationTestSuite) TestGetFestivalVenues_PrimaryF
 	venue1 := suite.createTestVenue("Secondary Venue", "Phoenix", "AZ")
 	venue2 := suite.createTestVenue("Primary Venue", "Phoenix", "AZ")
 
-	suite.festivalService.AddFestivalVenue(festival.ID, &AddFestivalVenueRequest{
+	suite.festivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
 		VenueID: venue1.ID, IsPrimary: false,
 	})
-	suite.festivalService.AddFestivalVenue(festival.ID, &AddFestivalVenueRequest{
+	suite.festivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
 		VenueID: venue2.ID, IsPrimary: true,
 	})
 
@@ -885,10 +886,10 @@ func (suite *FestivalServiceIntegrationTestSuite) TestGetFestivalsForArtist_Succ
 	fest2 := suite.createBasicFestival("Festival Two")
 	suite.createBasicFestival("Festival Three") // not associated
 
-	suite.festivalService.AddFestivalArtist(fest1.ID, &AddFestivalArtistRequest{
+	suite.festivalService.AddFestivalArtist(fest1.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: artist.ID, BillingTier: "headliner",
 	})
-	suite.festivalService.AddFestivalArtist(fest2.ID, &AddFestivalArtistRequest{
+	suite.festivalService.AddFestivalArtist(fest2.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: artist.ID, BillingTier: "undercard",
 	})
 
@@ -935,9 +936,9 @@ func (suite *FestivalServiceIntegrationTestSuite) TestFestival_ArtistAndVenueCou
 	artist2 := suite.createTestArtistForFestival("Count Artist 2")
 	venue := suite.createTestVenue("Count Venue", "Phoenix", "AZ")
 
-	suite.festivalService.AddFestivalArtist(festival.ID, &AddFestivalArtistRequest{ArtistID: artist1.ID})
-	suite.festivalService.AddFestivalArtist(festival.ID, &AddFestivalArtistRequest{ArtistID: artist2.ID})
-	suite.festivalService.AddFestivalVenue(festival.ID, &AddFestivalVenueRequest{VenueID: venue.ID})
+	suite.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{ArtistID: artist1.ID})
+	suite.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{ArtistID: artist2.ID})
+	suite.festivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{VenueID: venue.ID})
 
 	// Test detail response counts
 	detail, err := suite.festivalService.GetFestival(festival.ID)

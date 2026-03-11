@@ -16,7 +16,8 @@ import (
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -114,7 +115,7 @@ func main() {
 
 	// Connect to database
 	database := connectToDatabase()
-	festivalService := services.NewFestivalService(database)
+	festivalService := catalog.NewFestivalService(database)
 
 	if interactive {
 		runInteractiveMode(database, festivalService)
@@ -125,7 +126,7 @@ func main() {
 
 // --- File import mode ---
 
-func runFileImport(database *gorm.DB, festivalService *services.FestivalService, path string) {
+func runFileImport(database *gorm.DB, festivalService *catalog.FestivalService, path string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		log.Fatalf("Failed to read file %s: %v", path, err)
@@ -185,7 +186,7 @@ func runFileImport(database *gorm.DB, festivalService *services.FestivalService,
 	printSummary(stats)
 }
 
-func createFestivalFromInput(database *gorm.DB, festivalService *services.FestivalService, input *FestivalInput, stats *importStats) uint {
+func createFestivalFromInput(database *gorm.DB, festivalService *catalog.FestivalService, input *FestivalInput, stats *importStats) uint {
 	// Check if festival already exists (by series_slug + edition_year)
 	existing := findExistingFestival(database, input.SeriesSlug, input.EditionYear)
 	if existing != nil {
@@ -207,7 +208,7 @@ func createFestivalFromInput(database *gorm.DB, festivalService *services.Festiv
 		return 0
 	}
 
-	req := &services.CreateFestivalRequest{
+	req := &contracts.CreateFestivalRequest{
 		Name:        input.Name,
 		SeriesSlug:  input.SeriesSlug,
 		EditionYear: input.EditionYear,
@@ -250,7 +251,7 @@ func createFestivalFromInput(database *gorm.DB, festivalService *services.Festiv
 	return festival.ID
 }
 
-func processVenue(database *gorm.DB, festivalService *services.FestivalService, festivalID uint, venueInput VenueInput, stats *importStats) {
+func processVenue(database *gorm.DB, festivalService *catalog.FestivalService, festivalID uint, venueInput VenueInput, stats *importStats) {
 	// Search for venue by name (case-insensitive)
 	venue := findVenueByName(database, venueInput.Name)
 
@@ -276,7 +277,7 @@ func processVenue(database *gorm.DB, festivalService *services.FestivalService, 
 			}
 		}
 
-		_, err := festivalService.AddFestivalVenue(festivalID, &services.AddFestivalVenueRequest{
+		_, err := festivalService.AddFestivalVenue(festivalID, &contracts.AddFestivalVenueRequest{
 			VenueID:   venue.ID,
 			IsPrimary: venueInput.IsPrimary,
 		})
@@ -294,7 +295,7 @@ func processVenue(database *gorm.DB, festivalService *services.FestivalService, 
 	}
 }
 
-func processLineupArtist(database *gorm.DB, festivalService *services.FestivalService, festivalID uint, entry LineupArtistInput, stats *importStats) {
+func processLineupArtist(database *gorm.DB, festivalService *catalog.FestivalService, festivalID uint, entry LineupArtistInput, stats *importStats) {
 	// Search for artist by exact name
 	artist := findArtistByName(database, entry.Artist)
 
@@ -361,8 +362,8 @@ func processLineupArtist(database *gorm.DB, festivalService *services.FestivalSe
 	}
 }
 
-func addToLineup(festivalService *services.FestivalService, festivalID, artistID uint, entry LineupArtistInput, stats *importStats) {
-	req := &services.AddFestivalArtistRequest{
+func addToLineup(festivalService *catalog.FestivalService, festivalID, artistID uint, entry LineupArtistInput, stats *importStats) {
+	req := &contracts.AddFestivalArtistRequest{
 		ArtistID:    artistID,
 		BillingTier: entry.BillingTier,
 		Position:    entry.Position,
@@ -389,7 +390,7 @@ func addToLineup(festivalService *services.FestivalService, festivalID, artistID
 
 // --- Interactive mode ---
 
-func runInteractiveMode(database *gorm.DB, festivalService *services.FestivalService) {
+func runInteractiveMode(database *gorm.DB, festivalService *catalog.FestivalService) {
 	reader := bufio.NewReader(os.Stdin)
 	stats := &importStats{}
 

@@ -22,14 +22,6 @@ export {
 export { useAuditLogs } from './useAdminAuditLogs'
 
 export {
-  type CreateLabelInput,
-  type UpdateLabelInput,
-  useCreateLabel,
-  useUpdateLabel,
-  useDeleteLabel,
-} from './useAdminLabels'
-
-export {
   usePendingReports,
   useDismissReport,
   useResolveReport,
