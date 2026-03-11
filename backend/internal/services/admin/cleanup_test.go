@@ -1,18 +1,31 @@
-package services
+package admin
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"psychic-homily-backend/internal/models"
 )
+
+// stubUserService is a minimal stub for cleanup tests.
+type stubUserService struct{}
+
+func (s *stubUserService) GetExpiredDeletedAccounts() ([]models.User, error) {
+	return nil, fmt.Errorf("database not initialized")
+}
+func (s *stubUserService) PermanentlyDeleteUser(userID uint) error {
+	return fmt.Errorf("database not initialized")
+}
 
 // --- NewCleanupService ---
 
 func TestNewCleanupService(t *testing.T) {
-	// Pass nil — will call db.GetDB() which returns nil in test env
-	svc := NewCleanupService(nil)
+	// Pass nil DB — will call db.GetDB() which returns nil in test env
+	svc := NewCleanupService(nil, &stubUserService{})
 	assert.NotNil(t, svc)
 	assert.Equal(t, DefaultCleanupInterval, svc.interval)
 	assert.NotNil(t, svc.stopCh)
@@ -21,32 +34,32 @@ func TestNewCleanupService(t *testing.T) {
 
 func TestNewCleanupService_EnvOverride(t *testing.T) {
 	t.Setenv("CLEANUP_INTERVAL_HOURS", "12")
-	svc := NewCleanupService(nil)
+	svc := NewCleanupService(nil, &stubUserService{})
 	assert.Equal(t, 12*time.Hour, svc.interval)
 }
 
 func TestNewCleanupService_InvalidEnvIgnored(t *testing.T) {
 	t.Setenv("CLEANUP_INTERVAL_HOURS", "not-a-number")
-	svc := NewCleanupService(nil)
+	svc := NewCleanupService(nil, &stubUserService{})
 	assert.Equal(t, DefaultCleanupInterval, svc.interval)
 }
 
 func TestNewCleanupService_ZeroEnvIgnored(t *testing.T) {
 	t.Setenv("CLEANUP_INTERVAL_HOURS", "0")
-	svc := NewCleanupService(nil)
+	svc := NewCleanupService(nil, &stubUserService{})
 	assert.Equal(t, DefaultCleanupInterval, svc.interval)
 }
 
 func TestNewCleanupService_NegativeEnvIgnored(t *testing.T) {
 	t.Setenv("CLEANUP_INTERVAL_HOURS", "-5")
-	svc := NewCleanupService(nil)
+	svc := NewCleanupService(nil, &stubUserService{})
 	assert.Equal(t, DefaultCleanupInterval, svc.interval)
 }
 
 // --- Start / Stop lifecycle ---
 
 func TestCleanupService_StartStop(t *testing.T) {
-	svc := NewCleanupService(nil)
+	svc := NewCleanupService(nil, &stubUserService{})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -72,7 +85,7 @@ func TestCleanupService_StartStop(t *testing.T) {
 }
 
 func TestCleanupService_ContextCancellation(t *testing.T) {
-	svc := NewCleanupService(nil)
+	svc := NewCleanupService(nil, &stubUserService{})
 	ctx, cancel := context.WithCancel(context.Background())
 
 	svc.Start(ctx)
@@ -99,7 +112,7 @@ func TestCleanupService_ContextCancellation(t *testing.T) {
 // --- RunCleanupNow ---
 
 func TestCleanupService_RunCleanupNow_NilDB(t *testing.T) {
-	svc := NewCleanupService(nil)
+	svc := NewCleanupService(nil, &stubUserService{})
 	// Should not panic — the DB error gets logged and the cycle returns
 	assert.NotPanics(t, func() {
 		svc.RunCleanupNow()

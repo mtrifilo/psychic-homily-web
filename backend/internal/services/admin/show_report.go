@@ -1,4 +1,4 @@
-package services
+package admin
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ShowReportService handles show report business logic
@@ -26,7 +27,7 @@ func NewShowReportService(database *gorm.DB) *ShowReportService {
 }
 
 // CreateReport creates a new show report
-func (s *ShowReportService) CreateReport(userID, showID uint, reportType string, details *string) (*ShowReportResponse, error) {
+func (s *ShowReportService) CreateReport(userID, showID uint, reportType string, details *string) (*contracts.ShowReportResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -78,7 +79,7 @@ func (s *ShowReportService) CreateReport(userID, showID uint, reportType string,
 }
 
 // GetUserReportForShow returns the user's existing report for a show, if any
-func (s *ShowReportService) GetUserReportForShow(userID, showID uint) (*ShowReportResponse, error) {
+func (s *ShowReportService) GetUserReportForShow(userID, showID uint) (*contracts.ShowReportResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -98,7 +99,7 @@ func (s *ShowReportService) GetUserReportForShow(userID, showID uint) (*ShowRepo
 }
 
 // GetPendingReports returns pending reports for admin review
-func (s *ShowReportService) GetPendingReports(limit, offset int) ([]*ShowReportResponse, int64, error) {
+func (s *ShowReportService) GetPendingReports(limit, offset int) ([]*contracts.ShowReportResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -125,7 +126,7 @@ func (s *ShowReportService) GetPendingReports(limit, offset int) ([]*ShowReportR
 	}
 
 	// Build responses
-	responses := make([]*ShowReportResponse, len(reports))
+	responses := make([]*contracts.ShowReportResponse, len(reports))
 	for i, report := range reports {
 		responses[i] = s.buildReportResponse(&report, &report.Show)
 	}
@@ -134,7 +135,7 @@ func (s *ShowReportService) GetPendingReports(limit, offset int) ([]*ShowReportR
 }
 
 // DismissReport marks a report as dismissed (spam/invalid)
-func (s *ShowReportService) DismissReport(reportID, adminID uint, notes *string) (*ShowReportResponse, error) {
+func (s *ShowReportService) DismissReport(reportID, adminID uint, notes *string) (*contracts.ShowReportResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -166,14 +167,14 @@ func (s *ShowReportService) DismissReport(reportID, adminID uint, notes *string)
 }
 
 // ResolveReport marks a report as resolved (action was taken)
-func (s *ShowReportService) ResolveReport(reportID, adminID uint, notes *string) (*ShowReportResponse, error) {
+func (s *ShowReportService) ResolveReport(reportID, adminID uint, notes *string) (*contracts.ShowReportResponse, error) {
 	return s.ResolveReportWithFlag(reportID, adminID, notes, false)
 }
 
 // ResolveReportWithFlag marks a report as resolved and optionally sets the corresponding show flag.
 // If setShowFlag is true and the report type is cancelled or sold_out, the show's corresponding
 // flag (is_cancelled or is_sold_out) will be set to true.
-func (s *ShowReportService) ResolveReportWithFlag(reportID, adminID uint, notes *string, setShowFlag bool) (*ShowReportResponse, error) {
+func (s *ShowReportService) ResolveReportWithFlag(reportID, adminID uint, notes *string, setShowFlag bool) (*contracts.ShowReportResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -254,9 +255,9 @@ func (s *ShowReportService) GetReportByID(reportID uint) (*models.ShowReport, er
 	return &report, nil
 }
 
-// buildReportResponse builds a ShowReportResponse from a model
-func (s *ShowReportService) buildReportResponse(report *models.ShowReport, show *models.Show) *ShowReportResponse {
-	resp := &ShowReportResponse{
+// buildReportResponse builds a contracts.ShowReportResponse from a model
+func (s *ShowReportService) buildReportResponse(report *models.ShowReport, show *models.Show) *contracts.ShowReportResponse {
+	resp := &contracts.ShowReportResponse{
 		ID:         report.ID,
 		ShowID:     report.ShowID,
 		ReportType: string(report.ReportType),
@@ -278,7 +279,7 @@ func (s *ShowReportService) buildReportResponse(report *models.ShowReport, show 
 		if show.Slug != nil {
 			slug = *show.Slug
 		}
-		resp.Show = &ShowReportShowInfo{
+		resp.Show = &contracts.ShowReportShowInfo{
 			ID:        show.ID,
 			Title:     show.Title,
 			Slug:      slug,

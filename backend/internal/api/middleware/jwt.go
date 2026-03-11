@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
+	adminsvc "psychic-homily-backend/internal/services/admin"
 )
 
 type contextKey string
@@ -119,7 +120,7 @@ func HumaJWTMiddleware(jwtService *services.JWTService, sessionConfig ...config.
 	}
 
 	// Create API token service for API token validation
-	apiTokenService := services.NewAPITokenService(nil)
+	apiTokenService := adminsvc.NewAPITokenService(nil)
 
 	return func(ctx huma.Context, next func(huma.Context)) {
 		url := ctx.URL()
@@ -309,7 +310,7 @@ func LenientHumaJWTMiddleware(jwtService *services.JWTService, gracePeriod time.
 // but allows unauthenticated requests to proceed without user context.
 // Use this for endpoints that are public but behave differently for authenticated users.
 func OptionalHumaJWTMiddleware(jwtService *services.JWTService) func(ctx huma.Context, next func(huma.Context)) {
-	apiTokenService := services.NewAPITokenService(nil)
+	apiTokenService := adminsvc.NewAPITokenService(nil)
 
 	return func(ctx huma.Context, next func(huma.Context)) {
 		var token string

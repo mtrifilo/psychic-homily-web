@@ -53,16 +53,12 @@ type CollectionServiceInterface = contracts.CollectionServiceInterface
 // internal/services/notification/interfaces.go.
 // User services (UserService, ContributorProfileService) are checked in
 // internal/services/user/interfaces.go.
+// Admin services (AdminStats, AuditLog, DataSync, ShowReport, ArtistReport,
+// APIToken) are checked in internal/services/admin/interfaces.go.
 var (
 	_ ShowServiceInterface          = (*catalog.ShowService)(nil)
 	_ VenueServiceInterface         = (*catalog.VenueService)(nil)
 	_ ArtistServiceInterface        = (*catalog.ArtistService)(nil)
-	_ ShowReportServiceInterface    = (*ShowReportService)(nil)
-	_ ArtistReportServiceInterface  = (*ArtistReportService)(nil)
-	_ AuditLogServiceInterface      = (*AuditLogService)(nil)
-	_ APITokenServiceInterface      = (*APITokenService)(nil)
-	_ DataSyncServiceInterface      = (*DataSyncService)(nil)
-	_ AdminStatsServiceInterface    = (*AdminStatsService)(nil)
 	_ FestivalServiceInterface       = (*catalog.FestivalService)(nil)
 	_ LabelServiceInterface          = (*catalog.LabelService)(nil)
 	_ ReleaseServiceInterface       = (*catalog.ReleaseService)(nil)

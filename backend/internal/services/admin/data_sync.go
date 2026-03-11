@@ -1,4 +1,4 @@
-package services
+package admin
 
 import (
 	"fmt"
@@ -9,14 +9,13 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
 
 // DataSyncService handles exporting and importing data between environments
 type DataSyncService struct {
-	db           *gorm.DB
-	venueService *catalog.VenueService
+	db *gorm.DB
 }
 
 // NewDataSyncService creates a new data sync service
@@ -25,13 +24,12 @@ func NewDataSyncService(database *gorm.DB) *DataSyncService {
 		database = db.GetDB()
 	}
 	return &DataSyncService{
-		db:           database,
-		venueService: catalog.NewVenueService(database),
+		db: database,
 	}
 }
 
 // ExportShows exports shows with their artists and venues
-func (s *DataSyncService) ExportShows(params ExportShowsParams) (*ExportShowsResult, error) {
+func (s *DataSyncService) ExportShows(params contracts.ExportShowsParams) (*contracts.ExportShowsResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -111,9 +109,9 @@ func (s *DataSyncService) ExportShows(params ExportShowsParams) (*ExportShowsRes
 	}
 
 	// Convert to exported format
-	exported := make([]ExportedShow, len(shows))
+	exported := make([]contracts.ExportedShow, len(shows))
 	for i, show := range shows {
-		exported[i] = ExportedShow{
+		exported[i] = contracts.ExportedShow{
 			Title:          show.Title,
 			EventDate:      show.EventDate.Format(time.RFC3339),
 			City:           show.City,
@@ -124,13 +122,13 @@ func (s *DataSyncService) ExportShows(params ExportShowsParams) (*ExportShowsRes
 			Status:         string(show.Status),
 			IsSoldOut:      show.IsSoldOut,
 			IsCancelled:    show.IsCancelled,
-			Venues:         make([]ExportedVenue, len(show.Venues)),
-			Artists:        make([]ExportedShowArtist, 0),
+			Venues:         make([]contracts.ExportedVenue, len(show.Venues)),
+			Artists:        make([]contracts.ExportedShowArtist, 0),
 		}
 
 		// Convert venues
 		for j, venue := range show.Venues {
-			exported[i].Venues[j] = ExportedVenue{
+			exported[i].Venues[j] = contracts.ExportedVenue{
 				Name:       venue.Name,
 				Address:    venue.Address,
 				City:       venue.City,
@@ -161,7 +159,7 @@ func (s *DataSyncService) ExportShows(params ExportShowsParams) (*ExportShowsRes
 				}
 			}
 
-			exported[i].Artists = append(exported[i].Artists, ExportedShowArtist{
+			exported[i].Artists = append(exported[i].Artists, contracts.ExportedShowArtist{
 				Name:     artist.Name,
 				Position: position,
 				SetType:  setType,
@@ -169,15 +167,15 @@ func (s *DataSyncService) ExportShows(params ExportShowsParams) (*ExportShowsRes
 		}
 	}
 
-	return &ExportShowsResult{
+	return &contracts.ExportShowsResult{
 		Shows: exported,
 		Total: total,
 	}, nil
 }
 
-// ExportArtistsParams contains filters for artist export
+// contracts.ExportArtistsParams contains filters for artist export
 // ExportArtists exports artists
-func (s *DataSyncService) ExportArtists(params ExportArtistsParams) (*ExportArtistsResult, error) {
+func (s *DataSyncService) ExportArtists(params contracts.ExportArtistsParams) (*contracts.ExportArtistsResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -209,9 +207,9 @@ func (s *DataSyncService) ExportArtists(params ExportArtistsParams) (*ExportArti
 		return nil, fmt.Errorf("failed to fetch artists: %w", err)
 	}
 
-	exported := make([]ExportedArtist, len(artists))
+	exported := make([]contracts.ExportedArtist, len(artists))
 	for i, artist := range artists {
-		exported[i] = ExportedArtist{
+		exported[i] = contracts.ExportedArtist{
 			Name:             artist.Name,
 			City:             artist.City,
 			State:            artist.State,
@@ -227,15 +225,15 @@ func (s *DataSyncService) ExportArtists(params ExportArtistsParams) (*ExportArti
 		}
 	}
 
-	return &ExportArtistsResult{
+	return &contracts.ExportArtistsResult{
 		Artists: exported,
 		Total:   total,
 	}, nil
 }
 
-// ExportVenuesParams contains filters for venue export
+// contracts.ExportVenuesParams contains filters for venue export
 // ExportVenues exports venues
-func (s *DataSyncService) ExportVenues(params ExportVenuesParams) (*ExportVenuesResult, error) {
+func (s *DataSyncService) ExportVenues(params contracts.ExportVenuesParams) (*contracts.ExportVenuesResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -276,9 +274,9 @@ func (s *DataSyncService) ExportVenues(params ExportVenuesParams) (*ExportVenues
 		return nil, fmt.Errorf("failed to fetch venues: %w", err)
 	}
 
-	exported := make([]ExportedVenue, len(venues))
+	exported := make([]contracts.ExportedVenue, len(venues))
 	for i, venue := range venues {
-		exported[i] = ExportedVenue{
+		exported[i] = contracts.ExportedVenue{
 			Name:       venue.Name,
 			Address:    venue.Address,
 			City:       venue.City,
@@ -296,20 +294,20 @@ func (s *DataSyncService) ExportVenues(params ExportVenuesParams) (*ExportVenues
 		}
 	}
 
-	return &ExportVenuesResult{
+	return &contracts.ExportVenuesResult{
 		Venues: exported,
 		Total:  total,
 	}, nil
 }
 
-// DataImportRequest represents a batch import request
+// contracts.DataImportRequest represents a batch import request
 // ImportData imports shows, artists, and venues with deduplication
-func (s *DataSyncService) ImportData(req DataImportRequest) (*DataImportResult, error) {
+func (s *DataSyncService) ImportData(req contracts.DataImportRequest) (*contracts.DataImportResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	result := &DataImportResult{}
+	result := &contracts.DataImportResult{}
 	result.Shows.Messages = make([]string, 0)
 	result.Artists.Messages = make([]string, 0)
 	result.Venues.Messages = make([]string, 0)
@@ -367,7 +365,7 @@ func (s *DataSyncService) ImportData(req DataImportRequest) (*DataImportResult, 
 }
 
 // importArtist imports a single artist with deduplication
-func (s *DataSyncService) importArtist(artist *ExportedArtist, dryRun bool) (string, string) {
+func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun bool) (string, string) {
 	if artist.Name == "" {
 		return "SKIP: Artist name is required", "error"
 	}
@@ -429,7 +427,7 @@ func (s *DataSyncService) importArtist(artist *ExportedArtist, dryRun bool) (str
 }
 
 // importVenue imports a single venue with deduplication
-func (s *DataSyncService) importVenue(venue *ExportedVenue, dryRun bool) (string, string) {
+func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun bool) (string, string) {
 	if venue.Name == "" || venue.City == "" || venue.State == "" {
 		return "SKIP: Venue name, city, and state are required", "error"
 	}
@@ -493,7 +491,7 @@ func (s *DataSyncService) importVenue(venue *ExportedVenue, dryRun bool) (string
 }
 
 // importShow imports a single show with deduplication
-func (s *DataSyncService) importShow(show *ExportedShow, dryRun bool) (string, string) {
+func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) (string, string) {
 	if show.Title == "" || show.EventDate == "" {
 		return "SKIP: Show title and event date are required", "error"
 	}
@@ -689,7 +687,7 @@ func (s *DataSyncService) importShow(show *ExportedShow, dryRun bool) (string, s
 }
 
 // backfillShowSlugs generates slugs for an existing show and its associated artists/venues if missing.
-func (s *DataSyncService) backfillShowSlugs(existingShow *models.Show, show *ExportedShow, eventDate time.Time, venueName string) {
+func (s *DataSyncService) backfillShowSlugs(existingShow *models.Show, show *contracts.ExportedShow, eventDate time.Time, venueName string) {
 	// Backfill show slug
 	if existingShow.Slug == nil {
 		headlinerName := ""

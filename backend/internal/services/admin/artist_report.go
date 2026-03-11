@@ -1,4 +1,4 @@
-package services
+package admin
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ArtistReportService handles artist report business logic
@@ -26,7 +27,7 @@ func NewArtistReportService(database *gorm.DB) *ArtistReportService {
 }
 
 // CreateReport creates a new artist report
-func (s *ArtistReportService) CreateReport(userID, artistID uint, reportType string, details *string) (*ArtistReportResponse, error) {
+func (s *ArtistReportService) CreateReport(userID, artistID uint, reportType string, details *string) (*contracts.ArtistReportResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -77,7 +78,7 @@ func (s *ArtistReportService) CreateReport(userID, artistID uint, reportType str
 }
 
 // GetUserReportForArtist returns the user's existing report for an artist, if any
-func (s *ArtistReportService) GetUserReportForArtist(userID, artistID uint) (*ArtistReportResponse, error) {
+func (s *ArtistReportService) GetUserReportForArtist(userID, artistID uint) (*contracts.ArtistReportResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -97,7 +98,7 @@ func (s *ArtistReportService) GetUserReportForArtist(userID, artistID uint) (*Ar
 }
 
 // GetPendingReports returns pending reports for admin review
-func (s *ArtistReportService) GetPendingReports(limit, offset int) ([]*ArtistReportResponse, int64, error) {
+func (s *ArtistReportService) GetPendingReports(limit, offset int) ([]*contracts.ArtistReportResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -124,7 +125,7 @@ func (s *ArtistReportService) GetPendingReports(limit, offset int) ([]*ArtistRep
 	}
 
 	// Build responses
-	responses := make([]*ArtistReportResponse, len(reports))
+	responses := make([]*contracts.ArtistReportResponse, len(reports))
 	for i, report := range reports {
 		responses[i] = s.buildReportResponse(&report, &report.Artist)
 	}
@@ -133,7 +134,7 @@ func (s *ArtistReportService) GetPendingReports(limit, offset int) ([]*ArtistRep
 }
 
 // DismissReport marks a report as dismissed (spam/invalid)
-func (s *ArtistReportService) DismissReport(reportID, adminID uint, notes *string) (*ArtistReportResponse, error) {
+func (s *ArtistReportService) DismissReport(reportID, adminID uint, notes *string) (*contracts.ArtistReportResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -165,7 +166,7 @@ func (s *ArtistReportService) DismissReport(reportID, adminID uint, notes *strin
 }
 
 // ResolveReport marks a report as resolved (action was taken)
-func (s *ArtistReportService) ResolveReport(reportID, adminID uint, notes *string) (*ArtistReportResponse, error) {
+func (s *ArtistReportService) ResolveReport(reportID, adminID uint, notes *string) (*contracts.ArtistReportResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -213,9 +214,9 @@ func (s *ArtistReportService) GetReportByID(reportID uint) (*models.ArtistReport
 	return &report, nil
 }
 
-// buildReportResponse builds an ArtistReportResponse from a model
-func (s *ArtistReportService) buildReportResponse(report *models.ArtistReport, artist *models.Artist) *ArtistReportResponse {
-	resp := &ArtistReportResponse{
+// buildReportResponse builds an contracts.ArtistReportResponse from a model
+func (s *ArtistReportService) buildReportResponse(report *models.ArtistReport, artist *models.Artist) *contracts.ArtistReportResponse {
+	resp := &contracts.ArtistReportResponse{
 		ID:         report.ID,
 		ArtistID:   report.ArtistID,
 		ReportType: string(report.ReportType),
@@ -237,7 +238,7 @@ func (s *ArtistReportService) buildReportResponse(report *models.ArtistReport, a
 		if artist.Slug != nil {
 			slug = *artist.Slug
 		}
-		resp.Artist = &ArtistReportArtistInfo{
+		resp.Artist = &contracts.ArtistReportArtistInfo{
 			ID:   artist.ID,
 			Name: artist.Name,
 			Slug: slug,
