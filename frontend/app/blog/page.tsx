@@ -1,6 +1,5 @@
 import Link from 'next/link'
-import { getBlogSlugs, getBlogPost } from '@/lib/blog'
-import { MDXContent } from '@/components/blog/mdx-content'
+import { getBlogSlugs, getBlogPost, MDXContent } from '@/features/blog'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { formatContentDate } from '@/lib/utils/formatters'
