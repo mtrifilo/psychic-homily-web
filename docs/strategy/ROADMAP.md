@@ -20,8 +20,8 @@ Live shows are the gateway into the knowledge graph. Every phase builds outward 
 
 | Priority | Focus | What | Status |
 |----------|-------|------|--------|
-| 1a | Discovery | Phase 1.6a: AI pipeline foundation (PSY-29, PSY-75–81, PSY-83 DONE; PSY-82, PSY-34, PSY-36 remaining) | Nearly done |
-| 1b | Community | Phase 2a: Community foundations — contributor identity, collections, requests, revision history (PSY-63 through PSY-74) | In progress (PSY-63 done) |
+| 1a | Discovery | Phase 1.6a: AI pipeline foundation (PSY-29, PSY-75–83 DONE; PSY-34, PSY-36 remaining) | Nearly done |
+| 1b | Community | Phase 2a: Community foundations — contributor identity, collections, requests, revision history (PSY-63 through PSY-74) | In progress (PSY-63/64/65 done) |
 | 2 | Web | Phase 2b: Knowledge graph connective tissue — tags, relationships, scenes (PSY-45–54, PSY-59/60) | Planned |
 | 3 | Web | Phase 2c: Engagement & social — going/interested, follow, charts, notifications (PSY-55–57, PSY-61/62) | Planned |
 | — | Discovery | Phase 1.6b: Pipeline maturation (PSY-30, PSY-31, PSY-33, PSY-35) | Background track |
@@ -99,8 +99,9 @@ These two tracks run **in parallel**. Phase 1.6a is backend-heavy pipeline infra
 8. ~~**Batch review admin UI** (PSY-81)~~ — DONE. Batch approve/reject endpoints. `rejection_category` column. Frontend: batch selection, filter bar, keyboard shortcuts, quick "Not Music" reject.
 9. ~~**Huma query param fix** (PSY-83)~~ — DONE. Fixed pointer type panic in query params.
 
+10. ~~**Rejection feedback loop** (PSY-82)~~ — DONE. Per-venue extraction notes appended to AI prompt. Rejection stats endpoint with approval rate + category breakdown. Pipeline admin tab with venue table, approval rate badges, detail panel, inline notes editing.
+
 **What remains:**
-- **PSY-82** (Rejection feedback loop) — venue-level rejection stats, extraction notes, auto-generated hints
 - **PSY-34** (Data provenance tracking) — `data_source`, `source_confidence`, `last_verified_at` on core entity tables
 - **PSY-36** (Venue source config admin UI) — admin interface for managing venue configs
 
@@ -138,17 +139,17 @@ The most important new work. Not a feature in itself — infrastructure that mak
   - **11 API endpoints:** 3 public with optional auth (`/users/{username}`, `/users/{username}/contributions`, `/users/{username}/sections`), 8 protected (`/auth/profile/contributor`, `/auth/profile/contributions`, `/auth/profile/visibility`, `/auth/profile/privacy`, `/auth/profile/sections` CRUD).
   - **Deferred to later:** Percentile rankings (Phase 2a exit criteria, additive), impact metrics (downstream views/saves, additive), contribution heatmap (frontend, PSY-64).
 
-- **PSY-64: Contributor profile frontend**
-  - **Public profile page** (`/users/:username`): Identity header with avatar + tier badge + join date. Contribution summary cards by type. Visual recent activity feed (entity images, not just text). Collections showcase (visual grid thumbnails). Customizable profile sections (markdown rendered). Percentile ranking display. Contribution heatmap (GitHub-style activity calendar).
-  - **"Added by [username]"** attribution on entity detail pages (shows, artists, releases, labels, venues). Links to contributor's public profile.
-  - **"Your Impact"** section on private profile: downstream metrics, rank progress (what you need to reach next tier), privacy controls management.
-  - **Profile transformation:** Current `/profile` page evolves from bare settings into tabbed layout: Profile (public identity view) | Contributions (detailed history + stats) | Settings (existing settings panel).
+- ~~**PSY-64: Contributor profile frontend**~~ — **DONE** (12 new files, 9 components)
+  - **Public profile page** (`/users/:username`): Identity header with avatar + tier badge + join date. Contribution summary cards by type. Visual recent activity feed. Customizable profile sections (markdown rendered).
+  - **Profile transformation:** `/profile` page evolved from 2-tab settings into 4-tab identity hub: Profile (contributor stats + recent activity) | Privacy (visibility toggle + granular per-field controls) | Sections (CRUD for custom markdown sections) | Settings (existing settings panel).
+  - **Components:** `UserTierBadge`, `ContributionStatsGrid`, `ContributionTimeline`, `ProfileSections`, `ProfileSectionsEditor`, `PrivacySettingsPanel`, `PublicProfile`, `ContributorProfilePreview` in `components/contributor/`.
+  - **Deferred:** "Added by [username]" attribution (API returns `submitted_by` as numeric ID, not username — needs backend enrichment).
 
 #### 2. Collections (PSY-65 through PSY-68)
 
 The primary vessel for community knowledge — a record store at scale. No prescribed categories — collectors use their imagination: "Artists who performed at The Smell in LA 2010-2012", "Pitchfork's Top 100 Albums of the 2010s", "African Psychedelic Punk", "Creation Records 1984-1999", "Shows at Crescent Ballroom that changed my life", "The Phoenix scene in 2019." Open to collaboration by default. Visual grids. Subscribable. Each collection is someone's expertise made navigable — the description is the narrative, the items are the evidence, the graph connections are the context.
 
-- **PSY-65: Collection model and migrations** — `collections` table (title, slug, description, creator_id, collaborative, cover_image_url, is_public), `collection_items` table (entity_type, entity_id, position, added_by_user_id, notes), `collection_subscribers` table (last_visited_at for Gazelle-style unread tracking)
+- ~~**PSY-65: Collection model and migrations**~~ — **DONE** (migration 000047). `collections` table (title, slug, description, creator_id, collaborative, cover_image_url, is_public, is_featured), `collection_items` table (entity_type, entity_id, position, added_by_user_id, notes), `collection_subscribers` table (last_visited_at for Gazelle-style unread tracking). GORM model structs with 6 entity type constants.
 - **PSY-66: Collection service and handlers** — CRUD, item management (add/remove/reorder), subscription, permission model (creator edits, collaborators add items, anyone subscribes, admin features), aggregate stats (item count, contributor count, top tags once tags exist)
 - **PSY-67: Collection admin UI** — admin tab for managing featured collections, moderation
 - **PSY-68: Collection frontend pages** — `/collections` listing with search, `/collections/:slug` detail with visual grid of entity images (album art, venue photos, artist images, show flyers), "Add to collection" flow on entity detail pages, collection display on contributor profiles
@@ -169,9 +170,9 @@ Required before opening edit flows to non-admin users. Accountability and rollba
 
 **Practical sprint sequence (single-person team):**
 ```
-Sprint 1: ~~PSY-75–81, PSY-83 (pipeline foundation)~~ DONE + ~~PSY-63 (contributor profile backend)~~ DONE
-Sprint 2: PSY-82 (rejection feedback) + PSY-34 + PSY-36 (provenance + venue config UI) + PSY-64 (contributor profile frontend)
-Sprint 3: PSY-65 + PSY-66 (collections model + service)
+Sprint 1: ~~PSY-75–83 (pipeline foundation)~~ DONE + ~~PSY-63 (contributor profile backend)~~ DONE
+Sprint 2: ~~PSY-82 (rejection feedback) + PSY-64 (contributor profile frontend) + PSY-65 (collection model)~~ DONE
+Sprint 3: PSY-66 (collection service) + PSY-34 + PSY-36 (provenance + venue config UI)
 Sprint 4: PSY-67 + PSY-68 (collections admin + frontend)
 Sprint 5: PSY-70 + PSY-71 (requests model + service) + PSY-73 (revision history backend)
 Sprint 6: PSY-72 (requests frontend) + PSY-74 (revision history frontend)
