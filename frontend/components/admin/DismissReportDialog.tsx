@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { XCircle, Loader2 } from 'lucide-react'
-import { useDismissReport } from '@/lib/hooks/useAdminReports'
+import { useDismissReport } from '@/lib/hooks/admin/useAdminReports'
 import type { ShowReportResponse } from '@/lib/types/show'
 import {
   Dialog,

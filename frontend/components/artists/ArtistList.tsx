@@ -2,12 +2,12 @@
 
 import { useMemo, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useArtists, useArtistCities } from '@/lib/hooks/useArtists'
+import { useArtists, useArtistCities } from '@/lib/hooks/artists/useArtists'
 import { ArtistCard } from './ArtistCard'
 import { ArtistSearch } from './ArtistSearch'
 import { CityFilters, type CityWithCount, type CityState } from '@/components/filters'
 import { LoadingSpinner, DensityToggle } from '@/components/shared'
-import { useDensity } from '@/lib/hooks/useDensity'
+import { useDensity } from '@/lib/hooks/common/useDensity'
 import { Button } from '@/components/ui/button'
 
 /** Parse cities param from URL: "Phoenix,AZ|Mesa,AZ" -> CityState[] */

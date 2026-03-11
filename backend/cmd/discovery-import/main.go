@@ -12,7 +12,8 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/pipeline"
 )
 
 func main() {
@@ -88,10 +89,10 @@ func main() {
 	}
 
 	// Create discovery service
-	discoveryService := services.NewDiscoveryService(nil)
+	discoveryService := pipeline.NewDiscoveryService(nil, nil)
 
 	// Process each file
-	totalResult := &services.ImportResult{
+	totalResult := &contracts.ImportResult{
 		Messages: make([]string, 0),
 	}
 

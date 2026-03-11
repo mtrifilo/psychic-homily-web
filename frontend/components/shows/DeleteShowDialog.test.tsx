@@ -12,7 +12,7 @@ const mockDeleteHook = vi.fn(() => ({
   error: null,
 }))
 
-vi.mock('@/lib/hooks/useShowDelete', () => ({
+vi.mock('@/lib/hooks/shows/useShowDelete', () => ({
   useShowDelete: () => mockDeleteHook(),
 }))
 

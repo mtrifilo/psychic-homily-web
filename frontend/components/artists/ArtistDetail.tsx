@@ -16,11 +16,11 @@ import {
   Tag,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useArtist } from '@/lib/hooks/useArtists'
-import { useArtistReleases } from '@/lib/hooks/useReleases'
-import { useArtistLabels, useLabelRoster } from '@/lib/hooks/useLabels'
+import { useArtist } from '@/lib/hooks/artists/useArtists'
+import { useArtistReleases } from '@/features/releases/hooks/useReleases'
+import { useArtistLabels, useLabelRoster } from '@/lib/hooks/labels/useLabels'
 import { queryKeys } from '@/lib/queryClient'
-import { useIsAuthenticated } from '@/lib/hooks/useAuth'
+import { useIsAuthenticated } from '@/lib/hooks/auth/useAuth'
 import {
   useDiscoverMusic,
   useUpdateArtistBandcamp,
@@ -28,7 +28,7 @@ import {
   useUpdateArtistSpotify,
   useClearArtistSpotify,
   type MusicPlatform,
-} from '@/lib/hooks/useAdminArtists'
+} from '@/lib/hooks/admin/useAdminArtists'
 import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader } from '@/components/shared'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
 import { ArtistShowsList } from './ArtistShowsList'
@@ -38,8 +38,8 @@ import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
-import { getReleaseTypeLabel } from '@/lib/types/release'
-import type { ArtistReleaseListItem } from '@/lib/types/release'
+import { getReleaseTypeLabel } from '@/features/releases/types'
+import type { ArtistReleaseListItem } from '@/features/releases/types'
 import type { ArtistLabel } from '@/lib/types/label'
 
 interface ArtistDetailProps {

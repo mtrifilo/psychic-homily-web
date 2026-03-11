@@ -11,7 +11,7 @@ vi.mock('next/navigation', () => ({
 
 // Mock the search hook
 const mockSearchResults = vi.fn()
-vi.mock('@/lib/hooks/useVenueSearch', () => ({
+vi.mock('@/lib/hooks/venues/useVenueSearch', () => ({
   useVenueSearch: ({ query }: { query: string }) => ({
     data: mockSearchResults(query),
   }),

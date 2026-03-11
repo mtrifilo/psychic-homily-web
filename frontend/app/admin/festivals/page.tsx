@@ -1,6 +1,6 @@
 'use client'
 
-import { FestivalManagement } from '@/components/admin'
+import { FestivalManagement } from '@/features/festivals/admin'
 
 export default function AdminFestivalsPage() {
   return <FestivalManagement />

@@ -25,30 +25,6 @@ func NewArtistReportService(database *gorm.DB) *ArtistReportService {
 	}
 }
 
-// ArtistReportResponse represents an artist report response with artist info
-type ArtistReportResponse struct {
-	ID         uint      `json:"id"`
-	ArtistID   uint      `json:"artist_id"`
-	ReportType string    `json:"report_type"`
-	Details    *string   `json:"details"`
-	Status     string    `json:"status"`
-	AdminNotes *string   `json:"admin_notes,omitempty"`
-	ReviewedBy *uint     `json:"reviewed_by,omitempty"`
-	ReviewedAt *string   `json:"reviewed_at,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
-
-	// Artist info (for admin view)
-	Artist *ArtistReportArtistInfo `json:"artist,omitempty"`
-}
-
-// ArtistReportArtistInfo contains artist information for report responses
-type ArtistReportArtistInfo struct {
-	ID   uint   `json:"id"`
-	Name string `json:"name"`
-	Slug string `json:"slug"`
-}
-
 // CreateReport creates a new artist report
 func (s *ArtistReportService) CreateReport(userID, artistID uint, reportType string, details *string) (*ArtistReportResponse, error) {
 	if s.db == nil {

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { CheckCircle, Loader2, MapPin } from 'lucide-react'
-import { useApproveShow } from '@/lib/hooks/useAdminShows'
+import { useApproveShow } from '@/lib/hooks/admin/useAdminShows'
 import type { ShowResponse } from '@/lib/types/show'
 import {
   Dialog,

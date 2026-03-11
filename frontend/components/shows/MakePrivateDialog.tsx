@@ -1,7 +1,7 @@
 'use client'
 
 import { EyeOff, Loader2 } from 'lucide-react'
-import { useShowMakePrivate } from '@/lib/hooks/useShowMakePrivate'
+import { useShowMakePrivate } from '@/lib/hooks/shows/useShowMakePrivate'
 import type { ShowResponse } from '@/lib/types/show'
 import {
   Dialog,

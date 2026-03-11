@@ -1,7 +1,7 @@
 'use client'
 
 import { Trash2, Loader2 } from 'lucide-react'
-import { useShowDelete } from '@/lib/hooks/useShowDelete'
+import { useShowDelete } from '@/lib/hooks/shows/useShowDelete'
 import type { ShowResponse } from '@/lib/types/show'
 import {
   Dialog,
