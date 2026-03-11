@@ -1,6 +1,5 @@
 import { notFound } from 'next/navigation'
-import { getBlogPost, getBlogSlugs } from '@/lib/blog'
-import { MDXContent } from '@/components/blog/mdx-content'
+import { getBlogPost, getBlogSlugs, MDXContent } from '@/features/blog'
 import Link from 'next/link'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateBlogPostingSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'

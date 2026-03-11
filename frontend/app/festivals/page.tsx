@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import { FestivalList } from '@/components/festivals'
+import { FestivalList } from '@/features/festivals/components'
 import { LoadingSpinner } from '@/components/shared'
 
 export const metadata = {

@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -12,29 +13,49 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chromedp/chromedp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// skipIfNoChrome skips the test if no Chrome/Chromium binary is available.
+// skipIfNoChrome skips the test if Chrome/Chromium cannot actually launch.
+// Checking the binary path alone is insufficient — CI runners may have
+// Chrome installed but fail to connect via DevTools protocol.
 func skipIfNoChrome(t *testing.T) {
 	t.Helper()
-	if _, err := exec.LookPath("google-chrome"); err == nil {
-		return
+
+	// Quick check: is any Chrome binary on PATH or installed?
+	found := false
+	for _, name := range []string{"google-chrome", "chromium", "chromium-browser"} {
+		if _, err := exec.LookPath(name); err == nil {
+			found = true
+			break
+		}
 	}
-	if _, err := exec.LookPath("chromium"); err == nil {
-		return
+	if !found {
+		if _, err := os.Stat("/Applications/Google Chrome.app"); err == nil {
+			found = true
+		}
 	}
-	if _, err := exec.LookPath("chromium-browser"); err == nil {
-		return
+	if !found {
+		t.Skip("Chrome not found, skipping chromedp tests")
 	}
-	// macOS: check app bundle
-	if _, err := os.Stat("/Applications/Google Chrome.app"); err == nil {
-		return
+
+	// Verify Chrome can actually launch by navigating to about:blank.
+	svc := NewFetcherService()
+	svc.InitChromedp(1)
+	defer svc.ShutdownChromedp()
+
+	ctx, cancel := context.WithTimeout(svc.allocCtx, 15*time.Second)
+	defer cancel()
+	tabCtx, tabCancel := chromedp.NewContext(ctx)
+	defer tabCancel()
+
+	if err := chromedp.Run(tabCtx, chromedp.Navigate("about:blank")); err != nil {
+		t.Skipf("Chrome found but cannot launch (CI environment?): %v", err)
 	}
-	t.Skip("Chrome not found, skipping chromedp tests")
 }
 
 // newTestFetcher creates a FetcherService with chromedp initialized for testing.

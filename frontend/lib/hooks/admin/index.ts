@@ -22,40 +22,12 @@ export {
 export { useAuditLogs } from './useAdminAuditLogs'
 
 export {
-  type CreateFestivalInput,
-  type UpdateFestivalInput,
-  type AddFestivalArtistInput,
-  type UpdateFestivalArtistInput,
-  type AddFestivalVenueInput,
-  useCreateFestival,
-  useUpdateFestival,
-  useDeleteFestival,
-  useAddFestivalArtist,
-  useUpdateFestivalArtist,
-  useRemoveFestivalArtist,
-  useAddFestivalVenue,
-  useRemoveFestivalVenue,
-} from './useAdminFestivals'
-
-export {
   type CreateLabelInput,
   type UpdateLabelInput,
   useCreateLabel,
   useUpdateLabel,
   useDeleteLabel,
 } from './useAdminLabels'
-
-export {
-  type CreateReleaseArtistInput,
-  type CreateReleaseLinkInput,
-  type CreateReleaseInput,
-  type UpdateReleaseInput,
-  useCreateRelease,
-  useUpdateRelease,
-  useDeleteRelease,
-  useAddReleaseLink,
-  useRemoveReleaseLink,
-} from './useAdminReleases'
 
 export {
   usePendingReports,
