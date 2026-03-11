@@ -1,4 +1,4 @@
-package services
+package pipeline
 
 import (
 	"context"
@@ -120,7 +120,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) SetupSuite() {
 	sqlDB, err := db.DB()
 	s.Require().NoError(err)
 
-	migrationDir, _ := filepath.Abs("../../db/migrations")
+	migrationDir, _ := filepath.Abs("../../../db/migrations")
 	testutil.RunAllMigrations(s.T(), sqlDB, migrationDir)
 
 	s.svc = NewVenueSourceConfigService(db)

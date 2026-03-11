@@ -1,4 +1,4 @@
-package services
+package pipeline
 
 import (
 	"context"
@@ -15,7 +15,9 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
+	"psychic-homily-backend/internal/utils"
 )
 
 // =============================================================================
@@ -253,13 +255,13 @@ func TestSplitAndTrim_NoSeparator(t *testing.T) {
 // =============================================================================
 
 func TestNewDiscoveryService(t *testing.T) {
-	svc := NewDiscoveryService(nil)
+	svc := NewDiscoveryService(nil, nil)
 	assert.NotNil(t, svc)
 }
 
 func TestImportEvents_NilDB(t *testing.T) {
 	svc := &DiscoveryService{db: nil}
-	result, err := svc.ImportEvents([]DiscoveredEvent{}, false, false, models.ShowStatusApproved)
+	result, err := svc.ImportEvents([]contracts.DiscoveredEvent{}, false, false, models.ShowStatusApproved)
 	assert.Error(t, err)
 	assert.Equal(t, "database not initialized", err.Error())
 	assert.Nil(t, result)
@@ -267,10 +269,73 @@ func TestImportEvents_NilDB(t *testing.T) {
 
 func TestCheckEvents_NilDB(t *testing.T) {
 	svc := &DiscoveryService{db: nil}
-	result, err := svc.CheckEvents([]CheckEventInput{})
+	result, err := svc.CheckEvents([]contracts.CheckEventInput{})
 	assert.Error(t, err)
 	assert.Equal(t, "database not initialized", err.Error())
 	assert.Nil(t, result)
+}
+
+// =============================================================================
+// testVenueFinderCreator — lightweight impl of venueFinderCreator for tests
+// =============================================================================
+
+// testVenueFinderCreator implements the venueFinderCreator interface using direct
+// GORM queries, replicating the core FindOrCreateVenue behavior from VenueService.
+type testVenueFinderCreator struct {
+	db *gorm.DB
+}
+
+func (v *testVenueFinderCreator) FindOrCreateVenue(name, city, state string, address, zipcode *string, txDB *gorm.DB, isAdmin bool) (*models.Venue, bool, error) {
+	query := txDB
+	if query == nil {
+		query = v.db
+	}
+	if query == nil {
+		return nil, false, fmt.Errorf("database not initialized")
+	}
+
+	// Check if venue already exists by name and city
+	var venue models.Venue
+	err := query.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", name, city).First(&venue).Error
+	if err == nil {
+		// Venue exists — backfill slug if missing
+		if venue.Slug == nil {
+			baseSlug := utils.GenerateVenueSlug(venue.Name, venue.City, venue.State)
+			slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
+				var count int64
+				query.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+				return count > 0
+			})
+			venue.Slug = &slug
+			query.Model(&venue).Update("slug", slug)
+		}
+		return &venue, false, nil
+	} else if err != gorm.ErrRecordNotFound {
+		return nil, false, fmt.Errorf("failed to check existing venue: %w", err)
+	}
+
+	// Venue doesn't exist, create it
+	baseSlug := utils.GenerateVenueSlug(name, city, state)
+	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
+		var count int64
+		query.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+		return count > 0
+	})
+
+	venue = models.Venue{
+		Name:  name,
+		City:  city,
+		State: state,
+		Slug:  &slug,
+	}
+	if address != nil {
+		venue.Address = address
+	}
+	if err := query.Create(&venue).Error; err != nil {
+		return nil, false, fmt.Errorf("failed to create venue: %w", err)
+	}
+
+	return &venue, true, nil
 }
 
 // =============================================================================
@@ -329,9 +394,10 @@ func (suite *DiscoveryIntegrationTestSuite) SetupSuite() {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
 
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
-	suite.svc = NewDiscoveryService(db)
+	venueSvc := &testVenueFinderCreator{db: db}
+	suite.svc = NewDiscoveryService(db, venueSvc)
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TearDownSuite() {
@@ -361,8 +427,8 @@ func TestDiscoveryIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *DiscoveryIntegrationTestSuite) makeEvent(id, title, venueSlug, date string, artists []string) DiscoveredEvent {
-	return DiscoveredEvent{
+func (suite *DiscoveryIntegrationTestSuite) makeEvent(id, title, venueSlug, date string, artists []string) contracts.DiscoveredEvent {
+	return contracts.DiscoveredEvent{
 		ID:        id,
 		Title:     title,
 		Date:      date,
@@ -378,7 +444,7 @@ func (suite *DiscoveryIntegrationTestSuite) makeEvent(id, title, venueSlug, date
 // =============================================================================
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_Success() {
-	events := []DiscoveredEvent{
+	events := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-001", "The National", "valley-bar", "2026-06-15", []string{"The National"}),
 	}
 
@@ -400,7 +466,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_Success() {
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_SourceDuplicate() {
-	events := []DiscoveredEvent{
+	events := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-002", "Radiohead", "valley-bar", "2026-07-01", []string{"Radiohead"}),
 	}
 
@@ -417,7 +483,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_SourceDuplicate() {
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UnknownVenue() {
-	events := []DiscoveredEvent{
+	events := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-003", "Test Band", "unknown-venue-xyz", "2026-08-01", []string{"Test Band"}),
 	}
 
@@ -429,7 +495,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UnknownVenue() {
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate() {
 	// Import one show first
-	events1 := []DiscoveredEvent{
+	events1 := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-004a", "Bon Iver", "valley-bar", "2026-09-01", []string{"Bon Iver"}),
 	}
 	result1, err := suite.svc.ImportEvents(events1, false, false, models.ShowStatusApproved)
@@ -438,7 +504,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate(
 
 	// Import another event with the same headliner at the same venue on the same date
 	// but different source_event_id
-	events2 := []DiscoveredEvent{
+	events2 := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-004b", "Bon Iver (Late Show)", "valley-bar", "2026-09-01", []string{"Bon Iver"}),
 	}
 	result2, err := suite.svc.ImportEvents(events2, false, false, models.ShowStatusApproved)
@@ -473,7 +539,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_RejectedShowSkipped
 	suite.Require().NoError(err)
 
 	// Try to import an event at the same venue and date
-	events := []DiscoveredEvent{
+	events := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-005", "Some New Band", "valley-bar", "2026-10-01", []string{"Some New Band"}),
 	}
 
@@ -484,7 +550,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_RejectedShowSkipped
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_DryRun() {
-	events := []DiscoveredEvent{
+	events := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-006", "Dry Run Band", "valley-bar", "2026-11-01", []string{"Dry Run Band"}),
 	}
 
@@ -501,7 +567,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_DryRun() {
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_PendingStatus() {
-	events := []DiscoveredEvent{
+	events := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-pending-1", "Pending Band", "valley-bar", "2026-11-15", []string{"Pending Band"}),
 	}
 
@@ -522,14 +588,14 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_PendingStatus() {
 
 func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_Found() {
 	// Import an event first
-	events := []DiscoveredEvent{
+	events := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-check-1", "Check Band", "valley-bar", "2026-12-01", []string{"Check Band"}),
 	}
 	_, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
 	suite.Require().NoError(err)
 
 	// Check it
-	checkInputs := []CheckEventInput{
+	checkInputs := []contracts.CheckEventInput{
 		{ID: "evt-check-1", VenueSlug: "valley-bar"},
 	}
 	result, err := suite.svc.CheckEvents(checkInputs)
@@ -543,7 +609,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_Found() {
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_NotFound() {
-	checkInputs := []CheckEventInput{
+	checkInputs := []contracts.CheckEventInput{
 		{ID: "evt-nonexistent", VenueSlug: "valley-bar"},
 	}
 	result, err := suite.svc.CheckEvents(checkInputs)
@@ -552,7 +618,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_NotFound() {
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_EmptyInput() {
-	result, err := suite.svc.CheckEvents([]CheckEventInput{})
+	result, err := suite.svc.CheckEvents([]contracts.CheckEventInput{})
 	suite.Require().NoError(err)
 	suite.Empty(result.Events)
 }

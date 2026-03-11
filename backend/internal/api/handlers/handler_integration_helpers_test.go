@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/pipeline"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -31,12 +32,12 @@ type handlerIntegrationDeps struct {
 	userService           *services.UserService
 	auditLogService       *services.AuditLogService
 	discordService        *services.DiscordService
-	musicDiscoveryService *services.MusicDiscoveryService
-	extractionService     *services.ExtractionService
+	musicDiscoveryService *pipeline.MusicDiscoveryService
+	extractionService     *pipeline.ExtractionService
 	apiTokenService       *services.APITokenService
 	dataSyncService       *services.DataSyncService
 	adminStatsService     *services.AdminStatsService
-	discoveryService      *services.DiscoveryService
+	discoveryService      *pipeline.DiscoveryService
 	artistService         *services.ArtistService
 	festivalService       *services.FestivalService
 	labelService          *services.LabelService
@@ -106,12 +107,12 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		userService:           services.NewUserService(db),
 		auditLogService:       services.NewAuditLogService(db),
 		discordService:        services.NewDiscordService(emptyCfg),
-		musicDiscoveryService: services.NewMusicDiscoveryService(emptyCfg),
-		extractionService:     services.NewExtractionService(db, emptyCfg),
+		musicDiscoveryService: pipeline.NewMusicDiscoveryService(emptyCfg),
+		extractionService:     pipeline.NewExtractionService(db, emptyCfg, services.NewArtistService(db), services.NewVenueService(db)),
 		apiTokenService:       services.NewAPITokenService(db),
 		dataSyncService:       services.NewDataSyncService(db),
 		adminStatsService:     services.NewAdminStatsService(db),
-		discoveryService:      services.NewDiscoveryService(db),
+		discoveryService:      pipeline.NewDiscoveryService(db, services.NewVenueService(db)),
 		artistService:         services.NewArtistService(db),
 		festivalService:       services.NewFestivalService(db),
 		labelService:          services.NewLabelService(db),

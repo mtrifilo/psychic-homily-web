@@ -1,4 +1,4 @@
-package services
+package pipeline
 
 import (
 	"fmt"
@@ -6,25 +6,26 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // PipelineService orchestrates the end-to-end AI extraction pipeline:
 // fetch page -> detect changes -> extract events -> import shows.
 type PipelineService struct {
-	fetcher     FetcherServiceInterface
-	extraction  ExtractionServiceInterface
-	discovery   DiscoveryServiceInterface
-	venueConfig VenueSourceConfigServiceInterface
-	venue       VenueServiceInterface
+	fetcher     contracts.FetcherServiceInterface
+	extraction  contracts.ExtractionServiceInterface
+	discovery   contracts.DiscoveryServiceInterface
+	venueConfig contracts.VenueSourceConfigServiceInterface
+	venue       contracts.VenueServiceInterface
 }
 
 // NewPipelineService creates a new pipeline orchestrator.
 func NewPipelineService(
-	fetcher FetcherServiceInterface,
-	extraction ExtractionServiceInterface,
-	discovery DiscoveryServiceInterface,
-	venueConfig VenueSourceConfigServiceInterface,
-	venue VenueServiceInterface,
+	fetcher contracts.FetcherServiceInterface,
+	extraction contracts.ExtractionServiceInterface,
+	discovery contracts.DiscoveryServiceInterface,
+	venueConfig contracts.VenueSourceConfigServiceInterface,
+	venue contracts.VenueServiceInterface,
 ) *PipelineService {
 	return &PipelineService{
 		fetcher:     fetcher,
@@ -36,7 +37,7 @@ func NewPipelineService(
 }
 
 // ExtractVenue runs the full extraction pipeline for a single venue.
-func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*PipelineResult, error) {
+func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*contracts.PipelineResult, error) {
 	start := time.Now()
 
 	// 1. Get venue
@@ -79,11 +80,11 @@ func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*PipelineResu
 	}
 
 	// 5. Fetch based on render method
-	var fetchResult *FetchResult
+	var fetchResult *contracts.FetchResult
 	var fetchErr error
 
 	switch renderMethod {
-	case RenderMethodStatic:
+	case contracts.RenderMethodStatic:
 		lastETag := ""
 		lastHash := ""
 		if config.LastETag != nil {
@@ -93,9 +94,9 @@ func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*PipelineResu
 			lastHash = *config.LastContentHash
 		}
 		fetchResult, fetchErr = s.fetcher.Fetch(*config.CalendarURL, lastETag, lastHash)
-	case RenderMethodDynamic:
+	case contracts.RenderMethodDynamic:
 		fetchResult, fetchErr = s.fetcher.FetchDynamic(*config.CalendarURL)
-	case RenderMethodScreenshot:
+	case contracts.RenderMethodScreenshot:
 		fetchResult, fetchErr = s.fetcher.FetchScreenshot(*config.CalendarURL)
 	default:
 		fetchErr = fmt.Errorf("unknown render method: %s", renderMethod)
@@ -110,8 +111,8 @@ func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*PipelineResu
 	}
 
 	// 6. Check for changes (static only -- dynamic/screenshot always proceed)
-	if !fetchResult.Changed && renderMethod == RenderMethodStatic {
-		result := &PipelineResult{
+	if !fetchResult.Changed && renderMethod == contracts.RenderMethodStatic {
+		result := &contracts.PipelineResult{
 			VenueID:      venueID,
 			VenueName:    venue.Name,
 			RenderMethod: renderMethod,
@@ -127,7 +128,7 @@ func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*PipelineResu
 
 	// 7. Determine content type for extraction
 	contentType := "text"
-	if renderMethod == RenderMethodScreenshot {
+	if renderMethod == contracts.RenderMethodScreenshot {
 		contentType = "image"
 	}
 
@@ -193,7 +194,7 @@ func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*PipelineResu
 		log.Printf("warning: failed to update config after run for venue %d: %v", venueID, updateErr)
 	}
 
-	return &PipelineResult{
+	return &contracts.PipelineResult{
 		VenueID:               venueID,
 		VenueName:             venue.Name,
 		RenderMethod:          renderMethod,
@@ -209,8 +210,8 @@ func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*PipelineResu
 
 // filterMusicEvents returns only events where IsMusicEvent is not explicitly false.
 // Events with IsMusicEvent=nil or IsMusicEvent=true are included.
-func filterMusicEvents(events []CalendarEvent) []CalendarEvent {
-	var filtered []CalendarEvent
+func filterMusicEvents(events []contracts.CalendarEvent) []contracts.CalendarEvent {
+	var filtered []contracts.CalendarEvent
 	for _, e := range events {
 		if e.IsMusicEvent != nil && !*e.IsMusicEvent {
 			continue

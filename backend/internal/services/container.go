@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/services/pipeline"
 )
 
 // ServiceContainer eagerly creates all services once at startup.
@@ -29,33 +30,33 @@ type ServiceContainer struct {
 	ShowReport    *ShowReportService
 	User              *UserService
 	Venue             *VenueService
-	VenueSourceConfig *VenueSourceConfigService
+	VenueSourceConfig *pipeline.VenueSourceConfigService
 
 	// Config-only services
 	Discord        *DiscordService
 	Email          *EmailService
-	MusicDiscovery *MusicDiscoveryService
+	MusicDiscovery *pipeline.MusicDiscoveryService
 
 	// No-param services
-	Fetcher           *FetcherService
+	Fetcher           *pipeline.FetcherService
 	PasswordValidator *PasswordValidator
 
 	// DB + Config composite services
 	Auth       *AuthService
 	JWT        *JWTService
 	AppleAuth  *AppleAuthService
-	Extraction *ExtractionService
+	Extraction *pipeline.ExtractionService
 	WebAuthn   *WebAuthnService // nil if init fails (passkeys optional)
 	Cleanup    *CleanupService
 	DataSync   *DataSyncService
-	Discovery  *DiscoveryService
-	Pipeline   *PipelineService
+	Discovery  *pipeline.DiscoveryService
+	Pipeline   *pipeline.PipelineService
 	Reminder   *ReminderService
 }
 
 // newFetcherWithChromedp creates a FetcherService with chromedp initialized at 3 workers.
-func newFetcherWithChromedp() *FetcherService {
-	f := NewFetcherService()
+func newFetcherWithChromedp() *pipeline.FetcherService {
+	f := pipeline.NewFetcherService()
 	f.InitChromedp(3)
 	return f
 }
@@ -73,17 +74,18 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	email := NewEmailService(cfg)
 
 	// Services needed by PipelineService — created first so we can inject them.
-	fetcher := newFetcherWithChromedp()
-	extraction := NewExtractionService(database, cfg)
-	discovery := NewDiscoveryService(database)
-	venueSourceConfig := NewVenueSourceConfigService(database)
+	artist := NewArtistService(database)
 	venue := NewVenueService(database)
+	fetcher := newFetcherWithChromedp()
+	extraction := pipeline.NewExtractionService(database, cfg, artist, venue)
+	discovery := pipeline.NewDiscoveryService(database, venue)
+	venueSourceConfig := pipeline.NewVenueSourceConfigService(database)
 
 	return &ServiceContainer{
 		// DB-only leaf services
 		AdminStats:         NewAdminStatsService(database),
 		APIToken:           NewAPITokenService(database),
-		Artist:             NewArtistService(database),
+		Artist:             artist,
 		ContributorProfile: NewContributorProfileService(database),
 		ArtistReport:  NewArtistReportService(database),
 		AuditLog:      NewAuditLogService(database),
@@ -103,7 +105,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		// Config-only services
 		Discord:        NewDiscordService(cfg),
 		Email:          email,
-		MusicDiscovery: NewMusicDiscoveryService(cfg),
+		MusicDiscovery: pipeline.NewMusicDiscoveryService(cfg),
 
 		// No-param services
 		Fetcher:           fetcher,
@@ -118,7 +120,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Cleanup:    NewCleanupService(database),
 		DataSync:   NewDataSyncService(database),
 		Discovery:  discovery,
-		Pipeline:   NewPipelineService(fetcher, extraction, discovery, venueSourceConfig, venue),
+		Pipeline:   pipeline.NewPipelineService(fetcher, extraction, discovery, venueSourceConfig, venue),
 		Reminder:   NewReminderService(database, email, cfg),
 	}
 }

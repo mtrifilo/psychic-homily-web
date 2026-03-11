@@ -1,4 +1,4 @@
-package services
+package pipeline
 
 import (
 	"net/http"

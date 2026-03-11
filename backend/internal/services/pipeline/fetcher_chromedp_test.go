@@ -1,4 +1,4 @@
-package services
+package pipeline
 
 import (
 	"context"
@@ -16,6 +16,8 @@ import (
 	"github.com/chromedp/chromedp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // skipIfNoChrome skips the test if Chrome/Chromium cannot actually launch.
@@ -476,9 +478,9 @@ func TestFetchDynamic_ContentHash(t *testing.T) {
 
 func TestRenderMethodConstants(t *testing.T) {
 	// Verify constant values match expected strings
-	assert.Equal(t, "static", RenderMethodStatic)
-	assert.Equal(t, "dynamic", RenderMethodDynamic)
-	assert.Equal(t, "screenshot", RenderMethodScreenshot)
+	assert.Equal(t, "static", contracts.RenderMethodStatic)
+	assert.Equal(t, "dynamic", contracts.RenderMethodDynamic)
+	assert.Equal(t, "screenshot", contracts.RenderMethodScreenshot)
 }
 
 func TestFetchDynamic_LargePage(t *testing.T) {

@@ -1,4 +1,4 @@
-package services
+package pipeline
 
 import (
 	"encoding/json"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // =============================================================================
@@ -157,12 +158,12 @@ func TestCalendarEventsToDiscoveredEvents(t *testing.T) {
 		ages := "21+"
 		ticketURL := "https://tickets.example.com/abc"
 
-		events := []CalendarEvent{
+		events := []contracts.CalendarEvent{
 			{
 				Date:      "2026-03-15",
 				Time:      &showTime,
 				Title:     "Dinosaur Jr with Guided By Voices",
-				Artists:   []CalendarArtist{{Name: "Dinosaur Jr", IsHeadliner: true}, {Name: "Guided By Voices", IsHeadliner: false}},
+				Artists:   []contracts.CalendarArtist{{Name: "Dinosaur Jr", IsHeadliner: true}, {Name: "Guided By Voices", IsHeadliner: false}},
 				Cost:      &cost,
 				Ages:      &ages,
 				TicketURL: &ticketURL,
@@ -193,11 +194,11 @@ func TestCalendarEventsToDiscoveredEvents(t *testing.T) {
 	})
 
 	t.Run("minimal_event_no_optional_fields", func(t *testing.T) {
-		events := []CalendarEvent{
+		events := []contracts.CalendarEvent{
 			{
 				Date:    "2026-04-01",
 				Title:   "Solo Show",
-				Artists: []CalendarArtist{{Name: "Solo Artist", IsHeadliner: true}},
+				Artists: []contracts.CalendarArtist{{Name: "Solo Artist", IsHeadliner: true}},
 			},
 		}
 
@@ -214,7 +215,7 @@ func TestCalendarEventsToDiscoveredEvents(t *testing.T) {
 	})
 
 	t.Run("empty_events_returns_nil", func(t *testing.T) {
-		discovered := CalendarEventsToDiscoveredEvents("venue", []CalendarEvent{})
+		discovered := CalendarEventsToDiscoveredEvents("venue", []contracts.CalendarEvent{})
 		assert.Nil(t, discovered)
 	})
 
@@ -224,10 +225,10 @@ func TestCalendarEventsToDiscoveredEvents(t *testing.T) {
 	})
 
 	t.Run("multiple_events_produces_multiple_discovered", func(t *testing.T) {
-		events := []CalendarEvent{
-			{Date: "2026-03-10", Title: "Show A", Artists: []CalendarArtist{{Name: "Band A", IsHeadliner: true}}},
-			{Date: "2026-03-11", Title: "Show B", Artists: []CalendarArtist{{Name: "Band B", IsHeadliner: true}}},
-			{Date: "2026-03-12", Title: "Show C", Artists: []CalendarArtist{{Name: "Band C", IsHeadliner: true}}},
+		events := []contracts.CalendarEvent{
+			{Date: "2026-03-10", Title: "Show A", Artists: []contracts.CalendarArtist{{Name: "Band A", IsHeadliner: true}}},
+			{Date: "2026-03-11", Title: "Show B", Artists: []contracts.CalendarArtist{{Name: "Band B", IsHeadliner: true}}},
+			{Date: "2026-03-12", Title: "Show C", Artists: []contracts.CalendarArtist{{Name: "Band C", IsHeadliner: true}}},
 		}
 
 		discovered := CalendarEventsToDiscoveredEvents("rebel-lounge", events)
@@ -246,8 +247,8 @@ func TestCalendarEventsToDiscoveredEvents(t *testing.T) {
 	})
 
 	t.Run("stable_source_event_id", func(t *testing.T) {
-		events := []CalendarEvent{
-			{Date: "2026-03-15", Title: "Test Show", Artists: []CalendarArtist{{Name: "Test Band", IsHeadliner: true}}},
+		events := []contracts.CalendarEvent{
+			{Date: "2026-03-15", Title: "Test Show", Artists: []contracts.CalendarArtist{{Name: "Test Band", IsHeadliner: true}}},
 		}
 
 		// Run twice — should produce identical IDs
@@ -260,8 +261,8 @@ func TestCalendarEventsToDiscoveredEvents(t *testing.T) {
 	})
 
 	t.Run("different_venue_produces_different_id", func(t *testing.T) {
-		events := []CalendarEvent{
-			{Date: "2026-03-15", Title: "Test Show", Artists: []CalendarArtist{{Name: "Test Band", IsHeadliner: true}}},
+		events := []contracts.CalendarEvent{
+			{Date: "2026-03-15", Title: "Test Show", Artists: []contracts.CalendarArtist{{Name: "Test Band", IsHeadliner: true}}},
 		}
 
 		d1 := CalendarEventsToDiscoveredEvents("venue-a", events)
@@ -271,7 +272,7 @@ func TestCalendarEventsToDiscoveredEvents(t *testing.T) {
 	})
 
 	t.Run("event_without_artists_still_hashes", func(t *testing.T) {
-		events := []CalendarEvent{
+		events := []contracts.CalendarEvent{
 			{Date: "2026-03-15", Title: "Private Event", Artists: nil},
 		}
 
