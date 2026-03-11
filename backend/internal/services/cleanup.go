@@ -12,6 +12,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/services/notification"
+	usersvc "psychic-homily-backend/internal/services/user"
 )
 
 // Default cleanup interval (24 hours)
@@ -20,7 +21,7 @@ const DefaultCleanupInterval = 24 * time.Hour
 // CleanupService handles background cleanup tasks
 type CleanupService struct {
 	db           *gorm.DB
-	userService  *UserService
+	userService  *usersvc.UserService
 	interval     time.Duration
 	stopCh       chan struct{}
 	wg           sync.WaitGroup
@@ -44,7 +45,7 @@ func NewCleanupService(database *gorm.DB) *CleanupService {
 
 	return &CleanupService{
 		db:          database,
-		userService: NewUserService(database),
+		userService: usersvc.NewUserService(database),
 		interval:    interval,
 		stopCh:      make(chan struct{}),
 		logger:      slog.Default(),

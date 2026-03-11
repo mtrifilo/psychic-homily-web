@@ -10,6 +10,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	usersvc "psychic-homily-backend/internal/services/user"
 )
 
 // ──────────────────────────────────────────────
@@ -28,19 +29,19 @@ type PasswordValidator = auth.PasswordValidator
 // NewAuthService creates an AuthService.
 // Deprecated: prefer auth.NewAuthService with explicit userService dependency.
 func NewAuthService(database *gorm.DB, cfg *config.Config) *auth.AuthService {
-	return auth.NewAuthService(database, cfg, NewUserService(database))
+	return auth.NewAuthService(database, cfg, usersvc.NewUserService(database))
 }
 
 // NewJWTService creates a JWTService.
 // Deprecated: prefer auth.NewJWTService with explicit userService dependency.
 func NewJWTService(database *gorm.DB, cfg *config.Config) *auth.JWTService {
-	return auth.NewJWTService(database, cfg, NewUserService(database))
+	return auth.NewJWTService(database, cfg, usersvc.NewUserService(database))
 }
 
 // NewAppleAuthService creates an AppleAuthService.
 // Deprecated: prefer auth.NewAppleAuthService with explicit jwtService dependency.
 func NewAppleAuthService(database *gorm.DB, cfg *config.Config) *auth.AppleAuthService {
-	jwtSvc := auth.NewJWTService(database, cfg, NewUserService(database))
+	jwtSvc := auth.NewJWTService(database, cfg, usersvc.NewUserService(database))
 	return auth.NewAppleAuthService(database, cfg, jwtSvc)
 }
 

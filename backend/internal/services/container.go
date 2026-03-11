@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
+	usersvc "psychic-homily-backend/internal/services/user"
 )
 
 // ServiceContainer eagerly creates all services once at startup.
@@ -20,7 +21,7 @@ type ServiceContainer struct {
 	AdminStats         *AdminStatsService
 	APIToken           *APITokenService
 	Artist             *catalog.ArtistService
-	ContributorProfile *ContributorProfileService
+	ContributorProfile *usersvc.ContributorProfileService
 	ArtistReport  *ArtistReportService
 	AuditLog      *AuditLogService
 	Bookmark      *engagement.BookmarkService
@@ -33,7 +34,7 @@ type ServiceContainer struct {
 	SavedShow     *engagement.SavedShowService
 	Show          *catalog.ShowService
 	ShowReport    *ShowReportService
-	User              *UserService
+	User              *usersvc.UserService
 	Venue             *catalog.VenueService
 	VenueSourceConfig *pipeline.VenueSourceConfigService
 
@@ -77,7 +78,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 
 	savedShow := engagement.NewSavedShowService(database)
 	email := notification.NewEmailService(cfg)
-	userService := NewUserService(database)
+	userService := usersvc.NewUserService(database)
 
 	// Services needed by PipelineService — created first so we can inject them.
 	artist := catalog.NewArtistService(database)
@@ -95,7 +96,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		AdminStats:         NewAdminStatsService(database),
 		APIToken:           NewAPITokenService(database),
 		Artist:             artist,
-		ContributorProfile: NewContributorProfileService(database),
+		ContributorProfile: usersvc.NewContributorProfileService(database),
 		ArtistReport:  NewArtistReportService(database),
 		AuditLog:      NewAuditLogService(database),
 		Bookmark:      engagement.NewBookmarkService(database),

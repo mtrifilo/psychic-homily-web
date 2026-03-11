@@ -1,4 +1,4 @@
-package services
+package user
 
 import (
 	"encoding/json"
@@ -9,6 +9,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ContributorProfileService handles contributor profile and contribution history operations.
@@ -33,8 +34,8 @@ var binaryOnlyFields = map[string]bool{
 }
 
 // ValidatePrivacySettings checks that all fields have valid values.
-func ValidatePrivacySettings(ps PrivacySettings) error {
-	fields := map[string]PrivacyLevel{
+func ValidatePrivacySettings(ps contracts.PrivacySettings) error {
+	fields := map[string]contracts.PrivacyLevel{
 		"contributions":    ps.Contributions,
 		"saved_shows":      ps.SavedShows,
 		"attendance":       ps.Attendance,
@@ -44,24 +45,24 @@ func ValidatePrivacySettings(ps PrivacySettings) error {
 		"profile_sections": ps.ProfileSections,
 	}
 	for name, level := range fields {
-		if level != PrivacyVisible && level != PrivacyCountOnly && level != PrivacyHidden {
+		if level != contracts.PrivacyVisible && level != contracts.PrivacyCountOnly && level != contracts.PrivacyHidden {
 			return fmt.Errorf("invalid privacy level %q for field %q", level, name)
 		}
-		if binaryOnlyFields[name] && level == PrivacyCountOnly {
+		if binaryOnlyFields[name] && level == contracts.PrivacyCountOnly {
 			return fmt.Errorf("field %q only supports 'visible' or 'hidden'", name)
 		}
 	}
 	return nil
 }
 
-// parsePrivacySettings extracts PrivacySettings from a user's JSONB column.
-func parsePrivacySettings(raw *json.RawMessage) PrivacySettings {
+// parsePrivacySettings extracts contracts.PrivacySettings from a user's JSONB column.
+func parsePrivacySettings(raw *json.RawMessage) contracts.PrivacySettings {
 	if raw == nil {
-		return DefaultPrivacySettings()
+		return contracts.DefaultPrivacySettings()
 	}
-	var ps PrivacySettings
+	var ps contracts.PrivacySettings
 	if err := json.Unmarshal(*raw, &ps); err != nil {
-		return DefaultPrivacySettings()
+		return contracts.DefaultPrivacySettings()
 	}
 	return ps
 }
@@ -96,7 +97,7 @@ var moderationActions = map[string]bool{
 // =============================================================================
 
 // GetPublicProfile returns a user's public profile with privacy-gated fields.
-func (s *ContributorProfileService) GetPublicProfile(username string, viewerID *uint) (*PublicProfileResponse, error) {
+func (s *ContributorProfileService) GetPublicProfile(username string, viewerID *uint) (*contracts.PublicProfileResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -124,7 +125,7 @@ func (s *ContributorProfileService) GetPublicProfile(username string, viewerID *
 		username_str = *user.Username
 	}
 
-	resp := &PublicProfileResponse{
+	resp := &contracts.PublicProfileResponse{
 		Username:          username_str,
 		Bio:               user.Bio,
 		AvatarURL:         user.AvatarURL,
@@ -156,26 +157,26 @@ func (s *ContributorProfileService) GetPublicProfile(username string, viewerID *
 
 	// Non-owner: apply privacy gating
 	switch privacy.Contributions {
-	case PrivacyVisible:
+	case contracts.PrivacyVisible:
 		stats, err := s.GetContributionStats(user.ID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get contribution stats: %w", err)
 		}
 		resp.Stats = stats
-	case PrivacyCountOnly:
+	case contracts.PrivacyCountOnly:
 		stats, err := s.GetContributionStats(user.ID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get contribution stats: %w", err)
 		}
 		resp.StatsCount = &stats.TotalContributions
 	}
-	// PrivacyHidden: Stats and StatsCount both remain nil
+	// contracts.PrivacyHidden: Stats and StatsCount both remain nil
 
-	if privacy.LastActive == PrivacyVisible {
+	if privacy.LastActive == contracts.PrivacyVisible {
 		resp.LastActive = &user.UpdatedAt
 	}
 
-	if privacy.ProfileSections == PrivacyVisible {
+	if privacy.ProfileSections == contracts.PrivacyVisible {
 		sections, err := s.GetUserSections(user.ID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get profile sections: %w", err)
@@ -187,7 +188,7 @@ func (s *ContributorProfileService) GetPublicProfile(username string, viewerID *
 }
 
 // GetOwnProfile returns the authenticated user's own profile, bypassing visibility checks.
-func (s *ContributorProfileService) GetOwnProfile(userID uint) (*PublicProfileResponse, error) {
+func (s *ContributorProfileService) GetOwnProfile(userID uint) (*contracts.PublicProfileResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -218,7 +219,7 @@ func (s *ContributorProfileService) GetOwnProfile(userID uint) (*PublicProfileRe
 		username = *user.Username
 	}
 
-	return &PublicProfileResponse{
+	return &contracts.PublicProfileResponse{
 		Username:          username,
 		Bio:               user.Bio,
 		AvatarURL:         user.AvatarURL,
@@ -238,7 +239,7 @@ func (s *ContributorProfileService) GetOwnProfile(userID uint) (*PublicProfileRe
 // =============================================================================
 
 // UpdatePrivacySettings validates and persists new privacy settings for a user.
-func (s *ContributorProfileService) UpdatePrivacySettings(userID uint, settings PrivacySettings) (*PrivacySettings, error) {
+func (s *ContributorProfileService) UpdatePrivacySettings(userID uint, settings contracts.PrivacySettings) (*contracts.PrivacySettings, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -265,12 +266,12 @@ func (s *ContributorProfileService) UpdatePrivacySettings(userID uint, settings 
 // =============================================================================
 
 // GetContributionStats computes aggregate contribution counts for a user.
-func (s *ContributorProfileService) GetContributionStats(userID uint) (*ContributionStats, error) {
+func (s *ContributorProfileService) GetContributionStats(userID uint) (*contracts.ContributionStats, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	stats := &ContributionStats{}
+	stats := &contracts.ContributionStats{}
 
 	// Count submissions from entity tables
 	s.db.Model(&models.Show{}).Where("submitted_by = ?", userID).Count(&stats.ShowsSubmitted)
@@ -321,7 +322,7 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*Contribu
 // =============================================================================
 
 // GetContributionHistory returns a paginated, unified contribution timeline for a user.
-func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, offset int, entityType string) ([]*ContributionEntry, int64, error) {
+func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, offset int, entityType string) ([]*contracts.ContributionEntry, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -369,9 +370,9 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 		return nil, 0, fmt.Errorf("failed to get contributions: %w", err)
 	}
 
-	entries := make([]*ContributionEntry, len(rows))
+	entries := make([]*contracts.ContributionEntry, len(rows))
 	for i, row := range rows {
-		entry := &ContributionEntry{
+		entry := &contracts.ContributionEntry{
 			ID:         row.ID,
 			Action:     row.Action,
 			EntityType: row.EntityType,
@@ -400,7 +401,7 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 const maxProfileSections = 3
 
 // GetUserSections returns visible profile sections for a public user.
-func (s *ContributorProfileService) GetUserSections(userID uint) ([]*ProfileSectionResponse, error) {
+func (s *ContributorProfileService) GetUserSections(userID uint) ([]*contracts.ProfileSectionResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -417,7 +418,7 @@ func (s *ContributorProfileService) GetUserSections(userID uint) ([]*ProfileSect
 }
 
 // GetOwnSections returns all profile sections for the authenticated user.
-func (s *ContributorProfileService) GetOwnSections(userID uint) ([]*ProfileSectionResponse, error) {
+func (s *ContributorProfileService) GetOwnSections(userID uint) ([]*contracts.ProfileSectionResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -434,7 +435,7 @@ func (s *ContributorProfileService) GetOwnSections(userID uint) ([]*ProfileSecti
 }
 
 // CreateSection creates a new profile section. Returns error if user already has max sections.
-func (s *ContributorProfileService) CreateSection(userID uint, title string, content string, position int) (*ProfileSectionResponse, error) {
+func (s *ContributorProfileService) CreateSection(userID uint, title string, content string, position int) (*contracts.ProfileSectionResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -472,7 +473,7 @@ func (s *ContributorProfileService) CreateSection(userID uint, title string, con
 }
 
 // UpdateSection updates a profile section owned by the user.
-func (s *ContributorProfileService) UpdateSection(userID uint, sectionID uint, updates map[string]interface{}) (*ProfileSectionResponse, error) {
+func (s *ContributorProfileService) UpdateSection(userID uint, sectionID uint, updates map[string]interface{}) (*contracts.ProfileSectionResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -533,16 +534,16 @@ func (s *ContributorProfileService) DeleteSection(userID uint, sectionID uint) e
 	return nil
 }
 
-func buildSectionResponses(sections []models.UserProfileSection) []*ProfileSectionResponse {
-	responses := make([]*ProfileSectionResponse, len(sections))
+func buildSectionResponses(sections []models.UserProfileSection) []*contracts.ProfileSectionResponse {
+	responses := make([]*contracts.ProfileSectionResponse, len(sections))
 	for i := range sections {
 		responses[i] = buildSectionResponse(&sections[i])
 	}
 	return responses
 }
 
-func buildSectionResponse(section *models.UserProfileSection) *ProfileSectionResponse {
-	return &ProfileSectionResponse{
+func buildSectionResponse(section *models.UserProfileSection) *contracts.ProfileSectionResponse {
+	return &contracts.ProfileSectionResponse{
 		ID:        section.ID,
 		Title:     section.Title,
 		Content:   section.Content,
@@ -557,7 +558,7 @@ func buildSectionResponse(section *models.UserProfileSection) *ProfileSectionRes
 // Entity Name Enrichment
 // =============================================================================
 
-func (s *ContributorProfileService) enrichEntityNames(entries []*ContributionEntry) {
+func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.ContributionEntry) {
 	idsByType := make(map[string][]uint)
 	for _, e := range entries {
 		idsByType[e.EntityType] = append(idsByType[e.EntityType], e.EntityID)

@@ -51,6 +51,8 @@ type CollectionServiceInterface = contracts.CollectionServiceInterface
 // are checked in internal/services/auth/interfaces.go.
 // Notification services (Email, Discord) are checked in
 // internal/services/notification/interfaces.go.
+// User services (UserService, ContributorProfileService) are checked in
+// internal/services/user/interfaces.go.
 var (
 	_ ShowServiceInterface          = (*catalog.ShowService)(nil)
 	_ VenueServiceInterface         = (*catalog.VenueService)(nil)
@@ -58,13 +60,11 @@ var (
 	_ ShowReportServiceInterface    = (*ShowReportService)(nil)
 	_ ArtistReportServiceInterface  = (*ArtistReportService)(nil)
 	_ AuditLogServiceInterface      = (*AuditLogService)(nil)
-	_ UserServiceInterface          = (*UserService)(nil)
 	_ APITokenServiceInterface      = (*APITokenService)(nil)
 	_ DataSyncServiceInterface      = (*DataSyncService)(nil)
 	_ AdminStatsServiceInterface    = (*AdminStatsService)(nil)
 	_ FestivalServiceInterface       = (*catalog.FestivalService)(nil)
 	_ LabelServiceInterface          = (*catalog.LabelService)(nil)
 	_ ReleaseServiceInterface       = (*catalog.ReleaseService)(nil)
-	_ ContributorProfileServiceInterface    = (*ContributorProfileService)(nil)
 	_ CollectionServiceInterface            = (*CollectionService)(nil)
 )
