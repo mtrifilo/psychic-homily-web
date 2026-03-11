@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/pipeline"
 )
 
@@ -19,13 +20,13 @@ type ServiceContainer struct {
 	ContributorProfile *ContributorProfileService
 	ArtistReport  *ArtistReportService
 	AuditLog      *AuditLogService
-	Bookmark      *BookmarkService
-	Calendar      *CalendarService
-	FavoriteVenue *FavoriteVenueService
+	Bookmark      *engagement.BookmarkService
+	Calendar      *engagement.CalendarService
+	FavoriteVenue *engagement.FavoriteVenueService
 	Festival      *FestivalService
 	Label         *LabelService
 	Release       *ReleaseService
-	SavedShow     *SavedShowService
+	SavedShow     *engagement.SavedShowService
 	Show          *ShowService
 	ShowReport    *ShowReportService
 	User              *UserService
@@ -51,7 +52,7 @@ type ServiceContainer struct {
 	DataSync   *DataSyncService
 	Discovery  *pipeline.DiscoveryService
 	Pipeline   *pipeline.PipelineService
-	Reminder   *ReminderService
+	Reminder   *engagement.ReminderService
 }
 
 // newFetcherWithChromedp creates a FetcherService with chromedp initialized at 3 workers.
@@ -70,7 +71,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		log.Printf("Warning: WebAuthn service init failed (passkeys disabled): %v", err)
 	}
 
-	savedShow := NewSavedShowService(database)
+	savedShow := engagement.NewSavedShowService(database)
 	email := NewEmailService(cfg)
 
 	// Services needed by PipelineService — created first so we can inject them.
@@ -89,9 +90,9 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		ContributorProfile: NewContributorProfileService(database),
 		ArtistReport:  NewArtistReportService(database),
 		AuditLog:      NewAuditLogService(database),
-		Bookmark:      NewBookmarkService(database),
-		Calendar:      NewCalendarService(database, savedShow),
-		FavoriteVenue: NewFavoriteVenueService(database),
+		Bookmark:      engagement.NewBookmarkService(database),
+		Calendar:      engagement.NewCalendarService(database, savedShow),
+		FavoriteVenue: engagement.NewFavoriteVenueService(database),
 		Festival:      NewFestivalService(database),
 		Label:         NewLabelService(database),
 		Release:       NewReleaseService(database),
@@ -121,6 +122,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		DataSync:   NewDataSyncService(database),
 		Discovery:  discovery,
 		Pipeline:   pipeline.NewPipelineService(fetcher, extraction, discovery, venueSourceConfig, venue),
-		Reminder:   NewReminderService(database, email, cfg),
+		Reminder:   engagement.NewReminderService(database, email, cfg),
 	}
 }

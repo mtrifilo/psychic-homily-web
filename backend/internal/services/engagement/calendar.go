@@ -1,7 +1,8 @@
-package services
+package engagement
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -12,21 +13,25 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 const (
 	// CalendarTokenPrefix is prepended to calendar tokens for identification
 	CalendarTokenPrefix = "phcal_"
+
+	// calendarTokenLength is the length of the generated token in bytes (32 bytes = 64 hex chars)
+	calendarTokenLength = 32
 )
 
 // CalendarService handles calendar feed token and ICS generation
 type CalendarService struct {
 	db           *gorm.DB
-	savedShowSvc SavedShowServiceInterface
+	savedShowSvc contracts.SavedShowServiceInterface
 }
 
 // NewCalendarService creates a new calendar service
-func NewCalendarService(database *gorm.DB, savedShowSvc SavedShowServiceInterface) *CalendarService {
+func NewCalendarService(database *gorm.DB, savedShowSvc contracts.SavedShowServiceInterface) *CalendarService {
 	if database == nil {
 		database = db.GetDB()
 	}
@@ -38,15 +43,21 @@ func NewCalendarService(database *gorm.DB, savedShowSvc SavedShowServiceInterfac
 
 // generateCalendarToken creates a cryptographically secure random calendar token
 func generateCalendarToken() (string, error) {
-	bytes := make([]byte, TokenLength)
+	bytes := make([]byte, calendarTokenLength)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", fmt.Errorf("failed to generate random bytes: %w", err)
 	}
 	return CalendarTokenPrefix + hex.EncodeToString(bytes), nil
 }
 
+// hashCalendarToken creates a SHA-256 hash of a token for storage
+func hashCalendarToken(token string) string {
+	hash := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(hash[:])
+}
+
 // CreateToken generates a new calendar token for a user, replacing any existing token
-func (s *CalendarService) CreateToken(userID uint, apiBaseURL string) (*CalendarTokenCreateResponse, error) {
+func (s *CalendarService) CreateToken(userID uint, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -56,7 +67,7 @@ func (s *CalendarService) CreateToken(userID uint, apiBaseURL string) (*Calendar
 		return nil, fmt.Errorf("failed to generate token: %w", err)
 	}
 
-	tokenHash := hashToken(plainToken)
+	tokenHash := hashCalendarToken(plainToken)
 
 	// Delete existing + insert new in a transaction
 	err = s.db.Transaction(func(tx *gorm.DB) error {
@@ -87,7 +98,7 @@ func (s *CalendarService) CreateToken(userID uint, apiBaseURL string) (*Calendar
 
 	feedURL := fmt.Sprintf("%s/calendar/%s", apiBaseURL, plainToken)
 
-	return &CalendarTokenCreateResponse{
+	return &contracts.CalendarTokenCreateResponse{
 		Token:     plainToken,
 		FeedURL:   feedURL,
 		CreatedAt: created.CreatedAt,
@@ -95,7 +106,7 @@ func (s *CalendarService) CreateToken(userID uint, apiBaseURL string) (*Calendar
 }
 
 // GetTokenStatus checks whether a user has a calendar token
-func (s *CalendarService) GetTokenStatus(userID uint) (*CalendarTokenStatusResponse, error) {
+func (s *CalendarService) GetTokenStatus(userID uint) (*contracts.CalendarTokenStatusResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -104,12 +115,12 @@ func (s *CalendarService) GetTokenStatus(userID uint) (*CalendarTokenStatusRespo
 	err := s.db.Where("user_id = ?", userID).First(&token).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return &CalendarTokenStatusResponse{HasToken: false}, nil
+			return &contracts.CalendarTokenStatusResponse{HasToken: false}, nil
 		}
 		return nil, fmt.Errorf("failed to check token status: %w", err)
 	}
 
-	return &CalendarTokenStatusResponse{
+	return &contracts.CalendarTokenStatusResponse{
 		HasToken:  true,
 		CreatedAt: &token.CreatedAt,
 	}, nil
@@ -137,7 +148,7 @@ func (s *CalendarService) ValidateCalendarToken(plainToken string) (*models.User
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	tokenHash := hashToken(plainToken)
+	tokenHash := hashCalendarToken(plainToken)
 
 	var token models.CalendarToken
 	err := s.db.Preload("User").Where("token_hash = ?", tokenHash).First(&token).Error

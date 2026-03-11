@@ -1,4 +1,4 @@
-package services
+package engagement
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // Default reminder check interval (30 minutes)
@@ -34,7 +35,7 @@ type reminderRow struct {
 // ReminderService sends email reminders for saved shows ~24h before the event
 type ReminderService struct {
 	db           *gorm.DB
-	emailService EmailServiceInterface
+	emailService contracts.EmailServiceInterface
 	interval     time.Duration
 	stopCh       chan struct{}
 	wg           sync.WaitGroup
@@ -44,7 +45,7 @@ type ReminderService struct {
 }
 
 // NewReminderService creates a new reminder service
-func NewReminderService(database *gorm.DB, emailService EmailServiceInterface, cfg *config.Config) *ReminderService {
+func NewReminderService(database *gorm.DB, emailService contracts.EmailServiceInterface, cfg *config.Config) *ReminderService {
 	if database == nil {
 		database = db.GetDB()
 	}
@@ -173,7 +174,7 @@ func (s *ReminderService) runReminderCycle() {
 		}
 
 		showURL := fmt.Sprintf("%s/shows/%s", s.frontendURL, row.ShowSlug)
-		unsubscribeURL := generateUnsubscribeURL(s.frontendURL, row.UserID, s.jwtSecret)
+		unsubscribeURL := GenerateUnsubscribeURL(s.frontendURL, row.UserID, s.jwtSecret)
 
 		err := s.emailService.SendShowReminderEmail(
 			row.Email,
@@ -220,20 +221,20 @@ func (s *ReminderService) RunReminderCycleNow() {
 	s.runReminderCycle()
 }
 
-// generateUnsubscribeURL creates an HMAC-signed URL for one-click unsubscribe
-func generateUnsubscribeURL(baseURL string, userID uint, secret string) string {
-	sig := computeUnsubscribeSignature(userID, secret)
+// GenerateUnsubscribeURL creates an HMAC-signed URL for one-click unsubscribe
+func GenerateUnsubscribeURL(baseURL string, userID uint, secret string) string {
+	sig := ComputeUnsubscribeSignature(userID, secret)
 	return fmt.Sprintf("%s/unsubscribe/show-reminders?uid=%d&sig=%s", baseURL, userID, sig)
 }
 
 // VerifyUnsubscribeSignature checks the HMAC signature for an unsubscribe request
 func VerifyUnsubscribeSignature(userID uint, signature, secret string) bool {
-	expected := computeUnsubscribeSignature(userID, secret)
+	expected := ComputeUnsubscribeSignature(userID, secret)
 	return hmac.Equal([]byte(expected), []byte(signature))
 }
 
-// computeUnsubscribeSignature computes HMAC-SHA256 of the user ID
-func computeUnsubscribeSignature(userID uint, secret string) string {
+// ComputeUnsubscribeSignature computes HMAC-SHA256 of the user ID
+func ComputeUnsubscribeSignature(userID uint, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(fmt.Sprintf("unsubscribe:show-reminders:%d", userID)))
 	return hex.EncodeToString(mac.Sum(nil))
