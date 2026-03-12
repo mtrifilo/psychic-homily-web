@@ -4,8 +4,8 @@ import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { useArtistSearch } from '@/lib/hooks/artists/useArtistSearch'
-import { getArtistLocation } from '@/lib/types/artist'
+import { useArtistSearch } from '../hooks/useArtistSearch'
+import { getArtistLocation } from '../types'
 
 /**
  * Artist search with autocomplete dropdown.

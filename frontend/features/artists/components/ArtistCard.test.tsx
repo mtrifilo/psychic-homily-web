@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import { ArtistCard } from './ArtistCard'
-import type { ArtistListItem } from '@/lib/types/artist'
+import type { ArtistListItem } from '../types'
 
 function makeArtist(overrides: Partial<ArtistListItem> = {}): ArtistListItem {
   return {

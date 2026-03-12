@@ -3,8 +3,8 @@
 import Link from 'next/link'
 import { MapPin, Music } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ArtistListItem } from '@/lib/types/artist'
-import { getArtistLocation } from '@/lib/types/artist'
+import type { ArtistListItem } from '../types'
+import { getArtistLocation } from '../types'
 
 export type ArtistCardDensity = 'compact' | 'comfortable' | 'expanded'
 

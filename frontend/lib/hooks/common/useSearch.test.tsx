@@ -37,7 +37,7 @@ vi.mock('use-debounce', () => ({
 }))
 
 // Import hooks after mocks are set up
-import { useArtistSearch } from '../artists/useArtistSearch'
+import { useArtistSearch } from '@/features/artists'
 import { useVenueSearch } from '../venues/useVenueSearch'
 
 // Helper to create wrapper with query client

@@ -6,7 +6,7 @@ import { renderWithProviders } from '@/test/utils'
 // Mock the report artist hook
 const mockMutate = vi.fn()
 const mockReportMutation = vi.fn()
-vi.mock('@/lib/hooks/artists/useArtistReports', () => ({
+vi.mock('../hooks/useArtistReports', () => ({
   useReportArtist: () => mockReportMutation(),
 }))
 

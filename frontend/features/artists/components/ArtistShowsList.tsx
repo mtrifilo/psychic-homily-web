@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 import { Loader2, Calendar, History } from 'lucide-react'
-import { useArtistShows } from '@/lib/hooks/artists/useArtists'
-import type { ArtistTimeFilter } from '@/lib/types/artist'
+import { useArtistShows } from '../hooks/useArtists'
+import type { ArtistTimeFilter } from '../types'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { CompactShowRow } from '@/components/shows/CompactShowRow'
 import { SHOW_LIST_FEATURE_POLICY } from '@/components/shows/showListFeaturePolicy'

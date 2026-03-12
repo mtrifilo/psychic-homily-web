@@ -16,7 +16,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 
 // Mock artist reports hook
 const mockMyReport = vi.fn()
-vi.mock('@/lib/hooks/artists/useArtistReports', () => ({
+vi.mock('../hooks/useArtistReports', () => ({
   useMyArtistReport: (artistId: number | string | null) => mockMyReport(artistId),
   useReportArtist: () => ({
     mutate: vi.fn(),

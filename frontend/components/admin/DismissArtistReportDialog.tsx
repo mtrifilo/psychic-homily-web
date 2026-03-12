@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { XCircle, Loader2 } from 'lucide-react'
 import { useDismissArtistReport } from '@/lib/hooks/admin/useAdminArtistReports'
-import type { ArtistReportResponse } from '@/lib/types/artist'
+import type { ArtistReportResponse } from '@/features/artists'
 import {
   Dialog,
   DialogContent,

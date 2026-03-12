@@ -168,4 +168,3 @@ export interface ArtistReportsListResponse {
   reports: ArtistReportResponse[]
   total: number
 }
-
