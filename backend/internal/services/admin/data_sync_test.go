@@ -1,4 +1,4 @@
-package services
+package admin
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -40,28 +41,28 @@ func TestDataSyncService_NilDB(t *testing.T) {
 	svc := &DataSyncService{db: nil}
 
 	t.Run("ExportShows", func(t *testing.T) {
-		result, err := svc.ExportShows(ExportShowsParams{})
+		result, err := svc.ExportShows(contracts.ExportShowsParams{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "database not initialized")
 		assert.Nil(t, result)
 	})
 
 	t.Run("ExportArtists", func(t *testing.T) {
-		result, err := svc.ExportArtists(ExportArtistsParams{})
+		result, err := svc.ExportArtists(contracts.ExportArtistsParams{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "database not initialized")
 		assert.Nil(t, result)
 	})
 
 	t.Run("ExportVenues", func(t *testing.T) {
-		result, err := svc.ExportVenues(ExportVenuesParams{})
+		result, err := svc.ExportVenues(contracts.ExportVenuesParams{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "database not initialized")
 		assert.Nil(t, result)
 	})
 
 	t.Run("ImportData", func(t *testing.T) {
-		result, err := svc.ImportData(DataImportRequest{})
+		result, err := svc.ImportData(contracts.DataImportRequest{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "database not initialized")
 		assert.Nil(t, result)
@@ -124,7 +125,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) SetupSuite() {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
 
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	suite.service = NewDataSyncService(db)
 }
@@ -255,7 +256,7 @@ func dssBoolPtr(b bool) *bool {
 // =============================================================================
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_Empty() {
-	result, err := suite.service.ExportShows(ExportShowsParams{})
+	result, err := suite.service.ExportShows(contracts.ExportShowsParams{})
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), result.Total)
 	suite.Empty(result.Shows)
@@ -268,14 +269,14 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_DefaultLimit()
 		suite.createShow(fmt.Sprintf("Show %d", i), time.Now().Add(time.Duration(i)*time.Hour), models.ShowStatusApproved, venue)
 	}
 
-	result, err := suite.service.ExportShows(ExportShowsParams{Status: "all"})
+	result, err := suite.service.ExportShows(contracts.ExportShowsParams{Status: "all"})
 	suite.Require().NoError(err)
 	suite.Equal(int64(60), result.Total)
 	suite.Len(result.Shows, 50) // Default limit
 }
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_MaxLimit() {
-	result, err := suite.service.ExportShows(ExportShowsParams{Limit: 500, Status: "all"})
+	result, err := suite.service.ExportShows(contracts.ExportShowsParams{Limit: 500, Status: "all"})
 	suite.Require().NoError(err)
 	// Limit capped to 200 (no data, but verifies no error)
 	suite.Equal(int64(0), result.Total)
@@ -287,7 +288,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_StatusFilter_A
 	suite.createShow("Approved 2", time.Now(), models.ShowStatusApproved, venue)
 	suite.createShow("Pending 1", time.Now(), models.ShowStatusPending, venue)
 
-	result, err := suite.service.ExportShows(ExportShowsParams{Status: "approved"})
+	result, err := suite.service.ExportShows(contracts.ExportShowsParams{Status: "approved"})
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), result.Total)
 	suite.Len(result.Shows, 2)
@@ -298,7 +299,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_StatusFilter_P
 	suite.createShow("Approved 1", time.Now(), models.ShowStatusApproved, venue)
 	suite.createShow("Pending 1", time.Now(), models.ShowStatusPending, venue)
 
-	result, err := suite.service.ExportShows(ExportShowsParams{Status: "pending"})
+	result, err := suite.service.ExportShows(contracts.ExportShowsParams{Status: "pending"})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), result.Total)
 }
@@ -309,7 +310,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_StatusFilter_A
 	suite.createShow("Pending", time.Now().Add(time.Hour), models.ShowStatusPending, venue)
 	suite.createShow("Rejected", time.Now().Add(2*time.Hour), models.ShowStatusRejected, venue)
 
-	result, err := suite.service.ExportShows(ExportShowsParams{Status: "all"})
+	result, err := suite.service.ExportShows(contracts.ExportShowsParams{Status: "all"})
 	suite.Require().NoError(err)
 	suite.Equal(int64(3), result.Total)
 	suite.Len(result.Shows, 3)
@@ -321,7 +322,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_DateFilter() {
 	suite.createShow("New Show", time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC), models.ShowStatusApproved, venue)
 
 	fromDate := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	result, err := suite.service.ExportShows(ExportShowsParams{
+	result, err := suite.service.ExportShows(contracts.ExportShowsParams{
 		Status:   "approved",
 		FromDate: &fromDate,
 	})
@@ -339,7 +340,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_LocationFilter
 	// Shows have city set from the createShow helper
 	_ = showNYC
 
-	result, err := suite.service.ExportShows(ExportShowsParams{
+	result, err := suite.service.ExportShows(contracts.ExportShowsParams{
 		Status: "approved",
 		City:   "NYC",
 	})
@@ -353,7 +354,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_WithArtistsAnd
 	artist2 := suite.createArtist("Band Two")
 	suite.createShow("Big Show", time.Now(), models.ShowStatusApproved, venue, artist1, artist2)
 
-	result, err := suite.service.ExportShows(ExportShowsParams{Status: "all"})
+	result, err := suite.service.ExportShows(contracts.ExportShowsParams{Status: "all"})
 	suite.Require().NoError(err)
 	suite.Require().Len(result.Shows, 1)
 
@@ -374,7 +375,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_Pagination() {
 		suite.createShow(fmt.Sprintf("Show %d", i), time.Now().Add(time.Duration(i)*time.Hour), models.ShowStatusApproved, venue)
 	}
 
-	result, err := suite.service.ExportShows(ExportShowsParams{
+	result, err := suite.service.ExportShows(contracts.ExportShowsParams{
 		Status: "all",
 		Limit:  2,
 		Offset: 2,
@@ -389,7 +390,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_Pagination() {
 // =============================================================================
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestExportArtists_Empty() {
-	result, err := suite.service.ExportArtists(ExportArtistsParams{})
+	result, err := suite.service.ExportArtists(contracts.ExportArtistsParams{})
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), result.Total)
 	suite.Empty(result.Artists)
@@ -400,7 +401,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportArtists_DefaultLimit
 		suite.createArtist(fmt.Sprintf("Artist %03d", i))
 	}
 
-	result, err := suite.service.ExportArtists(ExportArtistsParams{})
+	result, err := suite.service.ExportArtists(contracts.ExportArtistsParams{})
 	suite.Require().NoError(err)
 	suite.Equal(int64(60), result.Total)
 	suite.Len(result.Artists, 50) // Default limit
@@ -411,7 +412,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportArtists_Search() {
 	suite.createArtist("Another Band")
 	suite.createArtist("Solo Singer")
 
-	result, err := suite.service.ExportArtists(ExportArtistsParams{Search: "band"})
+	result, err := suite.service.ExportArtists(contracts.ExportArtistsParams{Search: "band"})
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), result.Total)
 }
@@ -421,7 +422,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportArtists_Pagination()
 		suite.createArtist(fmt.Sprintf("Artist %d", i))
 	}
 
-	result, err := suite.service.ExportArtists(ExportArtistsParams{Limit: 2, Offset: 2})
+	result, err := suite.service.ExportArtists(contracts.ExportArtistsParams{Limit: 2, Offset: 2})
 	suite.Require().NoError(err)
 	suite.Equal(int64(5), result.Total)
 	suite.Len(result.Artists, 2)
@@ -431,7 +432,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportArtists_WithSocial()
 	insta := "@theband"
 	suite.createArtistWithSocial("The Band", &insta)
 
-	result, err := suite.service.ExportArtists(ExportArtistsParams{})
+	result, err := suite.service.ExportArtists(contracts.ExportArtistsParams{})
 	suite.Require().NoError(err)
 	suite.Require().Len(result.Artists, 1)
 	suite.Equal("The Band", result.Artists[0].Name)
@@ -444,7 +445,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportArtists_WithSocial()
 // =============================================================================
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestExportVenues_Empty() {
-	result, err := suite.service.ExportVenues(ExportVenuesParams{})
+	result, err := suite.service.ExportVenues(contracts.ExportVenuesParams{})
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), result.Total)
 	suite.Empty(result.Venues)
@@ -455,7 +456,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportVenues_DefaultLimit(
 		suite.createVenue(fmt.Sprintf("Venue %03d", i), "NYC", "NY", true)
 	}
 
-	result, err := suite.service.ExportVenues(ExportVenuesParams{})
+	result, err := suite.service.ExportVenues(contracts.ExportVenuesParams{})
 	suite.Require().NoError(err)
 	suite.Equal(int64(60), result.Total)
 	suite.Len(result.Venues, 50) // Default limit
@@ -466,7 +467,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportVenues_Search() {
 	suite.createVenue("Concert Hall", "LA", "CA", true)
 	suite.createVenue("The Dive Bar", "CHI", "IL", true)
 
-	result, err := suite.service.ExportVenues(ExportVenuesParams{Search: "hall"})
+	result, err := suite.service.ExportVenues(contracts.ExportVenuesParams{Search: "hall"})
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), result.Total)
 }
@@ -476,7 +477,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportVenues_FilterVerifie
 	suite.createVenue("Verified 2", "LA", "CA", true)
 	suite.createVenue("Unverified", "CHI", "IL", false)
 
-	result, err := suite.service.ExportVenues(ExportVenuesParams{Verified: dssBoolPtr(true)})
+	result, err := suite.service.ExportVenues(contracts.ExportVenuesParams{Verified: dssBoolPtr(true)})
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), result.Total)
 }
@@ -485,7 +486,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportVenues_FilterCity() 
 	suite.createVenue("Venue NYC", "New York", "NY", true)
 	suite.createVenue("Venue LA", "Los Angeles", "CA", true)
 
-	result, err := suite.service.ExportVenues(ExportVenuesParams{City: "New York"})
+	result, err := suite.service.ExportVenues(contracts.ExportVenuesParams{City: "New York"})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), result.Total)
 	suite.Equal("Venue NYC", result.Venues[0].Name)
@@ -495,7 +496,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportVenues_WithSocial() 
 	insta := "@thevenue"
 	suite.createVenueWithSocial("The Venue", "NYC", "NY", &insta)
 
-	result, err := suite.service.ExportVenues(ExportVenuesParams{})
+	result, err := suite.service.ExportVenues(contracts.ExportVenuesParams{})
 	suite.Require().NoError(err)
 	suite.Require().Len(result.Venues, 1)
 	suite.NotNil(result.Venues[0].Instagram)
@@ -507,7 +508,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportVenues_WithSocial() 
 // =============================================================================
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportData_EmptyRequest() {
-	result, err := suite.service.ImportData(DataImportRequest{})
+	result, err := suite.service.ImportData(contracts.DataImportRequest{})
 	suite.Require().NoError(err)
 	suite.Equal(0, result.Shows.Total)
 	suite.Equal(0, result.Artists.Total)
@@ -515,8 +516,8 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportData_EmptyRequest() 
 }
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_Success() {
-	result, err := suite.service.ImportData(DataImportRequest{
-		Artists: []ExportedArtist{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Artists: []contracts.ExportedArtist{
 			{Name: "New Band"},
 		},
 	})
@@ -534,8 +535,8 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_Success() {
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_Duplicate() {
 	suite.createArtist("Existing Band")
 
-	result, err := suite.service.ImportData(DataImportRequest{
-		Artists: []ExportedArtist{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Artists: []contracts.ExportedArtist{
 			{Name: "Existing Band"},
 		},
 	})
@@ -550,8 +551,8 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_DuplicateBack
 	suite.db.Create(artist)
 	suite.Nil(artist.Slug)
 
-	result, err := suite.service.ImportData(DataImportRequest{
-		Artists: []ExportedArtist{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Artists: []contracts.ExportedArtist{
 			{Name: "No Slug Band"},
 		},
 	})
@@ -565,8 +566,8 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_DuplicateBack
 }
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_EmptyName() {
-	result, err := suite.service.ImportData(DataImportRequest{
-		Artists: []ExportedArtist{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Artists: []contracts.ExportedArtist{
 			{Name: ""},
 		},
 	})
@@ -576,8 +577,8 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_EmptyName() {
 }
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_DryRun() {
-	result, err := suite.service.ImportData(DataImportRequest{
-		Artists: []ExportedArtist{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Artists: []contracts.ExportedArtist{
 			{Name: "Dry Run Band"},
 		},
 		DryRun: true,
@@ -597,8 +598,8 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_DryRun() {
 // =============================================================================
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportVenue_Success() {
-	result, err := suite.service.ImportData(DataImportRequest{
-		Venues: []ExportedVenue{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Venues: []contracts.ExportedVenue{
 			{Name: "New Venue", City: "NYC", State: "NY"},
 		},
 	})
@@ -616,8 +617,8 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportVenue_Success() {
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportVenue_Duplicate() {
 	suite.createVenue("Existing Venue", "NYC", "NY", true)
 
-	result, err := suite.service.ImportData(DataImportRequest{
-		Venues: []ExportedVenue{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Venues: []contracts.ExportedVenue{
 			{Name: "Existing Venue", City: "NYC", State: "NY"},
 		},
 	})
@@ -627,8 +628,8 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportVenue_Duplicate() {
 }
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportVenue_MissingFields() {
-	result, err := suite.service.ImportData(DataImportRequest{
-		Venues: []ExportedVenue{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Venues: []contracts.ExportedVenue{
 			{Name: "Venue Only"}, // Missing city and state
 		},
 	})
@@ -638,8 +639,8 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportVenue_MissingFields(
 }
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportVenue_DryRun() {
-	result, err := suite.service.ImportData(DataImportRequest{
-		Venues: []ExportedVenue{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Venues: []contracts.ExportedVenue{
 			{Name: "Dry Run Venue", City: "NYC", State: "NY"},
 		},
 		DryRun: true,
@@ -658,14 +659,14 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportVenue_DryRun() {
 // =============================================================================
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_Success() {
-	result, err := suite.service.ImportData(DataImportRequest{
-		Shows: []ExportedShow{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
 			{
 				Title:     "New Show",
 				EventDate: time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339),
 				Status:    "approved",
-				Venues:    []ExportedVenue{{Name: "Test Venue", City: "NYC", State: "NY"}},
-				Artists:   []ExportedShowArtist{{Name: "Test Band", Position: 0, SetType: "performer"}},
+				Venues:    []contracts.ExportedVenue{{Name: "Test Venue", City: "NYC", State: "NY"}},
+				Artists:   []contracts.ExportedShowArtist{{Name: "Test Band", Position: 0, SetType: "performer"}},
 			},
 		},
 	})
@@ -693,13 +694,13 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_Duplicate() {
 	eventDate := time.Date(2025, 6, 15, 20, 0, 0, 0, time.UTC)
 	suite.createShow("Dupe Show", eventDate, models.ShowStatusApproved, venue)
 
-	result, err := suite.service.ImportData(DataImportRequest{
-		Shows: []ExportedShow{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
 			{
 				Title:     "Dupe Show",
 				EventDate: eventDate.Format(time.RFC3339),
 				Status:    "approved",
-				Venues:    []ExportedVenue{{Name: "Dupe Venue", City: "NYC", State: "NY"}},
+				Venues:    []contracts.ExportedVenue{{Name: "Dupe Venue", City: "NYC", State: "NY"}},
 			},
 		},
 	})
@@ -727,14 +728,14 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_DuplicateBackfi
 	suite.db.Create(&models.ShowArtist{ShowID: show.ID, ArtistID: artist.ID, Position: 0, SetType: "performer"})
 
 	// Import duplicate — should backfill slugs
-	result, err := suite.service.ImportData(DataImportRequest{
-		Shows: []ExportedShow{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
 			{
 				Title:     "No Slug Show",
 				EventDate: eventDate.Format(time.RFC3339),
 				Status:    "approved",
-				Venues:    []ExportedVenue{{Name: "No Slug Venue", City: "NYC", State: "NY"}},
-				Artists:   []ExportedShowArtist{{Name: "No Slug Artist", Position: 0, SetType: "performer"}},
+				Venues:    []contracts.ExportedVenue{{Name: "No Slug Venue", City: "NYC", State: "NY"}},
+				Artists:   []contracts.ExportedShowArtist{{Name: "No Slug Artist", Position: 0, SetType: "performer"}},
 			},
 		},
 	})
@@ -756,8 +757,8 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_DuplicateBackfi
 }
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_MissingFields() {
-	result, err := suite.service.ImportData(DataImportRequest{
-		Shows: []ExportedShow{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
 			{Title: "", EventDate: ""},
 		},
 	})
@@ -767,8 +768,8 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_MissingFields()
 }
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_InvalidDate() {
-	result, err := suite.service.ImportData(DataImportRequest{
-		Shows: []ExportedShow{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
 			{Title: "Bad Date Show", EventDate: "not-a-date"},
 		},
 	})
@@ -779,14 +780,14 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_InvalidDate() {
 }
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_CreatesNewVenueAndArtist() {
-	result, err := suite.service.ImportData(DataImportRequest{
-		Shows: []ExportedShow{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
 			{
 				Title:     "Show With New Everything",
 				EventDate: time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339),
 				Status:    "approved",
-				Venues:    []ExportedVenue{{Name: "Brand New Venue", City: "Portland", State: "OR"}},
-				Artists:   []ExportedShowArtist{{Name: "Brand New Band", Position: 0, SetType: "headliner"}},
+				Venues:    []contracts.ExportedVenue{{Name: "Brand New Venue", City: "Portland", State: "OR"}},
+				Artists:   []contracts.ExportedShowArtist{{Name: "Brand New Band", Position: 0, SetType: "headliner"}},
 			},
 		},
 	})
@@ -808,13 +809,13 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_CreatesNewVenue
 }
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_DryRun() {
-	result, err := suite.service.ImportData(DataImportRequest{
-		Shows: []ExportedShow{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
 			{
 				Title:     "Dry Run Show",
 				EventDate: time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339),
 				Status:    "approved",
-				Venues:    []ExportedVenue{{Name: "Dry Venue", City: "NYC", State: "NY"}},
+				Venues:    []contracts.ExportedVenue{{Name: "Dry Venue", City: "NYC", State: "NY"}},
 			},
 		},
 		DryRun: true,
@@ -835,25 +836,25 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_StatusParsing()
 		time.Now().Add(72 * time.Hour),
 	}
 
-	result, err := suite.service.ImportData(DataImportRequest{
-		Shows: []ExportedShow{
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
 			{
 				Title:     "Pending Import",
 				EventDate: eventDates[0].UTC().Format(time.RFC3339),
 				Status:    "pending",
-				Venues:    []ExportedVenue{{Name: "Venue A", City: "NYC", State: "NY"}},
+				Venues:    []contracts.ExportedVenue{{Name: "Venue A", City: "NYC", State: "NY"}},
 			},
 			{
 				Title:     "Rejected Import",
 				EventDate: eventDates[1].UTC().Format(time.RFC3339),
 				Status:    "rejected",
-				Venues:    []ExportedVenue{{Name: "Venue B", City: "LA", State: "CA"}},
+				Venues:    []contracts.ExportedVenue{{Name: "Venue B", City: "LA", State: "CA"}},
 			},
 			{
 				Title:     "Private Import",
 				EventDate: eventDates[2].UTC().Format(time.RFC3339),
 				Status:    "private",
-				Venues:    []ExportedVenue{{Name: "Venue C", City: "CHI", State: "IL"}},
+				Venues:    []contracts.ExportedVenue{{Name: "Venue C", City: "CHI", State: "IL"}},
 			},
 		},
 	})
@@ -886,7 +887,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportData_FullRoundTrip()
 	suite.createShow("RT Show", eventDate, models.ShowStatusApproved, venue, artist)
 
 	// Export
-	exportResult, err := suite.service.ExportShows(ExportShowsParams{Status: "approved"})
+	exportResult, err := suite.service.ExportShows(contracts.ExportShowsParams{Status: "approved"})
 	suite.Require().NoError(err)
 	suite.Require().Len(exportResult.Shows, 1)
 
@@ -904,7 +905,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportData_FullRoundTrip()
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 
 	// Import the exported data
-	importResult, err := suite.service.ImportData(DataImportRequest{
+	importResult, err := suite.service.ImportData(contracts.DataImportRequest{
 		Shows: exportResult.Shows,
 	})
 	suite.Require().NoError(err)

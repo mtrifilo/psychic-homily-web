@@ -1,4 +1,4 @@
-package services
+package admin
 
 import (
 	"time"
@@ -7,6 +7,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // AdminStatsService handles admin dashboard statistics
@@ -25,8 +26,8 @@ func NewAdminStatsService(database *gorm.DB) *AdminStatsService {
 }
 
 // GetDashboardStats returns all dashboard statistics
-func (s *AdminStatsService) GetDashboardStats() (*AdminDashboardStats, error) {
-	stats := &AdminDashboardStats{}
+func (s *AdminStatsService) GetDashboardStats() (*contracts.AdminDashboardStats, error) {
+	stats := &contracts.AdminDashboardStats{}
 	sevenDaysAgo := time.Now().AddDate(0, 0, -7)
 
 	// Action items

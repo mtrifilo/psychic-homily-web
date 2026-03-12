@@ -1,4 +1,4 @@
-package services
+package user
 
 import (
 	"context"
@@ -18,6 +18,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -154,7 +155,7 @@ func TestUserService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("ListUsers", func(t *testing.T) {
-		users, total, err := userService.ListUsers(10, 0, AdminUserFilters{})
+		users, total, err := userService.ListUsers(10, 0, contracts.AdminUserFilters{})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, users)
@@ -435,7 +436,7 @@ func (suite *UserServiceIntegrationTestSuite) SetupSuite() {
 	if err != nil {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	// Create UserService
 	suite.userService = &UserService{db: db}
@@ -1835,7 +1836,7 @@ func (suite *UserServiceIntegrationTestSuite) TestListUsers_Success() {
 		})
 	}
 
-	users, total, err := suite.userService.ListUsers(100, 0, AdminUserFilters{
+	users, total, err := suite.userService.ListUsers(100, 0, contracts.AdminUserFilters{
 		Search: "listtest.example.com",
 	})
 	suite.Require().NoError(err)
@@ -1853,7 +1854,7 @@ func (suite *UserServiceIntegrationTestSuite) TestListUsers_WithSearch() {
 		IsActive: true,
 	})
 
-	users, total, err := suite.userService.ListUsers(100, 0, AdminUserFilters{
+	users, total, err := suite.userService.ListUsers(100, 0, contracts.AdminUserFilters{
 		Search: "uniquesearch",
 	})
 	suite.Require().NoError(err)
@@ -1876,7 +1877,7 @@ func (suite *UserServiceIntegrationTestSuite) TestListUsers_WithAuthMethods() {
 		ProviderEmail:  stringPtr("listauth@authmethods.example.com"),
 	})
 
-	users, _, err := suite.userService.ListUsers(100, 0, AdminUserFilters{
+	users, _, err := suite.userService.ListUsers(100, 0, contracts.AdminUserFilters{
 		Search: "authmethods.example.com",
 	})
 	suite.Require().NoError(err)

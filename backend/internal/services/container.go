@@ -6,23 +6,25 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
+	adminsvc "psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
+	usersvc "psychic-homily-backend/internal/services/user"
 )
 
 // ServiceContainer eagerly creates all services once at startup.
 // Exported fields — no getters needed for a simple data-holding struct.
 type ServiceContainer struct {
 	// DB-only leaf services
-	AdminStats         *AdminStatsService
-	APIToken           *APITokenService
+	AdminStats         *adminsvc.AdminStatsService
+	APIToken           *adminsvc.APITokenService
 	Artist             *catalog.ArtistService
-	ContributorProfile *ContributorProfileService
-	ArtistReport  *ArtistReportService
-	AuditLog      *AuditLogService
+	ContributorProfile *usersvc.ContributorProfileService
+	ArtistReport  *adminsvc.ArtistReportService
+	AuditLog      *adminsvc.AuditLogService
 	Bookmark      *engagement.BookmarkService
 	Calendar      *engagement.CalendarService
 	Collection    *CollectionService
@@ -32,8 +34,8 @@ type ServiceContainer struct {
 	Release       *catalog.ReleaseService
 	SavedShow     *engagement.SavedShowService
 	Show          *catalog.ShowService
-	ShowReport    *ShowReportService
-	User              *UserService
+	ShowReport    *adminsvc.ShowReportService
+	User              *usersvc.UserService
 	Venue             *catalog.VenueService
 	VenueSourceConfig *pipeline.VenueSourceConfigService
 
@@ -52,8 +54,8 @@ type ServiceContainer struct {
 	AppleAuth  *auth.AppleAuthService
 	Extraction *pipeline.ExtractionService
 	WebAuthn   *auth.WebAuthnService // nil if init fails (passkeys optional)
-	Cleanup    *CleanupService
-	DataSync   *DataSyncService
+	Cleanup    *adminsvc.CleanupService
+	DataSync   *adminsvc.DataSyncService
 	Discovery  *pipeline.DiscoveryService
 	Pipeline   *pipeline.PipelineService
 	Reminder   *engagement.ReminderService
@@ -77,7 +79,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 
 	savedShow := engagement.NewSavedShowService(database)
 	email := notification.NewEmailService(cfg)
-	userService := NewUserService(database)
+	userService := usersvc.NewUserService(database)
 
 	// Services needed by PipelineService — created first so we can inject them.
 	artist := catalog.NewArtistService(database)
@@ -92,12 +94,12 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 
 	return &ServiceContainer{
 		// DB-only leaf services
-		AdminStats:         NewAdminStatsService(database),
-		APIToken:           NewAPITokenService(database),
+		AdminStats:         adminsvc.NewAdminStatsService(database),
+		APIToken:           adminsvc.NewAPITokenService(database),
 		Artist:             artist,
-		ContributorProfile: NewContributorProfileService(database),
-		ArtistReport:  NewArtistReportService(database),
-		AuditLog:      NewAuditLogService(database),
+		ContributorProfile: usersvc.NewContributorProfileService(database),
+		ArtistReport:  adminsvc.NewArtistReportService(database),
+		AuditLog:      adminsvc.NewAuditLogService(database),
 		Bookmark:      engagement.NewBookmarkService(database),
 		Calendar:      engagement.NewCalendarService(database, savedShow),
 		Collection:    NewCollectionService(database),
@@ -107,7 +109,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Release:       catalog.NewReleaseService(database),
 		SavedShow:     savedShow,
 		Show:          catalog.NewShowService(database),
-		ShowReport:    NewShowReportService(database),
+		ShowReport:    adminsvc.NewShowReportService(database),
 		User:          userService,
 		Venue:             venue,
 		VenueSourceConfig: venueSourceConfig,
@@ -127,8 +129,8 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		AppleAuth:  auth.NewAppleAuthService(database, cfg, jwtService),
 		Extraction: extraction,
 		WebAuthn:   webauthnService,
-		Cleanup:    NewCleanupService(database),
-		DataSync:   NewDataSyncService(database),
+		Cleanup:    adminsvc.NewCleanupService(database, userService),
+		DataSync:   adminsvc.NewDataSyncService(database),
 		Discovery:  discovery,
 		Pipeline:   pipeline.NewPipelineService(fetcher, extraction, discovery, venueSourceConfig, venue),
 		Reminder:   engagement.NewReminderService(database, email, cfg),

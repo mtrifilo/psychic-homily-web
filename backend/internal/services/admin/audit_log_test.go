@@ -1,4 +1,4 @@
-package services
+package admin
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -39,7 +40,7 @@ func TestAuditLogService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("GetAuditLogs", func(t *testing.T) {
-		resp, total, err := svc.GetAuditLogs(10, 0, AuditLogFilters{})
+		resp, total, err := svc.GetAuditLogs(10, 0, contracts.AuditLogFilters{})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -103,7 +104,7 @@ func (suite *AuditLogServiceIntegrationTestSuite) SetupSuite() {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
 
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	suite.auditLogService = &AuditLogService{db: db}
 }
@@ -231,7 +232,7 @@ func (suite *AuditLogServiceIntegrationTestSuite) TestGetAuditLogs_Success() {
 	suite.auditLogService.LogAction(user.ID, "approve_show", "show", 1, nil)
 	suite.auditLogService.LogAction(user.ID, "reject_show", "show", 2, nil)
 
-	resp, total, err := suite.auditLogService.GetAuditLogs(10, 0, AuditLogFilters{})
+	resp, total, err := suite.auditLogService.GetAuditLogs(10, 0, contracts.AuditLogFilters{})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), total)
@@ -246,7 +247,7 @@ func (suite *AuditLogServiceIntegrationTestSuite) TestGetAuditLogs_IncludesActor
 
 	suite.auditLogService.LogAction(user.ID, "approve_show", "show", 1, nil)
 
-	resp, _, err := suite.auditLogService.GetAuditLogs(10, 0, AuditLogFilters{})
+	resp, _, err := suite.auditLogService.GetAuditLogs(10, 0, contracts.AuditLogFilters{})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
@@ -261,7 +262,7 @@ func (suite *AuditLogServiceIntegrationTestSuite) TestGetAuditLogs_IncludesMetad
 		"title": "Test Show",
 	})
 
-	resp, _, err := suite.auditLogService.GetAuditLogs(10, 0, AuditLogFilters{})
+	resp, _, err := suite.auditLogService.GetAuditLogs(10, 0, contracts.AuditLogFilters{})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
@@ -275,7 +276,7 @@ func (suite *AuditLogServiceIntegrationTestSuite) TestGetAuditLogs_FilterByEntit
 	suite.auditLogService.LogAction(user.ID, "approve_show", "show", 1, nil)
 	suite.auditLogService.LogAction(user.ID, "verify_venue", "venue", 1, nil)
 
-	resp, total, err := suite.auditLogService.GetAuditLogs(10, 0, AuditLogFilters{EntityType: "venue"})
+	resp, total, err := suite.auditLogService.GetAuditLogs(10, 0, contracts.AuditLogFilters{EntityType: "venue"})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -290,7 +291,7 @@ func (suite *AuditLogServiceIntegrationTestSuite) TestGetAuditLogs_FilterByActio
 	suite.auditLogService.LogAction(user.ID, "reject_show", "show", 2, nil)
 	suite.auditLogService.LogAction(user.ID, "approve_show", "show", 3, nil)
 
-	resp, total, err := suite.auditLogService.GetAuditLogs(10, 0, AuditLogFilters{Action: "approve_show"})
+	resp, total, err := suite.auditLogService.GetAuditLogs(10, 0, contracts.AuditLogFilters{Action: "approve_show"})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), total)
@@ -307,7 +308,7 @@ func (suite *AuditLogServiceIntegrationTestSuite) TestGetAuditLogs_FilterByActor
 	suite.auditLogService.LogAction(user1.ID, "approve_show", "show", 1, nil)
 	suite.auditLogService.LogAction(user2.ID, "reject_show", "show", 2, nil)
 
-	resp, total, err := suite.auditLogService.GetAuditLogs(10, 0, AuditLogFilters{ActorID: &user2.ID})
+	resp, total, err := suite.auditLogService.GetAuditLogs(10, 0, contracts.AuditLogFilters{ActorID: &user2.ID})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -322,7 +323,7 @@ func (suite *AuditLogServiceIntegrationTestSuite) TestGetAuditLogs_CombinedFilte
 	suite.auditLogService.LogAction(user.ID, "verify_venue", "venue", 1, nil)
 	suite.auditLogService.LogAction(user.ID, "approve_show", "show", 2, nil)
 
-	resp, total, err := suite.auditLogService.GetAuditLogs(10, 0, AuditLogFilters{
+	resp, total, err := suite.auditLogService.GetAuditLogs(10, 0, contracts.AuditLogFilters{
 		EntityType: "show",
 		Action:     "approve_show",
 		ActorID:    &user.ID,
@@ -341,18 +342,18 @@ func (suite *AuditLogServiceIntegrationTestSuite) TestGetAuditLogs_Pagination() 
 	}
 
 	// Page 1
-	resp1, total, err := suite.auditLogService.GetAuditLogs(2, 0, AuditLogFilters{})
+	resp1, total, err := suite.auditLogService.GetAuditLogs(2, 0, contracts.AuditLogFilters{})
 	suite.Require().NoError(err)
 	suite.Equal(int64(5), total)
 	suite.Len(resp1, 2)
 
 	// Page 2
-	resp2, _, err := suite.auditLogService.GetAuditLogs(2, 2, AuditLogFilters{})
+	resp2, _, err := suite.auditLogService.GetAuditLogs(2, 2, contracts.AuditLogFilters{})
 	suite.Require().NoError(err)
 	suite.Len(resp2, 2)
 
 	// Page 3
-	resp3, _, err := suite.auditLogService.GetAuditLogs(2, 4, AuditLogFilters{})
+	resp3, _, err := suite.auditLogService.GetAuditLogs(2, 4, contracts.AuditLogFilters{})
 	suite.Require().NoError(err)
 	suite.Len(resp3, 1)
 
@@ -361,7 +362,7 @@ func (suite *AuditLogServiceIntegrationTestSuite) TestGetAuditLogs_Pagination() 
 }
 
 func (suite *AuditLogServiceIntegrationTestSuite) TestGetAuditLogs_Empty() {
-	resp, total, err := suite.auditLogService.GetAuditLogs(10, 0, AuditLogFilters{})
+	resp, total, err := suite.auditLogService.GetAuditLogs(10, 0, contracts.AuditLogFilters{})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), total)

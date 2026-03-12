@@ -1,34 +1,43 @@
-package services
+package admin
 
 import (
 	"context"
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/notification"
 )
 
 // Default cleanup interval (24 hours)
 const DefaultCleanupInterval = 24 * time.Hour
 
-// CleanupService handles background cleanup tasks
-type CleanupService struct {
-	db           *gorm.DB
-	userService  *UserService
-	interval     time.Duration
-	stopCh       chan struct{}
-	wg           sync.WaitGroup
-	logger       *slog.Logger
+// cleanupUserService is the minimal interface CleanupService needs from UserService.
+type cleanupUserService interface {
+	GetExpiredDeletedAccounts() ([]models.User, error)
+	PermanentlyDeleteUser(userID uint) error
 }
 
-// NewCleanupService creates a new cleanup service
-func NewCleanupService(database *gorm.DB) *CleanupService {
+// CleanupService handles background cleanup tasks
+type CleanupService struct {
+	db          *gorm.DB
+	userService cleanupUserService
+	interval    time.Duration
+	stopCh      chan struct{}
+	wg          sync.WaitGroup
+	logger      *slog.Logger
+}
+
+// NewCleanupService creates a new cleanup service.
+// userSvc must implement GetExpiredDeletedAccounts and PermanentlyDeleteUser.
+func NewCleanupService(database *gorm.DB, userSvc cleanupUserService) *CleanupService {
 	if database == nil {
 		database = db.GetDB()
 	}
@@ -44,7 +53,7 @@ func NewCleanupService(database *gorm.DB) *CleanupService {
 
 	return &CleanupService{
 		db:          database,
-		userService: NewUserService(database),
+		userService: userSvc,
 		interval:    interval,
 		stopCh:      make(chan struct{}),
 		logger:      slog.Default(),
@@ -154,4 +163,25 @@ func (s *CleanupService) runCleanupCycle() {
 // RunCleanupNow triggers an immediate cleanup cycle (useful for testing)
 func (s *CleanupService) RunCleanupNow() {
 	s.runCleanupCycle()
+}
+
+// hashEmail masks an email for privacy (e.g., "jo***@example.com")
+func hashEmail(email string) string {
+	if email == "" {
+		return "N/A"
+	}
+
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		return "N/A"
+	}
+
+	local := parts[0]
+	domain := parts[1]
+
+	if len(local) <= 2 {
+		return local[:1] + "***@" + domain
+	}
+
+	return local[:2] + "***@" + domain
 }

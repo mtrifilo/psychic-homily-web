@@ -1,4 +1,4 @@
-package services
+package user
 
 import (
 	"encoding/json"
@@ -12,6 +12,7 @@ import (
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // Account lockout constants
@@ -22,7 +23,7 @@ const (
 
 
 // ListUsers returns a paginated list of users for the admin console
-func (s *UserService) ListUsers(limit, offset int, filters AdminUserFilters) ([]*AdminUserResponse, int64, error) {
+func (s *UserService) ListUsers(limit, offset int, filters contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -54,7 +55,7 @@ func (s *UserService) ListUsers(limit, offset int, filters AdminUserFilters) ([]
 	}
 
 	if len(users) == 0 {
-		return []*AdminUserResponse{}, total, nil
+		return []*contracts.AdminUserResponse{}, total, nil
 	}
 
 	// Collect user IDs for batch queries
@@ -93,7 +94,7 @@ func (s *UserService) ListUsers(limit, offset int, filters AdminUserFilters) ([]
 		Group("submitted_by, status").
 		Scan(&showStats)
 
-	statsMap := make(map[uint]UserSubmissionStats, len(users))
+	statsMap := make(map[uint]contracts.UserSubmissionStats, len(users))
 	for _, ss := range showStats {
 		stats := statsMap[ss.SubmittedBy]
 		switch ss.Status {
@@ -109,7 +110,7 @@ func (s *UserService) ListUsers(limit, offset int, filters AdminUserFilters) ([]
 	}
 
 	// Build response
-	result := make([]*AdminUserResponse, len(users))
+	result := make([]*contracts.AdminUserResponse, len(users))
 	for i, u := range users {
 		// Derive auth methods
 		var authMethods []string
@@ -123,7 +124,7 @@ func (s *UserService) ListUsers(limit, offset int, filters AdminUserFilters) ([]
 			authMethods = append(authMethods, "passkey")
 		}
 
-		result[i] = &AdminUserResponse{
+		result[i] = &contracts.AdminUserResponse{
 			ID:              u.ID,
 			Email:           u.Email,
 			Username:        u.Username,
@@ -165,11 +166,11 @@ func (s *UserService) FindOrCreateUser(gothUser goth.User, provider string) (*mo
 }
 
 // FindOrCreateUserWithConsent enforces terms acceptance for brand-new OAuth users.
-func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *OAuthSignupConsent) (*models.User, error) {
+func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*models.User, error) {
 	return s.findOrCreateOAuthUser(gothUser, provider, consent, true)
 }
 
-func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string, consent *OAuthSignupConsent, enforceConsent bool) (*models.User, error) {
+func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent, enforceConsent bool) (*models.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -222,7 +223,7 @@ func (s *UserService) CreateUserWithPasswordWithLegal(
 	password,
 	firstName,
 	lastName string,
-	acceptance LegalAcceptance,
+	acceptance contracts.LegalAcceptance,
 ) (*models.User, error) {
 	return s.createUserWithPassword(email, password, firstName, lastName, &acceptance)
 }
@@ -232,7 +233,7 @@ func (s *UserService) createUserWithPassword(
 	password,
 	firstName,
 	lastName string,
-	acceptance *LegalAcceptance,
+	acceptance *contracts.LegalAcceptance,
 ) (*models.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -365,7 +366,7 @@ func (s *UserService) createNewUserOauth(gothUser goth.User, provider string) (*
 func (s *UserService) createNewUserOauthWithConsent(
 	gothUser goth.User,
 	provider string,
-	consent *OAuthSignupConsent,
+	consent *contracts.OAuthSignupConsent,
 	enforceConsent bool,
 ) (*models.User, error) {
 	if s.db == nil {
@@ -456,7 +457,7 @@ func (s *UserService) createNewUserOauthWithConsent(
 	return user, nil
 }
 
-func validateOAuthSignupConsent(consent *OAuthSignupConsent) error {
+func validateOAuthSignupConsent(consent *contracts.OAuthSignupConsent) error {
 	if consent == nil {
 		return fmt.Errorf("terms acceptance required for OAuth signup")
 	}
@@ -756,12 +757,12 @@ func (s *UserService) SetEmailVerified(userID uint, verified bool) error {
 // DeletionSummary contains counts of user data that will be affected by deletion
 
 // GetDeletionSummary returns counts of data that will be affected by account deletion
-func (s *UserService) GetDeletionSummary(userID uint) (*DeletionSummary, error) {
+func (s *UserService) GetDeletionSummary(userID uint) (*contracts.DeletionSummary, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	summary := &DeletionSummary{}
+	summary := &contracts.DeletionSummary{}
 
 	// Count shows submitted by this user
 	if err := s.db.Model(&models.Show{}).Where("submitted_by = ?", userID).Count(&summary.ShowsCount).Error; err != nil {
@@ -873,7 +874,7 @@ func (s *UserService) CreateUserWithoutPassword(email string) (*models.User, err
 
 // ExportUserData exports all user data in a portable JSON format
 // This supports GDPR Article 20 - Right to data portability
-func (s *UserService) ExportUserData(userID uint) (*UserDataExport, error) {
+func (s *UserService) ExportUserData(userID uint) (*contracts.UserDataExport, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -888,10 +889,10 @@ func (s *UserService) ExportUserData(userID uint) (*UserDataExport, error) {
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	export := &UserDataExport{
+	export := &contracts.UserDataExport{
 		ExportedAt:    time.Now().UTC(),
 		ExportVersion: "1.0",
-		Profile: UserProfileExport{
+		Profile: contracts.UserProfileExport{
 			ID:            user.ID,
 			Email:         user.Email,
 			Username:      user.Username,
@@ -907,7 +908,7 @@ func (s *UserService) ExportUserData(userID uint) (*UserDataExport, error) {
 
 	// Export preferences
 	if user.Preferences != nil {
-		export.Preferences = &UserPreferencesExport{
+		export.Preferences = &contracts.UserPreferencesExport{
 			NotificationEmail: user.Preferences.NotificationEmail,
 			NotificationPush:  user.Preferences.NotificationPush,
 			Theme:             user.Preferences.Theme,
@@ -918,7 +919,7 @@ func (s *UserService) ExportUserData(userID uint) (*UserDataExport, error) {
 
 	// Export OAuth accounts (without tokens)
 	for _, oauth := range user.OAuthAccounts {
-		export.OAuthAccounts = append(export.OAuthAccounts, OAuthAccountExport{
+		export.OAuthAccounts = append(export.OAuthAccounts, contracts.OAuthAccountExport{
 			Provider:      oauth.Provider,
 			ProviderEmail: oauth.ProviderEmail,
 			ProviderName:  oauth.ProviderName,
@@ -928,7 +929,7 @@ func (s *UserService) ExportUserData(userID uint) (*UserDataExport, error) {
 
 	// Export passkey metadata (no keys)
 	for _, passkey := range user.PasskeyCredentials {
-		export.Passkeys = append(export.Passkeys, PasskeyExport{
+		export.Passkeys = append(export.Passkeys, contracts.PasskeyExport{
 			DisplayName:    passkey.DisplayName,
 			CreatedAt:      passkey.CreatedAt,
 			LastUsedAt:     passkey.LastUsedAt,
@@ -949,7 +950,7 @@ func (s *UserService) ExportUserData(userID uint) (*UserDataExport, error) {
 			continue // Skip if show not found
 		}
 
-		savedExport := SavedShowExport{
+		savedExport := contracts.SavedShowExport{
 			ShowID:    show.ID,
 			Title:     show.Title,
 			EventDate: show.EventDate,
@@ -975,7 +976,7 @@ func (s *UserService) ExportUserData(userID uint) (*UserDataExport, error) {
 	}
 
 	for _, show := range submittedShows {
-		submittedExport := SubmittedShowExport{
+		submittedExport := contracts.SubmittedShowExport{
 			ShowID:      show.ID,
 			Title:       show.Title,
 			EventDate:   show.EventDate,
