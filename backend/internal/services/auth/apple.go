@@ -1,4 +1,4 @@
-package services
+package auth
 
 import (
 	"crypto/rsa"
@@ -16,6 +16,7 @@ import (
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 const (
@@ -25,10 +26,9 @@ const (
 
 // AppleAuthService handles Sign in with Apple authentication
 type AppleAuthService struct {
-	db          *gorm.DB
-	config      *config.Config
-	userService *UserService
-	jwtService  *JWTService
+	db         *gorm.DB
+	config     *config.Config
+	jwtService *JWTService
 
 	// Cached Apple public keys
 	keysMu    sync.RWMutex
@@ -40,19 +40,17 @@ type AppleAuthService struct {
 }
 
 // NewAppleAuthService creates a new Apple auth service
-func NewAppleAuthService(database *gorm.DB, cfg *config.Config) *AppleAuthService {
+func NewAppleAuthService(database *gorm.DB, cfg *config.Config, jwtService *JWTService) *AppleAuthService {
 	if database == nil {
 		database = db.GetDB()
 	}
 	return &AppleAuthService{
-		db:          database,
-		config:      cfg,
-		userService: NewUserService(database),
-		jwtService:  NewJWTService(database, cfg),
-		keys:        make(map[string]*rsa.PublicKey),
+		db:         database,
+		config:     cfg,
+		jwtService: jwtService,
+		keys:       make(map[string]*rsa.PublicKey),
 	}
 }
-
 
 // appleJWKSet represents Apple's JWK set response
 type appleJWKSet struct {
@@ -69,10 +67,10 @@ type appleJWK struct {
 }
 
 // ValidateIdentityToken validates an Apple identity token and returns the claims
-func (s *AppleAuthService) ValidateIdentityToken(identityToken string) (*AppleIdentityTokenClaims, error) {
+func (s *AppleAuthService) ValidateIdentityToken(identityToken string) (*contracts.AppleIdentityTokenClaims, error) {
 	// Parse the token header to get the key ID
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
-	unverifiedToken, _, err := parser.ParseUnverified(identityToken, &AppleIdentityTokenClaims{})
+	unverifiedToken, _, err := parser.ParseUnverified(identityToken, &contracts.AppleIdentityTokenClaims{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse token header: %w", err)
 	}
@@ -89,7 +87,7 @@ func (s *AppleAuthService) ValidateIdentityToken(identityToken string) (*AppleId
 	}
 
 	// Parse and validate the token with the public key
-	claims := &AppleIdentityTokenClaims{}
+	claims := &contracts.AppleIdentityTokenClaims{}
 	token, err := jwt.ParseWithClaims(identityToken, claims, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
@@ -112,7 +110,7 @@ func (s *AppleAuthService) ValidateIdentityToken(identityToken string) (*AppleId
 }
 
 // FindOrCreateAppleUser finds or creates a user from Apple Sign In data
-func (s *AppleAuthService) FindOrCreateAppleUser(claims *AppleIdentityTokenClaims, firstName, lastName string) (*models.User, error) {
+func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentityTokenClaims, firstName, lastName string) (*models.User, error) {
 	appleUserID := claims.Subject
 
 	// Look for existing OAuth account with provider=apple

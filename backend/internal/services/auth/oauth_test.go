@@ -1,4 +1,4 @@
-package services
+package auth
 
 import (
 	"net/http"
@@ -33,7 +33,7 @@ func TestNewAuthService(t *testing.T) {
 		},
 	}
 
-	authService := NewAuthService(nil, cfg)
+	authService := NewAuthService(nil, cfg, newNilDBUserService())
 
 	if authService == nil {
 		t.Fatal("Expected AuthService to be created, got nil")
@@ -62,7 +62,7 @@ func TestAuthService_OAuthLogin(t *testing.T) {
 		},
 	}
 
-	authService := NewAuthService(nil, cfg)
+	authService := NewAuthService(nil, cfg, newNilDBUserService())
 
 	tests := []struct {
 		name     string
@@ -108,7 +108,7 @@ func TestAuthService_OAuthCallback(t *testing.T) {
 		},
 	}
 
-	authService := NewAuthService(nil, cfg)
+	authService := NewAuthService(nil, cfg, newNilDBUserService())
 
 	tests := []struct {
 		name     string
@@ -163,7 +163,7 @@ func TestAuthService_OAuthCallback_ErrorHandling(t *testing.T) {
 		},
 	}
 
-	authService := NewAuthService(nil, cfg)
+	authService := NewAuthService(nil, cfg, newNilDBUserService())
 
 	t.Run("nil_request", func(t *testing.T) {
 		w := httptest.NewRecorder()
@@ -356,7 +356,7 @@ func TestAuthService_OAuthCallback_EdgeCases(t *testing.T) {
 		},
 	}
 
-	authService := NewAuthService(nil, cfg)
+	authService := NewAuthService(nil, cfg, newNilDBUserService())
 
 	t.Run("request_with_complex_url", func(t *testing.T) {
 		complexURL := "/auth/callback/google?code=abc123&state=xyz789&redirect_uri=https%3A//example.com/callback&scope=email%20profile"
@@ -515,7 +515,7 @@ func TestAuthService_OAuthCallback_WithMock(t *testing.T) {
 		},
 	}
 
-	authService := NewAuthService(nil, cfg)
+	authService := NewAuthService(nil, cfg, newNilDBUserService())
 	mockCompleter := new(MockOAuthCompleter)
 	authService.SetOAuthCompleter(mockCompleter)
 
@@ -680,7 +680,7 @@ func TestAuthService_GetUserProfile(t *testing.T) {
 		},
 	}
 
-	authService := NewAuthService(nil, cfg)
+	authService := NewAuthService(nil, cfg, newNilDBUserService())
 
 	tests := []struct {
 		name   string
@@ -729,7 +729,7 @@ func TestAuthService_RefreshUserToken(t *testing.T) {
 		},
 	}
 
-	authService := NewAuthService(nil, cfg)
+	authService := NewAuthService(nil, cfg, newNilDBUserService())
 
 	tests := []struct {
 		name string
@@ -780,7 +780,7 @@ func TestAuthService_Logout(t *testing.T) {
 			SecretKey: "test-secret-key-32-chars-minimum",
 			Expiry:    24,
 		},
-	})
+	}, newNilDBUserService())
 
 	req := httptest.NewRequest("POST", "/auth/logout", nil)
 	w := httptest.NewRecorder()
@@ -807,7 +807,7 @@ func TestAuthService_Integration(t *testing.T) {
 		},
 	}
 
-	authService := NewAuthService(nil, cfg)
+	authService := NewAuthService(nil, cfg, newNilDBUserService())
 
 	// Test that all components are properly initialized
 	// In test environment, database may not be initialized
@@ -858,7 +858,7 @@ func TestAuthService_ErrorHandling(t *testing.T) {
 		},
 	}
 
-	authService := NewAuthService(nil, cfg)
+	authService := NewAuthService(nil, cfg, newNilDBUserService())
 
 	// Test with nil request
 	t.Run("Nil Request", func(t *testing.T) {
@@ -909,7 +909,7 @@ func TestAuthService_HTTPResponse(t *testing.T) {
 		},
 	}
 
-	authService := NewAuthService(nil, cfg)
+	authService := NewAuthService(nil, cfg, newNilDBUserService())
 
 	t.Run("OAuth Login Response", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/auth/login/google", nil)
@@ -971,7 +971,3 @@ func TestAuthService_HTTPResponse(t *testing.T) {
 	})
 }
 
-// Helper function to create string pointer
-func stringPtr(s string) *string {
-	return &s
-} 

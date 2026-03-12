@@ -1,4 +1,4 @@
-package services
+package auth
 
 import (
 	"bufio"
@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // Password validation constants
@@ -33,8 +35,8 @@ func NewPasswordValidator() *PasswordValidator {
 }
 
 // ValidatePassword validates a password against all security requirements
-func (v *PasswordValidator) ValidatePassword(password string) (*PasswordValidationResult, error) {
-	result := &PasswordValidationResult{
+func (v *PasswordValidator) ValidatePassword(password string) (*contracts.PasswordValidationResult, error) {
+	result := &contracts.PasswordValidationResult{
 		Valid:    true,
 		Errors:   []string{},
 		Warnings: []string{},

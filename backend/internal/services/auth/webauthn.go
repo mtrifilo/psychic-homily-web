@@ -1,4 +1,4 @@
-package services
+package auth
 
 import (
 	"encoding/json"
@@ -13,6 +13,7 @@ import (
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // WebAuthnService handles WebAuthn/passkey operations
@@ -407,7 +408,7 @@ func (s *WebAuthnService) GetChallengeWithEmail(challengeID string, operation st
 // FinishSignupRegistration completes registration, creates user, and stores credential.
 // Legacy path without legal acceptance metadata.
 func (s *WebAuthnService) FinishSignupRegistration(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*models.User, error) {
-	return s.FinishSignupRegistrationWithLegal(email, session, response, displayName, LegalAcceptance{})
+	return s.FinishSignupRegistrationWithLegal(email, session, response, displayName, contracts.LegalAcceptance{})
 }
 
 // FinishSignupRegistrationWithLegal completes registration and records legal acceptance metadata.
@@ -416,7 +417,7 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	session *webauthn.SessionData,
 	response *protocol.ParsedCredentialCreationData,
 	displayName string,
-	acceptance LegalAcceptance,
+	acceptance contracts.LegalAcceptance,
 ) (*models.User, error) {
 	// Use the same temp user for credential creation
 	tempUser := &signupUser{email: email}

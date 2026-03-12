@@ -1,4 +1,4 @@
-package services
+package auth
 
 import (
 	"context"
@@ -124,7 +124,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) SetupSuite() {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
 
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	cfg := &config.Config{
 		WebAuthn: config.WebAuthnConfig{
