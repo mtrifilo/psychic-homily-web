@@ -27,7 +27,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { useReleases, useRelease } from '../hooks/useReleases'
-import { useArtistSearch } from '@/lib/hooks/artists/useArtistSearch'
+import { useArtistSearch } from '@/features/artists'
 import {
   useCreateRelease,
   useUpdateRelease,

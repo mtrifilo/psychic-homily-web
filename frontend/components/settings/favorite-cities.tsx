@@ -3,9 +3,8 @@
 import { useMemo } from 'react'
 import { MapPin, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { useProfile } from '@/lib/hooks/auth/useAuth'
+import { useProfile, useSetFavoriteCities } from '@/features/auth'
 import { useShowCities } from '@/lib/hooks/shows/useShows'
-import { useSetFavoriteCities } from '@/lib/hooks/user/useFavoriteCities'
 import { FilterChip } from '@/components/filters/FilterChip'
 
 interface CityState {

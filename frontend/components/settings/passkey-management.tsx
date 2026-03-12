@@ -7,7 +7,7 @@ import { Fingerprint, Trash2, Loader2, Shield, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { PasskeyRegisterButton } from '@/components/auth/passkey-register'
+import { PasskeyRegisterButton } from '@/features/auth'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 

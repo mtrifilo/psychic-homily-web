@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useMyShowReport } from '@/lib/hooks/shows/useShowReports'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { ReportShowDialog } from './ReportShowDialog'
-import { LoginPromptDialog } from '@/components/auth/LoginPromptDialog'
+import { LoginPromptDialog } from '@/features/auth'
 
 interface ReportShowButtonProps {
   showId: number

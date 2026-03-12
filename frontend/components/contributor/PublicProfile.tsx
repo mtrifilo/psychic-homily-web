@@ -10,7 +10,7 @@ import { ProfileSections } from './ProfileSections'
 import {
   usePublicProfile,
   usePublicContributions,
-} from '@/lib/hooks/useContributorProfile'
+} from '@/features/auth'
 
 function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('en-US', {

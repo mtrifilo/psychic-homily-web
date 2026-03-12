@@ -15,7 +15,7 @@ import {
 import {
   useFavoriteVenues,
   useFavoriteVenueShows,
-} from '@/lib/hooks/user/useFavoriteVenues'
+} from '@/features/auth'
 import { useVenueShows } from '../hooks/useVenues'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'

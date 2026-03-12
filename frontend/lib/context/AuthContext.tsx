@@ -8,7 +8,7 @@ import {
   useCallback,
   ReactNode,
 } from 'react'
-import { useProfile, useLogout } from '@/lib/hooks/auth/useAuth'
+import { useProfile, useLogout } from '@/features/auth'
 
 interface User {
   id: string

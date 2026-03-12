@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import * as Sentry from '@sentry/nextjs'
-import { ArtistList, ArtistListSkeleton } from '@/components/artists'
+import { ArtistList, ArtistListSkeleton } from '@/features/artists'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 

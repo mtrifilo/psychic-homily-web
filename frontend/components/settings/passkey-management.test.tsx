@@ -16,7 +16,7 @@ vi.mock('@sentry/nextjs', () => ({
   captureException: vi.fn(),
 }))
 
-vi.mock('@/components/auth/passkey-register', () => ({
+vi.mock('@/features/auth', () => ({
   PasskeyRegisterButton: ({ onSuccess, onError }: { onSuccess: () => void; onError: (err: string) => void }) => (
     <button onClick={() => onSuccess()} data-testid="register-passkey-btn">
       Add Passkey

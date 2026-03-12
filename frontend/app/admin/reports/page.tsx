@@ -6,7 +6,7 @@ import { usePendingReports } from '@/lib/hooks/admin/useAdminReports'
 import { usePendingArtistReports } from '@/lib/hooks/admin/useAdminArtistReports'
 import { ShowReportCard, ArtistReportCard } from '@/components/admin'
 import type { ShowReportResponse } from '@/lib/types/show'
-import type { ArtistReportResponse } from '@/lib/types/artist'
+import type { ArtistReportResponse } from '@/features/artists'
 
 type MergedReport =
   | { type: 'show'; report: ShowReportResponse }

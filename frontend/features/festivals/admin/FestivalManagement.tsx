@@ -29,7 +29,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { useFestivals, useFestival, useFestivalLineup, useFestivalVenues } from '../hooks/useFestivals'
-import { useArtistSearch } from '@/lib/hooks/artists/useArtistSearch'
+import { useArtistSearch } from '@/features/artists'
 import { useVenueSearch } from '@/features/venues'
 import {
   useCreateFestival,

@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Loader2, CheckCircle2, AlertCircle, Mail } from 'lucide-react'
-import { useVerifyMagicLink } from '@/lib/hooks/auth/useAuth'
+import { useVerifyMagicLink } from '@/features/auth'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'

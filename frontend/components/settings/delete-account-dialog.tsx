@@ -16,7 +16,7 @@ import {
   ArrowLeft,
   ArrowRight,
 } from 'lucide-react'
-import { useDeletionSummary, useDeleteAccount } from '@/lib/hooks/auth/useAuth'
+import { useDeletionSummary, useDeleteAccount } from '@/features/auth'
 import {
   Dialog,
   DialogContent,

@@ -6,8 +6,7 @@ import { X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { useArtistSearch } from '@/lib/hooks/artists/useArtistSearch'
-import { getArtistLocation } from '@/lib/types/artist'
+import { useArtistSearch, getArtistLocation } from '@/features/artists'
 import { FieldInfo } from './FormField'
 
 interface ArtistInputProps {

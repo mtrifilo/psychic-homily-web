@@ -30,7 +30,7 @@ vi.mock('./ReportShowDialog', () => ({
     open ? <div data-testid="report-dialog">Report Dialog</div> : null,
 }))
 
-vi.mock('@/components/auth/LoginPromptDialog', () => ({
+vi.mock('@/features/auth', () => ({
   LoginPromptDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="login-prompt">Login Prompt</div> : null,
 }))
