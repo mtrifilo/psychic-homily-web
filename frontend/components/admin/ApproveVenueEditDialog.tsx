@@ -2,7 +2,7 @@
 
 import { CheckCircle, Loader2 } from 'lucide-react'
 import { useApproveVenueEdit } from '@/lib/hooks/admin/useAdminVenueEdits'
-import type { PendingVenueEdit } from '@/lib/types/venue'
+import type { PendingVenueEdit } from '@/features/venues'
 import {
   Dialog,
   DialogContent,

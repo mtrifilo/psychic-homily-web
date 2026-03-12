@@ -5,7 +5,6 @@
 export * from './admin'
 export * from './shows'
 export * from './artists'
-export * from './venues'
 export * from './auth'
 export * from './user'
 export * from './common'

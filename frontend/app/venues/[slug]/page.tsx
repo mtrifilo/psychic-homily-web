@@ -3,7 +3,7 @@ import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import * as Sentry from '@sentry/nextjs'
-import { VenueDetail } from '@/components/venues'
+import { VenueDetail } from '@/features/venues'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicVenueSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 

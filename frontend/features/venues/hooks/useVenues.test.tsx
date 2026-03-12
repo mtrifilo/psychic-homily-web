@@ -8,7 +8,7 @@ import { createWrapper, createTestQueryClient } from '@/test/utils'
 const mockApiRequest = vi.fn()
 
 // Mock the api module
-vi.mock('../../api', () => ({
+vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
   API_ENDPOINTS: {
     VENUES: {
@@ -22,7 +22,7 @@ vi.mock('../../api', () => ({
 }))
 
 // Mock queryClient module
-vi.mock('../../queryClient', () => ({
+vi.mock('@/lib/queryClient', () => ({
   queryKeys: {
     venues: {
       list: (filters?: Record<string, unknown>) => ['venues', 'list', filters],

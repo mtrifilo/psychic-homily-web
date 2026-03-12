@@ -2,9 +2,9 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useDebounce } from 'use-debounce'
-import { apiRequest, API_ENDPOINTS } from '../../api'
-import { queryKeys } from '../../queryClient'
-import type { VenueSearchResponse } from '../../types/venue'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { queryKeys } from '@/lib/queryClient'
+import type { VenueSearchResponse } from '../types'
 
 interface UseVenueSearchOptions {
   query: string
@@ -32,4 +32,3 @@ export function useVenueSearch({
     gcTime: 30 * 60 * 1000, // 30 minutes - keep in memory longer
   })
 }
-

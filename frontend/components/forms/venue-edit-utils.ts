@@ -1,4 +1,4 @@
-import type { Venue, VenueWithShowCount, VenueEditRequest } from '@/lib/types/venue'
+import type { Venue, VenueWithShowCount, VenueEditRequest } from '@/features/venues'
 
 export interface VenueEditFormValues {
   name: string

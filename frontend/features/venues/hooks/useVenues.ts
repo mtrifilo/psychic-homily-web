@@ -7,14 +7,14 @@
  */
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '../../api'
-import { queryKeys } from '../../queryClient'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { queryKeys } from '@/lib/queryClient'
 import type {
   Venue,
   VenuesListResponse,
   VenueShowsResponse,
   VenueCitiesResponse,
-} from '../../types/venue'
+} from '../types'
 
 interface CityState {
   city: string

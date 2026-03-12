@@ -37,7 +37,7 @@ import {
   MakePrivateDialog,
   PublishShowDialog,
 } from '@/components/shows'
-import { VenueDeniedDialog, FavoriteVenuesTab } from '@/components/venues'
+import { VenueDeniedDialog, FavoriteVenuesTab } from '@/features/venues'
 import { CalendarFeedSection } from '@/components/collection'
 import {
   useSetShowSoldOut,
