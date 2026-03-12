@@ -19,8 +19,10 @@ import {
   useOwnContributorProfile,
   useUpdateVisibility,
   useUpdatePrivacy,
-} from '@/lib/hooks/useContributorProfile'
-import type { PrivacyLevel, PrivacySettings, UpdatePrivacyInput } from '@/lib/types/contributor'
+  type PrivacyLevel,
+  type PrivacySettings,
+  type UpdatePrivacyInput,
+} from '@/features/auth'
 
 const privacyFields: {
   key: keyof Omit<PrivacySettings, 'last_active' | 'profile_sections'>

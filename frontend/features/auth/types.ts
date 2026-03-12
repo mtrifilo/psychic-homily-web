@@ -1,9 +1,14 @@
 /**
- * Contributor Profile TypeScript types
+ * Auth, Profile, and Contributor TypeScript types
  *
- * These types match the backend API response structures
+ * Contributor profile types match the backend API response structures
  * from the PSY-63 contributor profile endpoints.
+ * Auth types are used by the auth hooks.
  */
+
+// ============================================================================
+// Contributor Profile Types
+// ============================================================================
 
 export type ProfileVisibility = 'public' | 'private'
 
@@ -105,4 +110,18 @@ export interface UpdatePrivacyInput {
   collections?: PrivacyLevel
   last_active?: 'visible' | 'hidden'
   profile_sections?: 'visible' | 'hidden'
+}
+
+// ============================================================================
+// API Token Types (exported from useAuth)
+// ============================================================================
+
+export interface APIToken {
+  id: number
+  description: string | null
+  scope: string
+  created_at: string
+  expires_at: string
+  last_used_at: string | null
+  is_expired: boolean
 }

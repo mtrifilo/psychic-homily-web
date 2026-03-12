@@ -1,8 +1,8 @@
 'use client'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '../../api'
-import { queryKeys } from '../../queryClient'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { queryKeys } from '@/lib/queryClient'
 
 interface FavoriteCity {
   city: string

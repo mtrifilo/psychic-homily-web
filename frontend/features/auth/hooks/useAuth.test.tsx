@@ -3,13 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createWrapper, createTestQueryClient } from '@/test/utils'
-import { AuthErrorCode } from '../../errors'
+import { AuthErrorCode } from '@/lib/errors'
 
 // Create a mock for apiRequest that we can control
 const mockApiRequest = vi.fn()
 
 // Mock the api module
-vi.mock('../../api', () => ({
+vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
   API_ENDPOINTS: {
     AUTH: {
@@ -26,7 +26,7 @@ vi.mock('../../api', () => ({
 }))
 
 // Mock the auth logger
-vi.mock('../../utils/authLogger', () => ({
+vi.mock('@/lib/utils/authLogger', () => ({
   authLogger: {
     debug: vi.fn(),
     info: vi.fn(),
@@ -42,7 +42,7 @@ vi.mock('../../utils/authLogger', () => ({
 }))
 
 // Mock queryClient module
-vi.mock('../../queryClient', () => ({
+vi.mock('@/lib/queryClient', () => ({
   queryKeys: {
     auth: {
       profile: ['auth', 'profile'],

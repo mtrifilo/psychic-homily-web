@@ -40,7 +40,7 @@ vi.mock('@/lib/hooks/artists/useArtists', () => ({
 }))
 
 const mockUseIsAuthenticated = vi.fn()
-vi.mock('@/lib/hooks/auth/useAuth', () => ({
+vi.mock('@/features/auth', () => ({
   useIsAuthenticated: () => mockUseIsAuthenticated(),
 }))
 

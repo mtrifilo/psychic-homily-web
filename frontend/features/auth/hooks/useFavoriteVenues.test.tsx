@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 const mockApiRequest = vi.fn()
 const mockInvalidateFavoriteVenues = vi.fn()
 
-vi.mock('../../api', () => ({
+vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
   API_ENDPOINTS: {
     FAVORITE_VENUES: {
@@ -19,7 +19,7 @@ vi.mock('../../api', () => ({
   },
 }))
 
-vi.mock('../../queryClient', () => ({
+vi.mock('@/lib/queryClient', () => ({
   queryKeys: {
     favoriteVenues: {
       all: ['favoriteVenues'],

@@ -8,10 +8,11 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '../../api'
-import { queryKeys, createInvalidateQueries } from '../../queryClient'
-import { authLogger } from '../../utils/authLogger'
-import { AuthError, AuthErrorCode, type AuthErrorCodeType } from '../../errors'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
+import { authLogger } from '@/lib/utils/authLogger'
+import { AuthError, AuthErrorCode, type AuthErrorCodeType } from '@/lib/errors'
+import type { APIToken } from '../types'
 
 // Types
 interface LoginCredentials {
@@ -1088,16 +1089,8 @@ export const useGenerateCLIToken = () => {
 // API Token Management (Admin only - for discovery app)
 // ============================================================================
 
-// API Token types
-export interface APIToken {
-  id: number
-  description: string | null
-  scope: string
-  created_at: string
-  expires_at: string
-  last_used_at: string | null
-  is_expired: boolean
-}
+// Re-export APIToken type from types
+export type { APIToken }
 
 interface APITokenListResponse {
   tokens: APIToken[]

@@ -17,7 +17,7 @@ import { ContributionTimeline } from './ContributionTimeline'
 import {
   useOwnContributorProfile,
   useOwnContributions,
-} from '@/lib/hooks/useContributorProfile'
+} from '@/features/auth'
 
 function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('en-US', {

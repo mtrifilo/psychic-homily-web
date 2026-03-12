@@ -45,7 +45,7 @@ let mockGenerateCLITokenState = {
   error: null as Error | null,
 }
 
-vi.mock('@/lib/hooks/auth/useAuth', () => ({
+vi.mock('@/features/auth', () => ({
   useSendVerificationEmail: () => ({
     mutateAsync: mockSendVerificationMutateAsync,
     ...mockSendVerificationState,
