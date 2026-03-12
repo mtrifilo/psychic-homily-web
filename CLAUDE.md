@@ -63,12 +63,22 @@ HTTP Request → Chi Router → Global Middleware → Huma Adapter → Route Gro
 1. Global (Chi): Request ID → Sentry → Logging → CORS → Security Headers
 2. Route groups (Huma): JWT auth (strict/lenient/optional), rate limiting
 
-**Dependency injection:** Services are eagerly instantiated in `services/container.go` (`NewServiceContainer(db, cfg)`) → passed to handler constructors → handlers registered in `routes/routes.go`.
+**Dependency injection:** Services are organized into domain sub-packages under `internal/services/` and eagerly instantiated in `services/container.go` (`NewServiceContainer(db, cfg)`) → passed to handler constructors → handlers registered in `routes/routes.go`.
 
 ### Backend Conventions
 
 - **Handlers** (`internal/api/handlers/`): HTTP layer only — parse Huma request structs, extract user from context via `middleware.GetUserFromContext()`, call services, map responses. Constructor takes pre-instantiated services.
-- **Services** (`internal/services/`): Business logic + DB operations. Constructor pattern: `NewXService(db *gorm.DB)` — if nil, falls back to `db.GetDB()` singleton.
+- **Services** (`internal/services/`): Business logic + DB operations organized into domain sub-packages. Constructor pattern: `NewXService(db *gorm.DB)`.
+- **Service sub-packages:**
+  - `services/contracts/` — all service interfaces and shared request/response types
+  - `services/catalog/` — show, venue, artist, festival, label, release
+  - `services/auth/` — auth (OAuth), JWT, Apple auth, WebAuthn, password validator
+  - `services/engagement/` — bookmark, saved show, favorite venue, calendar, reminder
+  - `services/notification/` — email, Discord
+  - `services/pipeline/` — extraction, fetcher, discovery, orchestrator, venue source config, music discovery
+  - `services/user/` — user, contributor profile
+  - `services/admin/` — admin stats, API token, artist report, audit log, cleanup, data sync, show report
+  - Root `services/` — `container.go` (wiring), `interfaces.go` (compile-time checks), `aliases.go` (backward-compat type aliases), `collection.go` (not yet extracted)
 - **Models** (`internal/models/`): GORM structs with `TableName()` methods. Use `*json.RawMessage` for JSONB columns (not `datatypes.JSON`).
 - **Routes**: Public/protected/admin routes registered in `routes/routes.go`. Admin routes don't use separate middleware — handlers check `user.IsAdmin` internally.
 - **Migrations**: Numbered SQL files in `db/migrations/` (`000XXX_name.up.sql` / `.down.sql`).
@@ -112,7 +122,7 @@ Global setup starts Docker PostgreSQL (port 5433), runs migrations, seeds data (
 
 ### Discovery App
 
-Local tool for importing venue events. Lives in `/discovery` with Bun server + Playwright scraping + React UI. Venue providers in `src/server/providers/`. Backend integration via `DiscoveryService` (`services/discovery.go`) which deduplicates by `source_venue` + `source_event_id` and auto-approves shows for verified venues.
+Local tool for importing venue events. Lives in `/discovery` with Bun server + Playwright scraping + React UI. Venue providers in `src/server/providers/`. Backend integration via `DiscoveryService` (`services/pipeline/discovery.go`) which deduplicates by `source_venue` + `source_event_id` and auto-approves shows for verified venues.
 
 **Provider types:**
 - `ticketweb` — Playwright-based, waits for `window.all_events` global (Valley Bar, Crescent Ballroom)
