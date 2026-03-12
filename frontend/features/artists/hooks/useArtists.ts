@@ -7,8 +7,8 @@
  */
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '../../api'
-import { queryKeys } from '../../queryClient'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { queryKeys } from '@/lib/queryClient'
 import type { CityState } from '@/components/filters'
 import type {
   Artist,
@@ -16,7 +16,7 @@ import type {
   ArtistCitiesResponse,
   ArtistShowsResponse,
   ArtistTimeFilter,
-} from '../../types/artist'
+} from '../types'
 
 interface UseArtistsOptions {
   cities?: CityState[]

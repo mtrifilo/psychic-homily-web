@@ -5,7 +5,7 @@ import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
 import { Loader2, Edit2, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { useArtistUpdate } from '@/lib/hooks/admin/useAdminArtists'
-import type { Artist, ArtistEditRequest } from '@/lib/types/artist'
+import type { Artist, ArtistEditRequest } from '@/features/artists'
 import {
   Dialog,
   DialogContent,

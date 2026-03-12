@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 import { Flag, Loader2, AlertCircle, UserX } from 'lucide-react'
-import { useReportArtist } from '@/lib/hooks/artists/useArtistReports'
-import type { ArtistReportType } from '@/lib/types/artist'
+import { useReportArtist } from '../hooks/useArtistReports'
+import type { ArtistReportType } from '../types'
 import {
   Dialog,
   DialogContent,

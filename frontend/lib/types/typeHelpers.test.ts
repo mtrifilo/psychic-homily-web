@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { getArtistLocation } from './artist'
+import { getArtistLocation } from '@/features/artists'
 import { getVenueLocation } from './venue'
-import type { Artist } from './artist'
+import type { Artist } from '@/features/artists'
 import type { Venue } from './venue'
 
 describe('Type Helper Functions', () => {

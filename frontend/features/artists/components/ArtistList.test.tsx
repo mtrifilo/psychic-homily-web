@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import type { ArtistListItem } from '@/lib/types/artist'
+import type { ArtistListItem } from '../types'
 
 // Mock next/navigation
 const mockPush = vi.fn()
@@ -17,7 +17,7 @@ vi.mock('next/navigation', () => ({
 // Mock hooks
 const mockUseArtists = vi.fn()
 const mockUseArtistCities = vi.fn()
-vi.mock('@/lib/hooks/artists/useArtists', () => ({
+vi.mock('../hooks/useArtists', () => ({
   useArtists: (opts: unknown) => mockUseArtists(opts),
   useArtistCities: () => mockUseArtistCities(),
 }))

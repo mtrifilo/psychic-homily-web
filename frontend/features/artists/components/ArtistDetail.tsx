@@ -16,7 +16,7 @@ import {
   Tag,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useArtist } from '@/lib/hooks/artists/useArtists'
+import { useArtist } from '../hooks/useArtists'
 import { useArtistReleases } from '@/features/releases/hooks/useReleases'
 import { useArtistLabels, useLabelRoster } from '@/features/labels/hooks/useLabels'
 import { queryKeys } from '@/lib/queryClient'

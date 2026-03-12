@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import type { Artist } from '@/lib/types/artist'
+import type { Artist } from '../types'
 
 // Mock next/link
 vi.mock('next/link', () => ({
@@ -30,7 +30,7 @@ vi.mock('@/components/ui/tabs', () => ({
 
 // Mock hooks
 const mockUseArtist = vi.fn()
-vi.mock('@/lib/hooks/artists/useArtists', () => ({
+vi.mock('../hooks/useArtists', () => ({
   useArtist: (opts: unknown) => mockUseArtist(opts),
   useArtistShows: () => ({
     data: { shows: [], total: 0 },

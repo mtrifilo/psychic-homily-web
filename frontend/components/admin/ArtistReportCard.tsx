@@ -11,7 +11,7 @@ import {
   ExternalLink,
   Music,
 } from 'lucide-react'
-import type { ArtistReportResponse } from '@/lib/types/artist'
+import type { ArtistReportResponse } from '@/features/artists'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'

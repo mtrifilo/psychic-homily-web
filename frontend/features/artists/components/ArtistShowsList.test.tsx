@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import type { ArtistShow } from '@/lib/types/artist'
+import type { ArtistShow } from '../types'
 
 // Mock the artist shows hook
 const mockUseArtistShows = vi.fn()
-vi.mock('@/lib/hooks/artists/useArtists', () => ({
+vi.mock('../hooks/useArtists', () => ({
   useArtistShows: (opts: unknown) => mockUseArtistShows(opts),
 }))
 

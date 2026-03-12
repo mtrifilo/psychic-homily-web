@@ -2,7 +2,7 @@
 
 import { useMemo, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useArtists, useArtistCities } from '@/lib/hooks/artists/useArtists'
+import { useArtists, useArtistCities } from '../hooks/useArtists'
 import { ArtistCard } from './ArtistCard'
 import { ArtistSearch } from './ArtistSearch'
 import { CityFilters, type CityWithCount, type CityState } from '@/components/filters'

@@ -2,9 +2,9 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useDebounce } from 'use-debounce'
-import { apiRequest, API_ENDPOINTS } from '../../api'
-import { queryKeys } from '../../queryClient'
-import type { ArtistSearchResponse } from '../../types/artist'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { queryKeys } from '@/lib/queryClient'
+import type { ArtistSearchResponse } from '../types'
 
 interface UseArtistSearchOptions {
   query: string
