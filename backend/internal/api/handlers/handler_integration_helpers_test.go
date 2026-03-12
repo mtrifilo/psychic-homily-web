@@ -19,6 +19,7 @@ import (
 	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
+	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -32,7 +33,7 @@ type handlerIntegrationDeps struct {
 	savedShowService      *engagement.SavedShowService
 	favoriteVenueService  *engagement.FavoriteVenueService
 	showReportService     *services.ShowReportService
-	userService           *services.UserService
+	userService           *usersvc.UserService
 	auditLogService       *services.AuditLogService
 	discordService        *notification.DiscordService
 	musicDiscoveryService *pipeline.MusicDiscoveryService
@@ -108,7 +109,7 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		savedShowService:      engagement.NewSavedShowService(db),
 		favoriteVenueService:  engagement.NewFavoriteVenueService(db),
 		showReportService:     services.NewShowReportService(db),
-		userService:           services.NewUserService(db),
+		userService:           usersvc.NewUserService(db),
 		auditLogService:       services.NewAuditLogService(db),
 		discordService:        notification.NewDiscordService(emptyCfg),
 		musicDiscoveryService: pipeline.NewMusicDiscoveryService(emptyCfg),

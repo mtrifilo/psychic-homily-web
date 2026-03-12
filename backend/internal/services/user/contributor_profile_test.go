@@ -1,4 +1,4 @@
-package services
+package user
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -61,7 +62,7 @@ func TestContributorProfileService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("UpdatePrivacySettings", func(t *testing.T) {
-		resp, err := svc.UpdatePrivacySettings(1, DefaultPrivacySettings())
+		resp, err := svc.UpdatePrivacySettings(1, contracts.DefaultPrivacySettings())
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -104,38 +105,38 @@ func TestContributorProfileService_NilDatabase(t *testing.T) {
 
 func TestValidatePrivacySettings(t *testing.T) {
 	t.Run("Valid_Defaults", func(t *testing.T) {
-		err := ValidatePrivacySettings(DefaultPrivacySettings())
+		err := ValidatePrivacySettings(contracts.DefaultPrivacySettings())
 		assert.NoError(t, err)
 	})
 
 	t.Run("Valid_AllVisible", func(t *testing.T) {
-		ps := PrivacySettings{
-			Contributions:   PrivacyVisible,
-			SavedShows:      PrivacyVisible,
-			Attendance:      PrivacyVisible,
-			Following:       PrivacyVisible,
-			Collections:     PrivacyVisible,
-			LastActive:      PrivacyVisible,
-			ProfileSections: PrivacyVisible,
+		ps := contracts.PrivacySettings{
+			Contributions:   contracts.PrivacyVisible,
+			SavedShows:      contracts.PrivacyVisible,
+			Attendance:      contracts.PrivacyVisible,
+			Following:       contracts.PrivacyVisible,
+			Collections:     contracts.PrivacyVisible,
+			LastActive:      contracts.PrivacyVisible,
+			ProfileSections: contracts.PrivacyVisible,
 		}
 		assert.NoError(t, ValidatePrivacySettings(ps))
 	})
 
 	t.Run("Valid_AllHidden", func(t *testing.T) {
-		ps := PrivacySettings{
-			Contributions:   PrivacyHidden,
-			SavedShows:      PrivacyHidden,
-			Attendance:      PrivacyHidden,
-			Following:       PrivacyHidden,
-			Collections:     PrivacyHidden,
-			LastActive:      PrivacyHidden,
-			ProfileSections: PrivacyHidden,
+		ps := contracts.PrivacySettings{
+			Contributions:   contracts.PrivacyHidden,
+			SavedShows:      contracts.PrivacyHidden,
+			Attendance:      contracts.PrivacyHidden,
+			Following:       contracts.PrivacyHidden,
+			Collections:     contracts.PrivacyHidden,
+			LastActive:      contracts.PrivacyHidden,
+			ProfileSections: contracts.PrivacyHidden,
 		}
 		assert.NoError(t, ValidatePrivacySettings(ps))
 	})
 
 	t.Run("Invalid_BadLevel", func(t *testing.T) {
-		ps := DefaultPrivacySettings()
+		ps := contracts.DefaultPrivacySettings()
 		ps.Contributions = "invalid"
 		err := ValidatePrivacySettings(ps)
 		assert.Error(t, err)
@@ -143,24 +144,24 @@ func TestValidatePrivacySettings(t *testing.T) {
 	})
 
 	t.Run("Invalid_CountOnly_LastActive", func(t *testing.T) {
-		ps := DefaultPrivacySettings()
-		ps.LastActive = PrivacyCountOnly
+		ps := contracts.DefaultPrivacySettings()
+		ps.LastActive = contracts.PrivacyCountOnly
 		err := ValidatePrivacySettings(ps)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "only supports 'visible' or 'hidden'")
 	})
 
 	t.Run("Invalid_CountOnly_ProfileSections", func(t *testing.T) {
-		ps := DefaultPrivacySettings()
-		ps.ProfileSections = PrivacyCountOnly
+		ps := contracts.DefaultPrivacySettings()
+		ps.ProfileSections = contracts.PrivacyCountOnly
 		err := ValidatePrivacySettings(ps)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "only supports 'visible' or 'hidden'")
 	})
 
 	t.Run("Valid_CountOnly_Contributions", func(t *testing.T) {
-		ps := DefaultPrivacySettings()
-		ps.Contributions = PrivacyCountOnly
+		ps := contracts.DefaultPrivacySettings()
+		ps.Contributions = contracts.PrivacyCountOnly
 		assert.NoError(t, ValidatePrivacySettings(ps))
 	})
 }
@@ -174,7 +175,7 @@ type ContributorProfileServiceIntegrationTestSuite struct {
 	container      testcontainers.Container
 	db             *gorm.DB
 	profileService *ContributorProfileService
-	auditLog       *AuditLogService
+	auditLog       *testAuditLogHelper
 	ctx            context.Context
 }
 
@@ -222,10 +223,10 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) SetupSuite() {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
 
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	suite.profileService = &ContributorProfileService{db: db}
-	suite.auditLog = &AuditLogService{db: db}
+	suite.auditLog = &testAuditLogHelper{db: db}
 }
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TearDownSuite() {
@@ -309,7 +310,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) createVenue(submitte
 	return venue
 }
 
-func (suite *ContributorProfileServiceIntegrationTestSuite) setPrivacySettings(userID uint, ps PrivacySettings) {
+func (suite *ContributorProfileServiceIntegrationTestSuite) setPrivacySettings(userID uint, ps contracts.PrivacySettings) {
 	raw, err := json.Marshal(ps)
 	suite.Require().NoError(err)
 	rawMsg := json.RawMessage(raw)
@@ -676,40 +677,40 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestUpdatePrivacySettings_Success() {
 	user := suite.createTestUser("privacyuser")
 
-	settings := PrivacySettings{
-		Contributions:   PrivacyHidden,
-		SavedShows:      PrivacyVisible,
-		Attendance:      PrivacyCountOnly,
-		Following:       PrivacyHidden,
-		Collections:     PrivacyCountOnly,
-		LastActive:      PrivacyHidden,
-		ProfileSections: PrivacyVisible,
+	settings := contracts.PrivacySettings{
+		Contributions:   contracts.PrivacyHidden,
+		SavedShows:      contracts.PrivacyVisible,
+		Attendance:      contracts.PrivacyCountOnly,
+		Following:       contracts.PrivacyHidden,
+		Collections:     contracts.PrivacyCountOnly,
+		LastActive:      contracts.PrivacyHidden,
+		ProfileSections: contracts.PrivacyVisible,
 	}
 
 	result, err := suite.profileService.UpdatePrivacySettings(user.ID, settings)
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(result)
-	suite.Equal(PrivacyHidden, result.Contributions)
-	suite.Equal(PrivacyVisible, result.SavedShows)
-	suite.Equal(PrivacyCountOnly, result.Attendance)
-	suite.Equal(PrivacyHidden, result.Following)
-	suite.Equal(PrivacyCountOnly, result.Collections)
-	suite.Equal(PrivacyHidden, result.LastActive)
-	suite.Equal(PrivacyVisible, result.ProfileSections)
+	suite.Equal(contracts.PrivacyHidden, result.Contributions)
+	suite.Equal(contracts.PrivacyVisible, result.SavedShows)
+	suite.Equal(contracts.PrivacyCountOnly, result.Attendance)
+	suite.Equal(contracts.PrivacyHidden, result.Following)
+	suite.Equal(contracts.PrivacyCountOnly, result.Collections)
+	suite.Equal(contracts.PrivacyHidden, result.LastActive)
+	suite.Equal(contracts.PrivacyVisible, result.ProfileSections)
 }
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestUpdatePrivacySettings_Persists() {
 	user := suite.createTestUser("privacypersist")
 
-	settings := PrivacySettings{
-		Contributions:   PrivacyHidden,
-		SavedShows:      PrivacyHidden,
-		Attendance:      PrivacyHidden,
-		Following:       PrivacyHidden,
-		Collections:     PrivacyHidden,
-		LastActive:      PrivacyHidden,
-		ProfileSections: PrivacyHidden,
+	settings := contracts.PrivacySettings{
+		Contributions:   contracts.PrivacyHidden,
+		SavedShows:      contracts.PrivacyHidden,
+		Attendance:      contracts.PrivacyHidden,
+		Following:       contracts.PrivacyHidden,
+		Collections:     contracts.PrivacyHidden,
+		LastActive:      contracts.PrivacyHidden,
+		ProfileSections: contracts.PrivacyHidden,
 	}
 
 	_, err := suite.profileService.UpdatePrivacySettings(user.ID, settings)
@@ -719,14 +720,14 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestUpdatePrivacySet
 	profile, err := suite.profileService.GetOwnProfile(user.ID)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(profile.PrivacySettings)
-	suite.Equal(PrivacyHidden, profile.PrivacySettings.Contributions)
-	suite.Equal(PrivacyHidden, profile.PrivacySettings.LastActive)
+	suite.Equal(contracts.PrivacyHidden, profile.PrivacySettings.Contributions)
+	suite.Equal(contracts.PrivacyHidden, profile.PrivacySettings.LastActive)
 }
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestUpdatePrivacySettings_InvalidLevel() {
 	user := suite.createTestUser("privacyinvalid")
 
-	settings := DefaultPrivacySettings()
+	settings := contracts.DefaultPrivacySettings()
 	settings.Contributions = "invalid_level"
 
 	result, err := suite.profileService.UpdatePrivacySettings(user.ID, settings)
@@ -739,8 +740,8 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestUpdatePrivacySet
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestUpdatePrivacySettings_CountOnlyBinaryField() {
 	user := suite.createTestUser("privacybinary")
 
-	settings := DefaultPrivacySettings()
-	settings.LastActive = PrivacyCountOnly
+	settings := contracts.DefaultPrivacySettings()
+	settings.LastActive = contracts.PrivacyCountOnly
 
 	result, err := suite.profileService.UpdatePrivacySettings(user.ID, settings)
 
@@ -753,14 +754,14 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 	user := suite.createTestUser("privgatecontrib")
 	suite.createShow(user.ID, "Hidden Show")
 
-	suite.setPrivacySettings(user.ID, PrivacySettings{
-		Contributions:   PrivacyHidden,
-		SavedShows:      PrivacyHidden,
-		Attendance:      PrivacyHidden,
-		Following:       PrivacyHidden,
-		Collections:     PrivacyHidden,
-		LastActive:      PrivacyHidden,
-		ProfileSections: PrivacyHidden,
+	suite.setPrivacySettings(user.ID, contracts.PrivacySettings{
+		Contributions:   contracts.PrivacyHidden,
+		SavedShows:      contracts.PrivacyHidden,
+		Attendance:      contracts.PrivacyHidden,
+		Following:       contracts.PrivacyHidden,
+		Collections:     contracts.PrivacyHidden,
+		LastActive:      contracts.PrivacyHidden,
+		ProfileSections: contracts.PrivacyHidden,
 	})
 
 	otherUser := suite.createTestUser("viewer1")
@@ -779,14 +780,14 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 	suite.createShow(user.ID, "Counted Show")
 	suite.createShow(user.ID, "Another Counted Show")
 
-	suite.setPrivacySettings(user.ID, PrivacySettings{
-		Contributions:   PrivacyCountOnly,
-		SavedShows:      PrivacyHidden,
-		Attendance:      PrivacyHidden,
-		Following:       PrivacyHidden,
-		Collections:     PrivacyHidden,
-		LastActive:      PrivacyVisible,
-		ProfileSections: PrivacyVisible,
+	suite.setPrivacySettings(user.ID, contracts.PrivacySettings{
+		Contributions:   contracts.PrivacyCountOnly,
+		SavedShows:      contracts.PrivacyHidden,
+		Attendance:      contracts.PrivacyHidden,
+		Following:       contracts.PrivacyHidden,
+		Collections:     contracts.PrivacyHidden,
+		LastActive:      contracts.PrivacyVisible,
+		ProfileSections: contracts.PrivacyVisible,
 	})
 
 	otherUser := suite.createTestUser("viewer2")
@@ -803,14 +804,14 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile
 	user := suite.createTestUser("ownerseesall")
 	suite.createShow(user.ID, "My Show")
 
-	suite.setPrivacySettings(user.ID, PrivacySettings{
-		Contributions:   PrivacyHidden,
-		SavedShows:      PrivacyHidden,
-		Attendance:      PrivacyHidden,
-		Following:       PrivacyHidden,
-		Collections:     PrivacyHidden,
-		LastActive:      PrivacyHidden,
-		ProfileSections: PrivacyHidden,
+	suite.setPrivacySettings(user.ID, contracts.PrivacySettings{
+		Contributions:   contracts.PrivacyHidden,
+		SavedShows:      contracts.PrivacyHidden,
+		Attendance:      contracts.PrivacyHidden,
+		Following:       contracts.PrivacyHidden,
+		Collections:     contracts.PrivacyHidden,
+		LastActive:      contracts.PrivacyHidden,
+		ProfileSections: contracts.PrivacyHidden,
 	})
 
 	profile, err := suite.profileService.GetPublicProfile("ownerseesall", &user.ID)
