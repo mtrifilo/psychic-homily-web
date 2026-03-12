@@ -1,4 +1,4 @@
-package services
+package admin
 
 import (
 	"encoding/json"
@@ -10,6 +10,7 @@ import (
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // AuditLogService handles audit log business logic
@@ -70,7 +71,7 @@ func (s *AuditLogService) LogAction(actorID uint, action string, entityType stri
 }
 
 // GetAuditLogs returns paginated audit log entries with optional filters
-func (s *AuditLogService) GetAuditLogs(limit, offset int, filters AuditLogFilters) ([]*AuditLogResponse, int64, error) {
+func (s *AuditLogService) GetAuditLogs(limit, offset int, filters contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -105,7 +106,7 @@ func (s *AuditLogService) GetAuditLogs(limit, offset int, filters AuditLogFilter
 	}
 
 	// Build responses
-	responses := make([]*AuditLogResponse, len(logs))
+	responses := make([]*contracts.AuditLogResponse, len(logs))
 	for i, log := range logs {
 		responses[i] = s.buildResponse(&log)
 	}
@@ -113,8 +114,8 @@ func (s *AuditLogService) GetAuditLogs(limit, offset int, filters AuditLogFilter
 	return responses, total, nil
 }
 
-func (s *AuditLogService) buildResponse(log *models.AuditLog) *AuditLogResponse {
-	resp := &AuditLogResponse{
+func (s *AuditLogService) buildResponse(log *models.AuditLog) *contracts.AuditLogResponse {
+	resp := &contracts.AuditLogResponse{
 		ID:         log.ID,
 		ActorID:    log.ActorID,
 		Action:     log.Action,

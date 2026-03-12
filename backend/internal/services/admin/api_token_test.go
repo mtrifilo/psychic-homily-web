@@ -1,4 +1,4 @@
-package services
+package admin
 
 import (
 	"context"
@@ -159,7 +159,7 @@ func (suite *APITokenIntegrationTestSuite) SetupSuite() {
 		suite.T().Fatalf("failed to get sql.DB: %v", err)
 	}
 
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "db", "migrations"))
+	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	suite.svc = &APITokenService{db: db}
 }

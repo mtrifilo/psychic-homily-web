@@ -1,4 +1,4 @@
-package services
+package admin
 
 import (
 	"crypto/rand"
@@ -11,6 +11,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 const (
@@ -54,7 +55,7 @@ func hashToken(token string) string {
 }
 
 // CreateToken generates a new API token for a user
-func (s *APITokenService) CreateToken(userID uint, description *string, expirationDays int) (*APITokenCreateResponse, error) {
+func (s *APITokenService) CreateToken(userID uint, description *string, expirationDays int) (*contracts.APITokenCreateResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -85,7 +86,7 @@ func (s *APITokenService) CreateToken(userID uint, description *string, expirati
 		return nil, fmt.Errorf("failed to create token: %w", err)
 	}
 
-	return &APITokenCreateResponse{
+	return &contracts.APITokenCreateResponse{
 		ID:          token.ID,
 		Token:       plainToken, // Return plaintext only this once
 		Description: token.Description,
@@ -143,7 +144,7 @@ func (s *APITokenService) ValidateToken(plainToken string) (*models.User, *model
 }
 
 // ListTokens returns all tokens for a user (without hashes)
-func (s *APITokenService) ListTokens(userID uint) ([]APITokenResponse, error) {
+func (s *APITokenService) ListTokens(userID uint) ([]contracts.APITokenResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -156,9 +157,9 @@ func (s *APITokenService) ListTokens(userID uint) ([]APITokenResponse, error) {
 		return nil, fmt.Errorf("failed to list tokens: %w", err)
 	}
 
-	responses := make([]APITokenResponse, len(tokens))
+	responses := make([]contracts.APITokenResponse, len(tokens))
 	for i, token := range tokens {
-		responses[i] = APITokenResponse{
+		responses[i] = contracts.APITokenResponse{
 			ID:          token.ID,
 			Description: token.Description,
 			Scope:       token.Scope,
@@ -195,7 +196,7 @@ func (s *APITokenService) RevokeToken(userID uint, tokenID uint) error {
 }
 
 // GetToken retrieves a single token by ID (must belong to the user)
-func (s *APITokenService) GetToken(userID uint, tokenID uint) (*APITokenResponse, error) {
+func (s *APITokenService) GetToken(userID uint, tokenID uint) (*contracts.APITokenResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -209,7 +210,7 @@ func (s *APITokenService) GetToken(userID uint, tokenID uint) (*APITokenResponse
 		return nil, fmt.Errorf("failed to get token: %w", err)
 	}
 
-	return &APITokenResponse{
+	return &contracts.APITokenResponse{
 		ID:          token.ID,
 		Description: token.Description,
 		Scope:       token.Scope,

@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
+	adminsvc "psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -175,7 +176,7 @@ type ContributorProfileServiceIntegrationTestSuite struct {
 	container      testcontainers.Container
 	db             *gorm.DB
 	profileService *ContributorProfileService
-	auditLog       *testAuditLogHelper
+	auditLog       *adminsvc.AuditLogService
 	ctx            context.Context
 }
 
@@ -226,7 +227,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) SetupSuite() {
 	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
 
 	suite.profileService = &ContributorProfileService{db: db}
-	suite.auditLog = &testAuditLogHelper{db: db}
+	suite.auditLog = adminsvc.NewAuditLogService(db)
 }
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TearDownSuite() {
