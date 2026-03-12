@@ -2,7 +2,7 @@ import {
   parseISOToDateAndTime,
   getTimezoneForState,
 } from '@/lib/utils/timeUtils'
-import type { ShowResponse, VenueResponse } from '@/lib/types/show'
+import type { ShowResponse, VenueResponse } from '@/features/shows'
 
 export interface FormArtist {
   name: string

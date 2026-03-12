@@ -12,7 +12,7 @@ import {
   AlertTriangle,
   ImageIcon,
 } from 'lucide-react'
-import { useShowExtraction } from '@/lib/hooks/shows/useShowExtraction'
+import { useShowExtraction } from '@/features/shows'
 import type {
   ExtractedShowData,
   MatchSuggestion,

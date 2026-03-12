@@ -7,7 +7,7 @@ import {
   defaultFormValues,
   type FormArtist,
 } from './show-form-utils'
-import type { ShowResponse, VenueResponse } from '@/lib/types/show'
+import type { ShowResponse, VenueResponse } from '@/features/shows'
 
 // --- Helpers ---
 

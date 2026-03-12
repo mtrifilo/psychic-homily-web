@@ -27,7 +27,7 @@ vi.mock('@/features/auth', () => ({
   }),
 }))
 
-vi.mock('@/lib/hooks/shows/useShowReminders', () => ({
+vi.mock('@/features/shows', () => ({
   useSetShowReminders: () => ({
     mutate: mockMutate,
     ...mockMutationState,

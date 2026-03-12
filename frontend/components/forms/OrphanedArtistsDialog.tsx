@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Loader2, Trash2, UserX } from 'lucide-react'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import type { OrphanedArtist } from '@/lib/types/show'
+import type { OrphanedArtist } from '@/features/shows'
 import {
   Dialog,
   DialogContent,

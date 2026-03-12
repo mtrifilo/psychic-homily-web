@@ -2,7 +2,7 @@
 
 import { memo, useState } from 'react'
 import { Calendar, MapPin, XCircle, CheckCircle } from 'lucide-react'
-import type { ShowResponse } from '@/lib/types/show'
+import type { ShowResponse } from '@/features/shows'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatShortDate, formatAdminTime } from '@/lib/utils/formatters'

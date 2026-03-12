@@ -5,7 +5,7 @@ import { Loader2, Flag, Inbox } from 'lucide-react'
 import { usePendingReports } from '@/lib/hooks/admin/useAdminReports'
 import { usePendingArtistReports } from '@/lib/hooks/admin/useAdminArtistReports'
 import { ShowReportCard, ArtistReportCard } from '@/components/admin'
-import type { ShowReportResponse } from '@/lib/types/show'
+import type { ShowReportResponse } from '@/features/shows'
 import type { ArtistReportResponse } from '@/features/artists'
 
 type MergedReport =

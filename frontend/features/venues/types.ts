@@ -5,7 +5,7 @@
  * from backend/internal/services/venue.go
  */
 
-import type { ArtistResponse } from '@/lib/types/show'
+import type { ArtistResponse } from '@/features/shows'
 
 export interface Venue {
   id: number

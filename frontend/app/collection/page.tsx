@@ -2,8 +2,8 @@
 
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useSavedShows } from '@/lib/hooks/shows/useSavedShows'
-import { useMySubmissions } from '@/lib/hooks/shows/useMySubmissions'
+import { useSavedShows } from '@/features/shows'
+import { useMySubmissions } from '@/features/shows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
@@ -29,14 +29,14 @@ import {
   formatShowTime,
   formatPrice,
 } from '@/lib/utils/formatters'
-import type { SavedShowResponse, ShowResponse } from '@/lib/types/show'
+import type { SavedShowResponse, ShowResponse } from '@/features/shows'
 import { SaveButton, SubmissionSuccessDialog } from '@/components/shared'
 import {
   DeleteShowDialog,
   UnpublishShowDialog,
   MakePrivateDialog,
   PublishShowDialog,
-} from '@/components/shows'
+} from '@/features/shows'
 import { VenueDeniedDialog, FavoriteVenuesTab } from '@/features/venues'
 import { CalendarFeedSection } from '@/components/collection'
 import {
@@ -53,7 +53,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { SHOW_LIST_FEATURE_POLICY } from '@/components/shows/showListFeaturePolicy'
+import { SHOW_LIST_FEATURE_POLICY } from '@/features/shows'
 
 const COLLECTION_TABS = ['saved', 'favorites', 'submissions'] as const
 type CollectionTab = (typeof COLLECTION_TABS)[number]

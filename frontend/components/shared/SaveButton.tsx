@@ -2,7 +2,7 @@
 
 import { Heart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useSaveShowToggle } from '@/lib/hooks/shows/useSavedShows'
+import { useSaveShowToggle } from '@/features/shows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useState } from 'react'
 

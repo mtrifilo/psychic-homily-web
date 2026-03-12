@@ -19,8 +19,7 @@ import {
 import { useVenueShows } from '../hooks/useVenues'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
-import { CompactShowRow } from '@/components/shows/CompactShowRow'
-import { SHOW_LIST_FEATURE_POLICY } from '@/components/shows/showListFeaturePolicy'
+import { CompactShowRow, SHOW_LIST_FEATURE_POLICY } from '@/features/shows'
 import { FavoriteVenueButton } from './FavoriteVenueButton'
 import type { FavoriteVenueResponse } from '../types'
 

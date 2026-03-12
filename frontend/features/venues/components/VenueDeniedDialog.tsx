@@ -1,7 +1,7 @@
 'use client'
 
 import { ShieldX, CheckCircle2 } from 'lucide-react'
-import type { ShowResponse } from '@/lib/types/show'
+import type { ShowResponse } from '@/features/shows'
 import {
   Dialog,
   DialogContent,
