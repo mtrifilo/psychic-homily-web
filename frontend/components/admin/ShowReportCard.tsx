@@ -12,7 +12,7 @@ import {
   AlertCircle,
   ExternalLink,
 } from 'lucide-react'
-import type { ShowReportResponse } from '@/lib/types/show'
+import type { ShowReportResponse } from '@/features/shows'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'

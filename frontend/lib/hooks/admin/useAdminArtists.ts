@@ -10,7 +10,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../../api'
 import { queryKeys } from '../../queryClient'
-import type { Artist, ArtistEditRequest } from '../../types/artist'
+import type { Artist, ArtistEditRequest } from '@/features/artists'
 
 /**
  * Platform types for music discovery

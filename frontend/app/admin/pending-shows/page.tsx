@@ -13,7 +13,7 @@ import { BatchRejectDialog } from '@/components/admin/BatchRejectDialog'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import type { ShowResponse } from '@/lib/types/show'
+import type { ShowResponse } from '@/features/shows'
 
 type ShowView = 'pending' | 'rejected'
 

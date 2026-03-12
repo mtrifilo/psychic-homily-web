@@ -7,7 +7,7 @@ import type {
   CalendarTokenStatusResponse,
   CalendarTokenCreateResponse,
   CalendarTokenDeleteResponse,
-} from '@/lib/types/show'
+} from '@/features/shows'
 
 /**
  * Hook to check if the user has a calendar feed token

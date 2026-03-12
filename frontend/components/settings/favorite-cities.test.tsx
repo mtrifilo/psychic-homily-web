@@ -37,7 +37,7 @@ vi.mock('@/features/auth', () => ({
   }),
 }))
 
-vi.mock('@/lib/hooks/shows/useShows', () => ({
+vi.mock('@/features/shows', () => ({
   useShowCities: () => ({
     data: mockCitiesData,
     isLoading: mockCitiesLoading,

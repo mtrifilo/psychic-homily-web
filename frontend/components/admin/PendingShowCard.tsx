@@ -13,7 +13,7 @@ import {
   Ban,
 } from 'lucide-react'
 import Link from 'next/link'
-import type { ShowResponse } from '@/lib/types/show'
+import type { ShowResponse } from '@/features/shows'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'

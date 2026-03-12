@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { HomeShowList } from '@/components/shows'
+import { HomeShowList } from '@/features/shows'
 import { getBlogSlugs, getBlogPost, getAllMixes, MDXContent, SoundCloud } from '@/features/blog'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateWebSiteSchema } from '@/lib/seo/jsonld'

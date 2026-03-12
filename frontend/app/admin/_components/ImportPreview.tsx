@@ -3,7 +3,7 @@
 import { memo } from 'react'
 import { CheckCircle, PlusCircle, AlertTriangle, Calendar, MapPin, Music } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import type { ImportPreviewResponse } from '@/lib/hooks/shows/useShowImport'
+import type { ImportPreviewResponse } from '@/features/shows'
 
 interface ImportPreviewProps {
   preview: ImportPreviewResponse

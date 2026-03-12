@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { CheckCircle, Loader2 } from 'lucide-react'
 import { useResolveReport } from '@/lib/hooks/admin/useAdminReports'
-import type { ShowReportResponse } from '@/lib/types/show'
+import type { ShowReportResponse } from '@/features/shows'
 import {
   Dialog,
   DialogContent,

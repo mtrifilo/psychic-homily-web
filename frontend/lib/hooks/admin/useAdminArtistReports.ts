@@ -6,8 +6,8 @@ import { queryKeys, createInvalidateQueries } from '../../queryClient'
 import type {
   ArtistReportResponse,
   ArtistReportsListResponse,
-} from '../../types/artist'
-import type { AdminReportActionRequest } from '../../types/show'
+} from '@/features/artists'
+import type { AdminReportActionRequest } from '@/features/shows'
 
 interface UsePendingArtistReportsOptions {
   limit?: number

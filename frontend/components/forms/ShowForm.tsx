@@ -17,18 +17,18 @@ import {
   Info,
   EyeOff,
 } from 'lucide-react'
-import { useShowSubmit, type ShowSubmission } from '@/lib/hooks/shows/useShowSubmit'
+import { useShowSubmit, type ShowSubmission } from '@/features/shows'
 import {
   useShowUpdate,
   type ShowUpdate,
   type ShowUpdateResponse,
-} from '@/lib/hooks/shows/useShowUpdate'
+} from '@/features/shows'
 import {
   combineDateTimeToUTC,
   getTimezoneForState,
 } from '@/lib/utils/timeUtils'
 import type { Venue } from '@/features/venues'
-import type { ShowResponse, VenueResponse, OrphanedArtist } from '@/lib/types/show'
+import type { ShowResponse, VenueResponse, OrphanedArtist } from '@/features/shows'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'

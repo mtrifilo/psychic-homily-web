@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PendingShowCard } from './PendingShowCard'
-import type { ShowResponse } from '@/lib/types/show'
+import type { ShowResponse } from '@/features/shows'
 
 const mockApproveMutate = vi.fn()
 const mockRejectMutate = vi.fn()

@@ -7,8 +7,7 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { ShowForm } from '@/components/forms/ShowForm'
-import { CompactShowRow } from '@/components/shows/CompactShowRow'
-import { SHOW_LIST_FEATURE_POLICY } from '@/components/shows/showListFeaturePolicy'
+import { CompactShowRow, SHOW_LIST_FEATURE_POLICY } from '@/features/shows'
 
 interface VenueShowsListProps {
   venueId: number

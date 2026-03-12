@@ -11,7 +11,7 @@ vi.mock('../hooks/useArtists', () => ({
 }))
 
 // Mock CompactShowRow to avoid pulling in its dependencies
-vi.mock('@/components/shows/CompactShowRow', () => ({
+vi.mock('@/features/shows', () => ({
   CompactShowRow: ({
     show,
   }: {
@@ -19,6 +19,32 @@ vi.mock('@/components/shows/CompactShowRow', () => ({
   }) => (
     <div data-testid={`show-row-${show.id}`}>{show.title}</div>
   ),
+  SHOW_LIST_FEATURE_POLICY: {
+    discovery: {
+      showDetailsLink: true,
+      showSaveButton: true,
+      showExpandMusic: true,
+      showAdminActions: true,
+      showOwnerActions: true,
+      useCompactLayout: false,
+    },
+    ownership: {
+      showDetailsLink: true,
+      showSaveButton: true,
+      showExpandMusic: false,
+      showAdminActions: true,
+      showOwnerActions: true,
+      useCompactLayout: false,
+    },
+    context: {
+      showDetailsLink: true,
+      showSaveButton: false,
+      showExpandMusic: false,
+      showAdminActions: false,
+      showOwnerActions: false,
+      useCompactLayout: true,
+    },
+  },
 }))
 
 import { ArtistShowsList } from './ArtistShowsList'

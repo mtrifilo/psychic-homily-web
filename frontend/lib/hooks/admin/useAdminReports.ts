@@ -8,7 +8,7 @@ import type {
   ShowReportsListResponse,
   AdminReportActionRequest,
   ResolveReportRequest,
-} from '../../types/show'
+} from '@/features/shows'
 
 interface UsePendingReportsOptions {
   limit?: number

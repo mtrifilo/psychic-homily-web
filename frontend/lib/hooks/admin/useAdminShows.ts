@@ -12,7 +12,7 @@ import type {
   BatchApproveResponse,
   BatchRejectResponse,
   RejectionCategory,
-} from '../../types/show'
+} from '@/features/shows'
 
 /**
  * Query key factory for admin queries
