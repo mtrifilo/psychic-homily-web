@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/dialog'
 import { useFestivals, useFestival, useFestivalLineup, useFestivalVenues } from '../hooks/useFestivals'
 import { useArtistSearch } from '@/features/artists'
-import { useVenueSearch } from '@/lib/hooks/venues/useVenueSearch'
+import { useVenueSearch } from '@/features/venues'
 import {
   useCreateFestival,
   useUpdateFestival,

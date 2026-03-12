@@ -11,11 +11,11 @@ import {
   Trash2,
 } from 'lucide-react'
 import Link from 'next/link'
-import { useVenueShows } from '@/lib/hooks/venues/useVenues'
+import { useVenueShows } from '../hooks/useVenues'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useQueryClient } from '@tanstack/react-query'
 import { createInvalidateQueries } from '@/lib/queryClient'
-import type { VenueWithShowCount } from '@/lib/types/venue'
+import type { VenueWithShowCount } from '../types'
 import { ShowForm } from '@/components/forms/ShowForm'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
 import { CompactShowRow } from '@/components/shows/CompactShowRow'

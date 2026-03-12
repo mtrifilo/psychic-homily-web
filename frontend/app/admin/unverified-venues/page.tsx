@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { useUnverifiedVenues, useVerifyVenue } from '@/lib/hooks/admin/useAdminVenues'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import type { UnverifiedVenue } from '@/lib/types/venue'
+import type { UnverifiedVenue } from '@/features/venues'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'

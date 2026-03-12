@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../../api'
 import { queryKeys, createInvalidateQueries } from '../../queryClient'
-import type { Venue, UnverifiedVenuesResponse } from '../../types/venue'
+import type { Venue, UnverifiedVenuesResponse } from '@/features/venues'
 
 /**
  * Hook to fetch unverified venues (admin only)

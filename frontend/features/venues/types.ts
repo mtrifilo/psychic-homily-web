@@ -5,7 +5,7 @@
  * from backend/internal/services/venue.go
  */
 
-import type { ArtistResponse } from './show'
+import type { ArtistResponse } from '@/lib/types/show'
 
 export interface Venue {
   id: number
@@ -295,4 +295,3 @@ export interface FavoriteVenueShowsResponse {
   offset: number
   timezone: string
 }
-

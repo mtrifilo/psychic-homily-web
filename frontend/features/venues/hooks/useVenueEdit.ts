@@ -7,13 +7,13 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '../../api'
-import { queryKeys, createInvalidateQueries } from '../../queryClient'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
 import type {
   VenueEditRequest,
   UpdateVenueResponse,
   MyPendingEditResponse,
-} from '../../types/venue'
+} from '../types'
 
 /**
  * Hook to update a venue

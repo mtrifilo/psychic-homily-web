@@ -4,8 +4,8 @@ import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { useVenueSearch } from '@/lib/hooks/venues/useVenueSearch'
-import { getVenueLocation } from '@/lib/types/venue'
+import { useVenueSearch } from '../hooks/useVenueSearch'
+import { getVenueLocation } from '../types'
 
 /**
  * Venue search with autocomplete dropdown.

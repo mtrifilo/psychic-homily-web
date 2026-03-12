@@ -6,5 +6,4 @@
 
 export * from './admin'
 export * from './shows'
-export * from './venues'
 export * from './common'

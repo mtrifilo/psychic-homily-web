@@ -13,7 +13,7 @@ import type {
   PendingVenueEditsResponse,
   PendingVenueEdit,
   Venue,
-} from '../../types/venue'
+} from '@/features/venues'
 
 /**
  * Hook to fetch pending venue edits (admin only)

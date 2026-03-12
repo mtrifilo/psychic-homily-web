@@ -8,7 +8,7 @@ import type {
   FavoriteVenueActionResponse,
   CheckFavoritedResponse,
   FavoriteVenueShowsResponse,
-} from '@/lib/types/venue'
+} from '@/features/venues'
 
 interface UseFavoriteVenuesOptions {
   limit?: number

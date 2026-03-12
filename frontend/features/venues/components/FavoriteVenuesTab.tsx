@@ -16,13 +16,13 @@ import {
   useFavoriteVenues,
   useFavoriteVenueShows,
 } from '@/features/auth'
-import { useVenueShows } from '@/lib/hooks/venues/useVenues'
+import { useVenueShows } from '../hooks/useVenues'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { CompactShowRow } from '@/components/shows/CompactShowRow'
 import { SHOW_LIST_FEATURE_POLICY } from '@/components/shows/showListFeaturePolicy'
 import { FavoriteVenueButton } from './FavoriteVenueButton'
-import type { FavoriteVenueResponse } from '@/lib/types/venue'
+import type { FavoriteVenueResponse } from '../types'
 
 type ViewMode = 'chronological' | 'byVenue'
 

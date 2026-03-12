@@ -9,7 +9,7 @@ import {
   ArrowRight,
 } from 'lucide-react'
 import { usePendingVenueEdits } from '@/lib/hooks/admin/useAdminVenueEdits'
-import type { PendingVenueEdit } from '@/lib/types/venue'
+import type { PendingVenueEdit } from '@/features/venues'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'

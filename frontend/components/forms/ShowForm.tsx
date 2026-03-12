@@ -27,7 +27,7 @@ import {
   combineDateTimeToUTC,
   getTimezoneForState,
 } from '@/lib/utils/timeUtils'
-import type { Venue } from '@/lib/types/venue'
+import type { Venue } from '@/features/venues'
 import type { ShowResponse, VenueResponse, OrphanedArtist } from '@/lib/types/show'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 import { Button } from '@/components/ui/button'
