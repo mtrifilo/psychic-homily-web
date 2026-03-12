@@ -20,7 +20,7 @@ import { useArtist } from '@/lib/hooks/artists/useArtists'
 import { useArtistReleases } from '@/features/releases/hooks/useReleases'
 import { useArtistLabels, useLabelRoster } from '@/features/labels/hooks/useLabels'
 import { queryKeys } from '@/lib/queryClient'
-import { useIsAuthenticated } from '@/lib/hooks/auth/useAuth'
+import { useIsAuthenticated } from '@/features/auth'
 import {
   useDiscoverMusic,
   useUpdateArtistBandcamp,

@@ -11,7 +11,7 @@ import {
   PenLine,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import type { ContributionEntry } from '@/lib/types/contributor'
+import type { ContributionEntry } from '@/features/auth'
 
 const entityTypeIcons: Record<string, LucideIcon> = {
   show: Calendar,

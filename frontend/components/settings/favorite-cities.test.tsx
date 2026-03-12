@@ -27,9 +27,13 @@ let mockCitiesData: {
 
 let mockCitiesLoading = false
 
-vi.mock('@/lib/hooks/auth/useAuth', () => ({
+vi.mock('@/features/auth', () => ({
   useProfile: () => ({
     data: mockProfileData,
+  }),
+  useSetFavoriteCities: () => ({
+    mutate: mockMutate,
+    ...mockMutationState,
   }),
 }))
 
@@ -37,13 +41,6 @@ vi.mock('@/lib/hooks/shows/useShows', () => ({
   useShowCities: () => ({
     data: mockCitiesData,
     isLoading: mockCitiesLoading,
-  }),
-}))
-
-vi.mock('@/lib/hooks/user/useFavoriteCities', () => ({
-  useSetFavoriteCities: () => ({
-    mutate: mockMutate,
-    ...mockMutationState,
   }),
 }))
 

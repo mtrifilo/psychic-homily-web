@@ -9,8 +9,8 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '../api'
-import { queryKeys, createInvalidateQueries } from '../queryClient'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
 import type {
   PublicProfileResponse,
   ContributionsResponse,
@@ -20,7 +20,7 @@ import type {
   UpdateSectionInput,
   UpdateVisibilityInput,
   UpdatePrivacyInput,
-} from '../types/contributor'
+} from '../types'
 
 // ============================================================================
 // Public Profile Queries

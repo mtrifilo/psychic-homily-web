@@ -1,13 +1,13 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '../../api'
-import { queryKeys, createInvalidateQueries } from '../../queryClient'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
 import type {
   CalendarTokenStatusResponse,
   CalendarTokenCreateResponse,
   CalendarTokenDeleteResponse,
-} from '../../types/show'
+} from '@/lib/types/show'
 
 /**
  * Hook to check if the user has a calendar feed token

@@ -21,7 +21,7 @@ let mockProfileData: {
   }
 } = {}
 
-vi.mock('@/lib/hooks/auth/useAuth', () => ({
+vi.mock('@/features/auth', () => ({
   useProfile: () => ({
     data: mockProfileData,
   }),

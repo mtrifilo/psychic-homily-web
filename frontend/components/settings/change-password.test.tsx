@@ -13,7 +13,7 @@ let mockMutationState = {
   error: null as Error | null,
 }
 
-vi.mock('@/lib/hooks/auth/useAuth', () => ({
+vi.mock('@/features/auth', () => ({
   useChangePassword: () => ({
     mutate: mockMutate,
     ...mockMutationState,
