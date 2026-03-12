@@ -12,7 +12,7 @@ import {
   PenLine,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import type { ContributionStats } from '@/lib/types/contributor'
+import type { ContributionStats } from '@/features/auth'
 
 interface StatCardProps {
   icon: LucideIcon

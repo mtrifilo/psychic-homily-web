@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useMyArtistReport } from '../hooks/useArtistReports'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { ReportArtistDialog } from './ReportArtistDialog'
-import { LoginPromptDialog } from '@/components/auth/LoginPromptDialog'
+import { LoginPromptDialog } from '@/features/auth'
 
 interface ReportArtistButtonProps {
   artistId: number

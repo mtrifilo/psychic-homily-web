@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
-import { useOAuthAccounts, useUnlinkOAuthAccount } from '@/lib/hooks/auth/useAuth'
+import { useOAuthAccounts, useUnlinkOAuthAccount } from '@/features/auth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {

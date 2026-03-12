@@ -28,8 +28,8 @@ import {
   useCreateSection,
   useUpdateSection,
   useDeleteSection,
-} from '@/lib/hooks/useContributorProfile'
-import type { ProfileSectionResponse } from '@/lib/types/contributor'
+  type ProfileSectionResponse,
+} from '@/features/auth'
 
 const MAX_SECTIONS = 3
 

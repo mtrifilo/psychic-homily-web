@@ -9,7 +9,7 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams('token=verify-token'),
 }))
 
-vi.mock('@/lib/hooks/auth/useAuth', () => ({
+vi.mock('@/features/auth', () => ({
   useConfirmVerification: () => mockUseConfirmVerification(),
 }))
 

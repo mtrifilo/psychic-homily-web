@@ -2,7 +2,7 @@
 
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import type { UserTier } from '@/lib/types/contributor'
+import type { UserTier } from '@/features/auth'
 
 const tierConfig: Record<UserTier, { label: string; className: string }> = {
   new_user: {

@@ -40,7 +40,7 @@ vi.mock('./ReportArtistDialog', () => ({
     open ? <div data-testid="report-dialog">Report {artistName}</div> : null,
 }))
 
-vi.mock('@/components/auth/LoginPromptDialog', () => ({
+vi.mock('@/features/auth', () => ({
   LoginPromptDialog: ({
     open,
     title,
