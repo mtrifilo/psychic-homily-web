@@ -1,4 +1,4 @@
-package services
+package notification
 
 import (
 	"encoding/json"
@@ -13,7 +13,10 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
+
+func stringPtr(s string) *string { return &s }
 
 // =============================================================================
 // HELPERS
@@ -153,7 +156,7 @@ func TestHashEmail(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, hashEmail(tt.email))
+			assert.Equal(t, tt.want, HashEmail(tt.email))
 		})
 	}
 }
@@ -181,13 +184,13 @@ func TestBuildUserName(t *testing.T) {
 func TestBuildVenueList(t *testing.T) {
 	tests := []struct {
 		name   string
-		venues []VenueResponse
+		venues []contracts.VenueResponse
 		want   string
 	}{
 		{"no venues", nil, "N/A"},
-		{"empty slice", []VenueResponse{}, "N/A"},
-		{"one venue", []VenueResponse{{Name: "The Crescent"}}, "The Crescent"},
-		{"multiple venues", []VenueResponse{{Name: "Venue A"}, {Name: "Venue B"}, {Name: "Venue C"}}, "Venue A, Venue B, Venue C"},
+		{"empty slice", []contracts.VenueResponse{}, "N/A"},
+		{"one venue", []contracts.VenueResponse{{Name: "The Crescent"}}, "The Crescent"},
+		{"multiple venues", []contracts.VenueResponse{{Name: "Venue A"}, {Name: "Venue B"}, {Name: "Venue C"}}, "Venue A, Venue B, Venue C"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -201,14 +204,14 @@ func TestBuildArtistList(t *testing.T) {
 	notHeadliner := false
 	tests := []struct {
 		name    string
-		artists []ArtistResponse
+		artists []contracts.ArtistResponse
 		want    string
 	}{
 		{"no artists", nil, "N/A"},
-		{"empty slice", []ArtistResponse{}, "N/A"},
-		{"one artist, no headliner flag", []ArtistResponse{{Name: "Band"}}, "Band"},
-		{"one headliner", []ArtistResponse{{Name: "Star", IsHeadliner: &headliner}}, "Star (headliner)"},
-		{"mixed", []ArtistResponse{
+		{"empty slice", []contracts.ArtistResponse{}, "N/A"},
+		{"one artist, no headliner flag", []contracts.ArtistResponse{{Name: "Band"}}, "Band"},
+		{"one headliner", []contracts.ArtistResponse{{Name: "Star", IsHeadliner: &headliner}}, "Star (headliner)"},
+		{"mixed", []contracts.ArtistResponse{
 			{Name: "Headliner", IsHeadliner: &headliner},
 			{Name: "Opener", IsHeadliner: &notHeadliner},
 		}, "Headliner (headliner), Opener"},
@@ -358,13 +361,13 @@ func TestNotifyNewUser_NoName(t *testing.T) {
 func TestNotifyNewShow_Success(t *testing.T) {
 	svc, payloads, _ := setupDiscordTest(t)
 	headliner := true
-	show := &ShowResponse{
+	show := &contracts.ShowResponse{
 		ID:        10,
 		Title:     "Rock Night",
 		EventDate: time.Date(2026, 7, 15, 20, 0, 0, 0, time.UTC),
 		Status:    "pending",
-		Venues:    []VenueResponse{{Name: "Valley Bar"}},
-		Artists:   []ArtistResponse{{Name: "The Band", IsHeadliner: &headliner}},
+		Venues:    []contracts.VenueResponse{{Name: "Valley Bar"}},
+		Artists:   []contracts.ArtistResponse{{Name: "The Band", IsHeadliner: &headliner}},
 	}
 
 	svc.NotifyNewShow(show, "submitter@test.com")
@@ -389,7 +392,7 @@ func TestNotifyNewShow_NotConfigured(t *testing.T) {
 	svc := &DiscordService{enabled: false}
 	payloads := make(chan []byte, 1)
 
-	svc.NotifyNewShow(&ShowResponse{}, "test@test.com")
+	svc.NotifyNewShow(&contracts.ShowResponse{}, "test@test.com")
 	assertNoPayload(t, payloads)
 }
 
@@ -402,11 +405,11 @@ func TestNotifyNewShow_NilShow(t *testing.T) {
 
 func TestNotifyShowApproved_Success(t *testing.T) {
 	svc, payloads, _ := setupDiscordTest(t)
-	show := &ShowResponse{
+	show := &contracts.ShowResponse{
 		ID:        20,
 		Title:     "Approved Gig",
 		EventDate: time.Date(2026, 8, 1, 20, 0, 0, 0, time.UTC),
-		Venues:    []VenueResponse{{Name: "Main Stage"}},
+		Venues:    []contracts.VenueResponse{{Name: "Main Stage"}},
 	}
 
 	svc.NotifyShowApproved(show)
@@ -421,7 +424,7 @@ func TestNotifyShowApproved_NotConfigured(t *testing.T) {
 	svc := &DiscordService{enabled: false}
 	payloads := make(chan []byte, 1)
 
-	svc.NotifyShowApproved(&ShowResponse{})
+	svc.NotifyShowApproved(&contracts.ShowResponse{})
 	assertNoPayload(t, payloads)
 }
 
@@ -434,11 +437,11 @@ func TestNotifyShowApproved_NilShow(t *testing.T) {
 
 func TestNotifyShowRejected_Success(t *testing.T) {
 	svc, payloads, _ := setupDiscordTest(t)
-	show := &ShowResponse{
+	show := &contracts.ShowResponse{
 		ID:        30,
 		Title:     "Bad Show",
 		EventDate: time.Date(2026, 9, 1, 20, 0, 0, 0, time.UTC),
-		Venues:    []VenueResponse{{Name: "Some Venue"}},
+		Venues:    []contracts.VenueResponse{{Name: "Some Venue"}},
 	}
 
 	svc.NotifyShowRejected(show, "Duplicate listing")
@@ -454,7 +457,7 @@ func TestNotifyShowRejected_NotConfigured(t *testing.T) {
 	svc := &DiscordService{enabled: false}
 	payloads := make(chan []byte, 1)
 
-	svc.NotifyShowRejected(&ShowResponse{}, "reason")
+	svc.NotifyShowRejected(&contracts.ShowResponse{}, "reason")
 	assertNoPayload(t, payloads)
 }
 

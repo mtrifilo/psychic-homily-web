@@ -1,4 +1,4 @@
-package services
+package notification
 
 import (
 	"bytes"
@@ -12,6 +12,7 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // Discord embed colors
@@ -77,7 +78,7 @@ func (s *DiscordService) NotifyNewUser(user *models.User) {
 
 	email := ""
 	if user.Email != nil {
-		email = hashEmail(*user.Email)
+		email = HashEmail(*user.Email)
 	}
 
 	name := buildUserName(user)
@@ -97,7 +98,7 @@ func (s *DiscordService) NotifyNewUser(user *models.User) {
 }
 
 // NotifyNewShow sends a notification when a new show is submitted
-func (s *DiscordService) NotifyNewShow(show *ShowResponse, submitterEmail string) {
+func (s *DiscordService) NotifyNewShow(show *contracts.ShowResponse, submitterEmail string) {
 	if !s.IsConfigured() || show == nil {
 		return
 	}
@@ -108,7 +109,7 @@ func (s *DiscordService) NotifyNewShow(show *ShowResponse, submitterEmail string
 	fields := []DiscordEmbedField{
 		{Name: "Show ID", Value: fmt.Sprintf("%d", show.ID), Inline: true},
 		{Name: "Status", Value: show.Status, Inline: true},
-		{Name: "Submitter", Value: hashEmail(submitterEmail), Inline: true},
+		{Name: "Submitter", Value: HashEmail(submitterEmail), Inline: true},
 		{Name: "Venue(s)", Value: venues, Inline: false},
 		{Name: "Artist(s)", Value: artists, Inline: false},
 	}
@@ -138,7 +139,7 @@ func (s *DiscordService) NotifyShowStatusChange(showTitle string, showID uint, o
 
 	fields := []DiscordEmbedField{
 		{Name: "Show ID", Value: fmt.Sprintf("%d", showID), Inline: true},
-		{Name: "Changed By", Value: hashEmail(actorEmail), Inline: true},
+		{Name: "Changed By", Value: HashEmail(actorEmail), Inline: true},
 	}
 
 	// Add action links based on new status
@@ -159,7 +160,7 @@ func (s *DiscordService) NotifyShowStatusChange(showTitle string, showID uint, o
 }
 
 // NotifyShowApproved sends a notification when an admin approves a show
-func (s *DiscordService) NotifyShowApproved(show *ShowResponse) {
+func (s *DiscordService) NotifyShowApproved(show *contracts.ShowResponse) {
 	if !s.IsConfigured() || show == nil {
 		return
 	}
@@ -183,7 +184,7 @@ func (s *DiscordService) NotifyShowApproved(show *ShowResponse) {
 }
 
 // NotifyShowRejected sends a notification when an admin rejects a show
-func (s *DiscordService) NotifyShowRejected(show *ShowResponse, reason string) {
+func (s *DiscordService) NotifyShowRejected(show *contracts.ShowResponse, reason string) {
 	if !s.IsConfigured() || show == nil {
 		return
 	}
@@ -235,7 +236,7 @@ func (s *DiscordService) NotifyShowReport(report *models.ShowReport, reporterEma
 		{Name: "Report Type", Value: reportTypeDisplay, Inline: true},
 		{Name: "Show", Value: showTitle, Inline: true},
 		{Name: "Event Date", Value: eventDate, Inline: true},
-		{Name: "Reporter", Value: hashEmail(reporterEmail), Inline: true},
+		{Name: "Reporter", Value: HashEmail(reporterEmail), Inline: true},
 	}
 
 	// Add details if provided
@@ -284,7 +285,7 @@ func (s *DiscordService) NotifyArtistReport(report *models.ArtistReport, reporte
 	fields := []DiscordEmbedField{
 		{Name: "Report Type", Value: reportTypeDisplay, Inline: true},
 		{Name: "Artist", Value: artistName, Inline: true},
-		{Name: "Reporter", Value: hashEmail(reporterEmail), Inline: true},
+		{Name: "Reporter", Value: HashEmail(reporterEmail), Inline: true},
 	}
 
 	// Add details if provided
@@ -324,7 +325,7 @@ func (s *DiscordService) NotifyNewVenue(venueID uint, venueName, city, state str
 	fields := []DiscordEmbedField{
 		{Name: "Venue ID", Value: fmt.Sprintf("%d", venueID), Inline: true},
 		{Name: "Location", Value: location, Inline: true},
-		{Name: "Submitted By", Value: hashEmail(submitterEmail), Inline: true},
+		{Name: "Submitted By", Value: HashEmail(submitterEmail), Inline: true},
 	}
 
 	if address != nil && *address != "" {
@@ -355,7 +356,7 @@ func (s *DiscordService) NotifyPendingVenueEdit(editID, venueID uint, venueName,
 	fields := []DiscordEmbedField{
 		{Name: "Venue ID", Value: fmt.Sprintf("%d", venueID), Inline: true},
 		{Name: "Edit ID", Value: fmt.Sprintf("%d", editID), Inline: true},
-		{Name: "Submitted By", Value: hashEmail(submitterEmail), Inline: true},
+		{Name: "Submitted By", Value: HashEmail(submitterEmail), Inline: true},
 	}
 
 	// Add action link
@@ -406,8 +407,8 @@ func (s *DiscordService) sendWebhook(embed DiscordEmbed) {
 	}
 }
 
-// hashEmail masks an email for privacy (e.g., "jo***@example.com")
-func hashEmail(email string) string {
+// HashEmail masks an email for privacy (e.g., "jo***@example.com")
+func HashEmail(email string) string {
 	if email == "" {
 		return "N/A"
 	}
@@ -449,7 +450,7 @@ func buildUserName(user *models.User) string {
 }
 
 // buildVenueList builds a comma-separated list of venue names
-func buildVenueList(venues []VenueResponse) string {
+func buildVenueList(venues []contracts.VenueResponse) string {
 	if len(venues) == 0 {
 		return "N/A"
 	}
@@ -463,7 +464,7 @@ func buildVenueList(venues []VenueResponse) string {
 }
 
 // buildArtistList builds a comma-separated list of artist names
-func buildArtistList(artists []ArtistResponse) string {
+func buildArtistList(artists []contracts.ArtistResponse) string {
 	if len(artists) == 0 {
 		return "N/A"
 	}

@@ -14,6 +14,7 @@ import (
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/notification"
 )
 
 // --- Suite ---
@@ -77,8 +78,8 @@ func (s *AuthHandlerIntegrationSuite) newAuthHandler(emailConfigured bool) *Auth
 
 	authSvc := services.NewAuthService(s.deps.db, emailCfg)
 	jwtSvc := services.NewJWTService(s.deps.db, emailCfg)
-	emailSvc := services.NewEmailService(emailCfg)
-	discordSvc := services.NewDiscordService(emailCfg)
+	emailSvc := notification.NewEmailService(emailCfg)
+	discordSvc := notification.NewDiscordService(emailCfg)
 	pv := services.NewPasswordValidator()
 
 	return NewAuthHandler(

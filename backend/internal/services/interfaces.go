@@ -49,6 +49,8 @@ type CollectionServiceInterface = contracts.CollectionServiceInterface
 // Fetcher, Pipeline) are checked in internal/services/pipeline/interfaces.go.
 // Auth services (Auth, JWT, PasswordValidator, AppleAuth, WebAuthn)
 // are checked in internal/services/auth/interfaces.go.
+// Notification services (Email, Discord) are checked in
+// internal/services/notification/interfaces.go.
 var (
 	_ ShowServiceInterface          = (*catalog.ShowService)(nil)
 	_ VenueServiceInterface         = (*catalog.VenueService)(nil)
@@ -57,8 +59,6 @@ var (
 	_ ArtistReportServiceInterface  = (*ArtistReportService)(nil)
 	_ AuditLogServiceInterface      = (*AuditLogService)(nil)
 	_ UserServiceInterface          = (*UserService)(nil)
-	_ EmailServiceInterface         = (*EmailService)(nil)
-	_ DiscordServiceInterface       = (*DiscordService)(nil)
 	_ APITokenServiceInterface      = (*APITokenService)(nil)
 	_ DataSyncServiceInterface      = (*DataSyncService)(nil)
 	_ AdminStatsServiceInterface    = (*AdminStatsService)(nil)

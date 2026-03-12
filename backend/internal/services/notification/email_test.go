@@ -1,4 +1,4 @@
-package services
+package notification
 
 import (
 	"encoding/json"
