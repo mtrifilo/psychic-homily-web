@@ -144,6 +144,9 @@ func (s *stubVenueConfig) GetRejectionStats(venueID uint) (*VenueRejectionStats,
 func (s *stubVenueConfig) UpdateExtractionNotes(venueID uint, notes *string) error {
 	return nil
 }
+func (s *stubVenueConfig) ResetRenderMethod(venueID uint) error {
+	return nil
+}
 
 type stubVenueService struct {
 	getVenueModelFn func(venueID uint) (*models.Venue, error)
