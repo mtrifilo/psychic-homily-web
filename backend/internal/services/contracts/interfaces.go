@@ -406,4 +406,5 @@ type VenueSourceConfigServiceInterface interface {
 	ListConfigured() ([]models.VenueSourceConfig, error)
 	GetRejectionStats(venueID uint) (*VenueRejectionStats, error)
 	UpdateExtractionNotes(venueID uint, notes *string) error
+	ResetRenderMethod(venueID uint) error
 }

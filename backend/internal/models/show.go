@@ -20,6 +20,18 @@ const (
 	ShowSourceDiscovery ShowSource = "discovery" // Automatically imported from the discovery app
 )
 
+// DataSource constants for provenance tracking across all entities
+const (
+	DataSourceUser          = "user"
+	DataSourceAIExtraction  = "ai_extraction"
+	DataSourceMusicBrainz   = "musicbrainz"
+	DataSourceBandcamp      = "bandcamp"
+	DataSourceFestivalData  = "festival_data"
+	DataSourceDiscovery     = "discovery"
+	DataSourceCommunity     = "community"
+	DataSourceAPIEnrichment = "api_enrichment"
+)
+
 type Show struct {
 	ID             uint    `gorm:"primaryKey"`
 	Title          string
@@ -44,6 +56,11 @@ type Show struct {
 	SourceVenue   *string    `gorm:"column:source_venue"`   // e.g., 'valley-bar', 'crescent-ballroom'
 	SourceEventID *string    `gorm:"column:source_event_id"` // External event ID for deduplication
 	ScrapedAt     *time.Time `gorm:"column:scraped_at"`      // When the event was scraped
+
+	// Data provenance fields (generalized across all entities)
+	DataSource       *string    `json:"data_source,omitempty" gorm:"column:data_source;size:50"`
+	SourceConfidence *float64   `json:"source_confidence,omitempty" gorm:"column:source_confidence;type:numeric(3,2)"`
+	LastVerifiedAt   *time.Time `json:"last_verified_at,omitempty" gorm:"column:last_verified_at"`
 
 	// Duplicate detection (for discovery imports flagged as potential duplicates)
 	DuplicateOfShowID *uint `gorm:"column:duplicate_of_show_id"`

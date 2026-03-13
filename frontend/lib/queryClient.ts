@@ -256,6 +256,8 @@ export const queryKeys = {
     venues: ['pipeline', 'venues'] as const,
     venueStats: (venueId: string | number) =>
       ['pipeline', 'venueStats', String(venueId)] as const,
+    venueRuns: (venueId: string | number) =>
+      ['pipeline', 'venueRuns', String(venueId)] as const,
   },
 
   // Contributor profile queries

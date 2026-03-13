@@ -552,6 +552,9 @@ func setupPipelineRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 	huma.Get(protected, "/admin/pipeline/venues", pipelineHandler.ListPipelineVenuesHandler)
 	huma.Get(protected, "/admin/pipeline/venues/{venue_id}/stats", pipelineHandler.VenueRejectionStatsHandler)
 	huma.Patch(protected, "/admin/pipeline/venues/{venue_id}/notes", pipelineHandler.UpdateExtractionNotesHandler)
+	huma.Put(protected, "/admin/pipeline/venues/{venue_id}/config", pipelineHandler.UpdateVenueConfigHandler)
+	huma.Get(protected, "/admin/pipeline/venues/{venue_id}/runs", pipelineHandler.GetVenueRunsHandler)
+	huma.Post(protected, "/admin/pipeline/venues/{venue_id}/reset-render-method", pipelineHandler.ResetRenderMethodHandler)
 }
 
 // setupCollectionRoutes configures collection endpoints.

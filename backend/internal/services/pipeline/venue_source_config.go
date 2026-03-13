@@ -266,6 +266,29 @@ func (s *VenueSourceConfigService) UpdateExtractionNotes(venueID uint, notes *st
 	return nil
 }
 
+// ResetRenderMethod clears the render_method for a venue, forcing re-detection on next pipeline run.
+func (s *VenueSourceConfigService) ResetRenderMethod(venueID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	result := s.db.Model(&models.VenueSourceConfig{}).
+		Where("venue_id = ?", venueID).
+		Updates(map[string]interface{}{
+			"render_method": nil,
+			"updated_at":    time.Now(),
+		})
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to reset render method: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("venue source config not found for venue %d", venueID)
+	}
+
+	return nil
+}
+
 // ListConfigured returns all venue source configs, preloading the venue association.
 func (s *VenueSourceConfigService) ListConfigured() ([]models.VenueSourceConfig, error) {
 	if s.db == nil {

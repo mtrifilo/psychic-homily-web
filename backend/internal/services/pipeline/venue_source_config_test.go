@@ -75,6 +75,12 @@ func TestVenueSourceConfigService_NilDatabase(t *testing.T) {
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, result)
 	})
+
+	t.Run("ResetRenderMethod", func(t *testing.T) {
+		err := svc.ResetRenderMethod(1)
+		assert.Error(t, err)
+		assert.Equal(t, "database not initialized", err.Error())
+	})
 }
 
 // =============================================================================
@@ -452,6 +458,40 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestListConfigured_WithConfigs()
 	s.Equal(s.venueID, configs[0].VenueID)
 	// Verify venue is preloaded
 	s.Equal("Test Venue", configs[0].Venue.Name)
+}
+
+// --- ResetRenderMethod tests ---
+
+func (s *VenueSourceConfigIntegrationTestSuite) TestResetRenderMethod_Success() {
+	url := "https://testvenue.com/calendar"
+	method := "dynamic"
+	config := &models.VenueSourceConfig{
+		VenueID:      s.venueID,
+		CalendarURL:  &url,
+		RenderMethod: &method,
+	}
+	_, err := s.svc.CreateOrUpdate(config)
+	s.NoError(err)
+
+	// Verify render_method is set
+	result, err := s.svc.GetByVenueID(s.venueID)
+	s.NoError(err)
+	s.Equal(&method, result.RenderMethod)
+
+	// Reset
+	err = s.svc.ResetRenderMethod(s.venueID)
+	s.NoError(err)
+
+	// Verify render_method is nil
+	result, err = s.svc.GetByVenueID(s.venueID)
+	s.NoError(err)
+	s.Nil(result.RenderMethod)
+}
+
+func (s *VenueSourceConfigIntegrationTestSuite) TestResetRenderMethod_NotFound() {
+	err := s.svc.ResetRenderMethod(99999)
+	s.Error(err)
+	s.Contains(err.Error(), "not found")
 }
 
 // --- Cascade delete test ---

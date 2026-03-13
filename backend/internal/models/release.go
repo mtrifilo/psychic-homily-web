@@ -37,6 +37,12 @@ type Release struct {
 	ReleaseDate *string     `gorm:"column:release_date;type:date"` // DATE stored as string (YYYY-MM-DD)
 	CoverArtURL *string     `gorm:"column:cover_art_url"`
 	Description *string     `gorm:"column:description"`
+
+	// Data provenance fields
+	DataSource       *string    `json:"data_source,omitempty" gorm:"column:data_source;size:50"`
+	SourceConfidence *float64   `json:"source_confidence,omitempty" gorm:"column:source_confidence;type:numeric(3,2)"`
+	LastVerifiedAt   *time.Time `json:"last_verified_at,omitempty" gorm:"column:last_verified_at"`
+
 	CreatedAt   time.Time   `gorm:"not null"`
 	UpdatedAt   time.Time   `gorm:"not null"`
 
