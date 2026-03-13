@@ -37,15 +37,16 @@ func (m *mockPipelineService) ExtractVenue(venueID uint, dryRun bool) (*services
 // ============================================================================
 
 type mockVenueSourceConfigService struct {
-	getByVenueIDFn        func(venueID uint) (*models.VenueSourceConfig, error)
-	createOrUpdateFn      func(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error)
-	updateAfterRunFn      func(venueID uint, contentHash, etag *string, eventsExtracted int) error
-	incrementFailuresFn   func(venueID uint) error
-	recordRunFn           func(run *models.VenueExtractionRun) error
-	getRecentRunsFn       func(venueID uint, limit int) ([]models.VenueExtractionRun, error)
-	listConfiguredFn      func() ([]models.VenueSourceConfig, error)
-	getRejectionStatsFn   func(venueID uint) (*services.VenueRejectionStats, error)
+	getByVenueIDFn          func(venueID uint) (*models.VenueSourceConfig, error)
+	createOrUpdateFn        func(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error)
+	updateAfterRunFn        func(venueID uint, contentHash, etag *string, eventsExtracted int) error
+	incrementFailuresFn     func(venueID uint) error
+	recordRunFn             func(run *models.VenueExtractionRun) error
+	getRecentRunsFn         func(venueID uint, limit int) ([]models.VenueExtractionRun, error)
+	listConfiguredFn        func() ([]models.VenueSourceConfig, error)
+	getRejectionStatsFn     func(venueID uint) (*services.VenueRejectionStats, error)
 	updateExtractionNotesFn func(venueID uint, notes *string) error
+	resetRenderMethodFn     func(venueID uint) error
 }
 
 func (m *mockVenueSourceConfigService) GetByVenueID(venueID uint) (*models.VenueSourceConfig, error) {
@@ -102,6 +103,12 @@ func (m *mockVenueSourceConfigService) UpdateExtractionNotes(venueID uint, notes
 	}
 	return nil
 }
+func (m *mockVenueSourceConfigService) ResetRenderMethod(venueID uint) error {
+	if m.resetRenderMethodFn != nil {
+		return m.resetRenderMethodFn(venueID)
+	}
+	return nil
+}
 
 // ============================================================================
 // Test helpers
@@ -155,6 +162,18 @@ func TestPipelineHandler_RequiresAdmin(t *testing.T) {
 		}},
 		{"UpdateExtractionNotes", func(ctx context.Context) error {
 			_, err := h.UpdateExtractionNotesHandler(ctx, &UpdateExtractionNotesRequest{VenueID: "1"})
+			return err
+		}},
+		{"UpdateVenueConfig", func(ctx context.Context) error {
+			_, err := h.UpdateVenueConfigHandler(ctx, &UpdateVenueConfigRequest{VenueID: "1"})
+			return err
+		}},
+		{"GetVenueRuns", func(ctx context.Context) error {
+			_, err := h.GetVenueRunsHandler(ctx, &GetVenueRunsRequest{VenueID: "1"})
+			return err
+		}},
+		{"ResetRenderMethod", func(ctx context.Context) error {
+			_, err := h.ResetRenderMethodHandler(ctx, &ResetRenderMethodRequest{VenueID: "1"})
 			return err
 		}},
 	}
@@ -476,5 +495,190 @@ func TestPipelineHandler_UpdateNotes_ServiceError(t *testing.T) {
 	req.Body.ExtractionNotes = &notes
 
 	_, err := h.UpdateExtractionNotesHandler(pipelineAdminCtx(), req)
+	assertHumaError(t, err, 422)
+}
+
+// ============================================================================
+// Tests: UpdateVenueConfigHandler
+// ============================================================================
+
+func TestPipelineHandler_UpdateConfig_Success(t *testing.T) {
+	calURL := "https://example.com/calendar"
+	slug := "test-venue"
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{
+			createOrUpdateFn: func(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error) {
+				config.Venue = models.Venue{ID: config.VenueID, Name: "Test Venue", Slug: &slug}
+				return config, nil
+			},
+		},
+	)
+
+	req := &UpdateVenueConfigRequest{VenueID: "10"}
+	req.Body.CalendarURL = &calURL
+	req.Body.PreferredSource = "ai"
+	req.Body.AutoApprove = true
+	req.Body.StrategyLocked = false
+
+	resp, err := h.UpdateVenueConfigHandler(pipelineAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.VenueID != 10 {
+		t.Errorf("expected venue_id=10, got %d", resp.Body.VenueID)
+	}
+	if resp.Body.VenueName != "Test Venue" {
+		t.Errorf("expected venue_name=Test Venue, got %s", resp.Body.VenueName)
+	}
+	if !resp.Body.AutoApprove {
+		t.Error("expected auto_approve=true")
+	}
+}
+
+func TestPipelineHandler_UpdateConfig_InvalidVenueID(t *testing.T) {
+	h := NewPipelineHandler(&mockPipelineService{}, &mockVenueSourceConfigService{})
+
+	_, err := h.UpdateVenueConfigHandler(pipelineAdminCtx(), &UpdateVenueConfigRequest{VenueID: "abc"})
+	assertHumaError(t, err, 400)
+}
+
+func TestPipelineHandler_UpdateConfig_ServiceError(t *testing.T) {
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{
+			createOrUpdateFn: func(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error) {
+				return nil, fmt.Errorf("database error")
+			},
+		},
+	)
+
+	req := &UpdateVenueConfigRequest{VenueID: "10"}
+	req.Body.PreferredSource = "ai"
+
+	_, err := h.UpdateVenueConfigHandler(pipelineAdminCtx(), req)
+	assertHumaError(t, err, 422)
+}
+
+// ============================================================================
+// Tests: GetVenueRunsHandler
+// ============================================================================
+
+func TestPipelineHandler_GetVenueRuns_Success(t *testing.T) {
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{
+			getRecentRunsFn: func(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
+				return []models.VenueExtractionRun{
+					{ID: 1, VenueID: venueID, EventsExtracted: 10, EventsImported: 8},
+					{ID: 2, VenueID: venueID, EventsExtracted: 5, EventsImported: 3},
+				}, nil
+			},
+		},
+	)
+
+	resp, err := h.GetVenueRunsHandler(pipelineAdminCtx(), &GetVenueRunsRequest{VenueID: "10", Limit: 10})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Total != 2 {
+		t.Errorf("expected total=2, got %d", resp.Body.Total)
+	}
+	if len(resp.Body.Runs) != 2 {
+		t.Fatalf("expected 2 runs, got %d", len(resp.Body.Runs))
+	}
+	if resp.Body.Runs[0].EventsExtracted != 10 {
+		t.Errorf("expected first run events_extracted=10, got %d", resp.Body.Runs[0].EventsExtracted)
+	}
+}
+
+func TestPipelineHandler_GetVenueRuns_DefaultLimit(t *testing.T) {
+	var receivedLimit int
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{
+			getRecentRunsFn: func(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
+				receivedLimit = limit
+				return nil, nil
+			},
+		},
+	)
+
+	_, err := h.GetVenueRunsHandler(pipelineAdminCtx(), &GetVenueRunsRequest{VenueID: "10"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if receivedLimit != 10 {
+		t.Errorf("expected default limit=10, got %d", receivedLimit)
+	}
+}
+
+func TestPipelineHandler_GetVenueRuns_InvalidVenueID(t *testing.T) {
+	h := NewPipelineHandler(&mockPipelineService{}, &mockVenueSourceConfigService{})
+
+	_, err := h.GetVenueRunsHandler(pipelineAdminCtx(), &GetVenueRunsRequest{VenueID: "abc"})
+	assertHumaError(t, err, 400)
+}
+
+func TestPipelineHandler_GetVenueRuns_ServiceError(t *testing.T) {
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{
+			getRecentRunsFn: func(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
+				return nil, fmt.Errorf("database error")
+			},
+		},
+	)
+
+	_, err := h.GetVenueRunsHandler(pipelineAdminCtx(), &GetVenueRunsRequest{VenueID: "10"})
+	assertHumaError(t, err, 422)
+}
+
+// ============================================================================
+// Tests: ResetRenderMethodHandler
+// ============================================================================
+
+func TestPipelineHandler_ResetRenderMethod_Success(t *testing.T) {
+	var receivedVenueID uint
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{
+			resetRenderMethodFn: func(venueID uint) error {
+				receivedVenueID = venueID
+				return nil
+			},
+		},
+	)
+
+	resp, err := h.ResetRenderMethodHandler(pipelineAdminCtx(), &ResetRenderMethodRequest{VenueID: "10"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Error("expected success=true")
+	}
+	if receivedVenueID != 10 {
+		t.Errorf("expected venueID=10, got %d", receivedVenueID)
+	}
+}
+
+func TestPipelineHandler_ResetRenderMethod_InvalidVenueID(t *testing.T) {
+	h := NewPipelineHandler(&mockPipelineService{}, &mockVenueSourceConfigService{})
+
+	_, err := h.ResetRenderMethodHandler(pipelineAdminCtx(), &ResetRenderMethodRequest{VenueID: "abc"})
+	assertHumaError(t, err, 400)
+}
+
+func TestPipelineHandler_ResetRenderMethod_ServiceError(t *testing.T) {
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{
+			resetRenderMethodFn: func(venueID uint) error {
+				return fmt.Errorf("venue source config not found for venue 999")
+			},
+		},
+	)
+
+	_, err := h.ResetRenderMethodHandler(pipelineAdminCtx(), &ResetRenderMethodRequest{VenueID: "999"})
 	assertHumaError(t, err, 422)
 }
