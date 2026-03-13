@@ -145,6 +145,65 @@ func TestParseCalendarExtractionResponse(t *testing.T) {
 
 		assert.Nil(t, events)
 	})
+
+	t.Run("parses_set_type_and_billing_order", func(t *testing.T) {
+		input := `[
+			{
+				"date": "2026-06-01",
+				"title": "Headliner with Support",
+				"artists": [
+					{"name": "Main Act", "set_type": "headliner", "billing_order": 1},
+					{"name": "Support Act", "set_type": "support", "billing_order": 2},
+					{"name": "DJ Set", "set_type": "dj", "billing_order": 3}
+				]
+			}
+		]`
+
+		events := parseCalendarExtractionResponse(input)
+
+		require.NotNil(t, events)
+		require.Len(t, events, 1)
+		require.Len(t, events[0].Artists, 3)
+
+		assert.Equal(t, "Main Act", events[0].Artists[0].Name)
+		assert.Equal(t, "headliner", events[0].Artists[0].SetType)
+		assert.Equal(t, 1, events[0].Artists[0].BillingOrder)
+
+		assert.Equal(t, "Support Act", events[0].Artists[1].Name)
+		assert.Equal(t, "support", events[0].Artists[1].SetType)
+		assert.Equal(t, 2, events[0].Artists[1].BillingOrder)
+
+		assert.Equal(t, "DJ Set", events[0].Artists[2].Name)
+		assert.Equal(t, "dj", events[0].Artists[2].SetType)
+		assert.Equal(t, 3, events[0].Artists[2].BillingOrder)
+	})
+
+	t.Run("backward_compat_is_headliner_still_works", func(t *testing.T) {
+		// Old format with only is_headliner (no set_type/billing_order)
+		input := `[
+			{
+				"date": "2026-06-01",
+				"title": "Legacy Event",
+				"artists": [
+					{"name": "Band A", "is_headliner": true},
+					{"name": "Band B", "is_headliner": false}
+				]
+			}
+		]`
+
+		events := parseCalendarExtractionResponse(input)
+
+		require.NotNil(t, events)
+		require.Len(t, events, 1)
+		require.Len(t, events[0].Artists, 2)
+
+		assert.True(t, events[0].Artists[0].IsHeadliner)
+		assert.Equal(t, "", events[0].Artists[0].SetType)
+		assert.Equal(t, 0, events[0].Artists[0].BillingOrder)
+
+		assert.False(t, events[0].Artists[1].IsHeadliner)
+		assert.Equal(t, "", events[0].Artists[1].SetType)
+	})
 }
 
 // =============================================================================
@@ -281,6 +340,81 @@ func TestCalendarEventsToDiscoveredEvents(t *testing.T) {
 		require.Len(t, discovered, 1)
 		assert.NotEmpty(t, discovered[0].ID)
 		assert.Contains(t, discovered[0].ID, "cal-")
+	})
+
+	t.Run("billing_info_carried_through", func(t *testing.T) {
+		events := []contracts.CalendarEvent{
+			{
+				Date:  "2026-05-01",
+				Title: "Headliner with Support",
+				Artists: []contracts.CalendarArtist{
+					{Name: "Main Act", IsHeadliner: true, SetType: "headliner", BillingOrder: 1},
+					{Name: "Support Act", IsHeadliner: false, SetType: "support", BillingOrder: 2},
+					{Name: "Opener", IsHeadliner: false, SetType: "opener", BillingOrder: 3},
+				},
+			},
+		}
+
+		discovered := CalendarEventsToDiscoveredEvents("test-venue", events)
+
+		require.Len(t, discovered, 1)
+		de := discovered[0]
+		// Artists string list should still be populated
+		require.Len(t, de.Artists, 3)
+		assert.Equal(t, "Main Act", de.Artists[0])
+		assert.Equal(t, "Support Act", de.Artists[1])
+		assert.Equal(t, "Opener", de.Artists[2])
+		// BillingArtists should carry set_type and billing_order
+		require.Len(t, de.BillingArtists, 3)
+		assert.Equal(t, "Main Act", de.BillingArtists[0].Name)
+		assert.Equal(t, "headliner", de.BillingArtists[0].SetType)
+		assert.Equal(t, 1, de.BillingArtists[0].BillingOrder)
+		assert.Equal(t, "Support Act", de.BillingArtists[1].Name)
+		assert.Equal(t, "support", de.BillingArtists[1].SetType)
+		assert.Equal(t, 2, de.BillingArtists[1].BillingOrder)
+		assert.Equal(t, "Opener", de.BillingArtists[2].Name)
+		assert.Equal(t, "opener", de.BillingArtists[2].SetType)
+		assert.Equal(t, 3, de.BillingArtists[2].BillingOrder)
+	})
+
+	t.Run("no_billing_info_omits_billing_artists", func(t *testing.T) {
+		events := []contracts.CalendarEvent{
+			{
+				Date:  "2026-05-01",
+				Title: "Legacy Event",
+				Artists: []contracts.CalendarArtist{
+					{Name: "Band A", IsHeadliner: true},
+					{Name: "Band B", IsHeadliner: false},
+				},
+			},
+		}
+
+		discovered := CalendarEventsToDiscoveredEvents("test-venue", events)
+
+		require.Len(t, discovered, 1)
+		assert.Nil(t, discovered[0].BillingArtists, "BillingArtists should be nil when no billing info present")
+		require.Len(t, discovered[0].Artists, 2)
+	})
+
+	t.Run("partial_billing_info_includes_billing_artists", func(t *testing.T) {
+		events := []contracts.CalendarEvent{
+			{
+				Date:  "2026-05-01",
+				Title: "Mixed Event",
+				Artists: []contracts.CalendarArtist{
+					{Name: "Band A", IsHeadliner: true, SetType: "headliner", BillingOrder: 1},
+					{Name: "Band B", IsHeadliner: false}, // no billing info
+				},
+			},
+		}
+
+		discovered := CalendarEventsToDiscoveredEvents("test-venue", events)
+
+		require.Len(t, discovered, 1)
+		require.NotNil(t, discovered[0].BillingArtists, "BillingArtists should be populated when any artist has billing info")
+		require.Len(t, discovered[0].BillingArtists, 2)
+		assert.Equal(t, "headliner", discovered[0].BillingArtists[0].SetType)
+		assert.Equal(t, "", discovered[0].BillingArtists[1].SetType)
 	})
 }
 

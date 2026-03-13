@@ -251,6 +251,41 @@ func TestSplitAndTrim_NoSeparator(t *testing.T) {
 }
 
 // =============================================================================
+// UNIT TESTS — normalizeSetType
+// =============================================================================
+
+func TestNormalizeSetType(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"headliner", "headliner"},
+		{"Headliner", "headliner"},
+		{"HEADLINER", "headliner"},
+		{"support", "opener"},     // support maps to opener
+		{"Support", "opener"},
+		{"opener", "opener"},
+		{"special_guest", "special_guest"},
+		{"performer", "performer"},
+		{"dj", "performer"},       // dj maps to performer
+		{"DJ", "performer"},
+		{"host", "performer"},     // host maps to performer
+		{"Host", "performer"},
+		{"", ""},                  // empty returns empty
+		{"unknown", ""},           // unknown returns empty
+		{"  headliner  ", "headliner"}, // whitespace trimmed
+		{"  support ", "opener"},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("input_%s", tt.input), func(t *testing.T) {
+			result := normalizeSetType(tt.input)
+			assert.Equal(t, tt.expected, result, "normalizeSetType(%q)", tt.input)
+		})
+	}
+}
+
+// =============================================================================
 // UNIT TESTS — Constructor + nil DB
 // =============================================================================
 
@@ -621,4 +656,125 @@ func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_EmptyInput() {
 	result, err := suite.svc.CheckEvents([]contracts.CheckEventInput{})
 	suite.Require().NoError(err)
 	suite.Empty(result.Events)
+}
+
+// =============================================================================
+// BillingArtists import tests (PSY-30)
+// =============================================================================
+
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WithBillingArtists() {
+	events := []contracts.DiscoveredEvent{
+		{
+			ID:        "evt-billing-1",
+			Title:     "Main Act with Support",
+			Date:      "2026-12-15",
+			Venue:     "Valley Bar",
+			VenueSlug: "valley-bar",
+			Artists:   []string{"Main Act", "Support Band", "Opener Band"},
+			BillingArtists: []contracts.DiscoveredArtist{
+				{Name: "Main Act", SetType: "headliner", BillingOrder: 1},
+				{Name: "Support Band", SetType: "support", BillingOrder: 2},
+				{Name: "Opener Band", SetType: "opener", BillingOrder: 3},
+			},
+			ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	// Verify show was created
+	var show models.Show
+	err = suite.db.Where("source_event_id = ?", "evt-billing-1").First(&show).Error
+	suite.Require().NoError(err)
+
+	// Verify show_artists have correct set_type and position
+	var showArtists []models.ShowArtist
+	err = suite.db.Where("show_id = ?", show.ID).Order("position").Find(&showArtists).Error
+	suite.Require().NoError(err)
+	suite.Require().Len(showArtists, 3)
+
+	// Main Act: headliner, position 0 (billing_order 1 → position 0)
+	suite.Equal("headliner", showArtists[0].SetType)
+	suite.Equal(0, showArtists[0].Position)
+
+	// Support Band: normalized "support" → "opener", position 1 (billing_order 2 → position 1)
+	suite.Equal("opener", showArtists[1].SetType)
+	suite.Equal(1, showArtists[1].Position)
+
+	// Opener Band: "opener", position 2 (billing_order 3 → position 2)
+	suite.Equal("opener", showArtists[2].SetType)
+	suite.Equal(2, showArtists[2].Position)
+}
+
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_FallbackWithoutBillingArtists() {
+	// When BillingArtists is empty, should fall back to old logic:
+	// position 0 = headliner, others = opener
+	events := []contracts.DiscoveredEvent{
+		{
+			ID:        "evt-no-billing-1",
+			Title:     "Legacy Import",
+			Date:      "2026-12-20",
+			Venue:     "Valley Bar",
+			VenueSlug: "valley-bar",
+			Artists:   []string{"First Band", "Second Band"},
+			ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	// Verify show_artists have default set_type
+	var show models.Show
+	err = suite.db.Where("source_event_id = ?", "evt-no-billing-1").First(&show).Error
+	suite.Require().NoError(err)
+
+	var showArtists []models.ShowArtist
+	err = suite.db.Where("show_id = ?", show.ID).Order("position").Find(&showArtists).Error
+	suite.Require().NoError(err)
+	suite.Require().Len(showArtists, 2)
+
+	suite.Equal("headliner", showArtists[0].SetType)
+	suite.Equal(0, showArtists[0].Position)
+	suite.Equal("opener", showArtists[1].SetType)
+	suite.Equal(1, showArtists[1].Position)
+}
+
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WithSpecialGuestAndDJ() {
+	events := []contracts.DiscoveredEvent{
+		{
+			ID:        "evt-special-1",
+			Title:     "Complex Bill",
+			Date:      "2026-12-25",
+			Venue:     "Valley Bar",
+			VenueSlug: "valley-bar",
+			Artists:   []string{"Main Act", "Guest Artist", "DJ Spinz"},
+			BillingArtists: []contracts.DiscoveredArtist{
+				{Name: "Main Act", SetType: "headliner", BillingOrder: 1},
+				{Name: "Guest Artist", SetType: "special_guest", BillingOrder: 2},
+				{Name: "DJ Spinz", SetType: "dj", BillingOrder: 3},
+			},
+			ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	var show models.Show
+	err = suite.db.Where("source_event_id = ?", "evt-special-1").First(&show).Error
+	suite.Require().NoError(err)
+
+	var showArtists []models.ShowArtist
+	err = suite.db.Where("show_id = ?", show.ID).Order("position").Find(&showArtists).Error
+	suite.Require().NoError(err)
+	suite.Require().Len(showArtists, 3)
+
+	suite.Equal("headliner", showArtists[0].SetType)
+	suite.Equal("special_guest", showArtists[1].SetType)
+	suite.Equal("performer", showArtists[2].SetType) // dj normalized to performer
 }

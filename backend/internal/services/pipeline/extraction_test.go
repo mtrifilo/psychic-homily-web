@@ -243,6 +243,71 @@ func TestExtractRawArtists(t *testing.T) {
 		assert.Equal(t, "", artists[0].InstagramHandle)
 		assert.Equal(t, "", artists[1].InstagramHandle)
 	})
+
+	t.Run("parses_set_type_and_billing_order", func(t *testing.T) {
+		parsed := map[string]interface{}{
+			"artists": []interface{}{
+				map[string]interface{}{"name": "Headliner", "set_type": "headliner", "billing_order": float64(1)},
+				map[string]interface{}{"name": "Support Act", "set_type": "support", "billing_order": float64(2)},
+				map[string]interface{}{"name": "Opener", "set_type": "opener", "billing_order": float64(3)},
+				map[string]interface{}{"name": "Special Guest", "set_type": "special_guest", "billing_order": float64(4)},
+			},
+		}
+
+		artists := extractRawArtists(parsed)
+		require.Len(t, artists, 4)
+		assert.Equal(t, "headliner", artists[0].SetType)
+		assert.Equal(t, 1, artists[0].BillingOrder)
+		assert.True(t, artists[0].IsHeadliner, "headliner set_type should derive IsHeadliner=true")
+		assert.Equal(t, "support", artists[1].SetType)
+		assert.Equal(t, 2, artists[1].BillingOrder)
+		assert.False(t, artists[1].IsHeadliner)
+		assert.Equal(t, "opener", artists[2].SetType)
+		assert.Equal(t, 3, artists[2].BillingOrder)
+		assert.Equal(t, "special_guest", artists[3].SetType)
+		assert.Equal(t, 4, artists[3].BillingOrder)
+	})
+
+	t.Run("set_type_headliner_derives_is_headliner", func(t *testing.T) {
+		parsed := map[string]interface{}{
+			"artists": []interface{}{
+				// set_type=headliner but is_headliner not explicitly set (defaults false from JSON)
+				map[string]interface{}{"name": "Main Act", "set_type": "headliner", "billing_order": float64(1)},
+			},
+		}
+
+		artists := extractRawArtists(parsed)
+		require.Len(t, artists, 1)
+		assert.True(t, artists[0].IsHeadliner, "set_type=headliner should set IsHeadliner to true")
+	})
+
+	t.Run("missing_set_type_and_billing_order_default_empty", func(t *testing.T) {
+		parsed := map[string]interface{}{
+			"artists": []interface{}{
+				map[string]interface{}{"name": "Legacy Artist", "is_headliner": true},
+			},
+		}
+
+		artists := extractRawArtists(parsed)
+		require.Len(t, artists, 1)
+		assert.Equal(t, "", artists[0].SetType)
+		assert.Equal(t, 0, artists[0].BillingOrder)
+		assert.True(t, artists[0].IsHeadliner)
+	})
+
+	t.Run("billing_order_as_integer_json", func(t *testing.T) {
+		// JSON numbers are float64 in Go's map[string]interface{}
+		parsed := map[string]interface{}{
+			"artists": []interface{}{
+				map[string]interface{}{"name": "DJ Set", "set_type": "dj", "billing_order": float64(5)},
+			},
+		}
+
+		artists := extractRawArtists(parsed)
+		require.Len(t, artists, 1)
+		assert.Equal(t, "dj", artists[0].SetType)
+		assert.Equal(t, 5, artists[0].BillingOrder)
+	})
 }
 
 // =============================================================================
@@ -744,6 +809,23 @@ func TestMatchArtists(t *testing.T) {
 		assert.True(t, result[0].IsHeadliner)
 		assert.Nil(t, result[0].MatchedID)
 		assert.Nil(t, result[0].Suggestions)
+	})
+
+	t.Run("passes_through_set_type_and_billing_order", func(t *testing.T) {
+		svc := &ExtractionService{
+			artistService: &testArtistSearcher{db: nil}, // nil db -> error, so no match
+		}
+
+		result := svc.matchArtists([]rawArtist{
+			{Name: "Headliner Band", IsHeadliner: true, SetType: "headliner", BillingOrder: 1},
+			{Name: "Support Band", IsHeadliner: false, SetType: "support", BillingOrder: 2},
+		})
+
+		require.Len(t, result, 2)
+		assert.Equal(t, "headliner", result[0].SetType)
+		assert.Equal(t, 1, result[0].BillingOrder)
+		assert.Equal(t, "support", result[1].SetType)
+		assert.Equal(t, 2, result[1].BillingOrder)
 	})
 }
 

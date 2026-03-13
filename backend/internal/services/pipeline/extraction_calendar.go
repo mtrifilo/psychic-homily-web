@@ -22,8 +22,8 @@ Output ONLY a valid JSON array with no additional text, markdown formatting, or 
     "time": "HH:MM",
     "title": "Event Title as Shown on Calendar",
     "artists": [
-      {"name": "Artist Name", "is_headliner": true},
-      {"name": "Supporting Act", "is_headliner": false}
+      {"name": "Artist Name", "set_type": "headliner", "billing_order": 1},
+      {"name": "Supporting Act", "set_type": "support", "billing_order": 2}
     ],
     "cost": "$20",
     "ages": "21+",
@@ -37,9 +37,11 @@ Rules:
 - Set is_music_event to false for non-music events like karaoke nights, trivia, comedy shows, open mic (non-music), DJ nights without named artists, private events, and venue closures. Set to true for concerts, live music, album release shows, and music festivals. Default to true if uncertain
 - Convert dates to YYYY-MM-DD format. If only a month/year header is shown, combine with day numbers
 - Convert times to 24-hour HH:MM format. If "doors" and "show" times are both listed, use the show time. Default to 20:00 if only doors time is given
-- The first or most prominent artist listed for an event is the headliner (is_headliner: true), others are is_headliner: false
+- Determine billing position from visual prominence, text size, and ordering. The first/largest name is typically the headliner
+- set_type values: "headliner" (top of bill), "support" (direct support act, indicated by "w/" or "with"), "opener" (opening act), "special_guest" (indicated by "special guest" or "featuring"), "dj" (DJ set), "host" (event host/MC)
+- billing_order: 1 = top of bill, 2 = second, etc. Assign based on prominence/position
 - If the event title IS the artist name (common for concerts), put the same name in both title and artists array
-- For multi-artist events (e.g., "Band A with Band B" or "Band A / Band B"), split into separate artist entries
+- For multi-artist events (e.g., "Band A with Band B" or "Band A / Band B"), split into separate artist entries. The artist before "with"/"w/" is typically the headliner, the artist after is support
 - For cost, include dollar sign for paid shows, use "Free" for free events. Omit if not shown
 - For ages, common formats are "21+", "18+", "All Ages". Omit if not shown
 - Include ticket_url only if a direct link to purchase is visible. Omit if not shown
@@ -224,10 +226,21 @@ func CalendarEventsToDiscoveredEvents(venueSlug string, events []contracts.Calen
 		hash := sha256.Sum256([]byte(hashInput))
 		sourceEventID := fmt.Sprintf("cal-%x", hash[:8])
 
-		// Map artists to string array
+		// Map artists to string array and billing artists
 		var artists []string
+		var billingArtists []contracts.DiscoveredArtist
+		hasBillingInfo := false
 		for _, a := range event.Artists {
 			artists = append(artists, a.Name)
+			da := contracts.DiscoveredArtist{
+				Name:         a.Name,
+				SetType:      a.SetType,
+				BillingOrder: a.BillingOrder,
+			}
+			if a.SetType != "" || a.BillingOrder > 0 {
+				hasBillingInfo = true
+			}
+			billingArtists = append(billingArtists, da)
 		}
 
 		de := contracts.DiscoveredEvent{
@@ -237,6 +250,10 @@ func CalendarEventsToDiscoveredEvents(venueSlug string, events []contracts.Calen
 			VenueSlug: venueSlug,
 			Artists:   artists,
 			ScrapedAt: now,
+		}
+		// Only include billing artists if any have non-default billing info
+		if hasBillingInfo {
+			de.BillingArtists = billingArtists
 		}
 
 		if event.Time != nil {

@@ -34,6 +34,8 @@ type VenueMatchSuggestion struct {
 type ExtractedArtist struct {
 	Name            string            `json:"name"`
 	IsHeadliner     bool              `json:"is_headliner"`
+	SetType         string            `json:"set_type,omitempty"`
+	BillingOrder    int               `json:"billing_order,omitempty"`
 	InstagramHandle string            `json:"instagram_handle,omitempty"`
 	MatchedID       *uint             `json:"matched_id,omitempty"`
 	MatchedName     *string           `json:"matched_name,omitempty"`
@@ -89,8 +91,10 @@ type CalendarEvent struct {
 
 // CalendarArtist represents an artist entry within a calendar event.
 type CalendarArtist struct {
-	Name        string `json:"name"`
-	IsHeadliner bool   `json:"is_headliner"`
+	Name         string `json:"name"`
+	IsHeadliner  bool   `json:"is_headliner"`
+	SetType      string `json:"set_type,omitempty"`
+	BillingOrder int    `json:"billing_order,omitempty"`
 }
 
 // CalendarExtractionResponse is the response from calendar page extraction.
@@ -183,6 +187,13 @@ type VenueRejectionStats struct {
 // Discovery types
 // ──────────────────────────────────────────────
 
+// DiscoveredArtist represents an artist with billing information from AI extraction.
+type DiscoveredArtist struct {
+	Name         string `json:"name"`
+	SetType      string `json:"set_type,omitempty"`
+	BillingOrder int    `json:"billing_order,omitempty"`
+}
+
 // DiscoveredEvent represents an event from the Node.js discovery app JSON output
 type DiscoveredEvent struct {
 	ID         string   `json:"id"`         // External event ID (from the venue's system)
@@ -194,7 +205,8 @@ type DiscoveredEvent struct {
 	DoorsTime  *string  `json:"doorsTime"`  // Doors time (e.g., "6:30 pm")
 	ShowTime   *string  `json:"showTime"`   // Show time (e.g., "7:00 pm")
 	TicketURL  *string  `json:"ticketUrl"`  // Ticket purchase URL (optional)
-	Artists        []string `json:"artists"`        // List of artists (from event detail page)
+	Artists        []string           `json:"artists"`        // List of artists (from event detail page)
+	BillingArtists []DiscoveredArtist `json:"billing_artists,omitempty"` // Artists with billing info (from AI extraction)
 	ScrapedAt      string   `json:"scrapedAt"`      // When the event was scraped (ISO timestamp)
 	Price          *string  `json:"price"`          // Price string (e.g., "$18", "Free")
 	AgeRestriction *string  `json:"ageRestriction"` // Age restriction (e.g., "16+", "All Ages")
