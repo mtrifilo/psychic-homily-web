@@ -281,6 +281,12 @@ export const API_ENDPOINTS = {
         `${API_BASE_URL}/admin/pipeline/venues/${venueId}/stats`,
       VENUE_NOTES: (venueId: string | number) =>
         `${API_BASE_URL}/admin/pipeline/venues/${venueId}/notes`,
+      VENUE_CONFIG: (venueId: string | number) =>
+        `${API_BASE_URL}/admin/pipeline/venues/${venueId}/config`,
+      VENUE_RUNS: (venueId: string | number) =>
+        `${API_BASE_URL}/admin/pipeline/venues/${venueId}/runs`,
+      VENUE_RESET_RENDER: (venueId: string | number) =>
+        `${API_BASE_URL}/admin/pipeline/venues/${venueId}/reset-render-method`,
     },
   },
 

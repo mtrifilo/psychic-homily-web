@@ -244,3 +244,174 @@ func (h *PipelineHandler) UpdateExtractionNotesHandler(ctx context.Context, req 
 	resp.Body.ExtractionNotes = req.Body.ExtractionNotes
 	return resp, nil
 }
+
+// --- Update Venue Config ---
+
+// UpdateVenueConfigRequest is the Huma request for PUT /admin/pipeline/venues/{venue_id}/config
+type UpdateVenueConfigRequest struct {
+	VenueID string `path:"venue_id" validate:"required" doc:"Venue ID"`
+	Body    struct {
+		CalendarURL     *string `json:"calendar_url" doc:"URL to the venue's event calendar page"`
+		PreferredSource string  `json:"preferred_source" doc:"Extraction source preference (ai, ical, rss)"`
+		RenderMethod    *string `json:"render_method" doc:"Rendering method (static, dynamic, screenshot) or null for auto-detect"`
+		FeedURL         *string `json:"feed_url" doc:"URL to iCal/RSS feed if available"`
+		AutoApprove     bool    `json:"auto_approve" doc:"Whether to auto-approve extracted shows"`
+		StrategyLocked  bool    `json:"strategy_locked" doc:"Lock strategy to prevent automatic re-evaluation"`
+		ExtractionNotes *string `json:"extraction_notes" doc:"Notes included in AI extraction prompt"`
+	}
+}
+
+// UpdateVenueConfigResponse is the Huma response for PUT /admin/pipeline/venues/{venue_id}/config
+type UpdateVenueConfigResponse struct {
+	Body PipelineVenueInfo
+}
+
+// UpdateVenueConfigHandler handles PUT /admin/pipeline/venues/{venue_id}/config
+func (h *PipelineHandler) UpdateVenueConfigHandler(ctx context.Context, req *UpdateVenueConfigRequest) (*UpdateVenueConfigResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	venueID, err := strconv.ParseUint(req.VenueID, 10, 64)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid venue ID")
+	}
+
+	config := &models.VenueSourceConfig{
+		VenueID:         uint(venueID),
+		CalendarURL:     req.Body.CalendarURL,
+		PreferredSource: req.Body.PreferredSource,
+		RenderMethod:    req.Body.RenderMethod,
+		FeedURL:         req.Body.FeedURL,
+		AutoApprove:     req.Body.AutoApprove,
+		StrategyLocked:  req.Body.StrategyLocked,
+		ExtractionNotes: req.Body.ExtractionNotes,
+	}
+
+	updated, err := h.venueConfigService.CreateOrUpdate(config)
+	if err != nil {
+		logger.FromContext(ctx).Error("pipeline_update_config_failed",
+			"venue_id", venueID,
+			"error", err.Error(),
+		)
+		return nil, huma.Error422UnprocessableEntity(err.Error())
+	}
+
+	logger.FromContext(ctx).Info("pipeline_venue_config_updated",
+		"venue_id", venueID,
+		"admin_id", user.ID,
+	)
+
+	info := PipelineVenueInfo{
+		VenueID:             updated.VenueID,
+		VenueName:           updated.Venue.Name,
+		CalendarURL:         updated.CalendarURL,
+		PreferredSource:     updated.PreferredSource,
+		RenderMethod:        updated.RenderMethod,
+		FeedURL:             updated.FeedURL,
+		LastExtractedAt:     updated.LastExtractedAt,
+		EventsExpected:      updated.EventsExpected,
+		ConsecutiveFailures: updated.ConsecutiveFailures,
+		StrategyLocked:      updated.StrategyLocked,
+		AutoApprove:         updated.AutoApprove,
+		ExtractionNotes:     updated.ExtractionNotes,
+	}
+	if updated.Venue.Slug != nil {
+		info.VenueSlug = *updated.Venue.Slug
+	}
+
+	return &UpdateVenueConfigResponse{Body: info}, nil
+}
+
+// --- Get Venue Runs ---
+
+// GetVenueRunsRequest is the Huma request for GET /admin/pipeline/venues/{venue_id}/runs
+type GetVenueRunsRequest struct {
+	VenueID string `path:"venue_id" validate:"required" doc:"Venue ID"`
+	Limit   int    `query:"limit" doc:"Max runs to return (default 10, max 100)"`
+}
+
+// GetVenueRunsResponse is the Huma response for GET /admin/pipeline/venues/{venue_id}/runs
+type GetVenueRunsResponse struct {
+	Body struct {
+		Runs  []models.VenueExtractionRun `json:"runs"`
+		Total int                         `json:"total"`
+	}
+}
+
+// GetVenueRunsHandler handles GET /admin/pipeline/venues/{venue_id}/runs
+func (h *PipelineHandler) GetVenueRunsHandler(ctx context.Context, req *GetVenueRunsRequest) (*GetVenueRunsResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	venueID, err := strconv.ParseUint(req.VenueID, 10, 64)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid venue ID")
+	}
+
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+
+	runs, err := h.venueConfigService.GetRecentRuns(uint(venueID), limit)
+	if err != nil {
+		logger.FromContext(ctx).Error("pipeline_get_runs_failed",
+			"venue_id", venueID,
+			"error", err.Error(),
+		)
+		return nil, huma.Error422UnprocessableEntity(err.Error())
+	}
+
+	resp := &GetVenueRunsResponse{}
+	resp.Body.Runs = runs
+	resp.Body.Total = len(runs)
+	return resp, nil
+}
+
+// --- Reset Render Method ---
+
+// ResetRenderMethodRequest is the Huma request for POST /admin/pipeline/venues/{venue_id}/reset-render-method
+type ResetRenderMethodRequest struct {
+	VenueID string `path:"venue_id" validate:"required" doc:"Venue ID"`
+}
+
+// ResetRenderMethodResponse is the Huma response for POST /admin/pipeline/venues/{venue_id}/reset-render-method
+type ResetRenderMethodResponse struct {
+	Body struct {
+		Success bool `json:"success"`
+	}
+}
+
+// ResetRenderMethodHandler handles POST /admin/pipeline/venues/{venue_id}/reset-render-method
+func (h *PipelineHandler) ResetRenderMethodHandler(ctx context.Context, req *ResetRenderMethodRequest) (*ResetRenderMethodResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	venueID, err := strconv.ParseUint(req.VenueID, 10, 64)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid venue ID")
+	}
+
+	if err := h.venueConfigService.ResetRenderMethod(uint(venueID)); err != nil {
+		logger.FromContext(ctx).Error("pipeline_reset_render_method_failed",
+			"venue_id", venueID,
+			"error", err.Error(),
+		)
+		return nil, huma.Error422UnprocessableEntity(err.Error())
+	}
+
+	logger.FromContext(ctx).Info("pipeline_render_method_reset",
+		"venue_id", venueID,
+		"admin_id", user.ID,
+	)
+
+	resp := &ResetRenderMethodResponse{}
+	resp.Body.Success = true
+	return resp, nil
+}

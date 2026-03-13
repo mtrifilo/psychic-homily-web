@@ -108,6 +108,68 @@ export function useUpdateExtractionNotes() {
   })
 }
 
+export function useUpdateVenueConfig() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      venueId,
+      config,
+    }: {
+      venueId: number
+      config: {
+        calendar_url?: string | null
+        preferred_source: string
+        render_method?: string | null
+        feed_url?: string | null
+        auto_approve: boolean
+        strategy_locked: boolean
+        extraction_notes?: string | null
+      }
+    }) => {
+      return apiRequest<PipelineVenueInfo>(
+        API_ENDPOINTS.ADMIN.PIPELINE.VENUE_CONFIG(venueId),
+        {
+          method: 'PUT',
+          body: JSON.stringify(config),
+        }
+      )
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.pipeline.venues })
+    },
+  })
+}
+
+export function useVenueExtractionRuns(venueId: number, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.pipeline.venueRuns(venueId),
+    queryFn: async () => {
+      const data = await apiRequest<{ runs: VenueExtractionRun[]; total: number }>(
+        API_ENDPOINTS.ADMIN.PIPELINE.VENUE_RUNS(venueId)
+      )
+      return data
+    },
+    enabled: (options?.enabled ?? true) && venueId > 0,
+  })
+}
+
+export function useResetRenderMethod() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ venueId }: { venueId: number }) => {
+      return apiRequest<{ success: boolean }>(
+        API_ENDPOINTS.ADMIN.PIPELINE.VENUE_RESET_RENDER(venueId),
+        { method: 'POST' }
+      )
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.pipeline.venues })
+    },
+  })
+}
+
 export function useExtractVenue() {
   const queryClient = useQueryClient()
 
