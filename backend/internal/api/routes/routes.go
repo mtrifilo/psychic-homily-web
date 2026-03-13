@@ -97,6 +97,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupContributorProfileRoutes(api, protectedGroup, sc)
 	setupCollectionRoutes(api, protectedGroup, sc)
 	setupRequestRoutes(api, protectedGroup, sc)
+	setupRevisionRoutes(api, protectedGroup, sc)
 
 	return api
 }
@@ -612,6 +613,20 @@ func setupRequestRoutes(api huma.API, protected *huma.Group, sc *services.Servic
 	huma.Delete(protected, "/requests/{request_id}/vote", requestHandler.RemoveVoteRequestHandler)
 	huma.Post(protected, "/requests/{request_id}/fulfill", requestHandler.FulfillRequestHandler)
 	huma.Post(protected, "/requests/{request_id}/close", requestHandler.CloseRequestHandler)
+}
+
+// setupRevisionRoutes configures revision history endpoints.
+// Public endpoints for viewing history; admin endpoint for rollback.
+func setupRevisionRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
+	revisionHandler := handlers.NewRevisionHandler(sc.Revision, sc.AuditLog)
+
+	// Public revision endpoints
+	huma.Get(api, "/revisions/{entity_type}/{entity_id}", revisionHandler.GetEntityHistoryHandler)
+	huma.Get(api, "/revisions/{revision_id}", revisionHandler.GetRevisionHandler)
+	huma.Get(api, "/users/{user_id}/revisions", revisionHandler.GetUserRevisionsHandler)
+
+	// Admin rollback endpoint
+	huma.Post(protected, "/admin/revisions/{revision_id}/rollback", revisionHandler.RollbackRevisionHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON

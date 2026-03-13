@@ -325,6 +325,18 @@ export const API_ENDPOINTS = {
     MY: `${API_BASE_URL}/auth/collections`,
   },
 
+  // Revision history endpoints
+  REVISIONS: {
+    ENTITY_HISTORY: (entityType: string, entityId: string | number) =>
+      `${API_BASE_URL}/revisions/${entityType}/${entityId}`,
+    DETAIL: (revisionId: number) =>
+      `${API_BASE_URL}/revisions/${revisionId}`,
+    USER_REVISIONS: (userId: string | number) =>
+      `${API_BASE_URL}/users/${userId}/revisions`,
+    ROLLBACK: (revisionId: number) =>
+      `${API_BASE_URL}/admin/revisions/${revisionId}/rollback`,
+  },
+
   // System endpoints
   HEALTH: `${API_BASE_URL}/health`,
   OPENAPI: `${API_BASE_URL}/openapi.json`,
