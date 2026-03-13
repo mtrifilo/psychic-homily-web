@@ -21,6 +21,7 @@ type ServiceContainer struct {
 	// DB-only leaf services
 	AdminStats         *adminsvc.AdminStatsService
 	APIToken           *adminsvc.APITokenService
+	Revision           *adminsvc.RevisionService
 	Artist             *catalog.ArtistService
 	ContributorProfile *usersvc.ContributorProfileService
 	ArtistReport  *adminsvc.ArtistReportService
@@ -96,6 +97,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		// DB-only leaf services
 		AdminStats:         adminsvc.NewAdminStatsService(database),
 		APIToken:           adminsvc.NewAPITokenService(database),
+		Revision:           adminsvc.NewRevisionService(database),
 		Artist:             artist,
 		ContributorProfile: usersvc.NewContributorProfileService(database),
 		ArtistReport:  adminsvc.NewArtistReportService(database),

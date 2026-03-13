@@ -41,6 +41,7 @@ type CalendarServiceInterface = contracts.CalendarServiceInterface
 type PipelineServiceInterface = contracts.PipelineServiceInterface
 type VenueSourceConfigServiceInterface = contracts.VenueSourceConfigServiceInterface
 type CollectionServiceInterface = contracts.CollectionServiceInterface
+type RevisionServiceInterface = contracts.RevisionServiceInterface
 
 // Compile-time interface satisfaction checks.
 // Engagement services (Bookmark, SavedShow, FavoriteVenue, Calendar, Reminder)
