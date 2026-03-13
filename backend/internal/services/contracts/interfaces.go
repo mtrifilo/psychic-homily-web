@@ -408,3 +408,12 @@ type VenueSourceConfigServiceInterface interface {
 	UpdateExtractionNotes(venueID uint, notes *string) error
 	ResetRenderMethod(venueID uint) error
 }
+
+// RevisionServiceInterface defines the contract for revision history operations.
+type RevisionServiceInterface interface {
+	RecordRevision(entityType string, entityID uint, userID uint, changes []models.FieldChange, summary string) error
+	GetEntityHistory(entityType string, entityID uint, limit, offset int) ([]models.Revision, int64, error)
+	GetRevision(revisionID uint) (*models.Revision, error)
+	GetUserRevisions(userID uint, limit, offset int) ([]models.Revision, int64, error)
+	Rollback(revisionID uint, adminUserID uint) error
+}

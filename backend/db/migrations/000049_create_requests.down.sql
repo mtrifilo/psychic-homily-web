@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS request_votes;
+DROP TABLE IF EXISTS requests;
