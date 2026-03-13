@@ -310,6 +310,21 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/auth/profile/sections/${sectionId}`,
   },
 
+  // Collection endpoints
+  COLLECTIONS: {
+    LIST: `${API_BASE_URL}/collections`,
+    DETAIL: (slug: string) => `${API_BASE_URL}/collections/${slug}`,
+    STATS: (slug: string) => `${API_BASE_URL}/collections/${slug}/stats`,
+    ITEMS: (slug: string) => `${API_BASE_URL}/collections/${slug}/items`,
+    ITEM: (slug: string, itemId: number) =>
+      `${API_BASE_URL}/collections/${slug}/items/${itemId}`,
+    REORDER: (slug: string) =>
+      `${API_BASE_URL}/collections/${slug}/items/reorder`,
+    SUBSCRIBE: (slug: string) => `${API_BASE_URL}/collections/${slug}/subscribe`,
+    FEATURE: (slug: string) => `${API_BASE_URL}/collections/${slug}/feature`,
+    MY: `${API_BASE_URL}/auth/collections`,
+  },
+
   // System endpoints
   HEALTH: `${API_BASE_URL}/health`,
   OPENAPI: `${API_BASE_URL}/openapi.json`,

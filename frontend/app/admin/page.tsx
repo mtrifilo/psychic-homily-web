@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
-import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tent, Workflow } from 'lucide-react'
+import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tent, Workflow, Library } from 'lucide-react'
 import { usePendingVenueEdits } from '@/lib/hooks/admin/useAdminVenueEdits'
 import { useUnverifiedVenues } from '@/lib/hooks/admin/useAdminVenues'
 import { usePendingReports } from '@/lib/hooks/admin/useAdminReports'
@@ -114,6 +114,17 @@ const UsersPage = dynamic(() => import('./users/page'), {
   ),
 })
 
+const CollectionManagementComponent = dynamic(
+  () => import('@/components/admin/CollectionManagement').then(m => ({ default: m.CollectionManagement })),
+  {
+    loading: () => (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    ),
+  }
+)
+
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('dashboard')
   const { user } = useAuthContext()
@@ -217,6 +228,10 @@ export default function AdminPage() {
               <Workflow className="h-4 w-4" />
               Pipeline
             </TabsTrigger>
+            <TabsTrigger value="collections" className="gap-2">
+              <Library className="h-4 w-4" />
+              Collections
+            </TabsTrigger>
             <TabsTrigger value="users" className="gap-2">
               <Users className="h-4 w-4" />
               Users
@@ -265,6 +280,10 @@ export default function AdminPage() {
 
           <TabsContent value="pipeline" className="space-y-4">
             <PipelineVenuesComponent />
+          </TabsContent>
+
+          <TabsContent value="collections" className="space-y-4">
+            <CollectionManagementComponent />
           </TabsContent>
 
           <TabsContent value="users" className="space-y-4">

@@ -1,5 +1,4 @@
-// Collection types — will be populated when PSY-66 (collection service) ships.
-// Placeholder types based on the data model design (PSY-65).
+// Collection types — matches backend response types from services/contracts/collection.go
 
 export const COLLECTION_ENTITY_TYPES = [
   'artist',
@@ -14,33 +13,43 @@ export type CollectionEntityType = (typeof COLLECTION_ENTITY_TYPES)[number]
 
 export interface Collection {
   id: number
-  user_id: number
-  name: string
+  title: string
   slug: string
   description: string
-  entity_type: CollectionEntityType
+  creator_id: number
+  creator_name: string
+  collaborative: boolean
+  cover_image_url?: string | null
   is_public: boolean
-  is_collaborative: boolean
+  is_featured: boolean
   item_count: number
   subscriber_count: number
+  contributor_count: number
   created_at: string
   updated_at: string
 }
 
+export interface CollectionDetail extends Collection {
+  items: CollectionItem[]
+  is_subscribed: boolean
+}
+
 export interface CollectionItem {
   id: number
-  collection_id: number
-  entity_type: CollectionEntityType
+  entity_type: string
   entity_id: number
+  entity_name: string
+  entity_slug: string
   position: number
-  notes: string
-  added_by: number
+  added_by_user_id: number
+  added_by_name: string
+  notes?: string | null
   created_at: string
 }
 
-export interface CollectionSubscriber {
-  id: number
-  collection_id: number
-  user_id: number
-  created_at: string
+export interface CollectionStats {
+  item_count: number
+  subscriber_count: number
+  contributor_count: number
+  entity_type_counts: Record<string, number>
 }

@@ -3,13 +3,19 @@
 
 export type {
   Collection,
+  CollectionDetail,
   CollectionItem,
-  CollectionSubscriber,
+  CollectionStats,
   CollectionEntityType,
 } from './types'
 
 export { COLLECTION_ENTITY_TYPES } from './types'
 
-// Re-export hooks and components as they are built:
-// export * from './hooks'
-// export * from './components'
+export {
+  useCollections,
+  useMyCollections,
+  useCollection,
+  useCollectionStats,
+  useSetFeatured,
+  useDeleteCollection,
+} from './hooks'
