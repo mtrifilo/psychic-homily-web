@@ -19,7 +19,7 @@ const extractionSystemPrompt = `You are a show information extractor. Given text
 
 Output ONLY valid JSON with no additional text or markdown formatting:
 {
-  "artists": [{"name": "Artist Name", "is_headliner": true, "instagram_handle": "@handle"}],
+  "artists": [{"name": "Artist Name", "set_type": "headliner", "billing_order": 1, "instagram_handle": "@handle"}],
   "venue": {"name": "Venue Name", "city": "City", "state": "AZ"},
   "date": "YYYY-MM-DD",
   "time": "HH:MM",
@@ -28,7 +28,9 @@ Output ONLY valid JSON with no additional text or markdown formatting:
 }
 
 Rules:
-- First artist listed is usually the headliner (is_headliner: true), others are is_headliner: false
+- Determine billing position from visual prominence, text size, and ordering. The first/largest name is typically the headliner
+- set_type values: "headliner" (top of bill), "support" (direct support act, indicated by "w/" or "with"), "opener" (opening act), "special_guest" (indicated by "special guest" or "featuring"), "dj" (DJ set), "host" (event host/MC)
+- billing_order: 1 = top of bill, 2 = second, etc. Assign based on prominence/position
 - For instagram_handle, extract Instagram handles (like @username) when visible on the flyer or in the text. Include the @ prefix. Omit if not found.
 - Convert dates to YYYY-MM-DD format (assume current year if not specified)
 - Convert time to 24-hour format (default to 20:00 if "doors" time is given but show time is ambiguous)
@@ -380,6 +382,8 @@ func parseExtractionResponse(text string) map[string]interface{} {
 type rawArtist struct {
 	Name            string `json:"name"`
 	IsHeadliner     bool   `json:"is_headliner"`
+	SetType         string `json:"set_type"`
+	BillingOrder    int    `json:"billing_order"`
 	InstagramHandle string `json:"instagram_handle"`
 }
 
@@ -403,9 +407,26 @@ func extractRawArtists(parsed map[string]interface{}) []rawArtist {
 		}
 		name, _ := artistMap["name"].(string)
 		isHeadliner, _ := artistMap["is_headliner"].(bool)
+		setType, _ := artistMap["set_type"].(string)
+		billingOrder := 0
+		if bo, ok := artistMap["billing_order"].(float64); ok {
+			billingOrder = int(bo)
+		}
 		instagramHandle, _ := artistMap["instagram_handle"].(string)
+
+		// Derive IsHeadliner from SetType if set_type is present but is_headliner was not explicitly set
+		if setType == "headliner" && !isHeadliner {
+			isHeadliner = true
+		}
+
 		if name != "" {
-			artists = append(artists, rawArtist{Name: name, IsHeadliner: isHeadliner, InstagramHandle: instagramHandle})
+			artists = append(artists, rawArtist{
+				Name:            name,
+				IsHeadliner:     isHeadliner,
+				SetType:         setType,
+				BillingOrder:    billingOrder,
+				InstagramHandle: instagramHandle,
+			})
 		}
 	}
 
@@ -420,6 +441,8 @@ func (s *ExtractionService) matchArtists(rawArtists []rawArtist) []contracts.Ext
 		result := contracts.ExtractedArtist{
 			Name:            raw.Name,
 			IsHeadliner:     raw.IsHeadliner,
+			SetType:         raw.SetType,
+			BillingOrder:    raw.BillingOrder,
 			InstagramHandle: raw.InstagramHandle,
 		}
 

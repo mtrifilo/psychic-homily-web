@@ -351,17 +351,37 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			return fmt.Errorf("failed to create show-venue association: %w", err)
 		}
 
-		// Use artists array from discovery app if available, otherwise parse from title
-		var artistNames []string
-		if len(event.Artists) > 0 {
-			artistNames = event.Artists
+		// Build billing-aware artist list
+		type artistEntry struct {
+			Name         string
+			SetType      string
+			BillingOrder int
+		}
+		var artistEntries []artistEntry
+
+		if len(event.BillingArtists) > 0 {
+			// Use richer billing data from AI extraction
+			for _, ba := range event.BillingArtists {
+				artistEntries = append(artistEntries, artistEntry{
+					Name:         ba.Name,
+					SetType:      ba.SetType,
+					BillingOrder: ba.BillingOrder,
+				})
+			}
+		} else if len(event.Artists) > 0 {
+			// Fall back to simple artist list
+			for _, name := range event.Artists {
+				artistEntries = append(artistEntries, artistEntry{Name: name})
+			}
 		} else {
 			// Fall back to parsing from title
-			artistNames = parseArtistsFromTitle(event.Title)
+			for _, name := range parseArtistsFromTitle(event.Title) {
+				artistEntries = append(artistEntries, artistEntry{Name: name})
+			}
 		}
 
-		for position, artistName := range artistNames {
-			artistName = strings.TrimSpace(artistName)
+		for idx, entry := range artistEntries {
+			artistName := strings.TrimSpace(entry.Name)
 			if artistName == "" {
 				continue
 			}
@@ -386,10 +406,21 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 				return fmt.Errorf("failed to find artist %s: %w", artistName, err)
 			}
 
-			// Determine set type (first artist is headliner)
-			setType := "opener"
-			if position == 0 {
-				setType = "headliner"
+			// Determine position: use billing_order if provided, otherwise array index
+			position := idx
+			if entry.BillingOrder > 0 {
+				position = entry.BillingOrder - 1 // billing_order is 1-based, position is 0-based
+			}
+
+			// Determine set type from AI extraction, with fallback logic
+			setType := normalizeSetType(entry.SetType)
+			if setType == "" {
+				// Fallback: first artist is headliner, others are opener
+				if idx == 0 {
+					setType = "headliner"
+				} else {
+					setType = "opener"
+				}
 			}
 
 			// Create show-artist association
@@ -406,8 +437,8 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 
 		// Generate slug for the show
 		headlinerName := ""
-		if len(artistNames) > 0 {
-			headlinerName = artistNames[0]
+		if len(artistEntries) > 0 {
+			headlinerName = artistEntries[0].Name
 		}
 		baseShowSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueConfig.Name)
 		showSlug := utils.GenerateUniqueSlug(baseShowSlug, func(candidate string) bool {
@@ -610,6 +641,31 @@ func parsePriceString(s string) *float64 {
 		return nil
 	}
 	return &val
+}
+
+// normalizeSetType maps AI-extracted set_type values to the values stored in the DB.
+// The show_artists.set_type column is VARCHAR and stores: headliner, opener, performer, special_guest.
+// AI extraction may return additional values like "support", "dj", "host" which are
+// mapped to the closest DB equivalent.
+func normalizeSetType(setType string) string {
+	switch strings.ToLower(strings.TrimSpace(setType)) {
+	case "headliner":
+		return "headliner"
+	case "support":
+		return "opener" // "support" maps to "opener" in the DB
+	case "opener":
+		return "opener"
+	case "special_guest":
+		return "special_guest"
+	case "performer":
+		return "performer"
+	case "dj":
+		return "performer" // DJ sets stored as performer
+	case "host":
+		return "performer" // Hosts stored as performer
+	default:
+		return "" // Unknown — caller should use fallback logic
+	}
 }
 
 // splitAndTrim splits a string by separator and trims whitespace from each part
