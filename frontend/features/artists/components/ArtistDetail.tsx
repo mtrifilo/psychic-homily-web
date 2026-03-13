@@ -29,7 +29,7 @@ import {
   useClearArtistSpotify,
   type MusicPlatform,
 } from '@/lib/hooks/admin/useAdminArtists'
-import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader } from '@/components/shared'
+import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader, RevisionHistory } from '@/components/shared'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
 import { ArtistShowsList } from './ArtistShowsList'
 import { ReportArtistButton } from './ReportArtistButton'
@@ -942,6 +942,15 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           <LabelsTab artistIdOrSlug={artistId} />
         </TabsContent>
       </EntityDetailLayout>
+
+      {/* Revision History */}
+      <div className="mt-0">
+        <RevisionHistory
+          entityType="artist"
+          entityId={artist.id}
+          isAdmin={!!isAdmin}
+        />
+      </div>
 
       {/* Admin Edit Dialog */}
       {isAdmin && (

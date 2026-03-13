@@ -9,7 +9,7 @@ import type { ApiError } from '@/lib/api'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryClient'
-import { SocialLinks } from '@/components/shared'
+import { SocialLinks, RevisionHistory } from '@/components/shared'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
@@ -229,6 +229,13 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
           />
         </div>
       </div>
+
+      {/* Revision History */}
+      <RevisionHistory
+        entityType="venue"
+        entityId={venue.id}
+        isAdmin={!!user?.is_admin}
+      />
 
       {/* Venue Edit Form Dialog */}
       {venue && (

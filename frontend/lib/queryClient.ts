@@ -278,6 +278,17 @@ export const queryKeys = {
     my: ['collections', 'my'] as const,
   },
 
+  // Revision history queries
+  revisions: {
+    all: ['revisions'] as const,
+    entity: (entityType: string, entityId: string | number) =>
+      ['revisions', 'entity', entityType, String(entityId)] as const,
+    detail: (revisionId: number) =>
+      ['revisions', 'detail', revisionId] as const,
+    user: (userId: string | number) =>
+      ['revisions', 'user', String(userId)] as const,
+  },
+
   // System queries
   system: {
     health: ['system', 'health'] as const,
@@ -358,4 +369,8 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate collection queries
   collections: () =>
     queryClient.invalidateQueries({ queryKey: ['collections'] }),
+
+  // Invalidate revision queries
+  revisions: () =>
+    queryClient.invalidateQueries({ queryKey: ['revisions'] }),
 })
