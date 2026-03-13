@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/command'
 import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tent, BookOpen, Headphones, Send,
-  Library, Settings, Shield, Search, Clock, X,
+  Library, LayoutList, Settings, Shield, Search, Clock, X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -64,6 +64,12 @@ const routes: RouteItem[] = [
     href: '/labels',
     icon: Tag,
     keywords: ['labels', 'record labels', 'imprints', 'roster', 'catalog'],
+  },
+  {
+    label: 'Collections',
+    href: '/collections',
+    icon: LayoutList,
+    keywords: ['collections', 'curated', 'lists', 'playlists'],
   },
   {
     label: 'Blog',
