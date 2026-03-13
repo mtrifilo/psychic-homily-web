@@ -43,6 +43,7 @@ type VenueSourceConfigServiceInterface = contracts.VenueSourceConfigServiceInter
 type SchedulerServiceInterface = contracts.SchedulerServiceInterface
 type CollectionServiceInterface = contracts.CollectionServiceInterface
 type RevisionServiceInterface = contracts.RevisionServiceInterface
+type RequestServiceInterface = contracts.RequestServiceInterface
 
 // Compile-time interface satisfaction checks.
 // Engagement services (Bookmark, SavedShow, FavoriteVenue, Calendar, Reminder)
@@ -65,4 +66,5 @@ var (
 	_ LabelServiceInterface          = (*catalog.LabelService)(nil)
 	_ ReleaseServiceInterface       = (*catalog.ReleaseService)(nil)
 	_ CollectionServiceInterface            = (*CollectionService)(nil)
+	_ RequestServiceInterface               = (*RequestService)(nil)
 )

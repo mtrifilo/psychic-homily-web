@@ -96,6 +96,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupPipelineRoutes(protectedGroup, sc)
 	setupContributorProfileRoutes(api, protectedGroup, sc)
 	setupCollectionRoutes(api, protectedGroup, sc)
+	setupRequestRoutes(api, protectedGroup, sc)
 
 	return api
 }
@@ -589,6 +590,28 @@ func setupCollectionRoutes(api huma.API, protected *huma.Group, sc *services.Ser
 
 	// User's own collections (created + subscribed)
 	huma.Get(protected, "/auth/collections", collectionHandler.GetUserCollectionsHandler)
+}
+
+// setupRequestRoutes configures community request endpoints.
+// Public endpoints use optional auth (so authenticated users see their vote).
+// CRUD, voting, fulfillment, and closing require authentication.
+func setupRequestRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
+	requestHandler := handlers.NewRequestHandler(sc.Request, sc.AuditLog)
+
+	// Public request endpoints with optional auth (to include user's vote)
+	optionalAuthGroup := huma.NewGroup(api, "")
+	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(sc.JWT))
+	huma.Get(optionalAuthGroup, "/requests", requestHandler.ListRequestsHandler)
+	huma.Get(optionalAuthGroup, "/requests/{request_id}", requestHandler.GetRequestHandler)
+
+	// Protected request endpoints
+	huma.Post(protected, "/requests", requestHandler.CreateRequestHandler)
+	huma.Put(protected, "/requests/{request_id}", requestHandler.UpdateRequestHandler)
+	huma.Delete(protected, "/requests/{request_id}", requestHandler.DeleteRequestHandler)
+	huma.Post(protected, "/requests/{request_id}/vote", requestHandler.VoteRequestHandler)
+	huma.Delete(protected, "/requests/{request_id}/vote", requestHandler.RemoveVoteRequestHandler)
+	huma.Post(protected, "/requests/{request_id}/fulfill", requestHandler.FulfillRequestHandler)
+	huma.Post(protected, "/requests/{request_id}/close", requestHandler.CloseRequestHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON
