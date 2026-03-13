@@ -47,6 +47,12 @@ type Festival struct {
 	FlyerURL     *string         `gorm:"column:flyer_url"`
 	Status       FestivalStatus  `gorm:"column:status;not null;default:'announced'"`
 	Social       *json.RawMessage `gorm:"column:social;type:jsonb;default:'{}'"`
+
+	// Data provenance fields
+	DataSource       *string    `json:"data_source,omitempty" gorm:"column:data_source;size:50"`
+	SourceConfidence *float64   `json:"source_confidence,omitempty" gorm:"column:source_confidence;type:numeric(3,2)"`
+	LastVerifiedAt   *time.Time `json:"last_verified_at,omitempty" gorm:"column:last_verified_at"`
+
 	CreatedAt    time.Time       `gorm:"not null"`
 	UpdatedAt    time.Time       `gorm:"not null"`
 
