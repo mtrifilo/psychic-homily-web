@@ -270,6 +270,14 @@ export const queryKeys = {
     ownSections: ['contributor', 'ownSections'] as const,
   },
 
+  // Collection queries
+  collections: {
+    all: ['collections'] as const,
+    detail: (slug: string) => ['collections', 'detail', slug] as const,
+    stats: (slug: string) => ['collections', 'stats', slug] as const,
+    my: ['collections', 'my'] as const,
+  },
+
   // System queries
   system: {
     health: ['system', 'health'] as const,
@@ -346,4 +354,8 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
       queryClient.invalidateQueries({ queryKey: ['contributor', 'ownSections'] }),
       queryClient.invalidateQueries({ queryKey: ['contributor', 'ownContributions'] }),
     ]),
+
+  // Invalidate collection queries
+  collections: () =>
+    queryClient.invalidateQueries({ queryKey: ['collections'] }),
 })
