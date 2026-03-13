@@ -1,0 +1,4 @@
+DROP TABLE IF EXISTS tag_aliases;
+DROP TABLE IF EXISTS tag_votes;
+DROP TABLE IF EXISTS entity_tags;
+DROP TABLE IF EXISTS tags;
