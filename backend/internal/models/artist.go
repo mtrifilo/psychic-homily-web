@@ -10,6 +10,12 @@ type Artist struct {
 	City             *string   `gorm:"column:city"`
 	BandcampEmbedURL *string   `gorm:"column:bandcamp_embed_url"`
 	Social           Social    `gorm:"embedded"`
+
+	// Data provenance fields
+	DataSource       *string    `json:"data_source,omitempty" gorm:"column:data_source;size:50"`
+	SourceConfidence *float64   `json:"source_confidence,omitempty" gorm:"column:source_confidence;type:numeric(3,2)"`
+	LastVerifiedAt   *time.Time `json:"last_verified_at,omitempty" gorm:"column:last_verified_at"`
+
 	CreatedAt        time.Time `gorm:"not null"`
 	UpdatedAt        time.Time `gorm:"not null"`
 

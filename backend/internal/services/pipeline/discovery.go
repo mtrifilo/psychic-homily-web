@@ -300,6 +300,11 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			status = models.ShowStatusPending
 		}
 
+		// Set data provenance fields for AI-extracted shows
+		aiSource := models.DataSourceAIExtraction
+		aiConfidence := 0.8
+		now := time.Now()
+
 		show := &models.Show{
 			Title:             event.Title,
 			EventDate:         eventDate.UTC(),
@@ -311,6 +316,9 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			SourceVenue:       &event.VenueSlug,
 			SourceEventID:     &event.ID,
 			ScrapedAt:         &scrapedAt,
+			DataSource:        &aiSource,
+			SourceConfidence:  &aiConfidence,
+			LastVerifiedAt:    &now,
 			DuplicateOfShowID: duplicateOfShowID,
 			Price:             parsePriceString(ptrStr(event.Price)),
 			AgeRequirement:    event.AgeRestriction,
