@@ -10,4 +10,5 @@ var (
 	_ contracts.VenueSourceConfigServiceInterface = (*VenueSourceConfigService)(nil)
 	_ contracts.FetcherServiceInterface          = (*FetcherService)(nil)
 	_ contracts.PipelineServiceInterface         = (*PipelineService)(nil)
+	_ contracts.SchedulerServiceInterface        = (*SchedulerService)(nil)
 )

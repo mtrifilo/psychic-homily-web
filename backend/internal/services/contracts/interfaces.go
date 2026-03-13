@@ -409,6 +409,12 @@ type VenueSourceConfigServiceInterface interface {
 	ResetRenderMethod(venueID uint) error
 }
 
+// SchedulerServiceInterface defines the contract for the background extraction scheduler.
+type SchedulerServiceInterface interface {
+	Start(ctx context.Context)
+	Stop()
+}
+
 // RevisionServiceInterface defines the contract for revision history operations.
 type RevisionServiceInterface interface {
 	RecordRevision(entityType string, entityID uint, userID uint, changes []models.FieldChange, summary string) error
