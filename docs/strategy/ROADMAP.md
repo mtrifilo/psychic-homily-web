@@ -20,11 +20,11 @@ Live shows are the gateway into the knowledge graph. Every phase builds outward 
 
 | Priority | Focus | What | Status |
 |----------|-------|------|--------|
-| 1a | Discovery | Phase 1.6a: AI pipeline foundation (PSY-29, PSY-75–83 DONE; PSY-34, PSY-36 remaining) | Nearly done |
-| 1b | Community | Phase 2a: Community foundations — contributor identity, collections, requests, revision history (PSY-63 through PSY-74) | In progress (PSY-63/64/65 done) |
+| ~~1a~~ | Discovery | Phase 1.6a: AI pipeline foundation (PSY-29, PSY-75–83, PSY-34, PSY-36) | **Complete** |
+| 1b | Community | Phase 2a: Community foundations — contributor identity, collections, requests, revision history (PSY-63 through PSY-74) | In progress (PSY-63–68, 70, 73 done; PSY-71, 74 in progress) |
 | 2 | Web | Phase 2b: Knowledge graph connective tissue — tags, relationships, scenes (PSY-45–54, PSY-59/60) | Planned |
 | 3 | Web | Phase 2c: Engagement & social — going/interested, follow, charts, notifications (PSY-55–57, PSY-61/62) | Planned |
-| — | Discovery | Phase 1.6b: Pipeline maturation (PSY-30, PSY-31, PSY-33, PSY-35) | Background track |
+| — | Discovery | Phase 1.6b: Pipeline maturation (PSY-30 DONE; PSY-31 in progress; PSY-33, PSY-35, PSY-58 remaining) | Background track |
 | — | Admin | Phase 1.7: Admin dashboard polish (PSY-37–44) | Opportunistic |
 | 4 | Community | Phase 3: Community at scale — moderation, trust tiers, open edit flows | Planning |
 | 5 | iOS | Polish, test, ship to App Store | Blocked (Apple Developer enrollment) |
@@ -101,18 +101,17 @@ These two tracks run **in parallel**. Phase 1.6a is backend-heavy pipeline infra
 
 10. ~~**Rejection feedback loop** (PSY-82)~~ — DONE. Per-venue extraction notes appended to AI prompt. Rejection stats endpoint with approval rate + category breakdown. Pipeline admin tab with venue table, approval rate badges, detail panel, inline notes editing.
 
-**What remains:**
-- **PSY-34** (Data provenance tracking) — `data_source`, `source_confidence`, `last_verified_at` on core entity tables
-- **PSY-36** (Venue source config admin UI) — admin interface for managing venue configs
+11. ~~**Data provenance tracking** (PSY-34)~~ — DONE. `data_source`, `source_confidence`, `last_verified_at` columns on all 6 core entity tables (artists, venues, shows, releases, labels, festivals) with migration 000048.
+12. ~~**Venue source config admin UI** (PSY-36)~~ — DONE. Full CRUD admin interface: config edit form, run history section, reset render method, add venue dialog, events expected vs actual warnings. 3 new backend handlers + service method.
+
+**Phase 1.6a exit criteria MET.** AI extraction working on 5+ venues. Data provenance on core tables. Venue source config persisted with full admin CRUD. Change detection reducing unnecessary extractions.
 
 **What defers to Phase 1.6b (background track):**
-- PSY-30 (AI billing enrichment) — useful but not blocking
-- PSY-31 (Automated scheduling) — manual triggering suffices initially
-- PSY-33 (Consolidate discovery UI) — admin convenience
+- ~~PSY-30 (AI billing enrichment)~~ — **DONE.** Headliner/support/opener detection in extraction prompts with set_type and billing_order.
+- PSY-31 (Automated scheduling) — **In progress.** Background scheduler service with worker pool and anomaly detection.
+- PSY-33 (Consolidate discovery UI) — admin convenience. May be largely covered by PSY-36's admin Pipeline tab.
 - PSY-35 (Post-import enrichment pipeline) — manual seeding CLIs work today
-- iCal/RSS feed detection — opportunistic, per-venue
-
-**Exit criteria:** AI extraction working on 5+ venues. Data provenance on core tables. Venue source config persisted. Change detection reducing unnecessary extractions.
+- PSY-58 (iCal/RSS feed auto-detection) — cheapest extraction tier, high ROI for cost savings at scale
 
 ---
 
@@ -150,32 +149,32 @@ The most important new work. Not a feature in itself — infrastructure that mak
 The primary vessel for community knowledge — a record store at scale. No prescribed categories — collectors use their imagination: "Artists who performed at The Smell in LA 2010-2012", "Pitchfork's Top 100 Albums of the 2010s", "African Psychedelic Punk", "Creation Records 1984-1999", "Shows at Crescent Ballroom that changed my life", "The Phoenix scene in 2019." Open to collaboration by default. Visual grids. Subscribable. Each collection is someone's expertise made navigable — the description is the narrative, the items are the evidence, the graph connections are the context.
 
 - ~~**PSY-65: Collection model and migrations**~~ — **DONE** (migration 000047). `collections` table (title, slug, description, creator_id, collaborative, cover_image_url, is_public, is_featured), `collection_items` table (entity_type, entity_id, position, added_by_user_id, notes), `collection_subscribers` table (last_visited_at for Gazelle-style unread tracking). GORM model structs with 6 entity type constants.
-- **PSY-66: Collection service and handlers** — CRUD, item management (add/remove/reorder), subscription, permission model (creator edits, collaborators add items, anyone subscribes, admin features), aggregate stats (item count, contributor count, top tags once tags exist)
-- **PSY-67: Collection admin UI** — admin tab for managing featured collections, moderation
-- **PSY-68: Collection frontend pages** — `/collections` listing with search, `/collections/:slug` detail with visual grid of entity images (album art, venue photos, artist images, show flyers), "Add to collection" flow on entity detail pages, collection display on contributor profiles
+- ~~**PSY-66: Collection service and handlers**~~ — **DONE.** Full CollectionService (1030 lines): CRUD, item management (add/remove/reorder), subscription, permission model, aggregate stats. 10 API handlers.
+- ~~**PSY-67: Collection admin UI**~~ — **DONE.** CollectionManagement component in admin dashboard with table view, detail panel, featured toggle, delete.
+- ~~**PSY-68: Collection frontend pages**~~ — **DONE.** `/collections` browse page with grid layout + create dialog, `/collections/:slug` detail with inline editing + item management + subscribe/unsubscribe. Sidebar nav link + Cmd+K entry.
 #### 3. Request System (PSY-70 through PSY-72)
 
 The mechanism that converts passive browsers into active contributors. What.cd users bought and imported rare CDs because someone else requested them. Requests are calls to action, not wishlists.
 
-- **PSY-70: Request model and migrations** — `requests` table (title, description, entity_type, requested_entity_id nullable, status, requester_id, fulfiller_id, vote_score), `request_votes` table (vote up/down)
-- **PSY-71: Request service and handlers** — CRUD, voting with Wilson score, fulfillment workflow linking contribution to request, auto-generated requests from data quality queries ("This label has 12 artists but only 3 have releases", "This festival has 40 artists but only 10 are in our database")
-- **PSY-72: Request frontend pages** — `/requests` listing with filters (entity_type, status, sort by votes), request detail, "Request" buttons on entity pages ("This artist needs releases"), fulfillment flow, request feed on contributor profile
+- ~~**PSY-70: Request model and migrations**~~ — **DONE.** Migration 000049: `requests` + `request_votes` tables. Request and RequestVote GORM models with WilsonScore() method.
+- **PSY-71: Request service and handlers** — **In progress.** CRUD, voting with Wilson score, fulfillment workflow, auto-generated requests from data quality queries.
+- **PSY-72: Request frontend pages** — `/requests` listing with filters (entity_type, status, sort by votes), request detail, "Request" buttons on entity pages, fulfillment flow, request feed on contributor profile
 
 #### 4. Revision History (PSY-73, PSY-74)
 
 Required before opening edit flows to non-admin users. Accountability and rollback capability.
 
-- **PSY-73: Revision history model and service** — `revisions` table (entity_type, entity_id, user_id, field_changes JSONB diff, summary), automatic diff generation on entity updates, history API endpoint
-- **PSY-74: Revision history frontend** — "View History" link on entity detail pages, chronological edit list with field-level diffs, admin one-click rollback
+- ~~**PSY-73: Revision history model and service**~~ — **DONE.** Migration 000050: `revisions` table with JSONB field_changes. RevisionService with RecordRevision, GetEntityHistory, GetRevision, GetUserRevisions, Rollback. 20 tests.
+- **PSY-74: Revision history frontend** — **In progress.** Backend handlers + "View History" on entity detail pages with field-level diffs and admin rollback.
 
 **Practical sprint sequence (single-person team):**
 ```
 Sprint 1: ~~PSY-75–83 (pipeline foundation)~~ DONE + ~~PSY-63 (contributor profile backend)~~ DONE
 Sprint 2: ~~PSY-82 (rejection feedback) + PSY-64 (contributor profile frontend) + PSY-65 (collection model)~~ DONE
-Sprint 3: PSY-66 (collection service) + PSY-34 + PSY-36 (provenance + venue config UI)
-Sprint 4: PSY-67 + PSY-68 (collections admin + frontend)
-Sprint 5: PSY-70 + PSY-71 (requests model + service) + PSY-73 (revision history backend)
-Sprint 6: PSY-72 (requests frontend) + PSY-74 (revision history frontend)
+Sprint 3: ~~PSY-66 (collection service) + PSY-34 + PSY-36 (provenance + venue config UI)~~ DONE
+Sprint 4: ~~PSY-67 + PSY-68 (collections admin + frontend)~~ DONE
+Sprint 5: ~~PSY-70 + PSY-73 (requests model + revision history backend)~~ DONE + PSY-71 (request service) + PSY-74 (revision history frontend) IN PROGRESS
+Sprint 6: PSY-72 (requests frontend) + PSY-31 (automated extraction scheduler)
 ```
 
 **Phase 2a exit criteria:**
@@ -273,11 +272,11 @@ Sprint 6: PSY-72 (requests frontend) + PSY-74 (revision history frontend)
 
 **Theme:** The pipeline issues deferred from Phase 1.6a get addressed incrementally, as background work between community feature sprints. Not a phase gate — a maintenance track.
 
-- [ ] **AI billing enrichment** (PSY-30) — extend extraction for headliner/support/opener
-- [ ] **Automated scheduling** (PSY-31) — scheduled runs with change detection, chromedp worker pool, strategy adaptation (`venue_extraction_runs` tracking, anomaly detection)
-- [ ] **Consolidate discovery UI** (PSY-33) — retire standalone discovery app, add "Data Pipeline" admin tab
+- [x] ~~**AI billing enrichment** (PSY-30)~~ — **DONE.** Extraction prompts request set_type and billing_order. Pipeline import prefers billing data when available. Normalizes set types (support→opener, dj/host→performer).
+- [ ] **Automated scheduling** (PSY-31) — **In progress.** Background scheduler service (Go ticker, worker pool, circuit breaker, anomaly detection, Discord notifications).
+- [ ] **Consolidate discovery UI** (PSY-33) — retire standalone discovery app, add "Data Pipeline" admin tab. *Note: PSY-36 shipped a full admin Pipeline tab with venue config CRUD, run history, and extraction controls — this may be largely complete.*
 - [ ] **Post-import enrichment pipeline** (PSY-35) — automatic artist matching, MusicBrainz lookup, API cross-referencing
-- [ ] iCal/RSS feed detection — auto-detect structured feeds during venue onboarding
+- [ ] **iCal/RSS feed auto-detection** (PSY-58) — auto-detect structured feeds during venue onboarding, cheapest extraction tier
 
 **Exit criteria (ongoing):** Pipeline handles 20+ venues reliably. Automated scheduling running daily. At least 3 data source tiers working.
 
