@@ -48,6 +48,7 @@ type handlerIntegrationDeps struct {
 	labelService          *catalog.LabelService
 	releaseService        *catalog.ReleaseService
 	collectionService     *services.CollectionService
+	requestService        *services.RequestService
 }
 
 func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
@@ -124,6 +125,7 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		labelService:          catalog.NewLabelService(db),
 		releaseService:        catalog.NewReleaseService(db),
 		collectionService:     services.NewCollectionService(db),
+		requestService:        services.NewRequestService(db),
 	}
 
 	return deps
@@ -132,6 +134,8 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 func cleanupTables(db *gorm.DB) {
 	sqlDB, _ := db.DB()
 	// Order respects FK constraints
+	_, _ = sqlDB.Exec("DELETE FROM request_votes")
+	_, _ = sqlDB.Exec("DELETE FROM requests")
 	_, _ = sqlDB.Exec("DELETE FROM collection_subscribers")
 	_, _ = sqlDB.Exec("DELETE FROM collection_items")
 	_, _ = sqlDB.Exec("DELETE FROM collections")

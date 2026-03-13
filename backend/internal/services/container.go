@@ -29,6 +29,7 @@ type ServiceContainer struct {
 	Bookmark      *engagement.BookmarkService
 	Calendar      *engagement.CalendarService
 	Collection    *CollectionService
+	Request       *RequestService
 	FavoriteVenue *engagement.FavoriteVenueService
 	Festival      *catalog.FestivalService
 	Label         *catalog.LabelService
@@ -60,6 +61,7 @@ type ServiceContainer struct {
 	Discovery  *pipeline.DiscoveryService
 	Pipeline   *pipeline.PipelineService
 	Reminder   *engagement.ReminderService
+	Scheduler  *pipeline.SchedulerService
 }
 
 // newFetcherWithChromedp creates a FetcherService with chromedp initialized at 3 workers.
@@ -93,6 +95,10 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// Auth services — created first so we can share the JWT service with AppleAuth.
 	jwtService := auth.NewJWTService(database, cfg, userService)
 
+	// Services needed by SchedulerService — created before the container.
+	discord := notification.NewDiscordService(cfg)
+	pipelineSvc := pipeline.NewPipelineService(fetcher, extraction, discovery, venueSourceConfig, venue)
+
 	return &ServiceContainer{
 		// DB-only leaf services
 		AdminStats:         adminsvc.NewAdminStatsService(database),
@@ -105,6 +111,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Bookmark:      engagement.NewBookmarkService(database),
 		Calendar:      engagement.NewCalendarService(database, savedShow),
 		Collection:    NewCollectionService(database),
+		Request:       NewRequestService(database),
 		FavoriteVenue: engagement.NewFavoriteVenueService(database),
 		Festival:      catalog.NewFestivalService(database),
 		Label:         catalog.NewLabelService(database),
@@ -117,7 +124,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		VenueSourceConfig: venueSourceConfig,
 
 		// Config-only services
-		Discord:        notification.NewDiscordService(cfg),
+		Discord:        discord,
 		Email:          email,
 		MusicDiscovery: pipeline.NewMusicDiscoveryService(cfg),
 
@@ -134,7 +141,8 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Cleanup:    adminsvc.NewCleanupService(database, userService),
 		DataSync:   adminsvc.NewDataSyncService(database),
 		Discovery:  discovery,
-		Pipeline:   pipeline.NewPipelineService(fetcher, extraction, discovery, venueSourceConfig, venue),
+		Pipeline:   pipelineSvc,
 		Reminder:   engagement.NewReminderService(database, email, cfg),
+		Scheduler:  pipeline.NewSchedulerService(database, pipelineSvc, venueSourceConfig, discord),
 	}
 }

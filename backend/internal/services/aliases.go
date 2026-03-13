@@ -173,6 +173,12 @@ type CollectionItemResponse = contracts.CollectionItemResponse
 type CollectionStatsResponse = contracts.CollectionStatsResponse
 
 // ──────────────────────────────────────────────
+// Request types
+// ──────────────────────────────────────────────
+
+type RequestResponse = contracts.RequestResponse
+
+// ──────────────────────────────────────────────
 // Auth / JWT / Apple / Password types
 // ──────────────────────────────────────────────
 
