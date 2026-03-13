@@ -40,6 +40,7 @@ type ContributorProfileServiceInterface = contracts.ContributorProfileServiceInt
 type CalendarServiceInterface = contracts.CalendarServiceInterface
 type PipelineServiceInterface = contracts.PipelineServiceInterface
 type VenueSourceConfigServiceInterface = contracts.VenueSourceConfigServiceInterface
+type SchedulerServiceInterface = contracts.SchedulerServiceInterface
 type CollectionServiceInterface = contracts.CollectionServiceInterface
 type RevisionServiceInterface = contracts.RevisionServiceInterface
 

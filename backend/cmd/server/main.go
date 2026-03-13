@@ -160,6 +160,10 @@ func main() {
 	reminderCtx, reminderCancel := context.WithCancel(context.Background())
 	sc.Reminder.Start(reminderCtx)
 
+	// Start extraction scheduler (background job for automated venue extraction)
+	schedulerCtx, schedulerCancel := context.WithCancel(context.Background())
+	sc.Scheduler.Start(schedulerCtx)
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -191,6 +195,10 @@ func main() {
 	// Stop reminder service
 	reminderCancel()
 	sc.Reminder.Stop()
+
+	// Stop extraction scheduler
+	schedulerCancel()
+	sc.Scheduler.Stop()
 
 	// Shut down chromedp browser pool
 	sc.Fetcher.ShutdownChromedp()
