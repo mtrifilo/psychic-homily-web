@@ -58,13 +58,26 @@ func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*contracts.Pi
 		return nil, fmt.Errorf("venue %d (%s) has no calendar URL configured", venueID, venue.Name)
 	}
 
-	// 3. Determine render method
+	// 3. Check for feed-based extraction (iCal/RSS) — skip AI entirely if feed works
+	if config.FeedURL != nil && *config.FeedURL != "" &&
+		(config.PreferredSource == "ical" || config.PreferredSource == "rss") {
+		result, feedErr := s.extractFromFeed(venue, config, dryRun, start)
+		if feedErr == nil && result != nil {
+			return result, nil
+		}
+		// Feed failed — fall through to AI extraction
+		if feedErr != nil {
+			log.Printf("venue %d: feed extraction failed, falling back to AI: %v", venueID, feedErr)
+		}
+	}
+
+	// 4. Determine render method
 	renderMethod := ""
 	if config.RenderMethod != nil {
 		renderMethod = *config.RenderMethod
 	}
 
-	// 4. Auto-detect render method if not set
+	// 5. Auto-detect render method if not set
 	if renderMethod == "" {
 		detected, detectErr := s.fetcher.DetectRenderMethod(*config.CalendarURL)
 		if detectErr != nil {
@@ -265,4 +278,96 @@ func intPtrIfNonZero(i int) *int {
 		return nil
 	}
 	return &i
+}
+
+// extractFromFeed fetches and parses a venue's iCal or RSS feed.
+// Returns nil result if the feed is empty or fails (caller should fall back to AI).
+func (s *PipelineService) extractFromFeed(venue *models.Venue, config *models.VenueSourceConfig, dryRun bool, start time.Time) (*contracts.PipelineResult, error) {
+	feedURL := *config.FeedURL
+	feedType := config.PreferredSource // "ical" or "rss"
+
+	// Fetch the feed with change detection
+	lastETag := ""
+	lastHash := ""
+	if config.LastETag != nil {
+		lastETag = *config.LastETag
+	}
+	if config.LastContentHash != nil {
+		lastHash = *config.LastContentHash
+	}
+
+	fetchResult, err := s.fetcher.Fetch(feedURL, lastETag, lastHash)
+	if err != nil {
+		s.recordFailure(venue.ID, feedType, feedType, start, err)
+		return nil, fmt.Errorf("feed fetch failed: %w", err)
+	}
+
+	// Check for changes
+	if !fetchResult.Changed {
+		result := &contracts.PipelineResult{
+			VenueID:      venue.ID,
+			VenueName:    venue.Name,
+			RenderMethod: feedType,
+			Skipped:      true,
+			SkipReason:   "feed unchanged (hash match)",
+			DurationMs:   time.Since(start).Milliseconds(),
+			DryRun:       dryRun,
+			InitialStatus: string(models.ShowStatusPending),
+		}
+		s.recordRun(venue.ID, feedType, feedType, 0, 0, &fetchResult.ContentHash, fetchResult.HTTPStatus, start, nil)
+		return result, nil
+	}
+
+	// Parse the feed
+	parser := NewFeedParser()
+	venueSlug := ""
+	if venue.Slug != nil {
+		venueSlug = *venue.Slug
+	}
+
+	parsed, err := parser.ParseFeed([]byte(fetchResult.Body), feedType, venue.Name, venueSlug)
+	if err != nil {
+		s.recordFailure(venue.ID, feedType, feedType, start, err)
+		return nil, fmt.Errorf("feed parse failed: %w", err)
+	}
+
+	eventsExtracted := len(parsed.Events)
+
+	// Determine initial status
+	initialStatus := models.ShowStatusPending
+	if config.AutoApprove {
+		initialStatus = models.ShowStatusApproved
+	}
+
+	// Import events (unless dry run)
+	eventsImported := 0
+	if !dryRun && eventsExtracted > 0 {
+		importResult, importErr := s.discovery.ImportEvents(parsed.Events, false, false, initialStatus)
+		if importErr != nil {
+			log.Printf("warning: feed import failed for venue %d: %v", venue.ID, importErr)
+		} else {
+			eventsImported = importResult.Imported
+		}
+	}
+
+	duration := time.Since(start)
+
+	// Record run
+	s.recordRun(venue.ID, feedType, feedType, eventsExtracted, eventsImported, &fetchResult.ContentHash, fetchResult.HTTPStatus, start, nil)
+
+	// Update config after successful run
+	if updateErr := s.venueConfig.UpdateAfterRun(venue.ID, &fetchResult.ContentHash, &fetchResult.ETag, eventsExtracted); updateErr != nil {
+		log.Printf("warning: failed to update config after feed run for venue %d: %v", venue.ID, updateErr)
+	}
+
+	return &contracts.PipelineResult{
+		VenueID:         venue.ID,
+		VenueName:       venue.Name,
+		RenderMethod:    feedType,
+		EventsExtracted: eventsExtracted,
+		EventsImported:  eventsImported,
+		DurationMs:      duration.Milliseconds(),
+		DryRun:          dryRun,
+		InitialStatus:   string(initialStatus),
+	}, nil
 }
