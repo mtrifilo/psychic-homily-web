@@ -75,10 +75,10 @@ HTTP Request → Chi Router → Global Middleware → Huma Adapter → Route Gro
   - `services/auth/` — auth (OAuth), JWT, Apple auth, WebAuthn, password validator
   - `services/engagement/` — bookmark, saved show, favorite venue, calendar, reminder
   - `services/notification/` — email, Discord
-  - `services/pipeline/` — extraction, fetcher, discovery, orchestrator, venue source config, music discovery
+  - `services/pipeline/` — extraction, fetcher, discovery, orchestrator, venue source config, music discovery, scheduler
   - `services/user/` — user, contributor profile
-  - `services/admin/` — admin stats, API token, artist report, audit log, cleanup, data sync, show report
-  - Root `services/` — `container.go` (wiring), `interfaces.go` (compile-time checks), `aliases.go` (backward-compat type aliases), `collection.go` (not yet extracted)
+  - `services/admin/` — admin stats, API token, artist report, audit log, cleanup, data sync, show report, revision
+  - Root `services/` — `container.go` (wiring), `interfaces.go` (compile-time checks), `aliases.go` (backward-compat type aliases), `collection.go`, `request.go` (not yet extracted into sub-packages)
 - **Models** (`internal/models/`): GORM structs with `TableName()` methods. Use `*json.RawMessage` for JSONB columns (not `datatypes.JSON`).
 - **Routes**: Public/protected/admin routes registered in `routes/routes.go`. Admin routes don't use separate middleware — handlers check `user.IsAdmin` internally.
 - **Migrations**: Numbered SQL files in `db/migrations/` (`000XXX_name.up.sql` / `.down.sql`).
@@ -100,7 +100,7 @@ HTTP Request → Chi Router → Global Middleware → Huma Adapter → Route Gro
 - **Admin**: Tab-based UI in `app/admin/page.tsx` with dynamic imports. Shared admin components (pending show cards, report cards, dialogs) in `components/admin/` with barrel export. Page-specific admin components (management UIs, dashboard, user cards) live in `app/admin/<route>/_components/`.
 - **Component dirs**: Domain directories (artists, shows, venues) have `index.ts` barrel files. Shadcn primitives in `components/ui/` — don't modify directly.
 - **Page-specific components** (`_components/`): Components used by exactly one route live in `app/<route>/_components/` using the Next.js `_` prefix convention. Import with `@/` alias (e.g., `@/app/admin/releases/_components/ReleaseManagement`). Components used by 2+ routes stay in `components/`.
-- **Feature modules** (`features/`): New features use co-located feature modules instead of spreading across `components/`, `lib/hooks/`, and `lib/types/`. Each module has `components/`, `hooks/`, `types.ts`, and a root `index.ts` public API. Other features import from the root `index.ts` only, never internal paths. Shared code used by 2+ features stays in `lib/` or `components/shared/`. Existing features (shows, artists, etc.) stay in their current locations — adopt this pattern for new features only.
+- **Feature modules** (`features/`): Co-located feature modules with `components/`, `hooks/`, `types.ts`, and root `index.ts` public API. All features migrated: releases, labels, festivals, blog, auth, collections, requests, shows, artists, venues. Import from root `index.ts` only, never internal paths. Shared code used by 2+ features stays in `lib/` or `components/shared/`.
 - **URLs**: Artists, venues, and shows use SEO-friendly slugs. Handlers support both numeric IDs and slugs.
 
 ### Backend Test Patterns
