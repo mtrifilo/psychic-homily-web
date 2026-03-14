@@ -325,6 +325,18 @@ export const API_ENDPOINTS = {
     MY: `${API_BASE_URL}/auth/collections`,
   },
 
+  // Request endpoints
+  REQUESTS: {
+    LIST: `${API_BASE_URL}/requests`,
+    GET: (requestId: string | number) => `${API_BASE_URL}/requests/${requestId}`,
+    VOTE: (requestId: string | number) =>
+      `${API_BASE_URL}/requests/${requestId}/vote`,
+    FULFILL: (requestId: string | number) =>
+      `${API_BASE_URL}/requests/${requestId}/fulfill`,
+    CLOSE: (requestId: string | number) =>
+      `${API_BASE_URL}/requests/${requestId}/close`,
+  },
+
   // Revision history endpoints
   REVISIONS: {
     ENTITY_HISTORY: (entityType: string, entityId: string | number) =>

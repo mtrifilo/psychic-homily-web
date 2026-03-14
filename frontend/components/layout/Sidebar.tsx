@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tent, BookOpen, Headphones, Newspaper,
-  Send, Library, LayoutList, Settings, Shield, PanelLeftClose, PanelLeft,
+  Send, Library, LayoutList, MessageSquarePlus, Settings, Shield, PanelLeftClose, PanelLeft,
   ExternalLink,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -42,6 +42,7 @@ export const sidebarGroups: SidebarGroup[] = [
   {
     label: 'Community',
     items: [
+      { href: '/requests', label: 'Requests', icon: MessageSquarePlus },
       { href: '/blog', label: 'Blog', icon: BookOpen },
       { href: '/dj-sets', label: 'DJ Sets', icon: Headphones },
       { href: 'https://psychichomily.substack.com/', label: 'Substack', icon: Newspaper, external: true },
