@@ -23,14 +23,14 @@ describe('sidebarGroups', () => {
     expect(sidebarGroups.map(g => g.label)).toEqual(['Discover', 'Community'])
   })
 
-  it('Discover contains Shows, Artists, Venues', () => {
+  it('Discover contains Shows, Festivals, Artists, Venues, Releases, Labels, Collections', () => {
     const discover = sidebarGroups.find(g => g.label === 'Discover')!
-    expect(discover.items.map(i => i.label)).toEqual(['Shows', 'Festivals', 'Artists', 'Venues', 'Releases', 'Labels'])
+    expect(discover.items.map(i => i.label)).toEqual(['Shows', 'Festivals', 'Artists', 'Venues', 'Releases', 'Labels', 'Collections'])
   })
 
-  it('Community contains Blog, DJ Sets, Substack, Submissions', () => {
+  it('Community contains Requests, Blog, DJ Sets, Substack, Submissions', () => {
     const community = sidebarGroups.find(g => g.label === 'Community')!
-    expect(community.items.map(i => i.label)).toEqual(['Blog', 'DJ Sets', 'Substack', 'Submissions'])
+    expect(community.items.map(i => i.label)).toEqual(['Requests', 'Blog', 'DJ Sets', 'Substack', 'Submissions'])
   })
 
   it('only Substack is marked external', () => {
