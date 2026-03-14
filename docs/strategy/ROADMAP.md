@@ -21,10 +21,10 @@ Live shows are the gateway into the knowledge graph. Every phase builds outward 
 | Priority | Focus | What | Status |
 |----------|-------|------|--------|
 | ~~1a~~ | Discovery | Phase 1.6a: AI pipeline foundation (PSY-29, PSY-75–83, PSY-34, PSY-36) | **Complete** |
-| 1b | Community | Phase 2a: Community foundations — contributor identity, collections, requests, revision history (PSY-63 through PSY-74) | In progress (PSY-63–68, 70, 73 done; PSY-71, 74 in progress) |
-| 2 | Web | Phase 2b: Knowledge graph connective tissue — tags, relationships, scenes (PSY-45–54, PSY-59/60) | Planned |
+| ~~1b~~ | Community | Phase 2a: Community foundations — contributor identity, collections, requests, revision history (PSY-63 through PSY-74) | **Coding complete** (exit criteria polish remaining) |
+| 2 | Web | Phase 2b: Knowledge graph connective tissue — tags, relationships, scenes (PSY-45–54, PSY-59/60) | **In progress** (PSY-49, PSY-52 models done) |
 | 3 | Web | Phase 2c: Engagement & social — going/interested, follow, charts, notifications (PSY-55–57, PSY-61/62) | Planned |
-| — | Discovery | Phase 1.6b: Pipeline maturation (PSY-30 DONE; PSY-31 in progress; PSY-33, PSY-35, PSY-58 remaining) | Background track |
+| — | Discovery | Phase 1.6b: Pipeline maturation (PSY-30, PSY-31 DONE; PSY-33, PSY-35, PSY-58 remaining) | Background track |
 | — | Admin | Phase 1.7: Admin dashboard polish (PSY-37–44) | Opportunistic |
 | 4 | Community | Phase 3: Community at scale — moderation, trust tiers, open edit flows | Planning |
 | 5 | iOS | Polish, test, ship to App Store | Blocked (Apple Developer enrollment) |
@@ -108,7 +108,7 @@ These two tracks run **in parallel**. Phase 1.6a is backend-heavy pipeline infra
 
 **What defers to Phase 1.6b (background track):**
 - ~~PSY-30 (AI billing enrichment)~~ — **DONE.** Headliner/support/opener detection in extraction prompts with set_type and billing_order.
-- PSY-31 (Automated scheduling) — **In progress.** Background scheduler service with worker pool and anomaly detection.
+- ~~PSY-31 (Automated scheduling)~~ — **DONE.** Background scheduler service with configurable intervals, worker pool (default 3 concurrent), circuit breaker (5 failures), anomaly detection (event count drops), Discord notifications. Started/stopped in `cmd/server/main.go` alongside Cleanup and Reminder.
 - PSY-33 (Consolidate discovery UI) — admin convenience. May be largely covered by PSY-36's admin Pipeline tab.
 - PSY-35 (Post-import enrichment pipeline) — manual seeding CLIs work today
 - PSY-58 (iCal/RSS feed auto-detection) — cheapest extraction tier, high ROI for cost savings at scale
@@ -157,15 +157,15 @@ The primary vessel for community knowledge — a record store at scale. No presc
 The mechanism that converts passive browsers into active contributors. What.cd users bought and imported rare CDs because someone else requested them. Requests are calls to action, not wishlists.
 
 - ~~**PSY-70: Request model and migrations**~~ — **DONE.** Migration 000049: `requests` + `request_votes` tables. Request and RequestVote GORM models with WilsonScore() method.
-- **PSY-71: Request service and handlers** — **In progress.** CRUD, voting with Wilson score, fulfillment workflow, auto-generated requests from data quality queries.
-- **PSY-72: Request frontend pages** — `/requests` listing with filters (entity_type, status, sort by votes), request detail, "Request" buttons on entity pages, fulfillment flow, request feed on contributor profile
+- ~~**PSY-71: Request service and handlers**~~ — **DONE.** RequestService with 10 methods (CRUD, voting with Wilson score, fulfillment workflow, close). 9 API endpoints (public list/get with optional auth, protected create/update/delete/vote/fulfill/close). 45 service tests + 31 handler tests.
+- ~~**PSY-72: Request frontend pages**~~ — **DONE.** `features/requests/` feature module with 9 TanStack Query hooks (optimistic vote updates), 3 components (RequestCard, RequestList, RequestDetail). Browse page at `/requests` with entity type/status/sort filters + create dialog. Detail page at `/requests/[id]` with inline editing, large vote widget, admin fulfill/close. Sidebar + Cmd+K navigation.
 
 #### 4. Revision History (PSY-73, PSY-74)
 
 Required before opening edit flows to non-admin users. Accountability and rollback capability.
 
 - ~~**PSY-73: Revision history model and service**~~ — **DONE.** Migration 000050: `revisions` table with JSONB field_changes. RevisionService with RecordRevision, GetEntityHistory, GetRevision, GetUserRevisions, Rollback. 20 tests.
-- **PSY-74: Revision history frontend** — **In progress.** Backend handlers + "View History" on entity detail pages with field-level diffs and admin rollback.
+- ~~**PSY-74: Revision history handlers and frontend**~~ — **DONE.** RevisionHandler with 4 endpoints (GetEntityHistory, GetRevision, GetUserRevisions, RollbackRevision). 22 handler tests. Frontend: `RevisionHistory` collapsible component with field-level diffs, relative timestamps, admin rollback. Integrated on ArtistDetail and VenueDetail pages. 4 TanStack Query hooks in `lib/hooks/common/useRevisions.ts`.
 
 **Practical sprint sequence (single-person team):**
 ```
@@ -173,8 +173,9 @@ Sprint 1: ~~PSY-75–83 (pipeline foundation)~~ DONE + ~~PSY-63 (contributor pro
 Sprint 2: ~~PSY-82 (rejection feedback) + PSY-64 (contributor profile frontend) + PSY-65 (collection model)~~ DONE
 Sprint 3: ~~PSY-66 (collection service) + PSY-34 + PSY-36 (provenance + venue config UI)~~ DONE
 Sprint 4: ~~PSY-67 + PSY-68 (collections admin + frontend)~~ DONE
-Sprint 5: ~~PSY-70 + PSY-73 (requests model + revision history backend)~~ DONE + PSY-71 (request service) + PSY-74 (revision history frontend) IN PROGRESS
-Sprint 6: PSY-72 (requests frontend) + PSY-31 (automated extraction scheduler)
+Sprint 5: ~~PSY-70 + PSY-73 (requests model + revision history backend)~~ DONE
+Sprint 6: ~~PSY-71 + PSY-74 + PSY-31 (request service, revision frontend, scheduler — parallel)~~ DONE
+Sprint 7: ~~PSY-72 + PSY-49 + PSY-52 (request frontend, tag model, relationship model — parallel)~~ DONE
 ```
 
 **Phase 2a exit criteria:**
@@ -201,13 +202,13 @@ Sprint 6: PSY-72 (requests frontend) + PSY-31 (automated extraction scheduler)
 **Linear project:** "Phase 2: Knowledge Graph Expansion" (existing PSY-45 through PSY-62)
 
 ### Tags & Voting
-- [ ] **Tag model, migration, GORM structs** (PSY-49) — `tags`, `entity_tags`, `tag_votes`, `tag_aliases` tables. Hierarchical taxonomy with parent-child. Official tags immune to pruning.
+- [x] ~~**Tag model, migration, GORM structs** (PSY-49)~~ — **DONE.** Migration 000051: `tags` (hierarchical with parent_id, 7 categories, official flag, usage_count), `entity_tags` (polymorphic junction with `added_by_user_id` attribution), `tag_votes` (per-entity relevance voting), `tag_aliases` (variant spellings with unique lowercase index). 11 model tests.
 - [ ] **Tag service, handlers, API routes** (PSY-50) — CRUD, voting with Wilson score ranking, alias resolution, auto-pruning (CleanupService every 15 min). Tag applications show contributor attribution.
 - [ ] **Tag frontend** (PSY-51) — `/tags` index, `/tags/:slug` detail, tag pills with voting on all entity pages, "add tag" autocomplete, tag filtering on list pages. "[View tagging rules]" link visible on every tag input.
 - [ ] **Tag administration UI** (PSY-46) — admin tag CRUD, alias management, bulk merge/rename, pruning config, moderation queue.
 
 ### Artist Relationships
-- [ ] **Artist relationship model** (PSY-52) — `artist_relationships` + `artist_relationship_votes` tables. Types: similar, side_project, member_of. Auto-derived "shared bills" flag.
+- [x] ~~**Artist relationship model** (PSY-52)~~ — **DONE.** Migration 000052: `artist_relationships` (composite PK with canonical `source < target` ordering via CHECK constraint, 5 types: similar/shared_bills/shared_label/side_project/member_of, JSONB detail for type-specific metadata, `auto_derived` flag, normalized score 0–1) + `artist_relationship_votes` (per-user directional voting with composite FK). `CanonicalOrder()` helper, `WilsonScore()` method. 15 model tests.
 - [ ] **Similar artist voting service** (PSY-53) — vote on similarity (up/down), Wilson score ranking, auto-derived "shared bills" job (daily, from `show_artists` co-occurrences). The iconic What.cd feature — and PH adds empirical "shared bills" data from live shows that What.cd never had.
 - [ ] **Similar artist visualization** — interactive relationship map. Font size/node size proportional to similarity. Edge thickness proportional to score. Cross-connections between similar artists. *(design doc: `docs/strategy/similar-artists.md`)*
 
@@ -226,8 +227,8 @@ Sprint 6: PSY-72 (requests frontend) + PSY-31 (automated extraction scheduler)
 - [ ] **Show-to-recording links** — connect live recordings to show entities
 
 **Build order:**
-1. **Independent foundations (can parallel):** PSY-49 (tag model), PSY-52 (artist relationship model), PSY-47 (artist merge/split), PSY-54 (bill position), PSY-59 (scene backend)
-2. **Depends on models:** PSY-50 (tag service, needs PSY-49), PSY-53 (similar artist service, needs PSY-52)
+1. ~~**Independent foundations (can parallel):**~~ ~~PSY-49 (tag model)~~ DONE, ~~PSY-52 (artist relationship model)~~ DONE. Remaining: PSY-47 (artist merge/split), PSY-54 (bill position), PSY-59 (scene backend)
+2. **Depends on models (NOW UNBLOCKED):** PSY-50 (tag service, needs ~~PSY-49~~), PSY-53 (similar artist service, needs ~~PSY-52~~)
 3. **Depends on services:** PSY-51 (tag frontend, needs PSY-50), PSY-46 (tag admin, needs PSY-50), PSY-60 (scene frontend, needs PSY-59)
 4. **Integration:** PSY-45 "Needs Work" dashboard (integrates with request system from Phase 2a), collection-tag aggregation (after PSY-51)
 
@@ -273,7 +274,7 @@ Sprint 6: PSY-72 (requests frontend) + PSY-31 (automated extraction scheduler)
 **Theme:** The pipeline issues deferred from Phase 1.6a get addressed incrementally, as background work between community feature sprints. Not a phase gate — a maintenance track.
 
 - [x] ~~**AI billing enrichment** (PSY-30)~~ — **DONE.** Extraction prompts request set_type and billing_order. Pipeline import prefers billing data when available. Normalizes set types (support→opener, dj/host→performer).
-- [ ] **Automated scheduling** (PSY-31) — **In progress.** Background scheduler service (Go ticker, worker pool, circuit breaker, anomaly detection, Discord notifications).
+- [x] ~~**Automated scheduling** (PSY-31)~~ — **DONE.** SchedulerService with configurable intervals per venue, worker pool (default 3 concurrent), circuit breaker (5 consecutive failures pauses venue), anomaly detection (event count drops >50% triggers alert), Discord notifications. Started/stopped in `cmd/server/main.go`. 17 tests.
 - [ ] **Consolidate discovery UI** (PSY-33) — retire standalone discovery app, add "Data Pipeline" admin tab. *Note: PSY-36 shipped a full admin Pipeline tab with venue config CRUD, run history, and extraction controls — this may be largely complete.*
 - [ ] **Post-import enrichment pipeline** (PSY-35) — automatic artist matching, MusicBrainz lookup, API cross-referencing
 - [ ] **iCal/RSS feed auto-detection** (PSY-58) — auto-detect structured feeds during venue onboarding, cheapest extraction tier
