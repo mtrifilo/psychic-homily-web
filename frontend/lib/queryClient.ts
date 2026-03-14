@@ -278,6 +278,15 @@ export const queryKeys = {
     my: ['collections', 'my'] as const,
   },
 
+  // Request queries
+  requests: {
+    all: ['requests'] as const,
+    list: (params?: Record<string, unknown>) =>
+      ['requests', 'list', params] as const,
+    detail: (requestId: number) =>
+      ['requests', 'detail', requestId] as const,
+  },
+
   // Revision history queries
   revisions: {
     all: ['revisions'] as const,
@@ -369,6 +378,10 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate collection queries
   collections: () =>
     queryClient.invalidateQueries({ queryKey: ['collections'] }),
+
+  // Invalidate request queries
+  requests: () =>
+    queryClient.invalidateQueries({ queryKey: ['requests'] }),
 
   // Invalidate revision queries
   revisions: () =>

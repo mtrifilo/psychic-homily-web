@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/command'
 import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tent, BookOpen, Headphones, Send,
-  Library, LayoutList, Settings, Shield, Search, Clock, X,
+  Library, LayoutList, MessageSquarePlus, Settings, Shield, Search, Clock, X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -70,6 +70,12 @@ const routes: RouteItem[] = [
     href: '/collections',
     icon: LayoutList,
     keywords: ['collections', 'curated', 'lists', 'playlists'],
+  },
+  {
+    label: 'Requests',
+    href: '/requests',
+    icon: MessageSquarePlus,
+    keywords: ['requests', 'request', 'wanted', 'missing', 'suggest', 'ask'],
   },
   {
     label: 'Blog',
