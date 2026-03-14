@@ -147,6 +147,7 @@ vi.mock('@/components/shared', () => ({
       {actions && <div data-testid="header-actions">{actions}</div>}
     </div>
   ),
+  RevisionHistory: () => <div data-testid="revision-history">Revision History</div>,
 }))
 
 import { ArtistDetail } from './ArtistDetail'
