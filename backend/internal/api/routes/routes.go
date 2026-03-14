@@ -98,6 +98,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupCollectionRoutes(api, protectedGroup, sc)
 	setupRequestRoutes(api, protectedGroup, sc)
 	setupRevisionRoutes(api, protectedGroup, sc)
+	setupTagRoutes(api, protectedGroup, sc)
 
 	return api
 }
@@ -627,6 +628,37 @@ func setupRevisionRoutes(api huma.API, protected *huma.Group, sc *services.Servi
 
 	// Admin rollback endpoint
 	huma.Post(protected, "/admin/revisions/{revision_id}/rollback", revisionHandler.RollbackRevisionHandler)
+}
+
+// setupTagRoutes configures tag, entity tagging, and tag voting endpoints.
+// Public endpoints for browsing tags. Optional auth for entity tags (user's vote).
+// Protected endpoints for tagging and voting. Admin endpoints for tag CRUD and aliases.
+func setupTagRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
+	tagHandler := handlers.NewTagHandler(sc.Tag, sc.AuditLog)
+
+	// Public tag endpoints
+	huma.Get(api, "/tags", tagHandler.ListTagsHandler)
+	huma.Get(api, "/tags/search", tagHandler.SearchTagsHandler)
+	huma.Get(api, "/tags/{tag_id}", tagHandler.GetTagHandler)
+	huma.Get(api, "/tags/{tag_id}/aliases", tagHandler.ListAliasesHandler)
+
+	// Entity tags with optional auth (includes user's vote if authenticated)
+	optionalAuthGroup := huma.NewGroup(api, "")
+	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(sc.JWT))
+	huma.Get(optionalAuthGroup, "/entities/{entity_type}/{entity_id}/tags", tagHandler.ListEntityTagsHandler)
+
+	// Protected: tagging and voting
+	huma.Post(protected, "/entities/{entity_type}/{entity_id}/tags", tagHandler.AddTagToEntityHandler)
+	huma.Delete(protected, "/entities/{entity_type}/{entity_id}/tags/{tag_id}", tagHandler.RemoveTagFromEntityHandler)
+	huma.Post(protected, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.VoteTagHandler)
+	huma.Delete(protected, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.RemoveTagVoteHandler)
+
+	// Admin: tag CRUD and alias management
+	huma.Post(protected, "/tags", tagHandler.CreateTagHandler)
+	huma.Put(protected, "/tags/{tag_id}", tagHandler.UpdateTagHandler)
+	huma.Delete(protected, "/tags/{tag_id}", tagHandler.DeleteTagHandler)
+	huma.Post(protected, "/tags/{tag_id}/aliases", tagHandler.CreateAliasHandler)
+	huma.Delete(protected, "/tags/{tag_id}/aliases/{alias_id}", tagHandler.DeleteAliasHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON
