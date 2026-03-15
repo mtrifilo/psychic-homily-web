@@ -441,3 +441,14 @@ type DataQualityServiceInterface interface {
 	GetSummary() (*DataQualitySummary, error)
 	GetCategoryItems(category string, limit, offset int) ([]*DataQualityItem, int64, error)
 }
+
+// AttendanceServiceInterface defines the contract for show attendance (going/interested) operations.
+type AttendanceServiceInterface interface {
+	SetAttendance(userID, showID uint, status string) error
+	RemoveAttendance(userID, showID uint) error
+	GetUserAttendance(userID, showID uint) (string, error)
+	GetAttendanceCounts(showID uint) (*AttendanceCountsResponse, error)
+	GetBatchAttendanceCounts(showIDs []uint) (map[uint]*AttendanceCountsResponse, error)
+	GetBatchUserAttendance(userID uint, showIDs []uint) (map[uint]string, error)
+	GetUserAttendingShows(userID uint, status string, limit, offset int) ([]*AttendingShowResponse, int64, error)
+}

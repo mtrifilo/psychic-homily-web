@@ -249,6 +249,8 @@ type ArtistReportResponse = contracts.ArtistReportResponse
 type ArtistReportArtistInfo = contracts.ArtistReportArtistInfo
 type CalendarTokenCreateResponse = contracts.CalendarTokenCreateResponse
 type CalendarTokenStatusResponse = contracts.CalendarTokenStatusResponse
+type AttendanceCountsResponse = contracts.AttendanceCountsResponse
+type AttendingShowResponse = contracts.AttendingShowResponse
 
 // ──────────────────────────────────────────────
 // Notification types (audit log)

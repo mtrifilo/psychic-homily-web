@@ -101,6 +101,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupTagRoutes(api, protectedGroup, sc)
 	setupArtistRelationshipRoutes(api, protectedGroup, sc)
 	setupSceneRoutes(api, sc)
+	setupAttendanceRoutes(api, protectedGroup, sc)
 
 	return api
 }
@@ -698,6 +699,24 @@ func setupSceneRoutes(api huma.API, sc *services.ServiceContainer) {
 	huma.Get(api, "/scenes", sceneHandler.ListScenesHandler)
 	huma.Get(api, "/scenes/{slug}", sceneHandler.GetSceneDetailHandler)
 	huma.Get(api, "/scenes/{slug}/artists", sceneHandler.GetSceneActiveArtistsHandler)
+}
+
+// setupAttendanceRoutes configures show attendance (going/interested) endpoints.
+// Public endpoints use optional auth (counts always available; user status if authenticated).
+// Set/remove attendance requires authentication.
+func setupAttendanceRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
+	attendanceHandler := handlers.NewAttendanceHandler(sc.Attendance)
+
+	// Public endpoints with optional auth (counts + user status if authenticated)
+	optionalAuthGroup := huma.NewGroup(api, "")
+	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(sc.JWT))
+	huma.Get(optionalAuthGroup, "/shows/{show_id}/attendance", attendanceHandler.GetAttendanceHandler)
+	huma.Post(optionalAuthGroup, "/shows/attendance/batch", attendanceHandler.BatchAttendanceHandler)
+
+	// Protected endpoints (require authentication)
+	huma.Post(protected, "/shows/{show_id}/attendance", attendanceHandler.SetAttendanceHandler)
+	huma.Delete(protected, "/shows/{show_id}/attendance", attendanceHandler.RemoveAttendanceHandler)
+	huma.Get(protected, "/attendance/my-shows", attendanceHandler.GetMyShowsHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON
