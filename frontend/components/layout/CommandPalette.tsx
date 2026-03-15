@@ -14,6 +14,7 @@ import {
 import {
   Calendar, CalendarCheck, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
   Library, LayoutList, MessageSquarePlus, Settings, Shield, Search, Clock, X, Globe, UserCheck,
+  TrendingUp,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -82,6 +83,12 @@ const routes: RouteItem[] = [
     href: '/collections',
     icon: LayoutList,
     keywords: ['collections', 'curated', 'lists', 'playlists'],
+  },
+  {
+    label: 'Charts',
+    href: '/charts',
+    icon: TrendingUp,
+    keywords: ['charts', 'trending', 'popular', 'top', 'hot', 'rankings', 'leaderboard'],
   },
   {
     label: 'Requests',
