@@ -311,6 +311,19 @@ export const queryKeys = {
     myShows: (params?: Record<string, unknown>) => ['attendance', 'my-shows', params] as const,
   },
 
+  // Follow queries
+  follows: {
+    all: ['follows'] as const,
+    entity: (entityType: string, entityId: number) =>
+      ['follows', entityType, entityId] as const,
+    batch: (entityType: string, entityIds: number[]) =>
+      ['follows', 'batch', entityType, ...entityIds] as const,
+    myFollowing: (params?: Record<string, unknown>) =>
+      ['follows', 'my-following', params] as const,
+    followers: (entityType: string, entityId: number) =>
+      ['follows', 'followers', entityType, entityId] as const,
+  },
+
   // Scene queries
   scenes: {
     all: ['scenes'] as const,
@@ -426,6 +439,10 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate attendance queries
   attendance: () =>
     queryClient.invalidateQueries({ queryKey: ['attendance'] }),
+
+  // Invalidate follow queries
+  follows: () =>
+    queryClient.invalidateQueries({ queryKey: ['follows'] }),
 
   // Invalidate scene queries
   scenes: () =>
