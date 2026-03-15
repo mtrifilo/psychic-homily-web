@@ -102,6 +102,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupArtistRelationshipRoutes(api, protectedGroup, sc)
 	setupSceneRoutes(api, sc)
 	setupAttendanceRoutes(api, protectedGroup, sc)
+	setupFollowRoutes(api, protectedGroup, sc)
 
 	return api
 }
@@ -717,6 +718,33 @@ func setupAttendanceRoutes(api huma.API, protected *huma.Group, sc *services.Ser
 	huma.Post(protected, "/shows/{show_id}/attendance", attendanceHandler.SetAttendanceHandler)
 	huma.Delete(protected, "/shows/{show_id}/attendance", attendanceHandler.RemoveAttendanceHandler)
 	huma.Get(protected, "/attendance/my-shows", attendanceHandler.GetMyShowsHandler)
+}
+
+// setupFollowRoutes configures follow/unfollow endpoints for entities.
+// Follow/unfollow requires authentication. Follower counts use optional auth
+// (counts always available; user follow status if authenticated).
+func setupFollowRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
+	followHandler := handlers.NewFollowHandler(sc.Follow)
+
+	// Optional auth group for public follower counts/lists
+	optionalAuthGroup := huma.NewGroup(api, "")
+	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(sc.JWT))
+
+	// Follow/unfollow (protected): entity_type is a path param (artists, venues, labels, festivals)
+	huma.Post(protected, "/{entity_type}/{entity_id}/follow", followHandler.FollowEntityHandler)
+	huma.Delete(protected, "/{entity_type}/{entity_id}/follow", followHandler.UnfollowEntityHandler)
+
+	// Public with optional auth: follower count + user follow status
+	huma.Get(optionalAuthGroup, "/{entity_type}/{entity_id}/followers", followHandler.GetFollowersHandler)
+
+	// Public with optional auth: follower list
+	huma.Get(optionalAuthGroup, "/{entity_type}/{entity_id}/followers/list", followHandler.GetFollowersListHandler)
+
+	// Batch follow counts (optional auth)
+	huma.Post(optionalAuthGroup, "/follows/batch", followHandler.BatchFollowHandler)
+
+	// User's following list (protected)
+	huma.Get(protected, "/me/following", followHandler.GetMyFollowingHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON

@@ -251,6 +251,9 @@ type CalendarTokenCreateResponse = contracts.CalendarTokenCreateResponse
 type CalendarTokenStatusResponse = contracts.CalendarTokenStatusResponse
 type AttendanceCountsResponse = contracts.AttendanceCountsResponse
 type AttendingShowResponse = contracts.AttendingShowResponse
+type FollowingEntityResponse = contracts.FollowingEntityResponse
+type FollowerResponse = contracts.FollowerResponse
+type FollowStatusResponse = contracts.FollowStatusResponse
 
 // ──────────────────────────────────────────────
 // Notification types (audit log)

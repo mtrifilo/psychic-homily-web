@@ -144,3 +144,31 @@ type AttendingShowResponse struct {
 	City      *string   `json:"city"`
 	State     *string   `json:"state"`
 }
+
+// ──────────────────────────────────────────────
+// Follow types
+// ──────────────────────────────────────────────
+
+// FollowingEntityResponse represents an entity a user is following.
+type FollowingEntityResponse struct {
+	EntityType string    `json:"entity_type"`
+	EntityID   uint      `json:"entity_id"`
+	Name       string    `json:"name"`
+	Slug       string    `json:"slug"`
+	FollowedAt time.Time `json:"followed_at"`
+}
+
+// FollowerResponse represents a follower of an entity.
+type FollowerResponse struct {
+	UserID      uint   `json:"user_id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name,omitempty"`
+}
+
+// FollowStatusResponse contains follow status for a single entity.
+type FollowStatusResponse struct {
+	EntityType    string `json:"entity_type"`
+	EntityID      uint   `json:"entity_id"`
+	FollowerCount int64  `json:"follower_count"`
+	IsFollowing   bool   `json:"is_following"`
+}

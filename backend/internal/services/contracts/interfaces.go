@@ -452,3 +452,15 @@ type AttendanceServiceInterface interface {
 	GetBatchUserAttendance(userID uint, showIDs []uint) (map[uint]string, error)
 	GetUserAttendingShows(userID uint, status string, limit, offset int) ([]*AttendingShowResponse, int64, error)
 }
+
+// FollowServiceInterface defines the contract for entity follow operations.
+type FollowServiceInterface interface {
+	Follow(userID uint, entityType string, entityID uint) error
+	Unfollow(userID uint, entityType string, entityID uint) error
+	IsFollowing(userID uint, entityType string, entityID uint) (bool, error)
+	GetFollowerCount(entityType string, entityID uint) (int64, error)
+	GetBatchFollowerCounts(entityType string, entityIDs []uint) (map[uint]int64, error)
+	GetBatchUserFollowing(userID uint, entityType string, entityIDs []uint) (map[uint]bool, error)
+	GetUserFollowing(userID uint, entityType string, limit, offset int) ([]*FollowingEntityResponse, int64, error)
+	GetFollowers(entityType string, entityID uint, limit, offset int) ([]*FollowerResponse, int64, error)
+}

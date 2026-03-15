@@ -49,6 +49,7 @@ type ArtistRelationshipServiceInterface = contracts.ArtistRelationshipServiceInt
 type SceneServiceInterface = contracts.SceneServiceInterface
 type DataQualityServiceInterface = contracts.DataQualityServiceInterface
 type AttendanceServiceInterface = contracts.AttendanceServiceInterface
+type FollowServiceInterface = contracts.FollowServiceInterface
 
 // Compile-time interface satisfaction checks.
 // Engagement services (Bookmark, SavedShow, FavoriteVenue, Calendar, Reminder)

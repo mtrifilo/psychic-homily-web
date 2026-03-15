@@ -1459,9 +1459,78 @@ func (m *mockAttendanceService) GetUserAttendingShows(userID uint, status string
 }
 
 // ============================================================================
+// Mock: FollowServiceInterface
+// ============================================================================
+
+type mockFollowService struct {
+	followFn                func(userID uint, entityType string, entityID uint) error
+	unfollowFn              func(userID uint, entityType string, entityID uint) error
+	isFollowingFn           func(userID uint, entityType string, entityID uint) (bool, error)
+	getFollowerCountFn      func(entityType string, entityID uint) (int64, error)
+	getBatchFollowerCountsFn func(entityType string, entityIDs []uint) (map[uint]int64, error)
+	getBatchUserFollowingFn  func(userID uint, entityType string, entityIDs []uint) (map[uint]bool, error)
+	getUserFollowingFn       func(userID uint, entityType string, limit, offset int) ([]*services.FollowingEntityResponse, int64, error)
+	getFollowersFn           func(entityType string, entityID uint, limit, offset int) ([]*services.FollowerResponse, int64, error)
+}
+
+func (m *mockFollowService) Follow(userID uint, entityType string, entityID uint) error {
+	if m.followFn != nil {
+		return m.followFn(userID, entityType, entityID)
+	}
+	return nil
+}
+func (m *mockFollowService) Unfollow(userID uint, entityType string, entityID uint) error {
+	if m.unfollowFn != nil {
+		return m.unfollowFn(userID, entityType, entityID)
+	}
+	return nil
+}
+func (m *mockFollowService) IsFollowing(userID uint, entityType string, entityID uint) (bool, error) {
+	if m.isFollowingFn != nil {
+		return m.isFollowingFn(userID, entityType, entityID)
+	}
+	return false, nil
+}
+func (m *mockFollowService) GetFollowerCount(entityType string, entityID uint) (int64, error) {
+	if m.getFollowerCountFn != nil {
+		return m.getFollowerCountFn(entityType, entityID)
+	}
+	return 0, nil
+}
+func (m *mockFollowService) GetBatchFollowerCounts(entityType string, entityIDs []uint) (map[uint]int64, error) {
+	if m.getBatchFollowerCountsFn != nil {
+		return m.getBatchFollowerCountsFn(entityType, entityIDs)
+	}
+	result := make(map[uint]int64)
+	for _, id := range entityIDs {
+		result[id] = 0
+	}
+	return result, nil
+}
+func (m *mockFollowService) GetBatchUserFollowing(userID uint, entityType string, entityIDs []uint) (map[uint]bool, error) {
+	if m.getBatchUserFollowingFn != nil {
+		return m.getBatchUserFollowingFn(userID, entityType, entityIDs)
+	}
+	return make(map[uint]bool), nil
+}
+func (m *mockFollowService) GetUserFollowing(userID uint, entityType string, limit, offset int) ([]*services.FollowingEntityResponse, int64, error) {
+	if m.getUserFollowingFn != nil {
+		return m.getUserFollowingFn(userID, entityType, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *mockFollowService) GetFollowers(entityType string, entityID uint, limit, offset int) ([]*services.FollowerResponse, int64, error) {
+	if m.getFollowersFn != nil {
+		return m.getFollowersFn(entityType, entityID, limit, offset)
+	}
+	return nil, 0, nil
+}
+
+// ============================================================================
 // Compile-time interface satisfaction checks
 // ============================================================================
 
+var _ services.FollowServiceInterface = (*mockFollowService)(nil)
 var _ services.AttendanceServiceInterface = (*mockAttendanceService)(nil)
 var _ services.SavedShowServiceInterface = (*mockSavedShowService)(nil)
 var _ services.FavoriteVenueServiceInterface = (*mockFavoriteVenueService)(nil)
