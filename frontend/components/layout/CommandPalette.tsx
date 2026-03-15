@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/command'
 import {
   Calendar, CalendarCheck, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
-  Library, LayoutList, MessageSquarePlus, Settings, Shield, Search, Clock, X, Globe,
+  Library, LayoutList, MessageSquarePlus, Settings, Shield, Search, Clock, X, Globe, UserCheck,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -112,6 +112,13 @@ const routes: RouteItem[] = [
     href: '/my-shows',
     icon: CalendarCheck,
     keywords: ['my shows', 'going', 'interested', 'attending', 'rsvp'],
+    requireAuth: true,
+  },
+  {
+    label: 'Following',
+    href: '/following',
+    icon: UserCheck,
+    keywords: ['following', 'follow', 'followed', 'artists', 'venues', 'labels', 'festivals'],
     requireAuth: true,
   },
   {

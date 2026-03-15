@@ -388,6 +388,18 @@ export const API_ENDPOINTS = {
     MY_SHOWS: `${API_BASE_URL}/attendance/my-shows`,
   },
 
+  // Follow endpoints
+  FOLLOW: {
+    ENTITY: (entityType: string, entityId: number) =>
+      `${API_BASE_URL}/${entityType}/${entityId}/follow`,
+    FOLLOWERS: (entityType: string, entityId: number) =>
+      `${API_BASE_URL}/${entityType}/${entityId}/followers`,
+    FOLLOWERS_LIST: (entityType: string, entityId: number) =>
+      `${API_BASE_URL}/${entityType}/${entityId}/followers/list`,
+    BATCH: `${API_BASE_URL}/follows/batch`,
+    MY_FOLLOWING: `${API_BASE_URL}/me/following`,
+  },
+
   // Scene endpoints
   SCENES: {
     LIST: `${API_BASE_URL}/scenes`,

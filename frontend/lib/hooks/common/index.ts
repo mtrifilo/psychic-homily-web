@@ -19,3 +19,11 @@ export {
   type RevisionItem,
   type FieldChange,
 } from './useRevisions'
+
+export {
+  useFollowStatus,
+  useBatchFollowStatus,
+  useFollow,
+  useUnfollow,
+  useMyFollowing,
+} from './useFollow'

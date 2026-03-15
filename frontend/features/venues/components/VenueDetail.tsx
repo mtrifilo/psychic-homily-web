@@ -9,7 +9,7 @@ import type { ApiError } from '@/lib/api'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryClient'
-import { SocialLinks, RevisionHistory } from '@/components/shared'
+import { SocialLinks, RevisionHistory, FollowButton } from '@/components/shared'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
@@ -158,6 +158,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
                     />
                   )}
                   <FavoriteVenueButton venueId={venue.id} size="md" />
+                  <FollowButton entityType="venues" entityId={venue.id} />
                 </div>
                 <p className="text-muted-foreground mt-1">
                   {venue.city}, {venue.state}

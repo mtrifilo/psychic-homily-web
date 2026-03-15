@@ -149,6 +149,9 @@ vi.mock('@/components/shared', () => ({
     </div>
   ),
   RevisionHistory: () => <div data-testid="revision-history">Revision History</div>,
+  FollowButton: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
+    <button data-testid="follow-button">Follow {entityType} {entityId}</button>
+  ),
 }))
 
 import { ArtistDetail } from './ArtistDetail'
