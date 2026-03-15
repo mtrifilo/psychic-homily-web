@@ -303,6 +303,14 @@ export const queryKeys = {
     entityTags: (entityType: string, entityId: number) => ['tags', 'entityTags', entityType, entityId] as const,
   },
 
+  // Attendance (going/interested) queries
+  attendance: {
+    all: ['attendance'] as const,
+    show: (showId: number) => ['attendance', 'show', showId] as const,
+    batch: (showIds: number[]) => ['attendance', 'batch', ...showIds] as const,
+    myShows: (params?: Record<string, unknown>) => ['attendance', 'my-shows', params] as const,
+  },
+
   // Scene queries
   scenes: {
     all: ['scenes'] as const,
@@ -414,6 +422,10 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate entity tag queries
   entityTags: (entityType: string, entityId: number) =>
     queryClient.invalidateQueries({ queryKey: ['tags', 'entityTags', entityType, entityId] }),
+
+  // Invalidate attendance queries
+  attendance: () =>
+    queryClient.invalidateQueries({ queryKey: ['attendance'] }),
 
   // Invalidate scene queries
   scenes: () =>

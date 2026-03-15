@@ -261,3 +261,34 @@ export interface CalendarTokenDeleteResponse {
   success: boolean
   message: string
 }
+
+// Attendance (going/interested) types
+export interface AttendanceCounts {
+  show_id: number
+  going_count: number
+  interested_count: number
+  user_status?: string // "going" | "interested" | "" (empty when no status)
+}
+
+export interface BatchAttendanceResponse {
+  attendance: Record<string, AttendanceCounts>
+}
+
+export interface AttendingShow {
+  show_id: number
+  title: string
+  slug: string
+  event_date: string // ISO date string
+  status: string // "going" | "interested"
+  venue_name?: string | null
+  venue_slug?: string | null
+  city?: string | null
+  state?: string | null
+}
+
+export interface MyShowsResponse {
+  shows: AttendingShow[]
+  total: number
+  limit: number
+  offset: number
+}

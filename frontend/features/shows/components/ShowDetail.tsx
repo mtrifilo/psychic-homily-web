@@ -14,6 +14,7 @@ import { SocialLinks, MusicEmbed, SaveButton } from '@/components/shared'
 import { ShowForm } from '@/components/forms'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { AttendanceButton } from './AttendanceButton'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ReportShowButton } from './ReportShowButton'
 
@@ -262,6 +263,9 @@ export function ShowDetail({ showId }: ShowDetailProps) {
 
           {/* Action Buttons */}
           <div className="flex flex-col items-end gap-2 shrink-0">
+            {/* Attendance (Going/Interested) */}
+            <AttendanceButton showId={show.id} compact={false} />
+
             <div className="flex items-center gap-2">
               <SaveButton showId={show.id} variant="outline" size="sm" />
               <ReportShowButton

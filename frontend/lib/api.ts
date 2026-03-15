@@ -381,6 +381,13 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/admin/revisions/${revisionId}/rollback`,
   },
 
+  // Attendance (going/interested) endpoints
+  ATTENDANCE: {
+    SHOW: (showId: number) => `${API_BASE_URL}/shows/${showId}/attendance`,
+    BATCH: `${API_BASE_URL}/shows/attendance/batch`,
+    MY_SHOWS: `${API_BASE_URL}/attendance/my-shows`,
+  },
+
   // Scene endpoints
   SCENES: {
     LIST: `${API_BASE_URL}/scenes`,
