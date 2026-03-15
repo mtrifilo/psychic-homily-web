@@ -275,3 +275,34 @@ func (s *EmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubs
 
 	return nil
 }
+
+// SendFilterNotificationEmail sends a notification email for a matched filter.
+// The caller builds the HTML body; this method just sends it with proper headers.
+func (s *EmailService) SendFilterNotificationEmail(toEmail, subject, htmlBody, unsubscribeURL string) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service is not configured")
+	}
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: subject,
+		Html:    htmlBody,
+		Headers: map[string]string{
+			"List-Unsubscribe":      fmt.Sprintf("<%s>", unsubscribeURL),
+			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+		},
+	}
+
+	_, err := s.client.Emails.Send(params)
+	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "email")
+			scope.SetTag("email_type", "filter_notification")
+			sentry.CaptureException(err)
+		})
+		return fmt.Errorf("failed to send filter notification email: %w", err)
+	}
+
+	return nil
+}

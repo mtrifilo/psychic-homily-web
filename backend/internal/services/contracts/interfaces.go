@@ -217,6 +217,7 @@ type EmailServiceInterface interface {
 	SendMagicLinkEmail(toEmail, token string) error
 	SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error
 	SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventDate time.Time, venues []string) error
+	SendFilterNotificationEmail(toEmail, subject, htmlBody, unsubscribeURL string) error
 }
 
 // ReminderServiceInterface defines the contract for the show reminder background service.

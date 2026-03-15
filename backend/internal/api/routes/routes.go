@@ -103,6 +103,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupSceneRoutes(api, sc)
 	setupAttendanceRoutes(api, protectedGroup, sc)
 	setupFollowRoutes(api, protectedGroup, sc)
+	setupNotificationFilterRoutes(api, protectedGroup, sc, cfg)
 
 	return api
 }
@@ -468,6 +469,7 @@ func setupAdminRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 	adminHandler := handlers.NewAdminHandler(
 		sc.Show, sc.Venue, sc.Discord, sc.MusicDiscovery, sc.Discovery,
 		sc.APIToken, sc.DataSync, sc.AuditLog, sc.User, sc.AdminStats,
+		sc.NotificationFilter,
 	)
 	artistHandler := handlers.NewArtistHandler(sc.Artist, sc.AuditLog)
 	auditLogHandler := handlers.NewAuditLogHandler(sc.AuditLog)
@@ -752,6 +754,25 @@ func setupFollowRoutes(api huma.API, protected *huma.Group, sc *services.Service
 
 	// User's following list (protected)
 	huma.Get(protected, "/me/following", followHandler.GetMyFollowingHandler)
+}
+
+// setupNotificationFilterRoutes configures notification filter and notification log endpoints.
+// CRUD and notifications require authentication. Unsubscribe is public (HMAC-signed).
+func setupNotificationFilterRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer, cfg *config.Config) {
+	filterHandler := handlers.NewNotificationFilterHandler(sc.NotificationFilter, cfg.JWT.SecretKey)
+
+	// Protected: filter CRUD
+	huma.Get(protected, "/me/notification-filters", filterHandler.ListFiltersHandler)
+	huma.Post(protected, "/me/notification-filters", filterHandler.CreateFilterHandler)
+	huma.Patch(protected, "/me/notification-filters/{id}", filterHandler.UpdateFilterHandler)
+	huma.Delete(protected, "/me/notification-filters/{id}", filterHandler.DeleteFilterHandler)
+	huma.Post(protected, "/me/notification-filters/quick", filterHandler.QuickCreateFilterHandler)
+
+	// Protected: notification log
+	huma.Get(protected, "/me/notifications", filterHandler.GetNotificationsHandler)
+
+	// Public: HMAC-signed unsubscribe
+	huma.Post(api, "/unsubscribe/filter/{id}", filterHandler.UnsubscribeFilterHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON

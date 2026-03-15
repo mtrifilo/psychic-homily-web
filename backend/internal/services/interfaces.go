@@ -51,6 +51,7 @@ type DataQualityServiceInterface = contracts.DataQualityServiceInterface
 type AnalyticsServiceInterface = contracts.AnalyticsServiceInterface
 type AttendanceServiceInterface = contracts.AttendanceServiceInterface
 type FollowServiceInterface = contracts.FollowServiceInterface
+type NotificationFilterServiceInterface = contracts.NotificationFilterServiceInterface
 
 // Compile-time interface satisfaction checks.
 // Engagement services (Bookmark, SavedShow, FavoriteVenue, Calendar, Reminder)
