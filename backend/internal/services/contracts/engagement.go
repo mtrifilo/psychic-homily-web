@@ -120,3 +120,27 @@ type CalendarTokenStatusResponse struct {
 	HasToken  bool       `json:"has_token"`
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 }
+
+// ──────────────────────────────────────────────
+// Attendance types (going/interested)
+// ──────────────────────────────────────────────
+
+// AttendanceCountsResponse contains going and interested counts for a show
+type AttendanceCountsResponse struct {
+	ShowID          uint `json:"show_id"`
+	GoingCount      int  `json:"going_count"`
+	InterestedCount int  `json:"interested_count"`
+}
+
+// AttendingShowResponse represents a show the user is attending or interested in
+type AttendingShowResponse struct {
+	ShowID    uint      `json:"show_id"`
+	Title     string    `json:"title"`
+	Slug      string    `json:"slug"`
+	EventDate time.Time `json:"event_date"`
+	Status    string    `json:"status"` // "going" or "interested"
+	VenueName *string   `json:"venue_name"`
+	VenueSlug *string   `json:"venue_slug"`
+	City      *string   `json:"city"`
+	State     *string   `json:"state"`
+}

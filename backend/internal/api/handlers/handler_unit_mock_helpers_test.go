@@ -1398,9 +1398,71 @@ func (m *mockPasswordValidator) IsCommonPassword(password string) bool {
 }
 
 // ============================================================================
+// Mock: AttendanceServiceInterface
+// ============================================================================
+
+type mockAttendanceService struct {
+	setAttendanceFn          func(userID, showID uint, status string) error
+	removeAttendanceFn       func(userID, showID uint) error
+	getUserAttendanceFn      func(userID, showID uint) (string, error)
+	getAttendanceCountsFn    func(showID uint) (*services.AttendanceCountsResponse, error)
+	getBatchCountsFn         func(showIDs []uint) (map[uint]*services.AttendanceCountsResponse, error)
+	getBatchUserAttendanceFn func(userID uint, showIDs []uint) (map[uint]string, error)
+	getUserAttendingShowsFn  func(userID uint, status string, limit, offset int) ([]*services.AttendingShowResponse, int64, error)
+}
+
+func (m *mockAttendanceService) SetAttendance(userID, showID uint, status string) error {
+	if m.setAttendanceFn != nil {
+		return m.setAttendanceFn(userID, showID, status)
+	}
+	return nil
+}
+func (m *mockAttendanceService) RemoveAttendance(userID, showID uint) error {
+	if m.removeAttendanceFn != nil {
+		return m.removeAttendanceFn(userID, showID)
+	}
+	return nil
+}
+func (m *mockAttendanceService) GetUserAttendance(userID, showID uint) (string, error) {
+	if m.getUserAttendanceFn != nil {
+		return m.getUserAttendanceFn(userID, showID)
+	}
+	return "", nil
+}
+func (m *mockAttendanceService) GetAttendanceCounts(showID uint) (*services.AttendanceCountsResponse, error) {
+	if m.getAttendanceCountsFn != nil {
+		return m.getAttendanceCountsFn(showID)
+	}
+	return &services.AttendanceCountsResponse{ShowID: showID}, nil
+}
+func (m *mockAttendanceService) GetBatchAttendanceCounts(showIDs []uint) (map[uint]*services.AttendanceCountsResponse, error) {
+	if m.getBatchCountsFn != nil {
+		return m.getBatchCountsFn(showIDs)
+	}
+	result := make(map[uint]*services.AttendanceCountsResponse)
+	for _, id := range showIDs {
+		result[id] = &services.AttendanceCountsResponse{ShowID: id}
+	}
+	return result, nil
+}
+func (m *mockAttendanceService) GetBatchUserAttendance(userID uint, showIDs []uint) (map[uint]string, error) {
+	if m.getBatchUserAttendanceFn != nil {
+		return m.getBatchUserAttendanceFn(userID, showIDs)
+	}
+	return make(map[uint]string), nil
+}
+func (m *mockAttendanceService) GetUserAttendingShows(userID uint, status string, limit, offset int) ([]*services.AttendingShowResponse, int64, error) {
+	if m.getUserAttendingShowsFn != nil {
+		return m.getUserAttendingShowsFn(userID, status, limit, offset)
+	}
+	return nil, 0, nil
+}
+
+// ============================================================================
 // Compile-time interface satisfaction checks
 // ============================================================================
 
+var _ services.AttendanceServiceInterface = (*mockAttendanceService)(nil)
 var _ services.SavedShowServiceInterface = (*mockSavedShowService)(nil)
 var _ services.FavoriteVenueServiceInterface = (*mockFavoriteVenueService)(nil)
 var _ services.AuditLogServiceInterface = (*mockAuditLogService)(nil)
