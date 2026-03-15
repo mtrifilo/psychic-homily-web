@@ -858,9 +858,9 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
               : errorMessage}
           </p>
           <Button asChild variant="outline">
-            <Link href="/shows">
+            <Link href="/artists">
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Shows
+              Back to Artists
             </Link>
           </Button>
         </div>
@@ -877,9 +877,9 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
             The artist you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button asChild variant="outline">
-            <Link href="/shows">
+            <Link href="/artists">
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Shows
+              Back to Artists
             </Link>
           </Button>
         </div>
@@ -923,7 +923,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   return (
     <>
       <EntityDetailLayout
-        backLink={{ href: '/shows', label: 'Back to Shows' }}
+        backLink={{ href: '/artists', label: 'Back to Artists' }}
         header={
           <EntityHeader
             title={artist.name}
