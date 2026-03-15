@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Newspaper,
+  Calendar, CalendarCheck, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Newspaper,
   Send, Library, LayoutList, MessageSquarePlus, Settings, Shield, PanelLeftClose, PanelLeft,
   ExternalLink, Globe,
 } from 'lucide-react'
@@ -130,6 +130,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
             <div>
               <div className={cn('mb-2 border-t border-sidebar-border', collapsed ? 'mx-2' : 'mx-3')} />
               <div className="space-y-0.5">
+                {renderItem({ href: '/my-shows', label: 'My Shows', icon: CalendarCheck })}
                 {renderItem({ href: '/collection', label: 'Collection', icon: Library })}
                 {renderItem({ href: '/profile', label: 'Settings', icon: Settings })}
                 {user?.is_admin && renderItem({ href: '/admin', label: 'Admin', icon: Shield })}

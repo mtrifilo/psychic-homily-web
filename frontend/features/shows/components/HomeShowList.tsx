@@ -3,6 +3,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useUpcomingShows, useShowCities } from '../hooks/useShows'
 import { useSavedShowBatch } from '../hooks/useSavedShows'
+import { useBatchAttendance } from '../hooks/useAttendance'
 import { usePrefetchRoutes } from '@/lib/hooks/common/usePrefetchRoutes'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useProfile, useSetFavoriteCities } from '@/features/auth'
@@ -66,6 +67,7 @@ export function HomeShowList() {
     [data?.shows]
   )
   const { data: savedShowIds } = useSavedShowBatch(showIds, isAuthenticated)
+  const { data: batchAttendance } = useBatchAttendance(showIds)
 
   const cities: CityWithCount[] = useMemo(
     () =>
@@ -131,6 +133,7 @@ export function HomeShowList() {
               show={show}
               isAdmin={isAdmin}
               isSaved={savedShowIds?.has(show.id)}
+              attendanceData={batchAttendance?.[String(show.id)]}
             />
           ))
         )}
