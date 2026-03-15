@@ -168,3 +168,31 @@ export interface ArtistReportsListResponse {
   reports: ArtistReportResponse[]
   total: number
 }
+
+// Artist alias
+export interface ArtistAlias {
+  id: number
+  artist_id: number
+  alias: string
+  created_at: string
+}
+
+// Response for artist aliases endpoint
+export interface ArtistAliasesResponse {
+  aliases: ArtistAlias[]
+  count: number
+}
+
+// Merge artist result
+export interface MergeArtistResult {
+  canonical_artist_id: number
+  merged_artist_id: number
+  merged_artist_name: string
+  shows_moved: number
+  releases_moved: number
+  labels_moved: number
+  festivals_moved: number
+  relationships_moved: number
+  bookmarks_moved: number
+  alias_created: boolean
+}

@@ -184,11 +184,26 @@ func (suite *ArtistServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
 	// Delete in FK-safe order
+	_, _ = sqlDB.Exec("DELETE FROM artist_relationship_votes")
+	_, _ = sqlDB.Exec("DELETE FROM artist_relationships")
+	_, _ = sqlDB.Exec("DELETE FROM tag_votes")
+	_, _ = sqlDB.Exec("DELETE FROM entity_tags")
+	_, _ = sqlDB.Exec("DELETE FROM artist_aliases")
+	_, _ = sqlDB.Exec("DELETE FROM artist_reports")
+	_, _ = sqlDB.Exec("DELETE FROM artist_releases")
+	_, _ = sqlDB.Exec("DELETE FROM artist_labels")
+	_, _ = sqlDB.Exec("DELETE FROM festival_artists")
+	_, _ = sqlDB.Exec("DELETE FROM user_bookmarks")
+	_, _ = sqlDB.Exec("DELETE FROM revisions")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
+	_, _ = sqlDB.Exec("DELETE FROM festivals")
+	_, _ = sqlDB.Exec("DELETE FROM labels")
+	_, _ = sqlDB.Exec("DELETE FROM releases")
+	_, _ = sqlDB.Exec("DELETE FROM tags")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
@@ -926,4 +941,255 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistsWithShowCounts_Wit
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
 	suite.Equal("PHX Artist", resp[0].Name)
+}
+
+// =============================================================================
+// Group 10: Alias CRUD
+// =============================================================================
+
+func (suite *ArtistServiceIntegrationTestSuite) TestAddArtistAlias_Success() {
+	artist, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Alias Artist"})
+
+	alias, err := suite.artistService.AddArtistAlias(artist.ID, "Alt Name")
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(alias)
+	suite.NotZero(alias.ID)
+	suite.Equal(artist.ID, alias.ArtistID)
+	suite.Equal("Alt Name", alias.Alias)
+	suite.NotEmpty(alias.CreatedAt)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestAddArtistAlias_DuplicateAlias_Fails() {
+	artist, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Dup Alias Artist"})
+	_, err := suite.artistService.AddArtistAlias(artist.ID, "Same Alias")
+	suite.Require().NoError(err)
+
+	_, err = suite.artistService.AddArtistAlias(artist.ID, "same alias") // case-insensitive
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "already exists")
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestAddArtistAlias_ConflictsWithArtistName_Fails() {
+	suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Existing Band"})
+	artist2, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Another Band"})
+
+	_, err := suite.artistService.AddArtistAlias(artist2.ID, "Existing Band")
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "conflicts with existing artist name")
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestAddArtistAlias_EmptyAlias_Fails() {
+	artist, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Empty Alias Artist"})
+
+	_, err := suite.artistService.AddArtistAlias(artist.ID, "  ")
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "cannot be empty")
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestAddArtistAlias_ArtistNotFound() {
+	_, err := suite.artistService.AddArtistAlias(99999, "Some Alias")
+	suite.Require().Error(err)
+	var artistErr *apperrors.ArtistError
+	suite.ErrorAs(err, &artistErr)
+	suite.Equal(apperrors.CodeArtistNotFound, artistErr.Code)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestRemoveArtistAlias_Success() {
+	artist, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Remove Alias Artist"})
+	alias, _ := suite.artistService.AddArtistAlias(artist.ID, "To Remove")
+
+	err := suite.artistService.RemoveArtistAlias(alias.ID)
+
+	suite.Require().NoError(err)
+
+	// Verify it's gone
+	aliases, err := suite.artistService.GetArtistAliases(artist.ID)
+	suite.Require().NoError(err)
+	suite.Empty(aliases)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestRemoveArtistAlias_NotFound() {
+	err := suite.artistService.RemoveArtistAlias(99999)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "not found")
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistAliases_Success() {
+	artist, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "List Aliases Artist"})
+	suite.artistService.AddArtistAlias(artist.ID, "Alias B")
+	suite.artistService.AddArtistAlias(artist.ID, "Alias A")
+
+	aliases, err := suite.artistService.GetArtistAliases(artist.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().Len(aliases, 2)
+	// Should be sorted alphabetically
+	suite.Equal("Alias A", aliases[0].Alias)
+	suite.Equal("Alias B", aliases[1].Alias)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistAliases_ArtistNotFound() {
+	_, err := suite.artistService.GetArtistAliases(99999)
+	suite.Require().Error(err)
+	var artistErr *apperrors.ArtistError
+	suite.ErrorAs(err, &artistErr)
+	suite.Equal(apperrors.CodeArtistNotFound, artistErr.Code)
+}
+
+// =============================================================================
+// Group 11: MergeArtists
+// =============================================================================
+
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_Basic() {
+	canonical, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Canonical Artist"})
+	mergeFrom, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Duplicate Artist"})
+
+	result, err := suite.artistService.MergeArtists(canonical.ID, mergeFrom.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+	suite.Equal(canonical.ID, result.CanonicalArtistID)
+	suite.Equal(mergeFrom.ID, result.MergedArtistID)
+	suite.Equal("Duplicate Artist", result.MergedArtistName)
+	suite.True(result.AliasCreated)
+
+	// Verify merged artist is deleted
+	_, err = suite.artistService.GetArtist(mergeFrom.ID)
+	suite.Require().Error(err)
+
+	// Verify alias was created
+	aliases, err := suite.artistService.GetArtistAliases(canonical.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(aliases, 1)
+	suite.Equal("Duplicate Artist", aliases[0].Alias)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_TransfersShows() {
+	canonical, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Merge Canonical"})
+	mergeFrom := suite.createTestArtist("Merge From")
+	venue := suite.createTestVenue("Merge Venue", "Phoenix", "AZ")
+	user := suite.createTestUser()
+
+	// MergeFrom has a show
+	suite.createApprovedShowWithArtist(mergeFrom.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+
+	result, err := suite.artistService.MergeArtists(canonical.ID, mergeFrom.ID)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), result.ShowsMoved)
+
+	// Verify canonical now has the show
+	shows, _, err := suite.artistService.GetShowsForArtist(canonical.ID, "UTC", 10, "upcoming")
+	suite.Require().NoError(err)
+	suite.Len(shows, 1)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_ShowConflictDedup() {
+	canonical := suite.createTestArtist("Conflict Canonical")
+	mergeFrom := suite.createTestArtist("Conflict MergeFrom")
+	venue := suite.createTestVenue("Conflict Venue", "Phoenix", "AZ")
+	user := suite.createTestUser()
+
+	// Both artists are on the same show
+	show := suite.createApprovedShowWithArtist(canonical.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+	suite.db.Create(&models.ShowArtist{ShowID: show.ID, ArtistID: mergeFrom.ID, Position: 1})
+
+	result, err := suite.artistService.MergeArtists(canonical.ID, mergeFrom.ID)
+
+	suite.Require().NoError(err)
+	// The conflicting show_artist row is deleted, not moved
+	suite.Equal(int64(0), result.ShowsMoved)
+
+	// Verify show still has exactly 1 artist (canonical)
+	var count int64
+	suite.db.Model(&models.ShowArtist{}).Where("show_id = ?", show.ID).Count(&count)
+	suite.Equal(int64(1), count)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_SelfMerge_Fails() {
+	artist, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Self Artist"})
+
+	_, err := suite.artistService.MergeArtists(artist.ID, artist.ID)
+
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "cannot merge an artist with itself")
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_CanonicalNotFound() {
+	mergeFrom, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "MergeFrom NotFound"})
+
+	_, err := suite.artistService.MergeArtists(99999, mergeFrom.ID)
+
+	suite.Require().Error(err)
+	var artistErr *apperrors.ArtistError
+	suite.ErrorAs(err, &artistErr)
+	suite.Equal(apperrors.CodeArtistNotFound, artistErr.Code)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_MergeFromNotFound() {
+	canonical, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Canonical NotFound"})
+
+	_, err := suite.artistService.MergeArtists(canonical.ID, 99999)
+
+	suite.Require().Error(err)
+	var artistErr *apperrors.ArtistError
+	suite.ErrorAs(err, &artistErr)
+	suite.Equal(apperrors.CodeArtistNotFound, artistErr.Code)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_TransfersAliases() {
+	canonical, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Alias Canon"})
+	mergeFrom, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Alias Merge"})
+
+	// Add existing alias to mergeFrom
+	suite.artistService.AddArtistAlias(mergeFrom.ID, "Old Alias")
+
+	result, err := suite.artistService.MergeArtists(canonical.ID, mergeFrom.ID)
+
+	suite.Require().NoError(err)
+	suite.True(result.AliasCreated)
+
+	// Verify canonical has both "Old Alias" and "Alias Merge"
+	aliases, err := suite.artistService.GetArtistAliases(canonical.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(aliases, 2)
+	aliasNames := []string{aliases[0].Alias, aliases[1].Alias}
+	suite.Contains(aliasNames, "Old Alias")
+	suite.Contains(aliasNames, "Alias Merge")
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_TransfersRevisions() {
+	canonical, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Rev Canonical"})
+	mergeFrom, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Rev MergeFrom"})
+	user := suite.createTestUser()
+
+	// Create a revision for mergeFrom
+	suite.db.Exec("INSERT INTO revisions (entity_type, entity_id, user_id, field_changes, summary, created_at) VALUES ('artist', ?, ?, '[]', 'test revision', NOW())", mergeFrom.ID, user.ID)
+
+	_, err := suite.artistService.MergeArtists(canonical.ID, mergeFrom.ID)
+	suite.Require().NoError(err)
+
+	// Verify revision now points to canonical
+	var count int64
+	suite.db.Raw("SELECT COUNT(*) FROM revisions WHERE entity_type = 'artist' AND entity_id = ?", canonical.ID).Scan(&count)
+	suite.Equal(int64(1), count)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_TransfersBookmarks() {
+	canonical, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "BM Canonical"})
+	mergeFrom, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "BM MergeFrom"})
+	user := suite.createTestUser()
+
+	// Create a bookmark for mergeFrom
+	suite.db.Exec("INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at) VALUES (?, 'artist', ?, 'bookmark', NOW())", user.ID, mergeFrom.ID)
+
+	result, err := suite.artistService.MergeArtists(canonical.ID, mergeFrom.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), result.BookmarksMoved)
+
+	// Verify bookmark now points to canonical
+	var count int64
+	suite.db.Raw("SELECT COUNT(*) FROM user_bookmarks WHERE entity_type = 'artist' AND entity_id = ?", canonical.ID).Scan(&count)
+	suite.Equal(int64(1), count)
 }

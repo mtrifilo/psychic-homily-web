@@ -20,9 +20,22 @@ type Artist struct {
 	UpdatedAt        time.Time `gorm:"not null"`
 
 	// Relationships
-	Shows []Show `gorm:"many2many:show_artists;"`
+	Shows   []Show        `gorm:"many2many:show_artists;"`
+	Aliases []ArtistAlias `gorm:"foreignKey:ArtistID"`
 }
 
 func (Artist) TableName() string {
 	return "artists"
+}
+
+// ArtistAlias represents an alternate name that resolves to a canonical artist.
+type ArtistAlias struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	ArtistID  uint      `gorm:"not null" json:"artist_id"`
+	Alias     string    `gorm:"not null;size:255" json:"alias"`
+	CreatedAt time.Time `gorm:"not null" json:"created_at"`
+}
+
+func (ArtistAlias) TableName() string {
+	return "artist_aliases"
 }

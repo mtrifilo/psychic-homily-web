@@ -23,6 +23,9 @@ export type {
   CreateArtistReportRequest,
   MyArtistReportResponse,
   ArtistReportsListResponse,
+  ArtistAlias,
+  ArtistAliasesResponse,
+  MergeArtistResult,
 } from './types'
 
 export { getArtistLocation } from './types'
