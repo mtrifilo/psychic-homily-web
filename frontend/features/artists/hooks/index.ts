@@ -11,3 +11,9 @@ export {
   useMyArtistReport,
   useReportArtist,
 } from './useArtistReports'
+
+export {
+  useArtistGraph,
+  useArtistRelationshipVote,
+  useCreateArtistRelationship,
+} from './useArtistGraph'

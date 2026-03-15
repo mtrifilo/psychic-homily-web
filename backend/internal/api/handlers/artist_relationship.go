@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -28,6 +29,67 @@ func NewArtistRelationshipHandler(
 		relService: relService,
 		auditLog:   auditLog,
 	}
+}
+
+// ============================================================================
+// Get Artist Graph (optional auth)
+// ============================================================================
+
+type GetArtistGraphRequest struct {
+	ArtistID string `path:"artist_id" doc:"Artist ID" example:"1"`
+	Types    string `query:"types" required:"false" doc:"Comma-separated relationship types to include (similar,shared_bills,shared_label,side_project,member_of)"`
+}
+
+type GetArtistGraphResponse struct {
+	Body contracts.ArtistGraph
+}
+
+func (h *ArtistRelationshipHandler) GetArtistGraphHandler(ctx context.Context, req *GetArtistGraphRequest) (*GetArtistGraphResponse, error) {
+	id, err := strconv.ParseUint(req.ArtistID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid artist ID")
+	}
+
+	// Parse types filter
+	var types []string
+	if req.Types != "" {
+		for _, t := range splitAndTrim(req.Types) {
+			if t != "" {
+				types = append(types, t)
+			}
+		}
+	}
+
+	// Get user ID for vote context
+	var userID uint
+	user := middleware.GetUserFromContext(ctx)
+	if user != nil {
+		userID = user.ID
+	}
+
+	graph, err := h.relService.GetArtistGraph(uint(id), types, userID)
+	if err != nil {
+		if err.Error() == "artist not found" || (len(err.Error()) > 16 && err.Error()[:16] == "artist not found") {
+			return nil, huma.Error404NotFound("Artist not found")
+		}
+		return nil, huma.Error500InternalServerError("Failed to get artist graph")
+	}
+
+	resp := &GetArtistGraphResponse{}
+	resp.Body = *graph
+	return resp, nil
+}
+
+// splitAndTrim splits a comma-separated string and trims whitespace from each element.
+func splitAndTrim(s string) []string {
+	parts := make([]string, 0)
+	for _, p := range strings.Split(s, ",") {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			parts = append(parts, trimmed)
+		}
+	}
+	return parts
 }
 
 // ============================================================================

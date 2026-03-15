@@ -272,6 +272,223 @@ func (s *ArtistRelationshipService) GetUserVote(artistA, artistB uint, relType s
 }
 
 // ──────────────────────────────────────────────
+// Graph
+// ──────────────────────────────────────────────
+
+// GetArtistGraph returns the relationship graph for an artist (depth 1).
+// types filters by relationship type; empty slice means all types.
+// userID > 0 includes user vote data; 0 means no user context.
+// Returns max 30 nodes sorted by combined score.
+func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string, userID uint) (*contracts.ArtistGraph, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// 1. Get center artist details
+	var centerArtist models.Artist
+	if err := s.db.First(&centerArtist, artistID).Error; err != nil {
+		return nil, fmt.Errorf("artist not found: %w", err)
+	}
+
+	centerSlug := ""
+	if centerArtist.Slug != nil {
+		centerSlug = *centerArtist.Slug
+	}
+
+	// Count upcoming shows for center
+	var centerShowCount int64
+	s.db.Table("show_artists").
+		Joins("JOIN shows ON shows.id = show_artists.show_id").
+		Where("show_artists.artist_id = ? AND shows.status = 'approved' AND shows.event_date > NOW()", artistID).
+		Count(&centerShowCount)
+
+	centerCity := ""
+	if centerArtist.City != nil {
+		centerCity = *centerArtist.City
+	}
+	centerState := ""
+	if centerArtist.State != nil {
+		centerState = *centerArtist.State
+	}
+
+	graph := &contracts.ArtistGraph{
+		Center: contracts.ArtistGraphNode{
+			ID:                centerArtist.ID,
+			Name:              centerArtist.Name,
+			Slug:              centerSlug,
+			City:              centerCity,
+			State:             centerState,
+			UpcomingShowCount: int(centerShowCount),
+		},
+		Nodes: []contracts.ArtistGraphNode{},
+		Links: []contracts.ArtistGraphLink{},
+	}
+
+	// 2. Get all relationships for this artist (depth 1)
+	query := s.db.Model(&models.ArtistRelationship{}).
+		Where("source_artist_id = ? OR target_artist_id = ?", artistID, artistID)
+
+	if len(types) > 0 {
+		query = query.Where("relationship_type IN ?", types)
+	}
+
+	query = query.Order("score DESC").Limit(30)
+
+	var rels []models.ArtistRelationship
+	if err := query.Find(&rels).Error; err != nil {
+		return nil, fmt.Errorf("failed to get relationships: %w", err)
+	}
+
+	if len(rels) == 0 {
+		return graph, nil
+	}
+
+	// Collect related artist IDs
+	relatedIDSet := make(map[uint]bool)
+	for _, rel := range rels {
+		otherID := rel.TargetArtistID
+		if otherID == artistID {
+			otherID = rel.SourceArtistID
+		}
+		relatedIDSet[otherID] = true
+	}
+
+	relatedIDs := make([]uint, 0, len(relatedIDSet))
+	for id := range relatedIDSet {
+		relatedIDs = append(relatedIDs, id)
+	}
+
+	// 3. Fetch artist details for all related artists
+	var relatedArtists []models.Artist
+	if err := s.db.Where("id IN ?", relatedIDs).Find(&relatedArtists).Error; err != nil {
+		return nil, fmt.Errorf("failed to get related artist details: %w", err)
+	}
+
+	artistMap := make(map[uint]models.Artist)
+	for _, a := range relatedArtists {
+		artistMap[a.ID] = a
+	}
+
+	// 4. Count upcoming shows per related artist (batch query)
+	type showCountRow struct {
+		ArtistID  uint
+		ShowCount int64
+	}
+	var showCounts []showCountRow
+	s.db.Table("show_artists").
+		Select("show_artists.artist_id, COUNT(DISTINCT shows.id) as show_count").
+		Joins("JOIN shows ON shows.id = show_artists.show_id").
+		Where("show_artists.artist_id IN ? AND shows.status = 'approved' AND shows.event_date > NOW()", relatedIDs).
+		Group("show_artists.artist_id").
+		Scan(&showCounts)
+
+	showCountMap := make(map[uint]int)
+	for _, sc := range showCounts {
+		showCountMap[sc.ArtistID] = int(sc.ShowCount)
+	}
+
+	// 5. Build nodes
+	for _, id := range relatedIDs {
+		a, ok := artistMap[id]
+		if !ok {
+			continue
+		}
+
+		slug := ""
+		if a.Slug != nil {
+			slug = *a.Slug
+		}
+		city := ""
+		if a.City != nil {
+			city = *a.City
+		}
+		state := ""
+		if a.State != nil {
+			state = *a.State
+		}
+
+		graph.Nodes = append(graph.Nodes, contracts.ArtistGraphNode{
+			ID:                a.ID,
+			Name:              a.Name,
+			Slug:              slug,
+			City:              city,
+			State:             state,
+			UpcomingShowCount: showCountMap[a.ID],
+		})
+	}
+
+	// 6. Build links from center relationships
+	for _, rel := range rels {
+		upvotes, downvotes := s.getVoteCounts(rel.SourceArtistID, rel.TargetArtistID, rel.RelationshipType)
+
+		var detail interface{}
+		if rel.Detail != nil {
+			_ = json.Unmarshal(*rel.Detail, &detail)
+		}
+
+		graph.Links = append(graph.Links, contracts.ArtistGraphLink{
+			SourceID:  rel.SourceArtistID,
+			TargetID:  rel.TargetArtistID,
+			Type:      rel.RelationshipType,
+			Score:     float64(rel.Score),
+			VotesUp:   upvotes,
+			VotesDown: downvotes,
+			Detail:    detail,
+		})
+	}
+
+	// 7. Get cross-connections between related artists
+	if len(relatedIDs) > 1 {
+		var crossRels []models.ArtistRelationship
+		crossQuery := s.db.Model(&models.ArtistRelationship{}).
+			Where("source_artist_id IN ? AND target_artist_id IN ?", relatedIDs, relatedIDs)
+
+		if len(types) > 0 {
+			crossQuery = crossQuery.Where("relationship_type IN ?", types)
+		}
+
+		if err := crossQuery.Find(&crossRels).Error; err == nil {
+			for _, rel := range crossRels {
+				upvotes, downvotes := s.getVoteCounts(rel.SourceArtistID, rel.TargetArtistID, rel.RelationshipType)
+
+				var detail interface{}
+				if rel.Detail != nil {
+					_ = json.Unmarshal(*rel.Detail, &detail)
+				}
+
+				graph.Links = append(graph.Links, contracts.ArtistGraphLink{
+					SourceID:  rel.SourceArtistID,
+					TargetID:  rel.TargetArtistID,
+					Type:      rel.RelationshipType,
+					Score:     float64(rel.Score),
+					VotesUp:   upvotes,
+					VotesDown: downvotes,
+					Detail:    detail,
+				})
+			}
+		}
+	}
+
+	// 8. Include user votes if authenticated
+	if userID > 0 {
+		graph.UserVotes = make(map[string]string)
+		for _, link := range graph.Links {
+			vote, err := s.GetUserVote(link.SourceID, link.TargetID, link.Type, userID)
+			if err == nil && vote != nil {
+				key := fmt.Sprintf("%d-%d-%s", link.SourceID, link.TargetID, link.Type)
+				if vote.Direction == 1 {
+					graph.UserVotes[key] = "up"
+				} else {
+					graph.UserVotes[key] = "down"
+				}
+			}
+		}
+	}
+
+	return graph, nil
+}
+
+// ──────────────────────────────────────────────
 // Auto-derivation
 // ──────────────────────────────────────────────
 

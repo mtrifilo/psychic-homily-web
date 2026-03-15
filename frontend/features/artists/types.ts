@@ -183,6 +183,34 @@ export interface ArtistAliasesResponse {
   count: number
 }
 
+// Artist graph types
+export interface ArtistGraphNode {
+  id: number
+  name: string
+  slug: string
+  city?: string
+  state?: string
+  image_url?: string
+  upcoming_show_count: number
+}
+
+export interface ArtistGraphLink {
+  source_id: number
+  target_id: number
+  type: string
+  score: number
+  votes_up: number
+  votes_down: number
+  detail?: Record<string, unknown>
+}
+
+export interface ArtistGraph {
+  center: ArtistGraphNode
+  nodes: ArtistGraphNode[]
+  links: ArtistGraphLink[]
+  user_votes?: Record<string, string> // "sourceID-targetID-type" -> "up"/"down"
+}
+
 // Merge artist result
 export interface MergeArtistResult {
   canonical_artist_id: number

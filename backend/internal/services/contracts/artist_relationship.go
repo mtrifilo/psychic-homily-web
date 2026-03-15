@@ -20,6 +20,36 @@ type RelatedArtistResponse struct {
 	UserVote         *int    `json:"user_vote,omitempty"`
 }
 
+// ArtistGraph represents the relationship graph for an artist.
+type ArtistGraph struct {
+	Center    ArtistGraphNode   `json:"center"`
+	Nodes     []ArtistGraphNode `json:"nodes"`
+	Links     []ArtistGraphLink `json:"links"`
+	UserVotes map[string]string `json:"user_votes,omitempty"` // "sourceID-targetID-type" -> "up"/"down"
+}
+
+// ArtistGraphNode represents a node in the artist relationship graph.
+type ArtistGraphNode struct {
+	ID                uint   `json:"id"`
+	Name              string `json:"name"`
+	Slug              string `json:"slug"`
+	City              string `json:"city,omitempty"`
+	State             string `json:"state,omitempty"`
+	ImageURL          string `json:"image_url,omitempty"`
+	UpcomingShowCount int    `json:"upcoming_show_count"`
+}
+
+// ArtistGraphLink represents an edge in the artist relationship graph.
+type ArtistGraphLink struct {
+	SourceID  uint    `json:"source_id"`
+	TargetID  uint    `json:"target_id"`
+	Type      string  `json:"type"`
+	Score     float64 `json:"score"`
+	VotesUp   int     `json:"votes_up"`
+	VotesDown int     `json:"votes_down"`
+	Detail    any     `json:"detail,omitempty"`
+}
+
 // ArtistRelationshipServiceInterface defines the contract for artist relationship operations.
 type ArtistRelationshipServiceInterface interface {
 	// CRUD
@@ -27,6 +57,9 @@ type ArtistRelationshipServiceInterface interface {
 	GetRelationship(artistA, artistB uint, relType string) (*models.ArtistRelationship, error)
 	GetRelatedArtists(artistID uint, relType string, limit int) ([]RelatedArtistResponse, error)
 	DeleteRelationship(artistA, artistB uint, relType string) error
+
+	// Graph
+	GetArtistGraph(artistID uint, types []string, userID uint) (*ArtistGraph, error)
 
 	// Voting (only for non-auto-derived, typically "similar")
 	Vote(artistA, artistB uint, relType string, userID uint, isUpvote bool) error
