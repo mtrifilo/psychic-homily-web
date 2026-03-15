@@ -283,6 +283,19 @@ type DataImportRequest = contracts.DataImportRequest
 type DataImportResult = contracts.DataImportResult
 
 // ──────────────────────────────────────────────
+// Analytics types
+// ──────────────────────────────────────────────
+
+type MonthlyCount = contracts.MonthlyCount
+type GrowthMetricsResponse = contracts.GrowthMetricsResponse
+type EngagementMetric = contracts.EngagementMetric
+type EngagementMetricsResponse = contracts.EngagementMetricsResponse
+type TopContributor = contracts.TopContributor
+type WeeklyContributions = contracts.WeeklyContributions
+type CommunityHealthResponse = contracts.CommunityHealthResponse
+type DataQualityTrendsResponse = contracts.DataQualityTrendsResponse
+
+// ──────────────────────────────────────────────
 // Pipeline types (extraction, fetcher, discovery, pipeline)
 // ──────────────────────────────────────────────
 

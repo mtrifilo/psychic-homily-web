@@ -223,3 +223,74 @@ type DataQualityItem struct {
 	Reason     string `json:"reason"`
 	ShowCount  int    `json:"show_count"`
 }
+
+// ──────────────────────────────────────────────
+// Analytics types
+// ──────────────────────────────────────────────
+
+// MonthlyCount represents a count for a specific month.
+type MonthlyCount struct {
+	Month string `json:"month"` // "2026-01", "2026-02", etc.
+	Count int    `json:"count"`
+}
+
+// GrowthMetricsResponse contains time-series entity growth over N months.
+type GrowthMetricsResponse struct {
+	Shows    []MonthlyCount `json:"shows"`
+	Artists  []MonthlyCount `json:"artists"`
+	Venues   []MonthlyCount `json:"venues"`
+	Releases []MonthlyCount `json:"releases"`
+	Labels   []MonthlyCount `json:"labels"`
+	Users    []MonthlyCount `json:"users"`
+}
+
+// EngagementMetric represents an engagement count for a specific month.
+type EngagementMetric struct {
+	Month string `json:"month"`
+	Count int    `json:"count"`
+}
+
+// EngagementMetricsResponse contains monthly engagement metrics.
+type EngagementMetricsResponse struct {
+	Bookmarks       []EngagementMetric `json:"bookmarks"`
+	TagsAdded       []EngagementMetric `json:"tags_added"`
+	TagVotes        []EngagementMetric `json:"tag_votes"`
+	CollectionItems []EngagementMetric `json:"collection_items"`
+	Requests        []EngagementMetric `json:"requests"`
+	RequestVotes    []EngagementMetric `json:"request_votes"`
+	Revisions       []EngagementMetric `json:"revisions"`
+	Follows         []EngagementMetric `json:"follows"`
+	Attendance      []EngagementMetric `json:"attendance"`
+}
+
+// TopContributor represents a user ranked by contribution count.
+type TopContributor struct {
+	UserID      uint   `json:"user_id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name,omitempty"`
+	Count       int    `json:"count"`
+}
+
+// WeeklyContributions represents contributions for a specific week.
+type WeeklyContributions struct {
+	Week  string `json:"week"` // "2026-W10"
+	Count int    `json:"count"`
+}
+
+// CommunityHealthResponse contains community health metrics.
+type CommunityHealthResponse struct {
+	ActiveContributors30d  int                   `json:"active_contributors_30d"`
+	ContributionsPerWeek   []WeeklyContributions `json:"contributions_per_week"`
+	RequestFulfillmentRate float64               `json:"request_fulfillment_rate"`
+	NewCollections30d      int                   `json:"new_collections_30d"`
+	TopContributors        []TopContributor      `json:"top_contributors"`
+}
+
+// DataQualityTrendsResponse contains data quality trend metrics over time.
+type DataQualityTrendsResponse struct {
+	ShowsApproved          []MonthlyCount `json:"shows_approved"`
+	ShowsRejected          []MonthlyCount `json:"shows_rejected"`
+	PendingReviewCount     int            `json:"pending_review_count"`
+	ArtistsWithoutReleases int            `json:"artists_without_releases"`
+	InactiveVenues90d      int            `json:"inactive_venues_90d"`
+}

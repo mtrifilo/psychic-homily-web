@@ -535,6 +535,13 @@ func setupAdminRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 	dataQualityHandler := handlers.NewDataQualityHandler(sc.DataQuality)
 	huma.Get(protected, "/admin/data-quality", dataQualityHandler.GetDataQualitySummaryHandler)
 	huma.Get(protected, "/admin/data-quality/{category}", dataQualityHandler.GetDataQualityCategoryHandler)
+
+	// Admin analytics endpoints
+	analyticsHandler := handlers.NewAnalyticsHandler(sc.Analytics)
+	huma.Get(protected, "/admin/analytics/growth", analyticsHandler.GetGrowthMetricsHandler)
+	huma.Get(protected, "/admin/analytics/engagement", analyticsHandler.GetEngagementMetricsHandler)
+	huma.Get(protected, "/admin/analytics/community", analyticsHandler.GetCommunityHealthHandler)
+	huma.Get(protected, "/admin/analytics/data-quality", analyticsHandler.GetDataQualityTrendsHandler)
 }
 
 // setupContributorProfileRoutes configures contributor profile endpoints

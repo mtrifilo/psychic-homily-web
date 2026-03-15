@@ -48,6 +48,7 @@ type TagServiceInterface = contracts.TagServiceInterface
 type ArtistRelationshipServiceInterface = contracts.ArtistRelationshipServiceInterface
 type SceneServiceInterface = contracts.SceneServiceInterface
 type DataQualityServiceInterface = contracts.DataQualityServiceInterface
+type AnalyticsServiceInterface = contracts.AnalyticsServiceInterface
 type AttendanceServiceInterface = contracts.AttendanceServiceInterface
 type FollowServiceInterface = contracts.FollowServiceInterface
 

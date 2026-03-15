@@ -442,6 +442,14 @@ type DataQualityServiceInterface interface {
 	GetCategoryItems(category string, limit, offset int) ([]*DataQualityItem, int64, error)
 }
 
+// AnalyticsServiceInterface defines the contract for platform analytics dashboard operations.
+type AnalyticsServiceInterface interface {
+	GetGrowthMetrics(months int) (*GrowthMetricsResponse, error)
+	GetEngagementMetrics(months int) (*EngagementMetricsResponse, error)
+	GetCommunityHealth() (*CommunityHealthResponse, error)
+	GetDataQualityTrends(months int) (*DataQualityTrendsResponse, error)
+}
+
 // AttendanceServiceInterface defines the contract for show attendance (going/interested) operations.
 type AttendanceServiceInterface interface {
 	SetAttendance(userID, showID uint, status string) error
