@@ -523,3 +523,54 @@ type MergeArtistResult struct {
 	BookmarksMoved    int64  `json:"bookmarks_moved"`
 	AliasCreated      bool   `json:"alias_created"`
 }
+
+// ──────────────────────────────────────────────
+// Scene types (computed city aggregations)
+// ──────────────────────────────────────────────
+
+// SceneListResponse represents a city scene in the list endpoint
+type SceneListResponse struct {
+	City              string `json:"city"`
+	State             string `json:"state"`
+	Slug              string `json:"slug"`
+	VenueCount        int    `json:"venue_count"`
+	UpcomingShowCount int    `json:"upcoming_show_count"`
+}
+
+// SceneDetailResponse represents the full computed scene for a city
+type SceneDetailResponse struct {
+	City        string      `json:"city"`
+	State       string      `json:"state"`
+	Slug        string      `json:"slug"`
+	Description *string     `json:"description"` // nil until scenes table exists
+	Stats       SceneStats  `json:"stats"`
+	Pulse       ScenePulse  `json:"pulse"`
+}
+
+// SceneStats holds aggregate counts for a scene
+type SceneStats struct {
+	VenueCount        int `json:"venue_count"`
+	ArtistCount       int `json:"artist_count"`
+	UpcomingShowCount int `json:"upcoming_show_count"`
+	FestivalCount     int `json:"festival_count"`
+}
+
+// ScenePulse holds activity trend data for a scene
+type ScenePulse struct {
+	ShowsThisMonth        int    `json:"shows_this_month"`
+	ShowsPrevMonth        int    `json:"shows_prev_month"`
+	ShowsTrend            string `json:"shows_trend"`
+	NewArtists30d         int    `json:"new_artists_30d"`
+	ActiveVenuesThisMonth int    `json:"active_venues_this_month"`
+	ShowsByMonth          []int  `json:"shows_by_month"` // last 6 months
+}
+
+// SceneArtistResponse represents an artist in the active artists endpoint
+type SceneArtistResponse struct {
+	ID        uint    `json:"id"`
+	Slug      string  `json:"slug"`
+	Name      string  `json:"name"`
+	City      *string `json:"city"`
+	State     *string `json:"state"`
+	ShowCount int     `json:"show_count"`
+}

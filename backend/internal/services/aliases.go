@@ -120,6 +120,16 @@ type ArtistAliasResponse = contracts.ArtistAliasResponse
 type MergeArtistResult = contracts.MergeArtistResult
 
 // ──────────────────────────────────────────────
+// Scene types
+// ──────────────────────────────────────────────
+
+type SceneListResponse = contracts.SceneListResponse
+type SceneDetailResponse = contracts.SceneDetailResponse
+type SceneStats = contracts.SceneStats
+type ScenePulse = contracts.ScenePulse
+type SceneArtistResponse = contracts.SceneArtistResponse
+
+// ──────────────────────────────────────────────
 // Label types
 // ──────────────────────────────────────────────
 

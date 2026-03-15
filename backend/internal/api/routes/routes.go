@@ -100,6 +100,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupRevisionRoutes(api, protectedGroup, sc)
 	setupTagRoutes(api, protectedGroup, sc)
 	setupArtistRelationshipRoutes(api, protectedGroup, sc)
+	setupSceneRoutes(api, sc)
 
 	return api
 }
@@ -682,6 +683,16 @@ func setupArtistRelationshipRoutes(api huma.API, protected *huma.Group, sc *serv
 
 	// Admin: delete relationships
 	huma.Delete(protected, "/artists/relationships/{source_id}/{target_id}", relHandler.DeleteRelationshipHandler)
+}
+
+// setupSceneRoutes configures scene (city aggregation) endpoints.
+// All endpoints are public — no authentication required.
+func setupSceneRoutes(api huma.API, sc *services.ServiceContainer) {
+	sceneHandler := handlers.NewSceneHandler(sc.Scene)
+
+	huma.Get(api, "/scenes", sceneHandler.ListScenesHandler)
+	huma.Get(api, "/scenes/{slug}", sceneHandler.GetSceneDetailHandler)
+	huma.Get(api, "/scenes/{slug}/artists", sceneHandler.GetSceneActiveArtistsHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON
