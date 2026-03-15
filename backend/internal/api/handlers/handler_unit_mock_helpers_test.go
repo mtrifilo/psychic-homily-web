@@ -985,6 +985,18 @@ func (m *mockArtistService) GetLabelsForArtist(artistID uint) ([]*services.Artis
 	}
 	return nil, nil
 }
+func (m *mockArtistService) AddArtistAlias(artistID uint, alias string) (*services.ArtistAliasResponse, error) {
+	return nil, nil
+}
+func (m *mockArtistService) RemoveArtistAlias(aliasID uint) error {
+	return nil
+}
+func (m *mockArtistService) GetArtistAliases(artistID uint) ([]*services.ArtistAliasResponse, error) {
+	return nil, nil
+}
+func (m *mockArtistService) MergeArtists(canonicalID, mergeFromID uint) (*services.MergeArtistResult, error) {
+	return nil, nil
+}
 
 // ============================================================================
 // Mock: MusicDiscoveryServiceInterface
