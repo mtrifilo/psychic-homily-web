@@ -22,9 +22,9 @@ Live shows are the gateway into the knowledge graph. Every phase builds outward 
 |----------|-------|------|--------|
 | ~~1a~~ | Discovery | Phase 1.6a: AI pipeline foundation (PSY-29, PSY-75–83, PSY-34, PSY-36) | **Complete** |
 | ~~1b~~ | Community | Phase 2a: Community foundations — contributor identity, collections, requests, revision history (PSY-63 through PSY-74) | **Coding complete** (exit criteria polish remaining) |
-| 2 | Web | Phase 2b: Knowledge graph connective tissue — tags, relationships, scenes (PSY-45–54, PSY-59/60) | **In progress** (PSY-49, PSY-52 models done) |
+| 2 | Web | Phase 2b: Knowledge graph connective tissue — tags, relationships, scenes (PSY-45–54, PSY-59/60) | **Well advanced** (PSY-49–53 done: tags end-to-end + artist relationships) |
 | 3 | Web | Phase 2c: Engagement & social — going/interested, follow, charts, notifications (PSY-55–57, PSY-61/62) | Planned |
-| — | Discovery | Phase 1.6b: Pipeline maturation (PSY-30, PSY-31 DONE; PSY-33, PSY-35, PSY-58 remaining) | Background track |
+| — | Discovery | Phase 1.6b: Pipeline maturation (PSY-30, PSY-31, PSY-58 DONE; PSY-33, PSY-35 remaining) | Background track |
 | — | Admin | Phase 1.7: Admin dashboard polish (PSY-37–44) | Opportunistic |
 | 4 | Community | Phase 3: Community at scale — moderation, trust tiers, open edit flows | Planning |
 | 5 | iOS | Polish, test, ship to App Store | Blocked (Apple Developer enrollment) |
@@ -203,13 +203,13 @@ Sprint 7: ~~PSY-72 + PSY-49 + PSY-52 (request frontend, tag model, relationship 
 
 ### Tags & Voting
 - [x] ~~**Tag model, migration, GORM structs** (PSY-49)~~ — **DONE.** Migration 000051: `tags` (hierarchical with parent_id, 7 categories, official flag, usage_count), `entity_tags` (polymorphic junction with `added_by_user_id` attribution), `tag_votes` (per-entity relevance voting), `tag_aliases` (variant spellings with unique lowercase index). 11 model tests.
-- [ ] **Tag service, handlers, API routes** (PSY-50) — CRUD, voting with Wilson score ranking, alias resolution, auto-pruning (CleanupService every 15 min). Tag applications show contributor attribution.
-- [ ] **Tag frontend** (PSY-51) — `/tags` index, `/tags/:slug` detail, tag pills with voting on all entity pages, "add tag" autocomplete, tag filtering on list pages. "[View tagging rules]" link visible on every tag input.
+- [x] ~~**Tag service, handlers, API routes** (PSY-50)~~ — **DONE.** 17 methods (CRUD, entity tagging with alias resolution, Wilson score voting, auto-pruning), 13 endpoints, 67 tests. — CRUD, voting with Wilson score ranking, alias resolution, auto-pruning (CleanupService every 15 min). Tag applications show contributor attribution.
+- [x] ~~**Tag frontend** (PSY-51)~~ — **DONE.** `/tags` browse with category filter tabs and search, `/tags/[slug]` detail, EntityTagList component with voting on entity pages, sidebar + Cmd+K integration. — `/tags` index, `/tags/:slug` detail, tag pills with voting on all entity pages, "add tag" autocomplete, tag filtering on list pages. "[View tagging rules]" link visible on every tag input.
 - [ ] **Tag administration UI** (PSY-46) — admin tag CRUD, alias management, bulk merge/rename, pruning config, moderation queue.
 
 ### Artist Relationships
 - [x] ~~**Artist relationship model** (PSY-52)~~ — **DONE.** Migration 000052: `artist_relationships` (composite PK with canonical `source < target` ordering via CHECK constraint, 5 types: similar/shared_bills/shared_label/side_project/member_of, JSONB detail for type-specific metadata, `auto_derived` flag, normalized score 0–1) + `artist_relationship_votes` (per-user directional voting with composite FK). `CanonicalOrder()` helper, `WilsonScore()` method. 15 model tests.
-- [ ] **Similar artist voting service** (PSY-53) — vote on similarity (up/down), Wilson score ranking, auto-derived "shared bills" job (daily, from `show_artists` co-occurrences). The iconic What.cd feature — and PH adds empirical "shared bills" data from live shows that What.cd never had.
+- [x] ~~**Similar artist voting service** (PSY-53)~~ — **DONE.** Voting with Wilson score ranking, auto-derived "shared bills" from show_artists co-occurrences (2+ shared shows), recency-weighted scoring, 5 endpoints, 32 tests. — vote on similarity (up/down), Wilson score ranking, auto-derived "shared bills" job (daily, from `show_artists` co-occurrences). The iconic What.cd feature — and PH adds empirical "shared bills" data from live shows that What.cd never had.
 - [ ] **Similar artist visualization** — interactive relationship map. Font size/node size proportional to similarity. Edge thickness proportional to score. Cross-connections between similar artists. *(design doc: `docs/strategy/similar-artists.md`)*
 
 ### Scene Pages (Tier 1) *(design doc: `docs/strategy/scene-pages.md`)*
