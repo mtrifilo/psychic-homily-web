@@ -164,28 +164,64 @@ export function ShowDetail({ showId }: ShowDetailProps) {
               )}
             </div>
 
-            {/* Artists */}
-            <h1 className="text-2xl md:text-3xl font-bold leading-8 md:leading-9">
-              {artists.map((artist, index) => (
-                <span key={artist.id}>
-                  {index > 0 && (
-                    <span className="text-muted-foreground/60 font-normal">
-                      {' '}&bull;{' '}
-                    </span>
+            {/* Artists — grouped by billing */}
+            {(() => {
+              const headliners = artists.filter(a => a.set_type === 'headliner' || a.is_headliner === true)
+              const support = artists.filter(a => a.set_type !== 'headliner' && a.is_headliner !== true)
+              const effectiveHeadliners = headliners.length > 0 ? headliners : artists.length > 0 ? [artists[0]] : []
+              const effectiveSupport = headliners.length > 0 ? support : artists.slice(1)
+
+              return (
+                <>
+                  <h1 className="text-2xl md:text-3xl font-bold leading-8 md:leading-9">
+                    {effectiveHeadliners.map((artist, index) => (
+                      <span key={artist.id}>
+                        {index > 0 && (
+                          <span className="text-muted-foreground/60 font-normal">
+                            {' '}&bull;{' '}
+                          </span>
+                        )}
+                        {artist.slug ? (
+                          <Link
+                            href={`/artists/${artist.slug}`}
+                            className="hover:text-primary transition-colors"
+                          >
+                            {artist.name}
+                          </Link>
+                        ) : (
+                          <span>{artist.name}</span>
+                        )}
+                      </span>
+                    ))}
+                  </h1>
+                  {effectiveSupport.length > 0 && (
+                    <div className="text-lg text-muted-foreground mt-1">
+                      <span className="italic">w/</span>{' '}
+                      {effectiveSupport.map((artist, index) => (
+                        <span key={artist.id}>
+                          {index > 0 && (
+                            <span className="text-muted-foreground/50">, </span>
+                          )}
+                          {artist.slug ? (
+                            <Link
+                              href={`/artists/${artist.slug}`}
+                              className="hover:text-primary/80 transition-colors"
+                            >
+                              {artist.name}
+                            </Link>
+                          ) : (
+                            <span>{artist.name}</span>
+                          )}
+                          {artist.set_type === 'special_guest' && (
+                            <span className="text-sm text-muted-foreground/70 italic"> (special guest)</span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
                   )}
-                  {artist.slug ? (
-                    <Link
-                      href={`/artists/${artist.slug}`}
-                      className="hover:text-primary transition-colors"
-                    >
-                      {artist.name}
-                    </Link>
-                  ) : (
-                    <span>{artist.name}</span>
-                  )}
-                </span>
-              ))}
-            </h1>
+                </>
+              )
+            })()}
 
             {/* Venue and Location */}
             {venue && (

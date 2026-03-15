@@ -165,6 +165,8 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 			State:            artist.State,
 			City:             artist.City,
 			IsHeadliner:      &isHeadliner,
+			SetType:          sa.SetType,
+			Position:         sa.Position,
 			IsNewArtist:      &isNewArtist,
 			BandcampEmbedURL: artist.BandcampEmbedURL,
 			Socials:          socials,

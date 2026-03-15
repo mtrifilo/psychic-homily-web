@@ -383,6 +383,8 @@ func (s *FavoriteVenueService) getOrderedArtistsForShows(showIDs []uint) map[uin
 			State:            artist.State,
 			City:             artist.City,
 			IsHeadliner:      &isHeadliner,
+			SetType:          sa.SetType,
+			Position:         sa.Position,
 			IsNewArtist:      &isNewArtist,
 			BandcampEmbedURL: artist.BandcampEmbedURL,
 			Socials:          socials,

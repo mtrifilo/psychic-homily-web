@@ -16,6 +16,8 @@ export interface ShowArtistSocials {
   website?: string | null
 }
 
+export type SetType = 'headliner' | 'opener' | 'performer' | 'special_guest'
+
 export interface ArtistResponse {
   id: number
   slug: string
@@ -23,6 +25,8 @@ export interface ArtistResponse {
   state?: string | null
   city?: string | null
   is_headliner?: boolean | null
+  set_type: SetType
+  position: number
   is_new_artist?: boolean | null
   bandcamp_embed_url?: string | null
   socials: ShowArtistSocials
