@@ -381,6 +381,13 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/admin/revisions/${revisionId}/rollback`,
   },
 
+  // Scene endpoints
+  SCENES: {
+    LIST: `${API_BASE_URL}/scenes`,
+    DETAIL: (slug: string) => `${API_BASE_URL}/scenes/${slug}`,
+    ARTISTS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/artists`,
+  },
+
   // System endpoints
   HEALTH: `${API_BASE_URL}/health`,
   OPENAPI: `${API_BASE_URL}/openapi.json`,
