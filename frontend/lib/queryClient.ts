@@ -287,6 +287,16 @@ export const queryKeys = {
       ['requests', 'detail', requestId] as const,
   },
 
+  // Tag queries
+  tags: {
+    all: ['tags'] as const,
+    list: (params?: Record<string, unknown>) => ['tags', 'list', params] as const,
+    search: (query: string) => ['tags', 'search', query.toLowerCase()] as const,
+    detail: (idOrSlug: string | number) => ['tags', 'detail', String(idOrSlug)] as const,
+    aliases: (tagId: number) => ['tags', 'aliases', tagId] as const,
+    entityTags: (entityType: string, entityId: number) => ['tags', 'entityTags', entityType, entityId] as const,
+  },
+
   // Revision history queries
   revisions: {
     all: ['revisions'] as const,
@@ -382,6 +392,14 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate request queries
   requests: () =>
     queryClient.invalidateQueries({ queryKey: ['requests'] }),
+
+  // Invalidate tag queries
+  tags: () =>
+    queryClient.invalidateQueries({ queryKey: ['tags'] }),
+
+  // Invalidate entity tag queries
+  entityTags: (entityType: string, entityId: number) =>
+    queryClient.invalidateQueries({ queryKey: ['tags', 'entityTags', entityType, entityId] }),
 
   // Invalidate revision queries
   revisions: () =>
