@@ -448,7 +448,7 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		if len(artistEntries) > 0 {
 			headlinerName = artistEntries[0].Name
 		}
-		baseShowSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueConfig.Name)
+		baseShowSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueConfig.Name, venueConfig.State)
 		showSlug := utils.GenerateUniqueSlug(baseShowSlug, func(candidate string) bool {
 			var count int64
 			tx.Model(&models.Show{}).Where("slug = ?", candidate).Count(&count)
@@ -522,25 +522,9 @@ func (s *DiscoveryService) updateShowFromEvent(existing *models.Show, event *con
 	return fmt.Sprintf("UPDATED: %s (show #%d) -- %s", event.Title, existing.ID, changeStr), "updated"
 }
 
-// stateTimezones maps US state abbreviations to IANA timezone names
-var stateTimezones = map[string]string{
-	"AZ": "America/Phoenix",
-	"CA": "America/Los_Angeles",
-	"NV": "America/Los_Angeles",
-	"CO": "America/Denver",
-	"NM": "America/Denver",
-	"IL": "America/Chicago",
-	"TX": "America/Chicago",
-	"NY": "America/New_York",
-}
-
-// getTimezoneForState returns the IANA timezone for a US state abbreviation.
-// Defaults to "America/Phoenix" if the state is not found.
+// getTimezoneForState delegates to the shared utils.GetTimezoneForState.
 func getTimezoneForState(state string) string {
-	if tz, ok := stateTimezones[strings.ToUpper(state)]; ok {
-		return tz
-	}
-	return "America/Phoenix"
+	return utils.GetTimezoneForState(state)
 }
 
 // parseEventDate parses the event date and optional show time into a time.Time (UTC).
