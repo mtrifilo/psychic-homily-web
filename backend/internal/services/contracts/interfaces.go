@@ -427,3 +427,11 @@ type RevisionServiceInterface interface {
 	GetUserRevisions(userID uint, limit, offset int) ([]models.Revision, int64, error)
 	Rollback(revisionID uint, adminUserID uint) error
 }
+
+// SceneServiceInterface defines the contract for computed city scene aggregations.
+type SceneServiceInterface interface {
+	ListScenes() ([]*SceneListResponse, error)
+	GetSceneDetail(city, state string) (*SceneDetailResponse, error)
+	GetActiveArtists(city, state string, periodDays, limit, offset int) ([]*SceneArtistResponse, int64, error)
+	ParseSceneSlug(slug string) (string, string, error)
+}

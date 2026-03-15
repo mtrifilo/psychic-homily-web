@@ -46,6 +46,7 @@ type RevisionServiceInterface = contracts.RevisionServiceInterface
 type RequestServiceInterface = contracts.RequestServiceInterface
 type TagServiceInterface = contracts.TagServiceInterface
 type ArtistRelationshipServiceInterface = contracts.ArtistRelationshipServiceInterface
+type SceneServiceInterface = contracts.SceneServiceInterface
 
 // Compile-time interface satisfaction checks.
 // Engagement services (Bookmark, SavedShow, FavoriteVenue, Calendar, Reminder)
@@ -71,4 +72,5 @@ var (
 	_ RequestServiceInterface               = (*RequestService)(nil)
 	_ TagServiceInterface                   = (*catalog.TagService)(nil)
 	_ ArtistRelationshipServiceInterface    = (*catalog.ArtistRelationshipService)(nil)
+	_ SceneServiceInterface                 = (*catalog.SceneService)(nil)
 )

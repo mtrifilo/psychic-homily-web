@@ -32,6 +32,7 @@ type ServiceContainer struct {
 	Request       *RequestService
 	Tag                *catalog.TagService
 	ArtistRelationship *catalog.ArtistRelationshipService
+	Scene              *catalog.SceneService
 	FavoriteVenue      *engagement.FavoriteVenueService
 	Festival      *catalog.FestivalService
 	Label         *catalog.LabelService
@@ -116,6 +117,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Request:       NewRequestService(database),
 		Tag:                catalog.NewTagService(database),
 		ArtistRelationship: catalog.NewArtistRelationshipService(database),
+		Scene:              catalog.NewSceneService(database),
 		FavoriteVenue:      engagement.NewFavoriteVenueService(database),
 		Festival:      catalog.NewFestivalService(database),
 		Label:         catalog.NewLabelService(database),
