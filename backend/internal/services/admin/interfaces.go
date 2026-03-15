@@ -12,5 +12,6 @@ var (
 	_ contracts.APITokenServiceInterface     = (*APITokenService)(nil)
 	_ contracts.RevisionServiceInterface      = (*RevisionService)(nil)
 	_ contracts.DataQualityServiceInterface  = (*DataQualityService)(nil)
+	_ contracts.AnalyticsServiceInterface   = (*AnalyticsService)(nil)
 	// CleanupService has no interface in contracts — it's a lifecycle service.
 )

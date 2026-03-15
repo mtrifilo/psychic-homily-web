@@ -20,6 +20,7 @@ import (
 type ServiceContainer struct {
 	// DB-only leaf services
 	AdminStats         *adminsvc.AdminStatsService
+	Analytics          *adminsvc.AnalyticsService
 	APIToken           *adminsvc.APITokenService
 	DataQuality        *adminsvc.DataQualityService
 	Revision           *adminsvc.RevisionService
@@ -108,6 +109,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	return &ServiceContainer{
 		// DB-only leaf services
 		AdminStats:         adminsvc.NewAdminStatsService(database),
+		Analytics:          adminsvc.NewAnalyticsService(database),
 		APIToken:           adminsvc.NewAPITokenService(database),
 		DataQuality:        adminsvc.NewDataQualityService(database),
 		Revision:           adminsvc.NewRevisionService(database),
