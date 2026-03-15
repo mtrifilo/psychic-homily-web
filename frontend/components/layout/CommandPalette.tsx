@@ -12,7 +12,7 @@ import {
   CommandSeparator,
 } from '@/components/ui/command'
 import {
-  Calendar, Mic2, MapPin, Disc3, Tag, Tent, BookOpen, Headphones, Send,
+  Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
   Library, LayoutList, MessageSquarePlus, Settings, Shield, Search, Clock, X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -64,6 +64,12 @@ const routes: RouteItem[] = [
     href: '/labels',
     icon: Tag,
     keywords: ['labels', 'record labels', 'imprints', 'roster', 'catalog'],
+  },
+  {
+    label: 'Tags',
+    href: '/tags',
+    icon: Tags,
+    keywords: ['tags', 'genres', 'moods', 'styles', 'categories', 'tagging'],
   },
   {
     label: 'Collections',

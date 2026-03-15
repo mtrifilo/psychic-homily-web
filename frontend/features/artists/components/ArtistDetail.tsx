@@ -30,6 +30,7 @@ import {
   type MusicPlatform,
 } from '@/lib/hooks/admin/useAdminArtists'
 import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader, RevisionHistory } from '@/components/shared'
+import { EntityTagList } from '@/features/tags'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
 import { ArtistShowsList } from './ArtistShowsList'
 import { ReportArtistButton } from './ReportArtistButton'
@@ -942,6 +943,15 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           <LabelsTab artistIdOrSlug={artistId} />
         </TabsContent>
       </EntityDetailLayout>
+
+      {/* Tags */}
+      <div className="mt-0 px-4 md:px-0">
+        <EntityTagList
+          entityType="artist"
+          entityId={artist.id}
+          isAuthenticated={isAuthenticated}
+        />
+      </div>
 
       {/* Revision History */}
       <div className="mt-0">
