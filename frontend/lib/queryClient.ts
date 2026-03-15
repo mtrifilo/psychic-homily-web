@@ -152,6 +152,11 @@ export const queryKeys = {
       ['admin', 'auditLogs', { limit, offset }] as const,
     users: (limit: number, offset: number, search: string) =>
       ['admin', 'users', { limit, offset, search }] as const,
+    dataQuality: {
+      summary: ['admin', 'dataQuality', 'summary'] as const,
+      category: (category: string, limit: number, offset: number) =>
+        ['admin', 'dataQuality', 'category', category, { limit, offset }] as const,
+    },
   },
 
   // Artist queries

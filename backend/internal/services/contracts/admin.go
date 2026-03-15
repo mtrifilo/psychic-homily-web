@@ -194,3 +194,32 @@ type DataImportResult struct {
 		Messages   []string `json:"messages"`
 	} `json:"venues"`
 }
+
+// ──────────────────────────────────────────────
+// Data Quality types
+// ──────────────────────────────────────────────
+
+// DataQualitySummary contains counts per data quality category.
+type DataQualitySummary struct {
+	Categories []DataQualityCategory `json:"categories"`
+	TotalItems int                   `json:"total_items"`
+}
+
+// DataQualityCategory represents a single data quality check category.
+type DataQualityCategory struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	EntityType  string `json:"entity_type"`
+	Count       int    `json:"count"`
+	Description string `json:"description"`
+}
+
+// DataQualityItem represents a single entity needing attention.
+type DataQualityItem struct {
+	EntityType string `json:"entity_type"`
+	EntityID   uint   `json:"entity_id"`
+	Name       string `json:"name"`
+	Slug       string `json:"slug"`
+	Reason     string `json:"reason"`
+	ShowCount  int    `json:"show_count"`
+}
