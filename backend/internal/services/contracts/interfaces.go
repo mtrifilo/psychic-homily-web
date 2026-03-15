@@ -83,6 +83,10 @@ type ArtistServiceInterface interface {
 	GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*ArtistShowResponse, int64, error)
 	GetArtistCities() ([]*ArtistCityResponse, error)
 	GetLabelsForArtist(artistID uint) ([]*ArtistLabelResponse, error)
+	AddArtistAlias(artistID uint, alias string) (*ArtistAliasResponse, error)
+	RemoveArtistAlias(aliasID uint) error
+	GetArtistAliases(artistID uint) ([]*ArtistAliasResponse, error)
+	MergeArtists(canonicalID, mergeFromID uint) (*MergeArtistResult, error)
 }
 
 // SavedShowServiceInterface defines the contract for saved show operations.

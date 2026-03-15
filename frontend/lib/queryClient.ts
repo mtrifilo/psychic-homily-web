@@ -165,6 +165,7 @@ export const queryKeys = {
     detail: (idOrSlug: string | number) => ['artists', 'detail', String(idOrSlug)] as const,
     shows: (artistIdOrSlug: string | number) => ['artists', 'shows', String(artistIdOrSlug)] as const,
     labels: (artistIdOrSlug: string | number) => ['artists', 'labels', String(artistIdOrSlug)] as const,
+    aliases: (artistId: number) => ['artists', 'aliases', artistId] as const,
   },
 
   // Release queries

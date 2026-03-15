@@ -284,10 +284,14 @@ func setupArtistRoutes(api huma.API, protected *huma.Group, sc *services.Service
 	huma.Get(api, "/artists/{artist_id}", artistHandler.GetArtistHandler)
 	huma.Get(api, "/artists/{artist_id}/shows", artistHandler.GetArtistShowsHandler)
 	huma.Get(api, "/artists/{artist_id}/labels", artistHandler.GetArtistLabelsHandler)
+	huma.Get(api, "/artists/{artist_id}/aliases", artistHandler.GetArtistAliasesHandler)
 
 	// Protected artist endpoints
 	huma.Delete(protected, "/artists/{artist_id}", artistHandler.DeleteArtistHandler)
 	huma.Patch(protected, "/admin/artists/{artist_id}", artistHandler.AdminUpdateArtistHandler)
+	huma.Post(protected, "/admin/artists/{artist_id}/aliases", artistHandler.AddArtistAliasHandler)
+	huma.Delete(protected, "/admin/artists/{artist_id}/aliases/{alias_id}", artistHandler.DeleteArtistAliasHandler)
+	huma.Post(protected, "/admin/artists/merge", artistHandler.MergeArtistsHandler)
 }
 
 func setupReleaseRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {

@@ -116,6 +116,8 @@ type ArtistLabelResponse = contracts.ArtistLabelResponse
 type ArtistShowResponse = contracts.ArtistShowResponse
 type ArtistShowVenueResponse = contracts.ArtistShowVenueResponse
 type ArtistShowArtist = contracts.ArtistShowArtist
+type ArtistAliasResponse = contracts.ArtistAliasResponse
+type MergeArtistResult = contracts.MergeArtistResult
 
 // ──────────────────────────────────────────────
 // Label types

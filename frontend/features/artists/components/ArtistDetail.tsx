@@ -18,6 +18,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { useArtist } from '../hooks/useArtists'
 import { useArtistReleases } from '@/features/releases/hooks/useReleases'
+import { useArtistAliases } from '@/lib/hooks/admin/useAdminArtists'
 import { useArtistLabels, useLabelRoster } from '@/features/labels/hooks/useLabels'
 import { queryKeys } from '@/lib/queryClient'
 import { useIsAuthenticated } from '@/features/auth'
@@ -312,6 +313,8 @@ function ArtistSidebar({
   labelsLoading: boolean
 }) {
   const hasLocation = artist.city || artist.state
+  const { data: aliasesData } = useArtistAliases(artist.id)
+  const aliases = aliasesData?.aliases ?? []
 
   return (
     <div className="space-y-6">
@@ -324,6 +327,22 @@ function ArtistSidebar({
           <div className="flex items-center gap-1.5 text-sm">
             <MapPin className="h-4 w-4 text-muted-foreground" />
             <span>{[artist.city, artist.state].filter(Boolean).join(', ')}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Aliases */}
+      {aliases.length > 0 && (
+        <div>
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            Also known as
+          </h3>
+          <div className="space-y-1">
+            {aliases.map(alias => (
+              <p key={alias.id} className="text-sm text-muted-foreground">
+                {alias.alias}
+              </p>
+            ))}
           </div>
         </div>
       )}

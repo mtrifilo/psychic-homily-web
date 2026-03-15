@@ -254,10 +254,11 @@ func (s *ArtistService) DeleteArtist(artistID uint) error {
 	return nil
 }
 
-// SearchArtists performs autocomplete search on artist names
+// SearchArtists performs autocomplete search on artist names and aliases.
 // Uses pg_trgm extension for performant fuzzy matching with intelligent query strategy:
 // - Short queries (1-2 chars): Fast case-insensitive prefix search
 // - Longer queries (3+ chars): Similarity-based fuzzy matching with ranking
+// Alias matches return the canonical artist (deduplicated).
 func (s *ArtistService) SearchArtists(query string) ([]*contracts.ArtistDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -273,25 +274,34 @@ func (s *ArtistService) SearchArtists(query string) ([]*contracts.ArtistDetailRe
 
 	// Strategy depends on query length for optimal performance
 	if len(query) <= 2 {
-		// For short queries: use fast case-insensitive prefix search
-		// Example: "ra" → "Radiohead", "Rage Against the Machine"
-		// Uses idx_artists_name_lower_prefix for blazing fast results
+		// For short queries: use fast case-insensitive prefix search on name + aliases
 		err = s.db.
-			Where("LOWER(name) LIKE LOWER(?)", query+"%").
+			Where("id IN (?)",
+				s.db.Table("artists").Select("id").Where("LOWER(name) LIKE LOWER(?)", query+"%"),
+			).
+			Or("id IN (?)",
+				s.db.Table("artist_aliases").Select("artist_id").Where("LOWER(alias) LIKE LOWER(?)", query+"%"),
+			).
 			Order("name ASC").
 			Limit(10).
 			Find(&artists).Error
 	} else {
-		// For longer queries: use similarity scoring for better fuzzy matching
-		// Example: "radio mos" → "Radio Moscow" ranked higher than "Radio Dept"
-		// Handles typos and partial matches: "beatls" → "The Beatles"
-		// Uses idx_artists_name_trgm for efficient pattern matching
-		err = s.db.
-			Select("artists.*, similarity(name, ?) as sim_score", query).
-			Where("name ILIKE ? OR name % ?", "%"+query+"%", query).
-			Order("sim_score DESC, name ASC").
-			Limit(10).
-			Find(&artists).Error
+		// For longer queries: search names and aliases with similarity scoring
+		// Uses UNION to find matching artists by name or alias, then ranks by best similarity
+		err = s.db.Raw(`
+			SELECT a.* FROM artists a
+			WHERE a.id IN (
+				SELECT id FROM artists WHERE name ILIKE ? OR name % ?
+				UNION
+				SELECT artist_id FROM artist_aliases WHERE alias ILIKE ? OR alias % ?
+			)
+			ORDER BY GREATEST(
+				similarity(a.name, ?),
+				COALESCE((SELECT MAX(similarity(aa.alias, ?)) FROM artist_aliases aa WHERE aa.artist_id = a.id), 0)
+			) DESC, a.name ASC
+			LIMIT 10
+		`, "%"+query+"%", query, "%"+query+"%", query, query, query).
+			Scan(&artists).Error
 	}
 
 	if err != nil {
@@ -677,4 +687,238 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	}
 
 	return responses, total, nil
+}
+
+// ──────────────────────────────────────────────
+// Alias CRUD
+// ──────────────────────────────────────────────
+
+// AddArtistAlias adds an alias for an artist. Validates uniqueness against
+// other aliases and artist names (case-insensitive).
+func (s *ArtistService) AddArtistAlias(artistID uint, alias string) (*contracts.ArtistAliasResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return nil, fmt.Errorf("alias cannot be empty")
+	}
+
+	// Verify artist exists
+	var artist models.Artist
+	if err := s.db.First(&artist, artistID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.ErrArtistNotFound(artistID)
+		}
+		return nil, fmt.Errorf("failed to get artist: %w", err)
+	}
+
+	// Check for duplicate alias (case-insensitive)
+	var existing models.ArtistAlias
+	if err := s.db.Where("LOWER(alias) = LOWER(?)", alias).First(&existing).Error; err == nil {
+		return nil, fmt.Errorf("alias '%s' already exists", alias)
+	}
+
+	// Check if alias matches an existing artist name
+	var existingArtist models.Artist
+	if err := s.db.Where("LOWER(name) = LOWER(?)", alias).First(&existingArtist).Error; err == nil {
+		return nil, fmt.Errorf("alias '%s' conflicts with existing artist name", alias)
+	}
+
+	artistAlias := &models.ArtistAlias{
+		ArtistID: artistID,
+		Alias:    alias,
+	}
+
+	if err := s.db.Create(artistAlias).Error; err != nil {
+		return nil, fmt.Errorf("failed to create alias: %w", err)
+	}
+
+	return &contracts.ArtistAliasResponse{
+		ID:        artistAlias.ID,
+		ArtistID:  artistAlias.ArtistID,
+		Alias:     artistAlias.Alias,
+		CreatedAt: artistAlias.CreatedAt.Format(time.RFC3339),
+	}, nil
+}
+
+// RemoveArtistAlias deletes an alias by ID.
+func (s *ArtistService) RemoveArtistAlias(aliasID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	result := s.db.Delete(&models.ArtistAlias{}, aliasID)
+	if result.Error != nil {
+		return fmt.Errorf("failed to delete alias: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("alias not found")
+	}
+
+	return nil
+}
+
+// GetArtistAliases returns all aliases for an artist.
+func (s *ArtistService) GetArtistAliases(artistID uint) ([]*contracts.ArtistAliasResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Verify artist exists
+	var artist models.Artist
+	if err := s.db.First(&artist, artistID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.ErrArtistNotFound(artistID)
+		}
+		return nil, fmt.Errorf("failed to get artist: %w", err)
+	}
+
+	var aliases []models.ArtistAlias
+	if err := s.db.Where("artist_id = ?", artistID).Order("alias ASC").Find(&aliases).Error; err != nil {
+		return nil, fmt.Errorf("failed to list aliases: %w", err)
+	}
+
+	responses := make([]*contracts.ArtistAliasResponse, len(aliases))
+	for i, a := range aliases {
+		responses[i] = &contracts.ArtistAliasResponse{
+			ID:        a.ID,
+			ArtistID:  a.ArtistID,
+			Alias:     a.Alias,
+			CreatedAt: a.CreatedAt.Format(time.RFC3339),
+		}
+	}
+
+	return responses, nil
+}
+
+// ──────────────────────────────────────────────
+// Artist Merge
+// ──────────────────────────────────────────────
+
+// MergeArtists merges the "mergeFrom" artist into the "canonical" artist.
+// All relationships (shows, releases, labels, festivals, etc.) are transferred
+// to the canonical artist. Conflicts (duplicate rows) are deleted before transfer.
+// The merged artist's name is added as an alias, then the merged artist is deleted.
+func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.MergeArtistResult, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	if canonicalID == mergeFromID {
+		return nil, fmt.Errorf("cannot merge an artist with itself")
+	}
+
+	// Verify both artists exist
+	var canonical models.Artist
+	if err := s.db.First(&canonical, canonicalID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.ErrArtistNotFound(canonicalID)
+		}
+		return nil, fmt.Errorf("failed to get canonical artist: %w", err)
+	}
+
+	var mergeFrom models.Artist
+	if err := s.db.First(&mergeFrom, mergeFromID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.ErrArtistNotFound(mergeFromID)
+		}
+		return nil, fmt.Errorf("failed to get merge-from artist: %w", err)
+	}
+
+	result := &contracts.MergeArtistResult{
+		CanonicalArtistID: canonicalID,
+		MergedArtistID:    mergeFromID,
+		MergedArtistName:  mergeFrom.Name,
+	}
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// 1. show_artists: delete conflicts, then update remaining
+		tx.Where("artist_id = ? AND show_id IN (?)", mergeFromID,
+			tx.Table("show_artists").Select("show_id").Where("artist_id = ?", canonicalID),
+		).Delete(&models.ShowArtist{})
+		r := tx.Model(&models.ShowArtist{}).Where("artist_id = ?", mergeFromID).Update("artist_id", canonicalID)
+		result.ShowsMoved = r.RowsAffected
+
+		// 2. artist_releases: delete conflicts, then update remaining
+		tx.Exec("DELETE FROM artist_releases WHERE artist_id = ? AND (release_id, role) IN (SELECT release_id, role FROM artist_releases WHERE artist_id = ?)", mergeFromID, canonicalID)
+		r = tx.Exec("UPDATE artist_releases SET artist_id = ? WHERE artist_id = ?", canonicalID, mergeFromID)
+		result.ReleasesMoved = r.RowsAffected
+
+		// 3. artist_labels: delete conflicts, then update remaining
+		tx.Exec("DELETE FROM artist_labels WHERE artist_id = ? AND label_id IN (SELECT label_id FROM artist_labels WHERE artist_id = ?)", mergeFromID, canonicalID)
+		r = tx.Exec("UPDATE artist_labels SET artist_id = ? WHERE artist_id = ?", canonicalID, mergeFromID)
+		result.LabelsMoved = r.RowsAffected
+
+		// 4. festival_artists: delete conflicts, then update remaining
+		tx.Exec("DELETE FROM festival_artists WHERE artist_id = ? AND festival_id IN (SELECT festival_id FROM festival_artists WHERE artist_id = ?)", mergeFromID, canonicalID)
+		r = tx.Exec("UPDATE festival_artists SET artist_id = ? WHERE artist_id = ?", canonicalID, mergeFromID)
+		result.FestivalsMoved = r.RowsAffected
+
+		// 5. artist_relationships: re-canonicalize with source < target, delete self-referential and conflicts
+		// First delete any that would become self-referential
+		tx.Exec("DELETE FROM artist_relationship_votes WHERE (source_artist_id = ? OR target_artist_id = ?) AND (source_artist_id = ? OR target_artist_id = ?)",
+			mergeFromID, mergeFromID, canonicalID, canonicalID)
+		tx.Exec("DELETE FROM artist_relationships WHERE (source_artist_id = ? AND target_artist_id = ?) OR (source_artist_id = ? AND target_artist_id = ?)",
+			mergeFromID, canonicalID, canonicalID, mergeFromID)
+		// Delete votes for relationships that will be deleted as self-referential after merge
+		tx.Exec("DELETE FROM artist_relationship_votes WHERE source_artist_id = ? OR target_artist_id = ?", mergeFromID, mergeFromID)
+		// Delete remaining relationships involving mergeFrom (after conflicts removed)
+		r = tx.Exec("DELETE FROM artist_relationships WHERE source_artist_id = ? OR target_artist_id = ?", mergeFromID, mergeFromID)
+		result.RelationshipsMoved = r.RowsAffected
+
+		// 6. entity_tags: delete conflicts, then update remaining
+		tx.Exec("DELETE FROM entity_tags WHERE entity_type = 'artist' AND entity_id = ? AND tag_id IN (SELECT tag_id FROM entity_tags WHERE entity_type = 'artist' AND entity_id = ?)", mergeFromID, canonicalID)
+		tx.Exec("UPDATE entity_tags SET entity_id = ? WHERE entity_type = 'artist' AND entity_id = ?", canonicalID, mergeFromID)
+
+		// 7. user_bookmarks: delete conflicts, then update remaining
+		tx.Exec("DELETE FROM user_bookmarks WHERE entity_type = 'artist' AND entity_id = ? AND (user_id, action) IN (SELECT user_id, action FROM user_bookmarks WHERE entity_type = 'artist' AND entity_id = ?)", mergeFromID, canonicalID)
+		r = tx.Exec("UPDATE user_bookmarks SET entity_id = ? WHERE entity_type = 'artist' AND entity_id = ?", canonicalID, mergeFromID)
+		result.BookmarksMoved = r.RowsAffected
+
+		// 8. artist_reports: delete conflicts, then update remaining
+		tx.Exec("DELETE FROM artist_reports WHERE artist_id = ? AND reported_by IN (SELECT reported_by FROM artist_reports WHERE artist_id = ?)", mergeFromID, canonicalID)
+		tx.Exec("UPDATE artist_reports SET artist_id = ? WHERE artist_id = ?", canonicalID, mergeFromID)
+
+		// 9. revisions: just update entity_id (no conflict key)
+		tx.Exec("UPDATE revisions SET entity_id = ? WHERE entity_type = 'artist' AND entity_id = ?", canonicalID, mergeFromID)
+
+		// 10. tag_votes for entity tags: delete conflicts, then update remaining
+		tx.Exec(`DELETE FROM tag_votes WHERE entity_type = 'artist' AND entity_id = ?
+			AND (tag_id, user_id) IN (SELECT tag_id, user_id FROM tag_votes WHERE entity_type = 'artist' AND entity_id = ?)`, mergeFromID, canonicalID)
+		tx.Exec("UPDATE tag_votes SET entity_id = ? WHERE entity_type = 'artist' AND entity_id = ?", canonicalID, mergeFromID)
+
+		// 11. Transfer aliases from merged artist to canonical
+		tx.Exec("UPDATE artist_aliases SET artist_id = ? WHERE artist_id = ?", canonicalID, mergeFromID)
+
+		// 12. Create alias from merged artist's name (if not conflicting)
+		var aliasCount int64
+		tx.Model(&models.ArtistAlias{}).Where("LOWER(alias) = LOWER(?)", mergeFrom.Name).Count(&aliasCount)
+		var nameCount int64
+		tx.Model(&models.Artist{}).Where("LOWER(name) = LOWER(?)", mergeFrom.Name).Where("id != ?", mergeFromID).Count(&nameCount)
+		if aliasCount == 0 && nameCount == 0 {
+			newAlias := models.ArtistAlias{
+				ArtistID: canonicalID,
+				Alias:    mergeFrom.Name,
+			}
+			if err := tx.Create(&newAlias).Error; err != nil {
+				return fmt.Errorf("failed to create alias from merged artist name: %w", err)
+			}
+			result.AliasCreated = true
+		}
+
+		// 13. Delete the merged artist
+		if err := tx.Delete(&mergeFrom).Error; err != nil {
+			return fmt.Errorf("failed to delete merged artist: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("merge failed: %w", err)
+	}
+
+	return result, nil
 }

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
-import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tags, Tent, Workflow, Library } from 'lucide-react'
+import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tags, Tent, Workflow, Library, Music } from 'lucide-react'
 import { usePendingVenueEdits } from '@/lib/hooks/admin/useAdminVenueEdits'
 import { useUnverifiedVenues } from '@/lib/hooks/admin/useAdminVenues'
 import { usePendingReports } from '@/lib/hooks/admin/useAdminReports'
@@ -115,6 +115,14 @@ const UsersPage = dynamic(() => import('./users/page'), {
 })
 
 const TagsPage = dynamic(() => import('./tags/page'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
+const ArtistsPage = dynamic(() => import('./artists/page'), {
   loading: () => (
     <div className="flex items-center justify-center py-12">
       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -244,6 +252,10 @@ export default function AdminPage() {
               <Tags className="h-4 w-4" />
               Tags
             </TabsTrigger>
+            <TabsTrigger value="artists-admin" className="gap-2">
+              <Music className="h-4 w-4" />
+              Artists
+            </TabsTrigger>
             <TabsTrigger value="users" className="gap-2">
               <Users className="h-4 w-4" />
               Users
@@ -300,6 +312,10 @@ export default function AdminPage() {
 
           <TabsContent value="tags" className="space-y-4">
             <TagsPage />
+          </TabsContent>
+
+          <TabsContent value="artists-admin" className="space-y-4">
+            <ArtistsPage />
           </TabsContent>
 
           <TabsContent value="users" className="space-y-4">

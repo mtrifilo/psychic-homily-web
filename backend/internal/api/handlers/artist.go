@@ -749,3 +749,219 @@ func nilIfEmpty(s string) *string {
 	}
 	return &s
 }
+
+// ============================================================================
+// Artist Aliases
+// ============================================================================
+
+// GetArtistAliasesRequest represents the request for getting an artist's aliases
+type GetArtistAliasesRequest struct {
+	ArtistID string `path:"artist_id" doc:"Artist ID" example:"42"`
+}
+
+// GetArtistAliasesResponse represents the response for the artist aliases endpoint
+type GetArtistAliasesResponse struct {
+	Body struct {
+		Aliases []*services.ArtistAliasResponse `json:"aliases" doc:"List of aliases"`
+		Count   int                             `json:"count" doc:"Number of aliases"`
+	}
+}
+
+// GetArtistAliasesHandler handles GET /artists/{artist_id}/aliases
+func (h *ArtistHandler) GetArtistAliasesHandler(ctx context.Context, req *GetArtistAliasesRequest) (*GetArtistAliasesResponse, error) {
+	artistID, err := strconv.ParseUint(req.ArtistID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid artist ID")
+	}
+
+	aliases, err := h.artistService.GetArtistAliases(uint(artistID))
+	if err != nil {
+		var artistErr *apperrors.ArtistError
+		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
+			return nil, huma.Error404NotFound("Artist not found")
+		}
+		return nil, huma.Error500InternalServerError("Failed to fetch aliases", err)
+	}
+
+	resp := &GetArtistAliasesResponse{}
+	resp.Body.Aliases = aliases
+	resp.Body.Count = len(aliases)
+
+	return resp, nil
+}
+
+// AddArtistAliasRequest represents the request for adding an alias
+type AddArtistAliasRequest struct {
+	ArtistID string `path:"artist_id" doc:"Artist ID" example:"42"`
+	Body     struct {
+		Alias string `json:"alias" doc:"Alias name" example:"The Artist Formerly Known As"`
+	}
+}
+
+// AddArtistAliasResponse represents the response for adding an alias
+type AddArtistAliasResponse struct {
+	Body *services.ArtistAliasResponse
+}
+
+// AddArtistAliasHandler handles POST /admin/artists/{artist_id}/aliases
+func (h *ArtistHandler) AddArtistAliasHandler(ctx context.Context, req *AddArtistAliasRequest) (*AddArtistAliasResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	artistID, err := strconv.ParseUint(req.ArtistID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid artist ID")
+	}
+
+	if strings.TrimSpace(req.Body.Alias) == "" {
+		return nil, huma.Error400BadRequest("Alias cannot be empty")
+	}
+
+	alias, err := h.artistService.AddArtistAlias(uint(artistID), req.Body.Alias)
+	if err != nil {
+		var artistErr *apperrors.ArtistError
+		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
+			return nil, huma.Error404NotFound("Artist not found")
+		}
+		if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "conflicts with") {
+			return nil, huma.Error409Conflict(err.Error())
+		}
+		logger.FromContext(ctx).Error("add_artist_alias_failed",
+			"artist_id", artistID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to add alias (request_id: %s)", requestID),
+		)
+	}
+
+	// Audit log (fire and forget)
+	if h.auditLogService != nil {
+		h.auditLogService.LogAction(user.ID, "add_artist_alias", "artist", uint(artistID), map[string]interface{}{
+			"alias": req.Body.Alias,
+		})
+	}
+
+	return &AddArtistAliasResponse{Body: alias}, nil
+}
+
+// DeleteArtistAliasRequest represents the request for deleting an alias
+type DeleteArtistAliasRequest struct {
+	ArtistID string `path:"artist_id" doc:"Artist ID" example:"42"`
+	AliasID  string `path:"alias_id" doc:"Alias ID" example:"1"`
+}
+
+// DeleteArtistAliasHandler handles DELETE /admin/artists/{artist_id}/aliases/{alias_id}
+func (h *ArtistHandler) DeleteArtistAliasHandler(ctx context.Context, req *DeleteArtistAliasRequest) (*struct{}, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	aliasID, err := strconv.ParseUint(req.AliasID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid alias ID")
+	}
+
+	err = h.artistService.RemoveArtistAlias(uint(aliasID))
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return nil, huma.Error404NotFound("Alias not found")
+		}
+		logger.FromContext(ctx).Error("delete_artist_alias_failed",
+			"alias_id", aliasID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to delete alias (request_id: %s)", requestID),
+		)
+	}
+
+	// Audit log (fire and forget)
+	if h.auditLogService != nil {
+		artistID, _ := strconv.ParseUint(req.ArtistID, 10, 32)
+		h.auditLogService.LogAction(user.ID, "delete_artist_alias", "artist", uint(artistID), map[string]interface{}{
+			"alias_id": aliasID,
+		})
+	}
+
+	return nil, nil
+}
+
+// ============================================================================
+// Artist Merge
+// ============================================================================
+
+// MergeArtistsRequest represents the request for merging two artists
+type MergeArtistsRequest struct {
+	Body struct {
+		CanonicalArtistID uint `json:"canonical_artist_id" doc:"ID of the artist to keep"`
+		MergeFromArtistID uint `json:"merge_from_artist_id" doc:"ID of the artist to merge and delete"`
+	}
+}
+
+// MergeArtistsResponse represents the response for merging two artists
+type MergeArtistsResponse struct {
+	Body *services.MergeArtistResult
+}
+
+// MergeArtistsHandler handles POST /admin/artists/merge
+func (h *ArtistHandler) MergeArtistsHandler(ctx context.Context, req *MergeArtistsRequest) (*MergeArtistsResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	if req.Body.CanonicalArtistID == 0 || req.Body.MergeFromArtistID == 0 {
+		return nil, huma.Error400BadRequest("Both canonical_artist_id and merge_from_artist_id are required")
+	}
+
+	result, err := h.artistService.MergeArtists(req.Body.CanonicalArtistID, req.Body.MergeFromArtistID)
+	if err != nil {
+		var artistErr *apperrors.ArtistError
+		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
+			return nil, huma.Error404NotFound("Artist not found")
+		}
+		if strings.Contains(err.Error(), "cannot merge an artist with itself") {
+			return nil, huma.Error400BadRequest("Cannot merge an artist with itself")
+		}
+		logger.FromContext(ctx).Error("merge_artists_failed",
+			"canonical_id", req.Body.CanonicalArtistID,
+			"merge_from_id", req.Body.MergeFromArtistID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to merge artists (request_id: %s)", requestID),
+		)
+	}
+
+	// Audit log (fire and forget)
+	if h.auditLogService != nil {
+		h.auditLogService.LogAction(user.ID, "merge_artists", "artist", req.Body.CanonicalArtistID, map[string]interface{}{
+			"merged_artist_id":   req.Body.MergeFromArtistID,
+			"merged_artist_name": result.MergedArtistName,
+			"shows_moved":        result.ShowsMoved,
+		})
+	}
+
+	logger.FromContext(ctx).Info("artists_merged",
+		"canonical_id", req.Body.CanonicalArtistID,
+		"merged_id", req.Body.MergeFromArtistID,
+		"merged_name", result.MergedArtistName,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &MergeArtistsResponse{Body: result}, nil
+}

@@ -7,10 +7,10 @@
  * music discovery (Bandcamp/Spotify) and manual URL updates.
  */
 
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../../api'
 import { queryKeys } from '../../queryClient'
-import type { Artist, ArtistEditRequest } from '@/features/artists'
+import type { Artist, ArtistEditRequest, ArtistAliasesResponse, ArtistAlias, MergeArtistResult } from '@/features/artists'
 
 /**
  * Platform types for music discovery
@@ -383,6 +383,107 @@ export function useArtistUpdate() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.shows.all,
       })
+    },
+  })
+}
+
+/**
+ * Hook for fetching artist aliases
+ */
+export function useArtistAliases(artistId: number, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.artists.aliases(artistId),
+    queryFn: () =>
+      apiRequest<ArtistAliasesResponse>(API_ENDPOINTS.ARTISTS.ALIASES(artistId)),
+    enabled: enabled && artistId > 0,
+  })
+}
+
+/**
+ * Hook for creating an artist alias (admin only)
+ */
+export function useCreateArtistAlias() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      artistId,
+      alias,
+    }: {
+      artistId: number
+      alias: string
+    }): Promise<ArtistAlias> => {
+      return apiRequest<ArtistAlias>(
+        API_ENDPOINTS.ADMIN.ARTISTS.ALIASES(artistId),
+        {
+          method: 'POST',
+          body: JSON.stringify({ alias }),
+        }
+      )
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.artists.aliases(variables.artistId),
+      })
+    },
+  })
+}
+
+/**
+ * Hook for deleting an artist alias (admin only)
+ */
+export function useDeleteArtistAlias() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      artistId,
+      aliasId,
+    }: {
+      artistId: number
+      aliasId: number
+    }): Promise<void> => {
+      await apiRequest(
+        API_ENDPOINTS.ADMIN.ARTISTS.DELETE_ALIAS(artistId, aliasId),
+        { method: 'DELETE' }
+      )
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.artists.aliases(variables.artistId),
+      })
+    },
+  })
+}
+
+/**
+ * Hook for merging two artists (admin only)
+ */
+export function useMergeArtists() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      canonicalArtistId,
+      mergeFromArtistId,
+    }: {
+      canonicalArtistId: number
+      mergeFromArtistId: number
+    }): Promise<MergeArtistResult> => {
+      return apiRequest<MergeArtistResult>(
+        API_ENDPOINTS.ADMIN.ARTISTS.MERGE,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            canonical_artist_id: canonicalArtistId,
+            merge_from_artist_id: mergeFromArtistId,
+          }),
+        }
+      )
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.shows.all })
     },
   })
 }

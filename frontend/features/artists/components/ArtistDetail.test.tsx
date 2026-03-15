@@ -64,6 +64,7 @@ vi.mock('@/lib/hooks/admin/useAdminArtists', () => ({
   useClearArtistBandcamp: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateArtistSpotify: () => ({ mutate: vi.fn(), isPending: false }),
   useClearArtistSpotify: () => ({ mutate: vi.fn(), isPending: false }),
+  useArtistAliases: () => ({ data: { aliases: [] }, isLoading: false }),
 }))
 
 // Mock child components

@@ -116,6 +116,7 @@ export const API_ENDPOINTS = {
     GET: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}`,
     SHOWS: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}/shows`,
     LABELS: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}/labels`,
+    ALIASES: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}/aliases`,
     DELETE: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}`,
     REPORT: (artistId: string | number) =>
       `${API_BASE_URL}/artists/${artistId}/report`,
@@ -242,6 +243,11 @@ export const API_ENDPOINTS = {
     ARTISTS: {
       UPDATE: (artistId: string | number) =>
         `${API_BASE_URL}/admin/artists/${artistId}`,
+      ALIASES: (artistId: string | number) =>
+        `${API_BASE_URL}/admin/artists/${artistId}/aliases`,
+      DELETE_ALIAS: (artistId: string | number, aliasId: string | number) =>
+        `${API_BASE_URL}/admin/artists/${artistId}/aliases/${aliasId}`,
+      MERGE: `${API_BASE_URL}/admin/artists/merge`,
     },
     REPORTS: {
       LIST: `${API_BASE_URL}/admin/reports`,

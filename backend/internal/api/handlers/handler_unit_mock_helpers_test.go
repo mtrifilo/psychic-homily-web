@@ -911,6 +911,10 @@ type mockArtistService struct {
 	getShowsForArtistFn         func(artistID uint, timezone string, limit int, timeFilter string) ([]*services.ArtistShowResponse, int64, error)
 	getArtistCitiesFn           func() ([]*services.ArtistCityResponse, error)
 	getLabelsForArtistFn        func(artistID uint) ([]*services.ArtistLabelResponse, error)
+	addArtistAliasFn            func(artistID uint, alias string) (*services.ArtistAliasResponse, error)
+	removeArtistAliasFn         func(aliasID uint) error
+	getArtistAliasesFn          func(artistID uint) ([]*services.ArtistAliasResponse, error)
+	mergeArtistsFn              func(canonicalID, mergeFromID uint) (*services.MergeArtistResult, error)
 }
 
 func (m *mockArtistService) CreateArtist(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
@@ -982,6 +986,30 @@ func (m *mockArtistService) GetArtistCities() ([]*services.ArtistCityResponse, e
 func (m *mockArtistService) GetLabelsForArtist(artistID uint) ([]*services.ArtistLabelResponse, error) {
 	if m.getLabelsForArtistFn != nil {
 		return m.getLabelsForArtistFn(artistID)
+	}
+	return nil, nil
+}
+func (m *mockArtistService) AddArtistAlias(artistID uint, alias string) (*services.ArtistAliasResponse, error) {
+	if m.addArtistAliasFn != nil {
+		return m.addArtistAliasFn(artistID, alias)
+	}
+	return nil, nil
+}
+func (m *mockArtistService) RemoveArtistAlias(aliasID uint) error {
+	if m.removeArtistAliasFn != nil {
+		return m.removeArtistAliasFn(aliasID)
+	}
+	return nil
+}
+func (m *mockArtistService) GetArtistAliases(artistID uint) ([]*services.ArtistAliasResponse, error) {
+	if m.getArtistAliasesFn != nil {
+		return m.getArtistAliasesFn(artistID)
+	}
+	return nil, nil
+}
+func (m *mockArtistService) MergeArtists(canonicalID, mergeFromID uint) (*services.MergeArtistResult, error) {
+	if m.mergeArtistsFn != nil {
+		return m.mergeArtistsFn(canonicalID, mergeFromID)
 	}
 	return nil, nil
 }
