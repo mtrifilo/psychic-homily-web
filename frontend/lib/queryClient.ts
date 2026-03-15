@@ -303,6 +303,14 @@ export const queryKeys = {
     entityTags: (entityType: string, entityId: number) => ['tags', 'entityTags', entityType, entityId] as const,
   },
 
+  // Scene queries
+  scenes: {
+    all: ['scenes'] as const,
+    list: ['scenes', 'list'] as const,
+    detail: (slug: string) => ['scenes', 'detail', slug] as const,
+    artists: (slug: string, period?: number) => ['scenes', 'artists', slug, period] as const,
+  },
+
   // Revision history queries
   revisions: {
     all: ['revisions'] as const,
@@ -406,6 +414,10 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate entity tag queries
   entityTags: (entityType: string, entityId: number) =>
     queryClient.invalidateQueries({ queryKey: ['tags', 'entityTags', entityType, entityId] }),
+
+  // Invalidate scene queries
+  scenes: () =>
+    queryClient.invalidateQueries({ queryKey: ['scenes'] }),
 
   // Invalidate revision queries
   revisions: () =>
