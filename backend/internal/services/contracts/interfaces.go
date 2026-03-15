@@ -435,3 +435,9 @@ type SceneServiceInterface interface {
 	GetActiveArtists(city, state string, periodDays, limit, offset int) ([]*SceneArtistResponse, int64, error)
 	ParseSceneSlug(slug string) (string, string, error)
 }
+
+// DataQualityServiceInterface defines the contract for data quality dashboard operations.
+type DataQualityServiceInterface interface {
+	GetSummary() (*DataQualitySummary, error)
+	GetCategoryItems(category string, limit, offset int) ([]*DataQualityItem, int64, error)
+}

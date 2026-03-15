@@ -279,6 +279,11 @@ export const API_ENDPOINTS = {
     DISCOVERY: {
       IMPORT: `${API_BASE_URL}/admin/discovery/import`,
     },
+    DATA_QUALITY: {
+      SUMMARY: `${API_BASE_URL}/admin/data-quality`,
+      CATEGORY: (category: string) =>
+        `${API_BASE_URL}/admin/data-quality/${category}`,
+    },
     PIPELINE: {
       VENUES: `${API_BASE_URL}/admin/pipeline/venues`,
       EXTRACT: (venueId: string | number) =>

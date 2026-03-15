@@ -528,6 +528,11 @@ func setupAdminRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 
 	// Admin user list endpoint
 	huma.Get(protected, "/admin/users", adminHandler.GetAdminUsersHandler)
+
+	// Admin data quality endpoints
+	dataQualityHandler := handlers.NewDataQualityHandler(sc.DataQuality)
+	huma.Get(protected, "/admin/data-quality", dataQualityHandler.GetDataQualitySummaryHandler)
+	huma.Get(protected, "/admin/data-quality/{category}", dataQualityHandler.GetDataQualityCategoryHandler)
 }
 
 // setupContributorProfileRoutes configures contributor profile endpoints
