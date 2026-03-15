@@ -115,6 +115,8 @@ type ArtistResponse struct {
 	State            *string           `json:"state"`
 	City             *string           `json:"city"`
 	IsHeadliner      *bool             `json:"is_headliner"`
+	SetType          string            `json:"set_type"`
+	Position         int               `json:"position"`
 	IsNewArtist      *bool             `json:"is_new_artist"`
 	BandcampEmbedURL *string           `json:"bandcamp_embed_url"`
 	Socials          ShowArtistSocials `json:"socials"`

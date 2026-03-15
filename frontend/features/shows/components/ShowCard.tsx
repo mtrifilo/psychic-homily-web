@@ -46,15 +46,16 @@ function showHasArtistMusic(artists: ArtistResponse[]): boolean {
 }
 
 /**
- * Split artists into headliners and support acts based on is_headliner flag.
+ * Split artists into headliners and support acts based on set_type.
+ * Falls back to is_headliner flag for backward compatibility.
  * If no headliner flags are set, treat the first artist as the headliner.
  */
 function splitBill(artists: ArtistResponse[]): {
   headliners: ArtistResponse[]
   support: ArtistResponse[]
 } {
-  const headliners = artists.filter(a => a.is_headliner === true)
-  const support = artists.filter(a => a.is_headliner !== true)
+  const headliners = artists.filter(a => a.set_type === 'headliner' || a.is_headliner === true)
+  const support = artists.filter(a => a.set_type !== 'headliner' && a.is_headliner !== true)
 
   // If no explicit headliners, treat first artist as headliner
   if (headliners.length === 0 && artists.length > 0) {
@@ -102,6 +103,13 @@ function HeadlinerLine({ artists }: { artists: ArtistResponse[] }) {
   )
 }
 
+function SetTypeLabel({ setType }: { setType: string }) {
+  if (setType === 'special_guest') {
+    return <span className="text-xs text-muted-foreground/70 italic"> (special guest)</span>
+  }
+  return null
+}
+
 function SupportLine({ artists }: { artists: ArtistResponse[] }) {
   if (artists.length === 0) return null
 
@@ -114,6 +122,7 @@ function SupportLine({ artists }: { artists: ArtistResponse[] }) {
             <span className="text-muted-foreground/50">, </span>
           )}
           <ArtistLink artist={artist} className="text-muted-foreground hover:text-primary" />
+          <SetTypeLabel setType={artist.set_type} />
         </span>
       ))}
     </div>

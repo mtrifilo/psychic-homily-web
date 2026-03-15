@@ -3,6 +3,7 @@
 // Types
 export type {
   ShowArtistSocials,
+  SetType,
   ArtistResponse,
   VenueResponse,
   ShowStatus,
