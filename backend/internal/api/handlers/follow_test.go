@@ -258,6 +258,31 @@ func TestGetFollowersHandler_CountError(t *testing.T) {
 	assertHumaError(t, err, 500)
 }
 
+func TestGetFollowersHandler_IsFollowingError_GracefulDegradation(t *testing.T) {
+	mock := &mockFollowService{
+		getFollowerCountFn: func(_ string, _ uint) (int64, error) {
+			return 7, nil
+		},
+		isFollowingFn: func(_ uint, _ string, _ uint) (bool, error) {
+			return false, fmt.Errorf("is_following query failed")
+		},
+	}
+	h := NewFollowHandler(mock)
+	ctx := ctxWithUser(&models.User{ID: 1})
+	req := &GetFollowersRequest{EntityType: "artists", EntityID: "5"}
+
+	resp, err := h.GetFollowersHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("expected no error (graceful degradation), got: %v", err)
+	}
+	if resp.Body.FollowerCount != 7 {
+		t.Errorf("expected follower_count=7, got %d", resp.Body.FollowerCount)
+	}
+	if resp.Body.IsFollowing {
+		t.Error("expected is_following=false on error")
+	}
+}
+
 // --- BatchFollowHandler ---
 
 func TestBatchFollowHandler_EmptyList(t *testing.T) {
@@ -402,6 +427,49 @@ func TestBatchFollowHandler_AcceptsPluralForm(t *testing.T) {
 	}
 }
 
+func TestBatchFollowHandler_UserFollowingError_GracefulDegradation(t *testing.T) {
+	mock := &mockFollowService{
+		getBatchFollowerCountsFn: func(_ string, entityIDs []uint) (map[uint]int64, error) {
+			result := make(map[uint]int64)
+			for _, id := range entityIDs {
+				result[id] = 3
+			}
+			return result, nil
+		},
+		getBatchUserFollowingFn: func(_ uint, _ string, _ []uint) (map[uint]bool, error) {
+			return nil, fmt.Errorf("user following query failed")
+		},
+	}
+	h := NewFollowHandler(mock)
+	ctx := ctxWithUser(&models.User{ID: 1})
+	req := &BatchFollowRequest{}
+	req.Body.EntityType = "artist"
+	req.Body.EntityIDs = []int{1, 2}
+
+	resp, err := h.BatchFollowHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("expected no error (graceful degradation), got: %v", err)
+	}
+	// Counts still returned despite user following error
+	if resp.Body.Follows["1"].FollowerCount != 3 {
+		t.Errorf("expected follower_count=3, got %d", resp.Body.Follows["1"].FollowerCount)
+	}
+	// IsFollowing defaults to false when error
+	if resp.Body.Follows["1"].IsFollowing {
+		t.Error("expected is_following=false on error")
+	}
+}
+
+func TestBatchFollowHandler_ZeroEntityID(t *testing.T) {
+	h := NewFollowHandler(&mockFollowService{})
+	req := &BatchFollowRequest{}
+	req.Body.EntityType = "artist"
+	req.Body.EntityIDs = []int{1, 0, 3}
+
+	_, err := h.BatchFollowHandler(context.Background(), req)
+	assertHumaError(t, err, 400)
+}
+
 func TestBatchFollowHandler_CountsError(t *testing.T) {
 	mock := &mockFollowService{
 		getBatchFollowerCountsFn: func(_ string, _ []uint) (map[uint]int64, error) {
@@ -537,6 +605,31 @@ func TestGetMyFollowingHandler_PaginationClamping(t *testing.T) {
 	h.GetMyFollowingHandler(ctx, &GetMyFollowingRequest{Type: "all", Limit: 999})
 	if capturedLimit != 100 {
 		t.Errorf("expected limit=100, got %d", capturedLimit)
+	}
+}
+
+func TestGetMyFollowingHandler_AllValidTypeFilters(t *testing.T) {
+	for _, typeFilter := range []string{"artist", "venue", "label", "festival"} {
+		t.Run(typeFilter, func(t *testing.T) {
+			var capturedType string
+			mock := &mockFollowService{
+				getUserFollowingFn: func(_ uint, entityType string, _, _ int) ([]*services.FollowingEntityResponse, int64, error) {
+					capturedType = entityType
+					return nil, 0, nil
+				},
+			}
+			h := NewFollowHandler(mock)
+			ctx := ctxWithUser(&models.User{ID: 1})
+			req := &GetMyFollowingRequest{Type: typeFilter, Limit: 20}
+
+			_, err := h.GetMyFollowingHandler(ctx, req)
+			if err != nil {
+				t.Fatalf("unexpected error for type %s: %v", typeFilter, err)
+			}
+			if capturedType != typeFilter {
+				t.Errorf("expected type=%s, got %s", typeFilter, capturedType)
+			}
+		})
 	}
 }
 

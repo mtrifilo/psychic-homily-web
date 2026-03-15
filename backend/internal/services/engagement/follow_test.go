@@ -680,3 +680,133 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetFollowers_Empty() {
 	suite.Equal(int64(0), total)
 	suite.Empty(followers)
 }
+
+// =============================================================================
+// Group 8: Cross-entity type coverage
+// =============================================================================
+
+func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_VenueNameSlug() {
+	user := suite.createTestUser()
+	venueID := suite.createTestVenue("The Rebel Lounge")
+
+	suite.followService.Follow(user.ID, "venue", venueID)
+
+	following, total, err := suite.followService.GetUserFollowing(user.ID, "venue", 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(following, 1)
+	suite.Equal("venue", following[0].EntityType)
+	suite.Equal("The Rebel Lounge", following[0].Name)
+	suite.Equal("The Rebel Lounge", following[0].Slug) // slug set to name in helper
+}
+
+func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_FestivalNameSlug() {
+	user := suite.createTestUser()
+	festivalID := suite.createTestFestival("summer-fest")
+
+	suite.followService.Follow(user.ID, "festival", festivalID)
+
+	following, total, err := suite.followService.GetUserFollowing(user.ID, "festival", 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(following, 1)
+	suite.Equal("festival", following[0].EntityType)
+	suite.Equal("summer-fest", following[0].Name)
+	suite.Equal("summer-fest", following[0].Slug)
+}
+
+func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_LabelNameSlug() {
+	user := suite.createTestUser()
+	labelID := suite.createTestLabel("Sub Pop")
+
+	suite.followService.Follow(user.ID, "label", labelID)
+
+	following, total, err := suite.followService.GetUserFollowing(user.ID, "label", 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(following, 1)
+	suite.Equal("label", following[0].EntityType)
+	suite.Equal("Sub Pop", following[0].Name)
+	suite.Equal("Sub Pop", following[0].Slug)
+}
+
+func (suite *FollowServiceIntegrationTestSuite) TestGetFollowers_VenueEntityType() {
+	user1 := suite.createTestUserWithUsername("venue-follower-1")
+	user2 := suite.createTestUserWithUsername("venue-follower-2")
+	venueID := suite.createTestVenue("Crescent Ballroom")
+
+	suite.followService.Follow(user1.ID, "venue", venueID)
+	suite.followService.Follow(user2.ID, "venue", venueID)
+
+	followers, total, err := suite.followService.GetFollowers("venue", venueID, 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total)
+	suite.Len(followers, 2)
+}
+
+func (suite *FollowServiceIntegrationTestSuite) TestGetFollowers_FestivalEntityType() {
+	user := suite.createTestUserWithUsername("fest-follower")
+	festivalID := suite.createTestFestival("m3f-fest")
+
+	suite.followService.Follow(user.ID, "festival", festivalID)
+
+	followers, total, err := suite.followService.GetFollowers("festival", festivalID, 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(followers, 1)
+	suite.Equal("fest-follower", followers[0].Username)
+}
+
+func (suite *FollowServiceIntegrationTestSuite) TestGetBatchFollowerCounts_Venues() {
+	user := suite.createTestUser()
+	venue1ID := suite.createTestVenue("Batch Venue 1")
+	venue2ID := suite.createTestVenue("Batch Venue 2")
+
+	suite.followService.Follow(user.ID, "venue", venue1ID)
+
+	result, err := suite.followService.GetBatchFollowerCounts("venue", []uint{venue1ID, venue2ID})
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), result[venue1ID])
+	suite.Equal(int64(0), result[venue2ID])
+}
+
+// =============================================================================
+// Group 9: Follow → Unfollow → Verify cycle
+// =============================================================================
+
+func (suite *FollowServiceIntegrationTestSuite) TestFollowUnfollowCycle() {
+	user := suite.createTestUser()
+	artistID := suite.createTestArtist("Cycle Artist")
+
+	// Follow
+	err := suite.followService.Follow(user.ID, "artist", artistID)
+	suite.Require().NoError(err)
+
+	isFollowing, err := suite.followService.IsFollowing(user.ID, "artist", artistID)
+	suite.Require().NoError(err)
+	suite.True(isFollowing)
+
+	count, err := suite.followService.GetFollowerCount("artist", artistID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), count)
+
+	// Unfollow
+	err = suite.followService.Unfollow(user.ID, "artist", artistID)
+	suite.Require().NoError(err)
+
+	isFollowing, err = suite.followService.IsFollowing(user.ID, "artist", artistID)
+	suite.Require().NoError(err)
+	suite.False(isFollowing)
+
+	count, err = suite.followService.GetFollowerCount("artist", artistID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), count)
+
+	// Re-follow
+	err = suite.followService.Follow(user.ID, "artist", artistID)
+	suite.Require().NoError(err)
+
+	isFollowing, err = suite.followService.IsFollowing(user.ID, "artist", artistID)
+	suite.Require().NoError(err)
+	suite.True(isFollowing)
+}
