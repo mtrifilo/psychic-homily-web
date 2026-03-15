@@ -50,6 +50,7 @@ type SceneServiceInterface = contracts.SceneServiceInterface
 type DataQualityServiceInterface = contracts.DataQualityServiceInterface
 type AnalyticsServiceInterface = contracts.AnalyticsServiceInterface
 type AttendanceServiceInterface = contracts.AttendanceServiceInterface
+type ChartsServiceInterface = contracts.ChartsServiceInterface
 type FollowServiceInterface = contracts.FollowServiceInterface
 
 // Compile-time interface satisfaction checks.
@@ -77,4 +78,5 @@ var (
 	_ TagServiceInterface                   = (*catalog.TagService)(nil)
 	_ ArtistRelationshipServiceInterface    = (*catalog.ArtistRelationshipService)(nil)
 	_ SceneServiceInterface                 = (*catalog.SceneService)(nil)
+	_ ChartsServiceInterface                = (*catalog.ChartsService)(nil)
 )

@@ -461,6 +461,15 @@ type AttendanceServiceInterface interface {
 	GetUserAttendingShows(userID uint, status string, limit, offset int) ([]*AttendingShowResponse, int64, error)
 }
 
+// ChartsServiceInterface defines the contract for top charts / trending content.
+type ChartsServiceInterface interface {
+	GetTrendingShows(limit int) ([]TrendingShow, error)
+	GetPopularArtists(limit int) ([]PopularArtist, error)
+	GetActiveVenues(limit int) ([]ActiveVenue, error)
+	GetHotReleases(limit int) ([]HotRelease, error)
+	GetChartsOverview() (*ChartsOverview, error)
+}
+
 // FollowServiceInterface defines the contract for entity follow operations.
 type FollowServiceInterface interface {
 	Follow(userID uint, entityType string, entityID uint) error
