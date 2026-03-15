@@ -1,3 +1,5 @@
+export { AttendanceButton } from './AttendanceButton'
+export type { AttendanceButtonProps } from './AttendanceButton'
 export { ShowDetail } from './ShowDetail'
 export { ShowCard } from './ShowCard'
 export type { ShowCardDensity, ShowCardProps } from './ShowCard'

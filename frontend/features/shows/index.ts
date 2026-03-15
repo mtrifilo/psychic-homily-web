@@ -41,6 +41,10 @@ export type {
   CalendarTokenStatusResponse,
   CalendarTokenCreateResponse,
   CalendarTokenDeleteResponse,
+  AttendanceCounts,
+  BatchAttendanceResponse,
+  AttendingShow,
+  MyShowsResponse,
 } from './types'
 
 // Hooks
@@ -97,8 +101,17 @@ export {
 
 export { useMySubmissions } from './hooks'
 
+export {
+  useShowAttendance,
+  useBatchAttendance,
+  useSetAttendance,
+  useRemoveAttendance,
+  useMyShows,
+} from './hooks'
+
 // Components
 export {
+  AttendanceButton,
   ShowDetail,
   ShowCard,
   ShowList,
@@ -117,6 +130,7 @@ export {
 } from './components'
 
 export type {
+  AttendanceButtonProps,
   ShowCardDensity,
   ShowCardProps,
   ShowListContext,

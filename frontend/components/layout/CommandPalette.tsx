@@ -12,7 +12,7 @@ import {
   CommandSeparator,
 } from '@/components/ui/command'
 import {
-  Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
+  Calendar, CalendarCheck, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
   Library, LayoutList, MessageSquarePlus, Settings, Shield, Search, Clock, X, Globe,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -106,6 +106,13 @@ const routes: RouteItem[] = [
     href: '/submissions',
     icon: Send,
     keywords: ['submissions', 'submit', 'add', 'new show'],
+  },
+  {
+    label: 'My Shows',
+    href: '/my-shows',
+    icon: CalendarCheck,
+    keywords: ['my shows', 'going', 'interested', 'attending', 'rsvp'],
+    requireAuth: true,
   },
   {
     label: 'Collection',

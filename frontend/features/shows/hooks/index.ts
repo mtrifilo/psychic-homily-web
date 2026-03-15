@@ -50,3 +50,11 @@ export {
 } from './useSavedShows'
 
 export { useMySubmissions } from './useMySubmissions'
+
+export {
+  useShowAttendance,
+  useBatchAttendance,
+  useSetAttendance,
+  useRemoveAttendance,
+  useMyShows,
+} from './useAttendance'

@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useTransition, useRef, useEffect } from
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useUpcomingShows, useShowCities } from '../hooks/useShows'
 import { useSavedShowBatch } from '../hooks/useSavedShows'
+import { useBatchAttendance } from '../hooks/useAttendance'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useProfile, useSetFavoriteCities } from '@/features/auth'
 import type { ShowResponse } from '../types'
@@ -111,6 +112,7 @@ export function ShowList() {
   )
   const allShowIds = useMemo(() => allShows.map(s => s.id), [allShows])
   const { data: savedShowIds } = useSavedShowBatch(allShowIds, isAuthenticated)
+  const { data: batchAttendance } = useBatchAttendance(allShowIds)
 
   const handleLoadMore = useCallback(() => {
     if (data?.pagination.next_cursor) {
@@ -223,6 +225,7 @@ export function ShowList() {
                 userId={user?.id}
                 isSaved={savedShowIds?.has(show.id)}
                 density={density}
+                attendanceData={batchAttendance?.[String(show.id)]}
               />
             ))}
 

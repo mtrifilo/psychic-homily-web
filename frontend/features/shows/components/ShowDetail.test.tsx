@@ -66,6 +66,12 @@ vi.mock('./ReportShowButton', () => ({
   ReportShowButton: () => <button data-testid="report-button">Report</button>,
 }))
 
+vi.mock('./AttendanceButton', () => ({
+  AttendanceButton: ({ showId }: { showId: number }) => (
+    <div data-testid="attendance-button">Attendance {showId}</div>
+  ),
+}))
+
 function makeArtist(overrides: Partial<ArtistResponse> = {}): ArtistResponse {
   return {
     id: 1,
