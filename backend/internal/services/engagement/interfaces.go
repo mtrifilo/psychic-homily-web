@@ -10,4 +10,5 @@ var (
 	_ contracts.CalendarServiceInterface      = (*CalendarService)(nil)
 	_ contracts.ReminderServiceInterface      = (*ReminderService)(nil)
 	_ contracts.AttendanceServiceInterface    = (*AttendanceService)(nil)
+	_ contracts.FollowServiceInterface        = (*FollowService)(nil)
 )
