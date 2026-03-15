@@ -30,7 +30,7 @@ import {
   useClearArtistSpotify,
   type MusicPlatform,
 } from '@/lib/hooks/admin/useAdminArtists'
-import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader, RevisionHistory } from '@/components/shared'
+import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader, RevisionHistory, FollowButton } from '@/components/shared'
 import { EntityTagList } from '@/features/tags'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
 import { ArtistShowsList } from './ArtistShowsList'
@@ -905,6 +905,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
   const headerActions = (
     <div className="flex items-center gap-2">
+      <FollowButton entityType="artists" entityId={artist.id} />
       {isAdmin && (
         <Button
           variant="ghost"

@@ -12,7 +12,7 @@ import {
   Music,
 } from 'lucide-react'
 import { useLabel, useLabelRoster, useLabelCatalog } from '../hooks/useLabels'
-import { EntityDetailLayout, EntityHeader, SocialLinks } from '@/components/shared'
+import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton } from '@/components/shared'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -181,6 +181,7 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
               {label.founded_year && <span>Est. {label.founded_year}</span>}
             </>
           }
+          actions={<FollowButton entityType="labels" entityId={label.id} />}
         />
       }
       tabs={tabs}
