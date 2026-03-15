@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tags, Tent, Workflow, Library, Music, ClipboardCheck } from 'lucide-react'
 import { usePendingVenueEdits } from '@/lib/hooks/admin/useAdminVenueEdits'
@@ -151,8 +152,18 @@ const CollectionManagementComponent = dynamic(
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('dashboard')
-  const { user } = useAuthContext()
+  const { user, isLoading, isAuthenticated } = useAuthContext()
   const isAdmin = !!user?.is_admin
+  const router = useRouter()
+
+  useEffect(() => {
+    if (isLoading) return
+    if (!isAuthenticated) {
+      router.replace('/auth')
+    } else if (!isAdmin) {
+      router.replace('/')
+    }
+  }, [isLoading, isAuthenticated, isAdmin, router])
 
   const {
     data: pendingShowsData,
@@ -169,6 +180,14 @@ export default function AdminPage() {
   const {
     data: artistReportsData,
   } = usePendingArtistReports()
+
+  if (isLoading || !isAuthenticated || !isAdmin) {
+    return (
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-[calc(100vh-64px)] px-4 py-8">
