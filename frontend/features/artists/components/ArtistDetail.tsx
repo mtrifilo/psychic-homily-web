@@ -31,6 +31,7 @@ import {
   type MusicPlatform,
 } from '@/lib/hooks/admin/useAdminArtists'
 import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader, RevisionHistory, FollowButton } from '@/components/shared'
+import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList } from '@/features/tags'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
 import { ArtistShowsList } from './ArtistShowsList'
@@ -376,6 +377,9 @@ function ArtistSidebar({
           </div>
         </div>
       )}
+
+      {/* Festival Trajectory */}
+      <ArtistTrajectoryChart artistIdOrSlug={artist.id} />
 
       {/* Music Embed */}
       <MusicEmbed

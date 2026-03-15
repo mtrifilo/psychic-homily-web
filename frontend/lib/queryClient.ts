@@ -205,6 +205,16 @@ export const queryKeys = {
       ['festivals', 'venues', String(idOrSlug)] as const,
     artistFestivals: (artistIdOrSlug: string | number) =>
       ['festivals', 'artist', String(artistIdOrSlug)] as const,
+    similar: (idOrSlug: string | number) =>
+      ['festivals', 'similar', String(idOrSlug)] as const,
+    overlap: (aId: string | number, bId: string | number) =>
+      ['festivals', 'overlap', String(aId), String(bId)] as const,
+    breakouts: (idOrSlug: string | number) =>
+      ['festivals', 'breakouts', String(idOrSlug)] as const,
+    artistTrajectory: (artistIdOrSlug: string | number) =>
+      ['festivals', 'trajectory', String(artistIdOrSlug)] as const,
+    seriesCompare: (seriesSlug: string, years: number[]) =>
+      ['festivals', 'series', seriesSlug, years.join(',')] as const,
   },
 
   // Calendar feed queries

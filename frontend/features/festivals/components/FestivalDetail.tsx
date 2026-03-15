@@ -15,12 +15,16 @@ import {
   useFestival,
   useFestivalArtists,
   useFestivalVenues,
+  useFestivals,
 } from '../hooks/useFestivals'
 import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton } from '@/components/shared'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { FestivalLineup } from './FestivalLineup'
+import { SimilarFestivals } from './SimilarFestivals'
+import { RisingArtists } from './RisingArtists'
+import { SeriesHistory } from './SeriesHistory'
 import {
   getFestivalStatusLabel,
   getFestivalStatusVariant,
@@ -42,6 +46,18 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
     festivalIdOrSlug: idOrSlug,
     enabled: !!festival,
   })
+  // Fetch series editions for series festivals (needed for SeriesHistory tab)
+  const { data: seriesData } = useFestivals({
+    seriesSlug: festival?.series_slug,
+  })
+  const seriesEditions = useMemo(() => {
+    if (!seriesData?.festivals || !festival?.series_slug) return []
+    return seriesData.festivals
+      .filter((f) => f.series_slug === festival.series_slug)
+      .map((f) => ({ year: f.edition_year }))
+  }, [seriesData, festival?.series_slug])
+  const hasSeriesHistory = seriesEditions.length >= 2
+
   const [activeTab, setActiveTab] = useState('lineup')
 
   // Determine if this is a multi-day festival with day assignments
@@ -111,6 +127,8 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
 
   const tabs = [
     { value: 'lineup', label: `Lineup (${festival.artist_count})` },
+    { value: 'insights', label: 'Insights' },
+    ...(hasSeriesHistory ? [{ value: 'series', label: 'Series History' }] : []),
     { value: 'info', label: 'Info' },
   ]
 
@@ -274,6 +292,31 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
           />
         )}
       </TabsContent>
+
+      {/* Insights Tab */}
+      <TabsContent value="insights">
+        <div className="space-y-8">
+          <RisingArtists
+            festivalIdOrSlug={idOrSlug}
+            enabled={activeTab === 'insights'}
+          />
+          <SimilarFestivals
+            festivalIdOrSlug={idOrSlug}
+            enabled={activeTab === 'insights'}
+          />
+        </div>
+      </TabsContent>
+
+      {/* Series History Tab */}
+      {hasSeriesHistory && (
+        <TabsContent value="series">
+          <SeriesHistory
+            seriesSlug={festival.series_slug}
+            editions={seriesEditions}
+            enabled={activeTab === 'series'}
+          />
+        </TabsContent>
+      )}
 
       {/* Info Tab */}
       <TabsContent value="info">

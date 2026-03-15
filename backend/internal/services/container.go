@@ -38,7 +38,8 @@ type ServiceContainer struct {
 	Attendance         *engagement.AttendanceService
 	Follow             *engagement.FollowService
 	FavoriteVenue      *engagement.FavoriteVenueService
-	Festival      *catalog.FestivalService
+	Festival               *catalog.FestivalService
+	FestivalIntelligence   *catalog.FestivalIntelligenceService
 	Label         *catalog.LabelService
 	Release       *catalog.ReleaseService
 	SavedShow     *engagement.SavedShowService
@@ -127,7 +128,8 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Attendance:         engagement.NewAttendanceService(database),
 		Follow:             engagement.NewFollowService(database),
 		FavoriteVenue:      engagement.NewFavoriteVenueService(database),
-		Festival:      catalog.NewFestivalService(database),
+		Festival:               catalog.NewFestivalService(database),
+		FestivalIntelligence:   catalog.NewFestivalIntelligenceService(database),
 		Label:         catalog.NewLabelService(database),
 		Release:       catalog.NewReleaseService(database),
 		SavedShow:     savedShow,
