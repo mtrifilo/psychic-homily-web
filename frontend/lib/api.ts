@@ -337,6 +337,26 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/requests/${requestId}/close`,
   },
 
+  // Tag endpoints
+  TAGS: {
+    LIST: `${API_BASE_URL}/tags`,
+    SEARCH: `${API_BASE_URL}/tags/search`,
+    GET: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}`,
+    ALIASES: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}/aliases`,
+  },
+
+  // Entity tag endpoints
+  ENTITY_TAGS: {
+    LIST: (entityType: string, entityId: number) =>
+      `${API_BASE_URL}/entities/${entityType}/${entityId}/tags`,
+    ADD: (entityType: string, entityId: number) =>
+      `${API_BASE_URL}/entities/${entityType}/${entityId}/tags`,
+    REMOVE: (entityType: string, entityId: number, tagId: number) =>
+      `${API_BASE_URL}/entities/${entityType}/${entityId}/tags/${tagId}`,
+    VOTE: (tagId: number, entityType: string, entityId: number) =>
+      `${API_BASE_URL}/tags/${tagId}/entities/${entityType}/${entityId}/votes`,
+  },
+
   // Revision history endpoints
   REVISIONS: {
     ENTITY_HISTORY: (entityType: string, entityId: string | number) =>
