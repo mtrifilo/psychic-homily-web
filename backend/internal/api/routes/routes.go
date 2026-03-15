@@ -99,6 +99,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupRequestRoutes(api, protectedGroup, sc)
 	setupRevisionRoutes(api, protectedGroup, sc)
 	setupTagRoutes(api, protectedGroup, sc)
+	setupArtistRelationshipRoutes(api, protectedGroup, sc)
 
 	return api
 }
@@ -659,6 +660,24 @@ func setupTagRoutes(api huma.API, protected *huma.Group, sc *services.ServiceCon
 	huma.Delete(protected, "/tags/{tag_id}", tagHandler.DeleteTagHandler)
 	huma.Post(protected, "/tags/{tag_id}/aliases", tagHandler.CreateAliasHandler)
 	huma.Delete(protected, "/tags/{tag_id}/aliases/{alias_id}", tagHandler.DeleteAliasHandler)
+}
+
+// setupArtistRelationshipRoutes configures artist relationship and similar artist endpoints.
+func setupArtistRelationshipRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
+	relHandler := handlers.NewArtistRelationshipHandler(sc.ArtistRelationship, sc.AuditLog)
+
+	// Public: get related artists with optional auth (for user's votes)
+	optionalAuthGroup := huma.NewGroup(api, "")
+	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(sc.JWT))
+	huma.Get(optionalAuthGroup, "/artists/{artist_id}/related", relHandler.GetRelatedArtistsHandler)
+
+	// Protected: create relationships and vote
+	huma.Post(protected, "/artists/relationships", relHandler.CreateRelationshipHandler)
+	huma.Post(protected, "/artists/relationships/{source_id}/{target_id}/vote", relHandler.VoteHandler)
+	huma.Delete(protected, "/artists/relationships/{source_id}/{target_id}/vote", relHandler.RemoveVoteHandler)
+
+	// Admin: delete relationships
+	huma.Delete(protected, "/artists/relationships/{source_id}/{target_id}", relHandler.DeleteRelationshipHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON
