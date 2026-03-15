@@ -1,0 +1,249 @@
+package handlers
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+
+	"github.com/danielgtaylor/huma/v2"
+
+	"psychic-homily-backend/internal/api/middleware"
+	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
+)
+
+// ArtistRelationshipHandler handles artist relationship API requests.
+type ArtistRelationshipHandler struct {
+	relService services.ArtistRelationshipServiceInterface
+	auditLog   services.AuditLogServiceInterface
+}
+
+// NewArtistRelationshipHandler creates a new handler.
+func NewArtistRelationshipHandler(
+	relService services.ArtistRelationshipServiceInterface,
+	auditLog services.AuditLogServiceInterface,
+) *ArtistRelationshipHandler {
+	return &ArtistRelationshipHandler{
+		relService: relService,
+		auditLog:   auditLog,
+	}
+}
+
+// ============================================================================
+// Get Related Artists (optional auth)
+// ============================================================================
+
+type GetRelatedArtistsRequest struct {
+	ArtistID string `path:"artist_id" doc:"Artist ID" example:"1"`
+	Type     string `query:"type" required:"false" doc:"Filter by relationship type (similar, shared_bills, shared_label, side_project, member_of)"`
+	Limit    int    `query:"limit" required:"false" doc:"Max results (default 30)" example:"30"`
+}
+
+type GetRelatedArtistsResponse struct {
+	Body struct {
+		Related []contracts.RelatedArtistResponse `json:"related"`
+	}
+}
+
+func (h *ArtistRelationshipHandler) GetRelatedArtistsHandler(ctx context.Context, req *GetRelatedArtistsRequest) (*GetRelatedArtistsResponse, error) {
+	id, err := strconv.ParseUint(req.ArtistID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid artist ID")
+	}
+
+	related, err := h.relService.GetRelatedArtists(uint(id), req.Type, req.Limit)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to get related artists")
+	}
+
+	// Include user's votes if authenticated
+	user := middleware.GetUserFromContext(ctx)
+	if user != nil {
+		for i := range related {
+			r := &related[i]
+			vote, err := h.relService.GetUserVote(uint(id), r.ArtistID, r.RelationshipType, user.ID)
+			if err == nil && vote != nil {
+				dir := int(vote.Direction)
+				r.UserVote = &dir
+			}
+		}
+	}
+
+	resp := &GetRelatedArtistsResponse{}
+	resp.Body.Related = related
+	return resp, nil
+}
+
+// ============================================================================
+// Create Relationship (protected)
+// ============================================================================
+
+type CreateRelationshipRequest struct {
+	Body struct {
+		SourceArtistID uint   `json:"source_artist_id" doc:"Source artist ID" example:"1"`
+		TargetArtistID uint   `json:"target_artist_id" doc:"Target artist ID" example:"2"`
+		Type           string `json:"type" doc:"Relationship type (similar, side_project, member_of)" example:"similar"`
+	}
+}
+
+type CreateRelationshipResponse struct {
+	Body struct {
+		Success bool `json:"success"`
+	}
+}
+
+func (h *ArtistRelationshipHandler) CreateRelationshipHandler(ctx context.Context, req *CreateRelationshipRequest) (*CreateRelationshipResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	if req.Body.SourceArtistID == 0 || req.Body.TargetArtistID == 0 {
+		return nil, huma.Error400BadRequest("Both source_artist_id and target_artist_id are required")
+	}
+	if req.Body.Type == "" {
+		return nil, huma.Error400BadRequest("Relationship type is required")
+	}
+
+	_, err := h.relService.CreateRelationship(req.Body.SourceArtistID, req.Body.TargetArtistID, req.Body.Type, false)
+	if err != nil {
+		requestID := logger.GetRequestID(ctx)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to create relationship (request_id: %s): %v", requestID, err),
+		)
+	}
+
+	// Cast initial upvote from the creator
+	_ = h.relService.Vote(req.Body.SourceArtistID, req.Body.TargetArtistID, req.Body.Type, user.ID, true)
+
+	// Audit log (fire and forget)
+	if h.auditLog != nil {
+		go func() {
+			h.auditLog.LogAction(user.ID, "create_artist_relationship", "artist", req.Body.SourceArtistID, map[string]interface{}{
+				"target_artist_id": req.Body.TargetArtistID,
+				"type":             req.Body.Type,
+			})
+		}()
+	}
+
+	resp := &CreateRelationshipResponse{}
+	resp.Body.Success = true
+	return resp, nil
+}
+
+// ============================================================================
+// Vote on Relationship (protected)
+// ============================================================================
+
+type VoteRelationshipRequest struct {
+	SourceID string `path:"source_id" doc:"Source artist ID" example:"1"`
+	TargetID string `path:"target_id" doc:"Target artist ID" example:"2"`
+	Body     struct {
+		Type     string `json:"type" doc:"Relationship type" example:"similar"`
+		IsUpvote bool   `json:"is_upvote" doc:"True for upvote, false for downvote"`
+	}
+}
+
+func (h *ArtistRelationshipHandler) VoteHandler(ctx context.Context, req *VoteRelationshipRequest) (*struct{}, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	sourceID, err := strconv.ParseUint(req.SourceID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid source artist ID")
+	}
+	targetID, err := strconv.ParseUint(req.TargetID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid target artist ID")
+	}
+
+	if req.Body.Type == "" {
+		return nil, huma.Error400BadRequest("Relationship type is required")
+	}
+
+	err = h.relService.Vote(uint(sourceID), uint(targetID), req.Body.Type, user.ID, req.Body.IsUpvote)
+	if err != nil {
+		return nil, huma.Error500InternalServerError(fmt.Sprintf("Failed to vote: %v", err))
+	}
+
+	return nil, nil
+}
+
+// ============================================================================
+// Remove Vote (protected)
+// ============================================================================
+
+type RemoveRelationshipVoteRequest struct {
+	SourceID string `path:"source_id" doc:"Source artist ID" example:"1"`
+	TargetID string `path:"target_id" doc:"Target artist ID" example:"2"`
+	Type     string `query:"type" doc:"Relationship type" example:"similar"`
+}
+
+func (h *ArtistRelationshipHandler) RemoveVoteHandler(ctx context.Context, req *RemoveRelationshipVoteRequest) (*struct{}, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	sourceID, err := strconv.ParseUint(req.SourceID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid source artist ID")
+	}
+	targetID, err := strconv.ParseUint(req.TargetID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid target artist ID")
+	}
+
+	if req.Type == "" {
+		return nil, huma.Error400BadRequest("Relationship type is required")
+	}
+
+	err = h.relService.RemoveVote(uint(sourceID), uint(targetID), req.Type, user.ID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to remove vote")
+	}
+
+	return nil, nil
+}
+
+// ============================================================================
+// Delete Relationship (admin)
+// ============================================================================
+
+type DeleteRelationshipRequest struct {
+	SourceID string `path:"source_id" doc:"Source artist ID" example:"1"`
+	TargetID string `path:"target_id" doc:"Target artist ID" example:"2"`
+	Type     string `query:"type" doc:"Relationship type" example:"similar"`
+}
+
+func (h *ArtistRelationshipHandler) DeleteRelationshipHandler(ctx context.Context, req *DeleteRelationshipRequest) (*struct{}, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	if !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	sourceID, _ := strconv.ParseUint(req.SourceID, 10, 32)
+	targetID, _ := strconv.ParseUint(req.TargetID, 10, 32)
+
+	err := h.relService.DeleteRelationship(uint(sourceID), uint(targetID), req.Type)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to delete relationship")
+	}
+
+	if h.auditLog != nil {
+		go func() {
+			h.auditLog.LogAction(user.ID, "delete_artist_relationship", "artist", uint(sourceID), map[string]interface{}{
+				"target_artist_id": uint(targetID),
+				"type":             req.Type,
+			})
+		}()
+	}
+
+	return nil, nil
+}
