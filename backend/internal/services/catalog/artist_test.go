@@ -108,6 +108,33 @@ func TestArtistService_NilDatabase(t *testing.T) {
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
 	})
+
+	t.Run("AddArtistAlias", func(t *testing.T) {
+		resp, err := svc.AddArtistAlias(1, "test")
+		assert.Error(t, err)
+		assert.Equal(t, "database not initialized", err.Error())
+		assert.Nil(t, resp)
+	})
+
+	t.Run("RemoveArtistAlias", func(t *testing.T) {
+		err := svc.RemoveArtistAlias(1)
+		assert.Error(t, err)
+		assert.Equal(t, "database not initialized", err.Error())
+	})
+
+	t.Run("GetArtistAliases", func(t *testing.T) {
+		resp, err := svc.GetArtistAliases(1)
+		assert.Error(t, err)
+		assert.Equal(t, "database not initialized", err.Error())
+		assert.Nil(t, resp)
+	})
+
+	t.Run("MergeArtists", func(t *testing.T) {
+		resp, err := svc.MergeArtists(1, 2)
+		assert.Error(t, err)
+		assert.Equal(t, "database not initialized", err.Error())
+		assert.Nil(t, resp)
+	})
 }
 
 // =============================================================================

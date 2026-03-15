@@ -843,3 +843,288 @@ func TestListArtists_CitiesOverridesLegacy(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// ============================================================================
+// Mock-based tests: GetArtistAliasesHandler
+// ============================================================================
+
+func TestGetArtistAliases_InvalidID(t *testing.T) {
+	h := testArtistHandler()
+	_, err := h.GetArtistAliasesHandler(context.Background(), &GetArtistAliasesRequest{ArtistID: "abc"})
+	assertHumaError(t, err, 400)
+}
+
+func TestGetArtistAliases_Success(t *testing.T) {
+	mock := &mockArtistService{
+		getArtistAliasesFn: func(artistID uint) ([]*services.ArtistAliasResponse, error) {
+			if artistID != 42 {
+				t.Errorf("expected artistID=42, got %d", artistID)
+			}
+			return []*services.ArtistAliasResponse{
+				{ID: 1, ArtistID: 42, Alias: "Alias One"},
+				{ID: 2, ArtistID: 42, Alias: "Alias Two"},
+			}, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+
+	resp, err := h.GetArtistAliasesHandler(context.Background(), &GetArtistAliasesRequest{ArtistID: "42"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Count != 2 {
+		t.Errorf("expected count=2, got %d", resp.Body.Count)
+	}
+}
+
+func TestGetArtistAliases_NotFound(t *testing.T) {
+	mock := &mockArtistService{
+		getArtistAliasesFn: func(artistID uint) ([]*services.ArtistAliasResponse, error) {
+			return nil, apperrors.ErrArtistNotFound(artistID)
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+
+	_, err := h.GetArtistAliasesHandler(context.Background(), &GetArtistAliasesRequest{ArtistID: "99"})
+	assertHumaError(t, err, 404)
+}
+
+// ============================================================================
+// Mock-based tests: AddArtistAliasHandler
+// ============================================================================
+
+func TestAddArtistAlias_NoUser(t *testing.T) {
+	h := testArtistHandler()
+	req := &AddArtistAliasRequest{ArtistID: "1"}
+	req.Body.Alias = "test"
+
+	_, err := h.AddArtistAliasHandler(context.Background(), req)
+	assertHumaError(t, err, 403)
+}
+
+func TestAddArtistAlias_NonAdmin(t *testing.T) {
+	h := testArtistHandler()
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	req := &AddArtistAliasRequest{ArtistID: "1"}
+	req.Body.Alias = "test"
+
+	_, err := h.AddArtistAliasHandler(ctx, req)
+	assertHumaError(t, err, 403)
+}
+
+func TestAddArtistAlias_InvalidID(t *testing.T) {
+	h := testArtistHandler()
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &AddArtistAliasRequest{ArtistID: "abc"}
+	req.Body.Alias = "test"
+
+	_, err := h.AddArtistAliasHandler(ctx, req)
+	assertHumaError(t, err, 400)
+}
+
+func TestAddArtistAlias_EmptyAlias(t *testing.T) {
+	h := testArtistHandler()
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &AddArtistAliasRequest{ArtistID: "1"}
+	req.Body.Alias = "   "
+
+	_, err := h.AddArtistAliasHandler(ctx, req)
+	assertHumaError(t, err, 400)
+}
+
+func TestAddArtistAlias_Success(t *testing.T) {
+	mock := &mockArtistService{
+		addArtistAliasFn: func(artistID uint, alias string) (*services.ArtistAliasResponse, error) {
+			if artistID != 42 {
+				t.Errorf("expected artistID=42, got %d", artistID)
+			}
+			return &services.ArtistAliasResponse{ID: 1, ArtistID: 42, Alias: alias}, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &AddArtistAliasRequest{ArtistID: "42"}
+	req.Body.Alias = "New Alias"
+
+	resp, err := h.AddArtistAliasHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Alias != "New Alias" {
+		t.Errorf("expected alias='New Alias', got %q", resp.Body.Alias)
+	}
+}
+
+func TestAddArtistAlias_Conflict(t *testing.T) {
+	mock := &mockArtistService{
+		addArtistAliasFn: func(artistID uint, alias string) (*services.ArtistAliasResponse, error) {
+			return nil, fmt.Errorf("alias 'Test' already exists")
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &AddArtistAliasRequest{ArtistID: "42"}
+	req.Body.Alias = "Test"
+
+	_, err := h.AddArtistAliasHandler(ctx, req)
+	assertHumaError(t, err, 409)
+}
+
+// ============================================================================
+// Mock-based tests: DeleteArtistAliasHandler
+// ============================================================================
+
+func TestDeleteArtistAlias_NoUser(t *testing.T) {
+	h := testArtistHandler()
+	_, err := h.DeleteArtistAliasHandler(context.Background(), &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "1"})
+	assertHumaError(t, err, 403)
+}
+
+func TestDeleteArtistAlias_NonAdmin(t *testing.T) {
+	h := testArtistHandler()
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	_, err := h.DeleteArtistAliasHandler(ctx, &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "1"})
+	assertHumaError(t, err, 403)
+}
+
+func TestDeleteArtistAlias_InvalidAliasID(t *testing.T) {
+	h := testArtistHandler()
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	_, err := h.DeleteArtistAliasHandler(ctx, &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "abc"})
+	assertHumaError(t, err, 400)
+}
+
+func TestDeleteArtistAlias_Success(t *testing.T) {
+	mock := &mockArtistService{
+		removeArtistAliasFn: func(aliasID uint) error {
+			if aliasID != 5 {
+				t.Errorf("expected aliasID=5, got %d", aliasID)
+			}
+			return nil
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+
+	_, err := h.DeleteArtistAliasHandler(ctx, &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "5"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDeleteArtistAlias_NotFound(t *testing.T) {
+	mock := &mockArtistService{
+		removeArtistAliasFn: func(aliasID uint) error {
+			return fmt.Errorf("alias not found")
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+
+	_, err := h.DeleteArtistAliasHandler(ctx, &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "99"})
+	assertHumaError(t, err, 404)
+}
+
+// ============================================================================
+// Mock-based tests: MergeArtistsHandler
+// ============================================================================
+
+func TestMergeArtists_NoUser(t *testing.T) {
+	h := testArtistHandler()
+	req := &MergeArtistsRequest{}
+	req.Body.CanonicalArtistID = 1
+	req.Body.MergeFromArtistID = 2
+
+	_, err := h.MergeArtistsHandler(context.Background(), req)
+	assertHumaError(t, err, 403)
+}
+
+func TestMergeArtists_NonAdmin(t *testing.T) {
+	h := testArtistHandler()
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	req := &MergeArtistsRequest{}
+	req.Body.CanonicalArtistID = 1
+	req.Body.MergeFromArtistID = 2
+
+	_, err := h.MergeArtistsHandler(ctx, req)
+	assertHumaError(t, err, 403)
+}
+
+func TestMergeArtists_MissingIDs(t *testing.T) {
+	h := testArtistHandler()
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &MergeArtistsRequest{}
+	req.Body.CanonicalArtistID = 1
+	req.Body.MergeFromArtistID = 0
+
+	_, err := h.MergeArtistsHandler(ctx, req)
+	assertHumaError(t, err, 400)
+}
+
+func TestMergeArtists_SelfMerge(t *testing.T) {
+	mock := &mockArtistService{
+		mergeArtistsFn: func(canonicalID, mergeFromID uint) (*services.MergeArtistResult, error) {
+			return nil, fmt.Errorf("cannot merge an artist with itself")
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &MergeArtistsRequest{}
+	req.Body.CanonicalArtistID = 5
+	req.Body.MergeFromArtistID = 5
+
+	_, err := h.MergeArtistsHandler(ctx, req)
+	assertHumaError(t, err, 400)
+}
+
+func TestMergeArtists_Success(t *testing.T) {
+	mock := &mockArtistService{
+		mergeArtistsFn: func(canonicalID, mergeFromID uint) (*services.MergeArtistResult, error) {
+			if canonicalID != 1 {
+				t.Errorf("expected canonicalID=1, got %d", canonicalID)
+			}
+			if mergeFromID != 2 {
+				t.Errorf("expected mergeFromID=2, got %d", mergeFromID)
+			}
+			return &services.MergeArtistResult{
+				CanonicalArtistID: 1,
+				MergedArtistID:    2,
+				MergedArtistName:  "Old Name",
+				ShowsMoved:        3,
+				AliasCreated:      true,
+			}, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &MergeArtistsRequest{}
+	req.Body.CanonicalArtistID = 1
+	req.Body.MergeFromArtistID = 2
+
+	resp, err := h.MergeArtistsHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.MergedArtistName != "Old Name" {
+		t.Errorf("expected merged name='Old Name', got %q", resp.Body.MergedArtistName)
+	}
+	if resp.Body.ShowsMoved != 3 {
+		t.Errorf("expected shows_moved=3, got %d", resp.Body.ShowsMoved)
+	}
+}
+
+func TestMergeArtists_NotFound(t *testing.T) {
+	mock := &mockArtistService{
+		mergeArtistsFn: func(canonicalID, mergeFromID uint) (*services.MergeArtistResult, error) {
+			return nil, apperrors.ErrArtistNotFound(canonicalID)
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &MergeArtistsRequest{}
+	req.Body.CanonicalArtistID = 99
+	req.Body.MergeFromArtistID = 2
+
+	_, err := h.MergeArtistsHandler(ctx, req)
+	assertHumaError(t, err, 404)
+}

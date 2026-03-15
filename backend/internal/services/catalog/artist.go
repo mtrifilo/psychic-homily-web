@@ -286,35 +286,22 @@ func (s *ArtistService) SearchArtists(query string) ([]*contracts.ArtistDetailRe
 			Limit(10).
 			Find(&artists).Error
 	} else {
-		// For longer queries: search both names and aliases with similarity scoring
-		err = s.db.
-			Select("DISTINCT ON (artists.id) artists.*, GREATEST(similarity(artists.name, ?), COALESCE((SELECT MAX(similarity(aa.alias, ?)) FROM artist_aliases aa WHERE aa.artist_id = artists.id), 0)) as sim_score", query, query).
-			Where("artists.name ILIKE ? OR artists.name % ? OR artists.id IN (?)",
-				"%"+query+"%", query,
-				s.db.Table("artist_aliases").Select("artist_id").Where("alias ILIKE ? OR alias % ?", "%"+query+"%", query),
-			).
-			Order("artists.id, sim_score DESC").
-			Limit(10).
-			Find(&artists).Error
-		// Re-sort by sim_score since DISTINCT ON requires ordering by the DISTINCT column first
-		if err == nil && len(artists) > 1 {
-			// The DISTINCT ON approach may not sort correctly, so we use a subquery approach instead
-			artists = nil
-			err = s.db.Raw(`
-				SELECT a.* FROM artists a
-				WHERE a.id IN (
-					SELECT id FROM artists WHERE name ILIKE ? OR name % ?
-					UNION
-					SELECT artist_id FROM artist_aliases WHERE alias ILIKE ? OR alias % ?
-				)
-				ORDER BY GREATEST(
-					similarity(a.name, ?),
-					COALESCE((SELECT MAX(similarity(aa.alias, ?)) FROM artist_aliases aa WHERE aa.artist_id = a.id), 0)
-				) DESC, a.name ASC
-				LIMIT 10
-			`, "%"+query+"%", query, "%"+query+"%", query, query, query).
-				Scan(&artists).Error
-		}
+		// For longer queries: search names and aliases with similarity scoring
+		// Uses UNION to find matching artists by name or alias, then ranks by best similarity
+		err = s.db.Raw(`
+			SELECT a.* FROM artists a
+			WHERE a.id IN (
+				SELECT id FROM artists WHERE name ILIKE ? OR name % ?
+				UNION
+				SELECT artist_id FROM artist_aliases WHERE alias ILIKE ? OR alias % ?
+			)
+			ORDER BY GREATEST(
+				similarity(a.name, ?),
+				COALESCE((SELECT MAX(similarity(aa.alias, ?)) FROM artist_aliases aa WHERE aa.artist_id = a.id), 0)
+			) DESC, a.name ASC
+			LIMIT 10
+		`, "%"+query+"%", query, "%"+query+"%", query, query, query).
+			Scan(&artists).Error
 	}
 
 	if err != nil {
