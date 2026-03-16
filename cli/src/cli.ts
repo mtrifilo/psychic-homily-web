@@ -6,6 +6,7 @@ import * as display from "./lib/display";
 import { runInit } from "./commands/init";
 import { runConfigShow, runConfigSet } from "./commands/config";
 import { runSearch } from "./commands/search";
+import { submitReleases } from "./commands/submit-release";
 
 const program = new Command();
 
@@ -61,17 +62,44 @@ program
     await runSearch(entityType, query, env);
   });
 
-// ─── ph submit (stub — will be implemented in PSY-142 through PSY-147) ─────
+// ─── ph submit ───────────────────────────────────────────────────────────────
 
 program
   .command("submit <entity-type> [json]")
   .description("Submit entities for creation/update (artist, venue, show, release, label, festival)")
   .option("--confirm", "Actually submit (default is dry-run)")
   .action(async (entityType: string, json: string | undefined, opts: { confirm?: boolean }) => {
-    display.warn(
-      `"ph submit ${entityType}" is not yet implemented. Coming in PSY-142 through PSY-147.`,
-    );
-    process.exit(1);
+    // Check for unimplemented entity types before doing anything else
+    const implemented = ["release"];
+    if (!implemented.includes(entityType)) {
+      display.warn(
+        `"ph submit ${entityType}" is not yet implemented.`,
+      );
+      process.exit(1);
+    }
+
+    const env = await resolveEnvOrExit(program.opts().env);
+
+    // Read from stdin if no json argument provided
+    let input = json;
+    if (!input) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of process.stdin) {
+        chunks.push(chunk as Buffer);
+      }
+      input = Buffer.concat(chunks).toString("utf-8").trim();
+    }
+
+    if (!input) {
+      display.error("No JSON input provided. Pass as argument or pipe via stdin.");
+      process.exit(1);
+    }
+
+    switch (entityType) {
+      case "release":
+        await submitReleases(input, env, !!opts.confirm);
+        break;
+    }
   });
 
 // ─── ph batch (stub — will be implemented in PSY-148) ──────────────────────
