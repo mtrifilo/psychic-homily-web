@@ -498,3 +498,21 @@ export async function checkDuplicate(
     confidence: best.confidence,
   };
 }
+
+// -- Public search helpers for use by submit commands -------------------------
+
+/** Search for artists by name. Returns matching results from the API. */
+export async function searchArtistsByName(
+  client: APIClient,
+  name: string,
+): Promise<EntitySearchResult[]> {
+  return searchArtists(client, name);
+}
+
+/** Search for venues by name. Returns matching results from the API. */
+export async function searchVenuesByName(
+  client: APIClient,
+  name: string,
+): Promise<EntitySearchResult[]> {
+  return searchVenues(client, name);
+}

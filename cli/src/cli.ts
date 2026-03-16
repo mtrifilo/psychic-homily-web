@@ -6,6 +6,7 @@ import * as display from "./lib/display";
 import { runInit } from "./commands/init";
 import { runConfigShow, runConfigSet } from "./commands/config";
 import { runSearch } from "./commands/search";
+import { runSubmitShow } from "./commands/submit-show";
 
 const program = new Command();
 
@@ -68,10 +69,18 @@ program
   .description("Submit entities for creation/update (artist, venue, show, release, label, festival)")
   .option("--confirm", "Actually submit (default is dry-run)")
   .action(async (entityType: string, json: string | undefined, opts: { confirm?: boolean }) => {
-    display.warn(
-      `"ph submit ${entityType}" is not yet implemented. Coming in PSY-142 through PSY-147.`,
-    );
-    process.exit(1);
+    switch (entityType) {
+      case "show": {
+        const env = await resolveEnvOrExit(program.opts().env);
+        await runSubmitShow(json, env, !!opts.confirm);
+        break;
+      }
+      default:
+        display.warn(
+          `"ph submit ${entityType}" is not yet implemented. Coming in PSY-142 through PSY-147.`,
+        );
+        process.exit(1);
+    }
   });
 
 // ─── ph batch (stub — will be implemented in PSY-148) ──────────────────────
