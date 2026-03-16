@@ -60,3 +60,17 @@ export {
   useUnverifiedVenues,
   useVerifyVenue,
 } from './useAdminVenues'
+
+export {
+  type MonthlyCount,
+  type GrowthMetrics,
+  type EngagementMetrics,
+  type WeeklyContribution,
+  type TopContributor,
+  type CommunityHealth,
+  type DataQualityTrends,
+  useGrowthMetrics,
+  useEngagementMetrics,
+  useCommunityHealth,
+  useDataQualityTrends,
+} from './useAnalytics'

@@ -99,7 +99,14 @@ func main() {
 			venueName = show.Venues[0].Name
 		}
 
-		baseSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueName)
+		// Use venue state for timezone-aware slug date
+		showState := ""
+		if show.State != nil {
+			showState = *show.State
+		} else if len(show.Venues) > 0 {
+			showState = show.Venues[0].State
+		}
+		baseSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueName, showState)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
 			database.Model(&models.Show{}).Where("slug = ? AND id != ?", candidate, show.ID).Count(&count)

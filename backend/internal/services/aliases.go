@@ -256,11 +256,15 @@ type FollowerResponse = contracts.FollowerResponse
 type FollowStatusResponse = contracts.FollowStatusResponse
 
 // ──────────────────────────────────────────────
-// Notification types (audit log)
+// Notification types (audit log, notification filters)
 // ──────────────────────────────────────────────
 
 type AuditLogFilters = contracts.AuditLogFilters
 type AuditLogResponse = contracts.AuditLogResponse
+type CreateFilterInput = contracts.CreateFilterInput
+type UpdateFilterInput = contracts.UpdateFilterInput
+type NotificationFilterResponse = contracts.NotificationFilterResponse
+type NotificationLogEntry = contracts.NotificationLogEntry
 
 // ──────────────────────────────────────────────
 // Admin types (stats, API tokens, data sync)
@@ -294,6 +298,16 @@ type TopContributor = contracts.TopContributor
 type WeeklyContributions = contracts.WeeklyContributions
 type CommunityHealthResponse = contracts.CommunityHealthResponse
 type DataQualityTrendsResponse = contracts.DataQualityTrendsResponse
+
+// ──────────────────────────────────────────────
+// Charts types
+// ──────────────────────────────────────────────
+
+type TrendingShow = contracts.TrendingShow
+type PopularArtist = contracts.PopularArtist
+type ActiveVenue = contracts.ActiveVenue
+type HotRelease = contracts.HotRelease
+type ChartsOverview = contracts.ChartsOverview
 
 // ──────────────────────────────────────────────
 // Pipeline types (extraction, fetcher, discovery, pipeline)

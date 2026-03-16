@@ -30,6 +30,7 @@ func (s *AdminHandlerIntegrationSuite) SetupSuite() {
 		s.deps.auditLogService,
 		s.deps.userService,
 		s.deps.adminStatsService,
+		nil, // notificationFilterService
 	)
 }
 
