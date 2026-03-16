@@ -12,6 +12,8 @@ import { runSubmitShow } from "./commands/submit-show";
 import { submitReleases } from "./commands/submit-release";
 import { runSubmitLabel } from "./commands/submit-label";
 import { runSubmitFestival } from "./commands/submit-festival";
+import { runBatch } from "./commands/batch";
+import { runStatus } from "./commands/status";
 
 const program = new Command();
 
@@ -112,15 +114,24 @@ program
     }
   });
 
-// ─── ph batch (stub — will be implemented in PSY-148) ──────────────────────
+// ─── ph batch ────────────────────────────────────────────────────────────────
 
 program
   .command("batch <file>")
   .description("Submit a mixed-entity JSON file for batch creation/update")
   .option("--confirm", "Actually submit (default is dry-run)")
   .action(async (file: string, opts: { confirm?: boolean }) => {
-    display.warn('"ph batch" is not yet implemented. Coming in PSY-148.');
-    process.exit(1);
+    const env = await resolveEnvOrExit(program.opts().env);
+    await runBatch(file, env, !!opts.confirm);
+  });
+
+// ─── ph status ───────────────────────────────────────────────────────────────
+
+program
+  .command("status")
+  .description("Show CLI configuration, API connectivity, and auth status")
+  .action(async () => {
+    await runStatus(program.opts().env);
   });
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
