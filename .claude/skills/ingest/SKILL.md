@@ -1,12 +1,27 @@
 ---
 name: ingest
 description: Extract entities from screenshots (show flyers, WFMU playlists, tour announcements, festival lineups) and import them into the Psychic Homily knowledge graph via the ph CLI.
-argument-hint: "[description of what to ingest, or paste a screenshot]"
+argument-hint: "[description or screenshot] [--env production|local]"
 ---
 
 # Ingest: Screenshot to Knowledge Graph
 
 Extract structured entity data from screenshots and import into Psychic Homily using the `ph` CLI.
+
+## Environment Targeting
+
+By default, commands use whichever environment is set as default in `~/.psychic-homily/config.json`.
+
+- `/ingest` — uses default environment
+- `/ingest --env production` — targets production regardless of default
+- `/ingest --env local` — targets local dev regardless of default
+
+When `--env` is specified in the skill argument, append `--env <name>` to ALL `ph` commands in this workflow.
+
+Check current default with:
+```bash
+cd /Users/mtrifilo/dev/psychic-homily-web/cli && bun run src/entry.ts config show
+```
 
 ## Prerequisites
 
@@ -83,9 +98,11 @@ The batch command processes in dependency order: labels → artists → releases
 
 ### Step 3: Dry Run
 
-Run the batch in dry-run mode and show the user the preview:
+Run the batch in dry-run mode and show the user the preview. If `--env` was specified in the `/ingest` arguments, include it on all commands:
 ```bash
 cd /Users/mtrifilo/dev/psychic-homily-web/cli && bun run src/entry.ts batch /tmp/ph-ingest.json
+# Or with explicit environment:
+cd /Users/mtrifilo/dev/psychic-homily-web/cli && bun run src/entry.ts --env production batch /tmp/ph-ingest.json
 ```
 
 Present the output to the user and ask for confirmation. Highlight:
@@ -96,16 +113,18 @@ Present the output to the user and ask for confirmation. Highlight:
 
 ### Step 4: Confirm
 
-After user approval:
+After user approval (use same `--env` flag if specified):
 ```bash
 cd /Users/mtrifilo/dev/psychic-homily-web/cli && bun run src/entry.ts batch --confirm /tmp/ph-ingest.json
+# Or with explicit environment:
+cd /Users/mtrifilo/dev/psychic-homily-web/cli && bun run src/entry.ts --env production batch --confirm /tmp/ph-ingest.json
 ```
 
 Report the results: how many created, updated, skipped, errored.
 
 ### Step 5: Fix-ups (if needed)
 
-If any entities failed (e.g., unresolved artists for releases), fix them individually:
+If any entities failed (e.g., unresolved artists for releases), fix them individually (use same `--env` flag if specified):
 ```bash
 # Create the missing artist
 bun run src/entry.ts submit artist --confirm '[{"name": "Missing Artist"}]'
