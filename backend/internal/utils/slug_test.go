@@ -98,16 +98,49 @@ func TestGenerateVenueSlug(t *testing.T) {
 // --- GenerateShowSlug ---
 
 func TestGenerateShowSlug(t *testing.T) {
-	date := time.Date(2026, 1, 30, 20, 0, 0, 0, time.UTC)
-	slug := GenerateShowSlug(date, "The National", "Valley Bar")
+	// 8pm Phoenix time = 3am UTC next day (UTC-7)
+	date := time.Date(2026, 1, 31, 3, 0, 0, 0, time.UTC)
+	slug := GenerateShowSlug(date, "The National", "Valley Bar", "AZ")
+	// Should use Phoenix local date (Jan 30), not UTC date (Jan 31)
 	assert.Equal(t, "2026-01-30-the-national-at-valley-bar", slug)
 }
 
 func TestGenerateShowSlug_DateFormatting(t *testing.T) {
 	// Verify single-digit month/day get zero-padded
 	date := time.Date(2026, 3, 5, 0, 0, 0, 0, time.UTC)
-	slug := GenerateShowSlug(date, "Turnstile", "Crescent Ballroom")
-	assert.Equal(t, "2026-03-05-turnstile-at-crescent-ballroom", slug)
+	slug := GenerateShowSlug(date, "Turnstile", "Crescent Ballroom", "AZ")
+	// 3/5 00:00 UTC = 3/4 5pm Phoenix, so local date is March 4
+	assert.Equal(t, "2026-03-04-turnstile-at-crescent-ballroom", slug)
+}
+
+func TestGenerateShowSlug_TimezoneConversion(t *testing.T) {
+	// A show at 7:30 PM Phoenix time on March 16 is stored as 2:30 AM UTC on March 17
+	date := time.Date(2026, 3, 17, 2, 30, 0, 0, time.UTC)
+	slug := GenerateShowSlug(date, "Radiohead", "Valley Bar", "AZ")
+	// Slug should use the Phoenix local date (March 16), not UTC (March 17)
+	assert.Equal(t, "2026-03-16-radiohead-at-valley-bar", slug)
+}
+
+func TestGenerateShowSlug_EasternTimezone(t *testing.T) {
+	// 11pm ET on Jan 15 = 4am UTC Jan 16 (UTC-5)
+	date := time.Date(2026, 1, 16, 4, 0, 0, 0, time.UTC)
+	slug := GenerateShowSlug(date, "The National", "Brooklyn Steel", "NY")
+	assert.Equal(t, "2026-01-15-the-national-at-brooklyn-steel", slug)
+}
+
+func TestGenerateShowSlug_EmptyState(t *testing.T) {
+	// Empty state defaults to America/Phoenix
+	date := time.Date(2026, 3, 17, 2, 30, 0, 0, time.UTC)
+	slug := GenerateShowSlug(date, "Radiohead", "Valley Bar", "")
+	assert.Equal(t, "2026-03-16-radiohead-at-valley-bar", slug)
+}
+
+func TestGenerateShowSlug_SameDateNoShift(t *testing.T) {
+	// A show at 2pm Phoenix time on March 16 is stored as 9pm UTC on March 16
+	// No date shift expected
+	date := time.Date(2026, 3, 16, 21, 0, 0, 0, time.UTC)
+	slug := GenerateShowSlug(date, "Radiohead", "Valley Bar", "AZ")
+	assert.Equal(t, "2026-03-16-radiohead-at-valley-bar", slug)
 }
 
 // --- GenerateUniqueSlug ---
