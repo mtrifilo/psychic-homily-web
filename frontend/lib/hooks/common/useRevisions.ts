@@ -51,10 +51,12 @@ export function useEntityRevisions(
   return useQuery({
     queryKey: [...queryKeys.revisions.entity(entityType, entityId), { limit, offset }],
     queryFn: () => {
-      const url = new URL(API_ENDPOINTS.REVISIONS.ENTITY_HISTORY(entityType, entityId))
-      if (limit) url.searchParams.set('limit', String(limit))
-      if (offset) url.searchParams.set('offset', String(offset))
-      return apiRequest<EntityHistoryResponse>(url.toString())
+      const params = new URLSearchParams()
+      if (limit) params.set('limit', String(limit))
+      if (offset) params.set('offset', String(offset))
+      const qs = params.toString()
+      const url = `${API_ENDPOINTS.REVISIONS.ENTITY_HISTORY(entityType, entityId)}${qs ? `?${qs}` : ''}`
+      return apiRequest<EntityHistoryResponse>(url)
     },
     enabled: options?.enabled !== false,
   })
@@ -88,10 +90,12 @@ export function useUserRevisions(
   return useQuery({
     queryKey: [...queryKeys.revisions.user(userId), { limit, offset }],
     queryFn: () => {
-      const url = new URL(API_ENDPOINTS.REVISIONS.USER_REVISIONS(userId))
-      if (limit) url.searchParams.set('limit', String(limit))
-      if (offset) url.searchParams.set('offset', String(offset))
-      return apiRequest<UserRevisionsResponse>(url.toString())
+      const params = new URLSearchParams()
+      if (limit) params.set('limit', String(limit))
+      if (offset) params.set('offset', String(offset))
+      const qs = params.toString()
+      const url = `${API_ENDPOINTS.REVISIONS.USER_REVISIONS(userId)}${qs ? `?${qs}` : ''}`
+      return apiRequest<UserRevisionsResponse>(url)
     },
     enabled: options?.enabled !== false,
   })
