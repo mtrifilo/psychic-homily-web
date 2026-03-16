@@ -175,22 +175,24 @@ export function ReleaseList() {
             )}
           </div>
         ) : (
-          <div
-            className={
-              density === 'compact'
-                ? 'flex flex-col gap-px'
-                : density === 'expanded'
-                  ? 'grid grid-cols-1 gap-5'
-                  : '@container grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
-            }
-          >
-            {releases.map(release => (
-              <ReleaseCard
-                key={release.id}
-                release={release}
-                density={density}
-              />
-            ))}
+          <div className="@container">
+            <div
+              className={
+                density === 'compact'
+                  ? 'flex flex-col gap-px'
+                  : density === 'expanded'
+                    ? 'grid grid-cols-1 gap-5'
+                    : 'grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
+              }
+            >
+              {releases.map(release => (
+                <ReleaseCard
+                  key={release.id}
+                  release={release}
+                  density={density}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>

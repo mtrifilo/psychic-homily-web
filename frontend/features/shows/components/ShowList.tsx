@@ -219,7 +219,7 @@ export function ShowList() {
         ) : (
           <>
             <div className={cn(
-              '@container flex flex-col',
+              'flex flex-col',
               density === 'compact' && 'gap-0.5',
               density === 'comfortable' && 'gap-3',
               density === 'expanded' && 'gap-5'

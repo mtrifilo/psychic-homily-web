@@ -141,19 +141,20 @@ export function LabelList() {
             )}
           </div>
         ) : (
-          <div
-            className={cn(
-              '@container',
-              density === 'compact'
-                ? 'flex flex-col gap-px'
-                : density === 'expanded'
-                  ? 'grid grid-cols-1 gap-5'
-                  : 'grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
-            )}
-          >
-            {labels.map(label => (
-              <LabelCard key={label.id} label={label} density={density} />
-            ))}
+          <div className="@container">
+            <div
+              className={
+                density === 'compact'
+                  ? 'flex flex-col gap-px'
+                  : density === 'expanded'
+                    ? 'grid grid-cols-1 gap-5'
+                    : 'grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
+              }
+            >
+              {labels.map(label => (
+                <LabelCard key={label.id} label={label} density={density} />
+              ))}
+            </div>
           </div>
         )}
       </div>
