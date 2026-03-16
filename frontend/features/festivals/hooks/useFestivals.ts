@@ -15,6 +15,11 @@ import type {
   FestivalArtistsResponse,
   FestivalVenuesResponse,
   ArtistFestivalsResponse,
+  SimilarFestivalsResponse,
+  FestivalOverlap,
+  FestivalBreakouts,
+  ArtistTrajectory,
+  SeriesComparison,
 } from '../types'
 
 interface UseFestivalsOptions {
@@ -181,6 +186,90 @@ export function useArtistFestivals(options: UseArtistFestivalsOptions) {
       (typeof artistIdOrSlug === 'string'
         ? Boolean(artistIdOrSlug)
         : artistIdOrSlug > 0),
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+// ──────────────────────────────────────────────
+// Festival Intelligence hooks
+// ──────────────────────────────────────────────
+
+/**
+ * Hook to fetch similar festivals based on lineup overlap
+ */
+export function useSimilarFestivals(options: { festivalIdOrSlug: string | number; limit?: number; enabled?: boolean }) {
+  const { festivalIdOrSlug, limit = 10, enabled = true } = options
+
+  const params = new URLSearchParams()
+  if (limit) params.set('limit', String(limit))
+  const queryString = params.toString()
+  const baseUrl = API_ENDPOINTS.FESTIVALS.SIMILAR(festivalIdOrSlug)
+  const endpoint = queryString ? `${baseUrl}?${queryString}` : baseUrl
+
+  return useQuery({
+    queryKey: queryKeys.festivals.similar(festivalIdOrSlug),
+    queryFn: async (): Promise<SimilarFestivalsResponse> => {
+      return apiRequest<SimilarFestivalsResponse>(endpoint, { method: 'GET' })
+    },
+    enabled: enabled && (typeof festivalIdOrSlug === 'string' ? Boolean(festivalIdOrSlug) : festivalIdOrSlug > 0),
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * Hook to fetch breakout artists at a festival
+ */
+export function useFestivalBreakouts(options: { festivalIdOrSlug: string | number; enabled?: boolean }) {
+  const { festivalIdOrSlug, enabled = true } = options
+
+  return useQuery({
+    queryKey: queryKeys.festivals.breakouts(festivalIdOrSlug),
+    queryFn: async (): Promise<FestivalBreakouts> => {
+      return apiRequest<FestivalBreakouts>(
+        API_ENDPOINTS.FESTIVALS.BREAKOUTS(festivalIdOrSlug),
+        { method: 'GET' }
+      )
+    },
+    enabled: enabled && (typeof festivalIdOrSlug === 'string' ? Boolean(festivalIdOrSlug) : festivalIdOrSlug > 0),
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * Hook to fetch an artist's festival billing trajectory
+ */
+export function useArtistFestivalTrajectory(options: { artistIdOrSlug: string | number; enabled?: boolean }) {
+  const { artistIdOrSlug, enabled = true } = options
+
+  return useQuery({
+    queryKey: queryKeys.festivals.artistTrajectory(artistIdOrSlug),
+    queryFn: async (): Promise<ArtistTrajectory> => {
+      return apiRequest<ArtistTrajectory>(
+        API_ENDPOINTS.FESTIVALS.ARTIST_TRAJECTORY(artistIdOrSlug),
+        { method: 'GET' }
+      )
+    },
+    enabled: enabled && (typeof artistIdOrSlug === 'string' ? Boolean(artistIdOrSlug) : artistIdOrSlug > 0),
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * Hook to fetch year-over-year comparison for a festival series
+ */
+export function useSeriesComparison(options: { seriesSlug: string; years: number[]; enabled?: boolean }) {
+  const { seriesSlug, years, enabled = true } = options
+
+  const params = new URLSearchParams()
+  params.set('years', years.join(','))
+  const endpoint = `${API_ENDPOINTS.FESTIVALS.SERIES_COMPARE(seriesSlug)}?${params.toString()}`
+
+  return useQuery({
+    queryKey: queryKeys.festivals.seriesCompare(seriesSlug, years),
+    queryFn: async (): Promise<SeriesComparison> => {
+      return apiRequest<SeriesComparison>(endpoint, { method: 'GET' })
+    },
+    enabled: enabled && Boolean(seriesSlug) && years.length >= 2,
     staleTime: 5 * 60 * 1000,
   })
 }
