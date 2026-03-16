@@ -7,6 +7,7 @@ import { runInit } from "./commands/init";
 import { runConfigShow, runConfigSet } from "./commands/config";
 import { runSearch } from "./commands/search";
 import { runSubmitArtist } from "./commands/submit-artist";
+import { runSubmitVenue } from "./commands/submit-venue";
 
 const program = new Command();
 
@@ -84,9 +85,12 @@ program
       case "artist":
         await runSubmitArtist(json, env, { confirm: opts.confirm });
         break;
+      case "venue":
+        await runSubmitVenue(json, opts, env);
+        break;
       default:
         display.warn(
-          `"ph submit ${entityType}" is not yet implemented. Coming in PSY-143 through PSY-147.`,
+          `"ph submit ${entityType}" is not yet implemented. Coming in PSY-144 through PSY-147.`,
         );
         process.exit(1);
     }
