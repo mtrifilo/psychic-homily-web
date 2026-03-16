@@ -32,6 +32,37 @@ func NewFestivalHandler(festivalService services.FestivalServiceInterface, artis
 }
 
 // ============================================================================
+// Search Festivals
+// ============================================================================
+
+// SearchFestivalsRequest represents the autocomplete search request
+type SearchFestivalsRequest struct {
+	Query string `query:"q" doc:"Search query for festival autocomplete" example:"m3f"`
+}
+
+// SearchFestivalsResponse represents the autocomplete search response
+type SearchFestivalsResponse struct {
+	Body struct {
+		Festivals []*services.FestivalListResponse `json:"festivals" doc:"Matching festivals"`
+		Count     int                              `json:"count" doc:"Number of results"`
+	}
+}
+
+// SearchFestivalsHandler handles GET /festivals/search?q=query
+func (h *FestivalHandler) SearchFestivalsHandler(ctx context.Context, req *SearchFestivalsRequest) (*SearchFestivalsResponse, error) {
+	festivals, err := h.festivalService.SearchFestivals(req.Query)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &SearchFestivalsResponse{}
+	resp.Body.Festivals = festivals
+	resp.Body.Count = len(festivals)
+
+	return resp, nil
+}
+
+// ============================================================================
 // List Festivals
 // ============================================================================
 

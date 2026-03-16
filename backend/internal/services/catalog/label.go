@@ -200,6 +200,100 @@ func (s *LabelService) ListLabels(filters map[string]interface{}) ([]*contracts.
 	return responses, nil
 }
 
+// SearchLabels searches for labels by name using ILIKE matching
+func (s *LabelService) SearchLabels(query string) ([]*contracts.LabelListResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Return empty results for empty query
+	if query == "" {
+		return []*contracts.LabelListResponse{}, nil
+	}
+
+	var labels []models.Label
+	var err error
+
+	if len(query) <= 2 {
+		// For short queries: prefix match
+		err = s.db.
+			Where("LOWER(name) LIKE LOWER(?)", query+"%").
+			Order("name ASC").
+			Limit(20).
+			Find(&labels).Error
+	} else {
+		// For longer queries: ILIKE substring match, ordered by name
+		err = s.db.
+			Where("name ILIKE ?", "%"+query+"%").
+			Order("name ASC").
+			Limit(20).
+			Find(&labels).Error
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to search labels: %w", err)
+	}
+
+	// Batch-load artist counts and release counts
+	labelIDs := make([]uint, len(labels))
+	for i, l := range labels {
+		labelIDs[i] = l.ID
+	}
+
+	artistCounts := make(map[uint]int)
+	releaseCounts := make(map[uint]int)
+
+	if len(labelIDs) > 0 {
+		type CountResult struct {
+			LabelID uint
+			Count   int
+		}
+
+		// Artist counts
+		var aCounts []CountResult
+		s.db.Table("artist_labels").
+			Select("label_id, COUNT(DISTINCT artist_id) as count").
+			Where("label_id IN ?", labelIDs).
+			Group("label_id").
+			Find(&aCounts)
+		for _, c := range aCounts {
+			artistCounts[c.LabelID] = c.Count
+		}
+
+		// Release counts
+		var rCounts []CountResult
+		s.db.Table("release_labels").
+			Select("label_id, COUNT(DISTINCT release_id) as count").
+			Where("label_id IN ?", labelIDs).
+			Group("label_id").
+			Find(&rCounts)
+		for _, c := range rCounts {
+			releaseCounts[c.LabelID] = c.Count
+		}
+	}
+
+	// Build responses
+	responses := make([]*contracts.LabelListResponse, len(labels))
+	for i, label := range labels {
+		slug := ""
+		if label.Slug != nil {
+			slug = *label.Slug
+		}
+		responses[i] = &contracts.LabelListResponse{
+			ID:           label.ID,
+			Name:         label.Name,
+			Slug:         slug,
+			City:         label.City,
+			State:        label.State,
+			Status:       string(label.Status),
+			ArtistCount:  artistCounts[label.ID],
+			ReleaseCount: releaseCounts[label.ID],
+		}
+	}
+
+	return responses, nil
+}
+
 // UpdateLabel updates an existing label
 func (s *LabelService) UpdateLabel(labelID uint, req *contracts.UpdateLabelRequest) (*contracts.LabelDetailResponse, error) {
 	if s.db == nil {
