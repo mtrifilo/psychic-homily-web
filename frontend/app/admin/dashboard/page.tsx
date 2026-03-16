@@ -2,6 +2,10 @@
 
 import { AdminDashboard } from '@/app/admin/dashboard/_components/AdminDashboard'
 
-export default function DashboardPage() {
-  return <AdminDashboard />
+interface DashboardPageProps {
+  onNavigate?: (tab: string) => void
+}
+
+export default function DashboardPage({ onNavigate }: DashboardPageProps) {
+  return <AdminDashboard onNavigate={onNavigate} />
 }

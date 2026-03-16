@@ -341,7 +341,7 @@ function AdminPageContent() {
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-4">
-            <DashboardPage />
+            <DashboardPage onNavigate={setActiveTab} />
           </TabsContent>
 
           <TabsContent value="pending-shows" className="space-y-4">
