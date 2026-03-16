@@ -34,7 +34,7 @@ interface RelatedArtistsProps {
 }
 
 export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
-  const { data, isLoading } = useArtistGraph({ artistId: artistSlug })
+  const { data, isLoading } = useArtistGraph({ artistId, enabled: artistId > 0 })
   const { isAuthenticated } = useIsAuthenticated()
   const [showGraph, setShowGraph] = useState(false)
   const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set(ALL_TYPES))
@@ -215,7 +215,7 @@ function RelatedArtistRow({
       targetId: link.target_id,
       type: link.type,
       isUpvote,
-      centerArtistId: centerArtistSlug,
+      centerArtistId,
     })
   }
 
@@ -360,7 +360,7 @@ function SuggestSimilarArtist({ centerArtistId, centerArtistSlug, onClose }: Sug
           sourceArtistId: centerArtistId,
           targetArtistId: selectedId,
           type: 'similar',
-          centerArtistId: centerArtistSlug,
+          centerArtistId,
         },
         {
           onSuccess: () => {

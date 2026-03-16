@@ -12,7 +12,7 @@ import { queryKeys } from '@/lib/queryClient'
 import type { ArtistGraph } from '../types'
 
 interface UseArtistGraphOptions {
-  artistId: string | number
+  artistId: number
   types?: string[]
   enabled?: boolean
 }
@@ -38,9 +38,7 @@ export function useArtistGraph(options: UseArtistGraphOptions) {
     queryFn: async (): Promise<ArtistGraph> => {
       return apiRequest<ArtistGraph>(endpoint, { method: 'GET' })
     },
-    enabled:
-      enabled &&
-      (typeof artistId === 'string' ? Boolean(artistId) : artistId > 0),
+    enabled: enabled && artistId > 0,
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }
@@ -50,7 +48,7 @@ interface VoteRelationshipParams {
   targetId: number
   type: string
   isUpvote: boolean
-  centerArtistId: string | number
+  centerArtistId: number
 }
 
 /**
@@ -85,7 +83,7 @@ interface CreateRelationshipParams {
   sourceArtistId: number
   targetArtistId: number
   type: string
-  centerArtistId: string | number
+  centerArtistId: number
 }
 
 /**
