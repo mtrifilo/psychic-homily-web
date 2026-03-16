@@ -197,19 +197,18 @@ func TestNotificationFilterSuite(t *testing.T) {
 func (s *NotificationFilterSuite) SetupSuite() {
 	ctx := context.Background()
 
-	req := testcontainers.ContainerRequest{
-		Image:        "postgres:18",
-		ExposedPorts: []string{"5432/tcp"},
-		Env: map[string]string{
-			"POSTGRES_USER":     "test",
-			"POSTGRES_PASSWORD": "test",
-			"POSTGRES_DB":       "test",
-		},
-		WaitingFor: wait.ForListeningPort("5432/tcp").WithStartupTimeout(60 * time.Second),
-	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
+		ContainerRequest: testcontainers.ContainerRequest{
+			Image:        "postgres:18",
+			ExposedPorts: []string{"5432/tcp"},
+			Env: map[string]string{
+				"POSTGRES_DB":       "test_db",
+				"POSTGRES_USER":     "test_user",
+				"POSTGRES_PASSWORD": "test_password",
+			},
+			WaitingFor: wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(120 * time.Second),
+		},
+		Started: true,
 	})
 	s.Require().NoError(err)
 	s.container = container
@@ -219,7 +218,7 @@ func (s *NotificationFilterSuite) SetupSuite() {
 	port, err := container.MappedPort(ctx, "5432")
 	s.Require().NoError(err)
 
-	dsn := fmt.Sprintf("host=%s port=%s user=test password=test dbname=test sslmode=disable", host, port.Port())
+	dsn := fmt.Sprintf("host=%s port=%s user=test_user password=test_password dbname=test_db sslmode=disable", host, port.Port())
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	s.Require().NoError(err)
 	s.db = db
