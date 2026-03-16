@@ -3,6 +3,8 @@ import type { EnvironmentConfig } from "../lib/types";
 import type { DuplicateCheckResult, FieldComparison } from "../lib/duplicates";
 import { checkDuplicate } from "../lib/duplicates";
 import { validateArtist } from "../lib/schemas";
+import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
+import type { TagInput, ResolvedTag } from "../lib/tags";
 import * as display from "../lib/display";
 import { green, yellow, gray, dim } from "../lib/ansi";
 
@@ -157,6 +159,18 @@ export async function submitArtists(
     dupResults.push(result);
   }
 
+  // Phase 2b: Resolve tags for all artists
+  const tagResolver = new TagResolver(client);
+  const resolvedTags: ResolvedTag[][] = [];
+  for (const artist of artists) {
+    const tags = TagResolver.parseTags(artist.tags as TagInput[] | undefined);
+    if (tags.length > 0) {
+      resolvedTags.push(await tagResolver.resolveAll(tags));
+    } else {
+      resolvedTags.push([]);
+    }
+  }
+
   // Phase 3: Display preview
   let creates = 0;
   let updates = 0;
@@ -164,6 +178,15 @@ export async function submitArtists(
 
   for (let i = 0; i < artists.length; i++) {
     displayArtistPreview(artists[i], dupResults[i], i);
+
+    // Show tags if any
+    if (resolvedTags[i].length > 0) {
+      display.kv("tags", formatTagsPreview(resolvedTags[i]));
+      for (const tag of resolvedTags[i]) {
+        const warning = formatFuzzyWarning(tag);
+        if (warning) display.warn(warning);
+      }
+    }
 
     switch (dupResults[i].action) {
       case "create":
@@ -211,6 +234,14 @@ export async function submitArtists(
           }>("/admin/artists", artist);
           const id = response.artist?.id ?? response.id;
           display.success(`Created "${name}" (ID ${id})`);
+          // Apply tags if any
+          if (id && resolvedTags[i].length > 0) {
+            const parsedTags = TagResolver.parseTags(artist.tags as TagInput[] | undefined);
+            const tagResult = await tagResolver.applyToEntity("artist", id, parsedTags);
+            if (tagResult.applied > 0) {
+              display.info(`  Applied ${tagResult.applied} tag(s)`);
+            }
+          }
           results.push({ name, action: "created", id });
           break;
         }
@@ -233,6 +264,14 @@ export async function submitArtists(
           display.success(
             `Updated "${dup.existingName || name}" (ID ${dup.existingId})`,
           );
+          // Apply tags if any
+          if (dup.existingId && resolvedTags[i].length > 0) {
+            const parsedTags = TagResolver.parseTags(artist.tags as TagInput[] | undefined);
+            const tagResult = await tagResolver.applyToEntity("artist", dup.existingId, parsedTags);
+            if (tagResult.applied > 0) {
+              display.info(`  Applied ${tagResult.applied} tag(s)`);
+            }
+          }
           results.push({
             name,
             action: "updated",
@@ -245,6 +284,14 @@ export async function submitArtists(
           display.info(
             `Skipped "${dup.existingName || name}" (ID ${dup.existingId}) — no new info.`,
           );
+          // Still apply tags even on skip
+          if (dup.existingId && resolvedTags[i].length > 0) {
+            const parsedTags = TagResolver.parseTags(artist.tags as TagInput[] | undefined);
+            const tagResult = await tagResolver.applyToEntity("artist", dup.existingId, parsedTags);
+            if (tagResult.applied > 0) {
+              display.info(`  Applied ${tagResult.applied} tag(s)`);
+            }
+          }
           results.push({
             name,
             action: "skipped",

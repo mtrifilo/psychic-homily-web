@@ -2,6 +2,8 @@ import { APIClient } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
 import { validateVenue } from "../lib/schemas";
 import { checkDuplicate, type DuplicateCheckResult } from "../lib/duplicates";
+import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
+import type { TagInput, ResolvedTag } from "../lib/tags";
 import * as display from "../lib/display";
 
 interface VenueInput {
@@ -135,10 +137,23 @@ export async function submitVenues(
     plans.push({ venue, index, dupResult });
   }
 
+  // Step 2b: Resolve tags for all venues
+  const tagResolver = new TagResolver(client);
+  const resolvedTags: ResolvedTag[][] = [];
+  for (const { venue } of validVenues) {
+    const tags = TagResolver.parseTags(venue.tags as TagInput[] | undefined);
+    if (tags.length > 0) {
+      resolvedTags.push(await tagResolver.resolveAll(tags));
+    } else {
+      resolvedTags.push([]);
+    }
+  }
+
   // Step 3: Display preview
   display.header("Venue Submit Preview");
 
-  for (const { venue, index, dupResult } of plans) {
+  for (let planIdx = 0; planIdx < plans.length; planIdx++) {
+    const { venue, index, dupResult } = plans[planIdx];
     const venueName = String(venue.name);
     const venueLocation = `${venue.city}, ${venue.state}`;
 
@@ -157,6 +172,15 @@ export async function submitVenues(
       display.info(
         `#${index + 1} SKIP: ${venueName} — already exists as "${dupResult.existingName}" (ID ${dupResult.existingId})`,
       );
+    }
+
+    // Show tags if any
+    if (resolvedTags[planIdx].length > 0) {
+      display.kv("tags", formatTagsPreview(resolvedTags[planIdx]));
+      for (const tag of resolvedTags[planIdx]) {
+        const warning = formatFuzzyWarning(tag);
+        if (warning) display.warn(warning);
+      }
     }
   }
 
@@ -186,13 +210,26 @@ export async function submitVenues(
   }
 
   // Execute API calls
-  for (const { venue, index, dupResult } of plans) {
+  for (let planIdx = 0; planIdx < plans.length; planIdx++) {
+    const { venue, index, dupResult } = plans[planIdx];
     const venueName = String(venue.name);
+    const parsedTags = TagResolver.parseTags(venue.tags as TagInput[] | undefined);
 
     try {
       if (dupResult.action === "create") {
-        await client.post("/admin/venues", venue);
+        const response = await client.post<{
+          venue?: { id: number };
+          id?: number;
+        }>("/admin/venues", venue);
+        const venueId = response.venue?.id ?? response.id;
         display.success(`Created venue: ${venueName}`);
+        // Apply tags if any
+        if (venueId && parsedTags.length > 0) {
+          const tagResult = await tagResolver.applyToEntity("venue", venueId, parsedTags);
+          if (tagResult.applied > 0) {
+            display.info(`  Applied ${tagResult.applied} tag(s)`);
+          }
+        }
         result.creates++;
         result.results.push({
           venue: venue as unknown as VenueInput,
@@ -217,6 +254,13 @@ export async function submitVenues(
             `Updated venue: ${venueName} (ID ${dupResult.existingId})`,
           );
         }
+        // Apply tags if any
+        if (dupResult.existingId && parsedTags.length > 0) {
+          const tagResult = await tagResolver.applyToEntity("venue", dupResult.existingId, parsedTags);
+          if (tagResult.applied > 0) {
+            display.info(`  Applied ${tagResult.applied} tag(s)`);
+          }
+        }
         result.updates++;
         result.results.push({
           venue: venue as unknown as VenueInput,
@@ -225,6 +269,13 @@ export async function submitVenues(
         });
       } else {
         display.info(`Skipped venue: ${venueName} (already exists)`);
+        // Still apply tags even on skip
+        if (dupResult.existingId && parsedTags.length > 0) {
+          const tagResult = await tagResolver.applyToEntity("venue", dupResult.existingId, parsedTags);
+          if (tagResult.applied > 0) {
+            display.info(`  Applied ${tagResult.applied} tag(s)`);
+          }
+        }
         result.skips++;
         result.results.push({
           venue: venue as unknown as VenueInput,

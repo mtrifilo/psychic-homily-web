@@ -6,6 +6,8 @@ import {
   type DuplicateCheckResult,
   type FieldComparison,
 } from "../lib/duplicates";
+import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
+import type { TagInput, ResolvedTag } from "../lib/tags";
 import * as display from "../lib/display";
 import { dim } from "../lib/ansi";
 
@@ -31,6 +33,7 @@ interface ReleaseInput {
   artists: ReleaseArtistInput[];
   labels?: string[];
   external_links?: ReleaseLinkInput[];
+  tags?: TagInput[];
 }
 
 interface ResolvedArtist {
@@ -191,12 +194,13 @@ export async function planReleases(
 }
 
 /** Display the planned actions as a preview. */
-export function displayPreview(actions: ReleaseAction[]): void {
+export function displayPreview(actions: ReleaseAction[], resolvedTags?: ResolvedTag[][]): void {
   let creates = 0;
   let updates = 0;
   let skips = 0;
 
-  for (const action of actions) {
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i];
     const title = action.release.title || "(untitled)";
 
     if (action.validationErrors?.length) {
@@ -268,6 +272,15 @@ export function displayPreview(actions: ReleaseAction[]): void {
         break;
       }
     }
+
+    // Show tags if any
+    if (resolvedTags && resolvedTags[i].length > 0) {
+      display.kv("tags", formatTagsPreview(resolvedTags[i]));
+      for (const tag of resolvedTags[i]) {
+        const warning = formatFuzzyWarning(tag);
+        if (warning) display.warn(warning);
+      }
+    }
   }
 
   display.summary(creates, updates, skips);
@@ -277,6 +290,7 @@ export function displayPreview(actions: ReleaseAction[]): void {
 async function executeActions(
   client: APIClient,
   actions: ReleaseAction[],
+  tagResolver?: TagResolver,
 ): Promise<SubmitResult> {
   let created = 0;
   let updated = 0;
@@ -289,7 +303,18 @@ async function executeActions(
       continue;
     }
 
+    const parsedTags = tagResolver
+      ? TagResolver.parseTags(action.release.tags as TagInput[] | undefined)
+      : [];
+
     if (action.action === "skip") {
+      // Still apply tags even on skip
+      if (tagResolver && action.dupCheck.existingId && parsedTags.length > 0) {
+        const tagResult = await tagResolver.applyToEntity("release", action.dupCheck.existingId, parsedTags);
+        if (tagResult.applied > 0) {
+          display.info(`  Applied ${tagResult.applied} tag(s)`);
+        }
+      }
       skipped++;
       continue;
     }
@@ -332,8 +357,16 @@ async function executeActions(
           body.external_links = action.release.external_links;
         }
 
-        await client.post("/releases", body);
+        const result = await client.post<{ id?: number; release?: { id: number } }>("/releases", body);
+        const releaseId = result.release?.id ?? result.id;
         display.success(`Created: ${action.release.title}`);
+        // Apply tags if any
+        if (tagResolver && releaseId && parsedTags.length > 0) {
+          const tagResult = await tagResolver.applyToEntity("release", releaseId, parsedTags);
+          if (tagResult.applied > 0) {
+            display.info(`  Applied ${tagResult.applied} tag(s)`);
+          }
+        }
         created++;
       } catch (err) {
         const message =
@@ -352,6 +385,13 @@ async function executeActions(
       );
 
       if (newFields.length === 0) {
+        // Still apply tags even when no field updates
+        if (tagResolver && action.dupCheck.existingId && parsedTags.length > 0) {
+          const tagResult = await tagResolver.applyToEntity("release", action.dupCheck.existingId, parsedTags);
+          if (tagResult.applied > 0) {
+            display.info(`  Applied ${tagResult.applied} tag(s)`);
+          }
+        }
         skipped++;
         continue;
       }
@@ -374,6 +414,13 @@ async function executeActions(
         display.success(
           `Updated: ${action.release.title} (ID: ${action.dupCheck.existingId})`,
         );
+        // Apply tags if any
+        if (tagResolver && action.dupCheck.existingId && parsedTags.length > 0) {
+          const tagResult = await tagResolver.applyToEntity("release", action.dupCheck.existingId, parsedTags);
+          if (tagResult.applied > 0) {
+            display.info(`  Applied ${tagResult.applied} tag(s)`);
+          }
+        }
         updated++;
       } catch (err) {
         const message =
@@ -416,8 +463,20 @@ export async function submitReleases(
   // Plan
   const actions = await planReleases(client, releases);
 
+  // Resolve tags for all releases
+  const tagResolver = new TagResolver(client);
+  const resolvedTags: ResolvedTag[][] = [];
+  for (const action of actions) {
+    const tags = TagResolver.parseTags(action.release.tags as TagInput[] | undefined);
+    if (tags.length > 0 && !action.validationErrors?.length) {
+      resolvedTags.push(await tagResolver.resolveAll(tags));
+    } else {
+      resolvedTags.push([]);
+    }
+  }
+
   // Preview
-  displayPreview(actions);
+  displayPreview(actions, resolvedTags);
 
   if (!confirm) {
     display.info('Dry run complete. Use --confirm to submit.');
@@ -434,5 +493,5 @@ export async function submitReleases(
 
   // Execute
   display.header("Submitting...");
-  return executeActions(client, actions);
+  return executeActions(client, actions, tagResolver);
 }
