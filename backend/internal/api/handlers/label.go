@@ -27,6 +27,37 @@ func NewLabelHandler(labelService services.LabelServiceInterface, auditLogServic
 }
 
 // ============================================================================
+// Search Labels
+// ============================================================================
+
+// SearchLabelsRequest represents the autocomplete search request
+type SearchLabelsRequest struct {
+	Query string `query:"q" doc:"Search query for label autocomplete" example:"sub pop"`
+}
+
+// SearchLabelsResponse represents the autocomplete search response
+type SearchLabelsResponse struct {
+	Body struct {
+		Labels []*services.LabelListResponse `json:"labels" doc:"Matching labels"`
+		Count  int                           `json:"count" doc:"Number of results"`
+	}
+}
+
+// SearchLabelsHandler handles GET /labels/search?q=query
+func (h *LabelHandler) SearchLabelsHandler(ctx context.Context, req *SearchLabelsRequest) (*SearchLabelsResponse, error) {
+	labels, err := h.labelService.SearchLabels(req.Query)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &SearchLabelsResponse{}
+	resp.Body.Labels = labels
+	resp.Body.Count = len(labels)
+
+	return resp, nil
+}
+
+// ============================================================================
 // List Labels
 // ============================================================================
 

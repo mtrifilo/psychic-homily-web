@@ -29,6 +29,37 @@ func NewReleaseHandler(releaseService services.ReleaseServiceInterface, artistSe
 }
 
 // ============================================================================
+// Search Releases
+// ============================================================================
+
+// SearchReleasesRequest represents the autocomplete search request
+type SearchReleasesRequest struct {
+	Query string `query:"q" doc:"Search query for release autocomplete" example:"nevermind"`
+}
+
+// SearchReleasesResponse represents the autocomplete search response
+type SearchReleasesResponse struct {
+	Body struct {
+		Releases []*services.ReleaseListResponse `json:"releases" doc:"Matching releases"`
+		Count    int                              `json:"count" doc:"Number of results"`
+	}
+}
+
+// SearchReleasesHandler handles GET /releases/search?q=query
+func (h *ReleaseHandler) SearchReleasesHandler(ctx context.Context, req *SearchReleasesRequest) (*SearchReleasesResponse, error) {
+	releases, err := h.releaseService.SearchReleases(req.Query)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &SearchReleasesResponse{}
+	resp.Body.Releases = releases
+	resp.Body.Count = len(releases)
+
+	return resp, nil
+}
+
+// ============================================================================
 // List Releases
 // ============================================================================
 

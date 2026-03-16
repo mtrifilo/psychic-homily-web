@@ -326,6 +326,7 @@ type LabelServiceInterface interface {
 	GetLabel(labelID uint) (*LabelDetailResponse, error)
 	GetLabelBySlug(slug string) (*LabelDetailResponse, error)
 	ListLabels(filters map[string]interface{}) ([]*LabelListResponse, error)
+	SearchLabels(query string) ([]*LabelListResponse, error)
 	UpdateLabel(labelID uint, req *UpdateLabelRequest) (*LabelDetailResponse, error)
 	DeleteLabel(labelID uint) error
 	GetLabelRoster(labelID uint) ([]*LabelArtistResponse, error)
@@ -338,6 +339,7 @@ type FestivalServiceInterface interface {
 	GetFestival(festivalID uint) (*FestivalDetailResponse, error)
 	GetFestivalBySlug(slug string) (*FestivalDetailResponse, error)
 	ListFestivals(filters map[string]interface{}) ([]*FestivalListResponse, error)
+	SearchFestivals(query string) ([]*FestivalListResponse, error)
 	UpdateFestival(festivalID uint, req *UpdateFestivalRequest) (*FestivalDetailResponse, error)
 	DeleteFestival(festivalID uint) error
 	GetFestivalArtists(festivalID uint, dayDate *string) ([]*FestivalArtistResponse, error)
@@ -356,6 +358,7 @@ type ReleaseServiceInterface interface {
 	GetRelease(releaseID uint) (*ReleaseDetailResponse, error)
 	GetReleaseBySlug(slug string) (*ReleaseDetailResponse, error)
 	ListReleases(filters map[string]interface{}) ([]*ReleaseListResponse, error)
+	SearchReleases(query string) ([]*ReleaseListResponse, error)
 	UpdateRelease(releaseID uint, req *UpdateReleaseRequest) (*ReleaseDetailResponse, error)
 	DeleteRelease(releaseID uint) error
 	GetReleasesForArtist(artistID uint) ([]*ReleaseListResponse, error)
