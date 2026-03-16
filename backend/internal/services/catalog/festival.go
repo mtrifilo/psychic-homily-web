@@ -203,6 +203,100 @@ func (s *FestivalService) ListFestivals(filters map[string]interface{}) ([]*cont
 	return responses, nil
 }
 
+// SearchFestivals searches for festivals by name using ILIKE matching
+func (s *FestivalService) SearchFestivals(query string) ([]*contracts.FestivalListResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Return empty results for empty query
+	if query == "" {
+		return []*contracts.FestivalListResponse{}, nil
+	}
+
+	var festivals []models.Festival
+	var err error
+
+	if len(query) <= 2 {
+		// For short queries: prefix match
+		err = s.db.
+			Where("LOWER(name) LIKE LOWER(?)", query+"%").
+			Order("name ASC").
+			Limit(20).
+			Find(&festivals).Error
+	} else {
+		// For longer queries: ILIKE substring match, ordered by name
+		err = s.db.
+			Where("name ILIKE ?", "%"+query+"%").
+			Order("name ASC").
+			Limit(20).
+			Find(&festivals).Error
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to search festivals: %w", err)
+	}
+
+	// Batch-load artist counts and venue counts
+	festivalIDs := make([]uint, len(festivals))
+	for i, f := range festivals {
+		festivalIDs[i] = f.ID
+	}
+
+	artistCounts := make(map[uint]int)
+	venueCounts := make(map[uint]int)
+
+	if len(festivalIDs) > 0 {
+		type CountResult struct {
+			FestivalID uint
+			Count      int
+		}
+
+		// Artist counts
+		var aCounts []CountResult
+		s.db.Table("festival_artists").
+			Select("festival_id, COUNT(DISTINCT artist_id) as count").
+			Where("festival_id IN ?", festivalIDs).
+			Group("festival_id").
+			Find(&aCounts)
+		for _, c := range aCounts {
+			artistCounts[c.FestivalID] = c.Count
+		}
+
+		// Venue counts
+		var vCounts []CountResult
+		s.db.Table("festival_venues").
+			Select("festival_id, COUNT(DISTINCT venue_id) as count").
+			Where("festival_id IN ?", festivalIDs).
+			Group("festival_id").
+			Find(&vCounts)
+		for _, c := range vCounts {
+			venueCounts[c.FestivalID] = c.Count
+		}
+	}
+
+	// Build responses
+	responses := make([]*contracts.FestivalListResponse, len(festivals))
+	for i, festival := range festivals {
+		responses[i] = &contracts.FestivalListResponse{
+			ID:          festival.ID,
+			Name:        festival.Name,
+			Slug:        festival.Slug,
+			SeriesSlug:  festival.SeriesSlug,
+			EditionYear: festival.EditionYear,
+			City:        festival.City,
+			State:       festival.State,
+			StartDate:   formatDateString(festival.StartDate),
+			EndDate:     formatDateString(festival.EndDate),
+			Status:      string(festival.Status),
+			ArtistCount: artistCounts[festival.ID],
+			VenueCount:  venueCounts[festival.ID],
+		}
+	}
+
+	return responses, nil
+}
+
 // UpdateFestival updates an existing festival
 func (s *FestivalService) UpdateFestival(festivalID uint, req *contracts.UpdateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
 	if s.db == nil {
