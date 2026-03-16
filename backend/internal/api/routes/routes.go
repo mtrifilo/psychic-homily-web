@@ -304,7 +304,9 @@ func setupReleaseRoutes(api huma.API, protected *huma.Group, sc *services.Servic
 	releaseHandler := handlers.NewReleaseHandler(sc.Release, sc.Artist, sc.AuditLog)
 
 	// Public release endpoints
+	// Note: Static routes must come before parameterized routes
 	huma.Get(api, "/releases", releaseHandler.ListReleasesHandler)
+	huma.Get(api, "/releases/search", releaseHandler.SearchReleasesHandler)
 	huma.Get(api, "/releases/{release_id}", releaseHandler.GetReleaseHandler)
 	huma.Get(api, "/artists/{artist_id}/releases", releaseHandler.GetArtistReleasesHandler)
 
@@ -320,7 +322,9 @@ func setupLabelRoutes(api huma.API, protected *huma.Group, sc *services.ServiceC
 	labelHandler := handlers.NewLabelHandler(sc.Label, sc.AuditLog)
 
 	// Public label endpoints
+	// Note: Static routes must come before parameterized routes
 	huma.Get(api, "/labels", labelHandler.ListLabelsHandler)
+	huma.Get(api, "/labels/search", labelHandler.SearchLabelsHandler)
 	huma.Get(api, "/labels/{label_id}", labelHandler.GetLabelHandler)
 	huma.Get(api, "/labels/{label_id}/artists", labelHandler.GetLabelRosterHandler)
 	huma.Get(api, "/labels/{label_id}/releases", labelHandler.GetLabelCatalogHandler)
@@ -335,7 +339,9 @@ func setupFestivalRoutes(api huma.API, protected *huma.Group, sc *services.Servi
 	festivalHandler := handlers.NewFestivalHandler(sc.Festival, sc.Artist, sc.AuditLog)
 
 	// Public festival endpoints
+	// Note: Static routes must come before parameterized routes
 	huma.Get(api, "/festivals", festivalHandler.ListFestivalsHandler)
+	huma.Get(api, "/festivals/search", festivalHandler.SearchFestivalsHandler)
 	huma.Get(api, "/festivals/{festival_id}", festivalHandler.GetFestivalHandler)
 	huma.Get(api, "/festivals/{festival_id}/artists", festivalHandler.GetFestivalArtistsHandler)
 	huma.Get(api, "/festivals/{festival_id}/venues", festivalHandler.GetFestivalVenuesHandler)

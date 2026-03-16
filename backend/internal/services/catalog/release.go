@@ -212,6 +212,84 @@ func (s *ReleaseService) ListReleases(filters map[string]interface{}) ([]*contra
 	return responses, nil
 }
 
+// SearchReleases searches for releases by title using ILIKE matching
+func (s *ReleaseService) SearchReleases(query string) ([]*contracts.ReleaseListResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Return empty results for empty query
+	if query == "" {
+		return []*contracts.ReleaseListResponse{}, nil
+	}
+
+	var releases []models.Release
+	var err error
+
+	if len(query) <= 2 {
+		// For short queries: prefix match
+		err = s.db.
+			Where("LOWER(title) LIKE LOWER(?)", query+"%").
+			Order("title ASC").
+			Limit(20).
+			Find(&releases).Error
+	} else {
+		// For longer queries: ILIKE substring match, ordered by title
+		err = s.db.
+			Where("title ILIKE ?", "%"+query+"%").
+			Order("title ASC").
+			Limit(20).
+			Find(&releases).Error
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to search releases: %w", err)
+	}
+
+	// Batch-load artist counts
+	releaseIDs := make([]uint, len(releases))
+	for i, r := range releases {
+		releaseIDs[i] = r.ID
+	}
+
+	artistCounts := make(map[uint]int)
+	if len(releaseIDs) > 0 {
+		type CountResult struct {
+			ReleaseID uint
+			Count     int
+		}
+		var counts []CountResult
+		s.db.Table("artist_releases").
+			Select("release_id, COUNT(DISTINCT artist_id) as count").
+			Where("release_id IN ?", releaseIDs).
+			Group("release_id").
+			Find(&counts)
+		for _, c := range counts {
+			artistCounts[c.ReleaseID] = c.Count
+		}
+	}
+
+	// Build responses
+	responses := make([]*contracts.ReleaseListResponse, len(releases))
+	for i, release := range releases {
+		slug := ""
+		if release.Slug != nil {
+			slug = *release.Slug
+		}
+		responses[i] = &contracts.ReleaseListResponse{
+			ID:          release.ID,
+			Title:       release.Title,
+			Slug:        slug,
+			ReleaseType: string(release.ReleaseType),
+			ReleaseYear: release.ReleaseYear,
+			CoverArtURL: release.CoverArtURL,
+			ArtistCount: artistCounts[release.ID],
+		}
+	}
+
+	return responses, nil
+}
+
 // UpdateRelease updates an existing release
 func (s *ReleaseService) UpdateRelease(releaseID uint, req *contracts.UpdateReleaseRequest) (*contracts.ReleaseDetailResponse, error) {
 	if s.db == nil {
