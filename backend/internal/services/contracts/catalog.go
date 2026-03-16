@@ -278,19 +278,20 @@ type ExportFrontmatter struct {
 
 // CreateVenueRequest represents the data needed to create a new venue
 type CreateVenueRequest struct {
-	Name       string  `json:"name" validate:"required"`
-	Address    *string `json:"address"`
-	City       string  `json:"city" validate:"required"`
-	State      string  `json:"state" validate:"required"`
-	Zipcode    *string `json:"zipcode"`
-	Instagram  *string `json:"instagram"`
-	Facebook   *string `json:"facebook"`
-	Twitter    *string `json:"twitter"`
-	YouTube    *string `json:"youtube"`
-	Spotify    *string `json:"spotify"`
-	SoundCloud *string `json:"soundcloud"`
-	Bandcamp   *string `json:"bandcamp"`
-	Website    *string `json:"website"`
+	Name        string  `json:"name" validate:"required"`
+	Address     *string `json:"address"`
+	City        string  `json:"city" validate:"required"`
+	State       string  `json:"state" validate:"required"`
+	Zipcode     *string `json:"zipcode"`
+	Instagram   *string `json:"instagram"`
+	Facebook    *string `json:"facebook"`
+	Twitter     *string `json:"twitter"`
+	YouTube     *string `json:"youtube"`
+	Spotify     *string `json:"spotify"`
+	SoundCloud  *string `json:"soundcloud"`
+	Bandcamp    *string `json:"bandcamp"`
+	Website     *string `json:"website"`
+	SubmittedBy *uint   `json:"-"` // Set by handler, not from request body
 }
 
 // VenueDetailResponse represents the venue data returned to clients
