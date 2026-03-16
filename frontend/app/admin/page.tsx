@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tags, Tent, Workflow, Library, Music, ClipboardCheck } from 'lucide-react'
+import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tags, Tent, Workflow, Library, Music, ClipboardCheck, BarChart3 } from 'lucide-react'
 import { usePendingVenueEdits } from '@/lib/hooks/admin/useAdminVenueEdits'
 import { useUnverifiedVenues } from '@/lib/hooks/admin/useAdminVenues'
 import { usePendingReports } from '@/lib/hooks/admin/useAdminReports'
@@ -124,6 +124,14 @@ const TagsPage = dynamic(() => import('./tags/page'), {
 })
 
 const DataQualityPage = dynamic(() => import('./data-quality/page'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
+const AnalyticsPage = dynamic(() => import('./analytics/page'), {
   loading: () => (
     <div className="flex items-center justify-center py-12">
       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -283,6 +291,10 @@ export default function AdminPage() {
               <ClipboardCheck className="h-4 w-4" />
               Data Quality
             </TabsTrigger>
+            <TabsTrigger value="analytics" className="gap-2">
+              <BarChart3 className="h-4 w-4" />
+              Analytics
+            </TabsTrigger>
             <TabsTrigger value="artists-admin" className="gap-2">
               <Music className="h-4 w-4" />
               Artists
@@ -347,6 +359,10 @@ export default function AdminPage() {
 
           <TabsContent value="data-quality" className="space-y-4">
             <DataQualityPage />
+          </TabsContent>
+
+          <TabsContent value="analytics" className="space-y-4">
+            <AnalyticsPage />
           </TabsContent>
 
           <TabsContent value="artists-admin" className="space-y-4">

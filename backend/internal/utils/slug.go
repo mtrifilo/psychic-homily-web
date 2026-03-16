@@ -48,10 +48,18 @@ func GenerateVenueSlug(name, city, state string) string {
 	return GenerateSlug(name, city, state)
 }
 
-// GenerateShowSlug creates a slug from date, headliner name, and venue name
+// GenerateShowSlug creates a slug from date, headliner name, and venue name.
+// The state parameter is used to convert the UTC event date to the venue's local
+// date so that the slug date matches the date displayed in the UI.
 // Format: "2026-01-30-the-national-at-valley-bar"
-func GenerateShowSlug(eventDate time.Time, headlinerName, venueName string) string {
-	dateStr := eventDate.Format("2006-01-02")
+func GenerateShowSlug(eventDate time.Time, headlinerName, venueName, state string) string {
+	localDate := eventDate
+	if tz := GetTimezoneForState(state); tz != "" {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			localDate = eventDate.In(loc)
+		}
+	}
+	dateStr := localDate.Format("2006-01-02")
 	return GenerateSlug(dateStr, headlinerName, "at", venueName)
 }
 

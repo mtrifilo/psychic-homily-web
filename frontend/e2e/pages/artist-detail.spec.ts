@@ -29,9 +29,9 @@ test.describe('Artist detail', () => {
     await expect(heading).toBeVisible({ timeout: 10_000 })
     await expect(heading).toContainText(artistName!)
 
-    // Back to Shows link
+    // Back to Artists link
     await expect(
-      page.getByRole('link', { name: /back to shows/i })
+      page.getByRole('link', { name: /back to artists/i })
     ).toBeVisible()
 
     // Upcoming and Past Shows tabs
@@ -41,7 +41,7 @@ test.describe('Artist detail', () => {
     ).toBeVisible()
   })
 
-  test('back to shows link navigates to shows list', async ({ page }) => {
+  test('back to artists link navigates to artists list', async ({ page }) => {
     await page.goto('/shows')
     await expect(page.locator('article').first()).toBeVisible({
       timeout: 10_000,
@@ -59,11 +59,11 @@ test.describe('Artist detail', () => {
     await artistLink.click()
     await page.waitForURL(/\/artists\//, { timeout: 10_000 })
 
-    await page.getByRole('link', { name: /back to shows/i }).click()
-    await page.waitForURL(/\/shows$/, { timeout: 10_000 })
+    await page.getByRole('link', { name: /back to artists/i }).click()
+    await page.waitForURL(/\/artists$/, { timeout: 10_000 })
 
     await expect(
-      page.getByRole('heading', { name: /upcoming shows/i })
+      page.getByRole('heading', { name: /artists/i })
     ).toBeVisible()
   })
 

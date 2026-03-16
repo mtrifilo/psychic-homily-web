@@ -110,7 +110,12 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 			venueName = venues[0].Name
 		}
 
-		baseSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueName)
+		// Use show state for timezone-aware slug date
+		showState := ""
+		if show.State != nil {
+			showState = *show.State
+		}
+		baseSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueName, showState)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
 			tx.Model(&models.Show{}).Where("slug = ?", candidate).Count(&count)

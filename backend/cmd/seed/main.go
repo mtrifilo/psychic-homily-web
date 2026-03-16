@@ -278,7 +278,7 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 	if len(showData.Venues) > 0 {
 		venueName = normalizeVenueName(showData.Venues[0])
 	}
-	showSlug := utils.GenerateShowSlug(eventDateUTC, headlinerName, venueName)
+	showSlug := utils.GenerateShowSlug(eventDateUTC, headlinerName, venueName, showData.State)
 
 	// Create the show
 	show := &models.Show{

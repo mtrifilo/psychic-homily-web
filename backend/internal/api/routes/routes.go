@@ -103,6 +103,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupSceneRoutes(api, sc)
 	setupAttendanceRoutes(api, protectedGroup, sc)
 	setupFollowRoutes(api, protectedGroup, sc)
+	setupChartsRoutes(api, sc)
 
 	return api
 }
@@ -752,6 +753,18 @@ func setupFollowRoutes(api huma.API, protected *huma.Group, sc *services.Service
 
 	// User's following list (protected)
 	huma.Get(protected, "/me/following", followHandler.GetMyFollowingHandler)
+}
+
+// setupChartsRoutes configures public top charts endpoints.
+// All endpoints are public — no authentication required.
+func setupChartsRoutes(api huma.API, sc *services.ServiceContainer) {
+	chartsHandler := handlers.NewChartsHandler(sc.Charts)
+
+	huma.Get(api, "/charts/trending-shows", chartsHandler.GetTrendingShowsHandler)
+	huma.Get(api, "/charts/popular-artists", chartsHandler.GetPopularArtistsHandler)
+	huma.Get(api, "/charts/active-venues", chartsHandler.GetActiveVenuesHandler)
+	huma.Get(api, "/charts/hot-releases", chartsHandler.GetHotReleasesHandler)
+	huma.Get(api, "/charts/overview", chartsHandler.GetChartsOverviewHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON
