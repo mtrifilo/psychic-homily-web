@@ -422,13 +422,23 @@ Cosmetic rewards for supporters — **never functional advantages**. Gazelle pro
 
 ## Design Docs
 
-All Phase 2 design docs complete:
-- Scene pages & venue intelligence → `docs/strategy/scene-pages.md`
-- Notification filters → `docs/strategy/notification-filters.md`
-- Similar artist visualization → `docs/strategy/similar-artists.md`
-- Radio Station & Radio Show entities → `docs/strategy/radio-entities.md`
-- Festival intelligence → `docs/strategy/festival-intelligence.md`
+### Complete (designed + shipped)
+- Scene pages & venue intelligence → `docs/strategy/scene-pages.md` (PSY-59/60)
+- Similar artist visualization → `docs/strategy/similar-artists.md` (PSY-108)
+- Festival intelligence → `docs/strategy/festival-intelligence.md` (PSY-109)
+- Notification filters → `docs/strategy/notification-filters.md` (PSY-106 backend shipped, PSY-107 frontend remaining)
 
-Learnings & reference:
+### Complete (designed + ticketed)
+- Community contribution flows → `docs/strategy/contribution-flows.md` (PSY-124–136, Phase 3)
+- Radio entities & playlist intelligence → `docs/strategy/radio-entities.md` (PSY-160–169, Phase 2d)
+
+### Needs Design Docs
+- **Show field notes** — Phase 3 exit criteria. Design as first entity comment type.
+- **Knowledge graph export** — formats, licensing, data scope.
+- **Multi-city infrastructure** — Phase 4, biggest architectural decision.
+- **Supporter/monetization** — Phase 4, Stripe + cosmetic tiers.
+
+### Learnings & reference
 - Gazelle/What.cd implementation patterns → `docs/learnings/gazelle-patterns.md`
+- Gazelle user profiles → `docs/learnings/gazelle-user-profiles.md`
 - What.cd user psychology & product-market fit → `docs/learnings/whatcd-user-insights.md`

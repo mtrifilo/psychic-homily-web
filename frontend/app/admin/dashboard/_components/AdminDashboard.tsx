@@ -23,15 +23,20 @@ interface StatCardProps {
   value: number
   icon: LucideIcon
   highlight?: boolean
+  onClick?: () => void
 }
 
-function StatCard({ label, value, icon: Icon, highlight }: StatCardProps) {
+function StatCard({ label, value, icon: Icon, highlight, onClick }: StatCardProps) {
   const isZeroHighlight = highlight && value === 0
   return (
     <Card
-      className={`py-4 ${isZeroHighlight ? 'opacity-50' : ''}`}
+      className={`py-4${isZeroHighlight ? ' opacity-50' : ''}${onClick ? ' cursor-pointer transition-shadow hover:shadow-md hover:bg-muted/50' : ''}`}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}
     >
-      <CardContent className="flex items-center gap-4">
+      <CardContent className="flex items-center gap-3">
         <div
           className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
             highlight && value > 0
@@ -51,7 +56,7 @@ function StatCard({ label, value, icon: Icon, highlight }: StatCardProps) {
           >
             {value.toLocaleString()}
           </p>
-          <p className="text-sm text-muted-foreground truncate">{label}</p>
+          <p className="text-sm text-muted-foreground leading-tight">{label}</p>
         </div>
       </CardContent>
     </Card>
@@ -78,7 +83,11 @@ function AllClearMessage() {
   )
 }
 
-export function AdminDashboard() {
+interface AdminDashboardProps {
+  onNavigate?: (tab: string) => void
+}
+
+export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
   const { data: stats, isLoading, error } = useAdminStats()
 
   if (isLoading) {
@@ -125,24 +134,28 @@ export function AdminDashboard() {
               value={stats.pending_shows}
               icon={Clock}
               highlight
+              onClick={onNavigate ? () => onNavigate('pending-shows') : undefined}
             />
             <StatCard
               label="Pending Venue Edits"
               value={stats.pending_venue_edits}
               icon={MapPin}
               highlight
+              onClick={onNavigate ? () => onNavigate('pending-venue-edits') : undefined}
             />
             <StatCard
               label="Pending Reports"
               value={stats.pending_reports}
               icon={Flag}
               highlight
+              onClick={onNavigate ? () => onNavigate('reports') : undefined}
             />
             <StatCard
               label="Unverified Venues"
               value={stats.unverified_venues}
               icon={BadgeCheck}
               highlight
+              onClick={onNavigate ? () => onNavigate('unverified-venues') : undefined}
             />
           </div>
         )}
@@ -158,21 +171,25 @@ export function AdminDashboard() {
             label="Approved Shows"
             value={stats.total_shows}
             icon={Music}
+            onClick={onNavigate ? () => onNavigate('pending-shows') : undefined}
           />
           <StatCard
             label="Verified Venues"
             value={stats.total_venues}
             icon={Building2}
+            onClick={onNavigate ? () => onNavigate('unverified-venues') : undefined}
           />
           <StatCard
             label="Artists"
             value={stats.total_artists}
             icon={Mic2}
+            onClick={onNavigate ? () => onNavigate('artists-admin') : undefined}
           />
           <StatCard
             label="Users"
             value={stats.total_users}
             icon={Users}
+            onClick={onNavigate ? () => onNavigate('users') : undefined}
           />
         </div>
       </section>
@@ -182,7 +199,7 @@ export function AdminDashboard() {
         <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
           Last 7 Days
         </h2>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard
             label="Shows Submitted"
             value={stats.shows_submitted_last_7_days}
