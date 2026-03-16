@@ -14,7 +14,7 @@ export function ReleaseList() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
-  const { density } = useDensity('releases')
+  const { density, setDensity } = useDensity('releases')
 
   // Parse filters from URL
   const typeParam = searchParams.get('type') as ReleaseType | null
@@ -147,7 +147,7 @@ export function ReleaseList() {
       </div>
 
       <div className="flex justify-end mb-4">
-        <DensityToggle storageKey="releases" />
+        <DensityToggle density={density} onDensityChange={setDensity} />
       </div>
 
       {/* Release Grid */}
@@ -175,22 +175,24 @@ export function ReleaseList() {
             )}
           </div>
         ) : (
-          <div
-            className={
-              density === 'compact'
-                ? 'flex flex-col gap-px'
-                : density === 'expanded'
-                  ? 'grid grid-cols-1 gap-5'
-                  : '@container grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
-            }
-          >
-            {releases.map(release => (
-              <ReleaseCard
-                key={release.id}
-                release={release}
-                density={density}
-              />
-            ))}
+          <div className="@container">
+            <div
+              className={
+                density === 'compact'
+                  ? 'flex flex-col gap-px'
+                  : density === 'expanded'
+                    ? 'grid grid-cols-1 gap-5'
+                    : 'grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
+              }
+            >
+              {releases.map(release => (
+                <ReleaseCard
+                  key={release.id}
+                  release={release}
+                  density={density}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>

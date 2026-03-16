@@ -55,8 +55,8 @@ vi.mock('@/components/filters', () => ({
 
 vi.mock('@/components/shared', () => ({
   LoadingSpinner: () => <div data-testid="loading-spinner">Loading...</div>,
-  DensityToggle: ({ storageKey }: { storageKey: string }) => (
-    <div data-testid="density-toggle">{storageKey}</div>
+  DensityToggle: ({ density }: { density: string; onDensityChange: (v: string) => void }) => (
+    <div data-testid="density-toggle">{density}</div>
   ),
 }))
 
@@ -129,9 +129,9 @@ describe('ArtistList', () => {
     expect(screen.getByTestId('artist-search')).toBeInTheDocument()
   })
 
-  it('renders density toggle with correct storage key', () => {
+  it('renders density toggle with current density', () => {
     renderWithProviders(<ArtistList />)
-    expect(screen.getByTestId('density-toggle')).toHaveTextContent('artists')
+    expect(screen.getByTestId('density-toggle')).toHaveTextContent('comfortable')
   })
 
   it('renders empty state when no artists', () => {
