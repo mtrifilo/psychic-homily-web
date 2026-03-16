@@ -117,6 +117,13 @@ export const API_ENDPOINTS = {
     SHOWS: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}/shows`,
     LABELS: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}/labels`,
     ALIASES: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}/aliases`,
+    GRAPH: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}/graph`,
+    RELATED: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}/related`,
+    RELATIONSHIPS: {
+      CREATE: `${API_BASE_URL}/artists/relationships`,
+      VOTE: (sourceId: number, targetId: number) =>
+        `${API_BASE_URL}/artists/relationships/${sourceId}/${targetId}/vote`,
+    },
     DELETE: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}`,
     REPORT: (artistId: string | number) =>
       `${API_BASE_URL}/artists/${artistId}/report`,

@@ -177,6 +177,8 @@ export const queryKeys = {
     shows: (artistIdOrSlug: string | number) => ['artists', 'shows', String(artistIdOrSlug)] as const,
     labels: (artistIdOrSlug: string | number) => ['artists', 'labels', String(artistIdOrSlug)] as const,
     aliases: (artistId: number) => ['artists', 'aliases', artistId] as const,
+    graph: (idOrSlug: string | number, types?: string[]) =>
+      ['artists', 'graph', String(idOrSlug), types] as const,
   },
 
   // Release queries

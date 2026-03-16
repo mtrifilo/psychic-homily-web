@@ -34,6 +34,7 @@ import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader, RevisionHist
 import { EntityTagList } from '@/features/tags'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
 import { ArtistShowsList } from './ArtistShowsList'
+import { RelatedArtists } from './RelatedArtists'
 import { ReportArtistButton } from './ReportArtistButton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -963,6 +964,9 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           <LabelsTab artistIdOrSlug={artistId} />
         </TabsContent>
       </EntityDetailLayout>
+
+      {/* Related Artists */}
+      <RelatedArtists artistId={artist.id} artistSlug={artist.slug} />
 
       {/* Tags */}
       <div className="mt-0 px-4 md:px-0">
