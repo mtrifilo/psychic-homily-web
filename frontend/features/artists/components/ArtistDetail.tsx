@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   ArrowLeft,
   Loader2,
@@ -31,6 +31,8 @@ import {
   type MusicPlatform,
 } from '@/lib/hooks/admin/useAdminArtists'
 import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader, RevisionHistory, FollowButton } from '@/components/shared'
+import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbContext'
+import { usePathname } from 'next/navigation'
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList } from '@/features/tags'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
@@ -830,6 +832,15 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
   const [activeTab, setActiveTab] = useState('overview')
   const [isEditing, setIsEditing] = useState(false)
+  const pathname = usePathname()
+  const { pushBreadcrumb } = useNavigationBreadcrumbs()
+
+  // Push breadcrumb when artist data is loaded
+  useEffect(() => {
+    if (artist) {
+      pushBreadcrumb(artist.name, pathname)
+    }
+  }, [artist, pathname, pushBreadcrumb])
 
   // Fetch labels for sidebar
   const { data: labelsData, isLoading: labelsLoading } = useArtistLabels({
@@ -928,7 +939,8 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   return (
     <>
       <EntityDetailLayout
-        backLink={{ href: '/artists', label: 'Back to Artists' }}
+        fallback={{ href: '/artists', label: 'Artists' }}
+        entityName={artist.name}
         header={
           <EntityHeader
             title={artist.name}

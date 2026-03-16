@@ -1,16 +1,18 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { ArrowLeft, Loader2, MapPin, Pencil, X, Trash2 } from 'lucide-react'
 import { useShow } from '../hooks/useShows'
 import type { ApiError } from '@/lib/api'
 import { useSetShowSoldOut, useSetShowCancelled } from '@/lib/hooks/admin/useAdminShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbContext'
 import type { ArtistResponse } from '../types'
 import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
 import { Button } from '@/components/ui/button'
-import { SocialLinks, MusicEmbed, SaveButton } from '@/components/shared'
+import { SocialLinks, MusicEmbed, SaveButton, Breadcrumb } from '@/components/shared'
 import { ShowForm } from '@/components/forms'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -37,6 +39,18 @@ export function ShowDetail({ showId }: ShowDetailProps) {
 
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const pathname = usePathname()
+  const { pushBreadcrumb } = useNavigationBreadcrumbs()
+
+  // Push breadcrumb when show data is loaded
+  useEffect(() => {
+    if (show) {
+      const showTitle = show.title || show.artists.map(a => a.name).join(', ')
+      const venue = show.venues[0]
+      const label = venue ? `${showTitle} at ${venue.name}` : showTitle
+      pushBreadcrumb(label, pathname)
+    }
+  }, [show, pathname, pushBreadcrumb])
 
   // Admin mutations for status flags
   const setSoldOutMutation = useSetShowSoldOut()
@@ -129,16 +143,11 @@ export function ShowDetail({ showId }: ShowDetailProps) {
 
   return (
     <div className="container max-w-6xl mx-auto px-4 py-6">
-      {/* Back Navigation */}
-      <div className="mb-6">
-        <Link
-          href="/shows"
-          className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4 mr-1" />
-          Back to Shows
-        </Link>
-      </div>
+      {/* Breadcrumb Navigation */}
+      <Breadcrumb
+        fallback={{ href: '/shows', label: 'Shows' }}
+        currentPage={show.title || artists.map(a => a.name).join(', ')}
+      />
 
       {/* Cancelled Alert Banner */}
       {show.is_cancelled && (

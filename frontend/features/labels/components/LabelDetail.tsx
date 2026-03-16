@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import {
   Loader2,
@@ -12,7 +12,9 @@ import {
   Music,
 } from 'lucide-react'
 import { useLabel, useLabelRoster, useLabelCatalog } from '../hooks/useLabels'
+import { usePathname } from 'next/navigation'
 import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton } from '@/components/shared'
+import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbContext'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -38,6 +40,15 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
     enabled: !!label,
   })
   const [activeTab, setActiveTab] = useState('overview')
+  const pathname = usePathname()
+  const { pushBreadcrumb } = useNavigationBreadcrumbs()
+
+  // Push breadcrumb when label data is loaded
+  useEffect(() => {
+    if (label) {
+      pushBreadcrumb(label.name, pathname)
+    }
+  }, [label, pathname, pushBreadcrumb])
 
   if (isLoading) {
     return (
@@ -163,7 +174,8 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
 
   return (
     <EntityDetailLayout
-      backLink={{ href: '/labels', label: 'Back to Labels' }}
+      fallback={{ href: '/labels', label: 'Labels' }}
+      entityName={label.name}
       header={
         <EntityHeader
           title={label.name}

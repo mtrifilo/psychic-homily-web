@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import {
   Loader2,
   ThumbsUp,
@@ -19,7 +19,9 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Breadcrumb } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbContext'
 import {
   useRequest,
   useUpdateRequest,
@@ -45,7 +47,9 @@ interface RequestDetailProps {
 
 export function RequestDetail({ requestId }: RequestDetailProps) {
   const router = useRouter()
+  const pathname = usePathname()
   const { user, isAuthenticated } = useAuthContext()
+  const { pushBreadcrumb } = useNavigationBreadcrumbs()
   const { data: request, isLoading, error } = useRequest(requestId)
   const deleteMutation = useDeleteRequest()
   const voteMutation = useVoteRequest()
@@ -54,6 +58,13 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
   const closeMutation = useCloseRequest()
 
   const [isEditing, setIsEditing] = useState(false)
+
+  // Push breadcrumb when request data is loaded
+  useEffect(() => {
+    if (request) {
+      pushBreadcrumb(request.title, pathname)
+    }
+  }, [request, pathname, pushBreadcrumb])
 
   if (isLoading) {
     return (
@@ -160,15 +171,11 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
 
   return (
     <div className="container max-w-4xl mx-auto px-4 py-6">
-      {/* Back link */}
-      <div className="mb-6">
-        <Link
-          href="/requests"
-          className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          &larr; Back to Requests
-        </Link>
-      </div>
+      {/* Breadcrumb Navigation */}
+      <Breadcrumb
+        fallback={{ href: '/requests', label: 'Requests' }}
+        currentPage={request.title}
+      />
 
       {/* Header */}
       <header className="mb-8">

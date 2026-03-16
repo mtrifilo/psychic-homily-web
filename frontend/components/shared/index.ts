@@ -14,3 +14,4 @@ export type { EntityDetailTab, EntityDetailBackLink } from './EntityDetailLayout
 export { EntityHeader } from './EntityHeader'
 export { RevisionHistory } from './RevisionHistory'
 export { FollowButton } from './FollowButton'
+export { Breadcrumb } from './Breadcrumb'

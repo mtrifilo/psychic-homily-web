@@ -42,11 +42,27 @@ vi.mock('@/lib/hooks/admin/useAdminShows', () => ({
   }),
 }))
 
+// Mock NavigationBreadcrumbContext
+vi.mock('@/lib/context/NavigationBreadcrumbContext', () => ({
+  useNavigationBreadcrumbs: () => ({
+    breadcrumbs: [],
+    pushBreadcrumb: vi.fn(),
+  }),
+}))
+
+// Mock next/navigation
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/shows/test-show',
+}))
+
 // Mock child components
 vi.mock('@/components/shared', () => ({
   SaveButton: () => <button data-testid="save-button">Save</button>,
   SocialLinks: () => <div data-testid="social-links" />,
   MusicEmbed: () => <div data-testid="music-embed" />,
+  Breadcrumb: ({ fallback, currentPage }: { fallback: { href: string; label: string }; currentPage: string }) => (
+    <nav aria-label="Breadcrumb"><a href={fallback.href}>{fallback.label}</a><span>{currentPage}</span></nav>
+  ),
 }))
 
 vi.mock('@/components/forms', () => ({
@@ -240,10 +256,12 @@ describe('ShowDetail', () => {
       expect(screen.queryByText('A great show description.')).not.toBeInTheDocument()
     })
 
-    it('renders back to shows link', () => {
+    it('renders breadcrumb with link to shows', () => {
       render(<ShowDetail showId="1" />)
-      const links = screen.getAllByText('Back to Shows')
-      expect(links[0].closest('a')).toHaveAttribute('href', '/shows')
+      const breadcrumbNav = screen.getByRole('navigation', { name: /Breadcrumb/ })
+      expect(breadcrumbNav).toBeInTheDocument()
+      const link = breadcrumbNav.querySelector('a')
+      expect(link).toHaveAttribute('href', '/shows')
     })
 
     it('renders save button', () => {
