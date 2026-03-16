@@ -8,7 +8,7 @@ import (
 )
 
 func testVenueHandler() *VenueHandler {
-	return NewVenueHandler(nil, nil, nil)
+	return NewVenueHandler(nil, nil, nil, nil)
 }
 
 // --- NewVenueHandler ---
