@@ -14,7 +14,7 @@ export function ReleaseList() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
-  const { density } = useDensity('releases')
+  const { density, setDensity } = useDensity('releases')
 
   // Parse filters from URL
   const typeParam = searchParams.get('type') as ReleaseType | null
@@ -147,7 +147,7 @@ export function ReleaseList() {
       </div>
 
       <div className="flex justify-end mb-4">
-        <DensityToggle storageKey="releases" />
+        <DensityToggle density={density} onDensityChange={setDensity} />
       </div>
 
       {/* Release Grid */}

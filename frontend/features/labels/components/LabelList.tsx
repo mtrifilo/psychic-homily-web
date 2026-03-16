@@ -15,7 +15,7 @@ export function LabelList() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
-  const { density } = useDensity('labels')
+  const { density, setDensity } = useDensity('labels')
 
   // Parse filters from URL
   const statusParam = searchParams.get('status') as LabelStatus | null
@@ -113,7 +113,7 @@ export function LabelList() {
       </div>
 
       <div className="flex justify-end mb-4">
-        <DensityToggle storageKey="labels" />
+        <DensityToggle density={density} onDensityChange={setDensity} />
       </div>
 
       {/* Label Grid */}

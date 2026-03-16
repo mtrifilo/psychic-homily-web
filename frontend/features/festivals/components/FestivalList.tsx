@@ -15,7 +15,7 @@ export function FestivalList() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
-  const { density } = useDensity('festivals')
+  const { density, setDensity } = useDensity('festivals')
 
   // Parse filters from URL
   const statusParam = searchParams.get('status') as FestivalStatus | null
@@ -125,7 +125,7 @@ export function FestivalList() {
       </div>
 
       <div className="flex justify-end mb-4">
-        <DensityToggle storageKey="festivals" />
+        <DensityToggle density={density} onDensityChange={setDensity} />
       </div>
 
       {/* Festival Grid */}

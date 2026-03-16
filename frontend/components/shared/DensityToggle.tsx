@@ -1,7 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import { type Density, useDensity } from '@/lib/hooks/common/useDensity'
+import { type Density } from '@/lib/hooks/common/useDensity'
 
 const DENSITY_OPTIONS: { value: Density; label: string }[] = [
   { value: 'compact', label: 'Compact' },
@@ -10,21 +10,23 @@ const DENSITY_OPTIONS: { value: Density; label: string }[] = [
 ]
 
 export interface DensityToggleProps {
-  /** localStorage key suffix for the density preference (e.g., 'shows', 'artists') */
-  storageKey?: string
+  /** Current density value (from parent's useDensity hook) */
+  density: Density
+  /** Density setter (from parent's useDensity hook) */
+  onDensityChange: (value: Density) => void
   /** Additional CSS classes */
   className?: string
 }
 
 /**
  * A toggle control for switching between compact, comfortable, and expanded density modes.
- * Persists the preference in localStorage.
+ * The parent component owns the density state via useDensity() and passes it down.
  *
  * Usage:
- *   <DensityToggle storageKey="shows" />
+ *   const { density, setDensity } = useDensity('shows')
+ *   <DensityToggle density={density} onDensityChange={setDensity} />
  */
-export function DensityToggle({ storageKey, className }: DensityToggleProps) {
-  const { density, setDensity } = useDensity(storageKey)
+export function DensityToggle({ density, onDensityChange, className }: DensityToggleProps) {
 
   return (
     <div
@@ -38,7 +40,7 @@ export function DensityToggle({ storageKey, className }: DensityToggleProps) {
           type="button"
           role="radio"
           aria-checked={density === option.value}
-          onClick={() => setDensity(option.value)}
+          onClick={() => onDensityChange(option.value)}
           className={cn(
             'px-2.5 py-1 text-xs font-medium rounded-md transition-colors duration-100',
             density === option.value

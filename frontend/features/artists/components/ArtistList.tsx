@@ -31,7 +31,7 @@ export function ArtistList() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
-  const { density } = useDensity('artists')
+  const { density, setDensity } = useDensity('artists')
 
   // Parse multi-city from URL
   const citiesParam = searchParams.get('cities')
@@ -101,7 +101,7 @@ export function ArtistList() {
       </div>
 
       <div className="flex justify-end mb-4">
-        <DensityToggle storageKey="artists" />
+        <DensityToggle density={density} onDensityChange={setDensity} />
       </div>
 
       {/* Dim content while fetching, don't hide it */}

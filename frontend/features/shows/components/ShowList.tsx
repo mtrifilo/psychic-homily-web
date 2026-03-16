@@ -50,7 +50,7 @@ export function ShowList() {
   const [isPending, startTransition] = useTransition()
   const { data: profileData } = useProfile()
   const hasAppliedDefaults = useRef(false)
-  const { density } = useDensity('shows')
+  const { density, setDensity } = useDensity('shows')
 
   // Parse multi-city or legacy single-city from URL
   const citiesParam = searchParams.get('cities')
@@ -189,7 +189,7 @@ export function ShowList() {
       )}
 
       <div className="flex justify-end mb-4">
-        <DensityToggle storageKey="shows" />
+        <DensityToggle density={density} onDensityChange={setDensity} />
       </div>
 
       {/* Dim content while fetching, don't hide it */}
