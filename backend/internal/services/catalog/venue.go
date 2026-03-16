@@ -57,13 +57,14 @@ func (s *VenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bo
 
 	// Create the venue - verified if created by admin, unverified otherwise
 	venue := &models.Venue{
-		Name:     req.Name,
-		Slug:     &slug,
-		Address:  req.Address,
-		City:     req.City,
-		State:    req.State,
-		Zipcode:  req.Zipcode,
-		Verified: isAdmin, // Admins create verified venues, non-admins require approval
+		Name:        req.Name,
+		Slug:        &slug,
+		Address:     req.Address,
+		City:        req.City,
+		State:       req.State,
+		Zipcode:     req.Zipcode,
+		Verified:    isAdmin, // Admins create verified venues, non-admins require approval
+		SubmittedBy: req.SubmittedBy,
 		Social: models.Social{
 			Instagram:  req.Instagram,
 			Facebook:   req.Facebook,

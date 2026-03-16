@@ -360,7 +360,7 @@ func setupFestivalRoutes(api huma.API, protected *huma.Group, sc *services.Servi
 }
 
 func setupVenueRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
-	venueHandler := handlers.NewVenueHandler(sc.Venue, sc.Discord)
+	venueHandler := handlers.NewVenueHandler(sc.Venue, sc.Discord, sc.AuditLog)
 
 	// Public venue endpoints - registered on main API without middleware
 	// Note: Static routes must come before parameterized routes
@@ -371,6 +371,7 @@ func setupVenueRoutes(api huma.API, protected *huma.Group, sc *services.ServiceC
 	huma.Get(api, "/venues/{venue_id}/shows", venueHandler.GetVenueShowsHandler)
 
 	// Protected venue endpoints - require authentication
+	huma.Post(protected, "/admin/venues", venueHandler.AdminCreateVenueHandler)
 	huma.Put(protected, "/venues/{venue_id}", venueHandler.UpdateVenueHandler)
 	huma.Delete(protected, "/venues/{venue_id}", venueHandler.DeleteVenueHandler)
 	huma.Get(protected, "/venues/{venue_id}/my-pending-edit", venueHandler.GetMyPendingEditHandler)

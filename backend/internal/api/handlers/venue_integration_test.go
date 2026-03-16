@@ -17,7 +17,7 @@ type VenueHandlerIntegrationSuite struct {
 
 func (s *VenueHandlerIntegrationSuite) SetupSuite() {
 	s.deps = setupHandlerIntegrationDeps(s.T())
-	s.handler = NewVenueHandler(s.deps.venueService, s.deps.discordService)
+	s.handler = NewVenueHandler(s.deps.venueService, s.deps.discordService, s.deps.auditLogService)
 }
 
 func (s *VenueHandlerIntegrationSuite) TearDownTest() {
