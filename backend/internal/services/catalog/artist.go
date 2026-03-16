@@ -889,10 +889,36 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 			AND (tag_id, user_id) IN (SELECT tag_id, user_id FROM tag_votes WHERE entity_type = 'artist' AND entity_id = ?)`, mergeFromID, canonicalID)
 		tx.Exec("UPDATE tag_votes SET entity_id = ? WHERE entity_type = 'artist' AND entity_id = ?", canonicalID, mergeFromID)
 
-		// 11. Transfer aliases from merged artist to canonical
+		// 11. collection_items: delete conflicts (same collection + same entity), then update remaining
+		tx.Exec("DELETE FROM collection_items WHERE entity_type = 'artist' AND entity_id = ? AND collection_id IN (SELECT collection_id FROM collection_items WHERE entity_type = 'artist' AND entity_id = ?)", mergeFromID, canonicalID)
+		r = tx.Exec("UPDATE collection_items SET entity_id = ? WHERE entity_type = 'artist' AND entity_id = ?", canonicalID, mergeFromID)
+		result.CollectionItemsMoved = r.RowsAffected
+
+		// 12. notification_filters: replace mergeFromID in artist_ids arrays
+		r = tx.Exec(`UPDATE notification_filters
+			SET artist_ids = array_replace(artist_ids, ?, ?),
+			    updated_at = NOW()
+			WHERE artist_ids @> ARRAY[?]::bigint[]
+			AND NOT artist_ids @> ARRAY[?]::bigint[]`,
+			mergeFromID, canonicalID, mergeFromID, canonicalID)
+		result.FiltersUpdated = r.RowsAffected
+		// Remove duplicates where filter already had canonical (just remove the old ID)
+		tx.Exec(`UPDATE notification_filters
+			SET artist_ids = array_remove(artist_ids, ?),
+			    updated_at = NOW()
+			WHERE artist_ids @> ARRAY[?]::bigint[]`,
+			mergeFromID, mergeFromID)
+
+		// 13. notification_log: update entity references (informational, no unique constraint on entity_id)
+		tx.Exec("UPDATE notification_log SET entity_id = ? WHERE entity_type = 'artist' AND entity_id = ?", canonicalID, mergeFromID)
+
+		// 14. requests: update requested_entity_id references
+		tx.Exec("UPDATE requests SET requested_entity_id = ? WHERE entity_type = 'artist' AND requested_entity_id = ?", canonicalID, mergeFromID)
+
+		// 15. Transfer aliases from merged artist to canonical
 		tx.Exec("UPDATE artist_aliases SET artist_id = ? WHERE artist_id = ?", canonicalID, mergeFromID)
 
-		// 12. Create alias from merged artist's name (if not conflicting)
+		// 16. Create alias from merged artist's name (if not conflicting)
 		var aliasCount int64
 		tx.Model(&models.ArtistAlias{}).Where("LOWER(alias) = LOWER(?)", mergeFrom.Name).Count(&aliasCount)
 		var nameCount int64
@@ -908,7 +934,7 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 			result.AliasCreated = true
 		}
 
-		// 13. Delete the merged artist
+		// 17. Delete the merged artist
 		if err := tx.Delete(&mergeFrom).Error; err != nil {
 			return fmt.Errorf("failed to delete merged artist: %w", err)
 		}
