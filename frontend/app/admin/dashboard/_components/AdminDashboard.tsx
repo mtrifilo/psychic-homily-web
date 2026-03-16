@@ -4,7 +4,7 @@ import {
   Clock,
   MapPin,
   Flag,
-  BadgeCheck,
+  ShieldQuestion,
   Music,
   Building2,
   Mic2,
@@ -29,9 +29,9 @@ function StatCard({ label, value, icon: Icon, highlight }: StatCardProps) {
   const isZeroHighlight = highlight && value === 0
   return (
     <Card
-      className={`py-4 ${isZeroHighlight ? 'opacity-50' : ''}`}
+      className={`py-4${isZeroHighlight ? ' opacity-50' : ''}`}
     >
-      <CardContent className="flex items-center gap-4">
+      <CardContent className="flex items-center gap-3">
         <div
           className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
             highlight && value > 0
@@ -51,7 +51,7 @@ function StatCard({ label, value, icon: Icon, highlight }: StatCardProps) {
           >
             {value.toLocaleString()}
           </p>
-          <p className="text-sm text-muted-foreground truncate">{label}</p>
+          <p className="text-sm leading-tight text-muted-foreground">{label}</p>
         </div>
       </CardContent>
     </Card>
@@ -141,7 +141,7 @@ export function AdminDashboard() {
             <StatCard
               label="Unverified Venues"
               value={stats.unverified_venues}
-              icon={BadgeCheck}
+              icon={ShieldQuestion}
               highlight
             />
           </div>
@@ -182,7 +182,7 @@ export function AdminDashboard() {
         <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
           Last 7 Days
         </h2>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard
             label="Shows Submitted"
             value={stats.shows_submitted_last_7_days}

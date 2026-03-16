@@ -76,5 +76,9 @@ See `docs/vision.md` for the full north star, What.cd feature mapping, and entit
 - **Fire-and-forget** — Discord notifications and audit logs never fail parent operations
 - **JSONB columns** — use `*json.RawMessage` (not `datatypes.JSON`)
 - **Huma quirks** — all request body fields required by default, even pointers; mark optional explicitly. Query/path/header params must NOT use pointer types (`*uint`, `*string`) — Huma panics; use value types with zero-value checks instead.
-- **Migration numbering** — latest is 000053 (create_artist_aliases, PSY-47); next is 000054
+- **Migration numbering** — latest is 000054 (create_notification_filters, PSY-106); next is 000055
+- **Revision history gap** — RevisionService exists but entity update handlers don't call it yet. PSY-124 (PR #135) fixes this.
+- **Artist merge bookmark gap** — `MergeArtists` didn't migrate `collection_items`, `notification_filters.artist_ids`, etc. PSY-156 (PR #126) fixes this.
+- **Notification filter frontend** (PSY-107) — backend fully shipped (matching engine, email, quick-create), frontend NOT yet built.
+- **Radio entities** (Phase 2d) — PSY-160–169, 10 tickets. Moved from Phase 5 to parallel track. Design doc: `docs/strategy/radio-entities.md`.
 
