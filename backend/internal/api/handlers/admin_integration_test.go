@@ -278,7 +278,7 @@ func (s *AdminHandlerIntegrationSuite) TestGetPendingVenueEdits_Success() {
 	s.deps.db.Create(venue)
 
 	// Create pending edit via venue handler
-	venueHandler := NewVenueHandler(s.deps.venueService, s.deps.discordService, s.deps.auditLogService)
+	venueHandler := NewVenueHandler(s.deps.venueService, s.deps.discordService, s.deps.auditLogService, nil)
 	userCtx := ctxWithUser(user)
 	newName := "Updated Name"
 	updateReq := &UpdateVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
@@ -310,7 +310,7 @@ func (s *AdminHandlerIntegrationSuite) TestApproveVenueEdit_Success() {
 	s.deps.db.Create(venue)
 
 	// Create pending edit
-	venueHandler := NewVenueHandler(s.deps.venueService, s.deps.discordService, s.deps.auditLogService)
+	venueHandler := NewVenueHandler(s.deps.venueService, s.deps.discordService, s.deps.auditLogService, nil)
 	userCtx := ctxWithUser(user)
 	newName := "Approved Name"
 	updateReq := &UpdateVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
@@ -353,7 +353,7 @@ func (s *AdminHandlerIntegrationSuite) TestRejectVenueEdit_Success() {
 	s.deps.db.Create(venue)
 
 	// Create pending edit
-	venueHandler := NewVenueHandler(s.deps.venueService, s.deps.discordService, s.deps.auditLogService)
+	venueHandler := NewVenueHandler(s.deps.venueService, s.deps.discordService, s.deps.auditLogService, nil)
 	userCtx := ctxWithUser(user)
 	newName := "Rejected Name"
 	updateReq := &UpdateVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
