@@ -157,6 +157,12 @@ export const queryKeys = {
       category: (category: string, limit: number, offset: number) =>
         ['admin', 'dataQuality', 'category', category, { limit, offset }] as const,
     },
+    analytics: {
+      growth: (months: number) => ['admin', 'analytics', 'growth', months] as const,
+      engagement: (months: number) => ['admin', 'analytics', 'engagement', months] as const,
+      community: ['admin', 'analytics', 'community'] as const,
+      dataQualityTrends: (months: number) => ['admin', 'analytics', 'data-quality', months] as const,
+    },
   },
 
   // Artist queries
@@ -171,6 +177,8 @@ export const queryKeys = {
     shows: (artistIdOrSlug: string | number) => ['artists', 'shows', String(artistIdOrSlug)] as const,
     labels: (artistIdOrSlug: string | number) => ['artists', 'labels', String(artistIdOrSlug)] as const,
     aliases: (artistId: number) => ['artists', 'aliases', artistId] as const,
+    graph: (idOrSlug: string | number, types?: string[]) =>
+      ['artists', 'graph', String(idOrSlug), types] as const,
   },
 
   // Release queries
@@ -340,6 +348,16 @@ export const queryKeys = {
     list: ['scenes', 'list'] as const,
     detail: (slug: string) => ['scenes', 'detail', slug] as const,
     artists: (slug: string, period?: number) => ['scenes', 'artists', slug, period] as const,
+  },
+
+  // Charts queries (public)
+  charts: {
+    all: ['charts'] as const,
+    overview: ['charts', 'overview'] as const,
+    trendingShows: (limit?: number) => ['charts', 'trending-shows', limit] as const,
+    popularArtists: (limit?: number) => ['charts', 'popular-artists', limit] as const,
+    activeVenues: (limit?: number) => ['charts', 'active-venues', limit] as const,
+    hotReleases: (limit?: number) => ['charts', 'hot-releases', limit] as const,
   },
 
   // Revision history queries

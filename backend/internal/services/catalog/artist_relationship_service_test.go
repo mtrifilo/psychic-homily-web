@@ -77,6 +77,12 @@ func TestArtistRelationshipService_NilDatabase(t *testing.T) {
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 	})
+
+	t.Run("GetArtistGraph", func(t *testing.T) {
+		_, err := svc.GetArtistGraph(1, nil, 0)
+		assert.Error(t, err)
+		assert.Equal(t, "database not initialized", err.Error())
+	})
 }
 
 // =============================================================================
@@ -467,6 +473,121 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestDeriveSharedBill
 
 	rel, _ := suite.svc.GetRelationship(a1, a2, "shared_bills")
 	suite.Assert().NotNil(rel.Detail) // Has detail JSON
+}
+
+// ──────────────────────────────────────────────
+// Graph Tests
+// ──────────────────────────────────────────────
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_Basic() {
+	a1 := suite.createArtist("Center Band")
+	a2 := suite.createArtist("Related Band 1")
+	a3 := suite.createArtist("Related Band 2")
+
+	suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.svc.CreateRelationship(a1, a3, "shared_bills", true)
+
+	graph, err := suite.svc.GetArtistGraph(a1, nil, 0)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(graph)
+
+	suite.Assert().Equal(a1, graph.Center.ID)
+	suite.Assert().Equal("Center Band", graph.Center.Name)
+	suite.Assert().Len(graph.Nodes, 2)
+	suite.Assert().Len(graph.Links, 2)
+	suite.Assert().Nil(graph.UserVotes)
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_FilterByTypes() {
+	a1 := suite.createArtist("Center")
+	a2 := suite.createArtist("Similar")
+	a3 := suite.createArtist("Shared")
+
+	suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.svc.CreateRelationship(a1, a3, "shared_bills", true)
+
+	// Only similar
+	graph, err := suite.svc.GetArtistGraph(a1, []string{"similar"}, 0)
+	suite.Require().NoError(err)
+	suite.Assert().Len(graph.Nodes, 1)
+	suite.Assert().Len(graph.Links, 1)
+	suite.Assert().Equal("similar", graph.Links[0].Type)
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_CrossConnections() {
+	a1 := suite.createArtist("Center")
+	a2 := suite.createArtist("Related A")
+	a3 := suite.createArtist("Related B")
+
+	// Center connects to both
+	suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.svc.CreateRelationship(a1, a3, "similar", false)
+	// Cross-connection between related artists
+	suite.svc.CreateRelationship(a2, a3, "shared_bills", true)
+
+	graph, err := suite.svc.GetArtistGraph(a1, nil, 0)
+	suite.Require().NoError(err)
+	suite.Assert().Len(graph.Nodes, 2)
+	// 2 center relationships + 1 cross-connection = 3 links
+	suite.Assert().Len(graph.Links, 3)
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_WithUserVotes() {
+	a1 := suite.createArtist("Center")
+	a2 := suite.createArtist("Related")
+	user := suite.createUser("voter")
+
+	suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.svc.Vote(a1, a2, "similar", user.ID, true)
+
+	graph, err := suite.svc.GetArtistGraph(a1, nil, user.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(graph.UserVotes)
+	suite.Assert().Len(graph.UserVotes, 1)
+
+	// Find the vote key
+	for _, v := range graph.UserVotes {
+		suite.Assert().Equal("up", v)
+	}
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_EmptyGraph() {
+	a1 := suite.createArtist("Lonely Artist")
+
+	graph, err := suite.svc.GetArtistGraph(a1, nil, 0)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(a1, graph.Center.ID)
+	suite.Assert().Empty(graph.Nodes)
+	suite.Assert().Empty(graph.Links)
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_ArtistNotFound() {
+	_, err := suite.svc.GetArtistGraph(99999, nil, 0)
+	suite.Assert().Error(err)
+	suite.Assert().Contains(err.Error(), "artist not found")
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_UpcomingShowCounts() {
+	a1 := suite.createArtist("Center")
+	a2 := suite.createArtist("Related")
+
+	// Create future show with related artist
+	slug := fmt.Sprintf("future-show-%d", time.Now().UnixNano())
+	futureShow := &models.Show{
+		Title:     "Future Show",
+		Slug:      &slug,
+		EventDate: time.Now().Add(48 * time.Hour),
+		Status:    models.ShowStatusApproved,
+	}
+	suite.db.Create(futureShow)
+	suite.addArtistToShow(futureShow.ID, a2)
+
+	suite.svc.CreateRelationship(a1, a2, "similar", false)
+
+	graph, err := suite.svc.GetArtistGraph(a1, nil, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(graph.Nodes, 1)
+	suite.Assert().Equal(1, graph.Nodes[0].UpcomingShowCount)
 }
 
 // ──────────────────────────────────────────────

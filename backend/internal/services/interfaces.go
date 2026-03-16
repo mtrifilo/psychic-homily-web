@@ -50,8 +50,10 @@ type SceneServiceInterface = contracts.SceneServiceInterface
 type DataQualityServiceInterface = contracts.DataQualityServiceInterface
 type AnalyticsServiceInterface = contracts.AnalyticsServiceInterface
 type AttendanceServiceInterface = contracts.AttendanceServiceInterface
+type ChartsServiceInterface = contracts.ChartsServiceInterface
 type FollowServiceInterface = contracts.FollowServiceInterface
 type FestivalIntelligenceServiceInterface = contracts.FestivalIntelligenceServiceInterface
+type NotificationFilterServiceInterface = contracts.NotificationFilterServiceInterface
 
 // Compile-time interface satisfaction checks.
 // Engagement services (Bookmark, SavedShow, FavoriteVenue, Calendar, Reminder)
@@ -79,4 +81,5 @@ var (
 	_ ArtistRelationshipServiceInterface    = (*catalog.ArtistRelationshipService)(nil)
 	_ SceneServiceInterface                 = (*catalog.SceneService)(nil)
 	_ FestivalIntelligenceServiceInterface  = (*catalog.FestivalIntelligenceService)(nil)
+	_ ChartsServiceInterface                = (*catalog.ChartsService)(nil)
 )

@@ -217,6 +217,7 @@ type EmailServiceInterface interface {
 	SendMagicLinkEmail(toEmail, token string) error
 	SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error
 	SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventDate time.Time, venues []string) error
+	SendFilterNotificationEmail(toEmail, subject, htmlBody, unsubscribeURL string) error
 }
 
 // ReminderServiceInterface defines the contract for the show reminder background service.
@@ -459,6 +460,15 @@ type AttendanceServiceInterface interface {
 	GetBatchAttendanceCounts(showIDs []uint) (map[uint]*AttendanceCountsResponse, error)
 	GetBatchUserAttendance(userID uint, showIDs []uint) (map[uint]string, error)
 	GetUserAttendingShows(userID uint, status string, limit, offset int) ([]*AttendingShowResponse, int64, error)
+}
+
+// ChartsServiceInterface defines the contract for top charts / trending content.
+type ChartsServiceInterface interface {
+	GetTrendingShows(limit int) ([]TrendingShow, error)
+	GetPopularArtists(limit int) ([]PopularArtist, error)
+	GetActiveVenues(limit int) ([]ActiveVenue, error)
+	GetHotReleases(limit int) ([]HotRelease, error)
+	GetChartsOverview() (*ChartsOverview, error)
 }
 
 // FollowServiceInterface defines the contract for entity follow operations.

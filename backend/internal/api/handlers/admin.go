@@ -17,16 +17,17 @@ import (
 
 // AdminHandler handles admin-related HTTP requests
 type AdminHandler struct {
-	showService           services.ShowServiceInterface
-	venueService          services.VenueServiceInterface
-	discordService        services.DiscordServiceInterface
-	musicDiscoveryService services.MusicDiscoveryServiceInterface
-	discoveryService      services.DiscoveryServiceInterface
-	apiTokenService       services.APITokenServiceInterface
-	dataSyncService       services.DataSyncServiceInterface
-	auditLogService       services.AuditLogServiceInterface
-	userService           services.UserServiceInterface
-	adminStatsService     services.AdminStatsServiceInterface
+	showService                services.ShowServiceInterface
+	venueService               services.VenueServiceInterface
+	discordService             services.DiscordServiceInterface
+	musicDiscoveryService      services.MusicDiscoveryServiceInterface
+	discoveryService           services.DiscoveryServiceInterface
+	apiTokenService            services.APITokenServiceInterface
+	dataSyncService            services.DataSyncServiceInterface
+	auditLogService            services.AuditLogServiceInterface
+	userService                services.UserServiceInterface
+	adminStatsService          services.AdminStatsServiceInterface
+	notificationFilterService  services.NotificationFilterServiceInterface
 }
 
 // NewAdminHandler creates a new admin handler
@@ -41,18 +42,20 @@ func NewAdminHandler(
 	auditLogService services.AuditLogServiceInterface,
 	userService services.UserServiceInterface,
 	adminStatsService services.AdminStatsServiceInterface,
+	notificationFilterService services.NotificationFilterServiceInterface,
 ) *AdminHandler {
 	return &AdminHandler{
-		showService:           showService,
-		venueService:          venueService,
-		discordService:        discordService,
-		musicDiscoveryService: musicDiscoveryService,
-		discoveryService:      discoveryService,
-		apiTokenService:       apiTokenService,
-		dataSyncService:       dataSyncService,
-		auditLogService:       auditLogService,
-		userService:           userService,
-		adminStatsService:     adminStatsService,
+		showService:                showService,
+		venueService:               venueService,
+		discordService:             discordService,
+		musicDiscoveryService:      musicDiscoveryService,
+		discoveryService:           discoveryService,
+		apiTokenService:            apiTokenService,
+		dataSyncService:            dataSyncService,
+		auditLogService:            auditLogService,
+		userService:                userService,
+		adminStatsService:          adminStatsService,
+		notificationFilterService:  notificationFilterService,
 	}
 }
 
@@ -364,6 +367,25 @@ func (h *AdminHandler) ApproveShowHandler(ctx context.Context, req *ApproveShowR
 	// Send Discord notification for show approval
 	h.discordService.NotifyShowApproved(show)
 
+	// Fire-and-forget: match notification filters for this newly approved show
+	if h.notificationFilterService != nil {
+		go func() {
+			showModel := &models.Show{ID: uint(showID), Title: show.Title, EventDate: show.EventDate, Price: show.Price, Slug: ptrString(show.Slug)}
+			if show.City != nil {
+				showModel.City = show.City
+			}
+			if show.State != nil {
+				showModel.State = show.State
+			}
+			if err := h.notificationFilterService.MatchAndNotify(showModel); err != nil {
+				logger.Default().Error("notification_filter_match_failed",
+					"show_id", showID,
+					"error", err.Error(),
+				)
+			}
+		}()
+	}
+
 	// Audit log
 	h.auditLogService.LogAction(user.ID, "approve_show", "show", uint(showID), map[string]interface{}{
 		"verify_venues": req.Body.VerifyVenues,
@@ -450,6 +472,31 @@ func (h *AdminHandler) BatchApproveShowsHandler(ctx context.Context, req *BatchA
 		h.auditLogService.LogAction(user.ID, "approve_show", "show", id, map[string]interface{}{
 			"batch": true,
 		})
+	}
+
+	// Fire-and-forget: match notification filters for batch-approved shows
+	if h.notificationFilterService != nil && len(result.Succeeded) > 0 {
+		go func() {
+			for _, showID := range result.Succeeded {
+				show, err := h.showService.GetShow(showID)
+				if err != nil || show == nil {
+					continue
+				}
+				showModel := &models.Show{ID: showID, Title: show.Title, EventDate: show.EventDate, Price: show.Price, Slug: ptrString(show.Slug)}
+				if show.City != nil {
+					showModel.City = show.City
+				}
+				if show.State != nil {
+					showModel.State = show.State
+				}
+				if err := h.notificationFilterService.MatchAndNotify(showModel); err != nil {
+					logger.Default().Error("notification_filter_batch_match_failed",
+						"show_id", showID,
+						"error", err.Error(),
+					)
+				}
+			}
+		}()
 	}
 
 	logger.FromContext(ctx).Info("admin_batch_approve_shows",
@@ -626,6 +673,11 @@ func getUserID(user *models.User) uint {
 		return 0
 	}
 	return user.ID
+}
+
+// ptrString converts a string to *string.
+func ptrString(s string) *string {
+	return &s
 }
 
 // ============================================================================

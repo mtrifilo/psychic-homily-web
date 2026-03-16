@@ -1,5 +1,7 @@
 // Public API for the artists feature module
 
+// Public API for the artists feature module
+
 // Types
 export type {
   ArtistSocial,
@@ -26,6 +28,9 @@ export type {
   ArtistAlias,
   ArtistAliasesResponse,
   MergeArtistResult,
+  ArtistGraph,
+  ArtistGraphNode,
+  ArtistGraphLink,
 } from './types'
 
 export { getArtistLocation } from './types'
@@ -45,6 +50,12 @@ export {
   useReportArtist,
 } from './hooks'
 
+export {
+  useArtistGraph,
+  useArtistRelationshipVote,
+  useCreateArtistRelationship,
+} from './hooks'
+
 // Components
 export {
   ArtistCard,
@@ -53,6 +64,8 @@ export {
   ArtistList,
   ArtistListSkeleton,
   ArtistShowsList,
+  RelatedArtists,
+  ArtistGraphVisualization,
   ReportArtistButton,
   ReportArtistDialog,
 } from './components'

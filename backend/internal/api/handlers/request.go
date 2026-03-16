@@ -37,7 +37,7 @@ func NewRequestHandler(requestService services.RequestServiceInterface, auditLog
 type CreateRequestHandlerRequest struct {
 	Body struct {
 		Title             string  `json:"title" doc:"Request title" example:"Add Local Band XYZ"`
-		Description       string  `json:"description" doc:"Detailed description of the request" example:"They play at The Rebel Lounge frequently"`
+		Description       *string `json:"description,omitempty" required:"false" doc:"Detailed description of the request" example:"They play at The Rebel Lounge frequently"`
 		EntityType        string  `json:"entity_type" doc:"Entity type (artist, release, label, show, venue, festival)" example:"artist"`
 		RequestedEntityID *uint   `json:"requested_entity_id,omitempty" required:"false" doc:"Optional ID of an existing entity this relates to"`
 	}
@@ -64,7 +64,11 @@ func (h *RequestHandler) CreateRequestHandler(ctx context.Context, req *CreateRe
 		return nil, huma.Error400BadRequest("Entity type is required")
 	}
 
-	request, err := h.requestService.CreateRequest(user.ID, req.Body.Title, req.Body.Description, req.Body.EntityType, req.Body.RequestedEntityID)
+	description := ""
+	if req.Body.Description != nil {
+		description = *req.Body.Description
+	}
+	request, err := h.requestService.CreateRequest(user.ID, req.Body.Title, description, req.Body.EntityType, req.Body.RequestedEntityID)
 	if err != nil {
 		logger.FromContext(ctx).Error("create_request_failed",
 			"error", err.Error(),

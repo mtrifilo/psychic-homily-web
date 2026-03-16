@@ -103,6 +103,8 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupSceneRoutes(api, sc)
 	setupAttendanceRoutes(api, protectedGroup, sc)
 	setupFollowRoutes(api, protectedGroup, sc)
+	setupNotificationFilterRoutes(api, protectedGroup, sc, cfg)
+	setupChartsRoutes(api, sc)
 
 	return api
 }
@@ -476,6 +478,7 @@ func setupAdminRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 	adminHandler := handlers.NewAdminHandler(
 		sc.Show, sc.Venue, sc.Discord, sc.MusicDiscovery, sc.Discovery,
 		sc.APIToken, sc.DataSync, sc.AuditLog, sc.User, sc.AdminStats,
+		sc.NotificationFilter,
 	)
 	artistHandler := handlers.NewArtistHandler(sc.Artist, sc.AuditLog)
 	auditLogHandler := handlers.NewAuditLogHandler(sc.AuditLog)
@@ -697,6 +700,7 @@ func setupArtistRelationshipRoutes(api huma.API, protected *huma.Group, sc *serv
 	optionalAuthGroup := huma.NewGroup(api, "")
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(sc.JWT))
 	huma.Get(optionalAuthGroup, "/artists/{artist_id}/related", relHandler.GetRelatedArtistsHandler)
+	huma.Get(optionalAuthGroup, "/artists/{artist_id}/graph", relHandler.GetArtistGraphHandler)
 
 	// Protected: create relationships and vote
 	huma.Post(protected, "/artists/relationships", relHandler.CreateRelationshipHandler)
@@ -760,6 +764,37 @@ func setupFollowRoutes(api huma.API, protected *huma.Group, sc *services.Service
 
 	// User's following list (protected)
 	huma.Get(protected, "/me/following", followHandler.GetMyFollowingHandler)
+}
+
+// setupNotificationFilterRoutes configures notification filter and notification log endpoints.
+// CRUD and notifications require authentication. Unsubscribe is public (HMAC-signed).
+func setupNotificationFilterRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer, cfg *config.Config) {
+	filterHandler := handlers.NewNotificationFilterHandler(sc.NotificationFilter, cfg.JWT.SecretKey)
+
+	// Protected: filter CRUD
+	huma.Get(protected, "/me/notification-filters", filterHandler.ListFiltersHandler)
+	huma.Post(protected, "/me/notification-filters", filterHandler.CreateFilterHandler)
+	huma.Patch(protected, "/me/notification-filters/{id}", filterHandler.UpdateFilterHandler)
+	huma.Delete(protected, "/me/notification-filters/{id}", filterHandler.DeleteFilterHandler)
+	huma.Post(protected, "/me/notification-filters/quick", filterHandler.QuickCreateFilterHandler)
+
+	// Protected: notification log
+	huma.Get(protected, "/me/notifications", filterHandler.GetNotificationsHandler)
+
+	// Public: HMAC-signed unsubscribe
+	huma.Post(api, "/unsubscribe/filter/{id}", filterHandler.UnsubscribeFilterHandler)
+}
+
+// setupChartsRoutes configures public top charts endpoints.
+// All endpoints are public — no authentication required.
+func setupChartsRoutes(api huma.API, sc *services.ServiceContainer) {
+	chartsHandler := handlers.NewChartsHandler(sc.Charts)
+
+	huma.Get(api, "/charts/trending-shows", chartsHandler.GetTrendingShowsHandler)
+	huma.Get(api, "/charts/popular-artists", chartsHandler.GetPopularArtistsHandler)
+	huma.Get(api, "/charts/active-venues", chartsHandler.GetActiveVenuesHandler)
+	huma.Get(api, "/charts/hot-releases", chartsHandler.GetHotReleasesHandler)
+	huma.Get(api, "/charts/overview", chartsHandler.GetChartsOverviewHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON
