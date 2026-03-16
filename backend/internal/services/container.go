@@ -24,6 +24,7 @@ type ServiceContainer struct {
 	APIToken           *adminsvc.APITokenService
 	DataQuality        *adminsvc.DataQualityService
 	Revision           *adminsvc.RevisionService
+	Charts             *catalog.ChartsService
 	Artist             *catalog.ArtistService
 	ContributorProfile *usersvc.ContributorProfileService
 	ArtistReport  *adminsvc.ArtistReportService
@@ -113,6 +114,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		APIToken:           adminsvc.NewAPITokenService(database),
 		DataQuality:        adminsvc.NewDataQualityService(database),
 		Revision:           adminsvc.NewRevisionService(database),
+		Charts:             catalog.NewChartsService(database),
 		Artist:             artist,
 		ContributorProfile: usersvc.NewContributorProfileService(database),
 		ArtistReport:  adminsvc.NewArtistReportService(database),

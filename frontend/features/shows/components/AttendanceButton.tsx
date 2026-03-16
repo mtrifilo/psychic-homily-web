@@ -82,6 +82,7 @@ export function AttendanceButton({
                   handleClick('going')
                 }}
                 disabled={isPending}
+                aria-label={`Going${goingCount > 0 ? ` ${goingCount}` : ''}`}
               >
                 <CalendarCheck className="h-3.5 w-3.5" />
                 {goingCount > 0 && <span>{goingCount}</span>}
@@ -112,6 +113,7 @@ export function AttendanceButton({
                   handleClick('interested')
                 }}
                 disabled={isPending}
+                aria-label={`Interested${interestedCount > 0 ? ` ${interestedCount}` : ''}`}
               >
                 <Star className="h-3.5 w-3.5" />
                 {interestedCount > 0 && <span>{interestedCount}</span>}
