@@ -512,16 +512,18 @@ type ArtistAliasResponse struct {
 
 // MergeArtistResult contains the outcome of merging two artists
 type MergeArtistResult struct {
-	CanonicalArtistID uint   `json:"canonical_artist_id"`
-	MergedArtistID    uint   `json:"merged_artist_id"`
-	MergedArtistName  string `json:"merged_artist_name"`
-	ShowsMoved        int64  `json:"shows_moved"`
-	ReleasesMoved     int64  `json:"releases_moved"`
-	LabelsMoved       int64  `json:"labels_moved"`
-	FestivalsMoved    int64  `json:"festivals_moved"`
-	RelationshipsMoved int64 `json:"relationships_moved"`
-	BookmarksMoved    int64  `json:"bookmarks_moved"`
-	AliasCreated      bool   `json:"alias_created"`
+	CanonicalArtistID    uint   `json:"canonical_artist_id"`
+	MergedArtistID       uint   `json:"merged_artist_id"`
+	MergedArtistName     string `json:"merged_artist_name"`
+	ShowsMoved           int64  `json:"shows_moved"`
+	ReleasesMoved        int64  `json:"releases_moved"`
+	LabelsMoved          int64  `json:"labels_moved"`
+	FestivalsMoved       int64  `json:"festivals_moved"`
+	RelationshipsMoved   int64  `json:"relationships_moved"`
+	BookmarksMoved       int64  `json:"bookmarks_moved"`
+	CollectionItemsMoved int64  `json:"collection_items_moved"`
+	FiltersUpdated       int64  `json:"filters_updated"`
+	AliasCreated         bool   `json:"alias_created"`
 }
 
 // ──────────────────────────────────────────────
