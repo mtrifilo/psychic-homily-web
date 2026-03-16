@@ -127,15 +127,17 @@ export function HomeShowList() {
             </p>
           </div>
         ) : (
-          data.shows.map(show => (
-            <ShowCard
-              key={show.id}
-              show={show}
-              isAdmin={isAdmin}
-              isSaved={savedShowIds?.has(show.id)}
-              attendanceData={batchAttendance?.[String(show.id)]}
-            />
-          ))
+          <div className="flex flex-col gap-3">
+            {data.shows.map(show => (
+              <ShowCard
+                key={show.id}
+                show={show}
+                isAdmin={isAdmin}
+                isSaved={savedShowIds?.has(show.id)}
+                attendanceData={batchAttendance?.[String(show.id)]}
+              />
+            ))}
+          </div>
         )}
       </div>
     </div>

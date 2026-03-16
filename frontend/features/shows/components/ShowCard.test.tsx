@@ -285,22 +285,28 @@ describe('ShowCard', () => {
     expect(screen.getByTestId('delete-dialog')).toBeInTheDocument()
   })
 
-  it('renders with compact density', () => {
+  it('renders with compact density as a borderless row', () => {
     render(<ShowCard show={makeShow()} isAdmin={false} density="compact" />)
     const article = screen.getByRole('article')
-    expect(article.className).toContain('mb-2')
+    // Compact mode uses a flat row layout without card borders
+    expect(article.className).toContain('hover:bg-muted/50')
+    expect(article.className).not.toContain('border')
   })
 
   it('renders with comfortable density by default', () => {
     render(<ShowCard show={makeShow()} isAdmin={false} />)
     const article = screen.getByRole('article')
-    expect(article.className).toContain('mb-3')
+    // Comfortable mode uses card layout with border
+    expect(article.className).toContain('border')
+    expect(article.className).toContain('px-3')
   })
 
-  it('renders with expanded density', () => {
+  it('renders with expanded density with more spacious padding', () => {
     render(<ShowCard show={makeShow()} isAdmin={false} density="expanded" />)
     const article = screen.getByRole('article')
-    expect(article.className).toContain('mb-4')
+    // Expanded mode uses card layout with more generous padding
+    expect(article.className).toContain('border')
+    expect(article.className).toContain('px-5')
   })
 
   it('shows export button for admin', () => {
