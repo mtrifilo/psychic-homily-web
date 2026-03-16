@@ -8,6 +8,8 @@ import { runConfigShow, runConfigSet } from "./commands/config";
 import { runSearch } from "./commands/search";
 import { runSubmitArtist } from "./commands/submit-artist";
 import { runSubmitVenue } from "./commands/submit-venue";
+import { runSubmitShow } from "./commands/submit-show";
+import { submitReleases } from "./commands/submit-release";
 import { runSubmitLabel } from "./commands/submit-label";
 
 const program = new Command();
@@ -88,6 +90,12 @@ program
         break;
       case "venue":
         await runSubmitVenue(json, opts, env);
+        break;
+      case "show":
+        await runSubmitShow(json, env, !!opts.confirm);
+        break;
+      case "release":
+        await submitReleases(json ?? "", env, !!opts.confirm);
         break;
       case "label":
         await runSubmitLabel(json, opts, env);
