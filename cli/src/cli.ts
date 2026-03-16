@@ -6,6 +6,7 @@ import * as display from "./lib/display";
 import { runInit } from "./commands/init";
 import { runConfigShow, runConfigSet } from "./commands/config";
 import { runSearch } from "./commands/search";
+import { runSubmitVenue } from "./commands/submit-venue";
 
 const program = new Command();
 
@@ -68,6 +69,12 @@ program
   .description("Submit entities for creation/update (artist, venue, show, release, label, festival)")
   .option("--confirm", "Actually submit (default is dry-run)")
   .action(async (entityType: string, json: string | undefined, opts: { confirm?: boolean }) => {
+    if (entityType === "venue") {
+      const env = await resolveEnvOrExit(program.opts().env);
+      await runSubmitVenue(json, opts, env);
+      return;
+    }
+
     display.warn(
       `"ph submit ${entityType}" is not yet implemented. Coming in PSY-142 through PSY-147.`,
     );
