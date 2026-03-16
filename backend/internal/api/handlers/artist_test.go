@@ -1128,3 +1128,202 @@ func TestMergeArtists_NotFound(t *testing.T) {
 	_, err := h.MergeArtistsHandler(ctx, req)
 	assertHumaError(t, err, 404)
 }
+
+// ============================================================================
+// Mock-based tests: AdminCreateArtistHandler
+// ============================================================================
+
+func TestAdminCreateArtist_NoUser(t *testing.T) {
+	h := testArtistHandler()
+	req := &AdminCreateArtistRequest{}
+	req.Body.Name = "Test Artist"
+
+	_, err := h.AdminCreateArtistHandler(context.Background(), req)
+	assertHumaError(t, err, 403)
+}
+
+func TestAdminCreateArtist_NonAdmin(t *testing.T) {
+	h := testArtistHandler()
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	req := &AdminCreateArtistRequest{}
+	req.Body.Name = "Test Artist"
+
+	_, err := h.AdminCreateArtistHandler(ctx, req)
+	assertHumaError(t, err, 403)
+}
+
+func TestAdminCreateArtist_EmptyName(t *testing.T) {
+	h := testArtistHandler()
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &AdminCreateArtistRequest{}
+	req.Body.Name = "   "
+
+	_, err := h.AdminCreateArtistHandler(ctx, req)
+	assertHumaError(t, err, 400)
+}
+
+func TestAdminCreateArtist_Success(t *testing.T) {
+	mock := &mockArtistService{
+		createArtistFn: func(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
+			if req.Name != "New Artist" {
+				t.Errorf("expected name='New Artist', got %q", req.Name)
+			}
+			return &services.ArtistDetailResponse{ID: 42, Name: "New Artist", Slug: "new-artist"}, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &AdminCreateArtistRequest{}
+	req.Body.Name = "New Artist"
+
+	resp, err := h.AdminCreateArtistHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.ID != 42 {
+		t.Errorf("expected ID=42, got %d", resp.Body.ID)
+	}
+	if resp.Body.Name != "New Artist" {
+		t.Errorf("expected name='New Artist', got %q", resp.Body.Name)
+	}
+	if resp.Body.Slug != "new-artist" {
+		t.Errorf("expected slug='new-artist', got %q", resp.Body.Slug)
+	}
+}
+
+func TestAdminCreateArtist_WithSocials(t *testing.T) {
+	mock := &mockArtistService{
+		createArtistFn: func(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
+			if req.Name != "Social Artist" {
+				t.Errorf("expected name='Social Artist', got %q", req.Name)
+			}
+			if req.City == nil || *req.City != "Phoenix" {
+				t.Errorf("expected city='Phoenix', got %v", req.City)
+			}
+			if req.State == nil || *req.State != "AZ" {
+				t.Errorf("expected state='AZ', got %v", req.State)
+			}
+			if req.Instagram == nil || *req.Instagram != "@artist" {
+				t.Errorf("expected instagram='@artist', got %v", req.Instagram)
+			}
+			if req.Website == nil || *req.Website != "https://example.com" {
+				t.Errorf("expected website='https://example.com', got %v", req.Website)
+			}
+			return &services.ArtistDetailResponse{ID: 43, Name: "Social Artist"}, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &AdminCreateArtistRequest{}
+	req.Body.Name = "Social Artist"
+	city := "Phoenix"
+	state := "AZ"
+	instagram := "@artist"
+	website := "https://example.com"
+	req.Body.City = &city
+	req.Body.State = &state
+	req.Body.Instagram = &instagram
+	req.Body.Website = &website
+
+	resp, err := h.AdminCreateArtistHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.ID != 43 {
+		t.Errorf("expected ID=43, got %d", resp.Body.ID)
+	}
+}
+
+func TestAdminCreateArtist_Conflict(t *testing.T) {
+	mock := &mockArtistService{
+		createArtistFn: func(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
+			return nil, fmt.Errorf("artist with name 'Existing' already exists")
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &AdminCreateArtistRequest{}
+	req.Body.Name = "Existing"
+
+	_, err := h.AdminCreateArtistHandler(ctx, req)
+	assertHumaError(t, err, 409)
+}
+
+func TestAdminCreateArtist_ServiceError(t *testing.T) {
+	mock := &mockArtistService{
+		createArtistFn: func(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &AdminCreateArtistRequest{}
+	req.Body.Name = "Test"
+
+	_, err := h.AdminCreateArtistHandler(ctx, req)
+	assertHumaError(t, err, 500)
+}
+
+func TestAdminCreateArtist_AuditLogCalled(t *testing.T) {
+	var auditCalled bool
+	artistMock := &mockArtistService{
+		createArtistFn: func(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
+			return &services.ArtistDetailResponse{ID: 42, Name: req.Name}, nil
+		},
+	}
+	auditMock := &mockAuditLogService{
+		logActionFn: func(actorID uint, action string, entityType string, entityID uint, metadata map[string]interface{}) {
+			auditCalled = true
+			if actorID != 1 {
+				t.Errorf("expected actorID=1, got %d", actorID)
+			}
+			if action != "create_artist" {
+				t.Errorf("expected action='create_artist', got %q", action)
+			}
+			if entityType != "artist" {
+				t.Errorf("expected entityType='artist', got %q", entityType)
+			}
+			if entityID != 42 {
+				t.Errorf("expected entityID=42, got %d", entityID)
+			}
+			if name, ok := metadata["name"]; !ok || name != "Audit Test Artist" {
+				t.Errorf("expected metadata name='Audit Test Artist', got %v", name)
+			}
+		},
+	}
+	h := NewArtistHandler(artistMock, auditMock)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &AdminCreateArtistRequest{}
+	req.Body.Name = "Audit Test Artist"
+
+	_, err := h.AdminCreateArtistHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !auditCalled {
+		t.Error("expected audit log to be called")
+	}
+}
+
+func TestAdminCreateArtist_NameTrimmed(t *testing.T) {
+	mock := &mockArtistService{
+		createArtistFn: func(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
+			if req.Name != "Trimmed Name" {
+				t.Errorf("expected trimmed name='Trimmed Name', got %q", req.Name)
+			}
+			return &services.ArtistDetailResponse{ID: 44, Name: "Trimmed Name"}, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &AdminCreateArtistRequest{}
+	req.Body.Name = "  Trimmed Name  "
+
+	resp, err := h.AdminCreateArtistHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Name != "Trimmed Name" {
+		t.Errorf("expected name='Trimmed Name', got %q", resp.Body.Name)
+	}
+}
