@@ -178,10 +178,10 @@ export function ReleaseList() {
           <div
             className={
               density === 'compact'
-                ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2'
+                ? 'flex flex-col gap-px'
                 : density === 'expanded'
-                  ? 'grid grid-cols-1 sm:grid-cols-2 gap-4'
-                  : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3'
+                  ? 'grid grid-cols-1 gap-5'
+                  : '@container grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
             }
           >
             {releases.map(release => (
