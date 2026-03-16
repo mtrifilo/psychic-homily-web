@@ -1,10 +1,14 @@
 'use client'
 
+import { useEffect } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { ArrowLeft, Hash, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Breadcrumb } from '@/components/shared'
+import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbContext'
 import { useTag } from '../hooks'
 import { getCategoryColor, getCategoryLabel } from '../types'
 
@@ -14,6 +18,15 @@ interface TagDetailProps {
 
 export function TagDetail({ slug }: TagDetailProps) {
   const { data: tag, isLoading, error } = useTag(slug)
+  const pathname = usePathname()
+  const { pushBreadcrumb } = useNavigationBreadcrumbs()
+
+  // Push breadcrumb when tag data is loaded
+  useEffect(() => {
+    if (tag) {
+      pushBreadcrumb(tag.name, pathname)
+    }
+  }, [tag, pathname, pushBreadcrumb])
 
   if (isLoading) {
     return (
@@ -72,16 +85,11 @@ export function TagDetail({ slug }: TagDetailProps) {
 
   return (
     <div className="container max-w-4xl mx-auto px-4 py-6">
-      {/* Back link */}
-      <div className="mb-6">
-        <Link
-          href="/tags"
-          className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4 mr-1" />
-          Back to Tags
-        </Link>
-      </div>
+      {/* Breadcrumb Navigation */}
+      <Breadcrumb
+        fallback={{ href: '/tags', label: 'Tags' }}
+        currentPage={tag.name}
+      />
 
       {/* Header */}
       <header className="mb-8">

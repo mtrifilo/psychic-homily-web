@@ -94,6 +94,19 @@ vi.mock('@/components/forms/ArtistEditForm', () => ({
   }) => (open ? <div data-testid="edit-form">Edit Form</div> : null),
 }))
 
+// Mock NavigationBreadcrumbContext
+vi.mock('@/lib/context/NavigationBreadcrumbContext', () => ({
+  useNavigationBreadcrumbs: () => ({
+    breadcrumbs: [],
+    pushBreadcrumb: vi.fn(),
+  }),
+}))
+
+// Mock next/navigation
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/artists/test-artist',
+}))
+
 vi.mock('@/components/shared', () => ({
   SocialLinks: () => <div data-testid="social-links">Social Links</div>,
   MusicEmbed: () => <div data-testid="music-embed">Music Embed</div>,
@@ -104,7 +117,8 @@ vi.mock('@/components/shared', () => ({
     tabs,
     activeTab,
     onTabChange,
-    backLink,
+    fallback,
+    entityName,
   }: {
     children: React.ReactNode
     sidebar: React.ReactNode
@@ -112,10 +126,12 @@ vi.mock('@/components/shared', () => ({
     tabs: { value: string; label: string }[]
     activeTab: string
     onTabChange: (tab: string) => void
-    backLink: { href: string; label: string }
+    fallback: { href: string; label: string }
+    entityName: string
   }) => (
     <div data-testid="entity-layout">
-      <a href={backLink.href}>{backLink.label}</a>
+      <a href={fallback.href}>{fallback.label}</a>
+      <span data-testid="entity-name">{entityName}</span>
       <div data-testid="header-slot">{header}</div>
       <div data-testid="tabs">
         {tabs.map(tab => (
@@ -274,13 +290,15 @@ describe('ArtistDetail', () => {
 
     it('renders artist name in header', () => {
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
-      expect(screen.getByText('Test Artist')).toBeInTheDocument()
+      const headerSlot = screen.getByTestId('header-slot')
+      expect(headerSlot).toHaveTextContent('Test Artist')
     })
 
-    it('renders entity layout with back link', () => {
+    it('renders entity layout with breadcrumb fallback', () => {
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
       expect(screen.getByTestId('entity-layout')).toBeInTheDocument()
-      expect(screen.getByText('Back to Artists')).toBeInTheDocument()
+      expect(screen.getByText('Artists')).toBeInTheDocument()
+      expect(screen.getByTestId('entity-name')).toHaveTextContent('Test Artist')
     })
 
     it('renders tabs for overview, discography, and labels', () => {

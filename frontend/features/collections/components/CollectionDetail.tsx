@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import {
   Loader2,
@@ -34,8 +34,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Breadcrumb } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useRouter } from 'next/navigation'
+import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbContext'
+import { useRouter, usePathname } from 'next/navigation'
 
 interface CollectionDetailProps {
   slug: string
@@ -52,13 +54,22 @@ const ENTITY_ICONS: Record<string, React.ElementType> = {
 
 export function CollectionDetail({ slug }: CollectionDetailProps) {
   const router = useRouter()
+  const pathname = usePathname()
   const { user, isAuthenticated } = useAuthContext()
+  const { pushBreadcrumb } = useNavigationBreadcrumbs()
   const { data: collection, isLoading, error } = useCollection(slug)
   const subscribeMutation = useSubscribeCollection()
   const unsubscribeMutation = useUnsubscribeCollection()
   const deleteMutation = useDeleteCollection()
 
   const [isEditing, setIsEditing] = useState(false)
+
+  // Push breadcrumb when collection data is loaded
+  useEffect(() => {
+    if (collection) {
+      pushBreadcrumb(collection.title, pathname)
+    }
+  }, [collection, pathname, pushBreadcrumb])
 
   if (isLoading) {
     return (
@@ -134,15 +145,11 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 
   return (
     <div className="container max-w-6xl mx-auto px-4 py-6">
-      {/* Back link */}
-      <div className="mb-6">
-        <Link
-          href="/collections"
-          className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          &larr; Back to Collections
-        </Link>
-      </div>
+      {/* Breadcrumb Navigation */}
+      <Breadcrumb
+        fallback={{ href: '/collections', label: 'Collections' }}
+        currentPage={collection.title}
+      />
 
       {/* Header */}
       <header className="mb-8">

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import {
   Loader2,
@@ -11,7 +11,9 @@ import {
   Users,
 } from 'lucide-react'
 import { useRelease } from '../hooks/useReleases'
+import { usePathname } from 'next/navigation'
 import { EntityDetailLayout, EntityHeader } from '@/components/shared'
+import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbContext'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -51,6 +53,15 @@ interface ReleaseDetailProps {
 export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
   const { data: release, isLoading, error } = useRelease({ idOrSlug })
   const [activeTab, setActiveTab] = useState('overview')
+  const pathname = usePathname()
+  const { pushBreadcrumb } = useNavigationBreadcrumbs()
+
+  // Push breadcrumb when release data is loaded
+  useEffect(() => {
+    if (release) {
+      pushBreadcrumb(release.title, pathname)
+    }
+  }, [release, pathname, pushBreadcrumb])
 
   if (isLoading) {
     return (
@@ -178,7 +189,8 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
 
   return (
     <EntityDetailLayout
-      backLink={{ href: '/releases', label: 'Back to Releases' }}
+      fallback={{ href: '/releases', label: 'Releases' }}
+      entityName={release.title}
       header={
         <EntityHeader
           title={release.title}

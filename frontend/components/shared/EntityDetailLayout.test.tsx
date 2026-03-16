@@ -10,8 +10,17 @@ vi.mock('next/link', () => ({
   ),
 }))
 
+// Mock NavigationBreadcrumbContext
+vi.mock('@/lib/context/NavigationBreadcrumbContext', () => ({
+  useNavigationBreadcrumbs: () => ({
+    breadcrumbs: [],
+    pushBreadcrumb: vi.fn(),
+  }),
+}))
+
 const defaultProps = {
-  backLink: { href: '/releases', label: 'Back to Releases' },
+  fallback: { href: '/releases', label: 'Releases' },
+  entityName: 'Album Name',
   header: <div data-testid="test-header">Album Name</div>,
   tabs: [
     { value: 'overview', label: 'Overview' },
@@ -23,17 +32,24 @@ const defaultProps = {
 }
 
 describe('EntityDetailLayout', () => {
-  it('renders back link with correct href and label', () => {
+  it('renders breadcrumb with fallback link and entity name', () => {
     render(<EntityDetailLayout {...defaultProps} />)
-    const link = screen.getByRole('link', { name: /Back to Releases/ })
+    const link = screen.getByRole('link', { name: /Releases/ })
     expect(link).toBeInTheDocument()
     expect(link).toHaveAttribute('href', '/releases')
+    // Entity name appears in both breadcrumb and header
+    const matches = screen.getAllByText('Album Name')
+    expect(matches.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('renders breadcrumb navigation', () => {
+    render(<EntityDetailLayout {...defaultProps} />)
+    expect(screen.getByRole('navigation', { name: /Breadcrumb/ })).toBeInTheDocument()
   })
 
   it('renders header content', () => {
     render(<EntityDetailLayout {...defaultProps} />)
     expect(screen.getByTestId('test-header')).toBeInTheDocument()
-    expect(screen.getByText('Album Name')).toBeInTheDocument()
   })
 
   it('renders tab triggers for each tab', () => {

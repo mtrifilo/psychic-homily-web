@@ -11,6 +11,7 @@ import {
   SidebarLayout,
 } from '@/components/layout'
 import { CookieConsentProvider } from '@/lib/context/CookieConsentContext'
+import { NavigationBreadcrumbProvider } from '@/lib/context/NavigationBreadcrumbContext'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateOrganizationSchema } from '@/lib/seo/jsonld'
 import { Analytics } from '@vercel/analytics/react'
@@ -75,10 +76,12 @@ export default function RootLayout({
           >
             <CookieConsentProvider>
               <PostHogProvider>
-                <SidebarLayout>
-                  <main className="flex-1">{children}</main>
-                  <Footer />
-                </SidebarLayout>
+                <NavigationBreadcrumbProvider>
+                  <SidebarLayout>
+                    <main className="flex-1">{children}</main>
+                    <Footer />
+                  </SidebarLayout>
+                </NavigationBreadcrumbProvider>
                 <CookieConsentBanner />
                 <Analytics />
                 <SpeedInsights />

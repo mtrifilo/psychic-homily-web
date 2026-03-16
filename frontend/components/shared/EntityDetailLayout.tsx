@@ -1,9 +1,9 @@
 'use client'
 
-import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
+import { Breadcrumb } from './Breadcrumb'
+import type { BreadcrumbEntry } from '@/lib/context/NavigationBreadcrumbContext'
 
 export interface EntityDetailTab {
   value: string
@@ -16,8 +16,12 @@ export interface EntityDetailBackLink {
 }
 
 interface EntityDetailLayoutProps {
-  /** Back navigation link */
-  backLink: EntityDetailBackLink
+  /** Fallback breadcrumb entry for direct landings (e.g., { href: '/artists', label: 'Artists' }) */
+  fallback: BreadcrumbEntry
+  /** Name of the current entity (shown as the last breadcrumb) */
+  entityName: string
+  /** @deprecated Use `fallback` and `entityName` instead. Kept for backward compat. */
+  backLink?: EntityDetailBackLink
   /** Header content (typically an EntityHeader) */
   header: React.ReactNode
   /** Tab definitions */
@@ -37,12 +41,13 @@ interface EntityDetailLayoutProps {
 }
 
 /**
- * Reusable entity detail page layout with back link, header, tabs, and optional sidebar.
+ * Reusable entity detail page layout with breadcrumb navigation, header, tabs, and optional sidebar.
  *
  * Usage:
  * ```tsx
  * <EntityDetailLayout
- *   backLink={{ href: '/releases', label: 'Back to Releases' }}
+ *   fallback={{ href: '/releases', label: 'Releases' }}
+ *   entityName="Album Name"
  *   header={<EntityHeader title="Album Name" subtitle="2024" />}
  *   tabs={[{ value: 'overview', label: 'Overview' }, { value: 'links', label: 'Listen/Buy' }]}
  *   activeTab={activeTab}
@@ -55,6 +60,8 @@ interface EntityDetailLayoutProps {
  * ```
  */
 export function EntityDetailLayout({
+  fallback,
+  entityName,
   backLink,
   header,
   tabs,
@@ -64,18 +71,14 @@ export function EntityDetailLayout({
   children,
   className,
 }: EntityDetailLayoutProps) {
+  // Support deprecated backLink prop as fallback
+  const resolvedFallback = fallback ?? (backLink ? { href: backLink.href, label: backLink.label.replace(/^Back to /, '') } : { href: '/', label: 'Home' })
+  const resolvedEntityName = entityName ?? ''
+
   return (
     <div className={cn('container max-w-6xl mx-auto px-4 py-6', className)}>
-      {/* Back Navigation */}
-      <div className="mb-6">
-        <Link
-          href={backLink.href}
-          className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4 mr-1" />
-          {backLink.label}
-        </Link>
-      </div>
+      {/* Breadcrumb Navigation */}
+      <Breadcrumb fallback={resolvedFallback} currentPage={resolvedEntityName} />
 
       {/* Header */}
       <header className="mb-6">{header}</header>
