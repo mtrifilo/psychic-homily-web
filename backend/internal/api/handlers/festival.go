@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
 )
 
@@ -18,13 +19,15 @@ type FestivalHandler struct {
 	festivalService services.FestivalServiceInterface
 	artistService   services.ArtistServiceInterface
 	auditLogService services.AuditLogServiceInterface
+	revisionService services.RevisionServiceInterface
 }
 
-func NewFestivalHandler(festivalService services.FestivalServiceInterface, artistService services.ArtistServiceInterface, auditLogService services.AuditLogServiceInterface) *FestivalHandler {
+func NewFestivalHandler(festivalService services.FestivalServiceInterface, artistService services.ArtistServiceInterface, auditLogService services.AuditLogServiceInterface, revisionService services.RevisionServiceInterface) *FestivalHandler {
 	return &FestivalHandler{
 		festivalService: festivalService,
 		artistService:   artistService,
 		auditLogService: auditLogService,
+		revisionService: revisionService,
 	}
 }
 
@@ -271,6 +274,7 @@ type UpdateFestivalRequest struct {
 		TicketURL    *string `json:"ticket_url,omitempty" required:"false" doc:"Ticket URL"`
 		FlyerURL     *string `json:"flyer_url,omitempty" required:"false" doc:"Flyer URL"`
 		Status       *string `json:"status,omitempty" required:"false" doc:"Status"`
+		Summary      *string `json:"summary,omitempty" required:"false" doc:"Revision summary describing the change"`
 	}
 }
 
@@ -292,6 +296,12 @@ func (h *FestivalHandler) UpdateFestivalHandler(ctx context.Context, req *Update
 	festivalID, err := h.resolveFestivalID(req.FestivalID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Capture old values for revision diff (fire-and-forget safe)
+	var oldFestival *services.FestivalDetailResponse
+	if h.revisionService != nil {
+		oldFestival, _ = h.festivalService.GetFestival(festivalID)
 	}
 
 	serviceReq := &services.UpdateFestivalRequest{
@@ -331,6 +341,25 @@ func (h *FestivalHandler) UpdateFestivalHandler(ctx context.Context, req *Update
 	if h.auditLogService != nil {
 		go func() {
 			h.auditLogService.LogAction(user.ID, "edit_festival", "festival", festivalID, nil)
+		}()
+	}
+
+	// Record revision (fire and forget)
+	if h.revisionService != nil && oldFestival != nil {
+		go func() {
+			changes := computeFestivalChanges(oldFestival, festival)
+			if len(changes) > 0 {
+				summary := ""
+				if req.Body.Summary != nil {
+					summary = *req.Body.Summary
+				}
+				if err := h.revisionService.RecordRevision("festival", festivalID, user.ID, changes, summary); err != nil {
+					logger.Default().Error("record_festival_revision_failed",
+						"festival_id", festivalID,
+						"error", err.Error(),
+					)
+				}
+			}
 		}()
 	}
 
@@ -880,4 +909,54 @@ func (h *FestivalHandler) resolveFestivalID(idOrSlug string) (uint, error) {
 	}
 
 	return festival.ID, nil
+}
+
+// computeFestivalChanges compares old and new festival detail responses and returns field-level diffs.
+func computeFestivalChanges(old, new *services.FestivalDetailResponse) []models.FieldChange {
+	var changes []models.FieldChange
+
+	if old.Name != new.Name {
+		changes = append(changes, models.FieldChange{Field: "name", OldValue: old.Name, NewValue: new.Name})
+	}
+	if old.SeriesSlug != new.SeriesSlug {
+		changes = append(changes, models.FieldChange{Field: "series_slug", OldValue: old.SeriesSlug, NewValue: new.SeriesSlug})
+	}
+	if old.EditionYear != new.EditionYear {
+		changes = append(changes, models.FieldChange{Field: "edition_year", OldValue: old.EditionYear, NewValue: new.EditionYear})
+	}
+	if ptrToStr(old.Description) != ptrToStr(new.Description) {
+		changes = append(changes, models.FieldChange{Field: "description", OldValue: ptrToStr(old.Description), NewValue: ptrToStr(new.Description)})
+	}
+	if ptrToStr(old.LocationName) != ptrToStr(new.LocationName) {
+		changes = append(changes, models.FieldChange{Field: "location_name", OldValue: ptrToStr(old.LocationName), NewValue: ptrToStr(new.LocationName)})
+	}
+	if ptrToStr(old.City) != ptrToStr(new.City) {
+		changes = append(changes, models.FieldChange{Field: "city", OldValue: ptrToStr(old.City), NewValue: ptrToStr(new.City)})
+	}
+	if ptrToStr(old.State) != ptrToStr(new.State) {
+		changes = append(changes, models.FieldChange{Field: "state", OldValue: ptrToStr(old.State), NewValue: ptrToStr(new.State)})
+	}
+	if ptrToStr(old.Country) != ptrToStr(new.Country) {
+		changes = append(changes, models.FieldChange{Field: "country", OldValue: ptrToStr(old.Country), NewValue: ptrToStr(new.Country)})
+	}
+	if old.StartDate != new.StartDate {
+		changes = append(changes, models.FieldChange{Field: "start_date", OldValue: old.StartDate, NewValue: new.StartDate})
+	}
+	if old.EndDate != new.EndDate {
+		changes = append(changes, models.FieldChange{Field: "end_date", OldValue: old.EndDate, NewValue: new.EndDate})
+	}
+	if ptrToStr(old.Website) != ptrToStr(new.Website) {
+		changes = append(changes, models.FieldChange{Field: "website", OldValue: ptrToStr(old.Website), NewValue: ptrToStr(new.Website)})
+	}
+	if ptrToStr(old.TicketURL) != ptrToStr(new.TicketURL) {
+		changes = append(changes, models.FieldChange{Field: "ticket_url", OldValue: ptrToStr(old.TicketURL), NewValue: ptrToStr(new.TicketURL)})
+	}
+	if ptrToStr(old.FlyerURL) != ptrToStr(new.FlyerURL) {
+		changes = append(changes, models.FieldChange{Field: "flyer_url", OldValue: ptrToStr(old.FlyerURL), NewValue: ptrToStr(new.FlyerURL)})
+	}
+	if old.Status != new.Status {
+		changes = append(changes, models.FieldChange{Field: "status", OldValue: old.Status, NewValue: new.Status})
+	}
+
+	return changes
 }
