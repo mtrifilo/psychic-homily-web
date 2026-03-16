@@ -52,6 +52,7 @@ type AnalyticsServiceInterface = contracts.AnalyticsServiceInterface
 type AttendanceServiceInterface = contracts.AttendanceServiceInterface
 type ChartsServiceInterface = contracts.ChartsServiceInterface
 type FollowServiceInterface = contracts.FollowServiceInterface
+type FestivalIntelligenceServiceInterface = contracts.FestivalIntelligenceServiceInterface
 type NotificationFilterServiceInterface = contracts.NotificationFilterServiceInterface
 
 // Compile-time interface satisfaction checks.
@@ -79,5 +80,6 @@ var (
 	_ TagServiceInterface                   = (*catalog.TagService)(nil)
 	_ ArtistRelationshipServiceInterface    = (*catalog.ArtistRelationshipService)(nil)
 	_ SceneServiceInterface                 = (*catalog.SceneService)(nil)
+	_ FestivalIntelligenceServiceInterface  = (*catalog.FestivalIntelligenceService)(nil)
 	_ ChartsServiceInterface                = (*catalog.ChartsService)(nil)
 )

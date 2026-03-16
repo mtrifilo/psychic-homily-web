@@ -189,6 +189,17 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/festivals/${festivalId}/venues/${venueId}`,
     ARTIST_FESTIVALS: (artistIdOrSlug: string | number) =>
       `${API_BASE_URL}/artists/${artistIdOrSlug}/festivals`,
+    // Festival intelligence endpoints
+    SIMILAR: (festivalId: string | number) =>
+      `${API_BASE_URL}/festivals/${festivalId}/similar`,
+    OVERLAP: (festivalAId: string | number, festivalBId: string | number) =>
+      `${API_BASE_URL}/festivals/${festivalAId}/overlap/${festivalBId}`,
+    BREAKOUTS: (festivalId: string | number) =>
+      `${API_BASE_URL}/festivals/${festivalId}/breakouts`,
+    ARTIST_TRAJECTORY: (artistIdOrSlug: string | number) =>
+      `${API_BASE_URL}/artists/${artistIdOrSlug}/festival-trajectory`,
+    SERIES_COMPARE: (seriesSlug: string) =>
+      `${API_BASE_URL}/festivals/series/${seriesSlug}/compare`,
   },
 
   // Calendar feed endpoints
