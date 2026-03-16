@@ -5,6 +5,10 @@ export {
   useFestivalLineup,
   useFestivalVenues,
   useArtistFestivals,
+  useSimilarFestivals,
+  useFestivalBreakouts,
+  useArtistFestivalTrajectory,
+  useSeriesComparison,
 } from './useFestivals'
 
 export {

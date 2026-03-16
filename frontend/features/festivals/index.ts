@@ -16,6 +16,22 @@ export type {
   ArtistFestivalListItem,
   ArtistFestival,
   ArtistFestivalsResponse,
+  // Intelligence types
+  FestivalSummary,
+  ArtistSummary,
+  SharedArtist,
+  SimilarFestival,
+  SimilarFestivalsResponse,
+  FestivalOverlap,
+  TrajectoryEntry,
+  ArtistBreakout,
+  ArtistMilestone,
+  FestivalBreakouts,
+  ArtistTrajectory,
+  SeriesEdition,
+  ReturningArtist,
+  SeriesNewcomer,
+  SeriesComparison,
 } from './types'
 
 export {
@@ -30,6 +46,8 @@ export {
   formatFestivalLocation,
   formatFestivalDateRange,
   formatFestivalDates,
+  getTierBarWidth,
+  getMilestoneLabel,
 } from './types'
 
 // Hooks
@@ -40,6 +58,10 @@ export {
   useFestivalLineup,
   useFestivalVenues,
   useArtistFestivals,
+  useSimilarFestivals,
+  useFestivalBreakouts,
+  useArtistFestivalTrajectory,
+  useSeriesComparison,
 } from './hooks'
 
 // Components

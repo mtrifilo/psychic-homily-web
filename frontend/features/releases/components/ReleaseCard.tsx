@@ -2,7 +2,6 @@
 
 import Link from 'next/link'
 import { Disc3 } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { getReleaseTypeLabel } from '../types'
 import type { ReleaseListItem } from '../types'
@@ -18,25 +17,94 @@ export function ReleaseCard({
   release,
   density = 'comfortable',
 }: ReleaseCardProps) {
+  const releaseUrl = `/releases/${release.slug}`
+  const typeLabel = getReleaseTypeLabel(release.release_type)
+
+  if (density === 'compact') {
+    return (
+      <article className="flex items-center gap-3 px-3 py-1.5 hover:bg-muted/50 rounded-md transition-colors">
+        {release.cover_art_url ? (
+          <img
+            src={release.cover_art_url}
+            alt={`${release.title} cover art`}
+            className="h-6 w-6 rounded object-cover shrink-0"
+          />
+        ) : (
+          <Disc3 className="h-4 w-4 text-muted-foreground shrink-0" />
+        )}
+        <Link
+          href={releaseUrl}
+          className="font-medium text-sm truncate flex-1 hover:text-primary transition-colors"
+        >
+          {release.title}
+        </Link>
+        <Badge variant="secondary" className="text-[10px] shrink-0">
+          {typeLabel}
+        </Badge>
+        {release.release_year && (
+          <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+            {release.release_year}
+          </span>
+        )}
+      </article>
+    )
+  }
+
+  if (density === 'expanded') {
+    return (
+      <article className="rounded-lg border border-border/50 bg-card p-6 transition-shadow hover:shadow-sm">
+        <div className="flex gap-5">
+          {/* Larger cover art */}
+          <div className="shrink-0 rounded-md bg-muted/50 flex items-center justify-center overflow-hidden h-24 w-24">
+            {release.cover_art_url ? (
+              <img
+                src={release.cover_art_url}
+                alt={`${release.title} cover art`}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <Disc3 className="h-12 w-12 text-muted-foreground/40" />
+            )}
+          </div>
+
+          {/* Text Content */}
+          <div className="flex-1 min-w-0">
+            <Link href={releaseUrl} className="block group">
+              <h3 className="font-bold text-xl text-foreground group-hover:text-primary transition-colors truncate">
+                {release.title}
+              </h3>
+            </Link>
+
+            <div className="flex items-center gap-3 mt-2">
+              <Badge variant="secondary" className="text-xs px-2 py-0.5">
+                {typeLabel}
+              </Badge>
+              {release.release_year && (
+                <span className="text-base font-medium text-muted-foreground tabular-nums">
+                  {release.release_year}
+                </span>
+              )}
+            </div>
+
+            {release.artist_count > 0 && (
+              <div className="mt-2 text-sm text-muted-foreground">
+                {release.artist_count === 1
+                  ? '1 artist'
+                  : `${release.artist_count} artists`}
+              </div>
+            )}
+          </div>
+        </div>
+      </article>
+    )
+  }
+
+  // Comfortable (default) — current card layout with fixed p-4 padding
   return (
-    <article
-      className={cn(
-        'rounded-lg border border-border/50 bg-card transition-shadow hover:shadow-sm',
-        density === 'compact' && 'p-3',
-        density === 'comfortable' && 'p-4',
-        density === 'expanded' && 'p-5'
-      )}
-    >
+    <article className="rounded-lg border border-border/50 bg-card p-4 transition-shadow hover:shadow-sm">
       <div className="flex gap-3">
         {/* Cover Art / Placeholder */}
-        <div
-          className={cn(
-            'shrink-0 rounded-md bg-muted/50 flex items-center justify-center overflow-hidden',
-            density === 'compact' && 'h-12 w-12',
-            density === 'comfortable' && 'h-16 w-16',
-            density === 'expanded' && 'h-20 w-20'
-          )}
-        >
+        <div className="shrink-0 rounded-md bg-muted/50 flex items-center justify-center overflow-hidden h-16 w-16">
           {release.cover_art_url ? (
             <img
               src={release.cover_art_url}
@@ -44,59 +112,30 @@ export function ReleaseCard({
               className="h-full w-full object-cover"
             />
           ) : (
-            <Disc3
-              className={cn(
-                'text-muted-foreground/40',
-                density === 'compact' && 'h-6 w-6',
-                density === 'comfortable' && 'h-8 w-8',
-                density === 'expanded' && 'h-10 w-10'
-              )}
-            />
+            <Disc3 className="h-8 w-8 text-muted-foreground/40" />
           )}
         </div>
 
         {/* Text Content */}
         <div className="flex-1 min-w-0">
-          <Link
-            href={`/releases/${release.slug}`}
-            className="block group"
-          >
-            <h3
-              className={cn(
-                'font-bold text-foreground group-hover:text-primary transition-colors truncate',
-                density === 'compact' && 'text-sm',
-                density === 'comfortable' && 'text-base',
-                density === 'expanded' && 'text-lg'
-              )}
-            >
+          <Link href={releaseUrl} className="block group">
+            <h3 className="font-bold text-base text-foreground group-hover:text-primary transition-colors truncate">
               {release.title}
             </h3>
           </Link>
 
-          <div
-            className={cn(
-              'flex items-center gap-2 flex-wrap',
-              density === 'compact' && 'mt-0.5',
-              density === 'comfortable' && 'mt-1',
-              density === 'expanded' && 'mt-1.5'
-            )}
-          >
+          <div className="flex items-center gap-2 flex-wrap mt-1">
             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-              {getReleaseTypeLabel(release.release_type)}
+              {typeLabel}
             </Badge>
             {release.release_year && (
-              <span
-                className={cn(
-                  'text-muted-foreground',
-                  density === 'compact' ? 'text-xs' : 'text-sm'
-                )}
-              >
+              <span className="text-sm text-muted-foreground">
                 {release.release_year}
               </span>
             )}
           </div>
 
-          {density !== 'compact' && release.artist_count > 0 && (
+          {release.artist_count > 0 && (
             <div className="mt-1 text-sm text-muted-foreground">
               {release.artist_count === 1
                 ? '1 artist'
