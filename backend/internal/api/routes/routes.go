@@ -293,6 +293,7 @@ func setupArtistRoutes(api huma.API, protected *huma.Group, sc *services.Service
 
 	// Protected artist endpoints
 	huma.Delete(protected, "/artists/{artist_id}", artistHandler.DeleteArtistHandler)
+	huma.Post(protected, "/admin/artists", artistHandler.AdminCreateArtistHandler)
 	huma.Patch(protected, "/admin/artists/{artist_id}", artistHandler.AdminUpdateArtistHandler)
 	huma.Post(protected, "/admin/artists/{artist_id}/aliases", artistHandler.AddArtistAliasHandler)
 	huma.Delete(protected, "/admin/artists/{artist_id}/aliases/{alias_id}", artistHandler.DeleteArtistAliasHandler)
