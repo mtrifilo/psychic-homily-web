@@ -413,6 +413,15 @@ export const API_ENDPOINTS = {
     ARTISTS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/artists`,
   },
 
+  // Charts endpoints (public)
+  CHARTS: {
+    OVERVIEW: `${API_BASE_URL}/charts/overview`,
+    TRENDING_SHOWS: `${API_BASE_URL}/charts/trending-shows`,
+    POPULAR_ARTISTS: `${API_BASE_URL}/charts/popular-artists`,
+    ACTIVE_VENUES: `${API_BASE_URL}/charts/active-venues`,
+    HOT_RELEASES: `${API_BASE_URL}/charts/hot-releases`,
+  },
+
   // System endpoints
   HEALTH: `${API_BASE_URL}/health`,
   OPENAPI: `${API_BASE_URL}/openapi.json`,

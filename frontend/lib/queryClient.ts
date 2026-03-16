@@ -338,6 +338,16 @@ export const queryKeys = {
     artists: (slug: string, period?: number) => ['scenes', 'artists', slug, period] as const,
   },
 
+  // Charts queries (public)
+  charts: {
+    all: ['charts'] as const,
+    overview: ['charts', 'overview'] as const,
+    trendingShows: (limit?: number) => ['charts', 'trending-shows', limit] as const,
+    popularArtists: (limit?: number) => ['charts', 'popular-artists', limit] as const,
+    activeVenues: (limit?: number) => ['charts', 'active-venues', limit] as const,
+    hotReleases: (limit?: number) => ['charts', 'hot-releases', limit] as const,
+  },
+
   // Revision history queries
   revisions: {
     all: ['revisions'] as const,
