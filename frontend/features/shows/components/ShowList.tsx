@@ -9,6 +9,7 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { useProfile, useSetFavoriteCities } from '@/features/auth'
 import type { ShowResponse } from '../types'
 import type { CityState } from '@/components/filters'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { DensityToggle } from '@/components/shared'
 import { useDensity } from '@/lib/hooks/common/useDensity'
@@ -217,17 +218,24 @@ export function ShowList() {
           </div>
         ) : (
           <>
-            {allShows.map(show => (
-              <ShowCard
-                key={show.id}
-                show={show}
-                isAdmin={isAdmin}
-                userId={user?.id}
-                isSaved={savedShowIds?.has(show.id)}
-                density={density}
-                attendanceData={batchAttendance?.[String(show.id)]}
-              />
-            ))}
+            <div className={cn(
+              '@container flex flex-col',
+              density === 'compact' && 'gap-0.5',
+              density === 'comfortable' && 'gap-3',
+              density === 'expanded' && 'gap-5'
+            )}>
+              {allShows.map(show => (
+                <ShowCard
+                  key={show.id}
+                  show={show}
+                  isAdmin={isAdmin}
+                  userId={user?.id}
+                  isSaved={savedShowIds?.has(show.id)}
+                  density={density}
+                  attendanceData={batchAttendance?.[String(show.id)]}
+                />
+              ))}
+            </div>
 
             {data?.pagination.has_more && (
               <div className="text-center py-6">
