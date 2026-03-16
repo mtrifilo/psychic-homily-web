@@ -19,7 +19,7 @@ type FestivalHandlerIntegrationSuite struct {
 
 func (s *FestivalHandlerIntegrationSuite) SetupSuite() {
 	s.deps = setupHandlerIntegrationDeps(s.T())
-	s.handler = NewFestivalHandler(s.deps.festivalService, s.deps.artistService, s.deps.auditLogService)
+	s.handler = NewFestivalHandler(s.deps.festivalService, s.deps.artistService, s.deps.auditLogService, nil)
 }
 
 func (s *FestivalHandlerIntegrationSuite) TearDownTest() {

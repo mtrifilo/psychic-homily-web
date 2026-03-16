@@ -13,6 +13,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
 )
 
@@ -29,12 +30,14 @@ func isInternalServiceRequest(ctx huma.Context) bool {
 type ArtistHandler struct {
 	artistService   services.ArtistServiceInterface
 	auditLogService services.AuditLogServiceInterface
+	revisionService services.RevisionServiceInterface
 }
 
-func NewArtistHandler(artistService services.ArtistServiceInterface, auditLogService services.AuditLogServiceInterface) *ArtistHandler {
+func NewArtistHandler(artistService services.ArtistServiceInterface, auditLogService services.AuditLogServiceInterface, revisionService services.RevisionServiceInterface) *ArtistHandler {
 	return &ArtistHandler{
 		artistService:   artistService,
 		auditLogService: auditLogService,
+		revisionService: revisionService,
 	}
 }
 
@@ -726,6 +729,7 @@ type AdminUpdateArtistRequest struct {
 		Soundcloud *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`
 		Bandcamp   *string `json:"bandcamp,omitempty" required:"false" doc:"Bandcamp URL"`
 		Website    *string `json:"website,omitempty" required:"false" doc:"Website URL"`
+		Summary    *string `json:"summary,omitempty" required:"false" doc:"Revision summary describing the change"`
 	}
 }
 
@@ -754,6 +758,12 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 	// Validate name if provided
 	if req.Body.Name != nil && strings.TrimSpace(*req.Body.Name) == "" {
 		return nil, huma.Error400BadRequest("Artist name cannot be empty")
+	}
+
+	// Capture old values for revision diff (fire-and-forget safe)
+	var oldArtist *services.ArtistDetailResponse
+	if h.revisionService != nil {
+		oldArtist, _ = h.artistService.GetArtist(uint(artistID))
 	}
 
 	// Build updates map with only provided fields
@@ -818,6 +828,25 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 		h.auditLogService.LogAction(user.ID, "edit_artist", "artist", uint(artistID), nil)
 	}
 
+	// Record revision (fire and forget)
+	if h.revisionService != nil && oldArtist != nil {
+		go func() {
+			changes := computeArtistChanges(oldArtist, artist)
+			if len(changes) > 0 {
+				summary := ""
+				if req.Body.Summary != nil {
+					summary = *req.Body.Summary
+				}
+				if err := h.revisionService.RecordRevision("artist", uint(artistID), user.ID, changes, summary); err != nil {
+					logger.Default().Error("record_artist_revision_failed",
+						"artist_id", artistID,
+						"error", err.Error(),
+					)
+				}
+			}
+		}()
+	}
+
 	logger.FromContext(ctx).Info("admin_update_artist_success",
 		"artist_id", artistID,
 		"admin_id", user.ID,
@@ -825,6 +854,55 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 	)
 
 	return &AdminUpdateArtistResponse{Body: artist}, nil
+}
+
+// computeArtistChanges compares old and new artist detail responses and returns field-level diffs.
+func computeArtistChanges(old, new *services.ArtistDetailResponse) []models.FieldChange {
+	var changes []models.FieldChange
+
+	if old.Name != new.Name {
+		changes = append(changes, models.FieldChange{Field: "name", OldValue: old.Name, NewValue: new.Name})
+	}
+	if ptrToStr(old.City) != ptrToStr(new.City) {
+		changes = append(changes, models.FieldChange{Field: "city", OldValue: ptrToStr(old.City), NewValue: ptrToStr(new.City)})
+	}
+	if ptrToStr(old.State) != ptrToStr(new.State) {
+		changes = append(changes, models.FieldChange{Field: "state", OldValue: ptrToStr(old.State), NewValue: ptrToStr(new.State)})
+	}
+	if ptrToStr(old.Social.Instagram) != ptrToStr(new.Social.Instagram) {
+		changes = append(changes, models.FieldChange{Field: "instagram", OldValue: ptrToStr(old.Social.Instagram), NewValue: ptrToStr(new.Social.Instagram)})
+	}
+	if ptrToStr(old.Social.Facebook) != ptrToStr(new.Social.Facebook) {
+		changes = append(changes, models.FieldChange{Field: "facebook", OldValue: ptrToStr(old.Social.Facebook), NewValue: ptrToStr(new.Social.Facebook)})
+	}
+	if ptrToStr(old.Social.Twitter) != ptrToStr(new.Social.Twitter) {
+		changes = append(changes, models.FieldChange{Field: "twitter", OldValue: ptrToStr(old.Social.Twitter), NewValue: ptrToStr(new.Social.Twitter)})
+	}
+	if ptrToStr(old.Social.YouTube) != ptrToStr(new.Social.YouTube) {
+		changes = append(changes, models.FieldChange{Field: "youtube", OldValue: ptrToStr(old.Social.YouTube), NewValue: ptrToStr(new.Social.YouTube)})
+	}
+	if ptrToStr(old.Social.Spotify) != ptrToStr(new.Social.Spotify) {
+		changes = append(changes, models.FieldChange{Field: "spotify", OldValue: ptrToStr(old.Social.Spotify), NewValue: ptrToStr(new.Social.Spotify)})
+	}
+	if ptrToStr(old.Social.SoundCloud) != ptrToStr(new.Social.SoundCloud) {
+		changes = append(changes, models.FieldChange{Field: "soundcloud", OldValue: ptrToStr(old.Social.SoundCloud), NewValue: ptrToStr(new.Social.SoundCloud)})
+	}
+	if ptrToStr(old.Social.Bandcamp) != ptrToStr(new.Social.Bandcamp) {
+		changes = append(changes, models.FieldChange{Field: "bandcamp", OldValue: ptrToStr(old.Social.Bandcamp), NewValue: ptrToStr(new.Social.Bandcamp)})
+	}
+	if ptrToStr(old.Social.Website) != ptrToStr(new.Social.Website) {
+		changes = append(changes, models.FieldChange{Field: "website", OldValue: ptrToStr(old.Social.Website), NewValue: ptrToStr(new.Social.Website)})
+	}
+
+	return changes
+}
+
+// ptrToStr safely dereferences a *string, returning "" if nil.
+func ptrToStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // nilIfEmpty returns nil if the string is empty, otherwise returns a pointer to the string

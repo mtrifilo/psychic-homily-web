@@ -6,6 +6,8 @@ import * as display from "./lib/display";
 import { runInit } from "./commands/init";
 import { runConfigShow, runConfigSet } from "./commands/config";
 import { runSearch } from "./commands/search";
+import { runSubmitArtist } from "./commands/submit-artist";
+import { runSubmitVenue } from "./commands/submit-venue";
 import { submitReleases } from "./commands/submit-release";
 
 const program = new Command();
@@ -62,43 +64,39 @@ program
     await runSearch(entityType, query, env);
   });
 
-// ─── ph submit ───────────────────────────────────────────────────────────────
+// ─── ph submit ────────────────────────────────────────────────────────────────
+
+const SUBMIT_TYPES = ["artist", "venue", "show", "release", "label", "festival"];
 
 program
   .command("submit <entity-type> [json]")
   .description("Submit entities for creation/update (artist, venue, show, release, label, festival)")
   .option("--confirm", "Actually submit (default is dry-run)")
   .action(async (entityType: string, json: string | undefined, opts: { confirm?: boolean }) => {
-    // Check for unimplemented entity types before doing anything else
-    const implemented = ["release"];
-    if (!implemented.includes(entityType)) {
-      display.warn(
-        `"ph submit ${entityType}" is not yet implemented.`,
+    if (!SUBMIT_TYPES.includes(entityType)) {
+      display.error(
+        `Invalid entity type "${entityType}". Must be one of: ${SUBMIT_TYPES.join(", ")}`,
       );
       process.exit(1);
     }
 
     const env = await resolveEnvOrExit(program.opts().env);
 
-    // Read from stdin if no json argument provided
-    let input = json;
-    if (!input) {
-      const chunks: Buffer[] = [];
-      for await (const chunk of process.stdin) {
-        chunks.push(chunk as Buffer);
-      }
-      input = Buffer.concat(chunks).toString("utf-8").trim();
-    }
-
-    if (!input) {
-      display.error("No JSON input provided. Pass as argument or pipe via stdin.");
-      process.exit(1);
-    }
-
     switch (entityType) {
-      case "release":
-        await submitReleases(input, env, !!opts.confirm);
+      case "artist":
+        await runSubmitArtist(json, env, { confirm: opts.confirm });
         break;
+      case "venue":
+        await runSubmitVenue(json, opts, env);
+        break;
+      case "release":
+        await submitReleases(json ?? "", env, !!opts.confirm);
+        break;
+      default:
+        display.warn(
+          `"ph submit ${entityType}" is not yet implemented. Coming in PSY-146 through PSY-147.`,
+        );
+        process.exit(1);
     }
   });
 
