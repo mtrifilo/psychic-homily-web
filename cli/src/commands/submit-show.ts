@@ -2,8 +2,18 @@ import { APIClient } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
 import { validateShow } from "../lib/schemas";
 import { searchArtistsByName, searchVenuesByName } from "../lib/duplicates";
+import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
+import type { TagInput, ResolvedTag } from "../lib/tags";
 import * as display from "../lib/display";
 import { green, yellow, dim, gray } from "../lib/ansi";
+
+/** Normalize a date string to ISO 8601. Adds T20:00:00Z if only YYYY-MM-DD. */
+function normalizeDate(date: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return `${date}T20:00:00Z`;
+  }
+  return date;
+}
 
 // -- Types -------------------------------------------------------------------
 
@@ -29,6 +39,7 @@ interface ShowInput {
   description?: string;
   artists: ShowArtistInput[];
   venues: ShowVenueInput[];
+  tags?: TagInput[];
 }
 
 interface ResolvedArtist {
@@ -162,7 +173,7 @@ export async function resolveVenues(
 /** Build the API request body for creating a show. */
 export function buildShowPayload(plan: ShowPlan): Record<string, unknown> {
   const payload: Record<string, unknown> = {
-    event_date: plan.input.event_date,
+    event_date: normalizeDate(plan.input.event_date),
     city: plan.input.city,
     state: plan.input.state,
     artists: plan.artists.map((a) => {
@@ -231,8 +242,20 @@ export async function submitShows(
     });
   }
 
+  // 2b. Resolve tags for all shows
+  const tagResolver = new TagResolver(client);
+  const resolvedTags: ResolvedTag[][] = [];
+  for (const plan of plans) {
+    const tags = TagResolver.parseTags(plan.input.tags as TagInput[] | undefined);
+    if (tags.length > 0 && plan.valid) {
+      resolvedTags.push(await tagResolver.resolveAll(tags));
+    } else {
+      resolvedTags.push([]);
+    }
+  }
+
   // 3. Display preview
-  displayPreview(plans);
+  displayPreview(plans, resolvedTags);
 
   // 4. Summary
   const validPlans = plans.filter((p) => p.valid);
@@ -263,6 +286,14 @@ export async function submitShows(
       created++;
       const label = plan.input.title || `${plan.input.event_date} show`;
       display.success(`Created: ${label} (ID: ${result.id})`);
+      // Apply tags if any
+      const parsedTags = TagResolver.parseTags(plan.input.tags as TagInput[] | undefined);
+      if (result.id && parsedTags.length > 0) {
+        const tagResult = await tagResolver.applyToEntity("show", result.id, parsedTags);
+        if (tagResult.applied > 0) {
+          display.info(`  Applied ${tagResult.applied} tag(s)`);
+        }
+      }
     } catch (err) {
       failed++;
       const label = plan.input.title || `${plan.input.event_date} show`;
@@ -278,7 +309,7 @@ export async function submitShows(
 
 // -- Display helpers ---------------------------------------------------------
 
-function displayPreview(plans: ShowPlan[]): void {
+function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void {
   for (let i = 0; i < plans.length; i++) {
     const plan = plans[i];
     const idx = plans.length > 1 ? ` [${i + 1}/${plans.length}]` : "";
@@ -320,6 +351,15 @@ function displayPreview(plans: ShowPlan[]): void {
         ? green(`EXISTING (ID: ${venue.id})`)
         : yellow("NEW");
       process.stderr.write(`    ${venue.name} ${tag}\n`);
+    }
+
+    // Tags
+    if (resolvedTags && resolvedTags[i].length > 0) {
+      display.kv("tags", formatTagsPreview(resolvedTags[i]));
+      for (const tag of resolvedTags[i]) {
+        const warning = formatFuzzyWarning(tag);
+        if (warning) display.warn(warning);
+      }
     }
   }
 }

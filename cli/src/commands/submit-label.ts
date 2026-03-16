@@ -2,6 +2,8 @@ import { APIClient } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
 import { validateLabel } from "../lib/schemas";
 import { checkDuplicate, type DuplicateCheckResult } from "../lib/duplicates";
+import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
+import type { TagInput, ResolvedTag } from "../lib/tags";
 import * as display from "../lib/display";
 
 interface LabelInput {
@@ -120,12 +122,25 @@ export async function submitLabels(
     plans.push({ label, dupResult, index });
   }
 
+  // Phase 2b: Resolve tags for all labels
+  const tagResolver = new TagResolver(client);
+  const resolvedTags: ResolvedTag[][] = [];
+  for (const { label } of plans) {
+    const tags = TagResolver.parseTags(label.tags as TagInput[] | undefined);
+    if (tags.length > 0) {
+      resolvedTags.push(await tagResolver.resolveAll(tags));
+    } else {
+      resolvedTags.push([]);
+    }
+  }
+
   // Phase 3: Display preview
   let creates = 0;
   let updates = 0;
   let skips = 0;
 
-  for (const { label, dupResult } of plans) {
+  for (let planIdx = 0; planIdx < plans.length; planIdx++) {
+    const { label, dupResult } = plans[planIdx];
     switch (dupResult.action) {
       case "create": {
         display.header(`CREATE: ${label.name}`);
@@ -158,6 +173,15 @@ export async function submitLabels(
         break;
       }
     }
+
+    // Show tags if any
+    if (resolvedTags[planIdx].length > 0) {
+      display.kv("tags", formatTagsPreview(resolvedTags[planIdx]));
+      for (const tag of resolvedTags[planIdx]) {
+        const warning = formatFuzzyWarning(tag);
+        if (warning) display.warn(warning);
+      }
+    }
   }
 
   display.summary(creates, updates, skips);
@@ -171,12 +195,26 @@ export async function submitLabels(
     return result;
   }
 
-  for (const { label, dupResult } of plans) {
+  for (let planIdx = 0; planIdx < plans.length; planIdx++) {
+    const { label, dupResult } = plans[planIdx];
+    const parsedTags = TagResolver.parseTags(label.tags as TagInput[] | undefined);
+
     try {
       switch (dupResult.action) {
         case "create": {
-          await client.post("/labels", label);
+          const response = await client.post<{
+            label?: { id: number };
+            id?: number;
+          }>("/labels", label);
+          const labelId = response.label?.id ?? response.id;
           display.success(`Created: ${label.name}`);
+          // Apply tags if any
+          if (labelId && parsedTags.length > 0) {
+            const tagResult = await tagResolver.applyToEntity("label", labelId, parsedTags);
+            if (tagResult.applied > 0) {
+              display.info(`  Applied ${tagResult.applied} tag(s)`);
+            }
+          }
           result.created++;
           break;
         }
@@ -193,11 +231,25 @@ export async function submitLabels(
               `No new fields to update for ${dupResult.existingName}`,
             );
           }
+          // Apply tags if any
+          if (dupResult.existingId && parsedTags.length > 0) {
+            const tagResult = await tagResolver.applyToEntity("label", dupResult.existingId, parsedTags);
+            if (tagResult.applied > 0) {
+              display.info(`  Applied ${tagResult.applied} tag(s)`);
+            }
+          }
           result.updated++;
           break;
         }
 
         case "skip": {
+          // Still apply tags even on skip
+          if (dupResult.existingId && parsedTags.length > 0) {
+            const tagResult = await tagResolver.applyToEntity("label", dupResult.existingId, parsedTags);
+            if (tagResult.applied > 0) {
+              display.info(`  Applied ${tagResult.applied} tag(s)`);
+            }
+          }
           result.skipped++;
           break;
         }

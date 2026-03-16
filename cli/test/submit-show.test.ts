@@ -207,7 +207,7 @@ describe("buildShowPayload", () => {
     };
 
     const payload = buildShowPayload(plan);
-    expect(payload.event_date).toBe("2026-04-15");
+    expect(payload.event_date).toBe("2026-04-15T20:00:00Z");
     expect(payload.city).toBe("Phoenix");
 
     const artists = payload.artists as Array<Record<string, unknown>>;
