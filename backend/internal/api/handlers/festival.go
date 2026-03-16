@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
 )
 
@@ -18,13 +19,15 @@ type FestivalHandler struct {
 	festivalService services.FestivalServiceInterface
 	artistService   services.ArtistServiceInterface
 	auditLogService services.AuditLogServiceInterface
+	revisionService services.RevisionServiceInterface
 }
 
-func NewFestivalHandler(festivalService services.FestivalServiceInterface, artistService services.ArtistServiceInterface, auditLogService services.AuditLogServiceInterface) *FestivalHandler {
+func NewFestivalHandler(festivalService services.FestivalServiceInterface, artistService services.ArtistServiceInterface, auditLogService services.AuditLogServiceInterface, revisionService services.RevisionServiceInterface) *FestivalHandler {
 	return &FestivalHandler{
 		festivalService: festivalService,
 		artistService:   artistService,
 		auditLogService: auditLogService,
+		revisionService: revisionService,
 	}
 }
 
@@ -240,6 +243,7 @@ type UpdateFestivalRequest struct {
 		TicketURL    *string `json:"ticket_url,omitempty" required:"false" doc:"Ticket URL"`
 		FlyerURL     *string `json:"flyer_url,omitempty" required:"false" doc:"Flyer URL"`
 		Status       *string `json:"status,omitempty" required:"false" doc:"Status"`
+		Summary      *string `json:"summary,omitempty" required:"false" doc:"Edit summary explaining the change"`
 	}
 }
 
@@ -261,6 +265,12 @@ func (h *FestivalHandler) UpdateFestivalHandler(ctx context.Context, req *Update
 	festivalID, err := h.resolveFestivalID(req.FestivalID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Capture old values before update for revision recording
+	var oldFestival *services.FestivalDetailResponse
+	if h.revisionService != nil {
+		oldFestival, _ = h.festivalService.GetFestival(festivalID)
 	}
 
 	serviceReq := &services.UpdateFestivalRequest{
@@ -301,6 +311,22 @@ func (h *FestivalHandler) UpdateFestivalHandler(ctx context.Context, req *Update
 		go func() {
 			h.auditLogService.LogAction(user.ID, "edit_festival", "festival", festivalID, nil)
 		}()
+	}
+
+	// Record revision (fire and forget)
+	if h.revisionService != nil && oldFestival != nil {
+		changes := computeFestivalChanges(oldFestival, festival, req)
+		var summary string
+		if req.Body.Summary != nil {
+			summary = *req.Body.Summary
+		}
+		if err := h.revisionService.RecordRevision("festival", festivalID, user.ID, changes, summary); err != nil {
+			logger.FromContext(ctx).Error("revision_record_failed",
+				"entity_type", "festival",
+				"entity_id", festivalID,
+				"error", err.Error(),
+			)
+		}
 	}
 
 	logger.FromContext(ctx).Info("festival_updated",
@@ -849,4 +875,52 @@ func (h *FestivalHandler) resolveFestivalID(idOrSlug string) (uint, error) {
 	}
 
 	return festival.ID, nil
+}
+
+// computeFestivalChanges computes field-level diffs between old and new festival responses
+// for the fields that were provided in the update request.
+func computeFestivalChanges(old, updated *services.FestivalDetailResponse, req *UpdateFestivalRequest) []models.FieldChange {
+	var changes []models.FieldChange
+	if old == nil || updated == nil {
+		return changes
+	}
+
+	type fieldPair struct {
+		field    string
+		oldVal   interface{}
+		newVal   interface{}
+		provided bool
+	}
+
+	pairs := []fieldPair{
+		{"name", old.Name, updated.Name, req.Body.Name != nil},
+		{"series_slug", old.SeriesSlug, updated.SeriesSlug, req.Body.SeriesSlug != nil},
+		{"edition_year", old.EditionYear, updated.EditionYear, req.Body.EditionYear != nil},
+		{"description", ptrToStr(old.Description), ptrToStr(updated.Description), req.Body.Description != nil},
+		{"location_name", ptrToStr(old.LocationName), ptrToStr(updated.LocationName), req.Body.LocationName != nil},
+		{"city", ptrToStr(old.City), ptrToStr(updated.City), req.Body.City != nil},
+		{"state", ptrToStr(old.State), ptrToStr(updated.State), req.Body.State != nil},
+		{"country", ptrToStr(old.Country), ptrToStr(updated.Country), req.Body.Country != nil},
+		{"start_date", old.StartDate, updated.StartDate, req.Body.StartDate != nil},
+		{"end_date", old.EndDate, updated.EndDate, req.Body.EndDate != nil},
+		{"website", ptrToStr(old.Website), ptrToStr(updated.Website), req.Body.Website != nil},
+		{"ticket_url", ptrToStr(old.TicketURL), ptrToStr(updated.TicketURL), req.Body.TicketURL != nil},
+		{"flyer_url", ptrToStr(old.FlyerURL), ptrToStr(updated.FlyerURL), req.Body.FlyerURL != nil},
+		{"status", old.Status, updated.Status, req.Body.Status != nil},
+	}
+
+	for _, p := range pairs {
+		if !p.provided {
+			continue
+		}
+		if fmt.Sprintf("%v", p.oldVal) != fmt.Sprintf("%v", p.newVal) {
+			changes = append(changes, models.FieldChange{
+				Field:    p.field,
+				OldValue: p.oldVal,
+				NewValue: p.newVal,
+			})
+		}
+	}
+
+	return changes
 }

@@ -13,6 +13,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
 )
 
@@ -29,12 +30,14 @@ func isInternalServiceRequest(ctx huma.Context) bool {
 type ArtistHandler struct {
 	artistService   services.ArtistServiceInterface
 	auditLogService services.AuditLogServiceInterface
+	revisionService services.RevisionServiceInterface
 }
 
-func NewArtistHandler(artistService services.ArtistServiceInterface, auditLogService services.AuditLogServiceInterface) *ArtistHandler {
+func NewArtistHandler(artistService services.ArtistServiceInterface, auditLogService services.AuditLogServiceInterface, revisionService services.RevisionServiceInterface) *ArtistHandler {
 	return &ArtistHandler{
 		artistService:   artistService,
 		auditLogService: auditLogService,
+		revisionService: revisionService,
 	}
 }
 
@@ -641,6 +644,7 @@ type AdminUpdateArtistRequest struct {
 		Soundcloud *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`
 		Bandcamp   *string `json:"bandcamp,omitempty" required:"false" doc:"Bandcamp URL"`
 		Website    *string `json:"website,omitempty" required:"false" doc:"Website URL"`
+		Summary    *string `json:"summary,omitempty" required:"false" doc:"Edit summary explaining the change"`
 	}
 }
 
@@ -712,6 +716,12 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 		return nil, huma.Error400BadRequest("No fields to update")
 	}
 
+	// Capture old values before update for revision recording
+	var oldArtist *services.ArtistDetailResponse
+	if h.revisionService != nil {
+		oldArtist, _ = h.artistService.GetArtist(uint(artistID))
+	}
+
 	artist, err := h.artistService.UpdateArtist(uint(artistID), updates)
 	if err != nil {
 		var artistErr *apperrors.ArtistError
@@ -731,6 +741,22 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		h.auditLogService.LogAction(user.ID, "edit_artist", "artist", uint(artistID), nil)
+	}
+
+	// Record revision (fire and forget)
+	if h.revisionService != nil && oldArtist != nil {
+		changes := computeArtistChanges(oldArtist, artist, updates)
+		var summary string
+		if req.Body.Summary != nil {
+			summary = *req.Body.Summary
+		}
+		if err := h.revisionService.RecordRevision("artist", uint(artistID), user.ID, changes, summary); err != nil {
+			logger.FromContext(ctx).Error("revision_record_failed",
+				"entity_type", "artist",
+				"entity_id", artistID,
+				"error", err.Error(),
+			)
+		}
 	}
 
 	logger.FromContext(ctx).Info("admin_update_artist_success",
@@ -964,4 +990,54 @@ func (h *ArtistHandler) MergeArtistsHandler(ctx context.Context, req *MergeArtis
 	)
 
 	return &MergeArtistsResponse{Body: result}, nil
+}
+
+// computeArtistChanges computes field-level diffs between old and new artist responses
+// for the fields that were requested in the updates map.
+func computeArtistChanges(old, updated *services.ArtistDetailResponse, updates map[string]interface{}) []models.FieldChange {
+	var changes []models.FieldChange
+	if old == nil || updated == nil {
+		return changes
+	}
+
+	// Map of field name → (old value, new value) extractors from the response objects
+	fieldMap := map[string][2]interface{}{
+		"name":       {old.Name, updated.Name},
+		"city":       {ptrToStr(old.City), ptrToStr(updated.City)},
+		"state":      {ptrToStr(old.State), ptrToStr(updated.State)},
+		"instagram":  {ptrToStr(old.Social.Instagram), ptrToStr(updated.Social.Instagram)},
+		"facebook":   {ptrToStr(old.Social.Facebook), ptrToStr(updated.Social.Facebook)},
+		"twitter":    {ptrToStr(old.Social.Twitter), ptrToStr(updated.Social.Twitter)},
+		"youtube":    {ptrToStr(old.Social.YouTube), ptrToStr(updated.Social.YouTube)},
+		"spotify":    {ptrToStr(old.Social.Spotify), ptrToStr(updated.Social.Spotify)},
+		"soundcloud": {ptrToStr(old.Social.SoundCloud), ptrToStr(updated.Social.SoundCloud)},
+		"bandcamp":   {ptrToStr(old.Social.Bandcamp), ptrToStr(updated.Social.Bandcamp)},
+		"website":    {ptrToStr(old.Social.Website), ptrToStr(updated.Social.Website)},
+	}
+
+	for field := range updates {
+		pair, ok := fieldMap[field]
+		if !ok {
+			continue
+		}
+		oldVal := pair[0]
+		newVal := pair[1]
+		if fmt.Sprintf("%v", oldVal) != fmt.Sprintf("%v", newVal) {
+			changes = append(changes, models.FieldChange{
+				Field:    field,
+				OldValue: oldVal,
+				NewValue: newVal,
+			})
+		}
+	}
+
+	return changes
+}
+
+// ptrToStr safely dereferences a *string, returning "" for nil.
+func ptrToStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
