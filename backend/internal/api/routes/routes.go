@@ -279,7 +279,7 @@ func setupShowRoutes(router *chi.Mux, api huma.API, protected *huma.Group, sc *s
 }
 
 func setupArtistRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
-	artistHandler := handlers.NewArtistHandler(sc.Artist, sc.AuditLog)
+	artistHandler := handlers.NewArtistHandler(sc.Artist, sc.AuditLog, sc.Revision)
 
 	// Public artist endpoints - registered on main API without middleware
 	// Note: Static routes must come before parameterized routes
@@ -332,7 +332,7 @@ func setupLabelRoutes(api huma.API, protected *huma.Group, sc *services.ServiceC
 }
 
 func setupFestivalRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
-	festivalHandler := handlers.NewFestivalHandler(sc.Festival, sc.Artist, sc.AuditLog)
+	festivalHandler := handlers.NewFestivalHandler(sc.Festival, sc.Artist, sc.AuditLog, sc.Revision)
 
 	// Public festival endpoints
 	huma.Get(api, "/festivals", festivalHandler.ListFestivalsHandler)
@@ -361,7 +361,7 @@ func setupFestivalRoutes(api huma.API, protected *huma.Group, sc *services.Servi
 }
 
 func setupVenueRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
-	venueHandler := handlers.NewVenueHandler(sc.Venue, sc.Discord, sc.AuditLog)
+	venueHandler := handlers.NewVenueHandler(sc.Venue, sc.Discord, sc.AuditLog, sc.Revision)
 
 	// Public venue endpoints - registered on main API without middleware
 	// Note: Static routes must come before parameterized routes
@@ -482,7 +482,7 @@ func setupAdminRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 		sc.APIToken, sc.DataSync, sc.AuditLog, sc.User, sc.AdminStats,
 		sc.NotificationFilter,
 	)
-	artistHandler := handlers.NewArtistHandler(sc.Artist, sc.AuditLog)
+	artistHandler := handlers.NewArtistHandler(sc.Artist, sc.AuditLog, sc.Revision)
 	auditLogHandler := handlers.NewAuditLogHandler(sc.AuditLog)
 
 	// Admin dashboard stats endpoint

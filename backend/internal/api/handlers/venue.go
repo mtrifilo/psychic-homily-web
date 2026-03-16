@@ -10,6 +10,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -19,13 +20,15 @@ type VenueHandler struct {
 	venueService    services.VenueServiceInterface
 	discordService  services.DiscordServiceInterface
 	auditLogService services.AuditLogServiceInterface
+	revisionService services.RevisionServiceInterface
 }
 
-func NewVenueHandler(venueService services.VenueServiceInterface, discordService services.DiscordServiceInterface, auditLogService services.AuditLogServiceInterface) *VenueHandler {
+func NewVenueHandler(venueService services.VenueServiceInterface, discordService services.DiscordServiceInterface, auditLogService services.AuditLogServiceInterface, revisionService services.RevisionServiceInterface) *VenueHandler {
 	return &VenueHandler{
 		venueService:    venueService,
 		discordService:  discordService,
 		auditLogService: auditLogService,
+		revisionService: revisionService,
 	}
 }
 
@@ -354,6 +357,7 @@ type UpdateVenueRequest struct {
 		SoundCloud *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`
 		Bandcamp   *string `json:"bandcamp,omitempty" required:"false" doc:"Bandcamp URL"`
 		Website    *string `json:"website,omitempty" required:"false" doc:"Website URL"`
+		Summary    *string `json:"summary,omitempty" required:"false" doc:"Revision summary describing the change"`
 	}
 }
 
@@ -434,6 +438,12 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 			"request_id", requestID,
 		)
 
+		// Capture old values for revision diff (fire-and-forget safe)
+		var oldVenue *services.VenueDetailResponse
+		if h.revisionService != nil {
+			oldVenue, _ = h.venueService.GetVenue(uint(venueID))
+		}
+
 		// Build updates map
 		updates := make(map[string]interface{})
 		if editReq.Name != nil {
@@ -486,6 +496,25 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 			return nil, huma.Error422UnprocessableEntity(
 				fmt.Sprintf("Failed to update venue (request_id: %s)", requestID),
 			)
+		}
+
+		// Record revision (fire and forget)
+		if h.revisionService != nil && oldVenue != nil {
+			go func() {
+				changes := computeVenueChanges(oldVenue, updatedVenue)
+				if len(changes) > 0 {
+					summary := ""
+					if req.Body.Summary != nil {
+						summary = *req.Body.Summary
+					}
+					if err := h.revisionService.RecordRevision("venue", uint(venueID), user.ID, changes, summary); err != nil {
+						logger.Default().Error("record_venue_revision_failed",
+							"venue_id", venueID,
+							"error", err.Error(),
+						)
+					}
+				}
+			}()
 		}
 
 		return &UpdateVenueResponse{
@@ -793,4 +822,51 @@ func (h *VenueHandler) DeleteVenueHandler(ctx context.Context, req *DeleteVenueR
 			Message: "Venue deleted successfully",
 		},
 	}, nil
+}
+
+// computeVenueChanges compares old and new venue detail responses and returns field-level diffs.
+func computeVenueChanges(old, new *services.VenueDetailResponse) []models.FieldChange {
+	var changes []models.FieldChange
+
+	if old.Name != new.Name {
+		changes = append(changes, models.FieldChange{Field: "name", OldValue: old.Name, NewValue: new.Name})
+	}
+	if ptrToStr(old.Address) != ptrToStr(new.Address) {
+		changes = append(changes, models.FieldChange{Field: "address", OldValue: ptrToStr(old.Address), NewValue: ptrToStr(new.Address)})
+	}
+	if old.City != new.City {
+		changes = append(changes, models.FieldChange{Field: "city", OldValue: old.City, NewValue: new.City})
+	}
+	if old.State != new.State {
+		changes = append(changes, models.FieldChange{Field: "state", OldValue: old.State, NewValue: new.State})
+	}
+	if ptrToStr(old.Zipcode) != ptrToStr(new.Zipcode) {
+		changes = append(changes, models.FieldChange{Field: "zipcode", OldValue: ptrToStr(old.Zipcode), NewValue: ptrToStr(new.Zipcode)})
+	}
+	if ptrToStr(old.Social.Instagram) != ptrToStr(new.Social.Instagram) {
+		changes = append(changes, models.FieldChange{Field: "instagram", OldValue: ptrToStr(old.Social.Instagram), NewValue: ptrToStr(new.Social.Instagram)})
+	}
+	if ptrToStr(old.Social.Facebook) != ptrToStr(new.Social.Facebook) {
+		changes = append(changes, models.FieldChange{Field: "facebook", OldValue: ptrToStr(old.Social.Facebook), NewValue: ptrToStr(new.Social.Facebook)})
+	}
+	if ptrToStr(old.Social.Twitter) != ptrToStr(new.Social.Twitter) {
+		changes = append(changes, models.FieldChange{Field: "twitter", OldValue: ptrToStr(old.Social.Twitter), NewValue: ptrToStr(new.Social.Twitter)})
+	}
+	if ptrToStr(old.Social.YouTube) != ptrToStr(new.Social.YouTube) {
+		changes = append(changes, models.FieldChange{Field: "youtube", OldValue: ptrToStr(old.Social.YouTube), NewValue: ptrToStr(new.Social.YouTube)})
+	}
+	if ptrToStr(old.Social.Spotify) != ptrToStr(new.Social.Spotify) {
+		changes = append(changes, models.FieldChange{Field: "spotify", OldValue: ptrToStr(old.Social.Spotify), NewValue: ptrToStr(new.Social.Spotify)})
+	}
+	if ptrToStr(old.Social.SoundCloud) != ptrToStr(new.Social.SoundCloud) {
+		changes = append(changes, models.FieldChange{Field: "soundcloud", OldValue: ptrToStr(old.Social.SoundCloud), NewValue: ptrToStr(new.Social.SoundCloud)})
+	}
+	if ptrToStr(old.Social.Bandcamp) != ptrToStr(new.Social.Bandcamp) {
+		changes = append(changes, models.FieldChange{Field: "bandcamp", OldValue: ptrToStr(old.Social.Bandcamp), NewValue: ptrToStr(new.Social.Bandcamp)})
+	}
+	if ptrToStr(old.Social.Website) != ptrToStr(new.Social.Website) {
+		changes = append(changes, models.FieldChange{Field: "website", OldValue: ptrToStr(old.Social.Website), NewValue: ptrToStr(new.Social.Website)})
+	}
+
+	return changes
 }
