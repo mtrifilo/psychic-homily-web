@@ -157,6 +157,12 @@ export const queryKeys = {
       category: (category: string, limit: number, offset: number) =>
         ['admin', 'dataQuality', 'category', category, { limit, offset }] as const,
     },
+    analytics: {
+      growth: (months: number) => ['admin', 'analytics', 'growth', months] as const,
+      engagement: (months: number) => ['admin', 'analytics', 'engagement', months] as const,
+      community: ['admin', 'analytics', 'community'] as const,
+      dataQualityTrends: (months: number) => ['admin', 'analytics', 'data-quality', months] as const,
+    },
   },
 
   // Artist queries
