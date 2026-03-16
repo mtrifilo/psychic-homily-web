@@ -277,7 +277,7 @@ func TestSearchFestivals_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	h := NewFestivalHandler(mock, nil, nil)
+	h := NewFestivalHandler(mock, nil, nil, nil)
 
 	resp, err := h.SearchFestivalsHandler(context.Background(), &SearchFestivalsRequest{Query: "m3f"})
 	if err != nil {
@@ -297,7 +297,7 @@ func TestSearchFestivals_EmptyQuery(t *testing.T) {
 			return []*services.FestivalListResponse{}, nil
 		},
 	}
-	h := NewFestivalHandler(mock, nil, nil)
+	h := NewFestivalHandler(mock, nil, nil, nil)
 
 	resp, err := h.SearchFestivalsHandler(context.Background(), &SearchFestivalsRequest{Query: ""})
 	if err != nil {
@@ -314,7 +314,7 @@ func TestSearchFestivals_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewFestivalHandler(mock, nil, nil)
+	h := NewFestivalHandler(mock, nil, nil, nil)
 
 	_, err := h.SearchFestivalsHandler(context.Background(), &SearchFestivalsRequest{Query: "test"})
 	if err == nil {
