@@ -8,6 +8,8 @@ import {
   type DuplicateCheckResult,
   type FieldComparison,
 } from "../lib/duplicates";
+import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
+import type { TagInput, ResolvedTag } from "../lib/tags";
 
 /** Festival artist entry from the input JSON. */
 interface FestivalArtistInput {
@@ -43,6 +45,7 @@ interface FestivalInput {
   status?: string;
   artists?: FestivalArtistInput[];
   venues?: FestivalVenueInput[];
+  tags?: TagInput[];
 }
 
 /** Result of processing a single festival. */
@@ -253,6 +256,18 @@ export async function submitFestivals(
     planned.push({ input: festival, dupResult });
   }
 
+  // --- Phase 2b: Resolve tags ---
+  const tagResolver = new TagResolver(client);
+  const resolvedTags: ResolvedTag[][] = [];
+  for (const p of planned) {
+    const tags = TagResolver.parseTags(p.input.tags as TagInput[] | undefined);
+    if (tags.length > 0) {
+      resolvedTags.push(await tagResolver.resolveAll(tags));
+    } else {
+      resolvedTags.push([]);
+    }
+  }
+
   // --- Phase 3: Preview ---
   display.header("Preview");
 
@@ -261,6 +276,7 @@ export async function submitFestivals(
   const skips = planned.filter((p) => p.dupResult.action === "skip");
 
   for (const p of creates) {
+    const planIdx = planned.indexOf(p);
     const f = p.input;
     display.info(
       `${green("CREATE")} ${f.name} (${f.series_slug} ${f.edition_year})`,
@@ -273,9 +289,18 @@ export async function submitFestivals(
     if (f.venues?.length) {
       display.kv("Venues", `${f.venues.length} to resolve`);
     }
+    // Show tags if any
+    if (resolvedTags[planIdx].length > 0) {
+      display.kv("tags", formatTagsPreview(resolvedTags[planIdx]));
+      for (const tag of resolvedTags[planIdx]) {
+        const warning = formatFuzzyWarning(tag);
+        if (warning) display.warn(warning);
+      }
+    }
   }
 
   for (const p of updates) {
+    const planIdx = planned.indexOf(p);
     const f = p.input;
     const newFields = p.dupResult.fields.filter(
       (field) => field.status === "new_info",
@@ -293,18 +318,57 @@ export async function submitFestivals(
     if (f.venues?.length) {
       display.kv("Venues", `${f.venues.length} to resolve & link`);
     }
+    // Show tags if any
+    if (resolvedTags[planIdx].length > 0) {
+      display.kv("tags", formatTagsPreview(resolvedTags[planIdx]));
+      for (const tag of resolvedTags[planIdx]) {
+        const warning = formatFuzzyWarning(tag);
+        if (warning) display.warn(warning);
+      }
+    }
   }
 
   for (const p of skips) {
+    const planIdx = planned.indexOf(p);
     display.info(
       `${dim("SKIP")} ${p.input.name} → already exists as "${p.dupResult.existingName}" (ID: ${p.dupResult.existingId})`,
     );
+    // Show tags if any
+    if (resolvedTags[planIdx].length > 0) {
+      display.kv("tags", formatTagsPreview(resolvedTags[planIdx]));
+      for (const tag of resolvedTags[planIdx]) {
+        const warning = formatFuzzyWarning(tag);
+        if (warning) display.warn(warning);
+      }
+    }
   }
 
   display.summary(creates.length, updates.length, skips.length);
 
-  // Add skip results
+  // --- Phase 4: Execute (if --confirm) ---
+  if (!confirm) {
+    // Add skip results for dry run
+    for (const p of skips) {
+      results.push({
+        name: p.input.name,
+        action: "skipped",
+        id: p.dupResult.existingId,
+      });
+    }
+    display.warn('Dry run. Pass --confirm to submit.');
+    return results;
+  }
+
+  // Add skip results and apply tags for skipped festivals
   for (const p of skips) {
+    const parsedTags = TagResolver.parseTags(p.input.tags as TagInput[] | undefined);
+    // Still apply tags even on skip
+    if (p.dupResult.existingId && parsedTags.length > 0) {
+      const tagResult = await tagResolver.applyToEntity("festival", p.dupResult.existingId, parsedTags);
+      if (tagResult.applied > 0) {
+        display.info(`  Applied ${tagResult.applied} tag(s) to "${p.input.name}"`);
+      }
+    }
     results.push({
       name: p.input.name,
       action: "skipped",
@@ -312,17 +376,13 @@ export async function submitFestivals(
     });
   }
 
-  // --- Phase 4: Execute (if --confirm) ---
-  if (!confirm) {
-    display.warn('Dry run. Pass --confirm to submit.');
-    return results;
-  }
-
   display.header("Submitting...");
 
   // Process creates
   for (const p of creates) {
+    const planIdx = planned.indexOf(p);
     const f = p.input;
+    const parsedTags = TagResolver.parseTags(f.tags as TagInput[] | undefined);
     try {
       const body: Record<string, unknown> = {
         name: f.name,
@@ -367,6 +427,14 @@ export async function submitFestivals(
         result.venueResults = await linkVenues(client, festivalId, f.venues);
       }
 
+      // Apply tags if any
+      if (festivalId && parsedTags.length > 0) {
+        const tagResult = await tagResolver.applyToEntity("festival", festivalId, parsedTags);
+        if (tagResult.applied > 0) {
+          display.info(`  Applied ${tagResult.applied} tag(s)`);
+        }
+      }
+
       results.push(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -377,8 +445,10 @@ export async function submitFestivals(
 
   // Process updates
   for (const p of updates) {
+    const planIdx = planned.indexOf(p);
     const f = p.input;
     const festivalId = p.dupResult.existingId!;
+    const parsedTags = TagResolver.parseTags(f.tags as TagInput[] | undefined);
     try {
       const updateBody = buildUpdateBody(p.dupResult.fields, f);
 
@@ -409,6 +479,14 @@ export async function submitFestivals(
       // Link venues
       if (f.venues?.length) {
         result.venueResults = await linkVenues(client, festivalId, f.venues);
+      }
+
+      // Apply tags if any
+      if (festivalId && parsedTags.length > 0) {
+        const tagResult = await tagResolver.applyToEntity("festival", festivalId, parsedTags);
+        if (tagResult.applied > 0) {
+          display.info(`  Applied ${tagResult.applied} tag(s)`);
+        }
       }
 
       results.push(result);
