@@ -306,6 +306,91 @@ func (h *ArtistHandler) GetArtistLabelsHandler(ctx context.Context, req *GetArti
 // Admin Artist Handlers
 // ============================================================================
 
+// AdminCreateArtistRequest represents the request for creating a new artist (admin only)
+type AdminCreateArtistRequest struct {
+	Body struct {
+		Name       string  `json:"name" required:"true" doc:"Artist name" maxLength:"255"`
+		City       *string `json:"city" required:"false" doc:"Artist city" maxLength:"100"`
+		State      *string `json:"state" required:"false" doc:"Artist state" maxLength:"100"`
+		Instagram  *string `json:"instagram" required:"false" doc:"Instagram handle" maxLength:"255"`
+		Facebook   *string `json:"facebook" required:"false" doc:"Facebook URL" maxLength:"500"`
+		Twitter    *string `json:"twitter" required:"false" doc:"Twitter handle" maxLength:"255"`
+		YouTube    *string `json:"youtube" required:"false" doc:"YouTube URL" maxLength:"500"`
+		Spotify    *string `json:"spotify" required:"false" doc:"Spotify URL" maxLength:"500"`
+		SoundCloud *string `json:"soundcloud" required:"false" doc:"SoundCloud URL" maxLength:"500"`
+		Bandcamp   *string `json:"bandcamp" required:"false" doc:"Bandcamp URL" maxLength:"500"`
+		Website    *string `json:"website" required:"false" doc:"Website URL" maxLength:"500"`
+	}
+}
+
+// AdminCreateArtistResponse represents the response for creating an artist
+type AdminCreateArtistResponse struct {
+	Body *services.ArtistDetailResponse
+}
+
+// AdminCreateArtistHandler handles POST /admin/artists
+// Admin-only endpoint to create a new artist directly
+func (h *ArtistHandler) AdminCreateArtistHandler(ctx context.Context, req *AdminCreateArtistRequest) (*AdminCreateArtistResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Validate name
+	name := strings.TrimSpace(req.Body.Name)
+	if name == "" {
+		return nil, huma.Error400BadRequest("Artist name cannot be empty")
+	}
+
+	// Build the create request
+	createReq := &services.CreateArtistRequest{
+		Name:       name,
+		City:       req.Body.City,
+		State:      req.Body.State,
+		Instagram:  req.Body.Instagram,
+		Facebook:   req.Body.Facebook,
+		Twitter:    req.Body.Twitter,
+		YouTube:    req.Body.YouTube,
+		Spotify:    req.Body.Spotify,
+		SoundCloud: req.Body.SoundCloud,
+		Bandcamp:   req.Body.Bandcamp,
+		Website:    req.Body.Website,
+	}
+
+	artist, err := h.artistService.CreateArtist(createReq)
+	if err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			return nil, huma.Error409Conflict(err.Error())
+		}
+		logger.FromContext(ctx).Error("admin_create_artist_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to create artist (request_id: %s)", requestID),
+		)
+	}
+
+	// Audit log (fire and forget)
+	if h.auditLogService != nil {
+		h.auditLogService.LogAction(user.ID, "create_artist", "artist", artist.ID, map[string]interface{}{
+			"name": name,
+		})
+	}
+
+	logger.FromContext(ctx).Info("admin_create_artist_success",
+		"artist_id", artist.ID,
+		"artist_name", name,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &AdminCreateArtistResponse{Body: artist}, nil
+}
+
 // UpdateArtistBandcampRequest represents the request for updating bandcamp URL
 type UpdateArtistBandcampRequest struct {
 	ArtistID       string `path:"artist_id" validate:"required" doc:"Artist ID"`
