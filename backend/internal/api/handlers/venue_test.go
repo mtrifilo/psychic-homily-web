@@ -8,7 +8,7 @@ import (
 )
 
 func testVenueHandler() *VenueHandler {
-	return NewVenueHandler(nil, nil)
+	return NewVenueHandler(nil, nil, nil)
 }
 
 // --- NewVenueHandler ---
@@ -18,6 +18,31 @@ func TestNewVenueHandler(t *testing.T) {
 	if h == nil {
 		t.Fatal("expected non-nil VenueHandler")
 	}
+}
+
+// --- AdminCreateVenueHandler ---
+
+func TestAdminCreateVenueHandler_NoAuth(t *testing.T) {
+	h := testVenueHandler()
+	req := &AdminCreateVenueRequest{}
+	req.Body.Name = "Test Venue"
+	req.Body.City = "Phoenix"
+	req.Body.State = "AZ"
+
+	_, err := h.AdminCreateVenueHandler(context.Background(), req)
+	assertHumaError(t, err, 403)
+}
+
+func TestAdminCreateVenueHandler_NonAdmin(t *testing.T) {
+	h := testVenueHandler()
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	req := &AdminCreateVenueRequest{}
+	req.Body.Name = "Test Venue"
+	req.Body.City = "Phoenix"
+	req.Body.State = "AZ"
+
+	_, err := h.AdminCreateVenueHandler(ctx, req)
+	assertHumaError(t, err, 403)
 }
 
 // --- UpdateVenueHandler ---
