@@ -13,8 +13,9 @@ import {
 } from '@/components/ui/command'
 import {
   Calendar, CalendarCheck, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
-  Library, LayoutList, MessageSquarePlus, Settings, Shield, Search, Clock, X, Globe, UserCheck,
-  TrendingUp,
+  Library, LayoutList, MessageSquarePlus, Settings, Search, Clock, X, Globe, UserCheck,
+  TrendingUp, LayoutDashboard, Upload, BadgeCheck, Flag, ScrollText, Users, Workflow,
+  ClipboardCheck, BarChart3, Music,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -142,14 +143,131 @@ const routes: RouteItem[] = [
     keywords: ['settings', 'profile', 'account', 'preferences', 'email'],
     requireAuth: true,
   },
+]
+
+const adminRoutes: RouteItem[] = [
   {
-    label: 'Admin',
+    label: 'Admin: Dashboard',
     href: '/admin',
-    icon: Shield,
-    keywords: ['admin', 'dashboard', 'manage', 'moderate'],
+    icon: LayoutDashboard,
+    keywords: ['admin', 'dashboard', 'overview', 'stats'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Pending Shows',
+    href: '/admin?tab=pending-shows',
+    icon: Clock,
+    keywords: ['admin', 'pending', 'shows', 'approve', 'review', 'moderate'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Venue Edits',
+    href: '/admin?tab=pending-venue-edits',
+    icon: MapPin,
+    keywords: ['admin', 'venue', 'edits', 'pending', 'approve'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Unverified Venues',
+    href: '/admin?tab=unverified-venues',
+    icon: BadgeCheck,
+    keywords: ['admin', 'unverified', 'venues', 'verify'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Reports',
+    href: '/admin?tab=reports',
+    icon: Flag,
+    keywords: ['admin', 'reports', 'flags', 'flagged', 'issues'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Import Show',
+    href: '/admin?tab=import-show',
+    icon: Upload,
+    keywords: ['admin', 'import', 'show', 'add', 'upload'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Releases',
+    href: '/admin?tab=releases',
+    icon: Disc3,
+    keywords: ['admin', 'releases', 'albums', 'manage'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Labels',
+    href: '/admin?tab=labels',
+    icon: Tag,
+    keywords: ['admin', 'labels', 'record labels', 'manage'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Festivals',
+    href: '/admin?tab=festivals',
+    icon: Tent,
+    keywords: ['admin', 'festivals', 'manage'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Pipeline',
+    href: '/admin?tab=pipeline',
+    icon: Workflow,
+    keywords: ['admin', 'pipeline', 'extraction', 'scraping', 'venues'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Collections',
+    href: '/admin?tab=collections',
+    icon: Library,
+    keywords: ['admin', 'collections', 'manage', 'featured'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Tags',
+    href: '/admin?tab=tags',
+    icon: Tags,
+    keywords: ['admin', 'tags', 'manage', 'genres'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Data Quality',
+    href: '/admin?tab=data-quality',
+    icon: ClipboardCheck,
+    keywords: ['admin', 'data', 'quality', 'health', 'issues'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Analytics',
+    href: '/admin?tab=analytics',
+    icon: BarChart3,
+    keywords: ['admin', 'analytics', 'metrics', 'growth', 'engagement'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Artists',
+    href: '/admin?tab=artists-admin',
+    icon: Music,
+    keywords: ['admin', 'artists', 'manage', 'merge', 'aliases'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Users',
+    href: '/admin?tab=users',
+    icon: Users,
+    keywords: ['admin', 'users', 'accounts', 'manage'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Audit Log',
+    href: '/admin?tab=audit-log',
+    icon: ScrollText,
+    keywords: ['admin', 'audit', 'log', 'history', 'actions'],
     requireAdmin: true,
   },
 ]
+
+const allRoutes = [...routes, ...adminRoutes]
 
 export function CommandPalette() {
   const router = useRouter()
@@ -174,11 +292,15 @@ export function CommandPalette() {
 
   const availableRoutes = useMemo(() => {
     return routes.filter(route => {
-      if (route.requireAdmin) return user?.is_admin
       if (route.requireAuth) return isAuthenticated
       return true
     })
-  }, [isAuthenticated, user?.is_admin])
+  }, [isAuthenticated])
+
+  const availableAdminRoutes = useMemo(() => {
+    if (!user?.is_admin) return []
+    return adminRoutes
+  }, [user?.is_admin])
 
   const handleSelect = useCallback(
     (href: string, label: string) => {
@@ -191,7 +313,7 @@ export function CommandPalette() {
 
   const handleRecentSelect = useCallback(
     (label: string) => {
-      const route = routes.find(
+      const route = allRoutes.find(
         r => r.label.toLowerCase() === label.toLowerCase()
       )
       if (route) {
@@ -247,7 +369,7 @@ export function CommandPalette() {
             }
           >
             {recentSearches.map(label => {
-              const route = routes.find(
+              const route = allRoutes.find(
                 r => r.label.toLowerCase() === label.toLowerCase()
               )
               return (
@@ -293,6 +415,32 @@ export function CommandPalette() {
             )
           })}
         </CommandGroup>
+
+        {availableAdminRoutes.length > 0 && (
+          <>
+            <CommandSeparator className="mx-2 my-1" />
+            <CommandGroup heading="Admin">
+              {availableAdminRoutes.map(route => {
+                const Icon = route.icon
+                return (
+                  <CommandItem
+                    key={route.href}
+                    value={route.label}
+                    onSelect={() => handleSelect(route.href, route.label)}
+                    keywords={route.keywords}
+                    className="cursor-pointer gap-3 rounded-lg px-2 py-2.5"
+                  >
+                    <Icon className="h-4 w-4 text-muted-foreground" />
+                    <span>{route.label}</span>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      /admin
+                    </span>
+                  </CommandItem>
+                )
+              })}
+            </CommandGroup>
+          </>
+        )}
       </CommandList>
 
       <div className="flex items-center justify-between border-t border-border/50 px-3 py-2">

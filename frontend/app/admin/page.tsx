@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tags, Tent, Workflow, Library, Music, ClipboardCheck, BarChart3 } from 'lucide-react'
 import { usePendingVenueEdits } from '@/lib/hooks/admin/useAdminVenueEdits'
@@ -158,11 +158,42 @@ const CollectionManagementComponent = dynamic(
   }
 )
 
-export default function AdminPage() {
-  const [activeTab, setActiveTab] = useState('dashboard')
+const VALID_TABS = [
+  'dashboard', 'pending-shows', 'pending-venue-edits', 'unverified-venues',
+  'reports', 'import-show', 'releases', 'labels', 'festivals', 'pipeline',
+  'collections', 'tags', 'data-quality', 'analytics', 'artists-admin',
+  'users', 'audit-log',
+] as const
+
+type AdminTab = (typeof VALID_TABS)[number]
+
+function isValidTab(value: string | null): value is AdminTab {
+  return value !== null && (VALID_TABS as readonly string[]).includes(value)
+}
+
+function AdminPageContent() {
+  const searchParams = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const initialTab = isValidTab(tabParam) ? tabParam : 'dashboard'
+  const [activeTab, setActiveTab] = useState<string>(initialTab)
   const { user, isLoading, isAuthenticated } = useAuthContext()
   const isAdmin = !!user?.is_admin
   const router = useRouter()
+
+  // Sync tab state when URL search params change (e.g. from Cmd+K navigation)
+  useEffect(() => {
+    const newTab = searchParams.get('tab')
+    if (isValidTab(newTab) && newTab !== activeTab) {
+      setActiveTab(newTab)
+    }
+  }, [searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleTabChange = useCallback((value: string) => {
+    setActiveTab(value)
+    // Update URL without full navigation so the tab is bookmarkable
+    const url = value === 'dashboard' ? '/admin' : `/admin?tab=${value}`
+    router.replace(url, { scroll: false })
+  }, [router])
 
   useEffect(() => {
     if (isLoading) return
@@ -214,7 +245,7 @@ export default function AdminPage() {
         </div>
 
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
           <TabsList className="mb-6">
             <TabsTrigger value="dashboard" className="gap-2">
               <LayoutDashboard className="h-4 w-4" />
@@ -379,5 +410,19 @@ export default function AdminPage() {
         </Tabs>
       </div>
     </div>
+  )
+}
+
+export default function AdminPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <AdminPageContent />
+    </Suspense>
   )
 }
