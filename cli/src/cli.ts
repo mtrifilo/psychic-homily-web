@@ -11,6 +11,7 @@ import { runSubmitVenue } from "./commands/submit-venue";
 import { runSubmitShow } from "./commands/submit-show";
 import { submitReleases } from "./commands/submit-release";
 import { runSubmitLabel } from "./commands/submit-label";
+import { runSubmitFestival } from "./commands/submit-festival";
 
 const program = new Command();
 
@@ -99,6 +100,9 @@ program
         break;
       case "label":
         await runSubmitLabel(json, opts, env);
+        break;
+      case "festival":
+        await runSubmitFestival(json, env, !!opts.confirm);
         break;
       default:
         display.warn(
