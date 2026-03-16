@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -726,8 +727,8 @@ func (s *CollectionService) SetFeatured(slug string, featured bool) error {
 // resolveUserName returns the display name for a user ID
 func (s *CollectionService) resolveUserName(userID uint) string {
 	var user models.User
-	if err := s.db.Select("id, username, first_name, last_name").First(&user, userID).Error; err != nil {
-		return "Unknown"
+	if err := s.db.Select("id, username, first_name, last_name, email").First(&user, userID).Error; err != nil {
+		return "Anonymous"
 	}
 	if user.Username != nil && *user.Username != "" {
 		return *user.Username
@@ -739,7 +740,12 @@ func (s *CollectionService) resolveUserName(userID uint) string {
 		}
 		return name
 	}
-	return "Unknown"
+	if user.Email != nil && *user.Email != "" {
+		if idx := strings.Index(*user.Email, "@"); idx > 0 {
+			return (*user.Email)[:idx]
+		}
+	}
+	return "Anonymous"
 }
 
 // batchResolveUserNames resolves user names for multiple user IDs
@@ -750,7 +756,7 @@ func (s *CollectionService) batchResolveUserNames(userIDs []uint) map[uint]strin
 	}
 
 	var users []models.User
-	s.db.Select("id, username, first_name, last_name").Where("id IN ?", userIDs).Find(&users)
+	s.db.Select("id, username, first_name, last_name, email").Where("id IN ?", userIDs).Find(&users)
 
 	for _, user := range users {
 		if user.Username != nil && *user.Username != "" {
@@ -761,8 +767,14 @@ func (s *CollectionService) batchResolveUserNames(userIDs []uint) map[uint]strin
 				name += " " + *user.LastName
 			}
 			result[user.ID] = name
+		} else if user.Email != nil && *user.Email != "" {
+			if idx := strings.Index(*user.Email, "@"); idx > 0 {
+				result[user.ID] = (*user.Email)[:idx]
+			} else {
+				result[user.ID] = "Anonymous"
+			}
 		} else {
-			result[user.ID] = "Unknown"
+			result[user.ID] = "Anonymous"
 		}
 	}
 

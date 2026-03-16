@@ -284,6 +284,12 @@ export const API_ENDPOINTS = {
       CATEGORY: (category: string) =>
         `${API_BASE_URL}/admin/data-quality/${category}`,
     },
+    ANALYTICS: {
+      GROWTH: `${API_BASE_URL}/admin/analytics/growth`,
+      ENGAGEMENT: `${API_BASE_URL}/admin/analytics/engagement`,
+      COMMUNITY: `${API_BASE_URL}/admin/analytics/community`,
+      DATA_QUALITY: `${API_BASE_URL}/admin/analytics/data-quality`,
+    },
     PIPELINE: {
       VENUES: `${API_BASE_URL}/admin/pipeline/venues`,
       EXTRACT: (venueId: string | number) =>

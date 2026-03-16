@@ -245,8 +245,8 @@ describe('ArtistDetail', () => {
       })
 
       renderWithProviders(<ArtistDetail artistId="bad" />)
-      const backLink = screen.getByText('Back to Shows')
-      expect(backLink.closest('a')).toHaveAttribute('href', '/shows')
+      const backLink = screen.getByText('Back to Artists')
+      expect(backLink.closest('a')).toHaveAttribute('href', '/artists')
     })
   })
 
@@ -280,7 +280,7 @@ describe('ArtistDetail', () => {
     it('renders entity layout with back link', () => {
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
       expect(screen.getByTestId('entity-layout')).toBeInTheDocument()
-      expect(screen.getByText('Back to Shows')).toBeInTheDocument()
+      expect(screen.getByText('Back to Artists')).toBeInTheDocument()
     })
 
     it('renders tabs for overview, discography, and labels', () => {
