@@ -19,7 +19,7 @@ type ArtistHandlerIntegrationSuite struct {
 
 func (s *ArtistHandlerIntegrationSuite) SetupSuite() {
 	s.deps = setupHandlerIntegrationDeps(s.T())
-	s.handler = NewArtistHandler(s.deps.artistService, s.deps.auditLogService)
+	s.handler = NewArtistHandler(s.deps.artistService, s.deps.auditLogService, nil)
 }
 
 func (s *ArtistHandlerIntegrationSuite) TearDownTest() {
