@@ -169,6 +169,22 @@ type AddFestivalArtistRequest = contracts.AddFestivalArtistRequest
 type UpdateFestivalArtistRequest = contracts.UpdateFestivalArtistRequest
 type AddFestivalVenueRequest = contracts.AddFestivalVenueRequest
 
+// Festival intelligence types
+type FestivalSummary = contracts.FestivalSummary
+type ArtistSummary = contracts.ArtistSummary
+type SimilarFestival = contracts.SimilarFestival
+type SharedArtist = contracts.SharedArtist
+type FestivalOverlap = contracts.FestivalOverlap
+type FestivalBreakouts = contracts.FestivalBreakouts
+type ArtistBreakout = contracts.ArtistBreakout
+type TrajectoryEntry = contracts.TrajectoryEntry
+type ArtistMilestone = contracts.ArtistMilestone
+type ArtistTrajectory = contracts.ArtistTrajectory
+type SeriesComparison = contracts.SeriesComparison
+type SeriesEdition = contracts.SeriesEdition
+type ReturningArtist = contracts.ReturningArtist
+type SeriesNewcomer = contracts.SeriesNewcomer
+
 // ──────────────────────────────────────────────
 // Collection types
 // ──────────────────────────────────────────────
