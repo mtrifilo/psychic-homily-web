@@ -340,6 +340,14 @@ func setupFestivalRoutes(api huma.API, protected *huma.Group, sc *services.Servi
 	huma.Get(api, "/festivals/{festival_id}/venues", festivalHandler.GetFestivalVenuesHandler)
 	huma.Get(api, "/artists/{artist_id}/festivals", festivalHandler.GetArtistFestivalsHandler)
 
+	// Festival intelligence endpoints (public, computed from existing data)
+	intelHandler := handlers.NewFestivalIntelligenceHandler(sc.FestivalIntelligence, sc.Festival, sc.Artist)
+	huma.Get(api, "/festivals/{festival_id}/similar", intelHandler.GetSimilarFestivalsHandler)
+	huma.Get(api, "/festivals/{festival_a_id}/overlap/{festival_b_id}", intelHandler.GetFestivalOverlapHandler)
+	huma.Get(api, "/festivals/{festival_id}/breakouts", intelHandler.GetFestivalBreakoutsHandler)
+	huma.Get(api, "/artists/{artist_id}/festival-trajectory", intelHandler.GetArtistFestivalTrajectoryHandler)
+	huma.Get(api, "/festivals/series/{series_slug}/compare", intelHandler.GetSeriesComparisonHandler)
+
 	// Protected festival endpoints (admin-only checks inside handlers)
 	huma.Post(protected, "/festivals", festivalHandler.CreateFestivalHandler)
 	huma.Put(protected, "/festivals/{festival_id}", festivalHandler.UpdateFestivalHandler)

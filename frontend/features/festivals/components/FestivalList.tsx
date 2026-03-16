@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { useFestivals } from '../hooks/useFestivals'
 import { FestivalCard } from './FestivalCard'
 import { LoadingSpinner, DensityToggle } from '@/components/shared'
+import { cn } from '@/lib/utils'
 import { useDensity } from '@/lib/hooks/common/useDensity'
 import { Button } from '@/components/ui/button'
 import { FESTIVAL_STATUSES, FESTIVAL_STATUS_LABELS } from '../types'
@@ -153,13 +154,14 @@ export function FestivalList() {
           </div>
         ) : (
           <div
-            className={
+            className={cn(
+              '@container',
               density === 'compact'
-                ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2'
+                ? 'flex flex-col gap-px'
                 : density === 'expanded'
-                  ? 'grid grid-cols-1 sm:grid-cols-2 gap-4'
-                  : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3'
-            }
+                  ? 'grid grid-cols-1 gap-5'
+                  : 'grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
+            )}
           >
             {festivals.map(festival => (
               <FestivalCard
