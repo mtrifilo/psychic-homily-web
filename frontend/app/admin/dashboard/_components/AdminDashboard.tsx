@@ -11,6 +11,7 @@ import {
   Users,
   TrendingUp,
   UserPlus,
+  CircleCheck,
   type LucideIcon,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
@@ -25,8 +26,11 @@ interface StatCardProps {
 }
 
 function StatCard({ label, value, icon: Icon, highlight }: StatCardProps) {
+  const isZeroHighlight = highlight && value === 0
   return (
-    <Card className="py-4">
+    <Card
+      className={`py-4 ${isZeroHighlight ? 'opacity-50' : ''}`}
+    >
       <CardContent className="flex items-center gap-4">
         <div
           className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
@@ -48,6 +52,26 @@ function StatCard({ label, value, icon: Icon, highlight }: StatCardProps) {
             {value.toLocaleString()}
           </p>
           <p className="text-sm text-muted-foreground truncate">{label}</p>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function AllClearMessage() {
+  return (
+    <Card className="py-6 border-emerald-500/30 bg-emerald-500/5">
+      <CardContent className="flex items-center justify-center gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15">
+          <CircleCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+        </div>
+        <div>
+          <p className="font-medium text-emerald-600 dark:text-emerald-400">
+            All caught up!
+          </p>
+          <p className="text-sm text-muted-foreground">
+            No pending items need your attention.
+          </p>
         </div>
       </CardContent>
     </Card>
@@ -79,6 +103,12 @@ export function AdminDashboard() {
 
   if (!stats) return null
 
+  const allAttentionClear =
+    stats.pending_shows === 0 &&
+    stats.pending_venue_edits === 0 &&
+    stats.pending_reports === 0 &&
+    stats.unverified_venues === 0
+
   return (
     <div className="space-y-8">
       {/* Needs Attention */}
@@ -86,32 +116,36 @@ export function AdminDashboard() {
         <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
           Needs Attention
         </h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard
-            label="Pending Shows"
-            value={stats.pending_shows}
-            icon={Clock}
-            highlight
-          />
-          <StatCard
-            label="Pending Venue Edits"
-            value={stats.pending_venue_edits}
-            icon={MapPin}
-            highlight
-          />
-          <StatCard
-            label="Pending Reports"
-            value={stats.pending_reports}
-            icon={Flag}
-            highlight
-          />
-          <StatCard
-            label="Unverified Venues"
-            value={stats.unverified_venues}
-            icon={BadgeCheck}
-            highlight
-          />
-        </div>
+        {allAttentionClear ? (
+          <AllClearMessage />
+        ) : (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard
+              label="Pending Shows"
+              value={stats.pending_shows}
+              icon={Clock}
+              highlight
+            />
+            <StatCard
+              label="Pending Venue Edits"
+              value={stats.pending_venue_edits}
+              icon={MapPin}
+              highlight
+            />
+            <StatCard
+              label="Pending Reports"
+              value={stats.pending_reports}
+              icon={Flag}
+              highlight
+            />
+            <StatCard
+              label="Unverified Venues"
+              value={stats.unverified_venues}
+              icon={BadgeCheck}
+              highlight
+            />
+          </div>
+        )}
       </section>
 
       {/* Platform */}
