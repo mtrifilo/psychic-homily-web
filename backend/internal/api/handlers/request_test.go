@@ -196,8 +196,9 @@ func TestRequestHandler_Create_Success(t *testing.T) {
 	h := NewRequestHandler(&mockRequestService{}, nil)
 
 	req := &CreateRequestHandlerRequest{}
+	desc := "They play shows"
 	req.Body.Title = "Add Band XYZ"
-	req.Body.Description = "They play shows"
+	req.Body.Description = &desc
 	req.Body.EntityType = "artist"
 
 	resp, err := h.CreateRequestHandler(requestUserCtx(), req)
@@ -237,8 +238,9 @@ func TestRequestHandler_Create_ServiceError(t *testing.T) {
 	}, nil)
 
 	req := &CreateRequestHandlerRequest{}
+	errDesc := "desc"
 	req.Body.Title = "Test"
-	req.Body.Description = "desc"
+	req.Body.Description = &errDesc
 	req.Body.EntityType = "artist"
 
 	_, err := h.CreateRequestHandler(requestUserCtx(), req)
