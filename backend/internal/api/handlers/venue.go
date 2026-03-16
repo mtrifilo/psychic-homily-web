@@ -16,14 +16,16 @@ import (
 )
 
 type VenueHandler struct {
-	venueService   services.VenueServiceInterface
-	discordService services.DiscordServiceInterface
+	venueService    services.VenueServiceInterface
+	discordService  services.DiscordServiceInterface
+	auditLogService services.AuditLogServiceInterface
 }
 
-func NewVenueHandler(venueService services.VenueServiceInterface, discordService services.DiscordServiceInterface) *VenueHandler {
+func NewVenueHandler(venueService services.VenueServiceInterface, discordService services.DiscordServiceInterface, auditLogService services.AuditLogServiceInterface) *VenueHandler {
 	return &VenueHandler{
-		venueService:   venueService,
-		discordService: discordService,
+		venueService:    venueService,
+		discordService:  discordService,
+		auditLogService: auditLogService,
 	}
 }
 
@@ -239,6 +241,95 @@ func (h *VenueHandler) GetVenueCitiesHandler(ctx context.Context, req *GetVenueC
 	resp.Body.Cities = cities
 
 	return resp, nil
+}
+
+// ============================================================================
+// Admin Venue Creation
+// ============================================================================
+
+// AdminCreateVenueRequest represents the request for creating a venue directly
+type AdminCreateVenueRequest struct {
+	Body struct {
+		Name       string  `json:"name" required:"true" doc:"Venue name" maxLength:"255"`
+		City       string  `json:"city" required:"true" doc:"Venue city" maxLength:"100"`
+		State      string  `json:"state" required:"true" doc:"Venue state" maxLength:"100"`
+		Address    *string `json:"address" required:"false" doc:"Street address" maxLength:"500"`
+		Zipcode    *string `json:"zipcode" required:"false" doc:"ZIP code" maxLength:"20"`
+		Instagram  *string `json:"instagram" required:"false" doc:"Instagram handle" maxLength:"255"`
+		Facebook   *string `json:"facebook" required:"false" doc:"Facebook URL" maxLength:"500"`
+		Twitter    *string `json:"twitter" required:"false" doc:"Twitter handle" maxLength:"255"`
+		YouTube    *string `json:"youtube" required:"false" doc:"YouTube URL" maxLength:"500"`
+		Spotify    *string `json:"spotify" required:"false" doc:"Spotify URL" maxLength:"500"`
+		SoundCloud *string `json:"soundcloud" required:"false" doc:"SoundCloud URL" maxLength:"500"`
+		Bandcamp   *string `json:"bandcamp" required:"false" doc:"Bandcamp URL" maxLength:"500"`
+		Website    *string `json:"website" required:"false" doc:"Website URL" maxLength:"500"`
+	}
+}
+
+// AdminCreateVenueResponse represents the response for creating a venue
+type AdminCreateVenueResponse struct {
+	Body *services.VenueDetailResponse
+}
+
+// AdminCreateVenueHandler handles POST /admin/venues - creates a venue directly (admin only)
+func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCreateVenueRequest) (*AdminCreateVenueResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Build service request
+	serviceReq := &services.CreateVenueRequest{
+		Name:        req.Body.Name,
+		City:        req.Body.City,
+		State:       req.Body.State,
+		Address:     req.Body.Address,
+		Zipcode:     req.Body.Zipcode,
+		Instagram:   req.Body.Instagram,
+		Facebook:    req.Body.Facebook,
+		Twitter:     req.Body.Twitter,
+		YouTube:     req.Body.YouTube,
+		Spotify:     req.Body.Spotify,
+		SoundCloud:  req.Body.SoundCloud,
+		Bandcamp:    req.Body.Bandcamp,
+		Website:     req.Body.Website,
+		SubmittedBy: &user.ID,
+	}
+
+	venue, err := h.venueService.CreateVenue(serviceReq, true)
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_create_venue_failed",
+			"error", err.Error(),
+			"admin_id", user.ID,
+			"request_id", requestID,
+		)
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Failed to create venue: %s", err.Error()),
+		)
+	}
+
+	// Audit log (fire and forget)
+	if h.auditLogService != nil {
+		go func() {
+			h.auditLogService.LogAction(user.ID, "create_venue", "venue", venue.ID, map[string]interface{}{
+				"name":  venue.Name,
+				"city":  venue.City,
+				"state": venue.State,
+			})
+		}()
+	}
+
+	logger.FromContext(ctx).Info("admin_venue_created",
+		"venue_id", venue.ID,
+		"venue_slug", venue.Slug,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &AdminCreateVenueResponse{Body: venue}, nil
 }
 
 // ============================================================================

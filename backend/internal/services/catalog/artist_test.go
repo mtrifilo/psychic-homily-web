@@ -221,6 +221,13 @@ func (suite *ArtistServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM artist_labels")
 	_, _ = sqlDB.Exec("DELETE FROM festival_artists")
 	_, _ = sqlDB.Exec("DELETE FROM user_bookmarks")
+	_, _ = sqlDB.Exec("DELETE FROM collection_items")
+	_, _ = sqlDB.Exec("DELETE FROM collection_subscribers")
+	_, _ = sqlDB.Exec("DELETE FROM collections")
+	_, _ = sqlDB.Exec("DELETE FROM notification_log")
+	_, _ = sqlDB.Exec("DELETE FROM notification_filters")
+	_, _ = sqlDB.Exec("DELETE FROM request_votes")
+	_, _ = sqlDB.Exec("DELETE FROM requests")
 	_, _ = sqlDB.Exec("DELETE FROM revisions")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
@@ -1219,4 +1226,143 @@ func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_TransfersBookma
 	var count int64
 	suite.db.Raw("SELECT COUNT(*) FROM user_bookmarks WHERE entity_type = 'artist' AND entity_id = ?", canonical.ID).Scan(&count)
 	suite.Equal(int64(1), count)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_BookmarkConflictDedup() {
+	canonical, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "BMD Canonical"})
+	mergeFrom, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "BMD MergeFrom"})
+	user := suite.createTestUser()
+
+	// User has a "follow" bookmark on BOTH artists — this is a conflict
+	suite.db.Exec("INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at) VALUES (?, 'artist', ?, 'follow', NOW())", user.ID, canonical.ID)
+	suite.db.Exec("INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at) VALUES (?, 'artist', ?, 'follow', NOW())", user.ID, mergeFrom.ID)
+	// User also has a unique "bookmark" action only on mergeFrom — should transfer
+	suite.db.Exec("INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at) VALUES (?, 'artist', ?, 'bookmark', NOW())", user.ID, mergeFrom.ID)
+
+	result, err := suite.artistService.MergeArtists(canonical.ID, mergeFrom.ID)
+	suite.Require().NoError(err)
+	// Only the non-conflicting bookmark should be counted as moved
+	suite.Equal(int64(1), result.BookmarksMoved)
+
+	// Verify exactly 2 bookmarks for canonical (the original follow + the transferred bookmark)
+	var count int64
+	suite.db.Raw("SELECT COUNT(*) FROM user_bookmarks WHERE entity_type = 'artist' AND entity_id = ?", canonical.ID).Scan(&count)
+	suite.Equal(int64(2), count)
+
+	// Verify no orphaned bookmarks remain for the merged artist
+	var orphanCount int64
+	suite.db.Raw("SELECT COUNT(*) FROM user_bookmarks WHERE entity_type = 'artist' AND entity_id = ?", mergeFrom.ID).Scan(&orphanCount)
+	suite.Equal(int64(0), orphanCount)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_NoOrphanedBookmarks() {
+	canonical, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Orphan Canonical"})
+	mergeFrom, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Orphan MergeFrom"})
+	user1 := suite.createTestUser()
+	user2 := suite.createTestUser()
+
+	// Multiple users with various bookmark actions on mergeFrom
+	suite.db.Exec("INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at) VALUES (?, 'artist', ?, 'follow', NOW())", user1.ID, mergeFrom.ID)
+	suite.db.Exec("INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at) VALUES (?, 'artist', ?, 'bookmark', NOW())", user1.ID, mergeFrom.ID)
+	suite.db.Exec("INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action, created_at) VALUES (?, 'artist', ?, 'follow', NOW())", user2.ID, mergeFrom.ID)
+
+	_, err := suite.artistService.MergeArtists(canonical.ID, mergeFrom.ID)
+	suite.Require().NoError(err)
+
+	// Verify all bookmarks transferred to canonical
+	var canonicalCount int64
+	suite.db.Raw("SELECT COUNT(*) FROM user_bookmarks WHERE entity_type = 'artist' AND entity_id = ?", canonical.ID).Scan(&canonicalCount)
+	suite.Equal(int64(3), canonicalCount)
+
+	// Verify zero orphaned bookmarks
+	var orphanCount int64
+	suite.db.Raw("SELECT COUNT(*) FROM user_bookmarks WHERE entity_type = 'artist' AND entity_id = ?", mergeFrom.ID).Scan(&orphanCount)
+	suite.Equal(int64(0), orphanCount)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_TransfersCollectionItems() {
+	canonical, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "CI Canonical"})
+	mergeFrom, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "CI MergeFrom"})
+	user := suite.createTestUser()
+
+	// Create a collection
+	suite.db.Exec("INSERT INTO collections (title, slug, creator_id, created_at, updated_at) VALUES ('Test Collection', 'test-col', ?, NOW(), NOW())", user.ID)
+	var collectionID uint
+	suite.db.Raw("SELECT id FROM collections WHERE slug = 'test-col'").Scan(&collectionID)
+
+	// Add mergeFrom artist to collection
+	suite.db.Exec("INSERT INTO collection_items (collection_id, entity_type, entity_id, position, added_by_user_id, created_at) VALUES (?, 'artist', ?, 0, ?, NOW())", collectionID, mergeFrom.ID, user.ID)
+
+	result, err := suite.artistService.MergeArtists(canonical.ID, mergeFrom.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), result.CollectionItemsMoved)
+
+	// Verify collection item now points to canonical
+	var count int64
+	suite.db.Raw("SELECT COUNT(*) FROM collection_items WHERE entity_type = 'artist' AND entity_id = ? AND collection_id = ?", canonical.ID, collectionID).Scan(&count)
+	suite.Equal(int64(1), count)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_CollectionItemConflictDedup() {
+	canonical, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "CID Canonical"})
+	mergeFrom, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "CID MergeFrom"})
+	user := suite.createTestUser()
+
+	// Create a collection with both artists (conflict scenario)
+	suite.db.Exec("INSERT INTO collections (title, slug, creator_id, created_at, updated_at) VALUES ('Dedup Collection', 'dedup-col', ?, NOW(), NOW())", user.ID)
+	var collectionID uint
+	suite.db.Raw("SELECT id FROM collections WHERE slug = 'dedup-col'").Scan(&collectionID)
+
+	suite.db.Exec("INSERT INTO collection_items (collection_id, entity_type, entity_id, position, added_by_user_id, created_at) VALUES (?, 'artist', ?, 0, ?, NOW())", collectionID, canonical.ID, user.ID)
+	suite.db.Exec("INSERT INTO collection_items (collection_id, entity_type, entity_id, position, added_by_user_id, created_at) VALUES (?, 'artist', ?, 1, ?, NOW())", collectionID, mergeFrom.ID, user.ID)
+
+	result, err := suite.artistService.MergeArtists(canonical.ID, mergeFrom.ID)
+	suite.Require().NoError(err)
+	// Conflict was deduped, so 0 items moved (the conflicting one was deleted)
+	suite.Equal(int64(0), result.CollectionItemsMoved)
+
+	// Verify only canonical remains in collection (no duplicates)
+	var count int64
+	suite.db.Raw("SELECT COUNT(*) FROM collection_items WHERE entity_type = 'artist' AND collection_id = ?", collectionID).Scan(&count)
+	suite.Equal(int64(1), count)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_UpdatesNotificationFilters() {
+	canonical, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "NF Canonical"})
+	mergeFrom, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "NF MergeFrom"})
+	user := suite.createTestUser()
+
+	// Create a notification filter that references the mergeFrom artist
+	suite.db.Exec("INSERT INTO notification_filters (user_id, name, artist_ids, created_at, updated_at) VALUES (?, 'My Filter', ARRAY[?]::bigint[], NOW(), NOW())", user.ID, mergeFrom.ID)
+
+	result, err := suite.artistService.MergeArtists(canonical.ID, mergeFrom.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), result.FiltersUpdated)
+
+	// Verify filter now references canonical artist
+	var artistIDs string
+	suite.db.Raw("SELECT artist_ids::text FROM notification_filters WHERE user_id = ?", user.ID).Scan(&artistIDs)
+	suite.Contains(artistIDs, fmt.Sprintf("%d", canonical.ID))
+	suite.NotContains(artistIDs, fmt.Sprintf("%d", mergeFrom.ID))
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_NotificationFilterConflictDedup() {
+	canonical, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "NFD Canonical"})
+	mergeFrom, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "NFD MergeFrom"})
+	user := suite.createTestUser()
+
+	// Create a notification filter that references BOTH artists
+	suite.db.Exec("INSERT INTO notification_filters (user_id, name, artist_ids, created_at, updated_at) VALUES (?, 'Both Artists', ARRAY[?,?]::bigint[], NOW(), NOW())", user.ID, canonical.ID, mergeFrom.ID)
+
+	result, err := suite.artistService.MergeArtists(canonical.ID, mergeFrom.ID)
+	suite.Require().NoError(err)
+	// Filter already had canonical, so the first UPDATE (replace) skips it;
+	// the second UPDATE (remove leftover) cleans up mergeFrom
+	suite.Equal(int64(0), result.FiltersUpdated)
+
+	// Verify filter now has only canonical (no duplicate, no mergeFrom)
+	var artistIDs string
+	suite.db.Raw("SELECT artist_ids::text FROM notification_filters WHERE user_id = ?", user.ID).Scan(&artistIDs)
+	suite.Contains(artistIDs, fmt.Sprintf("%d", canonical.ID))
+	suite.NotContains(artistIDs, fmt.Sprintf("%d", mergeFrom.ID))
 }
