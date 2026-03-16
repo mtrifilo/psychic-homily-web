@@ -12,7 +12,7 @@ import (
 )
 
 func testAdminHandler() *AdminHandler {
-	return NewAdminHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	return NewAdminHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func adminCtx() context.Context {

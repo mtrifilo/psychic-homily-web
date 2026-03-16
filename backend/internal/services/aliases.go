@@ -256,11 +256,15 @@ type FollowerResponse = contracts.FollowerResponse
 type FollowStatusResponse = contracts.FollowStatusResponse
 
 // ──────────────────────────────────────────────
-// Notification types (audit log)
+// Notification types (audit log, notification filters)
 // ──────────────────────────────────────────────
 
 type AuditLogFilters = contracts.AuditLogFilters
 type AuditLogResponse = contracts.AuditLogResponse
+type CreateFilterInput = contracts.CreateFilterInput
+type UpdateFilterInput = contracts.UpdateFilterInput
+type NotificationFilterResponse = contracts.NotificationFilterResponse
+type NotificationLogEntry = contracts.NotificationLogEntry
 
 // ──────────────────────────────────────────────
 // Admin types (stats, API tokens, data sync)

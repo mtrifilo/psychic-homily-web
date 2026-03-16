@@ -1367,6 +1367,9 @@ func (m *mockEmailService) SendAccountRecoveryEmail(toEmail, token string, daysR
 func (m *mockEmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventDate time.Time, venues []string) error {
 	return nil
 }
+func (m *mockEmailService) SendFilterNotificationEmail(toEmail, subject, htmlBody, unsubscribeURL string) error {
+	return nil
+}
 
 // ============================================================================
 // Mock: PasswordValidatorInterface
