@@ -556,8 +556,16 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 			}
 		}
 
+		// Determine state for timezone-aware slug
+		showState := ""
+		if show.State != nil {
+			showState = *show.State
+		} else if len(show.Venues) > 0 {
+			showState = show.Venues[0].State
+		}
+
 		// Generate show slug
-		baseShowSlug := utils.GenerateShowSlug(eventDate.UTC(), headlinerName, venueName)
+		baseShowSlug := utils.GenerateShowSlug(eventDate.UTC(), headlinerName, venueName, showState)
 		showSlug := utils.GenerateUniqueSlug(baseShowSlug, func(candidate string) bool {
 			var count int64
 			tx.Model(&models.Show{}).Where("slug = ?", candidate).Count(&count)
@@ -696,7 +704,13 @@ func (s *DataSyncService) backfillShowSlugs(existingShow *models.Show, show *con
 				headlinerName = a.Name
 			}
 		}
-		baseSlug := utils.GenerateShowSlug(eventDate.UTC(), headlinerName, venueName)
+		showState := ""
+		if show.State != nil {
+			showState = *show.State
+		} else if len(show.Venues) > 0 {
+			showState = show.Venues[0].State
+		}
+		baseSlug := utils.GenerateShowSlug(eventDate.UTC(), headlinerName, venueName, showState)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
 			s.db.Model(&models.Show{}).Where("slug = ?", candidate).Count(&count)

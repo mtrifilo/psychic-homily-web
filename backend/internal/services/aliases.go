@@ -300,6 +300,16 @@ type CommunityHealthResponse = contracts.CommunityHealthResponse
 type DataQualityTrendsResponse = contracts.DataQualityTrendsResponse
 
 // ──────────────────────────────────────────────
+// Charts types
+// ──────────────────────────────────────────────
+
+type TrendingShow = contracts.TrendingShow
+type PopularArtist = contracts.PopularArtist
+type ActiveVenue = contracts.ActiveVenue
+type HotRelease = contracts.HotRelease
+type ChartsOverview = contracts.ChartsOverview
+
+// ──────────────────────────────────────────────
 // Pipeline types (extraction, fetcher, discovery, pipeline)
 // ──────────────────────────────────────────────
 

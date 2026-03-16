@@ -46,7 +46,7 @@ describe('CommandPalette', () => {
     render(<CommandPalette />)
 
     // Dialog should not be visible initially
-    expect(screen.queryByPlaceholderText('Search pages...')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Go to page...')).not.toBeInTheDocument()
 
     // Press Cmd+K
     act(() => {
@@ -56,7 +56,7 @@ describe('CommandPalette', () => {
     })
 
     // Dialog should be visible
-    expect(screen.getByPlaceholderText('Search pages...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Go to page...')).toBeInTheDocument()
   })
 
   it('should show public pages for unauthenticated users', async () => {
@@ -164,11 +164,11 @@ describe('CommandPalette', () => {
       )
     })
 
-    expect(screen.getByPlaceholderText('Search pages...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Go to page...')).toBeInTheDocument()
 
     await user.keyboard('{Escape}')
 
-    expect(screen.queryByPlaceholderText('Search pages...')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Go to page...')).not.toBeInTheDocument()
   })
 
   it('should show keyboard navigation hints', async () => {
@@ -192,6 +192,6 @@ describe('CommandPalette', () => {
       window.dispatchEvent(new Event('open-command-palette'))
     })
 
-    expect(screen.getByPlaceholderText('Search pages...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Go to page...')).toBeInTheDocument()
   })
 })

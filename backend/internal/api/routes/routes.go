@@ -104,6 +104,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupAttendanceRoutes(api, protectedGroup, sc)
 	setupFollowRoutes(api, protectedGroup, sc)
 	setupNotificationFilterRoutes(api, protectedGroup, sc, cfg)
+	setupChartsRoutes(api, sc)
 
 	return api
 }
@@ -773,6 +774,18 @@ func setupNotificationFilterRoutes(api huma.API, protected *huma.Group, sc *serv
 
 	// Public: HMAC-signed unsubscribe
 	huma.Post(api, "/unsubscribe/filter/{id}", filterHandler.UnsubscribeFilterHandler)
+}
+
+// setupChartsRoutes configures public top charts endpoints.
+// All endpoints are public — no authentication required.
+func setupChartsRoutes(api huma.API, sc *services.ServiceContainer) {
+	chartsHandler := handlers.NewChartsHandler(sc.Charts)
+
+	huma.Get(api, "/charts/trending-shows", chartsHandler.GetTrendingShowsHandler)
+	huma.Get(api, "/charts/popular-artists", chartsHandler.GetPopularArtistsHandler)
+	huma.Get(api, "/charts/active-venues", chartsHandler.GetActiveVenuesHandler)
+	huma.Get(api, "/charts/hot-releases", chartsHandler.GetHotReleasesHandler)
+	huma.Get(api, "/charts/overview", chartsHandler.GetChartsOverviewHandler)
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON
