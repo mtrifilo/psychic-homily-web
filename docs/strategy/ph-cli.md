@@ -295,33 +295,74 @@ Artist "Nina Hagen" found (ID: 42)
 
 Fields with existing values are never overwritten — only empty fields are filled in. This makes the operation safe and idempotent.
 
-## Backend Endpoints Needed
+## Backend Endpoints Used
 
-### New Endpoints
+All endpoints below are shipped and working.
 
-| Endpoint | Purpose | Notes |
-|----------|---------|-------|
-| `POST /admin/artists` | Create standalone artist | Currently artists are only created as show side-effects |
-| `POST /admin/venues` | Create standalone venue | Same gap |
-| `GET /releases/search?q=` | Search releases by title | Currently only filter by artist_id/type/year |
-| `GET /labels/search?q=` | Search labels by name | Currently only filter by status/city/state |
-| `GET /festivals/search?q=` | Search festivals by name | Currently only filter by city/state/year/status |
+| Endpoint | CLI Command | Added by |
+|----------|-------------|----------|
+| `POST /admin/artists` | `ph submit artist` (create) | PSY-138 |
+| `POST /admin/venues` | `ph submit venue` (create) | PSY-139 |
+| `GET /releases/search?q=` | Duplicate detection | PSY-140 |
+| `GET /labels/search?q=` | Duplicate detection | PSY-140 |
+| `GET /festivals/search?q=` | Duplicate detection | PSY-140 |
+| `GET /artists/search?q=` | Duplicate detection | (pre-existing) |
+| `GET /venues/search?q=` | Duplicate detection | (pre-existing) |
+| `POST /shows` | `ph submit show` | (pre-existing) |
+| `POST /releases` | `ph submit release` | (pre-existing) |
+| `POST /labels` | `ph submit label` | (pre-existing) |
+| `POST /festivals` | `ph submit festival` | (pre-existing) |
+| `PATCH /admin/artists/{id}` | Update artist with new info | (pre-existing) |
+| `PUT /venues/{id}` | Update venue with new info | (pre-existing) |
+| `PUT /releases/{id}` | Update release with new info | (pre-existing) |
+| `PUT /labels/{id}` | Update label with new info | (pre-existing) |
+| `PUT /festivals/{id}` | Update festival with new info | (pre-existing) |
+| `POST /tags` | Tag creation (auto on confirm) | (pre-existing) |
+| `GET /tags/search?q=` | Tag duplicate detection | (pre-existing) |
+| `POST /entities/{type}/{id}/tags` | Tag application | (pre-existing) |
 
-### Existing Endpoints Used
+## Tag Integration
 
-| Endpoint | CLI Command |
-|----------|-------------|
-| `GET /artists/search?q=` | Duplicate detection |
-| `GET /venues/search?q=` | Duplicate detection |
-| `POST /shows` | `ph submit show` |
-| `POST /releases` | `ph submit release` |
-| `POST /labels` | `ph submit label` |
-| `POST /festivals` | `ph submit festival` |
-| `PATCH /admin/artists/{id}` | Update artist with new info |
-| `PUT /venues/{id}` | Update venue with new info |
-| `PUT /releases/{id}` | Update release with new info |
-| `PUT /labels/{id}` | Update label with new info |
-| `PUT /festivals/{id}` | Update festival with new info |
+All entity types accept an optional `tags` array. Tags can be strings (defaults to `genre` category) or objects with an explicit category:
+
+```json
+"tags": ["punk", "noise rock", {"name": "Japanese", "category": "locale"}]
+```
+
+Categories: `genre`, `locale`, `mood`, `era`, `style`, `instrument`, `other`.
+
+The TagResolver handles:
+- **Session caching** — same tag searched once across a batch
+- **Fuzzy duplicate detection** — "post punk" flagged as similar to "post-punk" in dry-run
+- **Alias resolution** — server-side, transparent to the CLI
+- **Auto-creation** — new tags created on `--confirm`, 409 on duplicate treated as success
+- **Idempotent application** — already-tagged entities silently skipped
+
+Tags are applied even on SKIP actions (entity already exists but may not have these tags).
+
+## `/ingest` Skill
+
+The `/ingest` Claude Code skill automates the full screenshot-to-knowledge-graph workflow. Usage:
+
+```
+/ingest [--env production|local] [description or paste screenshot]
+```
+
+Workflow: extract entities from screenshot → build batch JSON → dry-run preview → user confirms → submit with tags.
+
+See `.claude/skills/ingest/SKILL.md` for full documentation.
+
+## Dev Utilities
+
+### `gen-api-token`
+
+Generates `phk_` API tokens directly against the database, bypassing the API auth bootstrap loop:
+
+```bash
+cd backend && go run ./cmd/gen-api-token --make-admin
+```
+
+Flags: `--user-id`, `--email`, `--days`, `--description`, `--make-admin`.
 
 ## WFMU / Radio Playlist Workflow
 
@@ -361,61 +402,13 @@ Track-level data (individual songs played) will be stored when radio entity tabl
 
 ## Project Structure
 
-```
-/cli
-├── src/
-│   ├── entry.ts                # Bun shebang entry point
-│   ├── cli.ts                  # Commander.js setup + command registration
-│   ├── commands/
-│   │   ├── init.ts             # ph init
-│   │   ├── config.ts           # ph config
-│   │   ├── submit.ts           # ph submit <type>
-│   │   ├── batch.ts            # ph batch <file>
-│   │   ├── search.ts           # ph search <type> <query>
-│   │   └── status.ts           # ph status
-│   ├── lib/
-│   │   ├── api.ts              # API client (fetch + auth + env targeting)
-│   │   ├── config.ts           # Config file management (~/.psychic-homily/config.json)
-│   │   ├── duplicates.ts       # Duplicate detection engine
-│   │   ├── schemas.ts          # Entity validation schemas
-│   │   ├── display.ts          # Terminal output formatting (tables, diffs, colors)
-│   │   └── types.ts            # Shared TypeScript types
-│   └── test/
-│       ├── api.test.ts
-│       ├── duplicates.test.ts
-│       └── schemas.test.ts
-├── package.json
-├── tsconfig.json
-└── README.md
-```
+See `cli/README.md` for the full architecture diagram, entity schemas, and agent usage guide.
 
-## Implementation Order
+## Status
 
-### Wave 1: Foundation
-1. CLI scaffold (Bun + Commander.js, config, auth, API client)
-2. `ph init` + `ph config` commands
-3. `ph search` command (validates API connection, useful standalone)
+**All 12 tickets shipped (PSY-137 through PSY-148).** Post-project enhancements: tag integration, `/ingest` skill, `gen-api-token` utility, CLI README.
 
-### Wave 2: Backend Gaps
-4. `POST /admin/artists` endpoint (standalone artist create)
-5. `POST /admin/venues` endpoint (standalone venue create)
-6. Search endpoints for releases, labels, festivals (`?q=` param)
-
-### Wave 3: Entity Commands
-7. Duplicate detection engine
-8. `ph submit artist` command
-9. `ph submit venue` command
-10. `ph submit show` command
-11. `ph submit release` command
-12. `ph submit label` command
-13. `ph submit festival` command
-
-### Wave 4: Batch + Polish
-14. `ph batch` command (mixed-entity JSON files)
-15. `ph status` command
-16. WFMU-specific batch template (Claude Code prompt patterns)
-
-## Non-Goals (for this project)
+## Non-Goals
 
 - **Claude API integration** — Claude Code handles all AI extraction
 - **Radio entity backend** — separate project (`docs/strategy/radio-entities.md`). Track-level data deferred.
