@@ -9,6 +9,7 @@ const mockApiRequest = vi.fn()
 // Mock the api module
 vi.mock('../../api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
+  API_BASE_URL: '',
   API_ENDPOINTS: {
     ARTISTS: {
       SEARCH: '/artists/search',
