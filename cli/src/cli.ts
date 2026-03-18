@@ -77,7 +77,8 @@ program
   .command("submit <entity-type> [json]")
   .description("Submit entities for creation/update (artist, venue, show, release, label, festival)")
   .option("--confirm", "Actually submit (default is dry-run)")
-  .action(async (entityType: string, json: string | undefined, opts: { confirm?: boolean }) => {
+  .option("--force", "Skip duplicate checking (force create)")
+  .action(async (entityType: string, json: string | undefined, opts: { confirm?: boolean; force?: boolean }) => {
     if (!SUBMIT_TYPES.includes(entityType)) {
       display.error(
         `Invalid entity type "${entityType}". Must be one of: ${SUBMIT_TYPES.join(", ")}`,
@@ -89,7 +90,7 @@ program
 
     switch (entityType) {
       case "artist":
-        await runSubmitArtist(json, env, { confirm: opts.confirm });
+        await runSubmitArtist(json, env, { confirm: opts.confirm, force: opts.force });
         break;
       case "venue":
         await runSubmitVenue(json, opts, env);

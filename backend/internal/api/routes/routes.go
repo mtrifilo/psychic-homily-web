@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -239,12 +240,11 @@ func setupShowRoutes(router *chi.Mux, api huma.API, protected *huma.Group, sc *s
 
 	// Rate-limited show creation: 10 requests per hour per IP
 	// Prevents flooding the admin approval queue
+	// API token requests (phk_ prefix) bypass the rate limit — they're trusted admin clients
 	router.Group(func(r chi.Router) {
-		r.Use(httprate.Limit(
+		r.Use(rateLimitUnlessAPIToken(
 			middleware.ShowCreateRequestsPerHour,
 			time.Hour,
-			httprate.WithKeyFuncs(httprate.KeyByIP),
-			httprate.WithLimitHandler(rateLimitHandler),
 		))
 		showCreateAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Show Create", "1.0.0"))
 		showCreateAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
@@ -803,6 +803,30 @@ func setupChartsRoutes(api huma.API, sc *services.ServiceContainer) {
 	huma.Get(api, "/charts/active-venues", chartsHandler.GetActiveVenuesHandler)
 	huma.Get(api, "/charts/hot-releases", chartsHandler.GetHotReleasesHandler)
 	huma.Get(api, "/charts/overview", chartsHandler.GetChartsOverviewHandler)
+}
+
+// rateLimitUnlessAPIToken wraps httprate.Limit but skips rate limiting for
+// requests authenticated with an API token (phk_ prefix). API tokens are
+// admin-only and trusted — they shouldn't be throttled during batch imports.
+func rateLimitUnlessAPIToken(requestLimit int, windowLength time.Duration) func(http.Handler) http.Handler {
+	limiter := httprate.Limit(
+		requestLimit,
+		windowLength,
+		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithLimitHandler(rateLimitHandler),
+	)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			auth := r.Header.Get("Authorization")
+			if strings.HasPrefix(auth, "Bearer phk_") {
+				// API token — bypass rate limit
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Normal request — apply rate limit
+			limiter(next).ServeHTTP(w, r)
+		})
+	}
 }
 
 // rateLimitHandler handles rate limit exceeded responses with JSON
