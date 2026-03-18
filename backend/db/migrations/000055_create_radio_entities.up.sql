@@ -62,9 +62,10 @@ CREATE TABLE radio_episodes (
     genre_tags JSONB,
     mood_tags JSONB,
     play_count INT NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(show_id, air_date, COALESCE(external_id, ''))
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX idx_radio_episodes_unique ON radio_episodes(show_id, air_date, COALESCE(external_id, ''));
 
 CREATE INDEX idx_radio_episodes_show ON radio_episodes(show_id, air_date DESC);
 CREATE INDEX idx_radio_episodes_date ON radio_episodes(air_date DESC);
