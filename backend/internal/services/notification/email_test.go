@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -231,4 +232,118 @@ func TestSendAccountRecoveryEmail_APIError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to send account recovery email")
+}
+
+// =============================================================================
+// SendShowReminderEmail
+// =============================================================================
+
+func TestSendShowReminderEmail_Success(t *testing.T) {
+	svc, emails, _ := setupEmailTest(t)
+
+	err := svc.SendShowReminderEmail(
+		"user@test.com",
+		"Rock Night",
+		"http://localhost:3000/shows/rock-night",
+		"http://localhost:3000/unsubscribe?uid=1&sig=abc",
+		time.Date(2026, 7, 15, 20, 0, 0, 0, time.UTC),
+		[]string{"Valley Bar"},
+	)
+
+	require.NoError(t, err)
+	email := <-emails
+	assert.Contains(t, email.From, "noreply@test.com")
+	assert.Equal(t, []string{"user@test.com"}, email.To)
+	assert.Contains(t, email.Subject, "Reminder")
+	assert.Contains(t, email.Subject, "Rock Night")
+	assert.Contains(t, email.Html, "Rock Night")
+	assert.Contains(t, email.Html, "Valley Bar")
+	assert.Contains(t, email.Html, "http://localhost:3000/shows/rock-night")
+	assert.Contains(t, email.Html, "Unsubscribe")
+}
+
+func TestSendShowReminderEmail_NotConfigured(t *testing.T) {
+	svc := &EmailService{client: nil, fromEmail: ""}
+
+	err := svc.SendShowReminderEmail("user@test.com", "Show", "url", "unsub", time.Now(), nil)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not configured")
+}
+
+func TestSendShowReminderEmail_APIError(t *testing.T) {
+	svc := setupEmailTestError(t)
+
+	err := svc.SendShowReminderEmail("user@test.com", "Show", "url", "unsub", time.Now(), nil)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to send show reminder email")
+}
+
+func TestSendShowReminderEmail_MultipleVenues(t *testing.T) {
+	svc, emails, _ := setupEmailTest(t)
+
+	err := svc.SendShowReminderEmail(
+		"user@test.com", "Show", "url", "unsub", time.Now(),
+		[]string{"Valley Bar", "Crescent Ballroom"},
+	)
+
+	require.NoError(t, err)
+	email := <-emails
+	assert.Contains(t, email.Html, "Valley Bar, Crescent Ballroom")
+}
+
+func TestSendShowReminderEmail_NoVenues(t *testing.T) {
+	svc, emails, _ := setupEmailTest(t)
+
+	err := svc.SendShowReminderEmail(
+		"user@test.com", "Show", "url", "unsub", time.Now(),
+		[]string{},
+	)
+
+	require.NoError(t, err)
+	email := <-emails
+	// Should not contain "Venue:" text when no venues
+	assert.NotContains(t, email.Html, "Venue:")
+}
+
+// =============================================================================
+// SendFilterNotificationEmail
+// =============================================================================
+
+func TestSendFilterNotificationEmail_Success(t *testing.T) {
+	svc, emails, _ := setupEmailTest(t)
+
+	htmlBody := "<h1>New show matches your filter!</h1><p>Rock Night at Valley Bar</p>"
+	err := svc.SendFilterNotificationEmail(
+		"user@test.com",
+		"New show: Rock Night",
+		htmlBody,
+		"http://localhost:3000/unsubscribe?uid=1&sig=abc",
+	)
+
+	require.NoError(t, err)
+	email := <-emails
+	assert.Contains(t, email.From, "noreply@test.com")
+	assert.Equal(t, []string{"user@test.com"}, email.To)
+	assert.Equal(t, "New show: Rock Night", email.Subject)
+	assert.Contains(t, email.Html, "Rock Night at Valley Bar")
+}
+
+func TestSendFilterNotificationEmail_NotConfigured(t *testing.T) {
+	svc := &EmailService{client: nil, fromEmail: ""}
+
+	err := svc.SendFilterNotificationEmail("user@test.com", "sub", "body", "unsub")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not configured")
+}
+
+func TestSendFilterNotificationEmail_APIError(t *testing.T) {
+	svc := setupEmailTestError(t)
+
+	err := svc.SendFilterNotificationEmail("user@test.com", "sub", "body", "unsub")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to send filter notification email")
 }
