@@ -36,6 +36,7 @@ import { usePathname } from 'next/navigation'
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList } from '@/features/tags'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
+import { NotifyMeButton } from '@/features/notifications'
 import { ArtistShowsList } from './ArtistShowsList'
 import { RelatedArtists } from './RelatedArtists'
 import { ReportArtistButton } from './ReportArtistButton'
@@ -921,6 +922,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
   const headerActions = (
     <div className="flex items-center gap-2">
+      <NotifyMeButton entityType="artist" entityId={artist.id} entityName={artist.name} />
       <FollowButton entityType="artists" entityId={artist.id} />
       {isAdmin && (
         <Button

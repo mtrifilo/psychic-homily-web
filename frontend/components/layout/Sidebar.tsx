@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   Calendar, CalendarCheck, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Newspaper,
   Send, Library, LayoutList, MessageSquarePlus, Settings, Shield, PanelLeftClose, PanelLeft,
-  ExternalLink, Globe, UserCheck, TrendingUp,
+  ExternalLink, Globe, UserCheck, TrendingUp, Bell,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -134,6 +134,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
                 {renderItem({ href: '/my-shows', label: 'My Shows', icon: CalendarCheck })}
                 {renderItem({ href: '/following', label: 'Following', icon: UserCheck })}
                 {renderItem({ href: '/collection', label: 'Collection', icon: Library })}
+                {renderItem({ href: '/settings/notifications', label: 'Notifications', icon: Bell })}
                 {renderItem({ href: '/profile', label: 'Settings', icon: Settings })}
                 {user?.is_admin && renderItem({ href: '/admin', label: 'Admin', icon: Shield })}
               </div>
