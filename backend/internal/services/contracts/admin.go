@@ -29,6 +29,26 @@ type AdminDashboardStats struct {
 }
 
 // ──────────────────────────────────────────────
+// Activity Feed types
+// ──────────────────────────────────────────────
+
+// ActivityEvent represents a single event in the admin activity feed.
+type ActivityEvent struct {
+	ID          uint      `json:"id"`
+	EventType   string    `json:"event_type"`
+	Description string    `json:"description"`
+	EntityType  string    `json:"entity_type,omitempty"`
+	EntitySlug  string    `json:"entity_slug,omitempty"`
+	Timestamp   time.Time `json:"timestamp"`
+	ActorName   string    `json:"actor_name,omitempty"`
+}
+
+// ActivityFeedResponse contains the list of recent activity events.
+type ActivityFeedResponse struct {
+	Events []ActivityEvent `json:"events"`
+}
+
+// ──────────────────────────────────────────────
 // API Token types
 // ──────────────────────────────────────────────
 

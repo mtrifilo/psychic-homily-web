@@ -294,6 +294,7 @@ export const API_ENDPOINTS = {
       LIST: `${API_BASE_URL}/admin/users`,
     },
     STATS: `${API_BASE_URL}/admin/stats`,
+    ACTIVITY: `${API_BASE_URL}/admin/activity`,
     DISCOVERY: {
       IMPORT: `${API_BASE_URL}/admin/discovery/import`,
     },

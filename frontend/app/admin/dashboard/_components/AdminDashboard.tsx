@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import {
   Clock,
   MapPin,
@@ -9,14 +10,25 @@ import {
   Building2,
   Mic2,
   Users,
-  TrendingUp,
-  UserPlus,
   CircleCheck,
+  CheckCircle,
+  XCircle,
+  PlusCircle,
+  Pencil,
+  Trash2,
+  UserPlus,
+  GitMerge,
+  History,
+  Star,
+  Tag,
+  Link2,
+  Activity,
   type LucideIcon,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
-import { useAdminStats } from '@/lib/hooks/admin/useAdminStats'
+import { useAdminStats, useAdminActivity } from '@/lib/hooks/admin/useAdminStats'
 import { Loader2 } from 'lucide-react'
+import type { ActivityEvent } from '@/lib/types/adminStats'
 
 interface StatCardProps {
   label: string
@@ -80,6 +92,135 @@ function AllClearMessage() {
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function getEventIcon(eventType: string): LucideIcon {
+  if (eventType.includes('approved') || eventType.includes('verified')) return CheckCircle
+  if (eventType.includes('rejected') || eventType.includes('dismissed')) return XCircle
+  if (eventType.includes('created')) return PlusCircle
+  if (eventType.includes('edited') || eventType.includes('updated')) return Pencil
+  if (eventType.includes('deleted')) return Trash2
+  if (eventType.includes('registered')) return UserPlus
+  if (eventType.includes('merged')) return GitMerge
+  if (eventType.includes('rolled_back')) return History
+  if (eventType.includes('featured')) return Star
+  if (eventType.includes('tag')) return Tag
+  if (eventType.includes('relationship') || eventType.includes('alias')) return Link2
+  if (eventType.includes('fulfilled') || eventType.includes('closed')) return CheckCircle
+  if (eventType.includes('resolved')) return CheckCircle
+  return Activity
+}
+
+function getEventIconColor(eventType: string): string {
+  if (eventType.includes('approved') || eventType.includes('verified') || eventType.includes('fulfilled') || eventType.includes('resolved')) {
+    return 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'
+  }
+  if (eventType.includes('rejected') || eventType.includes('dismissed') || eventType.includes('deleted')) {
+    return 'text-red-500 dark:text-red-400 bg-red-500/10'
+  }
+  if (eventType.includes('created')) {
+    return 'text-blue-600 dark:text-blue-400 bg-blue-500/10'
+  }
+  if (eventType.includes('edited') || eventType.includes('updated')) {
+    return 'text-amber-600 dark:text-amber-400 bg-amber-500/10'
+  }
+  if (eventType.includes('merged') || eventType.includes('rolled_back')) {
+    return 'text-violet-600 dark:text-violet-400 bg-violet-500/10'
+  }
+  return 'text-muted-foreground bg-muted'
+}
+
+function getEntityUrl(entityType: string | undefined, entitySlug: string | undefined): string | null {
+  if (!entityType || !entitySlug) return null
+  switch (entityType) {
+    case 'show': return `/shows/${entitySlug}`
+    case 'venue': return `/venues/${entitySlug}`
+    case 'artist': return `/artists/${entitySlug}`
+    default: return null
+  }
+}
+
+function formatRelativeTime(timestamp: string): string {
+  const date = new Date(timestamp)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffSec = Math.floor(diffMs / 1000)
+  const diffMin = Math.floor(diffSec / 60)
+  const diffHr = Math.floor(diffMin / 60)
+  const diffDays = Math.floor(diffHr / 24)
+
+  if (diffSec < 60) return 'just now'
+  if (diffMin < 60) return `${diffMin}m ago`
+  if (diffHr < 24) return `${diffHr}h ago`
+  if (diffDays < 7) return `${diffDays}d ago`
+  return date.toLocaleDateString()
+}
+
+function ActivityFeedItem({ event }: { event: ActivityEvent }) {
+  const Icon = getEventIcon(event.event_type)
+  const iconColor = getEventIconColor(event.event_type)
+  const url = getEntityUrl(event.entity_type, event.entity_slug)
+
+  return (
+    <div className="flex items-start gap-3 py-2.5 px-1">
+      <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${iconColor}`}>
+        <Icon className="h-3.5 w-3.5" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm leading-snug">
+          {url ? (
+            <a href={url} className="hover:underline text-foreground">
+              {event.description}
+            </a>
+          ) : (
+            <span className="text-foreground">{event.description}</span>
+          )}
+        </p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          {event.actor_name && <span>{event.actor_name} &middot; </span>}
+          {formatRelativeTime(event.timestamp)}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function ActivityFeed() {
+  const { data, isLoading, error } = useAdminActivity()
+
+  const events = useMemo(() => data?.events ?? [], [data])
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <p className="text-sm text-muted-foreground py-4 text-center">
+        Failed to load activity feed.
+      </p>
+    )
+  }
+
+  if (events.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground py-8 text-center">
+        No recent activity
+      </p>
+    )
+  }
+
+  return (
+    <div className="max-h-80 overflow-y-auto divide-y divide-border">
+      {events.map((event) => (
+        <ActivityFeedItem key={event.id} event={event} />
+      ))}
+    </div>
   )
 }
 
@@ -194,23 +335,16 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
         </div>
       </section>
 
-      {/* Recent Activity */}
+      {/* Recent Activity Feed */}
       <section>
         <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
-          Last 7 Days
+          Recent Activity
         </h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard
-            label="Shows Submitted"
-            value={stats.shows_submitted_last_7_days}
-            icon={TrendingUp}
-          />
-          <StatCard
-            label="Users Registered"
-            value={stats.users_registered_last_7_days}
-            icon={UserPlus}
-          />
-        </div>
+        <Card>
+          <CardContent className="pt-2 pb-1">
+            <ActivityFeed />
+          </CardContent>
+        </Card>
       </section>
     </div>
   )

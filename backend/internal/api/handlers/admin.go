@@ -2256,6 +2256,55 @@ func (h *AdminHandler) GetAdminStatsHandler(ctx context.Context, req *GetAdminSt
 	return &GetAdminStatsResponse{Body: *stats}, nil
 }
 
+// ============================================================================
+// Admin Activity Feed Handler
+// ============================================================================
+
+// GetActivityFeedRequest represents the HTTP request for getting admin activity feed
+type GetActivityFeedRequest struct{}
+
+// GetActivityFeedResponse represents the HTTP response for admin activity feed
+type GetActivityFeedResponse struct {
+	Body services.ActivityFeedResponse
+}
+
+// GetActivityFeedHandler handles GET /admin/activity
+func (h *AdminHandler) GetActivityFeedHandler(ctx context.Context, req *GetActivityFeedRequest) (*GetActivityFeedResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		logger.FromContext(ctx).Warn("admin_access_denied",
+			"user_id", getUserID(user),
+			"request_id", requestID,
+		)
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	logger.FromContext(ctx).Debug("admin_activity_feed_attempt",
+		"admin_id", user.ID,
+	)
+
+	feed, err := h.adminStatsService.GetRecentActivity()
+	if err != nil {
+		logger.FromContext(ctx).Error("admin_activity_feed_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get activity feed (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Debug("admin_activity_feed_success",
+		"admin_id", user.ID,
+		"event_count", len(feed.Events),
+	)
+
+	return &GetActivityFeedResponse{Body: *feed}, nil
+}
+
 // parseDate parses a date string in YYYY-MM-DD format
 func parseDate(dateStr string) (time.Time, error) {
 	return time.Parse("2006-01-02", dateStr)

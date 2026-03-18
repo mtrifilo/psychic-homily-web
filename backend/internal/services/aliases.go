@@ -287,6 +287,8 @@ type NotificationLogEntry = contracts.NotificationLogEntry
 // ──────────────────────────────────────────────
 
 type AdminDashboardStats = contracts.AdminDashboardStats
+type ActivityEvent = contracts.ActivityEvent
+type ActivityFeedResponse = contracts.ActivityFeedResponse
 type APITokenResponse = contracts.APITokenResponse
 type APITokenCreateResponse = contracts.APITokenCreateResponse
 type ExportedArtist = contracts.ExportedArtist
