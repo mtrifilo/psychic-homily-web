@@ -26,6 +26,12 @@ type AdminDashboardStats struct {
 	// Recent activity (last 7 days)
 	ShowsSubmittedLast7Days  int64 `json:"shows_submitted_last_7_days"`
 	UsersRegisteredLast7Days int64 `json:"users_registered_last_7_days"`
+
+	// Period-over-period trends (current 7 days vs previous 7 days)
+	TotalShowsTrend   int64 `json:"total_shows_trend"`   // delta: current - previous
+	TotalVenuesTrend  int64 `json:"total_venues_trend"`
+	TotalArtistsTrend int64 `json:"total_artists_trend"`
+	TotalUsersTrend   int64 `json:"total_users_trend"`
 }
 
 // ──────────────────────────────────────────────

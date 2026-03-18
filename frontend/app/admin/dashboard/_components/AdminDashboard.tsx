@@ -10,6 +10,7 @@ import {
   Mic2,
   Users,
   TrendingUp,
+  TrendingDown,
   UserPlus,
   CircleCheck,
   type LucideIcon,
@@ -23,10 +24,11 @@ interface StatCardProps {
   value: number
   icon: LucideIcon
   highlight?: boolean
+  trend?: number
   onClick?: () => void
 }
 
-function StatCard({ label, value, icon: Icon, highlight, onClick }: StatCardProps) {
+function StatCard({ label, value, icon: Icon, highlight, trend, onClick }: StatCardProps) {
   const isZeroHighlight = highlight && value === 0
   return (
     <Card
@@ -57,6 +59,14 @@ function StatCard({ label, value, icon: Icon, highlight, onClick }: StatCardProp
             {value.toLocaleString()}
           </p>
           <p className="text-sm text-muted-foreground leading-tight">{label}</p>
+          {trend !== undefined && trend !== 0 && (
+            <span className={`flex items-center gap-1 text-xs ${
+              trend > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'
+            }`}>
+              {trend > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+              {trend > 0 ? '+' : ''}{trend} this week
+            </span>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -171,24 +181,28 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
             label="Approved Shows"
             value={stats.total_shows}
             icon={Music}
+            trend={stats.total_shows_trend}
             onClick={onNavigate ? () => onNavigate('pending-shows') : undefined}
           />
           <StatCard
             label="Verified Venues"
             value={stats.total_venues}
             icon={Building2}
+            trend={stats.total_venues_trend}
             onClick={onNavigate ? () => onNavigate('unverified-venues') : undefined}
           />
           <StatCard
             label="Artists"
             value={stats.total_artists}
             icon={Mic2}
+            trend={stats.total_artists_trend}
             onClick={onNavigate ? () => onNavigate('artists-admin') : undefined}
           />
           <StatCard
             label="Users"
             value={stats.total_users}
             icon={Users}
+            trend={stats.total_users_trend}
             onClick={onNavigate ? () => onNavigate('users') : undefined}
           />
         </div>

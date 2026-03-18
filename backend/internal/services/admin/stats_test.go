@@ -201,6 +201,27 @@ func (suite *AdminStatsServiceIntegrationTestSuite) createUserWithTime(email str
 	return user
 }
 
+func (suite *AdminStatsServiceIntegrationTestSuite) createVenueWithTime(name, city, state string, verified bool, createdAt time.Time) *models.Venue {
+	venue := &models.Venue{
+		Name:     name,
+		City:     city,
+		State:    state,
+		Verified: verified,
+	}
+	err := suite.db.Create(venue).Error
+	suite.Require().NoError(err)
+	suite.db.Exec("UPDATE venues SET created_at = ? WHERE id = ?", createdAt, venue.ID)
+	return venue
+}
+
+func (suite *AdminStatsServiceIntegrationTestSuite) createArtistWithTime(name string, createdAt time.Time) *models.Artist {
+	artist := &models.Artist{Name: name}
+	err := suite.db.Create(artist).Error
+	suite.Require().NoError(err)
+	suite.db.Exec("UPDATE artists SET created_at = ? WHERE id = ?", createdAt, artist.ID)
+	return artist
+}
+
 // =============================================================================
 // TESTS
 // =============================================================================
@@ -381,4 +402,57 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_FullSc
 	suite.Equal(int64(3), stats.TotalUsers)
 	suite.Equal(int64(2), stats.ShowsSubmittedLast7Days) // Recent approved + pending
 	suite.Equal(int64(2), stats.UsersRegisteredLast7Days)
+}
+
+func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_Trends() {
+	now := time.Now()
+	threeDaysAgo := now.AddDate(0, 0, -3)   // within current 7 days
+	tenDaysAgo := now.AddDate(0, 0, -10)    // within previous 7 days (14-7 days ago)
+	twentyDaysAgo := now.AddDate(0, 0, -20) // older than 14 days (should not count)
+
+	// Shows: 2 approved in current week, 1 approved in previous week => trend = +1
+	suite.createShowWithTime("Current Show 1", models.ShowStatusApproved, threeDaysAgo)
+	suite.createShowWithTime("Current Show 2", models.ShowStatusApproved, now)
+	suite.createShowWithTime("Previous Show", models.ShowStatusApproved, tenDaysAgo)
+	suite.createShowWithTime("Old Show", models.ShowStatusApproved, twentyDaysAgo)
+	// Pending shows should not count for trend
+	suite.createShowWithTime("Pending Current", models.ShowStatusPending, threeDaysAgo)
+
+	// Venues: 1 verified in current week, 2 verified in previous week => trend = -1
+	suite.createVenueWithTime("Current Venue", "NYC", "NY", true, threeDaysAgo)
+	suite.createVenueWithTime("Previous Venue 1", "LA", "CA", true, tenDaysAgo)
+	suite.createVenueWithTime("Previous Venue 2", "CHI", "IL", true, tenDaysAgo)
+	// Unverified venue should not count
+	suite.createVenueWithTime("Unverified Current", "SF", "CA", false, threeDaysAgo)
+
+	// Artists: 3 in current week, 1 in previous week => trend = +2
+	suite.createArtistWithTime("Current Artist 1", threeDaysAgo)
+	suite.createArtistWithTime("Current Artist 2", now)
+	suite.createArtistWithTime("Current Artist 3", now)
+	suite.createArtistWithTime("Previous Artist", tenDaysAgo)
+	suite.createArtistWithTime("Old Artist", twentyDaysAgo)
+
+	// Users: 1 in current week, 1 in previous week => trend = 0
+	suite.createUserWithTime("current@test.com", threeDaysAgo)
+	suite.createUserWithTime("previous@test.com", tenDaysAgo)
+	suite.createUserWithTime("old@test.com", twentyDaysAgo)
+
+	stats, err := suite.service.GetDashboardStats()
+	suite.Require().NoError(err)
+
+	suite.Equal(int64(1), stats.TotalShowsTrend, "shows trend: 2 current - 1 previous = +1")
+	suite.Equal(int64(-1), stats.TotalVenuesTrend, "venues trend: 1 current - 2 previous = -1")
+	suite.Equal(int64(2), stats.TotalArtistsTrend, "artists trend: 3 current - 1 previous = +2")
+	suite.Equal(int64(0), stats.TotalUsersTrend, "users trend: 1 current - 1 previous = 0")
+}
+
+func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_TrendsEmpty() {
+	// With no data, all trends should be 0
+	stats, err := suite.service.GetDashboardStats()
+	suite.Require().NoError(err)
+
+	suite.Equal(int64(0), stats.TotalShowsTrend)
+	suite.Equal(int64(0), stats.TotalVenuesTrend)
+	suite.Equal(int64(0), stats.TotalArtistsTrend)
+	suite.Equal(int64(0), stats.TotalUsersTrend)
 }

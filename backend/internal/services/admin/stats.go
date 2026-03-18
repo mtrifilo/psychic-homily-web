@@ -71,5 +71,45 @@ func (s *AdminStatsService) GetDashboardStats() (*contracts.AdminDashboardStats,
 		return nil, err
 	}
 
+	// Period-over-period trends (current 7 days vs previous 7 days)
+	fourteenDaysAgo := time.Now().AddDate(0, 0, -14)
+
+	var showsCurrent, showsPrevious int64
+	if err := s.db.Model(&models.Show{}).Where("status = ? AND created_at > ?", models.ShowStatusApproved, sevenDaysAgo).Count(&showsCurrent).Error; err != nil {
+		// Log but don't fail — trends are non-critical
+		showsCurrent = 0
+	}
+	if err := s.db.Model(&models.Show{}).Where("status = ? AND created_at > ? AND created_at <= ?", models.ShowStatusApproved, fourteenDaysAgo, sevenDaysAgo).Count(&showsPrevious).Error; err != nil {
+		showsPrevious = 0
+	}
+	stats.TotalShowsTrend = showsCurrent - showsPrevious
+
+	var venuesCurrent, venuesPrevious int64
+	if err := s.db.Model(&models.Venue{}).Where("verified = ? AND created_at > ?", true, sevenDaysAgo).Count(&venuesCurrent).Error; err != nil {
+		venuesCurrent = 0
+	}
+	if err := s.db.Model(&models.Venue{}).Where("verified = ? AND created_at > ? AND created_at <= ?", true, fourteenDaysAgo, sevenDaysAgo).Count(&venuesPrevious).Error; err != nil {
+		venuesPrevious = 0
+	}
+	stats.TotalVenuesTrend = venuesCurrent - venuesPrevious
+
+	var artistsCurrent, artistsPrevious int64
+	if err := s.db.Model(&models.Artist{}).Where("created_at > ?", sevenDaysAgo).Count(&artistsCurrent).Error; err != nil {
+		artistsCurrent = 0
+	}
+	if err := s.db.Model(&models.Artist{}).Where("created_at > ? AND created_at <= ?", fourteenDaysAgo, sevenDaysAgo).Count(&artistsPrevious).Error; err != nil {
+		artistsPrevious = 0
+	}
+	stats.TotalArtistsTrend = artistsCurrent - artistsPrevious
+
+	var usersCurrent, usersPrevious int64
+	if err := s.db.Model(&models.User{}).Where("created_at > ?", sevenDaysAgo).Count(&usersCurrent).Error; err != nil {
+		usersCurrent = 0
+	}
+	if err := s.db.Model(&models.User{}).Where("created_at > ? AND created_at <= ?", fourteenDaysAgo, sevenDaysAgo).Count(&usersPrevious).Error; err != nil {
+		usersPrevious = 0
+	}
+	stats.TotalUsersTrend = usersCurrent - usersPrevious
+
 	return stats, nil
 }
