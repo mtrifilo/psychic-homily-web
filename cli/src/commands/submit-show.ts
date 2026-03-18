@@ -1,7 +1,7 @@
 import { APIClient } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
 import { validateShow } from "../lib/schemas";
-import { searchArtistsByName, searchVenuesByName } from "../lib/duplicates";
+import { searchArtistsByName, searchVenuesByName, similarityScore } from "../lib/duplicates";
 import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
 import type { TagInput, ResolvedTag } from "../lib/tags";
 import * as display from "../lib/display";
@@ -100,11 +100,16 @@ export async function resolveArtists(
   for (const artist of artists) {
     try {
       const results = await searchArtistsByName(client, artist.name);
-      if (results.length > 0) {
-        // Use the best match (first result from search)
+      // Find best match by similarity score, require >= 0.7
+      const best = results
+        .map((r) => ({ ...r, score: similarityScore(artist.name, r.name) }))
+        .filter((r) => r.score >= 0.7)
+        .sort((a, b) => b.score - a.score)[0];
+
+      if (best) {
         resolved.push({
-          id: results[0].id,
-          name: results[0].name,
+          id: best.id,
+          name: best.name,
           is_headliner: artist.is_headliner,
           status: "existing",
         });
@@ -138,10 +143,16 @@ export async function resolveVenues(
   for (const venue of venues) {
     try {
       const results = await searchVenuesByName(client, venue.name);
-      if (results.length > 0) {
+      // Find best match by similarity score, require >= 0.7
+      const best = results
+        .map((r) => ({ ...r, score: similarityScore(venue.name, r.name) }))
+        .filter((r) => r.score >= 0.7)
+        .sort((a, b) => b.score - a.score)[0];
+
+      if (best) {
         resolved.push({
-          id: results[0].id,
-          name: results[0].name,
+          id: best.id,
+          name: best.name,
           city: venue.city,
           state: venue.state,
           address: venue.address,

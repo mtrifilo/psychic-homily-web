@@ -371,6 +371,11 @@ export const queryKeys = {
       ['revisions', 'user', String(userId)] as const,
   },
 
+  // Notification filter queries
+  notificationFilters: {
+    all: ['notificationFilters'] as const,
+  },
+
   // System queries
   system: {
     health: ['system', 'health'] as const,
@@ -479,4 +484,8 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate revision queries
   revisions: () =>
     queryClient.invalidateQueries({ queryKey: ['revisions'] }),
+
+  // Invalidate notification filter queries
+  notificationFilters: () =>
+    queryClient.invalidateQueries({ queryKey: ['notificationFilters'] }),
 })

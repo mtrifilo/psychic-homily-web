@@ -105,6 +105,14 @@ vi.mock('@/lib/context/NavigationBreadcrumbContext', () => ({
 // Mock next/navigation
 vi.mock('next/navigation', () => ({
   usePathname: () => '/artists/test-artist',
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
+// Mock NotifyMeButton to avoid deep notification hooks dependency
+vi.mock('@/features/notifications', () => ({
+  NotifyMeButton: ({ entityName }: { entityType: string; entityId: number; entityName: string }) => (
+    <button data-testid="notify-me-button">Notify {entityName}</button>
+  ),
 }))
 
 vi.mock('@/components/shared', () => ({

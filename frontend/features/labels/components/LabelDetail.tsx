@@ -14,6 +14,7 @@ import {
 import { useLabel, useLabelRoster, useLabelCatalog } from '../hooks/useLabels'
 import { usePathname } from 'next/navigation'
 import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton } from '@/components/shared'
+import { NotifyMeButton } from '@/features/notifications'
 import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbContext'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -193,7 +194,12 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
               {label.founded_year && <span>Est. {label.founded_year}</span>}
             </>
           }
-          actions={<FollowButton entityType="labels" entityId={label.id} />}
+          actions={
+            <div className="flex items-center gap-2">
+              <NotifyMeButton entityType="label" entityId={label.id} entityName={label.name} />
+              <FollowButton entityType="labels" entityId={label.id} />
+            </div>
+          }
         />
       }
       tabs={tabs}
