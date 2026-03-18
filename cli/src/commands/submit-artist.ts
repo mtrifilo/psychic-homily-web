@@ -17,6 +17,7 @@ export interface SubmitArtistResult {
 
 export interface SubmitArtistsOptions {
   confirm?: boolean;
+  force?: boolean;
 }
 
 /**
@@ -150,13 +151,19 @@ export async function submitArtists(
     }));
   }
 
-  // Phase 2: Check duplicates for all artists
-  display.info("Checking for duplicates...");
-
+  // Phase 2: Check duplicates for all artists (skip with --force)
   const dupResults: DuplicateCheckResult[] = [];
-  for (let i = 0; i < artists.length; i++) {
-    const result = await checkDuplicate(client, "artist", artists[i]);
-    dupResults.push(result);
+  if (options.force) {
+    display.info("Skipping duplicate check (--force)");
+    for (const artist of artists) {
+      dupResults.push({ action: "create" as const, match: "none" as const, fields: [], confidence: 0 });
+    }
+  } else {
+    display.info("Checking for duplicates...");
+    for (let i = 0; i < artists.length; i++) {
+      const result = await checkDuplicate(client, "artist", artists[i]);
+      dupResults.push(result);
+    }
   }
 
   // Phase 2b: Resolve tags for all artists

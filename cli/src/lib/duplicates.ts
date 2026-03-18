@@ -51,8 +51,15 @@ export function similarityScore(a: string, b: string): number {
   const shorter = na.length < nb.length ? na : nb;
 
   if (longer.includes(shorter)) {
-    // Scale by how much of the longer string the shorter covers
-    return 0.8 + 0.2 * (shorter.length / longer.length);
+    const coverage = shorter.length / longer.length;
+    // Require at least 60% coverage for substring match to count
+    // "house" in "houseofvivian" = 38% → not a match
+    // "national" in "the national" = 67% → match
+    if (coverage >= 0.6) {
+      return 0.8 + 0.2 * coverage;
+    }
+    // Low coverage substring: treat as weak signal, not a match
+    return 0.4 + 0.3 * coverage;
   }
 
   // Common prefix scoring
