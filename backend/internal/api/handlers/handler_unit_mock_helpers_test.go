@@ -338,6 +338,9 @@ type mockUserService struct {
 	permanentlyDeleteUserFn         func(userID uint) error
 	canUnlinkOAuthAccountFn         func(userID uint, provider string) (bool, string, error)
 	unlinkOAuthAccountFn            func(userID uint, provider string) error
+	getFavoriteCitiesFn             func(userID uint) ([]models.FavoriteCity, error)
+	setFavoriteCitiesFn             func(userID uint, cities []models.FavoriteCity) error
+	setShowRemindersFn              func(userID uint, enabled bool) error
 }
 
 func (m *mockUserService) ListUsers(limit, offset int, filters services.AdminUserFilters) ([]*services.AdminUserResponse, int64, error) {
@@ -533,12 +536,21 @@ func (m *mockUserService) UnlinkOAuthAccount(userID uint, provider string) error
 	return nil
 }
 func (m *mockUserService) GetFavoriteCities(userID uint) ([]models.FavoriteCity, error) {
+	if m.getFavoriteCitiesFn != nil {
+		return m.getFavoriteCitiesFn(userID)
+	}
 	return []models.FavoriteCity{}, nil
 }
 func (m *mockUserService) SetFavoriteCities(userID uint, cities []models.FavoriteCity) error {
+	if m.setFavoriteCitiesFn != nil {
+		return m.setFavoriteCitiesFn(userID, cities)
+	}
 	return nil
 }
 func (m *mockUserService) SetShowReminders(userID uint, enabled bool) error {
+	if m.setShowRemindersFn != nil {
+		return m.setShowRemindersFn(userID, enabled)
+	}
 	return nil
 }
 
