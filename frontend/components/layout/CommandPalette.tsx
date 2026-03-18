@@ -15,7 +15,7 @@ import {
   Calendar, CalendarCheck, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
   Library, LayoutList, MessageSquarePlus, Settings, Search, Clock, X, Globe, UserCheck,
   TrendingUp, LayoutDashboard, Upload, BadgeCheck, Flag, ScrollText, Users, Workflow,
-  ClipboardCheck, BarChart3, Music,
+  ClipboardCheck, BarChart3, Music, Bell,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -134,6 +134,13 @@ const routes: RouteItem[] = [
     href: '/collection',
     icon: Library,
     keywords: ['collection', 'saved', 'my list', 'favorites', 'bookmarks'],
+    requireAuth: true,
+  },
+  {
+    label: 'Notification Filters',
+    href: '/settings/notifications',
+    icon: Bell,
+    keywords: ['notifications', 'notify', 'filters', 'alerts', 'bell', 'subscribe'],
     requireAuth: true,
   },
   {

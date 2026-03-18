@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ArrowLeft, Hash, Loader2 } from 'lucide-react'
+import { NotifyMeButton } from '@/features/notifications'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -103,6 +104,7 @@ export function TagDetail({ slug }: TagDetailProps) {
               {tag.is_official && (
                 <Badge variant="secondary">Official</Badge>
               )}
+              <NotifyMeButton entityType="tag" entityId={tag.id} entityName={tag.name} />
             </div>
 
             <div className="flex items-center gap-3 mb-4">

@@ -11,6 +11,7 @@ import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbCont
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryClient'
 import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb } from '@/components/shared'
+import { NotifyMeButton } from '@/features/notifications'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
@@ -164,6 +165,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
                   )}
                   <FavoriteVenueButton venueId={venue.id} size="md" />
                   <FollowButton entityType="venues" entityId={venue.id} />
+                  <NotifyMeButton entityType="venue" entityId={venue.id} entityName={venue.name} />
                 </div>
                 <p className="text-muted-foreground mt-1">
                   {venue.city}, {venue.state}
