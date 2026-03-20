@@ -4,6 +4,7 @@ export {
   type TimeFilter,
   useVenueShows,
   useVenueCities,
+  useVenueGenres,
 } from './useVenues'
 
 export { useVenueSearch } from './useVenueSearch'

@@ -6,6 +6,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/catalog"
 )
 
 // SceneHandler handles scene (city aggregation) endpoints.
@@ -136,6 +137,51 @@ func (h *SceneHandler) GetSceneActiveArtistsHandler(ctx context.Context, req *Ge
 	resp := &GetSceneActiveArtistsResponse{}
 	resp.Body.Artists = artists
 	resp.Body.Total = total
+
+	return resp, nil
+}
+
+// ============================================================================
+// Get Scene Genres
+// ============================================================================
+
+// GetSceneGenresRequest represents the request for getting scene genre distribution.
+type GetSceneGenresRequest struct {
+	Slug string `path:"slug" doc:"Scene slug (e.g. phoenix-az)" example:"phoenix-az"`
+}
+
+// GetSceneGenresResponse represents the response for scene genre distribution.
+type GetSceneGenresResponse struct {
+	Body *services.SceneGenreResponse
+}
+
+// GetSceneGenresHandler handles GET /scenes/{slug}/genres — returns genre distribution and diversity index.
+func (h *SceneHandler) GetSceneGenresHandler(ctx context.Context, req *GetSceneGenresRequest) (*GetSceneGenresResponse, error) {
+	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
+	if err != nil {
+		return nil, huma.Error404NotFound("Scene not found")
+	}
+
+	genres, err := h.sceneService.GetSceneGenreDistribution(city, state)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to get scene genre distribution", err)
+	}
+	if genres == nil {
+		genres = []services.GenreCount{}
+	}
+
+	diversityIndex, err := h.sceneService.GetGenreDiversityIndex(city, state)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to get genre diversity index", err)
+	}
+
+	resp := &GetSceneGenresResponse{
+		Body: &services.SceneGenreResponse{
+			Genres:         genres,
+			DiversityIndex: diversityIndex,
+			DiversityLabel: catalog.DiversityLabel(diversityIndex),
+		},
+	}
 
 	return resp, nil
 }

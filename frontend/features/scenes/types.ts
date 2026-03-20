@@ -56,3 +56,16 @@ export interface SceneArtistsResponse {
   artists: SceneArtist[]
   total: number
 }
+
+export interface GenreCount {
+  tag_id: number
+  name: string
+  slug: string
+  count: number
+}
+
+export interface SceneGenreResponse {
+  genres: GenreCount[]
+  diversity_index: number
+  diversity_label: string
+}

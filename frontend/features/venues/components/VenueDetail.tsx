@@ -4,13 +4,13 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { ArrowLeft, BadgeCheck, Pencil, Trash2, Loader2, ExternalLink } from 'lucide-react'
-import { useVenue } from '../hooks/useVenues'
+import { useVenue, useVenueGenres } from '../hooks/useVenues'
 import type { ApiError } from '@/lib/api'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbContext'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryClient'
-import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb } from '@/components/shared'
+import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb, TagPill } from '@/components/shared'
 import { NotifyMeButton } from '@/features/notifications'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
@@ -44,6 +44,29 @@ function normalizeUrl(url: string): string {
     return url
   }
   return `https://${url}`
+}
+
+function VenueGenreProfile({ venueId }: { venueId: number }) {
+  const { data } = useVenueGenres(venueId)
+
+  if (!data?.genres || data.genres.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="rounded-lg border bg-card p-4 mt-4">
+      <h3 className="text-sm font-semibold mb-3">Genre Profile</h3>
+      <div className="flex flex-wrap gap-1.5">
+        {data.genres.map((genre) => (
+          <TagPill
+            key={genre.tag_id}
+            label={genre.name}
+            href={`/tags/${genre.slug}`}
+          />
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export function VenueDetail({ venueId }: VenueDetailProps) {
@@ -225,7 +248,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
           />
         </div>
 
-        {/* Sidebar - Location Card */}
+        {/* Sidebar - Location Card + Genre Profile */}
         <div className="order-1 lg:order-2">
           <VenueLocationCard
             name={venue.name}
@@ -235,6 +258,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
             zipcode={venue.zipcode}
             verified={venue.verified}
           />
+          <VenueGenreProfile venueId={venue.id} />
         </div>
       </div>
 

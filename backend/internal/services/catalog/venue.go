@@ -1120,6 +1120,70 @@ func (s *VenueService) CancelPendingVenueEdit(editID uint, userID uint) error {
 	return nil
 }
 
+// GetVenueGenreProfile returns genre tags derived from artists who have played approved
+// shows at this venue. Returns the top 5 genres ranked by distinct artist count.
+// Returns empty if the venue has fewer than 10 shows with tagged artists.
+func (s *VenueService) GetVenueGenreProfile(venueID uint) ([]contracts.GenreCount, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// First check if venue has enough shows with tagged artists
+	var showCount int64
+	err := s.db.Raw(`
+		SELECT COUNT(DISTINCT sa.show_id)
+		FROM show_artists sa
+		JOIN show_venues sv ON sv.show_id = sa.show_id
+		JOIN shows s ON s.id = sa.show_id
+		JOIN entity_tags et ON et.entity_type = 'artist' AND et.entity_id = sa.artist_id
+		JOIN tags t ON t.id = et.tag_id AND t.category = 'genre'
+		WHERE sv.venue_id = ? AND s.status = ?
+	`, venueID, models.ShowStatusApproved).Scan(&showCount).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to count tagged shows for venue: %w", err)
+	}
+
+	if showCount < 10 {
+		return []contracts.GenreCount{}, nil
+	}
+
+	type genreRow struct {
+		TagID uint   `gorm:"column:tag_id"`
+		Name  string `gorm:"column:name"`
+		Slug  string `gorm:"column:slug"`
+		Count int    `gorm:"column:count"`
+	}
+
+	var rows []genreRow
+	err = s.db.Raw(`
+		SELECT t.id AS tag_id, t.name, t.slug, COUNT(DISTINCT sa.artist_id) AS count
+		FROM show_artists sa
+		JOIN show_venues sv ON sv.show_id = sa.show_id
+		JOIN shows s ON s.id = sa.show_id
+		JOIN entity_tags et ON et.entity_type = 'artist' AND et.entity_id = sa.artist_id
+		JOIN tags t ON t.id = et.tag_id AND t.category = 'genre'
+		WHERE sv.venue_id = ? AND s.status = ?
+		GROUP BY t.id, t.name, t.slug
+		ORDER BY count DESC
+		LIMIT 5
+	`, venueID, models.ShowStatusApproved).Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get venue genre profile: %w", err)
+	}
+
+	result := make([]contracts.GenreCount, len(rows))
+	for i, r := range rows {
+		result[i] = contracts.GenreCount{
+			TagID: r.TagID,
+			Name:  r.Name,
+			Slug:  r.Slug,
+			Count: r.Count,
+		}
+	}
+
+	return result, nil
+}
+
 // GetVenueModel retrieves a raw venue model (used by handlers to check ownership)
 func (s *VenueService) GetVenueModel(venueID uint) (*models.Venue, error) {
 	if s.db == nil {
