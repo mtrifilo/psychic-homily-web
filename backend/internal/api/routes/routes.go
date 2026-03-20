@@ -493,6 +493,7 @@ func setupAdminRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 
 	// Admin dashboard stats endpoint
 	huma.Get(protected, "/admin/stats", adminHandler.GetAdminStatsHandler)
+	huma.Get(protected, "/admin/activity", adminHandler.GetActivityFeedHandler)
 
 	// Admin show listing endpoint (for CLI export)
 	huma.Get(protected, "/admin/shows", adminHandler.GetAdminShowsHandler)

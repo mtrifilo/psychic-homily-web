@@ -39,7 +39,7 @@ export {
   useBatchRejectShows,
 } from './useAdminShows'
 
-export { useAdminStats } from './useAdminStats'
+export { useAdminStats, useAdminActivity } from './useAdminStats'
 
 export {
   type DataQualityCategory,

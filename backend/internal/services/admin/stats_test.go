@@ -42,6 +42,13 @@ func TestAdminStatsService_NilDB(t *testing.T) {
 	})
 }
 
+func TestAdminStatsService_NilDB_GetRecentActivity(t *testing.T) {
+	svc := &AdminStatsService{db: nil}
+	assert.Panics(t, func() {
+		svc.GetRecentActivity()
+	})
+}
+
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================
@@ -114,6 +121,7 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TearDownSuite() {
 func (suite *AdminStatsServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
+	_, _ = sqlDB.Exec("DELETE FROM audit_logs")
 	_, _ = sqlDB.Exec("DELETE FROM artist_reports")
 	_, _ = sqlDB.Exec("DELETE FROM show_reports")
 	_, _ = sqlDB.Exec("DELETE FROM pending_venue_edits")
@@ -353,6 +361,190 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_Recent
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), stats.ShowsSubmittedLast7Days)
 	suite.Equal(int64(2), stats.UsersRegisteredLast7Days)
+}
+
+// =============================================================================
+// GetRecentActivity TESTS
+// =============================================================================
+
+func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_Empty() {
+	feed, err := suite.service.GetRecentActivity()
+	suite.Require().NoError(err)
+	suite.NotNil(feed)
+	suite.Len(feed.Events, 0)
+}
+
+func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_BasicEvent() {
+	user := suite.createUser("admin@test.com")
+	suite.createAuditLog(user.ID, "approve_show", "show", 1)
+
+	feed, err := suite.service.GetRecentActivity()
+	suite.Require().NoError(err)
+	suite.Require().Len(feed.Events, 1)
+
+	event := feed.Events[0]
+	suite.Equal("show_approved", event.EventType)
+	suite.Contains(event.Description, "Show #1")
+	suite.Contains(event.Description, "approved")
+	suite.Equal("show", event.EntityType)
+	suite.NotEmpty(event.ActorName)
+}
+
+func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_WithSlugResolution() {
+	user := suite.createUser("admin@test.com")
+	slug := "test-slug"
+	artist := &models.Artist{Name: "Test Artist", Slug: &slug}
+	err := suite.db.Create(artist).Error
+	suite.Require().NoError(err)
+
+	suite.createAuditLog(user.ID, "edit_artist", "artist", artist.ID)
+
+	feed, err := suite.service.GetRecentActivity()
+	suite.Require().NoError(err)
+	suite.Require().Len(feed.Events, 1)
+
+	event := feed.Events[0]
+	suite.Equal("artist_edited", event.EventType)
+	suite.Equal("artist", event.EntityType)
+	suite.Equal("test-slug", event.EntitySlug)
+}
+
+func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_OrderedByRecent() {
+	user := suite.createUser("admin@test.com")
+
+	// Create events with different timestamps
+	suite.createAuditLogWithTime(user.ID, "approve_show", "show", 1, time.Now().Add(-2*time.Hour))
+	suite.createAuditLogWithTime(user.ID, "verify_venue", "venue", 1, time.Now().Add(-1*time.Hour))
+	suite.createAuditLogWithTime(user.ID, "create_artist", "artist", 1, time.Now())
+
+	feed, err := suite.service.GetRecentActivity()
+	suite.Require().NoError(err)
+	suite.Require().Len(feed.Events, 3)
+
+	// Most recent first
+	suite.Equal("artist_created", feed.Events[0].EventType)
+	suite.Equal("venue_verified", feed.Events[1].EventType)
+	suite.Equal("show_approved", feed.Events[2].EventType)
+}
+
+func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_Limit20() {
+	user := suite.createUser("admin@test.com")
+
+	// Create 25 events
+	for i := 0; i < 25; i++ {
+		suite.createAuditLog(user.ID, "approve_show", "show", uint(i+1))
+	}
+
+	feed, err := suite.service.GetRecentActivity()
+	suite.Require().NoError(err)
+	suite.Len(feed.Events, 20) // Should be capped at 20
+}
+
+func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_ActorNameResolution() {
+	firstName := "Jane"
+	lastName := "Doe"
+	email := "jane@test.com"
+	user := &models.User{
+		Email:     &email,
+		FirstName: &firstName,
+		LastName:  &lastName,
+		IsActive:  true,
+	}
+	err := suite.db.Create(user).Error
+	suite.Require().NoError(err)
+
+	suite.createAuditLog(user.ID, "approve_show", "show", 1)
+
+	feed, err := suite.service.GetRecentActivity()
+	suite.Require().NoError(err)
+	suite.Require().Len(feed.Events, 1)
+	suite.Equal("Jane Doe", feed.Events[0].ActorName)
+}
+
+func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_ActorNameFallbackToUsername() {
+	email := "user@test.com"
+	username := "cooluser"
+	user := &models.User{
+		Email:    &email,
+		Username: &username,
+		IsActive: true,
+	}
+	err := suite.db.Create(user).Error
+	suite.Require().NoError(err)
+
+	suite.createAuditLog(user.ID, "verify_venue", "venue", 1)
+
+	feed, err := suite.service.GetRecentActivity()
+	suite.Require().NoError(err)
+	suite.Require().Len(feed.Events, 1)
+	suite.Equal("cooluser", feed.Events[0].ActorName)
+}
+
+func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_VenueEditSlugResolution() {
+	user := suite.createUser("admin@test.com")
+	slug := "test-venue"
+	venue := &models.Venue{Name: "Test Venue", City: "NYC", State: "NY", Slug: &slug}
+	err := suite.db.Create(venue).Error
+	suite.Require().NoError(err)
+
+	edit := &models.PendingVenueEdit{
+		VenueID:     venue.ID,
+		SubmittedBy: user.ID,
+		Status:      models.VenueEditStatusPending,
+	}
+	err = suite.db.Create(edit).Error
+	suite.Require().NoError(err)
+
+	suite.createAuditLog(user.ID, "approve_venue_edit", "venue_edit", edit.ID)
+
+	feed, err := suite.service.GetRecentActivity()
+	suite.Require().NoError(err)
+	suite.Require().Len(feed.Events, 1)
+
+	event := feed.Events[0]
+	suite.Equal("venue_edit_approved", event.EventType)
+	suite.Equal("venue", event.EntityType)
+	suite.Equal("test-venue", event.EntitySlug)
+}
+
+func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_UnknownActionFallback() {
+	user := suite.createUser("admin@test.com")
+	suite.createAuditLog(user.ID, "some_new_action", "widget", 42)
+
+	feed, err := suite.service.GetRecentActivity()
+	suite.Require().NoError(err)
+	suite.Require().Len(feed.Events, 1)
+
+	event := feed.Events[0]
+	suite.Equal("some_new_action", event.EventType) // Falls through unchanged
+	suite.Contains(event.Description, "#42")
+}
+
+// =============================================================================
+// GetRecentActivity HELPERS
+// =============================================================================
+
+func (suite *AdminStatsServiceIntegrationTestSuite) createAuditLog(actorID uint, action, entityType string, entityID uint) {
+	log := &models.AuditLog{
+		ActorID:    &actorID,
+		Action:     action,
+		EntityType: entityType,
+		EntityID:   entityID,
+	}
+	err := suite.db.Create(log).Error
+	suite.Require().NoError(err)
+}
+
+func (suite *AdminStatsServiceIntegrationTestSuite) createAuditLogWithTime(actorID uint, action, entityType string, entityID uint, createdAt time.Time) {
+	log := &models.AuditLog{
+		ActorID:    &actorID,
+		Action:     action,
+		EntityType: entityType,
+		EntityID:   entityID,
+	}
+	err := suite.db.Create(log).Error
+	suite.Require().NoError(err)
+	suite.db.Exec("UPDATE audit_logs SET created_at = ? WHERE id = ?", createdAt, log.ID)
 }
 
 func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_FullScenario() {

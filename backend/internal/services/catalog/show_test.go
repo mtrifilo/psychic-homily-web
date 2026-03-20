@@ -1528,11 +1528,11 @@ func (suite *ShowServiceIntegrationTestSuite) TestSetShowCancelled() {
 }
 
 // =============================================================================
-// Group 7: ParseShowMarkdown (Pure Logic — no DB needed)
+// Group 7: ParseShowMarkdown (Pure Logic -- no DB needed)
 // =============================================================================
 
 func TestParseShowMarkdown_Valid(t *testing.T) {
-	svc := &ShowService{} // nil db is fine — ParseShowMarkdown doesn't use it
+	svc := &ShowService{} // nil db is fine -- ParseShowMarkdown doesn't use it
 	content := []byte(`---
 version: "1.0"
 exported_at: "2026-01-15T12:00:00Z"
@@ -1951,4 +1951,684 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_CityFilter() {
 	suite.Equal(int64(1), total)
 	suite.Require().Len(shows, 1)
 	suite.Equal("TUC Admin Show", shows[0].Title)
+}
+
+// =============================================================================
+// Group 10: Batch Approve / Reject
+// =============================================================================
+
+// createPendingShow creates a show and sets it to pending status, returning the show ID.
+func (suite *ShowServiceIntegrationTestSuite) createPendingShow(title string, dayOffset int) uint {
+	user := suite.createTestUser()
+	req := &contracts.CreateShowRequest{
+		Title:     title,
+		EventDate: time.Date(2026, 6, 15+dayOffset, 20, 0, 0, 0, time.UTC),
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues: []contracts.CreateShowVenue{
+			{Name: fmt.Sprintf("Batch Venue %s", title), City: "Phoenix", State: "AZ"},
+		},
+		Artists: []contracts.CreateShowArtist{
+			{Name: fmt.Sprintf("Batch Artist %s", title), IsHeadliner: boolPtr(true)},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	resp, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+	// Force status to pending so BatchApprove/Reject can operate on it
+	suite.db.Model(&models.Show{}).Where("id = ?", resp.ID).Update("status", models.ShowStatusPending)
+	return resp.ID
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestBatchApproveShows_Success() {
+	id1 := suite.createPendingShow("Batch Approve 1", 0)
+	id2 := suite.createPendingShow("Batch Approve 2", 1)
+	id3 := suite.createPendingShow("Batch Approve 3", 2)
+
+	result, err := suite.showService.BatchApproveShows([]uint{id1, id2, id3})
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+	suite.Len(result.Succeeded, 3)
+	suite.Empty(result.Errors)
+	suite.ElementsMatch([]uint{id1, id2, id3}, result.Succeeded)
+
+	// Verify all shows are now approved in the DB
+	for _, id := range []uint{id1, id2, id3} {
+		var show models.Show
+		suite.Require().NoError(suite.db.First(&show, id).Error)
+		suite.Equal(models.ShowStatusApproved, show.Status, "show %d should be approved", id)
+	}
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestBatchApproveShows_AlreadyApproved_GracefulError() {
+	// Create a show that is already approved (default via admin submission)
+	approvedShow := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Title = "Already Approved Batch"
+		req.EventDate = time.Date(2026, 7, 1, 20, 0, 0, 0, time.UTC)
+	})
+	// Also create a pending show
+	pendingID := suite.createPendingShow("Pending For Batch", 10)
+
+	result, err := suite.showService.BatchApproveShows([]uint{approvedShow.ID, pendingID})
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+	// The pending show should succeed
+	suite.Contains(result.Succeeded, pendingID)
+	// The already-approved show should produce an error entry
+	suite.Require().Len(result.Errors, 1)
+	suite.Equal(approvedShow.ID, result.Errors[0].ShowID)
+	suite.Contains(result.Errors[0].Error, "cannot be approved")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestBatchApproveShows_InvalidIDs() {
+	result, err := suite.showService.BatchApproveShows([]uint{999990, 999991})
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+	suite.Empty(result.Succeeded)
+	suite.Len(result.Errors, 2)
+	for _, e := range result.Errors {
+		suite.Contains(e.Error, "not found")
+	}
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestBatchApproveShows_EmptyList() {
+	result, err := suite.showService.BatchApproveShows([]uint{})
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+	suite.Empty(result.Succeeded)
+	suite.Empty(result.Errors)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestBatchApproveShows_MixedValidAndInvalid() {
+	pendingID := suite.createPendingShow("Mixed Valid", 20)
+
+	result, err := suite.showService.BatchApproveShows([]uint{pendingID, 999992})
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+	suite.Len(result.Succeeded, 1)
+	suite.Equal(pendingID, result.Succeeded[0])
+	suite.Len(result.Errors, 1)
+	suite.Equal(uint(999992), result.Errors[0].ShowID)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestBatchRejectShows_Success() {
+	id1 := suite.createPendingShow("Batch Reject 1", 0)
+	id2 := suite.createPendingShow("Batch Reject 2", 1)
+
+	result, err := suite.showService.BatchRejectShows([]uint{id1, id2}, "Duplicate listing", "duplicate")
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+	suite.Len(result.Succeeded, 2)
+	suite.Empty(result.Errors)
+	suite.ElementsMatch([]uint{id1, id2}, result.Succeeded)
+
+	// Verify statuses and rejection reasons in DB
+	for _, id := range []uint{id1, id2} {
+		var show models.Show
+		suite.Require().NoError(suite.db.First(&show, id).Error)
+		suite.Equal(models.ShowStatusRejected, show.Status, "show %d should be rejected", id)
+		suite.Require().NotNil(show.RejectionReason)
+		suite.Equal("Duplicate listing", *show.RejectionReason)
+		suite.Require().NotNil(show.RejectionCategory)
+		suite.Equal("duplicate", *show.RejectionCategory)
+	}
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestBatchRejectShows_WithReason_NoCategory() {
+	id := suite.createPendingShow("Reject No Cat", 0)
+
+	result, err := suite.showService.BatchRejectShows([]uint{id}, "Some reason", "")
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+	suite.Len(result.Succeeded, 1)
+	suite.Empty(result.Errors)
+
+	// Verify status and reason in DB, but category should be nil/empty
+	var show models.Show
+	suite.Require().NoError(suite.db.First(&show, id).Error)
+	suite.Equal(models.ShowStatusRejected, show.Status)
+	suite.Require().NotNil(show.RejectionReason)
+	suite.Equal("Some reason", *show.RejectionReason)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestBatchRejectShows_NotPending_Fails() {
+	// Create an already-approved show
+	approvedShow := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Title = "Approved For Reject Batch"
+		req.EventDate = time.Date(2026, 7, 5, 20, 0, 0, 0, time.UTC)
+	})
+
+	result, err := suite.showService.BatchRejectShows([]uint{approvedShow.ID}, "reason", "non_music")
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+	suite.Empty(result.Succeeded)
+	suite.Len(result.Errors, 1)
+	suite.Equal(approvedShow.ID, result.Errors[0].ShowID)
+	suite.Contains(result.Errors[0].Error, "not pending")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestBatchRejectShows_InvalidIDs() {
+	result, err := suite.showService.BatchRejectShows([]uint{999993, 999994}, "reason", "bad_data")
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+	suite.Empty(result.Succeeded)
+	suite.Len(result.Errors, 2)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestBatchRejectShows_EmptyList() {
+	result, err := suite.showService.BatchRejectShows([]uint{}, "reason", "non_music")
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+	suite.Empty(result.Succeeded)
+	suite.Empty(result.Errors)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestBatchRejectShows_MixedValidAndInvalid() {
+	pendingID := suite.createPendingShow("Mixed Reject", 25)
+
+	result, err := suite.showService.BatchRejectShows([]uint{pendingID, 999995}, "bad data", "bad_data")
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+	suite.Len(result.Succeeded, 1)
+	suite.Equal(pendingID, result.Succeeded[0])
+	suite.Len(result.Errors, 1)
+	suite.Equal(uint(999995), result.Errors[0].ShowID)
+}
+
+// =============================================================================
+// Group 11: PreviewShowImport (DB required for venue/artist matching)
+// =============================================================================
+
+func (suite *ShowServiceIntegrationTestSuite) TestPreviewShowImport_NewEntities() {
+	content := []byte(`---
+show:
+  title: "Preview New Show"
+  event_date: "2026-08-15T20:00:00Z"
+  city: "Phoenix"
+  state: "AZ"
+  status: "pending"
+venues:
+  - name: "Brand New Preview Venue"
+    city: "Phoenix"
+    state: "AZ"
+artists:
+  - name: "Brand New Preview Artist"
+    position: 0
+    set_type: "headliner"
+---
+
+## Description
+
+Preview test description.
+`)
+
+	resp, err := suite.showService.PreviewShowImport(content)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.True(resp.CanImport)
+	suite.Equal("Preview New Show", resp.Show.Title)
+	suite.Equal("2026-08-15T20:00:00Z", resp.Show.EventDate)
+
+	// Venue should be new (will create)
+	suite.Require().Len(resp.Venues, 1)
+	suite.True(resp.Venues[0].WillCreate)
+	suite.Nil(resp.Venues[0].ExistingID)
+	suite.Equal("Brand New Preview Venue", resp.Venues[0].Name)
+
+	// Artist should be new (will create)
+	suite.Require().Len(resp.Artists, 1)
+	suite.True(resp.Artists[0].WillCreate)
+	suite.Nil(resp.Artists[0].ExistingID)
+	suite.Equal("Brand New Preview Artist", resp.Artists[0].Name)
+	suite.Equal("headliner", resp.Artists[0].SetType)
+
+	suite.Empty(resp.Warnings)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestPreviewShowImport_ExistingEntities() {
+	// Pre-create a venue and artist
+	venue := suite.createTestVenue("Existing Preview Venue", "Phoenix", "AZ", true)
+	artist := &models.Artist{Name: "Existing Preview Artist"}
+	suite.Require().NoError(suite.db.Create(artist).Error)
+
+	content := []byte(`---
+show:
+  title: "Preview Existing Show"
+  event_date: "2026-09-15T20:00:00Z"
+  city: "Phoenix"
+  state: "AZ"
+  status: "pending"
+venues:
+  - name: "Existing Preview Venue"
+    city: "Phoenix"
+    state: "AZ"
+artists:
+  - name: "Existing Preview Artist"
+    position: 0
+    set_type: "headliner"
+---
+`)
+
+	resp, err := suite.showService.PreviewShowImport(content)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.True(resp.CanImport)
+
+	// Venue should match existing
+	suite.Require().Len(resp.Venues, 1)
+	suite.False(resp.Venues[0].WillCreate)
+	suite.Require().NotNil(resp.Venues[0].ExistingID)
+	suite.Equal(venue.ID, *resp.Venues[0].ExistingID)
+
+	// Artist should match existing
+	suite.Require().Len(resp.Artists, 1)
+	suite.False(resp.Artists[0].WillCreate)
+	suite.Require().NotNil(resp.Artists[0].ExistingID)
+	suite.Equal(artist.ID, *resp.Artists[0].ExistingID)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestPreviewShowImport_MixedNewAndExisting() {
+	// Pre-create one artist but not the other
+	existingArtist := &models.Artist{Name: "Known Artist"}
+	suite.Require().NoError(suite.db.Create(existingArtist).Error)
+
+	content := []byte(`---
+show:
+  title: "Mixed Preview Show"
+  event_date: "2026-10-01T20:00:00Z"
+  city: "Phoenix"
+  state: "AZ"
+  status: "pending"
+venues:
+  - name: "Mixed Preview Venue"
+    city: "Phoenix"
+    state: "AZ"
+artists:
+  - name: "Known Artist"
+    position: 0
+    set_type: "headliner"
+  - name: "Unknown Artist"
+    position: 1
+    set_type: "opener"
+---
+`)
+
+	resp, err := suite.showService.PreviewShowImport(content)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.True(resp.CanImport)
+
+	suite.Require().Len(resp.Artists, 2)
+	// First artist matches existing
+	suite.False(resp.Artists[0].WillCreate)
+	suite.Require().NotNil(resp.Artists[0].ExistingID)
+	suite.Equal(existingArtist.ID, *resp.Artists[0].ExistingID)
+	// Second artist is new
+	suite.True(resp.Artists[1].WillCreate)
+	suite.Nil(resp.Artists[1].ExistingID)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestPreviewShowImport_DuplicateWarning() {
+	// Create an existing show at a venue with a headliner
+	user := suite.createTestUser()
+	eventDate := time.Date(2026, 11, 20, 20, 0, 0, 0, time.UTC)
+	req := &contracts.CreateShowRequest{
+		Title:             "Original Show",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "Dup Preview Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Dup Preview Headliner", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	_, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+
+	// Preview an import with the same headliner at the same venue on the same date
+	content := []byte(`---
+show:
+  title: "Duplicate Import"
+  event_date: "2026-11-20T20:00:00Z"
+  city: "Phoenix"
+  state: "AZ"
+  status: "pending"
+venues:
+  - name: "Dup Preview Venue"
+    city: "Phoenix"
+    state: "AZ"
+artists:
+  - name: "Dup Preview Headliner"
+    position: 0
+    set_type: "headliner"
+---
+`)
+
+	resp, err := suite.showService.PreviewShowImport(content)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	// Should still be importable but with a warning
+	suite.True(resp.CanImport)
+	suite.Require().NotEmpty(resp.Warnings)
+	found := false
+	for _, w := range resp.Warnings {
+		if strings.Contains(w, "already has a show") {
+			found = true
+			break
+		}
+	}
+	suite.True(found, "expected duplicate headliner warning, got: %v", resp.Warnings)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestPreviewShowImport_MissingEventDate() {
+	content := []byte(`---
+show:
+  title: "No Date Show"
+  status: "pending"
+venues:
+  - name: "Some Venue"
+    city: "Phoenix"
+    state: "AZ"
+artists:
+  - name: "Some Artist"
+    position: 0
+    set_type: "headliner"
+---
+`)
+
+	resp, err := suite.showService.PreviewShowImport(content)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.False(resp.CanImport)
+	suite.Contains(resp.Warnings, "Missing event date")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestPreviewShowImport_MissingVenues() {
+	content := []byte(`---
+show:
+  title: "No Venues Show"
+  event_date: "2026-08-01T20:00:00Z"
+  status: "pending"
+artists:
+  - name: "Some Artist"
+    position: 0
+    set_type: "headliner"
+---
+`)
+
+	resp, err := suite.showService.PreviewShowImport(content)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.False(resp.CanImport)
+	suite.Contains(resp.Warnings, "No venues specified")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestPreviewShowImport_MissingArtists() {
+	content := []byte(`---
+show:
+  title: "No Artists Show"
+  event_date: "2026-08-01T20:00:00Z"
+  status: "pending"
+venues:
+  - name: "Some Venue"
+    city: "Phoenix"
+    state: "AZ"
+---
+`)
+
+	resp, err := suite.showService.PreviewShowImport(content)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.False(resp.CanImport)
+	suite.Contains(resp.Warnings, "No artists specified")
+}
+
+// =============================================================================
+// Group 12: ConfirmShowImport (DB required)
+// =============================================================================
+
+func (suite *ShowServiceIntegrationTestSuite) TestConfirmShowImport_Success_AsAdmin() {
+	content := []byte(`---
+show:
+  title: "Import Admin Show"
+  event_date: "2026-09-20T20:00:00Z"
+  city: "Phoenix"
+  state: "AZ"
+  status: "pending"
+venues:
+  - name: "Import Venue Admin"
+    city: "Phoenix"
+    state: "AZ"
+artists:
+  - name: "Import Artist Admin"
+    position: 0
+    set_type: "headliner"
+  - name: "Import Opener Admin"
+    position: 1
+    set_type: "opener"
+---
+
+## Description
+
+An imported show description.
+`)
+
+	resp, err := suite.showService.ConfirmShowImport(content, true)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.NotZero(resp.ID)
+	suite.Equal("Import Admin Show", resp.Title)
+	suite.Equal("approved", resp.Status) // admin import auto-approves
+	suite.NotEmpty(resp.Slug)
+	suite.Require().Len(resp.Venues, 1)
+	suite.Equal("Import Venue Admin", resp.Venues[0].Name)
+	suite.Require().Len(resp.Artists, 2)
+	suite.Equal("Import Artist Admin", resp.Artists[0].Name)
+	suite.True(*resp.Artists[0].IsHeadliner)
+	suite.Equal("Import Opener Admin", resp.Artists[1].Name)
+	suite.False(*resp.Artists[1].IsHeadliner)
+
+	// Verify the show exists in the database
+	var show models.Show
+	suite.Require().NoError(suite.db.First(&show, resp.ID).Error)
+	suite.Equal("Import Admin Show", show.Title)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestConfirmShowImport_Success_AsNonAdmin() {
+	content := []byte(`---
+show:
+  title: "Import User Show"
+  event_date: "2026-10-20T20:00:00Z"
+  city: "Phoenix"
+  state: "AZ"
+  status: "pending"
+venues:
+  - name: "Import Venue User"
+    city: "Phoenix"
+    state: "AZ"
+artists:
+  - name: "Import Artist User"
+    position: 0
+    set_type: "headliner"
+---
+`)
+
+	resp, err := suite.showService.ConfirmShowImport(content, false)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.NotZero(resp.ID)
+	suite.Equal("Import User Show", resp.Title)
+	// All non-private shows are approved (unverified venues show city-only on frontend)
+	suite.Equal("approved", resp.Status)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestConfirmShowImport_LinksExistingVenue() {
+	// Pre-create a venue
+	existing := suite.createTestVenue("Pre-existing Import Venue", "Phoenix", "AZ", true)
+
+	content := []byte(`---
+show:
+  title: "Import Existing Venue Show"
+  event_date: "2026-11-05T20:00:00Z"
+  city: "Phoenix"
+  state: "AZ"
+  status: "pending"
+venues:
+  - name: "Pre-existing Import Venue"
+    city: "Phoenix"
+    state: "AZ"
+artists:
+  - name: "Import Link Artist"
+    position: 0
+    set_type: "headliner"
+---
+`)
+
+	resp, err := suite.showService.ConfirmShowImport(content, true)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Require().Len(resp.Venues, 1)
+	suite.Equal(existing.ID, resp.Venues[0].ID, "should link to existing venue, not create a new one")
+
+	// Verify no duplicate venue was created
+	var venueCount int64
+	suite.db.Model(&models.Venue{}).Where("LOWER(name) = ? AND LOWER(city) = ?", "pre-existing import venue", "phoenix").Count(&venueCount)
+	suite.Equal(int64(1), venueCount)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestConfirmShowImport_LinksExistingArtist() {
+	// Pre-create an artist
+	existingArtist := &models.Artist{Name: "Pre-existing Import Artist"}
+	suite.Require().NoError(suite.db.Create(existingArtist).Error)
+
+	content := []byte(`---
+show:
+  title: "Import Existing Artist Show"
+  event_date: "2026-11-10T20:00:00Z"
+  city: "Phoenix"
+  state: "AZ"
+  status: "pending"
+venues:
+  - name: "Import Artist Link Venue"
+    city: "Phoenix"
+    state: "AZ"
+artists:
+  - name: "Pre-existing Import Artist"
+    position: 0
+    set_type: "headliner"
+---
+`)
+
+	resp, err := suite.showService.ConfirmShowImport(content, true)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Require().Len(resp.Artists, 1)
+	suite.Equal(existingArtist.ID, resp.Artists[0].ID, "should link to existing artist, not create a new one")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestConfirmShowImport_InvalidEventDate() {
+	content := []byte(`---
+show:
+  title: "Bad Date Show"
+  event_date: "not-a-date"
+  city: "Phoenix"
+  state: "AZ"
+  status: "pending"
+venues:
+  - name: "Bad Date Venue"
+    city: "Phoenix"
+    state: "AZ"
+artists:
+  - name: "Bad Date Artist"
+    position: 0
+    set_type: "headliner"
+---
+`)
+
+	resp, err := suite.showService.ConfirmShowImport(content, true)
+
+	suite.Require().Error(err)
+	suite.Nil(resp)
+	suite.Contains(err.Error(), "invalid event date")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestConfirmShowImport_InvalidMarkdown() {
+	content := []byte(`not valid markdown frontmatter at all`)
+
+	resp, err := suite.showService.ConfirmShowImport(content, true)
+
+	suite.Require().Error(err)
+	suite.Nil(resp)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestConfirmShowImport_CreatesVenueAndArtist() {
+	content := []byte(`---
+show:
+  title: "Full Create Import"
+  event_date: "2026-12-01T20:00:00Z"
+  city: "Tempe"
+  state: "AZ"
+  status: "pending"
+venues:
+  - name: "Freshly Created Venue"
+    city: "Tempe"
+    state: "AZ"
+    address: "123 Main St"
+artists:
+  - name: "Freshly Created Headliner"
+    position: 0
+    set_type: "headliner"
+  - name: "Freshly Created Opener"
+    position: 1
+    set_type: "opener"
+---
+
+## Description
+
+A show with all new entities.
+`)
+
+	resp, err := suite.showService.ConfirmShowImport(content, true)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Equal("Full Create Import", resp.Title)
+	suite.Equal("approved", resp.Status)
+
+	// Verify venue was created in DB
+	var venue models.Venue
+	suite.Require().NoError(suite.db.Where("name = ?", "Freshly Created Venue").First(&venue).Error)
+	suite.Equal("Tempe", venue.City)
+
+	// Verify artists were created in DB
+	var headliner models.Artist
+	suite.Require().NoError(suite.db.Where("name = ?", "Freshly Created Headliner").First(&headliner).Error)
+	suite.NotZero(headliner.ID)
+
+	var opener models.Artist
+	suite.Require().NoError(suite.db.Where("name = ?", "Freshly Created Opener").First(&opener).Error)
+	suite.NotZero(opener.ID)
 }

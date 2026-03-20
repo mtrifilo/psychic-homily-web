@@ -14,3 +14,13 @@ export interface AdminDashboardStats {
   total_artists_trend: number
   total_users_trend: number
 }
+
+export interface ActivityEvent {
+  id: number
+  event_type: string
+  description: string
+  entity_type?: string
+  entity_slug?: string
+  timestamp: string
+  actor_name?: string
+}
