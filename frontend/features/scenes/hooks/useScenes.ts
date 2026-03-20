@@ -13,6 +13,7 @@ import type {
   SceneListResponse,
   SceneDetail,
   SceneArtistsResponse,
+  SceneGenreResponse,
 } from '../types'
 
 /**
@@ -78,5 +79,21 @@ export function useSceneArtists(options: UseSceneArtistsOptions) {
     },
     enabled: Boolean(slug),
     staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+}
+
+/**
+ * Hook to fetch genre distribution for a scene
+ */
+export function useSceneGenres(slug: string) {
+  return useQuery({
+    queryKey: queryKeys.scenes.genres(slug),
+    queryFn: async (): Promise<SceneGenreResponse> => {
+      return apiRequest<SceneGenreResponse>(API_ENDPOINTS.SCENES.GENRES(slug), {
+        method: 'GET',
+      })
+    },
+    enabled: Boolean(slug),
+    staleTime: 10 * 60 * 1000, // 10 minutes — genre data changes infrequently
   })
 }
