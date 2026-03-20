@@ -333,6 +333,8 @@ type LabelServiceInterface interface {
 	DeleteLabel(labelID uint) error
 	GetLabelRoster(labelID uint) ([]*LabelArtistResponse, error)
 	GetLabelCatalog(labelID uint) ([]*LabelReleaseResponse, error)
+	AddArtistToLabel(labelID, artistID uint) error
+	AddReleaseToLabel(labelID, releaseID uint, catalogNumber *string) error
 }
 
 // FestivalServiceInterface defines the contract for festival operations.

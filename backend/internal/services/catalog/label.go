@@ -501,6 +501,79 @@ func (s *LabelService) GetLabelCatalog(labelID uint) ([]*contracts.LabelReleaseR
 	return responses, nil
 }
 
+// AddArtistToLabel creates an artist-label association (idempotent — no error if link already exists)
+func (s *LabelService) AddArtistToLabel(labelID, artistID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	// Verify label exists
+	var label models.Label
+	if err := s.db.First(&label, labelID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return apperrors.ErrLabelNotFound(labelID)
+		}
+		return fmt.Errorf("failed to get label: %w", err)
+	}
+
+	// Verify artist exists
+	var artist models.Artist
+	if err := s.db.First(&artist, artistID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return fmt.Errorf("artist not found: %d", artistID)
+		}
+		return fmt.Errorf("failed to get artist: %w", err)
+	}
+
+	// Idempotent: use FirstOrCreate to skip if already exists
+	al := models.ArtistLabel{
+		ArtistID: artistID,
+		LabelID:  labelID,
+	}
+	if err := s.db.Where("artist_id = ? AND label_id = ?", artistID, labelID).FirstOrCreate(&al).Error; err != nil {
+		return fmt.Errorf("failed to create artist-label link: %w", err)
+	}
+
+	return nil
+}
+
+// AddReleaseToLabel creates a release-label association (idempotent — no error if link already exists)
+func (s *LabelService) AddReleaseToLabel(labelID, releaseID uint, catalogNumber *string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	// Verify label exists
+	var label models.Label
+	if err := s.db.First(&label, labelID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return apperrors.ErrLabelNotFound(labelID)
+		}
+		return fmt.Errorf("failed to get label: %w", err)
+	}
+
+	// Verify release exists
+	var release models.Release
+	if err := s.db.First(&release, releaseID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return fmt.Errorf("release not found: %d", releaseID)
+		}
+		return fmt.Errorf("failed to get release: %w", err)
+	}
+
+	// Idempotent: use FirstOrCreate to skip if already exists
+	rl := models.ReleaseLabel{
+		ReleaseID:     releaseID,
+		LabelID:       labelID,
+		CatalogNumber: catalogNumber,
+	}
+	if err := s.db.Where("release_id = ? AND label_id = ?", releaseID, labelID).FirstOrCreate(&rl).Error; err != nil {
+		return fmt.Errorf("failed to create release-label link: %w", err)
+	}
+
+	return nil
+}
+
 // buildDetailResponse converts a Label model to contracts.LabelDetailResponse
 func (s *LabelService) buildDetailResponse(label *models.Label) (*contracts.LabelDetailResponse, error) {
 	slug := ""
