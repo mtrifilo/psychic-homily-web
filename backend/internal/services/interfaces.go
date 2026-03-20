@@ -54,6 +54,8 @@ type ChartsServiceInterface = contracts.ChartsServiceInterface
 type FollowServiceInterface = contracts.FollowServiceInterface
 type FestivalIntelligenceServiceInterface = contracts.FestivalIntelligenceServiceInterface
 type NotificationFilterServiceInterface = contracts.NotificationFilterServiceInterface
+type EnrichmentServiceInterface = contracts.EnrichmentServiceInterface
+type EnrichmentWorkerInterface = contracts.EnrichmentWorkerInterface
 
 // Compile-time interface satisfaction checks.
 // Engagement services (Bookmark, SavedShow, FavoriteVenue, Calendar, Reminder)

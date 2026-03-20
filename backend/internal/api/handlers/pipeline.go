@@ -17,16 +17,19 @@ import (
 type PipelineHandler struct {
 	pipelineService    services.PipelineServiceInterface
 	venueConfigService services.VenueSourceConfigServiceInterface
+	enrichmentService  services.EnrichmentServiceInterface
 }
 
 // NewPipelineHandler creates a new pipeline handler.
 func NewPipelineHandler(
 	pipelineService services.PipelineServiceInterface,
 	venueConfigService services.VenueSourceConfigServiceInterface,
+	enrichmentService services.EnrichmentServiceInterface,
 ) *PipelineHandler {
 	return &PipelineHandler{
 		pipelineService:    pipelineService,
 		venueConfigService: venueConfigService,
+		enrichmentService:  enrichmentService,
 	}
 }
 
@@ -413,5 +416,77 @@ func (h *PipelineHandler) ResetRenderMethodHandler(ctx context.Context, req *Res
 
 	resp := &ResetRenderMethodResponse{}
 	resp.Body.Success = true
+	return resp, nil
+}
+
+// --- Enrichment Status ---
+
+// EnrichmentStatusRequest is the Huma request for GET /admin/pipeline/enrichment/status
+type EnrichmentStatusRequest struct{}
+
+// EnrichmentStatusResponse is the Huma response for GET /admin/pipeline/enrichment/status
+type EnrichmentStatusResponse struct {
+	Body services.EnrichmentQueueStats
+}
+
+// EnrichmentStatusHandler handles GET /admin/pipeline/enrichment/status
+func (h *PipelineHandler) EnrichmentStatusHandler(ctx context.Context, req *EnrichmentStatusRequest) (*EnrichmentStatusResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	stats, err := h.enrichmentService.GetQueueStats()
+	if err != nil {
+		logger.FromContext(ctx).Error("enrichment_status_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get enrichment status")
+	}
+
+	return &EnrichmentStatusResponse{Body: *stats}, nil
+}
+
+// --- Trigger Enrichment ---
+
+// TriggerEnrichmentRequest is the Huma request for POST /admin/pipeline/enrichment/trigger/{show_id}
+type TriggerEnrichmentRequest struct {
+	ShowID string `path:"show_id" validate:"required" doc:"Show ID to enrich"`
+}
+
+// TriggerEnrichmentResponse is the Huma response for POST /admin/pipeline/enrichment/trigger/{show_id}
+type TriggerEnrichmentResponse struct {
+	Body struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+}
+
+// TriggerEnrichmentHandler handles POST /admin/pipeline/enrichment/trigger/{show_id}
+func (h *PipelineHandler) TriggerEnrichmentHandler(ctx context.Context, req *TriggerEnrichmentRequest) (*TriggerEnrichmentResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	showID, err := strconv.ParseUint(req.ShowID, 10, 64)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid show ID")
+	}
+
+	if err := h.enrichmentService.QueueShowForEnrichment(uint(showID), "all"); err != nil {
+		logger.FromContext(ctx).Error("enrichment_trigger_failed",
+			"show_id", showID,
+			"error", err.Error(),
+		)
+		return nil, huma.Error422UnprocessableEntity(err.Error())
+	}
+
+	logger.FromContext(ctx).Info("enrichment_triggered",
+		"show_id", showID,
+		"admin_id", user.ID,
+	)
+
+	resp := &TriggerEnrichmentResponse{}
+	resp.Body.Success = true
+	resp.Body.Message = "Show queued for enrichment"
 	return resp, nil
 }

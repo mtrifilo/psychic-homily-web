@@ -356,6 +356,12 @@ type ShowCurrentData = contracts.ShowCurrentData
 type CheckEventStatus = contracts.CheckEventStatus
 type CheckEventsResult = contracts.CheckEventsResult
 
+type EnrichmentResult = contracts.EnrichmentResult
+type ArtistMatchEnrichment = contracts.ArtistMatchEnrichment
+type MBEnrichment = contracts.MBEnrichment
+type SeatGeekEnrichment = contracts.SeatGeekEnrichment
+type EnrichmentQueueStats = contracts.EnrichmentQueueStats
+
 // IsFetchError re-exported via var (Go cannot alias functions).
 var IsFetchError = contracts.IsFetchError
 
