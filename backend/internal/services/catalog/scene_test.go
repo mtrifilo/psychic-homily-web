@@ -59,6 +59,20 @@ func TestSceneService_NilDatabase(t *testing.T) {
 		assert.Empty(t, city)
 		assert.Empty(t, state)
 	})
+
+	t.Run("GetSceneGenreDistribution", func(t *testing.T) {
+		resp, err := svc.GetSceneGenreDistribution("Phoenix", "AZ")
+		assert.Error(t, err)
+		assert.Equal(t, "database not initialized", err.Error())
+		assert.Nil(t, resp)
+	})
+
+	t.Run("GetGenreDiversityIndex", func(t *testing.T) {
+		resp, err := svc.GetGenreDiversityIndex("Phoenix", "AZ")
+		assert.Error(t, err)
+		assert.Equal(t, "database not initialized", err.Error())
+		assert.Zero(t, resp)
+	})
 }
 
 func TestBuildSceneSlug(t *testing.T) {
@@ -149,6 +163,10 @@ func (suite *SceneServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
 	// Delete in FK-safe order
+	_, _ = sqlDB.Exec("DELETE FROM entity_tags")
+	_, _ = sqlDB.Exec("DELETE FROM tag_aliases")
+	_, _ = sqlDB.Exec("DELETE FROM tag_votes")
+	_, _ = sqlDB.Exec("DELETE FROM tags")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
@@ -664,4 +682,239 @@ func (suite *SceneServiceIntegrationTestSuite) TestParseSceneSlug_IgnoresUnverif
 	suite.Contains(err.Error(), "scene not found")
 	suite.Empty(city)
 	suite.Empty(state)
+}
+
+// =============================================================================
+// NormalizedShannonEntropy Unit Tests
+// =============================================================================
+
+func TestNormalizedShannonEntropy_Empty(t *testing.T) {
+	assert.Equal(t, 0.0, NormalizedShannonEntropy([]int{}))
+}
+
+func TestNormalizedShannonEntropy_SingleGenre(t *testing.T) {
+	// Only 1 genre => max entropy = log2(1) = 0, so we return 0 (avoid div-by-zero)
+	assert.Equal(t, 0.0, NormalizedShannonEntropy([]int{100}))
+}
+
+func TestNormalizedShannonEntropy_EqualDistribution(t *testing.T) {
+	// Perfectly even distribution of 4 genres => normalized entropy = 1.0
+	result := NormalizedShannonEntropy([]int{25, 25, 25, 25})
+	assert.InDelta(t, 1.0, result, 0.001)
+}
+
+func TestNormalizedShannonEntropy_UnevenDistribution(t *testing.T) {
+	// One dominant genre => low entropy
+	result := NormalizedShannonEntropy([]int{90, 5, 3, 2})
+	assert.Greater(t, result, 0.0)
+	assert.Less(t, result, 0.6) // should be low
+}
+
+func TestNormalizedShannonEntropy_TwoGenres(t *testing.T) {
+	// 50/50 split with 2 genres => normalized entropy = 1.0
+	result := NormalizedShannonEntropy([]int{50, 50})
+	assert.InDelta(t, 1.0, result, 0.001)
+}
+
+func TestNormalizedShannonEntropy_AllZeros(t *testing.T) {
+	assert.Equal(t, 0.0, NormalizedShannonEntropy([]int{0, 0, 0}))
+}
+
+// =============================================================================
+// DiversityLabel Unit Tests
+// =============================================================================
+
+func TestDiversityLabel(t *testing.T) {
+	tests := []struct {
+		index    float64
+		expected string
+	}{
+		{-1, ""},
+		{0.1, ""},
+		{0.19, ""},
+		{0.2, "Genre-focused"},
+		{0.4, "Genre-focused"},
+		{0.5, "Mixed"},
+		{0.7, "Mixed"},
+		{0.8, "Highly diverse"},
+		{0.95, "Highly diverse"},
+		{1.0, "Highly diverse"},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("%.2f", tc.index), func(t *testing.T) {
+			assert.Equal(t, tc.expected, DiversityLabel(tc.index))
+		})
+	}
+}
+
+// =============================================================================
+// Genre Distribution Integration Tests
+// =============================================================================
+
+// createGenreTag creates a genre tag for testing
+func (suite *SceneServiceIntegrationTestSuite) createGenreTag(name, slug string) uint {
+	sqlDB, err := suite.db.DB()
+	suite.Require().NoError(err)
+	var tagID uint
+	err = sqlDB.QueryRow(`
+		INSERT INTO tags (name, slug, category, is_official, usage_count, created_at, updated_at)
+		VALUES ($1, $2, 'genre', true, 0, NOW(), NOW())
+		RETURNING id
+	`, name, slug).Scan(&tagID)
+	suite.Require().NoError(err)
+	return tagID
+}
+
+// tagArtist tags an artist with a genre tag
+func (suite *SceneServiceIntegrationTestSuite) tagArtist(artistID, tagID, userID uint) {
+	sqlDB, err := suite.db.DB()
+	suite.Require().NoError(err)
+	_, err = sqlDB.Exec(`
+		INSERT INTO entity_tags (entity_type, entity_id, tag_id, added_by_user_id, created_at)
+		VALUES ('artist', $1, $2, $3, NOW())
+	`, artistID, tagID, userID)
+	suite.Require().NoError(err)
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_InsufficientData() {
+	// Seed scene with 3 venues and 5 shows (3 artists), no tags
+	suite.seedSceneData()
+
+	genres, err := suite.sceneService.GetSceneGenreDistribution("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Empty(genres) // No tagged artists at all
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_BelowThreshold() {
+	// Create scene data with a few tagged artists (below 30 threshold)
+	venues, artists := suite.seedSceneData()
+	_ = venues
+	user := suite.createUser()
+
+	punkTag := suite.createGenreTag("punk", "punk")
+	suite.tagArtist(artists[0].ID, punkTag, user.ID) // 1 tagged artist, well below 30
+
+	genres, err := suite.sceneService.GetSceneGenreDistribution("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Empty(genres) // Below threshold
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_Success() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("G-V1", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("G-V2", "Phoenix", "AZ")
+	v3 := suite.createVerifiedVenue("G-V3", "Phoenix", "AZ")
+
+	punkTag := suite.createGenreTag("punk", "punk")
+	indieTag := suite.createGenreTag("indie rock", "indie-rock")
+	metalTag := suite.createGenreTag("metal", "metal")
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+
+	// Create 35 artists with shows, tag them with genres
+	// This ensures we meet the 30 tagged artist threshold
+	venues := []*models.Venue{v1, v2, v3}
+	tags := []uint{punkTag, punkTag, indieTag, indieTag, indieTag, metalTag}
+	for i := 0; i < 35; i++ {
+		a := suite.createArtist(fmt.Sprintf("Genre Artist %d", i))
+		suite.createApprovedShow(
+			fmt.Sprintf("Genre Show %d", i),
+			venues[i%3].ID, a.ID, user.ID,
+			future.AddDate(0, 0, i),
+		)
+		tagIdx := i % len(tags)
+		suite.tagArtist(a.ID, tags[tagIdx], user.ID)
+	}
+
+	genres, err := suite.sceneService.GetSceneGenreDistribution("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.NotEmpty(genres)
+
+	// Should be sorted by count DESC
+	suite.GreaterOrEqual(genres[0].Count, genres[len(genres)-1].Count)
+
+	// All genres should have tag_id, name, and slug
+	for _, g := range genres {
+		suite.NotZero(g.TagID)
+		suite.NotEmpty(g.Name)
+		suite.NotEmpty(g.Slug)
+		suite.Greater(g.Count, 0)
+	}
+}
+
+// =============================================================================
+// Genre Diversity Index Integration Tests
+// =============================================================================
+
+func (suite *SceneServiceIntegrationTestSuite) TestGetGenreDiversityIndex_InsufficientArtists() {
+	suite.seedSceneData()
+	// No tags => insufficient data
+	index, err := suite.sceneService.GetGenreDiversityIndex("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Equal(-1.0, index)
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestGetGenreDiversityIndex_InsufficientGenres() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("DI-V1", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("DI-V2", "Phoenix", "AZ")
+	v3 := suite.createVerifiedVenue("DI-V3", "Phoenix", "AZ")
+
+	punkTag := suite.createGenreTag("di-punk", "di-punk")
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	venues := []*models.Venue{v1, v2, v3}
+
+	// 55 artists all tagged with one genre => only 1 genre, below 5 minimum
+	for i := 0; i < 55; i++ {
+		a := suite.createArtist(fmt.Sprintf("DI Artist %d", i))
+		suite.createApprovedShow(
+			fmt.Sprintf("DI Show %d", i),
+			venues[i%3].ID, a.ID, user.ID,
+			future.AddDate(0, 0, i),
+		)
+		suite.tagArtist(a.ID, punkTag, user.ID)
+	}
+
+	index, err := suite.sceneService.GetGenreDiversityIndex("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Equal(-1.0, index) // Insufficient genres (only 1)
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestGetGenreDiversityIndex_Success() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("DIX-V1", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("DIX-V2", "Phoenix", "AZ")
+	v3 := suite.createVerifiedVenue("DIX-V3", "Phoenix", "AZ")
+
+	// Create 6 genres to meet the 5-genre minimum
+	genreTags := []uint{
+		suite.createGenreTag("dix-punk", "dix-punk"),
+		suite.createGenreTag("dix-indie", "dix-indie"),
+		suite.createGenreTag("dix-metal", "dix-metal"),
+		suite.createGenreTag("dix-jazz", "dix-jazz"),
+		suite.createGenreTag("dix-electronic", "dix-electronic"),
+		suite.createGenreTag("dix-folk", "dix-folk"),
+	}
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	venues := []*models.Venue{v1, v2, v3}
+
+	// Create 55 artists evenly distributed across genres
+	for i := 0; i < 55; i++ {
+		a := suite.createArtist(fmt.Sprintf("DIX Artist %d", i))
+		suite.createApprovedShow(
+			fmt.Sprintf("DIX Show %d", i),
+			venues[i%3].ID, a.ID, user.ID,
+			future.AddDate(0, 0, i),
+		)
+		suite.tagArtist(a.ID, genreTags[i%len(genreTags)], user.ID)
+	}
+
+	index, err := suite.sceneService.GetGenreDiversityIndex("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Greater(index, 0.0)
+	suite.LessOrEqual(index, 1.0)
+	// With nearly even distribution across 6 genres, expect high diversity
+	suite.Greater(index, 0.8)
 }

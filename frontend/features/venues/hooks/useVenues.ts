@@ -14,6 +14,7 @@ import type {
   VenuesListResponse,
   VenueShowsResponse,
   VenueCitiesResponse,
+  VenueGenreResponse,
 } from '../types'
 
 interface CityState {
@@ -146,5 +147,22 @@ export const useVenueCities = () => {
     },
     staleTime: 10 * 60 * 1000, // 10 minutes - cities don't change often
     placeholderData: keepPreviousData, // Keep old data visible while fetching
+  })
+}
+
+/**
+ * Hook to fetch a venue's genre profile (top 5 genres derived from artist tags)
+ */
+export const useVenueGenres = (venueIdOrSlug: string | number) => {
+  return useQuery({
+    queryKey: queryKeys.venues.genres(venueIdOrSlug),
+    queryFn: async (): Promise<VenueGenreResponse> => {
+      return apiRequest<VenueGenreResponse>(
+        API_ENDPOINTS.VENUES.GENRES(venueIdOrSlug),
+        { method: 'GET' }
+      )
+    },
+    enabled: typeof venueIdOrSlug === 'string' ? Boolean(venueIdOrSlug) : venueIdOrSlug > 0,
+    staleTime: 10 * 60 * 1000, // 10 minutes — genre profiles change infrequently
   })
 }

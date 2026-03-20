@@ -378,6 +378,7 @@ func setupVenueRoutes(api huma.API, protected *huma.Group, sc *services.ServiceC
 	huma.Get(api, "/venues/search", venueHandler.SearchVenuesHandler)
 	huma.Get(api, "/venues/{venue_id}", venueHandler.GetVenueHandler)
 	huma.Get(api, "/venues/{venue_id}/shows", venueHandler.GetVenueShowsHandler)
+	huma.Get(api, "/venues/{venue_id}/genres", venueHandler.GetVenueGenresHandler)
 
 	// Protected venue endpoints - require authentication
 	huma.Post(protected, "/admin/venues", venueHandler.AdminCreateVenueHandler)
@@ -730,6 +731,7 @@ func setupSceneRoutes(api huma.API, sc *services.ServiceContainer) {
 	huma.Get(api, "/scenes", sceneHandler.ListScenesHandler)
 	huma.Get(api, "/scenes/{slug}", sceneHandler.GetSceneDetailHandler)
 	huma.Get(api, "/scenes/{slug}/artists", sceneHandler.GetSceneActiveArtistsHandler)
+	huma.Get(api, "/scenes/{slug}/genres", sceneHandler.GetSceneGenresHandler)
 }
 
 // setupAttendanceRoutes configures show attendance (going/interested) endpoints.

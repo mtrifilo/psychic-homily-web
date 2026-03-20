@@ -824,6 +824,50 @@ func (h *VenueHandler) DeleteVenueHandler(ctx context.Context, req *DeleteVenueR
 	}, nil
 }
 
+// ============================================================================
+// Get Venue Genres
+// ============================================================================
+
+// GetVenueGenresRequest represents the request for getting a venue's genre profile.
+type GetVenueGenresRequest struct {
+	VenueID string `path:"venue_id" doc:"Venue ID or slug" example:"the-rebel-lounge-phoenix-az"`
+}
+
+// GetVenueGenresResponse represents the response for venue genre profile.
+type GetVenueGenresResponse struct {
+	Body *services.VenueGenreResponse
+}
+
+// GetVenueGenresHandler handles GET /venues/{venue_id}/genres — returns top genre tags for a venue.
+func (h *VenueHandler) GetVenueGenresHandler(ctx context.Context, req *GetVenueGenresRequest) (*GetVenueGenresResponse, error) {
+	// Resolve venue by ID or slug
+	var venueID uint
+	if id, err := strconv.ParseUint(req.VenueID, 10, 32); err == nil {
+		venueID = uint(id)
+	} else {
+		// Try slug lookup
+		venue, err := h.venueService.GetVenueBySlug(req.VenueID)
+		if err != nil {
+			return nil, huma.Error404NotFound("Venue not found")
+		}
+		venueID = venue.ID
+	}
+
+	genres, err := h.venueService.GetVenueGenreProfile(venueID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to get venue genre profile", err)
+	}
+	if genres == nil {
+		genres = []services.GenreCount{}
+	}
+
+	return &GetVenueGenresResponse{
+		Body: &services.VenueGenreResponse{
+			Genres: genres,
+		},
+	}, nil
+}
+
 // computeVenueChanges compares old and new venue detail responses and returns field-level diffs.
 func computeVenueChanges(old, new *services.VenueDetailResponse) []models.FieldChange {
 	var changes []models.FieldChange

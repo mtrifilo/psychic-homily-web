@@ -136,6 +136,7 @@ export const API_ENDPOINTS = {
     SEARCH: `${API_BASE_URL}/venues/search`,
     GET: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
     SHOWS: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}/shows`,
+    GENRES: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}/genres`,
     UPDATE: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
     DELETE: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
     MY_PENDING_EDIT: (venueIdOrSlug: string | number) =>
@@ -430,6 +431,7 @@ export const API_ENDPOINTS = {
     LIST: `${API_BASE_URL}/scenes`,
     DETAIL: (slug: string) => `${API_BASE_URL}/scenes/${slug}`,
     ARTISTS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/artists`,
+    GENRES: (slug: string) => `${API_BASE_URL}/scenes/${slug}/genres`,
   },
 
   // Charts endpoints (public)
