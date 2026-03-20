@@ -372,6 +372,43 @@ func (h *PipelineHandler) GetVenueRunsHandler(ctx context.Context, req *GetVenue
 	return resp, nil
 }
 
+// --- Import History (cross-venue) ---
+
+// GetImportHistoryRequest is the Huma request for GET /admin/pipeline/imports
+type GetImportHistoryRequest struct {
+	Limit  int `query:"limit" doc:"Max entries to return (default 20, max 100)"`
+	Offset int `query:"offset" doc:"Number of entries to skip for pagination"`
+}
+
+// GetImportHistoryResponse is the Huma response for GET /admin/pipeline/imports
+type GetImportHistoryResponse struct {
+	Body struct {
+		Imports []services.ImportHistoryEntry `json:"imports"`
+		Total   int64                        `json:"total"`
+	}
+}
+
+// GetImportHistoryHandler handles GET /admin/pipeline/imports
+func (h *PipelineHandler) GetImportHistoryHandler(ctx context.Context, req *GetImportHistoryRequest) (*GetImportHistoryResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	imports, total, err := h.venueConfigService.GetAllRecentRuns(req.Limit, req.Offset)
+	if err != nil {
+		logger.FromContext(ctx).Error("pipeline_get_import_history_failed",
+			"error", err.Error(),
+		)
+		return nil, huma.Error500InternalServerError("Failed to get import history")
+	}
+
+	resp := &GetImportHistoryResponse{}
+	resp.Body.Imports = imports
+	resp.Body.Total = total
+	return resp, nil
+}
+
 // --- Reset Render Method ---
 
 // ResetRenderMethodRequest is the Huma request for POST /admin/pipeline/venues/{venue_id}/reset-render-method

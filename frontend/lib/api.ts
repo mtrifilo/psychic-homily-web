@@ -311,6 +311,7 @@ export const API_ENDPOINTS = {
     },
     PIPELINE: {
       VENUES: `${API_BASE_URL}/admin/pipeline/venues`,
+      IMPORTS: `${API_BASE_URL}/admin/pipeline/imports`,
       EXTRACT: (venueId: string | number) =>
         `${API_BASE_URL}/admin/pipeline/extract/${venueId}`,
       VENUE_STATS: (venueId: string | number) =>

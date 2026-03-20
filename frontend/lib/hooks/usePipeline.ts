@@ -78,6 +78,36 @@ export function useVenueRejectionStats(venueId: number, options?: { enabled?: bo
   })
 }
 
+export interface ImportHistoryEntry {
+  id: number
+  venue_id: number
+  venue_name: string
+  venue_slug: string
+  source_type: string
+  render_method?: string
+  events_extracted: number
+  events_imported: number
+  duration_ms: number
+  error?: string
+  run_at: string
+}
+
+export function useImportHistory(
+  limit: number = 20,
+  offset: number = 0,
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: queryKeys.pipeline.imports(limit, offset),
+    queryFn: async () => {
+      const url = `${API_ENDPOINTS.ADMIN.PIPELINE.IMPORTS}?limit=${limit}&offset=${offset}`
+      const data = await apiRequest<{ imports: ImportHistoryEntry[]; total: number }>(url)
+      return data
+    },
+    enabled: options?.enabled ?? true,
+  })
+}
+
 // --- Mutations ---
 
 export function useUpdateExtractionNotes() {

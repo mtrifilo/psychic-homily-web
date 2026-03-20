@@ -348,6 +348,7 @@ type FetchError = contracts.FetchError
 
 type PipelineResult = contracts.PipelineResult
 type VenueRejectionStats = contracts.VenueRejectionStats
+type ImportHistoryEntry = contracts.ImportHistoryEntry
 
 type DiscoveredEvent = contracts.DiscoveredEvent
 type ImportResult = contracts.ImportResult

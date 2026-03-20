@@ -308,7 +308,7 @@ function AdminPageContent() {
             </TabsTrigger>
             <TabsTrigger value="pipeline" className="gap-2">
               <Workflow className="h-4 w-4" />
-              Pipeline
+              Data Pipeline
             </TabsTrigger>
             <TabsTrigger value="collections" className="gap-2">
               <Library className="h-4 w-4" />

@@ -43,6 +43,7 @@ type mockVenueSourceConfigService struct {
 	incrementFailuresFn     func(venueID uint) error
 	recordRunFn             func(run *models.VenueExtractionRun) error
 	getRecentRunsFn         func(venueID uint, limit int) ([]models.VenueExtractionRun, error)
+	getAllRecentRunsFn      func(limit, offset int) ([]services.ImportHistoryEntry, int64, error)
 	listConfiguredFn        func() ([]models.VenueSourceConfig, error)
 	getRejectionStatsFn     func(venueID uint) (*services.VenueRejectionStats, error)
 	updateExtractionNotesFn func(venueID uint, notes *string) error
@@ -84,6 +85,12 @@ func (m *mockVenueSourceConfigService) GetRecentRuns(venueID uint, limit int) ([
 		return m.getRecentRunsFn(venueID, limit)
 	}
 	return nil, nil
+}
+func (m *mockVenueSourceConfigService) GetAllRecentRuns(limit, offset int) ([]services.ImportHistoryEntry, int64, error) {
+	if m.getAllRecentRunsFn != nil {
+		return m.getAllRecentRunsFn(limit, offset)
+	}
+	return nil, 0, nil
 }
 func (m *mockVenueSourceConfigService) ListConfigured() ([]models.VenueSourceConfig, error) {
 	if m.listConfiguredFn != nil {
@@ -174,6 +181,10 @@ func TestPipelineHandler_RequiresAdmin(t *testing.T) {
 		}},
 		{"ResetRenderMethod", func(ctx context.Context) error {
 			_, err := h.ResetRenderMethodHandler(ctx, &ResetRenderMethodRequest{VenueID: "1"})
+			return err
+		}},
+		{"GetImportHistory", func(ctx context.Context) error {
+			_, err := h.GetImportHistoryHandler(ctx, &GetImportHistoryRequest{})
 			return err
 		}},
 	}
@@ -681,4 +692,123 @@ func TestPipelineHandler_ResetRenderMethod_ServiceError(t *testing.T) {
 
 	_, err := h.ResetRenderMethodHandler(pipelineAdminCtx(), &ResetRenderMethodRequest{VenueID: "999"})
 	assertHumaError(t, err, 422)
+}
+
+// ============================================================================
+// Tests: GetImportHistoryHandler
+// ============================================================================
+
+func TestPipelineHandler_GetImportHistory_Success(t *testing.T) {
+	rm := "dynamic"
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{
+			getAllRecentRunsFn: func(limit, offset int) ([]services.ImportHistoryEntry, int64, error) {
+				return []services.ImportHistoryEntry{
+					{
+						ID:              1,
+						VenueID:         10,
+						VenueName:       "Test Venue",
+						VenueSlug:       "test-venue",
+						SourceType:      "ai",
+						RenderMethod:    &rm,
+						EventsExtracted: 8,
+						EventsImported:  6,
+						DurationMs:      1500,
+					},
+					{
+						ID:              2,
+						VenueID:         20,
+						VenueName:       "Other Venue",
+						VenueSlug:       "other-venue",
+						SourceType:      "ical",
+						EventsExtracted: 12,
+						EventsImported:  12,
+						DurationMs:      300,
+					},
+				}, 2, nil
+			},
+		},
+	)
+
+	resp, err := h.GetImportHistoryHandler(pipelineAdminCtx(), &GetImportHistoryRequest{Limit: 20})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Total != 2 {
+		t.Errorf("expected total=2, got %d", resp.Body.Total)
+	}
+	if len(resp.Body.Imports) != 2 {
+		t.Fatalf("expected 2 imports, got %d", len(resp.Body.Imports))
+	}
+	if resp.Body.Imports[0].VenueName != "Test Venue" {
+		t.Errorf("expected venue_name=Test Venue, got %s", resp.Body.Imports[0].VenueName)
+	}
+	if resp.Body.Imports[0].SourceType != "ai" {
+		t.Errorf("expected source_type=ai, got %s", resp.Body.Imports[0].SourceType)
+	}
+	if resp.Body.Imports[1].SourceType != "ical" {
+		t.Errorf("expected source_type=ical, got %s", resp.Body.Imports[1].SourceType)
+	}
+}
+
+func TestPipelineHandler_GetImportHistory_Empty(t *testing.T) {
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{
+			getAllRecentRunsFn: func(limit, offset int) ([]services.ImportHistoryEntry, int64, error) {
+				return []services.ImportHistoryEntry{}, 0, nil
+			},
+		},
+	)
+
+	resp, err := h.GetImportHistoryHandler(pipelineAdminCtx(), &GetImportHistoryRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Total != 0 {
+		t.Errorf("expected total=0, got %d", resp.Body.Total)
+	}
+	if len(resp.Body.Imports) != 0 {
+		t.Errorf("expected 0 imports, got %d", len(resp.Body.Imports))
+	}
+}
+
+func TestPipelineHandler_GetImportHistory_PaginationPassedThrough(t *testing.T) {
+	var receivedLimit, receivedOffset int
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{
+			getAllRecentRunsFn: func(limit, offset int) ([]services.ImportHistoryEntry, int64, error) {
+				receivedLimit = limit
+				receivedOffset = offset
+				return nil, 0, nil
+			},
+		},
+	)
+
+	_, err := h.GetImportHistoryHandler(pipelineAdminCtx(), &GetImportHistoryRequest{Limit: 50, Offset: 10})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if receivedLimit != 50 {
+		t.Errorf("expected limit=50, got %d", receivedLimit)
+	}
+	if receivedOffset != 10 {
+		t.Errorf("expected offset=10, got %d", receivedOffset)
+	}
+}
+
+func TestPipelineHandler_GetImportHistory_ServiceError(t *testing.T) {
+	h := NewPipelineHandler(
+		&mockPipelineService{},
+		&mockVenueSourceConfigService{
+			getAllRecentRunsFn: func(limit, offset int) ([]services.ImportHistoryEntry, int64, error) {
+				return nil, 0, fmt.Errorf("database error")
+			},
+		},
+	)
+
+	_, err := h.GetImportHistoryHandler(pipelineAdminCtx(), &GetImportHistoryRequest{})
+	assertHumaError(t, err, 500)
 }

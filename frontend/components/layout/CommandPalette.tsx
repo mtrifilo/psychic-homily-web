@@ -217,10 +217,10 @@ const adminRoutes: RouteItem[] = [
     requireAdmin: true,
   },
   {
-    label: 'Admin: Pipeline',
+    label: 'Admin: Data Pipeline',
     href: '/admin?tab=pipeline',
     icon: Workflow,
-    keywords: ['admin', 'pipeline', 'extraction', 'scraping', 'venues'],
+    keywords: ['admin', 'pipeline', 'extraction', 'scraping', 'venues', 'data', 'import'],
     requireAdmin: true,
   },
   {
