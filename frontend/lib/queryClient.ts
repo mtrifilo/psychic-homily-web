@@ -137,6 +137,7 @@ export const queryKeys = {
     search: (query: string) =>
       ['venues', 'search', query.toLowerCase()] as const,
     shows: (venueIdOrSlug: string | number) => ['venues', 'shows', String(venueIdOrSlug)] as const,
+    genres: (venueIdOrSlug: string | number) => ['venues', 'genres', String(venueIdOrSlug)] as const,
     myPendingEdit: (venueIdOrSlug: string | number) =>
       ['venues', 'myPendingEdit', String(venueIdOrSlug)] as const,
   },
@@ -279,6 +280,8 @@ export const queryKeys = {
   // Pipeline queries
   pipeline: {
     venues: ['pipeline', 'venues'] as const,
+    imports: (limit: number, offset: number) =>
+      ['pipeline', 'imports', String(limit), String(offset)] as const,
     venueStats: (venueId: string | number) =>
       ['pipeline', 'venueStats', String(venueId)] as const,
     venueRuns: (venueId: string | number) =>
@@ -349,6 +352,7 @@ export const queryKeys = {
     list: ['scenes', 'list'] as const,
     detail: (slug: string) => ['scenes', 'detail', slug] as const,
     artists: (slug: string, period?: number) => ['scenes', 'artists', slug, period] as const,
+    genres: (slug: string) => ['scenes', 'genres', slug] as const,
   },
 
   // Charts queries (public)

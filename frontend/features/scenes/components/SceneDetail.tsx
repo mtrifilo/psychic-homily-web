@@ -2,11 +2,12 @@
 
 import Link from 'next/link'
 import {
-  MapPin, Building2, Mic2, Calendar, Tent, ArrowRight, Loader2,
+  MapPin, Building2, Mic2, Calendar, Tent, ArrowRight, Loader2, Music,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { useSceneDetail, useSceneArtists } from '../hooks'
+import { TagPill } from '@/components/shared'
+import { useSceneDetail, useSceneArtists, useSceneGenres } from '../hooks'
 import { ScenePulse } from './ScenePulse'
 
 interface SceneDetailProps {
@@ -55,6 +56,50 @@ function SceneArtistsList({ slug }: { slug: string }) {
         </p>
       )}
     </div>
+  )
+}
+
+function SceneGenreDistribution({ slug }: { slug: string }) {
+  const { data, isLoading } = useSceneGenres(slug)
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-4">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (!data?.genres || data.genres.length === 0) {
+    return null
+  }
+
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Music className="h-4 w-4 text-muted-foreground" />
+          Genre Distribution
+          {data.diversity_label && (
+            <Badge variant="secondary" className="ml-1 text-xs font-normal">
+              {data.diversity_label}
+            </Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap gap-2">
+          {data.genres.map((genre) => (
+            <TagPill
+              key={genre.tag_id}
+              label={genre.name}
+              voteCount={genre.count}
+              href={`/tags/${genre.slug}`}
+            />
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -183,6 +228,9 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
             <SceneArtistsList slug={slug} />
           </CardContent>
         </Card>
+
+        {/* Genre Distribution */}
+        <SceneGenreDistribution slug={slug} />
 
         {/* Festivals (only show if there are festivals) */}
         {stats.festival_count > 0 && (

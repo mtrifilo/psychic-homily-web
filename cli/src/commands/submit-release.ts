@@ -8,6 +8,7 @@ import {
 } from "../lib/duplicates";
 import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
 import type { TagInput, ResolvedTag } from "../lib/tags";
+import { resolveAndLinkReleaseLabel } from "../lib/labels";
 import * as display from "../lib/display";
 import { dim } from "../lib/ansi";
 
@@ -172,12 +173,10 @@ export async function planReleases(
       }
     }
 
-    // Log labels as informational
+    // Show labels that will be linked
     if (release.labels?.length) {
       for (const label of release.labels) {
-        display.info(
-          `Label "${label}" noted ${dim("(label linkage is via artist associations)")}`,
-        );
+        display.info(`Label "${label}" will be linked after create/resolve`);
       }
     }
 
@@ -287,6 +286,20 @@ export function displayPreview(actions: ReleaseAction[], resolvedTags?: Resolved
 }
 
 /** Execute the planned actions (create/update releases). */
+/** Link a release (and its artists) to any labels specified in the release input. */
+async function linkReleaseLabels(
+  client: APIClient,
+  releaseId: number,
+  labels: string[] | undefined,
+  artistIds: number[],
+): Promise<void> {
+  if (!labels?.length) return;
+
+  for (const labelName of labels) {
+    await resolveAndLinkReleaseLabel(client, labelName, releaseId, artistIds);
+  }
+}
+
 async function executeActions(
   client: APIClient,
   actions: ReleaseAction[],
@@ -306,6 +319,7 @@ async function executeActions(
     const parsedTags = tagResolver
       ? TagResolver.parseTags(action.release.tags as TagInput[] | undefined)
       : [];
+    const artistIds = action.resolvedArtists.map((a) => a.artist_id);
 
     if (action.action === "skip") {
       // Still apply tags even on skip
@@ -314,6 +328,10 @@ async function executeActions(
         if (tagResult.applied > 0) {
           display.info(`  Applied ${tagResult.applied} tag(s)`);
         }
+      }
+      // Still link labels even on skip (idempotent)
+      if (action.dupCheck.existingId) {
+        await linkReleaseLabels(client, action.dupCheck.existingId, action.release.labels, artistIds);
       }
       skipped++;
       continue;
@@ -367,6 +385,10 @@ async function executeActions(
             display.info(`  Applied ${tagResult.applied} tag(s)`);
           }
         }
+        // Link release and its artists to labels
+        if (releaseId) {
+          await linkReleaseLabels(client, releaseId, action.release.labels, artistIds);
+        }
         created++;
       } catch (err) {
         const message =
@@ -391,6 +413,10 @@ async function executeActions(
           if (tagResult.applied > 0) {
             display.info(`  Applied ${tagResult.applied} tag(s)`);
           }
+        }
+        // Still link labels even when no field updates (idempotent)
+        if (action.dupCheck.existingId) {
+          await linkReleaseLabels(client, action.dupCheck.existingId, action.release.labels, artistIds);
         }
         skipped++;
         continue;
@@ -420,6 +446,10 @@ async function executeActions(
           if (tagResult.applied > 0) {
             display.info(`  Applied ${tagResult.applied} tag(s)`);
           }
+        }
+        // Link release and its artists to labels
+        if (action.dupCheck.existingId) {
+          await linkReleaseLabels(client, action.dupCheck.existingId, action.release.labels, artistIds);
         }
         updated++;
       } catch (err) {

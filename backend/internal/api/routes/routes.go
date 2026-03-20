@@ -333,6 +333,8 @@ func setupLabelRoutes(api huma.API, protected *huma.Group, sc *services.ServiceC
 	huma.Post(protected, "/labels", labelHandler.CreateLabelHandler)
 	huma.Put(protected, "/labels/{label_id}", labelHandler.UpdateLabelHandler)
 	huma.Delete(protected, "/labels/{label_id}", labelHandler.DeleteLabelHandler)
+	huma.Post(protected, "/admin/labels/{label_id}/artists", labelHandler.AddArtistToLabelHandler)
+	huma.Post(protected, "/admin/labels/{label_id}/releases", labelHandler.AddReleaseToLabelHandler)
 }
 
 func setupFestivalRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
@@ -376,6 +378,7 @@ func setupVenueRoutes(api huma.API, protected *huma.Group, sc *services.ServiceC
 	huma.Get(api, "/venues/search", venueHandler.SearchVenuesHandler)
 	huma.Get(api, "/venues/{venue_id}", venueHandler.GetVenueHandler)
 	huma.Get(api, "/venues/{venue_id}/shows", venueHandler.GetVenueShowsHandler)
+	huma.Get(api, "/venues/{venue_id}/genres", venueHandler.GetVenueGenresHandler)
 
 	// Protected venue endpoints - require authentication
 	huma.Post(protected, "/admin/venues", venueHandler.AdminCreateVenueHandler)
@@ -592,6 +595,7 @@ func setupPipelineRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 	pipelineHandler := handlers.NewPipelineHandler(sc.Pipeline, sc.VenueSourceConfig, sc.Enrichment)
 
 	huma.Post(protected, "/admin/pipeline/extract/{venue_id}", pipelineHandler.ExtractVenueHandler)
+	huma.Get(protected, "/admin/pipeline/imports", pipelineHandler.GetImportHistoryHandler)
 	huma.Get(protected, "/admin/pipeline/venues", pipelineHandler.ListPipelineVenuesHandler)
 	huma.Get(protected, "/admin/pipeline/venues/{venue_id}/stats", pipelineHandler.VenueRejectionStatsHandler)
 	huma.Patch(protected, "/admin/pipeline/venues/{venue_id}/notes", pipelineHandler.UpdateExtractionNotesHandler)
@@ -730,6 +734,7 @@ func setupSceneRoutes(api huma.API, sc *services.ServiceContainer) {
 	huma.Get(api, "/scenes", sceneHandler.ListScenesHandler)
 	huma.Get(api, "/scenes/{slug}", sceneHandler.GetSceneDetailHandler)
 	huma.Get(api, "/scenes/{slug}/artists", sceneHandler.GetSceneActiveArtistsHandler)
+	huma.Get(api, "/scenes/{slug}/genres", sceneHandler.GetSceneGenresHandler)
 }
 
 // setupAttendanceRoutes configures show attendance (going/interested) endpoints.

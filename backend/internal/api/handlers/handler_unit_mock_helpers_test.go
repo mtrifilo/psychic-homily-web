@@ -771,6 +771,7 @@ type mockVenueService struct {
 	cancelPendingVenueEditFn   func(editID uint, userID uint) error
 	getVenueModelFn            func(venueID uint) (*models.Venue, error)
 	getUnverifiedVenuesFn      func(limit, offset int) ([]*services.UnverifiedVenueResponse, int64, error)
+	getVenueGenreProfileFn     func(venueID uint) ([]services.GenreCount, error)
 }
 
 func (m *mockVenueService) CreateVenue(req *services.CreateVenueRequest, isAdmin bool) (*services.VenueDetailResponse, error) {
@@ -904,6 +905,12 @@ func (m *mockVenueService) GetUnverifiedVenues(limit, offset int) ([]*services.U
 		return m.getUnverifiedVenuesFn(limit, offset)
 	}
 	return nil, 0, nil
+}
+func (m *mockVenueService) GetVenueGenreProfile(venueID uint) ([]services.GenreCount, error) {
+	if m.getVenueGenreProfileFn != nil {
+		return m.getVenueGenreProfileFn(venueID)
+	}
+	return []services.GenreCount{}, nil
 }
 
 // ============================================================================

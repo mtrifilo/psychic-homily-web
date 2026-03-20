@@ -8,8 +8,10 @@ import {
   useVenueExtractionRuns,
   useResetRenderMethod,
   useExtractVenue,
+  useImportHistory,
   type PipelineVenueInfo,
   type VenueExtractionRun,
+  type ImportHistoryEntry,
 } from '@/lib/hooks/usePipeline'
 import { useVenueSearch } from '@/features/venues'
 import { Switch } from '@/components/ui/switch'
@@ -541,10 +543,119 @@ function VenueDetailPanel({
   )
 }
 
+function SourceTypeBadge({ sourceType }: { sourceType: string }) {
+  const colors: Record<string, string> = {
+    ai: 'bg-purple-500/20 text-purple-400',
+    ical: 'bg-blue-500/20 text-blue-400',
+    rss: 'bg-orange-500/20 text-orange-400',
+  }
+  const color = colors[sourceType] ?? 'bg-muted text-muted-foreground'
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${color}`}>
+      {sourceType.toUpperCase()}
+    </span>
+  )
+}
+
+function ImportHistorySection() {
+  const PAGE_SIZE = 20
+  const [offset, setOffset] = useState(0)
+  const { data, isLoading, error } = useImportHistory(PAGE_SIZE, offset)
+
+  if (isLoading) return <p className="text-muted-foreground text-sm">Loading import history...</p>
+  if (error) return <p className="text-red-400 text-sm">Failed to load import history</p>
+
+  const imports = data?.imports ?? []
+  const total = data?.total ?? 0
+  const hasMore = offset + PAGE_SIZE < total
+  const hasPrev = offset > 0
+
+  if (imports.length === 0 && offset === 0) {
+    return <p className="text-muted-foreground text-sm">No extraction runs recorded yet.</p>
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="border border-border rounded-lg overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="text-left p-3 font-medium">Date</th>
+              <th className="text-left p-3 font-medium">Venue</th>
+              <th className="text-center p-3 font-medium">Source</th>
+              <th className="text-center p-3 font-medium">Extracted</th>
+              <th className="text-center p-3 font-medium">Imported</th>
+              <th className="text-right p-3 font-medium">Duration</th>
+              <th className="text-center p-3 font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {imports.map((entry: ImportHistoryEntry) => (
+              <tr key={entry.id}>
+                <td className="p-3 text-muted-foreground text-xs">
+                  {new Date(entry.run_at).toLocaleString()}
+                </td>
+                <td className="p-3">
+                  <span className="font-medium">{entry.venue_name}</span>
+                </td>
+                <td className="p-3 text-center">
+                  <SourceTypeBadge sourceType={entry.source_type} />
+                </td>
+                <td className="p-3 text-center">{entry.events_extracted}</td>
+                <td className="p-3 text-center">{entry.events_imported}</td>
+                <td className="p-3 text-right text-muted-foreground text-xs">
+                  {entry.duration_ms >= 1000
+                    ? `${(entry.duration_ms / 1000).toFixed(1)}s`
+                    : `${entry.duration_ms}ms`}
+                </td>
+                <td className="p-3 text-center">
+                  {entry.error ? (
+                    <span className="text-red-400 text-xs" title={entry.error}>
+                      Error
+                    </span>
+                  ) : (
+                    <span className="text-green-400 text-xs">OK</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      {(hasPrev || hasMore) && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">
+            Showing {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+              disabled={!hasPrev}
+              className="px-3 py-1 border border-border rounded text-sm hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => setOffset(offset + PAGE_SIZE)}
+              disabled={!hasMore}
+              className="px-3 py-1 border border-border rounded text-sm hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function PipelineVenues() {
   const { data, isLoading, error } = usePipelineVenues()
   const [selectedVenueId, setSelectedVenueId] = useState<number | null>(null)
   const [showAddVenue, setShowAddVenue] = useState(false)
+  const [activeView, setActiveView] = useState<'venues' | 'history'>('venues')
 
   if (isLoading) return <p className="text-muted-foreground">Loading pipeline venues...</p>
   if (error) return <p className="text-red-400">Failed to load pipeline venues</p>
@@ -555,6 +666,34 @@ export function PipelineVenues() {
 
   return (
     <div className="space-y-4">
+      {/* View toggle */}
+      <div className="flex items-center gap-2 border-b border-border pb-3">
+        <button
+          onClick={() => setActiveView('venues')}
+          className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+            activeView === 'venues'
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+          }`}
+        >
+          Venue Status
+        </button>
+        <button
+          onClick={() => setActiveView('history')}
+          className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+            activeView === 'history'
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+          }`}
+        >
+          Import History
+        </button>
+      </div>
+
+      {activeView === 'history' ? (
+        <ImportHistorySection />
+      ) : (
+      <>
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Pipeline Venues</h2>
         <button
@@ -654,6 +793,8 @@ export function PipelineVenues() {
             />
           )}
         </>
+      )}
+      </>
       )}
     </div>
   )

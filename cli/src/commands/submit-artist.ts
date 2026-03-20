@@ -5,6 +5,7 @@ import { checkDuplicate } from "../lib/duplicates";
 import { validateArtist } from "../lib/schemas";
 import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
 import type { TagInput, ResolvedTag } from "../lib/tags";
+import { resolveAndLinkArtistLabel } from "../lib/labels";
 import * as display from "../lib/display";
 import { green, yellow, gray, dim } from "../lib/ansi";
 
@@ -186,6 +187,12 @@ export async function submitArtists(
   for (let i = 0; i < artists.length; i++) {
     displayArtistPreview(artists[i], dupResults[i], i);
 
+    // Show label if specified
+    const labelField = artists[i].label;
+    if (typeof labelField === "string" && labelField) {
+      display.kv("label", `${labelField} (will link after create/resolve)`);
+    }
+
     // Show tags if any
     if (resolvedTags[i].length > 0) {
       display.kv("tags", formatTagsPreview(resolvedTags[i]));
@@ -232,13 +239,18 @@ export async function submitArtists(
     const dup = dupResults[i];
     const name = String(artist.name || "");
 
+    // Extract label field (not an artist API field — used for linking)
+    const labelName = typeof artist.label === "string" ? artist.label : undefined;
+
     try {
       switch (dup.action) {
         case "create": {
+          // Strip label from the payload before sending to the API
+          const { label: _label, ...artistPayload } = artist;
           const response = await client.post<{
             artist?: { id: number; name: string };
             id?: number;
-          }>("/admin/artists", artist);
+          }>("/admin/artists", artistPayload);
           const id = response.artist?.id ?? response.id;
           display.success(`Created "${name}" (ID ${id})`);
           // Apply tags if any
@@ -249,6 +261,10 @@ export async function submitArtists(
               display.info(`  Applied ${tagResult.applied} tag(s)`);
             }
           }
+          // Link artist to label if specified
+          if (id && labelName) {
+            await resolveAndLinkArtistLabel(client, labelName, id);
+          }
           results.push({ name, action: "created", id });
           break;
         }
@@ -257,6 +273,10 @@ export async function submitArtists(
           const updateBody = buildUpdateBody(dup.fields);
           if (Object.keys(updateBody).length === 0) {
             display.info(`No new fields to update for "${name}", skipping.`);
+            // Still link to label even when no field updates
+            if (dup.existingId && labelName) {
+              await resolveAndLinkArtistLabel(client, labelName, dup.existingId);
+            }
             results.push({
               name,
               action: "skipped",
@@ -279,6 +299,10 @@ export async function submitArtists(
               display.info(`  Applied ${tagResult.applied} tag(s)`);
             }
           }
+          // Link artist to label if specified
+          if (dup.existingId && labelName) {
+            await resolveAndLinkArtistLabel(client, labelName, dup.existingId);
+          }
           results.push({
             name,
             action: "updated",
@@ -298,6 +322,10 @@ export async function submitArtists(
             if (tagResult.applied > 0) {
               display.info(`  Applied ${tagResult.applied} tag(s)`);
             }
+          }
+          // Link artist to label even on skip
+          if (dup.existingId && labelName) {
+            await resolveAndLinkArtistLabel(client, labelName, dup.existingId);
           }
           results.push({
             name,

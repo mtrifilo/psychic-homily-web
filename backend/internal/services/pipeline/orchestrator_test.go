@@ -132,6 +132,9 @@ func (s *stubVenueConfig) GetRecentRuns(venueID uint, limit int) ([]models.Venue
 	}
 	return nil, nil
 }
+func (s *stubVenueConfig) GetAllRecentRuns(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
+	return nil, 0, nil
+}
 func (s *stubVenueConfig) ListConfigured() ([]models.VenueSourceConfig, error) {
 	if s.listConfiguredFn != nil {
 		return s.listConfiguredFn()
@@ -219,6 +222,9 @@ func (s *stubVenueService) GetVenueModel(venueID uint) (*models.Venue, error) {
 	return &models.Venue{ID: venueID, Name: "Test Venue", Slug: &slug, City: "Phoenix", State: "AZ"}, nil
 }
 func (s *stubVenueService) GetUnverifiedVenues(limit, offset int) ([]*contracts.UnverifiedVenueResponse, int64, error) {
+	panic("not implemented")
+}
+func (s *stubVenueService) GetVenueGenreProfile(venueID uint) ([]contracts.GenreCount, error) {
 	panic("not implemented")
 }
 

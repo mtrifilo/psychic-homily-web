@@ -10,6 +10,8 @@ export type {
   SceneDetail,
   SceneArtist,
   SceneArtistsResponse,
+  GenreCount,
+  SceneGenreResponse,
 } from './types'
 
 // Hooks
@@ -17,6 +19,7 @@ export {
   useScenes,
   useSceneDetail,
   useSceneArtists,
+  useSceneGenres,
 } from './hooks'
 
 // Components

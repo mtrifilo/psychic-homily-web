@@ -7,10 +7,14 @@ import type { TagInput, ResolvedTag } from "../lib/tags";
 import * as display from "../lib/display";
 import { green, yellow, dim, gray } from "../lib/ansi";
 
-/** Normalize a date string to ISO 8601. Adds T20:00:00Z if only YYYY-MM-DD. */
+/** Normalize a date string to ISO 8601. Adds T20:00:00Z if only YYYY-MM-DD, appends Z if missing timezone. */
 function normalizeDate(date: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return `${date}T20:00:00Z`;
+  }
+  // If has time but no timezone suffix (Z or +/-offset), append Z
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(date)) {
+    return `${date}Z`;
   }
   return date;
 }

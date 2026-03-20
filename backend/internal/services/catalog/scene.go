@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -387,4 +388,155 @@ func buildSceneSlug(city, state string) string {
 	slug = strings.ReplaceAll(slug, " ", "-")
 	slug = slug + "-" + strings.ToLower(state)
 	return slug
+}
+
+// Thresholds for genre intelligence.
+const (
+	sceneGenreMinTaggedArtists    = 30
+	sceneDiversityMinTaggedArtists = 50
+	sceneDiversityMinGenres        = 5
+	venueGenreMinShows             = 10
+)
+
+// GetSceneGenreDistribution returns genre tags ranked by the number of distinct
+// artists who play approved shows in this city and carry that genre tag.
+// Returns empty if fewer than 30 tagged artists exist for the scene.
+func (s *SceneService) GetSceneGenreDistribution(city, state string) ([]contracts.GenreCount, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	type genreRow struct {
+		TagID uint   `gorm:"column:tag_id"`
+		Name  string `gorm:"column:name"`
+		Slug  string `gorm:"column:slug"`
+		Count int    `gorm:"column:count"`
+	}
+
+	var rows []genreRow
+	err := s.db.Raw(`
+		SELECT t.id AS tag_id, t.name, t.slug, COUNT(DISTINCT sa.artist_id) AS count
+		FROM show_artists sa
+		JOIN show_venues sv ON sv.show_id = sa.show_id
+		JOIN shows s ON s.id = sa.show_id
+		JOIN venues v ON v.id = sv.venue_id
+		JOIN entity_tags et ON et.entity_type = 'artist' AND et.entity_id = sa.artist_id
+		JOIN tags t ON t.id = et.tag_id AND t.category = 'genre'
+		WHERE v.city = ? AND v.state = ?
+		  AND s.status = ?
+		GROUP BY t.id, t.name, t.slug
+		ORDER BY count DESC
+	`, city, state, models.ShowStatusApproved).Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get scene genre distribution: %w", err)
+	}
+
+	// Check if total tagged artists meets threshold
+	totalTagged := 0
+	for _, r := range rows {
+		totalTagged += r.Count
+	}
+	if totalTagged < sceneGenreMinTaggedArtists {
+		return []contracts.GenreCount{}, nil
+	}
+
+	result := make([]contracts.GenreCount, len(rows))
+	for i, r := range rows {
+		result[i] = contracts.GenreCount{
+			TagID: r.TagID,
+			Name:  r.Name,
+			Slug:  r.Slug,
+			Count: r.Count,
+		}
+	}
+
+	return result, nil
+}
+
+// GetGenreDiversityIndex computes the normalized Shannon entropy of the genre
+// distribution for a city scene. Returns a value in [0, 1] where higher values
+// indicate more genre diversity. Returns -1 when there is insufficient data
+// (fewer than 50 tagged artists or fewer than 5 genres).
+func (s *SceneService) GetGenreDiversityIndex(city, state string) (float64, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("database not initialized")
+	}
+
+	type genreRow struct {
+		Count int `gorm:"column:count"`
+	}
+
+	var rows []genreRow
+	err := s.db.Raw(`
+		SELECT COUNT(DISTINCT sa.artist_id) AS count
+		FROM show_artists sa
+		JOIN show_venues sv ON sv.show_id = sa.show_id
+		JOIN shows s ON s.id = sa.show_id
+		JOIN venues v ON v.id = sv.venue_id
+		JOIN entity_tags et ON et.entity_type = 'artist' AND et.entity_id = sa.artist_id
+		JOIN tags t ON t.id = et.tag_id AND t.category = 'genre'
+		WHERE v.city = ? AND v.state = ?
+		  AND s.status = ?
+		GROUP BY t.id
+		ORDER BY count DESC
+	`, city, state, models.ShowStatusApproved).Scan(&rows).Error
+	if err != nil {
+		return 0, fmt.Errorf("failed to get genre diversity index: %w", err)
+	}
+
+	// Check thresholds
+	totalTagged := 0
+	counts := make([]int, len(rows))
+	for i, r := range rows {
+		totalTagged += r.Count
+		counts[i] = r.Count
+	}
+
+	if totalTagged < sceneDiversityMinTaggedArtists || len(counts) < sceneDiversityMinGenres {
+		return -1, nil
+	}
+
+	return NormalizedShannonEntropy(counts), nil
+}
+
+// NormalizedShannonEntropy computes normalized Shannon entropy in [0, 1].
+// Exported for testing.
+func NormalizedShannonEntropy(counts []int) float64 {
+	total := 0
+	for _, c := range counts {
+		total += c
+	}
+	if total == 0 {
+		return 0
+	}
+	entropy := 0.0
+	for _, c := range counts {
+		if c == 0 {
+			continue
+		}
+		p := float64(c) / float64(total)
+		entropy -= p * math.Log2(p)
+	}
+	maxEntropy := math.Log2(float64(len(counts)))
+	if maxEntropy == 0 {
+		return 0
+	}
+	return entropy / maxEntropy
+}
+
+// DiversityLabel returns a human-readable label for a diversity index value.
+func DiversityLabel(index float64) string {
+	if index < 0 {
+		return ""
+	}
+	if index >= 0.8 {
+		return "Highly diverse"
+	}
+	if index >= 0.5 {
+		return "Mixed"
+	}
+	if index >= 0.2 {
+		return "Genre-focused"
+	}
+	return ""
 }

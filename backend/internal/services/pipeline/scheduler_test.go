@@ -102,6 +102,10 @@ func (s *stubVenueConfigService) GetRecentRuns(venueID uint, limit int) ([]model
 	return nil, nil
 }
 
+func (s *stubVenueConfigService) GetAllRecentRuns(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
+	return nil, 0, nil
+}
+
 func (s *stubVenueConfigService) GetRejectionStats(venueID uint) (*contracts.VenueRejectionStats, error) {
 	return nil, nil
 }

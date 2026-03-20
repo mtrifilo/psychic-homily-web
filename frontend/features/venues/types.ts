@@ -295,3 +295,18 @@ export interface FavoriteVenueShowsResponse {
   offset: number
   timezone: string
 }
+
+// ============================================================================
+// Venue Genre Profile Types
+// ============================================================================
+
+export interface VenueGenreCount {
+  tag_id: number
+  name: string
+  slug: string
+  count: number
+}
+
+export interface VenueGenreResponse {
+  genres: VenueGenreCount[]
+}

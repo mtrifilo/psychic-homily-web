@@ -67,6 +67,7 @@ type VenueServiceInterface interface {
 	CancelPendingVenueEdit(editID uint, userID uint) error
 	GetVenueModel(venueID uint) (*models.Venue, error)
 	GetUnverifiedVenues(limit, offset int) ([]*UnverifiedVenueResponse, int64, error)
+	GetVenueGenreProfile(venueID uint) ([]GenreCount, error)
 }
 
 // ArtistServiceInterface defines the contract for artist operations.
@@ -332,6 +333,8 @@ type LabelServiceInterface interface {
 	DeleteLabel(labelID uint) error
 	GetLabelRoster(labelID uint) ([]*LabelArtistResponse, error)
 	GetLabelCatalog(labelID uint) ([]*LabelReleaseResponse, error)
+	AddArtistToLabel(labelID, artistID uint) error
+	AddReleaseToLabel(labelID, releaseID uint, catalogNumber *string) error
 }
 
 // FestivalServiceInterface defines the contract for festival operations.
@@ -412,6 +415,7 @@ type VenueSourceConfigServiceInterface interface {
 	IncrementFailures(venueID uint) error
 	RecordRun(run *models.VenueExtractionRun) error
 	GetRecentRuns(venueID uint, limit int) ([]models.VenueExtractionRun, error)
+	GetAllRecentRuns(limit, offset int) ([]ImportHistoryEntry, int64, error)
 	ListConfigured() ([]models.VenueSourceConfig, error)
 	GetRejectionStats(venueID uint) (*VenueRejectionStats, error)
 	UpdateExtractionNotes(venueID uint, notes *string) error
@@ -453,6 +457,8 @@ type SceneServiceInterface interface {
 	GetSceneDetail(city, state string) (*SceneDetailResponse, error)
 	GetActiveArtists(city, state string, periodDays, limit, offset int) ([]*SceneArtistResponse, int64, error)
 	ParseSceneSlug(slug string) (string, string, error)
+	GetSceneGenreDistribution(city, state string) ([]GenreCount, error)
+	GetGenreDiversityIndex(city, state string) (float64, error)
 }
 
 // DataQualityServiceInterface defines the contract for data quality dashboard operations.
