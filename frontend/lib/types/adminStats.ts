@@ -10,3 +10,13 @@ export interface AdminDashboardStats {
   shows_submitted_last_7_days: number
   users_registered_last_7_days: number
 }
+
+export interface ActivityEvent {
+  id: number
+  event_type: string
+  description: string
+  entity_type?: string
+  entity_slug?: string
+  timestamp: string
+  actor_name?: string
+}

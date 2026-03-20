@@ -1198,6 +1198,7 @@ func (m *mockDataSyncService) ImportData(req services.DataImportRequest) (*servi
 
 type mockAdminStatsService struct {
 	getDashboardStatsFn func() (*services.AdminDashboardStats, error)
+	getRecentActivityFn func() (*services.ActivityFeedResponse, error)
 }
 
 func (m *mockAdminStatsService) GetDashboardStats() (*services.AdminDashboardStats, error) {
@@ -1205,6 +1206,13 @@ func (m *mockAdminStatsService) GetDashboardStats() (*services.AdminDashboardSta
 		return m.getDashboardStatsFn()
 	}
 	return nil, nil
+}
+
+func (m *mockAdminStatsService) GetRecentActivity() (*services.ActivityFeedResponse, error) {
+	if m.getRecentActivityFn != nil {
+		return m.getRecentActivityFn()
+	}
+	return &services.ActivityFeedResponse{Events: []services.ActivityEvent{}}, nil
 }
 
 // ============================================================================

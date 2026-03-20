@@ -318,6 +318,7 @@ type DataSyncServiceInterface interface {
 // AdminStatsServiceInterface defines the contract for admin statistics operations.
 type AdminStatsServiceInterface interface {
 	GetDashboardStats() (*AdminDashboardStats, error)
+	GetRecentActivity() (*ActivityFeedResponse, error)
 }
 
 // LabelServiceInterface defines the contract for label operations.
