@@ -307,7 +307,7 @@ describe('useVoteOnTag (optimistic updates)', () => {
 
   it('optimistically updates entity tags cache on upvote', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
     })
 
     queryClient.setQueryData(['tags', 'entityTags', 'artist', 42], {

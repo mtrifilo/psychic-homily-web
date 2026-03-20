@@ -157,7 +157,7 @@ describe('useSetAttendance', () => {
 
   it('performs optimistic update when setting "going"', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
     })
 
     queryClient.setQueryData(['attendance', 'show', 1], {
@@ -233,7 +233,7 @@ describe('useRemoveAttendance', () => {
 
   it('optimistically clears user status and decrements count', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
     })
 
     queryClient.setQueryData(['attendance', 'show', 1], {

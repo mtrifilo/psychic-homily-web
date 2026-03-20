@@ -162,7 +162,7 @@ describe('useFollow', () => {
 
   it('performs optimistic update on follow', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
     })
 
     queryClient.setQueryData(['follows', 'artists', 1], {
@@ -216,7 +216,7 @@ describe('useUnfollow', () => {
 
   it('performs optimistic update on unfollow', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
     })
 
     queryClient.setQueryData(['follows', 'artists', 1], {

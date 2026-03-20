@@ -224,7 +224,7 @@ describe('useVoteRequest (optimistic updates)', () => {
 
   it('performs optimistic update for upvote from no previous vote', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
     })
 
     // Seed the cache with a request
@@ -262,7 +262,7 @@ describe('useVoteRequest (optimistic updates)', () => {
 
   it('rolls back optimistic update on error', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
     })
 
     const originalData = {
@@ -321,7 +321,7 @@ describe('useRemoveVoteRequest', () => {
 
   it('performs optimistic update to remove upvote', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
     })
 
     queryClient.setQueryData(['requests', 'detail', 1], {
