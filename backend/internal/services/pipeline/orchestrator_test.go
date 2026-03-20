@@ -132,6 +132,9 @@ func (s *stubVenueConfig) GetRecentRuns(venueID uint, limit int) ([]models.Venue
 	}
 	return nil, nil
 }
+func (s *stubVenueConfig) GetAllRecentRuns(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
+	return nil, 0, nil
+}
 func (s *stubVenueConfig) ListConfigured() ([]models.VenueSourceConfig, error) {
 	if s.listConfiguredFn != nil {
 		return s.listConfiguredFn()

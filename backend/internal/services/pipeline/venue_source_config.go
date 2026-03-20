@@ -289,6 +289,84 @@ func (s *VenueSourceConfigService) ResetRenderMethod(venueID uint) error {
 	return nil
 }
 
+// ImportHistoryEntry is an alias to the canonical type in contracts.
+type ImportHistoryEntry = contracts.ImportHistoryEntry
+
+// GetAllRecentRuns returns extraction runs across ALL venues, ordered by run_at desc,
+// with venue name, slug, and source type info. Supports pagination via limit/offset.
+func (s *VenueSourceConfigService) GetAllRecentRuns(limit, offset int) ([]ImportHistoryEntry, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Count total runs
+	var total int64
+	if err := s.db.Model(&models.VenueExtractionRun{}).Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count extraction runs: %w", err)
+	}
+
+	// Fetch runs with venue info
+	var runs []models.VenueExtractionRun
+	err := s.db.Preload("Venue").
+		Order("run_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&runs).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get import history: %w", err)
+	}
+
+	// Build a map of venue_id -> preferred_source from configs
+	configMap := make(map[uint]string)
+	var configs []models.VenueSourceConfig
+	if err := s.db.Select("venue_id, preferred_source").Find(&configs).Error; err == nil {
+		for _, cfg := range configs {
+			configMap[cfg.VenueID] = cfg.PreferredSource
+		}
+	}
+
+	entries := make([]ImportHistoryEntry, 0, len(runs))
+	for _, run := range runs {
+		entry := ImportHistoryEntry{
+			ID:              run.ID,
+			VenueID:         run.VenueID,
+			VenueName:       run.Venue.Name,
+			RenderMethod:    run.RenderMethod,
+			EventsExtracted: run.EventsExtracted,
+			EventsImported:  run.EventsImported,
+			DurationMs:      run.DurationMs,
+			Error:           run.Error,
+			RunAt:           run.RunAt,
+		}
+		if run.Venue.Slug != nil {
+			entry.VenueSlug = *run.Venue.Slug
+		}
+
+		// Source type: prefer the run's preferred_source field, then fall back to config
+		if run.PreferredSource != nil && *run.PreferredSource != "" {
+			entry.SourceType = *run.PreferredSource
+		} else if src, ok := configMap[run.VenueID]; ok {
+			entry.SourceType = src
+		} else {
+			entry.SourceType = "ai"
+		}
+
+		entries = append(entries, entry)
+	}
+
+	return entries, total, nil
+}
+
 // ListConfigured returns all venue source configs, preloading the venue association.
 func (s *VenueSourceConfigService) ListConfigured() ([]models.VenueSourceConfig, error) {
 	if s.db == nil {

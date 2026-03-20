@@ -1,6 +1,9 @@
 package contracts
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 // ──────────────────────────────────────────────
 // Extraction types
@@ -181,6 +184,22 @@ type VenueRejectionStats struct {
 	RejectionBreakdown   map[string]int64 `json:"rejection_breakdown"`
 	ApprovalRate         float64          `json:"approval_rate"`
 	SuggestedAutoApprove bool             `json:"suggested_auto_approve"`
+}
+
+// ImportHistoryEntry represents a single extraction run enriched with venue info,
+// used for the cross-venue import history view.
+type ImportHistoryEntry struct {
+	ID              uint      `json:"id"`
+	VenueID         uint      `json:"venue_id"`
+	VenueName       string    `json:"venue_name"`
+	VenueSlug       string    `json:"venue_slug"`
+	SourceType      string    `json:"source_type"`
+	RenderMethod    *string   `json:"render_method"`
+	EventsExtracted int       `json:"events_extracted"`
+	EventsImported  int       `json:"events_imported"`
+	DurationMs      int       `json:"duration_ms"`
+	Error           *string   `json:"error"`
+	RunAt           time.Time `json:"run_at"`
 }
 
 // ──────────────────────────────────────────────

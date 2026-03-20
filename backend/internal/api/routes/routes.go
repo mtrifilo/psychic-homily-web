@@ -595,6 +595,7 @@ func setupPipelineRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 	pipelineHandler := handlers.NewPipelineHandler(sc.Pipeline, sc.VenueSourceConfig)
 
 	huma.Post(protected, "/admin/pipeline/extract/{venue_id}", pipelineHandler.ExtractVenueHandler)
+	huma.Get(protected, "/admin/pipeline/imports", pipelineHandler.GetImportHistoryHandler)
 	huma.Get(protected, "/admin/pipeline/venues", pipelineHandler.ListPipelineVenuesHandler)
 	huma.Get(protected, "/admin/pipeline/venues/{venue_id}/stats", pipelineHandler.VenueRejectionStatsHandler)
 	huma.Patch(protected, "/admin/pipeline/venues/{venue_id}/notes", pipelineHandler.UpdateExtractionNotesHandler)

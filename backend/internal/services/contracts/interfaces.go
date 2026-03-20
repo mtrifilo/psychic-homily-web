@@ -415,6 +415,7 @@ type VenueSourceConfigServiceInterface interface {
 	IncrementFailures(venueID uint) error
 	RecordRun(run *models.VenueExtractionRun) error
 	GetRecentRuns(venueID uint, limit int) ([]models.VenueExtractionRun, error)
+	GetAllRecentRuns(limit, offset int) ([]ImportHistoryEntry, int64, error)
 	ListConfigured() ([]models.VenueSourceConfig, error)
 	GetRejectionStats(venueID uint) (*VenueRejectionStats, error)
 	UpdateExtractionNotes(venueID uint, notes *string) error
