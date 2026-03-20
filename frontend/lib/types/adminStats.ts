@@ -9,6 +9,10 @@ export interface AdminDashboardStats {
   total_users: number
   shows_submitted_last_7_days: number
   users_registered_last_7_days: number
+  total_shows_trend: number
+  total_venues_trend: number
+  total_artists_trend: number
+  total_users_trend: number
 }
 
 export interface ActivityEvent {
