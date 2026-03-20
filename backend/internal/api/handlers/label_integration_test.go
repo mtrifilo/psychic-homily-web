@@ -350,3 +350,201 @@ func (s *LabelHandlerIntegrationSuite) TestGetLabelCatalog_LabelNotFound() {
 	_, err := s.handler.GetLabelCatalogHandler(s.deps.ctx, req)
 	assertHumaError(s.T(), err, 404)
 }
+
+// --- AddArtistToLabelHandler ---
+
+func (s *LabelHandlerIntegrationSuite) TestAddArtistToLabel_Success() {
+	label := s.createLabelViaService("Link Label")
+	artist := s.createArtistForLabel("Link Artist")
+	admin := createAdminUser(s.deps.db)
+
+	ctx := ctxWithUser(admin)
+	req := &AddArtistToLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	req.Body.ArtistID = artist.ID
+
+	resp, err := s.handler.AddArtistToLabelHandler(ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.True(resp.Body.Success)
+
+	// Verify the link was created via roster
+	rosterReq := &GetLabelRosterRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	rosterResp, err := s.handler.GetLabelRosterHandler(s.deps.ctx, rosterReq)
+	s.NoError(err)
+	s.Equal(1, rosterResp.Body.Count)
+	s.Equal("Link Artist", rosterResp.Body.Artists[0].Name)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestAddArtistToLabel_Idempotent() {
+	label := s.createLabelViaService("Idempotent Label")
+	artist := s.createArtistForLabel("Idempotent Artist")
+	admin := createAdminUser(s.deps.db)
+
+	ctx := ctxWithUser(admin)
+	req := &AddArtistToLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	req.Body.ArtistID = artist.ID
+
+	// First call
+	resp, err := s.handler.AddArtistToLabelHandler(ctx, req)
+	s.NoError(err)
+	s.True(resp.Body.Success)
+
+	// Second call should succeed without error (idempotent)
+	resp2, err := s.handler.AddArtistToLabelHandler(ctx, req)
+	s.NoError(err)
+	s.True(resp2.Body.Success)
+
+	// Verify only one link exists
+	rosterReq := &GetLabelRosterRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	rosterResp, err := s.handler.GetLabelRosterHandler(s.deps.ctx, rosterReq)
+	s.NoError(err)
+	s.Equal(1, rosterResp.Body.Count)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestAddArtistToLabel_LabelNotFound() {
+	artist := s.createArtistForLabel("Orphan Artist")
+	admin := createAdminUser(s.deps.db)
+
+	ctx := ctxWithUser(admin)
+	req := &AddArtistToLabelRequest{LabelID: "99999"}
+	req.Body.ArtistID = artist.ID
+
+	_, err := s.handler.AddArtistToLabelHandler(ctx, req)
+	assertHumaError(s.T(), err, 404)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestAddArtistToLabel_NonAdminForbidden() {
+	user := createTestUser(s.deps.db)
+	label := s.createLabelViaService("Forbidden Label")
+	artist := s.createArtistForLabel("Forbidden Artist")
+
+	ctx := ctxWithUser(user)
+	req := &AddArtistToLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	req.Body.ArtistID = artist.ID
+
+	_, err := s.handler.AddArtistToLabelHandler(ctx, req)
+	assertHumaError(s.T(), err, 403)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestAddArtistToLabel_MissingArtistID() {
+	label := s.createLabelViaService("No Artist Label")
+	admin := createAdminUser(s.deps.db)
+
+	ctx := ctxWithUser(admin)
+	req := &AddArtistToLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	// Body.ArtistID is 0 (zero value)
+
+	_, err := s.handler.AddArtistToLabelHandler(ctx, req)
+	assertHumaError(s.T(), err, 400)
+}
+
+// --- AddReleaseToLabelHandler ---
+
+func (s *LabelHandlerIntegrationSuite) TestAddReleaseToLabel_Success() {
+	label := s.createLabelViaService("Release Link Label")
+	release := s.createReleaseForLabel("Release Link Release")
+	admin := createAdminUser(s.deps.db)
+
+	ctx := ctxWithUser(admin)
+	req := &AddReleaseToLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	req.Body.ReleaseID = release.ID
+
+	resp, err := s.handler.AddReleaseToLabelHandler(ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.True(resp.Body.Success)
+
+	// Verify the link was created via catalog
+	catalogReq := &GetLabelCatalogRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	catalogResp, err := s.handler.GetLabelCatalogHandler(s.deps.ctx, catalogReq)
+	s.NoError(err)
+	s.Equal(1, catalogResp.Body.Count)
+	s.Equal("Release Link Release", catalogResp.Body.Releases[0].Title)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestAddReleaseToLabel_WithCatalogNumber() {
+	label := s.createLabelViaService("Catalog Number Label")
+	release := s.createReleaseForLabel("Catalog Number Release")
+	admin := createAdminUser(s.deps.db)
+
+	ctx := ctxWithUser(admin)
+	catalogNum := "CAT-042"
+	req := &AddReleaseToLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	req.Body.ReleaseID = release.ID
+	req.Body.CatalogNumber = &catalogNum
+
+	resp, err := s.handler.AddReleaseToLabelHandler(ctx, req)
+	s.NoError(err)
+	s.True(resp.Body.Success)
+
+	// Verify the catalog number is set
+	catalogReq := &GetLabelCatalogRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	catalogResp, err := s.handler.GetLabelCatalogHandler(s.deps.ctx, catalogReq)
+	s.NoError(err)
+	s.Equal(1, catalogResp.Body.Count)
+	s.NotNil(catalogResp.Body.Releases[0].CatalogNumber)
+	s.Equal("CAT-042", *catalogResp.Body.Releases[0].CatalogNumber)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestAddReleaseToLabel_Idempotent() {
+	label := s.createLabelViaService("Idempotent Release Label")
+	release := s.createReleaseForLabel("Idempotent Release")
+	admin := createAdminUser(s.deps.db)
+
+	ctx := ctxWithUser(admin)
+	req := &AddReleaseToLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	req.Body.ReleaseID = release.ID
+
+	// First call
+	resp, err := s.handler.AddReleaseToLabelHandler(ctx, req)
+	s.NoError(err)
+	s.True(resp.Body.Success)
+
+	// Second call should succeed (idempotent)
+	resp2, err := s.handler.AddReleaseToLabelHandler(ctx, req)
+	s.NoError(err)
+	s.True(resp2.Body.Success)
+
+	// Verify only one link exists
+	catalogReq := &GetLabelCatalogRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	catalogResp, err := s.handler.GetLabelCatalogHandler(s.deps.ctx, catalogReq)
+	s.NoError(err)
+	s.Equal(1, catalogResp.Body.Count)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestAddReleaseToLabel_LabelNotFound() {
+	release := s.createReleaseForLabel("Orphan Release")
+	admin := createAdminUser(s.deps.db)
+
+	ctx := ctxWithUser(admin)
+	req := &AddReleaseToLabelRequest{LabelID: "99999"}
+	req.Body.ReleaseID = release.ID
+
+	_, err := s.handler.AddReleaseToLabelHandler(ctx, req)
+	assertHumaError(s.T(), err, 404)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestAddReleaseToLabel_NonAdminForbidden() {
+	user := createTestUser(s.deps.db)
+	label := s.createLabelViaService("Forbidden Release Label")
+	release := s.createReleaseForLabel("Forbidden Release")
+
+	ctx := ctxWithUser(user)
+	req := &AddReleaseToLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	req.Body.ReleaseID = release.ID
+
+	_, err := s.handler.AddReleaseToLabelHandler(ctx, req)
+	assertHumaError(s.T(), err, 403)
+}
+
+func (s *LabelHandlerIntegrationSuite) TestAddReleaseToLabel_MissingReleaseID() {
+	label := s.createLabelViaService("No Release Label")
+	admin := createAdminUser(s.deps.db)
+
+	ctx := ctxWithUser(admin)
+	req := &AddReleaseToLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
+	// Body.ReleaseID is 0 (zero value)
+
+	_, err := s.handler.AddReleaseToLabelHandler(ctx, req)
+	assertHumaError(s.T(), err, 400)
+}

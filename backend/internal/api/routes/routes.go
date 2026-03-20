@@ -333,6 +333,8 @@ func setupLabelRoutes(api huma.API, protected *huma.Group, sc *services.ServiceC
 	huma.Post(protected, "/labels", labelHandler.CreateLabelHandler)
 	huma.Put(protected, "/labels/{label_id}", labelHandler.UpdateLabelHandler)
 	huma.Delete(protected, "/labels/{label_id}", labelHandler.DeleteLabelHandler)
+	huma.Post(protected, "/admin/labels/{label_id}/artists", labelHandler.AddArtistToLabelHandler)
+	huma.Post(protected, "/admin/labels/{label_id}/releases", labelHandler.AddReleaseToLabelHandler)
 }
 
 func setupFestivalRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {

@@ -466,6 +466,157 @@ func (h *LabelHandler) GetLabelCatalogHandler(ctx context.Context, req *GetLabel
 }
 
 // ============================================================================
+// Add Artist to Label
+// ============================================================================
+
+// AddArtistToLabelRequest represents the request for linking an artist to a label
+type AddArtistToLabelRequest struct {
+	LabelID string `path:"label_id" doc:"Label ID or slug" example:"sub-pop"`
+	Body    struct {
+		ArtistID uint `json:"artist_id" doc:"Artist ID to link" example:"42"`
+	}
+}
+
+// AddArtistToLabelResponse represents the response for linking an artist to a label
+type AddArtistToLabelResponse struct {
+	Body struct {
+		Success bool `json:"success" doc:"Whether the link was created"`
+	}
+}
+
+// AddArtistToLabelHandler handles POST /admin/labels/{label_id}/artists
+func (h *LabelHandler) AddArtistToLabelHandler(ctx context.Context, req *AddArtistToLabelRequest) (*AddArtistToLabelResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Resolve label ID
+	labelID, err := h.resolveLabelID(req.LabelID)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.Body.ArtistID == 0 {
+		return nil, huma.Error400BadRequest("artist_id is required")
+	}
+
+	err = h.labelService.AddArtistToLabel(labelID, req.Body.ArtistID)
+	if err != nil {
+		var labelErr *apperrors.LabelError
+		if errors.As(err, &labelErr) && labelErr.Code == apperrors.CodeLabelNotFound {
+			return nil, huma.Error404NotFound("Label not found")
+		}
+		logger.FromContext(ctx).Error("add_artist_to_label_failed",
+			"label_id", labelID,
+			"artist_id", req.Body.ArtistID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to link artist to label (request_id: %s)", requestID),
+		)
+	}
+
+	// Audit log (fire and forget)
+	if h.auditLogService != nil {
+		go func() {
+			h.auditLogService.LogAction(user.ID, "add_artist_to_label", "label", labelID, nil)
+		}()
+	}
+
+	logger.FromContext(ctx).Info("artist_added_to_label",
+		"label_id", labelID,
+		"artist_id", req.Body.ArtistID,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	resp := &AddArtistToLabelResponse{}
+	resp.Body.Success = true
+	return resp, nil
+}
+
+// ============================================================================
+// Add Release to Label
+// ============================================================================
+
+// AddReleaseToLabelRequest represents the request for linking a release to a label
+type AddReleaseToLabelRequest struct {
+	LabelID string `path:"label_id" doc:"Label ID or slug" example:"sub-pop"`
+	Body    struct {
+		ReleaseID     uint    `json:"release_id" doc:"Release ID to link" example:"42"`
+		CatalogNumber *string `json:"catalog_number,omitempty" required:"false" doc:"Catalog number for this release on this label"`
+	}
+}
+
+// AddReleaseToLabelResponse represents the response for linking a release to a label
+type AddReleaseToLabelResponse struct {
+	Body struct {
+		Success bool `json:"success" doc:"Whether the link was created"`
+	}
+}
+
+// AddReleaseToLabelHandler handles POST /admin/labels/{label_id}/releases
+func (h *LabelHandler) AddReleaseToLabelHandler(ctx context.Context, req *AddReleaseToLabelRequest) (*AddReleaseToLabelResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	// Verify admin access
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil || !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	// Resolve label ID
+	labelID, err := h.resolveLabelID(req.LabelID)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.Body.ReleaseID == 0 {
+		return nil, huma.Error400BadRequest("release_id is required")
+	}
+
+	err = h.labelService.AddReleaseToLabel(labelID, req.Body.ReleaseID, req.Body.CatalogNumber)
+	if err != nil {
+		var labelErr *apperrors.LabelError
+		if errors.As(err, &labelErr) && labelErr.Code == apperrors.CodeLabelNotFound {
+			return nil, huma.Error404NotFound("Label not found")
+		}
+		logger.FromContext(ctx).Error("add_release_to_label_failed",
+			"label_id", labelID,
+			"release_id", req.Body.ReleaseID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to link release to label (request_id: %s)", requestID),
+		)
+	}
+
+	// Audit log (fire and forget)
+	if h.auditLogService != nil {
+		go func() {
+			h.auditLogService.LogAction(user.ID, "add_release_to_label", "label", labelID, nil)
+		}()
+	}
+
+	logger.FromContext(ctx).Info("release_added_to_label",
+		"label_id", labelID,
+		"release_id", req.Body.ReleaseID,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	resp := &AddReleaseToLabelResponse{}
+	resp.Body.Success = true
+	return resp, nil
+}
+
+// ============================================================================
 // Helpers
 // ============================================================================
 

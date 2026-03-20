@@ -85,6 +85,12 @@ func (m *mockLabelServiceForSearch) GetLabelRoster(labelID uint) ([]*services.La
 func (m *mockLabelServiceForSearch) GetLabelCatalog(labelID uint) ([]*services.LabelReleaseResponse, error) {
 	return nil, nil
 }
+func (m *mockLabelServiceForSearch) AddArtistToLabel(labelID, artistID uint) error {
+	return nil
+}
+func (m *mockLabelServiceForSearch) AddReleaseToLabel(labelID, releaseID uint, catalogNumber *string) error {
+	return nil
+}
 
 // ============================================================================
 // Mock: FestivalServiceInterface (minimal for search tests)
