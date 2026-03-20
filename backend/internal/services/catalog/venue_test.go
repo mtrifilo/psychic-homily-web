@@ -189,6 +189,13 @@ func TestVenueService_NilDatabase(t *testing.T) {
 		assert.Nil(t, resp)
 		assert.Zero(t, total)
 	})
+
+	t.Run("GetVenueGenreProfile", func(t *testing.T) {
+		resp, err := svc.GetVenueGenreProfile(1)
+		assert.Error(t, err)
+		assert.Equal(t, "database not initialized", err.Error())
+		assert.Nil(t, resp)
+	})
 }
 
 // =============================================================================
@@ -265,6 +272,10 @@ func (suite *VenueServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
 	// Delete in FK-safe order
+	_, _ = sqlDB.Exec("DELETE FROM entity_tags")
+	_, _ = sqlDB.Exec("DELETE FROM tag_aliases")
+	_, _ = sqlDB.Exec("DELETE FROM tag_votes")
+	_, _ = sqlDB.Exec("DELETE FROM tags")
 	_, _ = sqlDB.Exec("DELETE FROM pending_venue_edits")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
@@ -1388,4 +1399,127 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueModel_NotFound() {
 	var venueErr *apperrors.VenueError
 	suite.ErrorAs(err, &venueErr)
 	suite.Equal(apperrors.CodeVenueNotFound, venueErr.Code)
+}
+
+// =============================================================================
+// Group: GetVenueGenreProfile
+// =============================================================================
+
+func (suite *VenueServiceIntegrationTestSuite) createArtist(name string) *models.Artist {
+	artist := &models.Artist{Name: name}
+	err := suite.db.Create(artist).Error
+	suite.Require().NoError(err)
+	return artist
+}
+
+func (suite *VenueServiceIntegrationTestSuite) createApprovedShowWithArtist(venueID, artistID, userID uint) *models.Show {
+	show := &models.Show{
+		Title:       fmt.Sprintf("Show-%d", time.Now().UnixNano()),
+		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
+		City:        stringPtr("Phoenix"),
+		State:       stringPtr("AZ"),
+		Status:      models.ShowStatusApproved,
+		SubmittedBy: &userID,
+	}
+	err := suite.db.Create(show).Error
+	suite.Require().NoError(err)
+
+	err = suite.db.Create(&models.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error
+	suite.Require().NoError(err)
+
+	err = suite.db.Create(&models.ShowArtist{ShowID: show.ID, ArtistID: artistID, Position: 0}).Error
+	suite.Require().NoError(err)
+
+	return show
+}
+
+func (suite *VenueServiceIntegrationTestSuite) createGenreTag(name, slug string) uint {
+	sqlDB, err := suite.db.DB()
+	suite.Require().NoError(err)
+	var tagID uint
+	err = sqlDB.QueryRow(`
+		INSERT INTO tags (name, slug, category, is_official, usage_count, created_at, updated_at)
+		VALUES ($1, $2, 'genre', true, 0, NOW(), NOW())
+		RETURNING id
+	`, name, slug).Scan(&tagID)
+	suite.Require().NoError(err)
+	return tagID
+}
+
+func (suite *VenueServiceIntegrationTestSuite) tagArtist(artistID, tagID, userID uint) {
+	sqlDB, err := suite.db.DB()
+	suite.Require().NoError(err)
+	_, err = sqlDB.Exec(`
+		INSERT INTO entity_tags (entity_type, entity_id, tag_id, added_by_user_id, created_at)
+		VALUES ('artist', $1, $2, $3, NOW())
+	`, artistID, tagID, userID)
+	suite.Require().NoError(err)
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueGenreProfile_InsufficientShows() {
+	venue := suite.createTestVenue("Genre Test Venue", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	punkTag := suite.createGenreTag("vgp-punk", "vgp-punk")
+
+	// Create only 5 shows (below 10 threshold)
+	for i := 0; i < 5; i++ {
+		a := suite.createArtist(fmt.Sprintf("VGP Artist %d", i))
+		suite.createApprovedShowWithArtist(venue.ID, a.ID, user.ID)
+		suite.tagArtist(a.ID, punkTag, user.ID)
+	}
+
+	genres, err := suite.venueService.GetVenueGenreProfile(venue.ID)
+	suite.Require().NoError(err)
+	suite.Empty(genres) // Below 10-show threshold
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueGenreProfile_NoTags() {
+	venue := suite.createTestVenue("No Tag Venue", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+
+	// Create 15 shows with artists but no genre tags
+	for i := 0; i < 15; i++ {
+		a := suite.createArtist(fmt.Sprintf("NT Artist %d", i))
+		suite.createApprovedShowWithArtist(venue.ID, a.ID, user.ID)
+	}
+
+	genres, err := suite.venueService.GetVenueGenreProfile(venue.ID)
+	suite.Require().NoError(err)
+	suite.Empty(genres) // No tags at all
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueGenreProfile_Success() {
+	venue := suite.createTestVenue("Genre Profile Venue", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+
+	punkTag := suite.createGenreTag("vgps-punk", "vgps-punk")
+	indieTag := suite.createGenreTag("vgps-indie", "vgps-indie")
+	metalTag := suite.createGenreTag("vgps-metal", "vgps-metal")
+
+	tags := []uint{punkTag, punkTag, indieTag, indieTag, indieTag, metalTag}
+
+	// Create 12 shows with tagged artists
+	for i := 0; i < 12; i++ {
+		a := suite.createArtist(fmt.Sprintf("VGP-S Artist %d", i))
+		suite.createApprovedShowWithArtist(venue.ID, a.ID, user.ID)
+		suite.tagArtist(a.ID, tags[i%len(tags)], user.ID)
+	}
+
+	genres, err := suite.venueService.GetVenueGenreProfile(venue.ID)
+	suite.Require().NoError(err)
+	suite.NotEmpty(genres)
+	suite.LessOrEqual(len(genres), 5) // Top 5 limit
+
+	// Should be sorted by count DESC
+	for i := 1; i < len(genres); i++ {
+		suite.GreaterOrEqual(genres[i-1].Count, genres[i].Count)
+	}
+
+	// All should have valid fields
+	for _, g := range genres {
+		suite.NotZero(g.TagID)
+		suite.NotEmpty(g.Name)
+		suite.NotEmpty(g.Slug)
+		suite.Greater(g.Count, 0)
+	}
 }

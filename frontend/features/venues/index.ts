@@ -25,6 +25,8 @@ export type {
   FavoriteVenueActionResponse,
   FavoriteVenueShow,
   FavoriteVenueShowsResponse,
+  VenueGenreCount,
+  VenueGenreResponse,
 } from './types'
 
 export { getVenueLocation } from './types'
@@ -36,6 +38,7 @@ export {
   type TimeFilter,
   useVenueShows,
   useVenueCities,
+  useVenueGenres,
 } from './hooks'
 
 export { useVenueSearch } from './hooks'

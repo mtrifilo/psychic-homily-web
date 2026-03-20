@@ -577,3 +577,27 @@ type SceneArtistResponse struct {
 	State     *string `json:"state"`
 	ShowCount int     `json:"show_count"`
 }
+
+// ──────────────────────────────────────────────
+// Genre profile types (for scene and venue intelligence)
+// ──────────────────────────────────────────────
+
+// GenreCount represents a genre tag with its associated artist count
+type GenreCount struct {
+	TagID uint   `json:"tag_id"`
+	Name  string `json:"name"`
+	Slug  string `json:"slug"`
+	Count int    `json:"count"`
+}
+
+// SceneGenreResponse represents the genre distribution for a scene (city)
+type SceneGenreResponse struct {
+	Genres         []GenreCount `json:"genres"`
+	DiversityIndex float64      `json:"diversity_index"` // -1 if insufficient data
+	DiversityLabel string       `json:"diversity_label"` // "Highly diverse", "Mixed", "Genre-focused", ""
+}
+
+// VenueGenreResponse represents the genre profile for a venue
+type VenueGenreResponse struct {
+	Genres []GenreCount `json:"genres"`
+}

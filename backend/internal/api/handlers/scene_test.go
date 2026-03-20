@@ -17,6 +17,8 @@ type mockSceneService struct {
 	getSceneDetailFn func(city, state string) (*services.SceneDetailResponse, error)
 	getActiveArtistsFn func(city, state string, periodDays, limit, offset int) ([]*services.SceneArtistResponse, int64, error)
 	parseSceneSlugFn func(slug string) (string, string, error)
+	getSceneGenreDistributionFn func(city, state string) ([]services.GenreCount, error)
+	getGenreDiversityIndexFn func(city, state string) (float64, error)
 }
 
 func (m *mockSceneService) ListScenes() ([]*services.SceneListResponse, error) {
@@ -45,6 +47,20 @@ func (m *mockSceneService) ParseSceneSlug(slug string) (string, string, error) {
 		return m.parseSceneSlugFn(slug)
 	}
 	return "", "", fmt.Errorf("scene not found for slug: %s", slug)
+}
+
+func (m *mockSceneService) GetSceneGenreDistribution(city, state string) ([]services.GenreCount, error) {
+	if m.getSceneGenreDistributionFn != nil {
+		return m.getSceneGenreDistributionFn(city, state)
+	}
+	return []services.GenreCount{}, nil
+}
+
+func (m *mockSceneService) GetGenreDiversityIndex(city, state string) (float64, error) {
+	if m.getGenreDiversityIndexFn != nil {
+		return m.getGenreDiversityIndexFn(city, state)
+	}
+	return -1, nil
 }
 
 // ============================================================================
@@ -312,4 +328,96 @@ func TestIsSceneNotFoundErr(t *testing.T) {
 	if isSceneNotFoundErr(nil) {
 		t.Error("expected false for nil error")
 	}
+}
+
+// ============================================================================
+// GetSceneGenresHandler Tests
+// ============================================================================
+
+func TestGetSceneGenres_Success(t *testing.T) {
+	mock := &mockSceneService{
+		parseSceneSlugFn: func(slug string) (string, string, error) {
+			return "Phoenix", "AZ", nil
+		},
+		getSceneGenreDistributionFn: func(city, state string) ([]services.GenreCount, error) {
+			return []services.GenreCount{
+				{TagID: 1, Name: "punk", Slug: "punk", Count: 20},
+				{TagID: 2, Name: "indie rock", Slug: "indie-rock", Count: 15},
+			}, nil
+		},
+		getGenreDiversityIndexFn: func(city, state string) (float64, error) {
+			return 0.85, nil
+		},
+	}
+	h := NewSceneHandler(mock)
+	req := &GetSceneGenresRequest{Slug: "phoenix-az"}
+	resp, err := h.GetSceneGenresHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Body.Genres) != 2 {
+		t.Errorf("expected 2 genres, got %d", len(resp.Body.Genres))
+	}
+	if resp.Body.DiversityIndex != 0.85 {
+		t.Errorf("expected diversity index 0.85, got %f", resp.Body.DiversityIndex)
+	}
+	if resp.Body.DiversityLabel != "Highly diverse" {
+		t.Errorf("expected 'Highly diverse', got '%s'", resp.Body.DiversityLabel)
+	}
+}
+
+func TestGetSceneGenres_SlugNotFound(t *testing.T) {
+	mock := &mockSceneService{
+		parseSceneSlugFn: func(slug string) (string, string, error) {
+			return "", "", fmt.Errorf("scene not found for slug: %s", slug)
+		},
+	}
+	h := NewSceneHandler(mock)
+	req := &GetSceneGenresRequest{Slug: "nonexistent-xx"}
+	_, err := h.GetSceneGenresHandler(context.Background(), req)
+	assertHumaError(t, err, 404)
+}
+
+func TestGetSceneGenres_Empty(t *testing.T) {
+	mock := &mockSceneService{
+		parseSceneSlugFn: func(slug string) (string, string, error) {
+			return "Phoenix", "AZ", nil
+		},
+		getSceneGenreDistributionFn: func(city, state string) ([]services.GenreCount, error) {
+			return nil, nil
+		},
+		getGenreDiversityIndexFn: func(city, state string) (float64, error) {
+			return -1, nil
+		},
+	}
+	h := NewSceneHandler(mock)
+	req := &GetSceneGenresRequest{Slug: "phoenix-az"}
+	resp, err := h.GetSceneGenresHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Body.Genres) != 0 {
+		t.Errorf("expected 0 genres, got %d", len(resp.Body.Genres))
+	}
+	if resp.Body.DiversityIndex != -1 {
+		t.Errorf("expected diversity index -1, got %f", resp.Body.DiversityIndex)
+	}
+	if resp.Body.DiversityLabel != "" {
+		t.Errorf("expected empty diversity label, got '%s'", resp.Body.DiversityLabel)
+	}
+}
+
+func TestGetSceneGenres_ServiceError(t *testing.T) {
+	mock := &mockSceneService{
+		parseSceneSlugFn: func(slug string) (string, string, error) {
+			return "Phoenix", "AZ", nil
+		},
+		getSceneGenreDistributionFn: func(city, state string) ([]services.GenreCount, error) {
+			return nil, fmt.Errorf("database error")
+		},
+	}
+	h := NewSceneHandler(mock)
+	req := &GetSceneGenresRequest{Slug: "phoenix-az"}
+	_, err := h.GetSceneGenresHandler(context.Background(), req)
+	assertHumaError(t, err, 500)
 }

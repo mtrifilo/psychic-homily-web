@@ -128,6 +128,9 @@ type SceneDetailResponse = contracts.SceneDetailResponse
 type SceneStats = contracts.SceneStats
 type ScenePulse = contracts.ScenePulse
 type SceneArtistResponse = contracts.SceneArtistResponse
+type GenreCount = contracts.GenreCount
+type SceneGenreResponse = contracts.SceneGenreResponse
+type VenueGenreResponse = contracts.VenueGenreResponse
 
 // ──────────────────────────────────────────────
 // Label types
