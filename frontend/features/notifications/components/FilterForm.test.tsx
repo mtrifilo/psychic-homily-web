@@ -43,10 +43,14 @@ vi.mock('@/features/tags/hooks', () => ({
   }),
 }))
 
+const mockApiRequest = vi.fn()
 vi.mock('@/lib/api', () => ({
-  apiRequest: vi.fn(),
+  apiRequest: (...args: unknown[]) => mockApiRequest(...args),
   API_ENDPOINTS: {
-    LABELS: { LIST: '/labels' },
+    LABELS: { LIST: '/labels', GET: (id: number) => `/labels/${id}` },
+    ARTISTS: { GET: (id: number) => `/artists/${id}` },
+    VENUES: { GET: (id: number) => `/venues/${id}` },
+    TAGS: { GET: (id: number) => `/tags/${id}` },
   },
   API_BASE_URL: '',
 }))
@@ -189,6 +193,34 @@ describe('FilterForm', () => {
 
     const nameInput = screen.getByLabelText('Filter Name') as HTMLInputElement
     expect(nameInput.value).toBe('My Filter')
+  })
+
+  it('hydrates entity chips in edit mode when IDs are resolved', async () => {
+    // Mock apiRequest to resolve entity IDs to names
+    mockApiRequest.mockImplementation((url: string) => {
+      if (url === '/artists/1') return Promise.resolve({ id: 1, name: 'Artist One' })
+      if (url === '/artists/2') return Promise.resolve({ id: 2, name: 'Artist Two' })
+      if (url === '/venues/5') return Promise.resolve({ id: 5, name: 'The Venue' })
+      return Promise.resolve({})
+    })
+
+    renderWithProviders(
+      <FilterForm
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        filter={makeFilter({
+          artist_ids: [1, 2],
+          venue_ids: [5],
+        })}
+      />
+    )
+
+    // Wait for entity names to be resolved and displayed as chips
+    await waitFor(() => {
+      expect(screen.getByText('Artist One')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Artist Two')).toBeInTheDocument()
+    expect(screen.getByText('The Venue')).toBeInTheDocument()
   })
 
   it('pre-populates price field when editing', () => {

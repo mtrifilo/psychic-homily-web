@@ -37,6 +37,8 @@ interface MultiSelectSearchProps {
   selectedIds: number[]
   onSelectionChange: (ids: number[]) => void
   searchHook: (query: string) => { data: SearchableItem[] | undefined; isLoading: boolean }
+  /** Pre-resolved items for edit mode (id + name pairs for existing selections) */
+  initialItems?: SearchableItem[]
 }
 
 function MultiSelectSearch({
@@ -45,11 +47,22 @@ function MultiSelectSearch({
   selectedIds,
   onSelectionChange,
   searchHook,
+  initialItems,
 }: MultiSelectSearchProps) {
   const [query, setQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [selectedItems, setSelectedItems] = useState<SearchableItem[]>([])
   const { data: results, isLoading } = searchHook(query)
+
+  // Sync initialItems into selectedItems when they become available (edit mode hydration).
+  // When initialItems is undefined/empty (create mode), clear selectedItems to match selectedIds.
+  useEffect(() => {
+    if (initialItems && initialItems.length > 0) {
+      setSelectedItems(initialItems)
+    } else if (selectedIds.length === 0) {
+      setSelectedItems([])
+    }
+  }, [initialItems, selectedIds.length])
 
   const handleSelect = useCallback(
     (item: SearchableItem) => {
@@ -197,6 +210,58 @@ function useLabelSearchAdapter(query: string) {
 }
 
 // ──────────────────────────────────────────────
+// Entity name resolution for edit mode
+// ──────────────────────────────────────────────
+
+/**
+ * Resolves an array of entity IDs to SearchableItem[] (id + name).
+ * Fetches each entity individually via the GET endpoint.
+ * Returns empty array while loading or if ids is empty.
+ */
+function useResolveEntityNames(
+  ids: number[] | null | undefined,
+  entityType: 'artist' | 'venue' | 'label' | 'tag',
+  enabled: boolean
+) {
+  const stableKey = ids?.slice().sort().join(',') ?? ''
+
+  return useQuery({
+    queryKey: ['entity-names', entityType, stableKey],
+    queryFn: async (): Promise<SearchableItem[]> => {
+      if (!ids || ids.length === 0) return []
+
+      const getEndpoint = (id: number) => {
+        switch (entityType) {
+          case 'artist':
+            return API_ENDPOINTS.ARTISTS.GET(id)
+          case 'venue':
+            return API_ENDPOINTS.VENUES.GET(id)
+          case 'label':
+            return API_ENDPOINTS.LABELS.GET(id)
+          case 'tag':
+            return API_ENDPOINTS.TAGS.GET(id)
+        }
+      }
+
+      const results = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const data = await apiRequest<{ id: number; name: string }>(getEndpoint(id))
+            return { id: data.id, name: data.name }
+          } catch {
+            // If an entity was deleted, show the ID as a fallback
+            return { id, name: `#${id}` }
+          }
+        })
+      )
+      return results
+    },
+    enabled: enabled && !!ids && ids.length > 0,
+    staleTime: 10 * 60 * 1000, // 10 minutes — entity names rarely change
+  })
+}
+
+// ──────────────────────────────────────────────
 // FilterForm component
 // ──────────────────────────────────────────────
 
@@ -225,6 +290,13 @@ export function FilterForm({ open, onOpenChange, filter }: FilterFormProps) {
   const updateFilter = useUpdateFilter()
 
   const isMutating = createFilter.isPending || updateFilter.isPending
+
+  // Resolve entity IDs to names for edit mode hydration
+  const { data: resolvedArtists } = useResolveEntityNames(filter?.artist_ids, 'artist', open && isEditing)
+  const { data: resolvedVenues } = useResolveEntityNames(filter?.venue_ids, 'venue', open && isEditing)
+  const { data: resolvedLabels } = useResolveEntityNames(filter?.label_ids, 'label', open && isEditing)
+  const { data: resolvedTags } = useResolveEntityNames(filter?.tag_ids, 'tag', open && isEditing)
+  const { data: resolvedExcludeTags } = useResolveEntityNames(filter?.exclude_tag_ids, 'tag', open && isEditing)
 
   // Populate form when editing
   useEffect(() => {
@@ -346,6 +418,7 @@ export function FilterForm({ open, onOpenChange, filter }: FilterFormProps) {
             selectedIds={artistIds}
             onSelectionChange={setArtistIds}
             searchHook={useArtistSearchAdapter}
+            initialItems={resolvedArtists}
           />
 
           {/* Venues */}
@@ -355,6 +428,7 @@ export function FilterForm({ open, onOpenChange, filter }: FilterFormProps) {
             selectedIds={venueIds}
             onSelectionChange={setVenueIds}
             searchHook={useVenueSearchAdapter}
+            initialItems={resolvedVenues}
           />
 
           {/* Labels */}
@@ -364,6 +438,7 @@ export function FilterForm({ open, onOpenChange, filter }: FilterFormProps) {
             selectedIds={labelIds}
             onSelectionChange={setLabelIds}
             searchHook={useLabelSearchAdapter}
+            initialItems={resolvedLabels}
           />
 
           {/* Tags (include) */}
@@ -373,6 +448,7 @@ export function FilterForm({ open, onOpenChange, filter }: FilterFormProps) {
             selectedIds={tagIds}
             onSelectionChange={setTagIds}
             searchHook={useTagSearchAdapter}
+            initialItems={resolvedTags}
           />
 
           {/* Tags (exclude) */}
@@ -382,6 +458,7 @@ export function FilterForm({ open, onOpenChange, filter }: FilterFormProps) {
             selectedIds={excludeTagIds}
             onSelectionChange={setExcludeTagIds}
             searchHook={useTagSearchAdapter}
+            initialItems={resolvedExcludeTags}
           />
 
           {/* Max price */}
