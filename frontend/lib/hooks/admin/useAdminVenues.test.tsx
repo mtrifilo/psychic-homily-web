@@ -1,8 +1,7 @@
-import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createWrapper, createTestQueryClient } from '@/test/utils'
+import { QueryClient } from '@tanstack/react-query'
+import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@/test/utils'
 
 // Create mocks
 const mockApiRequest = vi.fn()
@@ -31,14 +30,6 @@ vi.mock('../../queryClient', () => ({
 // Import hooks after mocks are set up
 import { useVerifyVenue } from './useAdminVenues'
 
-// Helper to create wrapper with specific query client
-function createWrapperWithClient(queryClient: QueryClient) {
-  return function Wrapper({ children }: { children: React.ReactNode }) {
-    return (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    )
-  }
-}
 
 describe('useAdminVenues', () => {
   beforeEach(() => {

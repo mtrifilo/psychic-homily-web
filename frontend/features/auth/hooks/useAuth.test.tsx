@@ -1,8 +1,7 @@
-import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createWrapper, createTestQueryClient } from '@/test/utils'
+import { QueryClient } from '@tanstack/react-query'
+import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@/test/utils'
 import { AuthErrorCode } from '@/lib/errors'
 
 // Create a mock for apiRequest that we can control
@@ -65,14 +64,6 @@ import {
   useConfirmVerification,
 } from './useAuth'
 
-// Helper to create wrapper with specific query client
-function createWrapperWithClient(queryClient: QueryClient) {
-  return function Wrapper({ children }: { children: React.ReactNode }) {
-    return (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    )
-  }
-}
 
 describe('useAuth hooks', () => {
   beforeEach(() => {

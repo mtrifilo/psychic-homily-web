@@ -1,7 +1,6 @@
-import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createWrapper } from '@/test/utils'
 
 const mockApiRequest = vi.fn()
 
@@ -25,17 +24,6 @@ vi.mock('@/lib/queryClient', () => ({
 
 import { useSetShowReminders } from './useShowReminders'
 
-function createWrapper() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: 0 },
-      mutations: { retry: false },
-    },
-  })
-  return function Wrapper({ children }: { children: React.ReactNode }) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  }
-}
 
 describe('useSetShowReminders', () => {
   beforeEach(() => {
