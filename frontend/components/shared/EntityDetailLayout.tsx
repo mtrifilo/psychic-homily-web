@@ -3,7 +3,7 @@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { Breadcrumb } from './Breadcrumb'
-import type { BreadcrumbEntry } from '@/lib/context/NavigationBreadcrumbContext'
+import type { BreadcrumbEntry } from './Breadcrumb'
 
 export interface EntityDetailTab {
   value: string

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import {
   Loader2,
@@ -17,9 +17,7 @@ import {
   useFestivalVenues,
   useFestivals,
 } from '../hooks/useFestivals'
-import { usePathname } from 'next/navigation'
 import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton } from '@/components/shared'
-import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbContext'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -61,15 +59,6 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   const hasSeriesHistory = seriesEditions.length >= 2
 
   const [activeTab, setActiveTab] = useState('lineup')
-  const pathname = usePathname()
-  const { pushBreadcrumb } = useNavigationBreadcrumbs()
-
-  // Push breadcrumb when festival data is loaded
-  useEffect(() => {
-    if (festival) {
-      pushBreadcrumb(festival.name, pathname)
-    }
-  }, [festival, pathname, pushBreadcrumb])
 
   // Determine if this is a multi-day festival with day assignments
   const hasMultipleDays = useMemo(() => {

@@ -10,14 +10,6 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-// Mock NavigationBreadcrumbContext
-vi.mock('@/lib/context/NavigationBreadcrumbContext', () => ({
-  useNavigationBreadcrumbs: () => ({
-    breadcrumbs: [],
-    pushBreadcrumb: vi.fn(),
-  }),
-}))
-
 const defaultProps = {
   fallback: { href: '/releases', label: 'Releases' },
   entityName: 'Album Name',

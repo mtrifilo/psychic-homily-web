@@ -1,13 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter, usePathname } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { ArrowLeft, BadgeCheck, Pencil, Trash2, Loader2, ExternalLink } from 'lucide-react'
 import { useVenue, useVenueGenres } from '../hooks/useVenues'
 import type { ApiError } from '@/lib/api'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbContext'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryClient'
 import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb, TagPill } from '@/components/shared'
@@ -75,8 +74,6 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
   const { isAuthenticated, user } = useAuthContext()
   const queryClient = useQueryClient()
   const router = useRouter()
-  const pathname = usePathname()
-  const { pushBreadcrumb } = useNavigationBreadcrumbs()
 
   const { data: venue, isLoading, error } = useVenue({ venueId })
 
@@ -86,13 +83,6 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
     venue &&
     (user?.is_admin ||
       (venue.submitted_by != null && venue.submitted_by === Number(user?.id)))
-
-  // Push breadcrumb when venue data is loaded
-  useEffect(() => {
-    if (venue) {
-      pushBreadcrumb(venue.name, pathname)
-    }
-  }, [venue, pathname, pushBreadcrumb])
 
   const handleVenueUpdated = () => {
     // Invalidate venue detail query

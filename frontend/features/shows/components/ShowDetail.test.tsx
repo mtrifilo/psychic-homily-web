@@ -42,14 +42,6 @@ vi.mock('@/lib/hooks/admin/useAdminShows', () => ({
   }),
 }))
 
-// Mock NavigationBreadcrumbContext
-vi.mock('@/lib/context/NavigationBreadcrumbContext', () => ({
-  useNavigationBreadcrumbs: () => ({
-    breadcrumbs: [],
-    pushBreadcrumb: vi.fn(),
-  }),
-}))
-
 // Mock next/navigation
 vi.mock('next/navigation', () => ({
   usePathname: () => '/shows/test-show',

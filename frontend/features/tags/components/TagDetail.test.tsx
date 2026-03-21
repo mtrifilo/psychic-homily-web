@@ -31,13 +31,6 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/tags/test-tag',
 }))
 
-vi.mock('@/lib/context/NavigationBreadcrumbContext', () => ({
-  useNavigationBreadcrumbs: () => ({
-    breadcrumbs: [],
-    pushBreadcrumb: vi.fn(),
-  }),
-}))
-
 vi.mock('@/features/notifications', () => ({
   NotifyMeButton: ({
     entityName,

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import {
   Loader2,
@@ -44,8 +44,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Breadcrumb } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbContext'
-import { useRouter, usePathname } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import type { ApiError } from '@/lib/api'
 
 interface CollectionDetailProps {
@@ -63,9 +62,7 @@ const ENTITY_ICONS: Record<string, React.ElementType> = {
 
 export function CollectionDetail({ slug }: CollectionDetailProps) {
   const router = useRouter()
-  const pathname = usePathname()
   const { user, isAuthenticated } = useAuthContext()
-  const { pushBreadcrumb } = useNavigationBreadcrumbs()
   const { data: collection, isLoading, error } = useCollection(slug)
   const subscribeMutation = useSubscribeCollection()
   const unsubscribeMutation = useUnsubscribeCollection()
@@ -73,13 +70,6 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-
-  // Push breadcrumb when collection data is loaded
-  useEffect(() => {
-    if (collection) {
-      pushBreadcrumb(collection.title, pathname)
-    }
-  }, [collection, pathname, pushBreadcrumb])
 
   if (isLoading) {
     return (
