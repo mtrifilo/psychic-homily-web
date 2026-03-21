@@ -96,7 +96,7 @@ type GetEngagementMetricsResponse struct {
 		Bookmarks       []EngagementMetricResponse `json:"bookmarks"`
 		TagsAdded       []EngagementMetricResponse `json:"tags_added"`
 		TagVotes        []EngagementMetricResponse `json:"tag_votes"`
-		CollectionItems []EngagementMetricResponse `json:"collection_items"`
+		CollectionItems []EngagementMetricResponse `json:"crate_items"`
 		Requests        []EngagementMetricResponse `json:"requests"`
 		RequestVotes    []EngagementMetricResponse `json:"request_votes"`
 		Revisions       []EngagementMetricResponse `json:"revisions"`
@@ -161,7 +161,7 @@ type GetCommunityHealthResponse struct {
 		ActiveContributors30d  int                           `json:"active_contributors_30d"`
 		ContributionsPerWeek   []WeeklyContributionsResponse `json:"contributions_per_week"`
 		RequestFulfillmentRate float64                       `json:"request_fulfillment_rate"`
-		NewCollections30d      int                           `json:"new_collections_30d"`
+		NewCollections30d      int                           `json:"new_crates_30d"`
 		TopContributors        []TopContributorResponse      `json:"top_contributors"`
 	}
 }

@@ -168,9 +168,12 @@ func mapActionToEventType(action string) string {
 		"create_festival":            "festival_created",
 		"edit_festival":              "festival_edited",
 		"delete_festival":            "festival_deleted",
-		"create_collection":          "collection_created",
-		"update_collection":          "collection_updated",
-		"delete_collection":          "collection_deleted",
+		"create_crate":               "crate_created",
+		"update_crate":               "crate_updated",
+		"delete_crate":               "crate_deleted",
+		"create_collection":          "crate_created",
+		"update_collection":          "crate_updated",
+		"delete_collection":          "crate_deleted",
 		"create_request":             "request_created",
 		"fulfill_request":            "request_fulfilled",
 		"close_request":              "request_closed",
@@ -186,7 +189,8 @@ func mapActionToEventType(action string) string {
 		"revision_rollback":          "revision_rolled_back",
 		"create_artist_relationship": "artist_relationship_created",
 		"delete_artist_relationship": "artist_relationship_deleted",
-		"set_collection_featured":    "collection_featured",
+		"set_crate_featured":         "crate_featured",
+		"set_collection_featured":    "crate_featured",
 	}
 	if eventType, ok := mapping[action]; ok {
 		return eventType
@@ -215,9 +219,12 @@ func buildDescription(action, entityType string, entityID uint) string {
 		"create_festival":            "Festival #%d was created",
 		"edit_festival":              "Festival #%d was edited",
 		"delete_festival":            "Festival #%d was deleted",
-		"create_collection":          "Collection #%d was created",
-		"update_collection":          "Collection #%d was updated",
-		"delete_collection":          "Collection was deleted",
+		"create_crate":               "Crate #%d was created",
+		"update_crate":               "Crate #%d was updated",
+		"delete_crate":               "Crate was deleted",
+		"create_collection":          "Crate #%d was created",
+		"update_collection":          "Crate #%d was updated",
+		"delete_collection":          "Crate was deleted",
 		"create_request":             "Request #%d was created",
 		"fulfill_request":            "Request #%d was fulfilled",
 		"close_request":              "Request #%d was closed",
@@ -233,7 +240,8 @@ func buildDescription(action, entityType string, entityID uint) string {
 		"revision_rollback":          "Revision #%d was rolled back",
 		"create_artist_relationship": "Artist relationship created for artist #%d",
 		"delete_artist_relationship": "Artist relationship deleted for artist #%d",
-		"set_collection_featured":    "Collection featured status changed",
+		"set_crate_featured":         "Crate featured status changed",
+		"set_collection_featured":    "Crate featured status changed",
 	}
 	if template, ok := actionDescriptions[action]; ok {
 		if strings.Contains(template, "%d") {

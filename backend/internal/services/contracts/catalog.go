@@ -522,7 +522,7 @@ type MergeArtistResult struct {
 	FestivalsMoved       int64  `json:"festivals_moved"`
 	RelationshipsMoved   int64  `json:"relationships_moved"`
 	BookmarksMoved       int64  `json:"bookmarks_moved"`
-	CollectionItemsMoved int64  `json:"collection_items_moved"`
+	CollectionItemsMoved int64  `json:"crate_items_moved"`
 	FiltersUpdated       int64  `json:"filters_updated"`
 	AliasCreated         bool   `json:"alias_created"`
 }

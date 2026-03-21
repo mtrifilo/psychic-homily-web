@@ -606,37 +606,65 @@ func setupPipelineRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 	huma.Post(protected, "/admin/pipeline/enrichment/trigger/{show_id}", pipelineHandler.TriggerEnrichmentHandler)
 }
 
-// setupCollectionRoutes configures collection endpoints.
-// Public endpoints use optional auth (for private collection access checks).
+// setupCollectionRoutes configures crate (formerly "collection") endpoints.
+// Both /crates/ and /collections/ paths are registered for backward compatibility.
+// Public endpoints use optional auth (for private crate access checks).
 // CRUD, item management, and subscription endpoints require authentication.
 func setupCollectionRoutes(api huma.API, protected *huma.Group, sc *services.ServiceContainer) {
 	collectionHandler := handlers.NewCollectionHandler(sc.Collection, sc.AuditLog)
 
-	// Public collection endpoints with optional auth
+	// Public crate endpoints with optional auth
 	optionalAuthGroup := huma.NewGroup(api, "")
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(sc.JWT))
+
+	// Canonical /crates/ paths
+	huma.Get(optionalAuthGroup, "/crates", collectionHandler.ListCollectionsHandler)
+	huma.Get(optionalAuthGroup, "/crates/{slug}", collectionHandler.GetCollectionHandler)
+	huma.Get(optionalAuthGroup, "/crates/{slug}/stats", collectionHandler.GetCollectionStatsHandler)
+
+	// Legacy /collections/ paths (backward compat — same handlers, different operation IDs)
 	huma.Get(optionalAuthGroup, "/collections", collectionHandler.ListCollectionsHandler)
 	huma.Get(optionalAuthGroup, "/collections/{slug}", collectionHandler.GetCollectionHandler)
 	huma.Get(optionalAuthGroup, "/collections/{slug}/stats", collectionHandler.GetCollectionStatsHandler)
 
-	// Protected collection endpoints
+	// Protected crate endpoints — canonical /crates/ paths
+	huma.Post(protected, "/crates", collectionHandler.CreateCollectionHandler)
+	huma.Put(protected, "/crates/{slug}", collectionHandler.UpdateCollectionHandler)
+	huma.Delete(protected, "/crates/{slug}", collectionHandler.DeleteCollectionHandler)
+
+	// Protected crate endpoints — legacy /collections/ paths (backward compat)
 	huma.Post(protected, "/collections", collectionHandler.CreateCollectionHandler)
 	huma.Put(protected, "/collections/{slug}", collectionHandler.UpdateCollectionHandler)
 	huma.Delete(protected, "/collections/{slug}", collectionHandler.DeleteCollectionHandler)
 
-	// Collection item management
+	// Crate item management — canonical /crates/ paths
+	huma.Post(protected, "/crates/{slug}/items", collectionHandler.AddItemHandler)
+	huma.Delete(protected, "/crates/{slug}/items/{item_id}", collectionHandler.RemoveItemHandler)
+	huma.Put(protected, "/crates/{slug}/items/reorder", collectionHandler.ReorderItemsHandler)
+
+	// Crate item management — legacy /collections/ paths (backward compat)
 	huma.Post(protected, "/collections/{slug}/items", collectionHandler.AddItemHandler)
 	huma.Delete(protected, "/collections/{slug}/items/{item_id}", collectionHandler.RemoveItemHandler)
 	huma.Put(protected, "/collections/{slug}/items/reorder", collectionHandler.ReorderItemsHandler)
 
-	// Collection subscription
+	// Crate subscription — canonical /crates/ paths
+	huma.Post(protected, "/crates/{slug}/subscribe", collectionHandler.SubscribeHandler)
+	huma.Delete(protected, "/crates/{slug}/subscribe", collectionHandler.UnsubscribeHandler)
+
+	// Crate subscription — legacy /collections/ paths (backward compat)
 	huma.Post(protected, "/collections/{slug}/subscribe", collectionHandler.SubscribeHandler)
 	huma.Delete(protected, "/collections/{slug}/subscribe", collectionHandler.UnsubscribeHandler)
 
-	// Admin: feature/unfeature collections
+	// Admin: feature/unfeature crates — canonical /crates/ paths
+	huma.Put(protected, "/crates/{slug}/feature", collectionHandler.SetFeaturedHandler)
+
+	// Admin: feature/unfeature crates — legacy /collections/ paths (backward compat)
 	huma.Put(protected, "/collections/{slug}/feature", collectionHandler.SetFeaturedHandler)
 
-	// User's own collections (created + subscribed)
+	// User's own crates (created + subscribed)
+	huma.Get(protected, "/auth/crates", collectionHandler.GetUserCollectionsHandler)
+
+	// Legacy user crates path (backward compat)
 	huma.Get(protected, "/auth/collections", collectionHandler.GetUserCollectionsHandler)
 }
 
