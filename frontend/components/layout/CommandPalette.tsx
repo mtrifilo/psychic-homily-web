@@ -116,6 +116,13 @@ const routes: RouteItem[] = [
     keywords: ['submissions', 'submit', 'add', 'new show'],
   },
   {
+    label: 'Library',
+    href: '/library',
+    icon: BookOpen,
+    keywords: ['library', 'saved', 'bookmarks', 'favorites', 'following', 'my stuff', 'personal'],
+    requireAuth: true,
+  },
+  {
     label: 'My Shows',
     href: '/my-shows',
     icon: CalendarCheck,
