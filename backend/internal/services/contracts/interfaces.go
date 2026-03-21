@@ -428,6 +428,20 @@ type SchedulerServiceInterface interface {
 	Stop()
 }
 
+// EnrichmentServiceInterface defines the contract for post-import enrichment operations.
+type EnrichmentServiceInterface interface {
+	QueueShowForEnrichment(showID uint, enrichmentType string) error
+	ProcessQueue(ctx context.Context, batchSize int) (int, error)
+	EnrichShow(ctx context.Context, showID uint) (*EnrichmentResult, error)
+	GetQueueStats() (*EnrichmentQueueStats, error)
+}
+
+// EnrichmentWorkerInterface defines the contract for the background enrichment worker.
+type EnrichmentWorkerInterface interface {
+	Start(ctx context.Context)
+	Stop()
+}
+
 // RevisionServiceInterface defines the contract for revision history operations.
 type RevisionServiceInterface interface {
 	RecordRevision(entityType string, entityID uint, userID uint, changes []models.FieldChange, summary string) error
