@@ -784,6 +784,7 @@ func TestPipelineHandler_GetImportHistory_Success(t *testing.T) {
 				}, 2, nil
 			},
 		},
+		nil,
 	)
 
 	resp, err := h.GetImportHistoryHandler(pipelineAdminCtx(), &GetImportHistoryRequest{Limit: 20})
@@ -815,6 +816,7 @@ func TestPipelineHandler_GetImportHistory_Empty(t *testing.T) {
 				return []services.ImportHistoryEntry{}, 0, nil
 			},
 		},
+		nil,
 	)
 
 	resp, err := h.GetImportHistoryHandler(pipelineAdminCtx(), &GetImportHistoryRequest{})
@@ -840,6 +842,7 @@ func TestPipelineHandler_GetImportHistory_PaginationPassedThrough(t *testing.T) 
 				return nil, 0, nil
 			},
 		},
+		nil,
 	)
 
 	_, err := h.GetImportHistoryHandler(pipelineAdminCtx(), &GetImportHistoryRequest{Limit: 50, Offset: 10})
@@ -862,6 +865,7 @@ func TestPipelineHandler_GetImportHistory_ServiceError(t *testing.T) {
 				return nil, 0, fmt.Errorf("database error")
 			},
 		},
+		nil,
 	)
 
 	_, err := h.GetImportHistoryHandler(pipelineAdminCtx(), &GetImportHistoryRequest{})
