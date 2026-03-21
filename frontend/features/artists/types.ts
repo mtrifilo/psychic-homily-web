@@ -23,6 +23,7 @@ export interface Artist {
   state: string | null
   city: string | null
   bandcamp_embed_url: string | null
+  description?: string | null
   social: ArtistSocial
   created_at: string
   updated_at: string
@@ -32,6 +33,7 @@ export interface ArtistEditRequest {
   name?: string
   city?: string
   state?: string
+  description?: string
   instagram?: string
   facebook?: string
   twitter?: string
