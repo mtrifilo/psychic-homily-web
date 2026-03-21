@@ -592,7 +592,7 @@ func setupContributorProfileRoutes(api huma.API, protected *huma.Group, sc *serv
 // setupPipelineRoutes configures AI extraction pipeline admin endpoints.
 // Admin check is performed inside handlers, JWT auth is required via protected group.
 func setupPipelineRoutes(protected *huma.Group, sc *services.ServiceContainer) {
-	pipelineHandler := handlers.NewPipelineHandler(sc.Pipeline, sc.VenueSourceConfig)
+	pipelineHandler := handlers.NewPipelineHandler(sc.Pipeline, sc.VenueSourceConfig, sc.Enrichment)
 
 	huma.Post(protected, "/admin/pipeline/extract/{venue_id}", pipelineHandler.ExtractVenueHandler)
 	huma.Get(protected, "/admin/pipeline/imports", pipelineHandler.GetImportHistoryHandler)
@@ -602,6 +602,8 @@ func setupPipelineRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 	huma.Put(protected, "/admin/pipeline/venues/{venue_id}/config", pipelineHandler.UpdateVenueConfigHandler)
 	huma.Get(protected, "/admin/pipeline/venues/{venue_id}/runs", pipelineHandler.GetVenueRunsHandler)
 	huma.Post(protected, "/admin/pipeline/venues/{venue_id}/reset-render-method", pipelineHandler.ResetRenderMethodHandler)
+	huma.Get(protected, "/admin/pipeline/enrichment/status", pipelineHandler.EnrichmentStatusHandler)
+	huma.Post(protected, "/admin/pipeline/enrichment/trigger/{show_id}", pipelineHandler.TriggerEnrichmentHandler)
 }
 
 // setupCollectionRoutes configures collection endpoints.

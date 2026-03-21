@@ -164,6 +164,10 @@ func main() {
 	schedulerCtx, schedulerCancel := context.WithCancel(context.Background())
 	sc.Scheduler.Start(schedulerCtx)
 
+	// Start enrichment worker (background job for post-import enrichment)
+	enrichmentCtx, enrichmentCancel := context.WithCancel(context.Background())
+	sc.EnrichmentWorker.Start(enrichmentCtx)
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -199,6 +203,10 @@ func main() {
 	// Stop extraction scheduler
 	schedulerCancel()
 	sc.Scheduler.Stop()
+
+	// Stop enrichment worker
+	enrichmentCancel()
+	sc.EnrichmentWorker.Stop()
 
 	// Shut down chromedp browser pool
 	sc.Fetcher.ShutdownChromedp()
