@@ -1,17 +1,12 @@
 package catalog
 
 import (
-	"context"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
@@ -91,56 +86,21 @@ func TestArtistRelationshipService_NilDatabase(t *testing.T) {
 
 type ArtistRelationshipServiceIntegrationTestSuite struct {
 	suite.Suite
-	container testcontainers.Container
-	db        *gorm.DB
-	svc       *ArtistRelationshipService
-	ctx       context.Context
+	testDB *testutil.TestDatabase
+	db     *gorm.DB
+	svc    *ArtistRelationshipService
 }
 
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) SetupSuite() {
-	suite.ctx = context.Background()
+	suite.testDB = testutil.SetupTestPostgres(suite.T())
+	suite.db = suite.testDB.DB
 
-	container, err := testcontainers.GenericContainer(suite.ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "postgres:18",
-			ExposedPorts: []string{"5432/tcp"},
-			Env: map[string]string{
-				"POSTGRES_DB":       "test_db",
-				"POSTGRES_USER":     "test_user",
-				"POSTGRES_PASSWORD": "test_password",
-			},
-			WaitingFor: wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(120 * time.Second),
-		},
-		Started: true,
-	})
-	suite.Require().NoError(err)
-	suite.container = container
-
-	host, err := container.Host(suite.ctx)
-	suite.Require().NoError(err)
-	port, err := container.MappedPort(suite.ctx, "5432")
-	suite.Require().NoError(err)
-
-	dsn := fmt.Sprintf("host=%s port=%s user=test_user password=test_password dbname=test_db sslmode=disable",
-		host, port.Port())
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	suite.Require().NoError(err)
-
-	sqlDB, err := db.DB()
-	suite.Require().NoError(err)
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
-
-	suite.db = db
-	suite.svc = NewArtistRelationshipService(db)
+	suite.db = suite.testDB.DB
+	suite.svc = NewArtistRelationshipService(suite.testDB.DB)
 }
 
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) TearDownSuite() {
-	if suite.container != nil {
-		_ = suite.container.Terminate(suite.ctx)
-	}
+	suite.testDB.Cleanup()
 }
 
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) SetupTest() {

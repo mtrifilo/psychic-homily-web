@@ -1,18 +1,13 @@
 package admin
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
@@ -87,67 +82,20 @@ func TestGenerateMonthKeys(t *testing.T) {
 
 type AnalyticsServiceIntegrationTestSuite struct {
 	suite.Suite
-	container testcontainers.Container
-	db        *gorm.DB
-	service   *AnalyticsService
-	ctx       context.Context
+	testDB  *testutil.TestDatabase
+	db      *gorm.DB
+	service *AnalyticsService
 }
 
 func (suite *AnalyticsServiceIntegrationTestSuite) SetupSuite() {
-	suite.ctx = context.Background()
+	suite.testDB = testutil.SetupTestPostgres(suite.T())
+	suite.db = suite.testDB.DB
 
-	container, err := testcontainers.GenericContainer(suite.ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "postgres:18",
-			ExposedPorts: []string{"5432/tcp"},
-			Env: map[string]string{
-				"POSTGRES_DB":       "test_db",
-				"POSTGRES_USER":     "test_user",
-				"POSTGRES_PASSWORD": "test_password",
-			},
-			WaitingFor: wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(120 * time.Second),
-		},
-		Started: true,
-	})
-	if err != nil {
-		suite.T().Fatalf("failed to start postgres container: %v", err)
-	}
-	suite.container = container
-
-	host, err := container.Host(suite.ctx)
-	if err != nil {
-		suite.T().Fatalf("failed to get host: %v", err)
-	}
-	port, err := container.MappedPort(suite.ctx, "5432")
-	if err != nil {
-		suite.T().Fatalf("failed to get port: %v", err)
-	}
-
-	dsn := fmt.Sprintf("host=%s port=%s user=test_user password=test_password dbname=test_db sslmode=disable",
-		host, port.Port())
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		suite.T().Fatalf("failed to connect to test database: %v", err)
-	}
-	suite.db = db
-
-	sqlDB, err := db.DB()
-	if err != nil {
-		suite.T().Fatalf("failed to get sql.DB: %v", err)
-	}
-
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
-
-	suite.service = &AnalyticsService{db: db}
+	suite.service = &AnalyticsService{db: suite.testDB.DB}
 }
 
 func (suite *AnalyticsServiceIntegrationTestSuite) TearDownSuite() {
-	if suite.container != nil {
-		if err := suite.container.Terminate(suite.ctx); err != nil {
-			suite.T().Logf("failed to terminate container: %v", err)
-		}
-	}
+	suite.testDB.Cleanup()
 }
 
 func (suite *AnalyticsServiceIntegrationTestSuite) TearDownTest() {

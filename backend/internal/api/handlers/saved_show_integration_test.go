@@ -23,9 +23,7 @@ func (s *SavedShowHandlerIntegrationSuite) TearDownTest() {
 }
 
 func (s *SavedShowHandlerIntegrationSuite) TearDownSuite() {
-	if s.deps.container != nil {
-		s.deps.container.Terminate(s.deps.ctx)
-	}
+	s.deps.testDB.Cleanup()
 }
 
 func TestSavedShowHandlerIntegration(t *testing.T) {
@@ -201,4 +199,3 @@ func (s *SavedShowHandlerIntegrationSuite) TestCheckSaved_False() {
 	s.NotNil(resp)
 	s.False(resp.Body.IsSaved)
 }
-

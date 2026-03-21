@@ -26,9 +26,7 @@ func (s *LabelHandlerIntegrationSuite) TearDownTest() {
 }
 
 func (s *LabelHandlerIntegrationSuite) TearDownSuite() {
-	if s.deps.container != nil {
-		s.deps.container.Terminate(s.deps.ctx)
-	}
+	s.deps.testDB.Cleanup()
 }
 
 func TestLabelHandlerIntegration(t *testing.T) {
