@@ -1,19 +1,14 @@
 package user
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/markbates/goth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
@@ -382,72 +377,21 @@ func TestGetDaysUntilPermanentDeletion(t *testing.T) {
 // UserServiceIntegrationTestSuite tests UserService with real PostgreSQL database
 type UserServiceIntegrationTestSuite struct {
 	suite.Suite
-	container   testcontainers.Container
+	testDB      *testutil.TestDatabase
 	db          *gorm.DB
 	userService *UserService
-	ctx         context.Context
 }
 
 func (suite *UserServiceIntegrationTestSuite) SetupSuite() {
-	suite.ctx = context.Background()
-
-	// Start PostgreSQL container
-	container, err := testcontainers.GenericContainer(suite.ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "postgres:18",
-			ExposedPorts: []string{"5432/tcp"},
-			Env: map[string]string{
-				"POSTGRES_DB":       "test_db",
-				"POSTGRES_USER":     "test_user",
-				"POSTGRES_PASSWORD": "test_password",
-			},
-			WaitingFor: wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(120 * time.Second),
-		},
-		Started: true,
-	})
-
-	if err != nil {
-		suite.T().Fatalf("failed to start postgres container: %v", err)
-	}
-	suite.container = container
-
-	// Get container host and port
-	host, err := container.Host(suite.ctx)
-	if err != nil {
-		suite.T().Fatalf("failed to get host: %v", err)
-	}
-
-	port, err := container.MappedPort(suite.ctx, "5432")
-	if err != nil {
-		suite.T().Fatalf("failed to get port: %v", err)
-	}
-
-	// Connect to database
-	dsn := fmt.Sprintf("host=%s port=%s user=test_user password=test_password dbname=test_db sslmode=disable",
-		host, port.Port())
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		suite.T().Fatalf("failed to connect to test database: %v", err)
-	}
-	suite.db = db
-
-	sqlDB, err := db.DB()
-	if err != nil {
-		suite.T().Fatalf("failed to get sql.DB: %v", err)
-	}
-	testutil.RunAllMigrations(suite.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
+	suite.testDB = testutil.SetupTestPostgres(suite.T())
+	suite.db = suite.testDB.DB
 
 	// Create UserService
-	suite.userService = &UserService{db: db}
+	suite.userService = &UserService{db: suite.testDB.DB}
 }
 
 func (suite *UserServiceIntegrationTestSuite) TearDownSuite() {
-	if suite.container != nil {
-		if err := suite.container.Terminate(suite.ctx); err != nil {
-			suite.T().Logf("failed to terminate container: %v", err)
-		}
-	}
+	suite.testDB.Cleanup()
 }
 
 // ---- Existing tests (GetUserByID, GetUserByEmail, UpdateUser, etc.) --------

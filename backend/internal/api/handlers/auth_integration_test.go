@@ -55,9 +55,7 @@ func (s *AuthHandlerIntegrationSuite) TearDownTest() {
 }
 
 func (s *AuthHandlerIntegrationSuite) TearDownSuite() {
-	if s.deps.container != nil {
-		s.deps.container.Terminate(s.deps.ctx)
-	}
+	s.deps.testDB.Cleanup()
 }
 
 // --- Helpers ---

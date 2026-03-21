@@ -203,6 +203,59 @@ type ImportHistoryEntry struct {
 }
 
 // ──────────────────────────────────────────────
+// Enrichment types
+// ──────────────────────────────────────────────
+
+// EnrichmentResult holds the combined results of all enrichment steps for a show.
+type EnrichmentResult struct {
+	ShowID         uint                    `json:"show_id"`
+	ArtistMatches  []ArtistMatchEnrichment `json:"artist_matches,omitempty"`
+	MusicBrainz    []MBEnrichment          `json:"musicbrainz,omitempty"`
+	SeatGeek       *SeatGeekEnrichment     `json:"seatgeek,omitempty"`
+	CompletedSteps []string                `json:"completed_steps"`
+	Errors         []string                `json:"errors,omitempty"`
+}
+
+// ArtistMatchEnrichment holds the result of fuzzy matching for one artist.
+type ArtistMatchEnrichment struct {
+	ArtistName  string  `json:"artist_name"`
+	MatchedID   *uint   `json:"matched_id,omitempty"`
+	MatchedName *string `json:"matched_name,omitempty"`
+	Confidence  float64 `json:"confidence"`
+	AutoLinked  bool    `json:"auto_linked"`
+}
+
+// MBEnrichment holds MusicBrainz lookup results for one artist.
+type MBEnrichment struct {
+	ArtistName     string `json:"artist_name"`
+	ArtistID       uint   `json:"artist_id"`
+	MBID           string `json:"mbid,omitempty"`
+	MBName         string `json:"mb_name,omitempty"`
+	Score          int    `json:"score,omitempty"`
+	Found          bool   `json:"found"`
+	AlreadyHadMBID bool   `json:"already_had_mbid"`
+}
+
+// SeatGeekEnrichment holds SeatGeek cross-reference results.
+type SeatGeekEnrichment struct {
+	Found        bool     `json:"found"`
+	EventID      int      `json:"event_id,omitempty"`
+	LowestPrice  *float64 `json:"lowest_price,omitempty"`
+	HighestPrice *float64 `json:"highest_price,omitempty"`
+	AveragePrice *float64 `json:"average_price,omitempty"`
+	Genres       []string `json:"genres,omitempty"`
+	EventType    string   `json:"event_type,omitempty"`
+}
+
+// EnrichmentQueueStats holds summary statistics about the enrichment queue.
+type EnrichmentQueueStats struct {
+	Pending        int64 `json:"pending"`
+	Processing     int64 `json:"processing"`
+	CompletedToday int64 `json:"completed_today"`
+	FailedToday    int64 `json:"failed_today"`
+}
+
+// ──────────────────────────────────────────────
 // Discovery types
 // ──────────────────────────────────────────────
 

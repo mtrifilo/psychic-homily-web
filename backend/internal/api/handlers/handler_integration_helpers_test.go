@@ -3,13 +3,9 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
@@ -27,7 +23,7 @@ import (
 // handlerIntegrationDeps holds all services + DB for handler integration tests
 type handlerIntegrationDeps struct {
 	db                    *gorm.DB
-	container             testcontainers.Container
+	testDB                *testutil.TestDatabase
 	ctx                   context.Context
 	showService           *catalog.ShowService
 	venueService          *catalog.VenueService
@@ -55,58 +51,16 @@ type handlerIntegrationDeps struct {
 func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 	t.Helper()
 
-	ctx := context.Background()
-
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "postgres:18",
-			ExposedPorts: []string{"5432/tcp"},
-			Env: map[string]string{
-				"POSTGRES_DB":       "test_db",
-				"POSTGRES_USER":     "test_user",
-				"POSTGRES_PASSWORD": "test_password",
-			},
-			WaitingFor: wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(120 * time.Second),
-		},
-		Started: true,
-	})
-	if err != nil {
-		t.Fatalf("failed to start postgres container: %v", err)
-	}
-
-	host, err := container.Host(ctx)
-	if err != nil {
-		t.Fatalf("failed to get host: %v", err)
-	}
-	port, err := container.MappedPort(ctx, "5432")
-	if err != nil {
-		t.Fatalf("failed to get port: %v", err)
-	}
-
-	dsn := fmt.Sprintf("host=%s port=%s user=test_user password=test_password dbname=test_db sslmode=disable",
-		host, port.Port())
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("failed to connect to test database: %v", err)
-	}
-
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("failed to get sql.DB: %v", err)
-	}
-
-	testutil.RunAllMigrations(t, sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
+	testDB := testutil.SetupTestPostgres(t)
+	db := testDB.DB
 
 	// Construct services
 	emptyCfg := &config.Config{}
 
 	deps := &handlerIntegrationDeps{
 		db:                    db,
-		container:             container,
-		ctx:                   ctx,
+		testDB:                testDB,
+		ctx:                   context.Background(),
 		showService:           catalog.NewShowService(db),
 		venueService:          catalog.NewVenueService(db),
 		savedShowService:      engagement.NewSavedShowService(db),

@@ -99,6 +99,9 @@ export function ArtistInput({
     }
   }
 
+  const showDropdown = isOpen
+  const listboxId = `${field.name}-artist-listbox`
+
   const showAddNew =
     searchValue &&
     !filteredArtists.some(
@@ -120,12 +123,20 @@ export function ArtistInput({
             onKeyDown={handleKeyDown}
             placeholder="Enter artist name"
             autoComplete="off"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={showDropdown && filteredArtists.length > 0}
+            aria-controls={listboxId}
             aria-invalid={field.state.meta.errors.length > 0}
           />
 
           {/* Autocomplete dropdown */}
           {isOpen && (
-            <div className="absolute top-full left-0 w-full z-50 mt-1 rounded-md border bg-popover text-popover-foreground shadow-md">
+            <div
+              id={listboxId}
+              role="listbox"
+              className="absolute top-full left-0 w-full z-50 mt-1 rounded-md border bg-popover text-popover-foreground shadow-md"
+            >
               <div className="max-h-[300px] overflow-y-auto">
                 {/* Existing artists section */}
                 {filteredArtists.length > 0 && (
@@ -136,6 +147,7 @@ export function ArtistInput({
                     {filteredArtists.map(artist => (
                       <button
                         type="button"
+                        role="option"
                         key={artist.id}
                         className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
                         onMouseDown={e => {

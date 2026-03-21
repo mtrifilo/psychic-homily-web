@@ -59,9 +59,7 @@ func (s *OAuthHandlerIntegrationSuite) TearDownTest() {
 }
 
 func (s *OAuthHandlerIntegrationSuite) TearDownSuite() {
-	if s.deps.container != nil {
-		s.deps.container.Terminate(s.deps.ctx)
-	}
+	s.deps.testDB.Cleanup()
 }
 
 func TestOAuthHandlerIntegration(t *testing.T) {

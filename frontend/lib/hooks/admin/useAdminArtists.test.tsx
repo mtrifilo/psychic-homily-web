@@ -1,8 +1,7 @@
-import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createWrapper, createTestQueryClient } from '@/test/utils'
+import { QueryClient } from '@tanstack/react-query'
+import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@/test/utils'
 
 // Create mock for fetch
 const mockFetch = vi.fn()
@@ -27,14 +26,6 @@ import {
   useClearArtistSpotify,
 } from './useAdminArtists'
 
-// Helper to create wrapper with specific query client
-function createWrapperWithClient(queryClient: QueryClient) {
-  return function Wrapper({ children }: { children: React.ReactNode }) {
-    return (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    )
-  }
-}
 
 // Helper to mock successful fetch response
 function mockFetchResponse(data: unknown, ok = true, status = 200) {

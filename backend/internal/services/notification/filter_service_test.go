@@ -1,19 +1,14 @@
 package notification
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
@@ -182,9 +177,9 @@ func TestMatchAndNotify_NilShow(t *testing.T) {
 
 type NotificationFilterSuite struct {
 	suite.Suite
-	db        *gorm.DB
-	container testcontainers.Container
-	svc       *NotificationFilterService
+	db     *gorm.DB
+	testDB *testutil.TestDatabase
+	svc    *NotificationFilterService
 }
 
 func TestNotificationFilterSuite(t *testing.T) {
@@ -195,43 +190,11 @@ func TestNotificationFilterSuite(t *testing.T) {
 }
 
 func (s *NotificationFilterSuite) SetupSuite() {
-	ctx := context.Background()
-
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "postgres:18",
-			ExposedPorts: []string{"5432/tcp"},
-			Env: map[string]string{
-				"POSTGRES_DB":       "test_db",
-				"POSTGRES_USER":     "test_user",
-				"POSTGRES_PASSWORD": "test_password",
-			},
-			WaitingFor: wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(120 * time.Second),
-		},
-		Started: true,
-	})
-	s.Require().NoError(err)
-	s.container = container
-
-	host, err := container.Host(ctx)
-	s.Require().NoError(err)
-	port, err := container.MappedPort(ctx, "5432")
-	s.Require().NoError(err)
-
-	dsn := fmt.Sprintf("host=%s port=%s user=test_user password=test_password dbname=test_db sslmode=disable", host, port.Port())
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	s.Require().NoError(err)
-	s.db = db
-
-	// Run migrations
-	sqlDB, err := db.DB()
-	s.Require().NoError(err)
-	migrationDir, err := filepath.Abs("../../../db/migrations")
-	s.Require().NoError(err)
-	testutil.RunAllMigrations(s.T(), sqlDB, migrationDir)
+	s.testDB = testutil.SetupTestPostgres(s.T())
+	s.db = s.testDB.DB
 
 	// Use a mock email service
-	s.svc = NewNotificationFilterService(db, &mockEmailService{}, "test-secret", "http://localhost:3000")
+	s.svc = NewNotificationFilterService(s.testDB.DB, &mockEmailService{}, "test-secret", "http://localhost:3000")
 }
 
 func (s *NotificationFilterSuite) TearDownTest() {
@@ -247,9 +210,7 @@ func (s *NotificationFilterSuite) TearDownTest() {
 }
 
 func (s *NotificationFilterSuite) TearDownSuite() {
-	if s.container != nil {
-		s.container.Terminate(context.Background())
-	}
+	s.testDB.Cleanup()
 }
 
 // createTestUser creates a user for testing.
@@ -867,7 +828,7 @@ type mockEmailService struct {
 	sendCalls int
 }
 
-func (m *mockEmailService) IsConfigured() bool                    { return true }
+func (m *mockEmailService) IsConfigured() bool                      { return true }
 func (m *mockEmailService) SendVerificationEmail(_, _ string) error { return nil }
 func (m *mockEmailService) SendMagicLinkEmail(_, _ string) error    { return nil }
 func (m *mockEmailService) SendAccountRecoveryEmail(_ string, _ string, _ int) error {

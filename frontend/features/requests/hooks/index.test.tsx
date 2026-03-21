@@ -1,7 +1,7 @@
-import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { createWrapper, createWrapperWithClient } from '@/test/utils'
 
 const mockApiRequest = vi.fn()
 
@@ -41,19 +41,6 @@ import {
   useCloseRequest,
 } from './index'
 
-function createWrapper(queryClient?: QueryClient) {
-  const qc =
-    queryClient ??
-    new QueryClient({
-      defaultOptions: {
-        queries: { retry: false, gcTime: 0 },
-        mutations: { retry: false },
-      },
-    })
-  return function Wrapper({ children }: { children: React.ReactNode }) {
-    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
-  }
-}
 
 describe('useRequests', () => {
   beforeEach(() => {
@@ -240,7 +227,7 @@ describe('useVoteRequest (optimistic updates)', () => {
     mockApiRequest.mockResolvedValueOnce(undefined)
 
     const { result } = renderHook(() => useVoteRequest(), {
-      wrapper: createWrapper(queryClient),
+      wrapper: createWrapperWithClient(queryClient),
     })
 
     await act(async () => {
@@ -278,7 +265,7 @@ describe('useVoteRequest (optimistic updates)', () => {
     mockApiRequest.mockRejectedValueOnce(new Error('Server error'))
 
     const { result } = renderHook(() => useVoteRequest(), {
-      wrapper: createWrapper(queryClient),
+      wrapper: createWrapperWithClient(queryClient),
     })
 
     await act(async () => {
@@ -336,7 +323,7 @@ describe('useRemoveVoteRequest', () => {
     mockApiRequest.mockResolvedValueOnce(undefined)
 
     const { result } = renderHook(() => useRemoveVoteRequest(), {
-      wrapper: createWrapper(queryClient),
+      wrapper: createWrapperWithClient(queryClient),
     })
 
     await act(async () => {

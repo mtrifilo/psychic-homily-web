@@ -33,9 +33,7 @@ func (s *ShowHandlerIntegrationSuite) TearDownTest() {
 }
 
 func (s *ShowHandlerIntegrationSuite) TearDownSuite() {
-	if s.deps.container != nil {
-		s.deps.container.Terminate(s.deps.ctx)
-	}
+	s.deps.testDB.Cleanup()
 }
 
 func TestShowHandlerIntegration(t *testing.T) {

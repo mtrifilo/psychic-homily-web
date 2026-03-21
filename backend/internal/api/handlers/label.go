@@ -8,7 +8,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
@@ -174,10 +173,9 @@ type CreateLabelResponse struct {
 func (h *LabelHandler) CreateLabelHandler(ctx context.Context, req *CreateLabelRequest) (*CreateLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	if req.Body.Name == "" {
@@ -264,10 +262,9 @@ type UpdateLabelResponse struct {
 func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelRequest) (*UpdateLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Resolve label ID
@@ -339,10 +336,9 @@ type DeleteLabelRequest struct {
 func (h *LabelHandler) DeleteLabelHandler(ctx context.Context, req *DeleteLabelRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Resolve label ID
@@ -488,10 +484,9 @@ type AddArtistToLabelResponse struct {
 func (h *LabelHandler) AddArtistToLabelHandler(ctx context.Context, req *AddArtistToLabelRequest) (*AddArtistToLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Resolve label ID
@@ -564,10 +559,9 @@ type AddReleaseToLabelResponse struct {
 func (h *LabelHandler) AddReleaseToLabelHandler(ctx context.Context, req *AddReleaseToLabelRequest) (*AddReleaseToLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Resolve label ID

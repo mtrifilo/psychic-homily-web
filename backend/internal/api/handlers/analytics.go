@@ -5,7 +5,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/services/contracts"
@@ -52,9 +51,9 @@ type GetGrowthMetricsResponse struct {
 
 // GetGrowthMetricsHandler handles GET /admin/analytics/growth
 func (h *AnalyticsHandler) GetGrowthMetricsHandler(ctx context.Context, req *GetGrowthMetricsRequest) (*GetGrowthMetricsResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	months := req.Months
@@ -97,7 +96,7 @@ type GetEngagementMetricsResponse struct {
 		Bookmarks       []EngagementMetricResponse `json:"bookmarks"`
 		TagsAdded       []EngagementMetricResponse `json:"tags_added"`
 		TagVotes        []EngagementMetricResponse `json:"tag_votes"`
-		CollectionItems []EngagementMetricResponse `json:"collection_items"`
+		CollectionItems []EngagementMetricResponse `json:"crate_items"`
 		Requests        []EngagementMetricResponse `json:"requests"`
 		RequestVotes    []EngagementMetricResponse `json:"request_votes"`
 		Revisions       []EngagementMetricResponse `json:"revisions"`
@@ -108,9 +107,9 @@ type GetEngagementMetricsResponse struct {
 
 // GetEngagementMetricsHandler handles GET /admin/analytics/engagement
 func (h *AnalyticsHandler) GetEngagementMetricsHandler(ctx context.Context, req *GetEngagementMetricsRequest) (*GetEngagementMetricsResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	months := req.Months
@@ -162,16 +161,16 @@ type GetCommunityHealthResponse struct {
 		ActiveContributors30d  int                           `json:"active_contributors_30d"`
 		ContributionsPerWeek   []WeeklyContributionsResponse `json:"contributions_per_week"`
 		RequestFulfillmentRate float64                       `json:"request_fulfillment_rate"`
-		NewCollections30d      int                           `json:"new_collections_30d"`
+		NewCollections30d      int                           `json:"new_crates_30d"`
 		TopContributors        []TopContributorResponse      `json:"top_contributors"`
 	}
 }
 
 // GetCommunityHealthHandler handles GET /admin/analytics/community
 func (h *AnalyticsHandler) GetCommunityHealthHandler(ctx context.Context, _ *GetCommunityHealthRequest) (*GetCommunityHealthResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	data, err := h.analyticsService.GetCommunityHealth()
@@ -227,9 +226,9 @@ type GetDataQualityTrendsResponse struct {
 
 // GetDataQualityTrendsHandler handles GET /admin/analytics/data-quality
 func (h *AnalyticsHandler) GetDataQualityTrendsHandler(ctx context.Context, req *GetDataQualityTrendsRequest) (*GetDataQualityTrendsResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	months := req.Months

@@ -5,15 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
@@ -190,59 +186,16 @@ func (m *mockReminderEmailService) SendFilterNotificationEmail(_, _, _, _ string
 // ReminderServiceIntegrationTestSuite tests the reminder service with a real database
 type ReminderServiceIntegrationTestSuite struct {
 	suite.Suite
-	container       testcontainers.Container
+	testDB          *testutil.TestDatabase
 	db              *gorm.DB
 	emailMock       *mockReminderEmailService
 	reminderService *ReminderService
 	cfg             *config.Config
-	ctx             context.Context
 }
 
 func (s *ReminderServiceIntegrationTestSuite) SetupSuite() {
-	s.ctx = context.Background()
-
-	container, err := testcontainers.GenericContainer(s.ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "postgres:18",
-			ExposedPorts: []string{"5432/tcp"},
-			Env: map[string]string{
-				"POSTGRES_DB":       "test_db",
-				"POSTGRES_USER":     "test_user",
-				"POSTGRES_PASSWORD": "test_password",
-			},
-			WaitingFor: wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(120 * time.Second),
-		},
-		Started: true,
-	})
-	if err != nil {
-		s.T().Fatalf("failed to start postgres container: %v", err)
-	}
-	s.container = container
-
-	host, err := container.Host(s.ctx)
-	if err != nil {
-		s.T().Fatalf("failed to get host: %v", err)
-	}
-	port, err := container.MappedPort(s.ctx, "5432")
-	if err != nil {
-		s.T().Fatalf("failed to get port: %v", err)
-	}
-
-	dsn := fmt.Sprintf("host=%s port=%s user=test_user password=test_password dbname=test_db sslmode=disable",
-		host, port.Port())
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		s.T().Fatalf("failed to connect to test database: %v", err)
-	}
-	s.db = db
-
-	sqlDB, err := db.DB()
-	if err != nil {
-		s.T().Fatalf("failed to get sql.DB: %v", err)
-	}
-
-	testutil.RunAllMigrations(s.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
+	s.testDB = testutil.SetupTestPostgres(s.T())
+	s.db = s.testDB.DB
 
 	s.cfg = &config.Config{
 		Email: config.EmailConfig{
@@ -257,22 +210,18 @@ func (s *ReminderServiceIntegrationTestSuite) SetupSuite() {
 func (s *ReminderServiceIntegrationTestSuite) SetupTest() {
 	s.emailMock = &mockReminderEmailService{}
 	s.reminderService = &ReminderService{
-		db:          s.db,
+		db:           s.db,
 		emailService: s.emailMock,
-		interval:    1 * time.Second,
-		stopCh:      make(chan struct{}),
-		logger:      testLogger(),
-		frontendURL: s.cfg.Email.FrontendURL,
-		jwtSecret:   s.cfg.JWT.SecretKey,
+		interval:     1 * time.Second,
+		stopCh:       make(chan struct{}),
+		logger:       testLogger(),
+		frontendURL:  s.cfg.Email.FrontendURL,
+		jwtSecret:    s.cfg.JWT.SecretKey,
 	}
 }
 
 func (s *ReminderServiceIntegrationTestSuite) TearDownSuite() {
-	if s.container != nil {
-		if err := s.container.Terminate(s.ctx); err != nil {
-			s.T().Logf("failed to terminate container: %v", err)
-		}
-	}
+	s.testDB.Cleanup()
 }
 
 func (s *ReminderServiceIntegrationTestSuite) TearDownTest() {
@@ -584,7 +533,7 @@ func (s *ReminderServiceIntegrationTestSuite) TestStartStop_NoError() {
 		jwtSecret:    s.cfg.JWT.SecretKey,
 	}
 
-	svc.Start(s.ctx)
+	svc.Start(context.Background())
 
 	// Let it run for a brief moment
 	time.Sleep(50 * time.Millisecond)

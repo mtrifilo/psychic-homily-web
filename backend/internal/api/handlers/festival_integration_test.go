@@ -27,9 +27,7 @@ func (s *FestivalHandlerIntegrationSuite) TearDownTest() {
 }
 
 func (s *FestivalHandlerIntegrationSuite) TearDownSuite() {
-	if s.deps.container != nil {
-		s.deps.container.Terminate(s.deps.ctx)
-	}
+	s.deps.testDB.Cleanup()
 }
 
 func TestFestivalHandlerIntegration(t *testing.T) {

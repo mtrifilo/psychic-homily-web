@@ -36,17 +36,17 @@ func NewCollectionHandler(collectionService services.CollectionServiceInterface,
 type ListCollectionsHandlerRequest struct {
 	Creator    string `query:"creator" required:"false" doc:"Filter by creator username"`
 	EntityType string `query:"entity_type" required:"false" doc:"Filter by entity type (artist, release, label, show, venue, festival)"`
-	Featured   int    `query:"featured" required:"false" doc:"Filter featured collections (1=featured only)" example:"0"`
+	Featured   int    `query:"featured" required:"false" doc:"Filter featured crates (1=featured only)" example:"0"`
 	Search     string `query:"search" required:"false" doc:"Search by title"`
 	Limit      int    `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
 	Offset     int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
 }
 
-// ListCollectionsHandlerResponse represents the response for listing collections
+// ListCollectionsHandlerResponse represents the response for listing crates
 type ListCollectionsHandlerResponse struct {
 	Body struct {
-		Collections []*services.CollectionListResponse `json:"collections" doc:"List of collections"`
-		Total       int64                              `json:"total" doc:"Total number of matching collections"`
+		Collections []*services.CollectionListResponse `json:"crates" doc:"List of crates"`
+		Total       int64                              `json:"total" doc:"Total number of matching crates"`
 	}
 }
 
@@ -91,7 +91,7 @@ func (h *CollectionHandler) ListCollectionsHandler(ctx context.Context, req *Lis
 
 // GetCollectionHandlerRequest represents the request for getting a single collection
 type GetCollectionHandlerRequest struct {
-	Slug string `path:"slug" doc:"Collection slug" example:"my-favorite-artists"`
+	Slug string `path:"slug" doc:"Crate slug" example:"my-favorite-artists"`
 }
 
 // GetCollectionHandlerResponse represents the response for the get collection endpoint
@@ -121,7 +121,7 @@ func (h *CollectionHandler) GetCollectionHandler(ctx context.Context, req *GetCo
 
 // GetCollectionStatsHandlerRequest represents the request for getting collection stats
 type GetCollectionStatsHandlerRequest struct {
-	Slug string `path:"slug" doc:"Collection slug" example:"my-favorite-artists"`
+	Slug string `path:"slug" doc:"Crate slug" example:"my-favorite-artists"`
 }
 
 // GetCollectionStatsHandlerResponse represents the response for the collection stats endpoint
@@ -146,11 +146,11 @@ func (h *CollectionHandler) GetCollectionStatsHandler(ctx context.Context, req *
 // CreateCollectionHandlerRequest represents the request for creating a collection
 type CreateCollectionHandlerRequest struct {
 	Body struct {
-		Title         string  `json:"title" doc:"Collection title" example:"Phoenix Indie Shows"`
-		Description   *string `json:"description,omitempty" required:"false" doc:"Collection description"`
+		Title         string  `json:"title" doc:"Crate title" example:"Phoenix Indie Shows"`
+		Description   *string `json:"description,omitempty" required:"false" doc:"Crate description"`
 		Collaborative bool    `json:"collaborative,omitempty" required:"false" doc:"Whether other users can add items"`
 		CoverImageURL *string `json:"cover_image_url,omitempty" required:"false" doc:"Cover image URL"`
-		IsPublic      bool    `json:"is_public,omitempty" required:"false" doc:"Whether the collection is publicly visible"`
+		IsPublic      bool    `json:"is_public,omitempty" required:"false" doc:"Whether the crate is publicly visible"`
 	}
 }
 
@@ -194,7 +194,7 @@ func (h *CollectionHandler) CreateCollectionHandler(ctx context.Context, req *Cr
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		go func() {
-			h.auditLogService.LogAction(user.ID, "create_collection", "collection", collection.ID, nil)
+			h.auditLogService.LogAction(user.ID, "create_crate", "collection", collection.ID, nil)
 		}()
 	}
 
@@ -207,13 +207,13 @@ func (h *CollectionHandler) CreateCollectionHandler(ctx context.Context, req *Cr
 
 // UpdateCollectionHandlerRequest represents the request for updating a collection
 type UpdateCollectionHandlerRequest struct {
-	Slug string `path:"slug" doc:"Collection slug" example:"my-favorite-artists"`
+	Slug string `path:"slug" doc:"Crate slug" example:"my-favorite-artists"`
 	Body struct {
-		Title         *string `json:"title,omitempty" required:"false" doc:"Collection title"`
-		Description   *string `json:"description,omitempty" required:"false" doc:"Collection description"`
+		Title         *string `json:"title,omitempty" required:"false" doc:"Crate title"`
+		Description   *string `json:"description,omitempty" required:"false" doc:"Crate description"`
 		Collaborative *bool   `json:"collaborative,omitempty" required:"false" doc:"Whether other users can add items"`
 		CoverImageURL *string `json:"cover_image_url,omitempty" required:"false" doc:"Cover image URL"`
-		IsPublic      *bool   `json:"is_public,omitempty" required:"false" doc:"Whether the collection is publicly visible"`
+		IsPublic      *bool   `json:"is_public,omitempty" required:"false" doc:"Whether the crate is publicly visible"`
 	}
 }
 
@@ -258,7 +258,7 @@ func (h *CollectionHandler) UpdateCollectionHandler(ctx context.Context, req *Up
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		go func() {
-			h.auditLogService.LogAction(user.ID, "update_collection", "collection", collection.ID, nil)
+			h.auditLogService.LogAction(user.ID, "update_crate", "collection", collection.ID, nil)
 		}()
 	}
 
@@ -271,7 +271,7 @@ func (h *CollectionHandler) UpdateCollectionHandler(ctx context.Context, req *Up
 
 // DeleteCollectionHandlerRequest represents the request for deleting a collection
 type DeleteCollectionHandlerRequest struct {
-	Slug string `path:"slug" doc:"Collection slug" example:"my-favorite-artists"`
+	Slug string `path:"slug" doc:"Crate slug" example:"my-favorite-artists"`
 }
 
 // DeleteCollectionHandler handles DELETE /collections/{slug}
@@ -302,7 +302,7 @@ func (h *CollectionHandler) DeleteCollectionHandler(ctx context.Context, req *De
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		go func() {
-			h.auditLogService.LogAction(user.ID, "delete_collection", "collection", 0, map[string]interface{}{"slug": req.Slug})
+			h.auditLogService.LogAction(user.ID, "delete_crate", "collection", 0, map[string]interface{}{"slug": req.Slug})
 		}()
 	}
 
@@ -315,7 +315,7 @@ func (h *CollectionHandler) DeleteCollectionHandler(ctx context.Context, req *De
 
 // AddItemHandlerRequest represents the request for adding an item to a collection
 type AddItemHandlerRequest struct {
-	Slug string `path:"slug" doc:"Collection slug" example:"my-favorite-artists"`
+	Slug string `path:"slug" doc:"Crate slug" example:"my-favorite-artists"`
 	Body struct {
 		EntityType string  `json:"entity_type" doc:"Entity type (artist, release, label, show, venue, festival)" example:"artist"`
 		EntityID   uint    `json:"entity_id" doc:"Entity ID" example:"42"`
@@ -369,7 +369,7 @@ func (h *CollectionHandler) AddItemHandler(ctx context.Context, req *AddItemHand
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		go func() {
-			h.auditLogService.LogAction(user.ID, "add_collection_item", "collection", item.ID, map[string]interface{}{
+			h.auditLogService.LogAction(user.ID, "add_crate_item", "collection", item.ID, map[string]interface{}{
 				"slug":        req.Slug,
 				"entity_type": req.Body.EntityType,
 				"entity_id":   req.Body.EntityID,
@@ -386,8 +386,8 @@ func (h *CollectionHandler) AddItemHandler(ctx context.Context, req *AddItemHand
 
 // RemoveItemHandlerRequest represents the request for removing an item from a collection
 type RemoveItemHandlerRequest struct {
-	Slug   string `path:"slug" doc:"Collection slug" example:"my-favorite-artists"`
-	ItemID string `path:"item_id" doc:"Collection item ID" example:"1"`
+	Slug   string `path:"slug" doc:"Crate slug" example:"my-favorite-artists"`
+	ItemID string `path:"item_id" doc:"Crate item ID" example:"1"`
 }
 
 // RemoveItemHandler handles DELETE /collections/{slug}/items/{item_id}
@@ -424,7 +424,7 @@ func (h *CollectionHandler) RemoveItemHandler(ctx context.Context, req *RemoveIt
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		go func() {
-			h.auditLogService.LogAction(user.ID, "remove_collection_item", "collection", uint(itemID), map[string]interface{}{
+			h.auditLogService.LogAction(user.ID, "remove_crate_item", "collection", uint(itemID), map[string]interface{}{
 				"slug": req.Slug,
 			})
 		}()
@@ -439,7 +439,7 @@ func (h *CollectionHandler) RemoveItemHandler(ctx context.Context, req *RemoveIt
 
 // ReorderItemsHandlerRequest represents the request for reordering collection items
 type ReorderItemsHandlerRequest struct {
-	Slug string `path:"slug" doc:"Collection slug" example:"my-favorite-artists"`
+	Slug string `path:"slug" doc:"Crate slug" example:"my-favorite-artists"`
 	Body struct {
 		Items []services.ReorderItem `json:"items" doc:"Items with new positions"`
 	}
@@ -483,7 +483,7 @@ func (h *CollectionHandler) ReorderItemsHandler(ctx context.Context, req *Reorde
 
 // SubscribeHandlerRequest represents the request for subscribing to a collection
 type SubscribeHandlerRequest struct {
-	Slug string `path:"slug" doc:"Collection slug" example:"my-favorite-artists"`
+	Slug string `path:"slug" doc:"Crate slug" example:"my-favorite-artists"`
 }
 
 // SubscribeHandler handles POST /collections/{slug}/subscribe
@@ -503,7 +503,7 @@ func (h *CollectionHandler) SubscribeHandler(ctx context.Context, req *Subscribe
 
 // UnsubscribeHandlerRequest represents the request for unsubscribing from a collection
 type UnsubscribeHandlerRequest struct {
-	Slug string `path:"slug" doc:"Collection slug" example:"my-favorite-artists"`
+	Slug string `path:"slug" doc:"Crate slug" example:"my-favorite-artists"`
 }
 
 // UnsubscribeHandler handles DELETE /collections/{slug}/subscribe
@@ -527,9 +527,9 @@ func (h *CollectionHandler) UnsubscribeHandler(ctx context.Context, req *Unsubsc
 
 // SetFeaturedHandlerRequest represents the request for setting a collection's featured status
 type SetFeaturedHandlerRequest struct {
-	Slug string `path:"slug" doc:"Collection slug" example:"my-favorite-artists"`
+	Slug string `path:"slug" doc:"Crate slug" example:"my-favorite-artists"`
 	Body struct {
-		Featured bool `json:"featured" doc:"Whether the collection should be featured"`
+		Featured bool `json:"featured" doc:"Whether the crate should be featured"`
 	}
 }
 
@@ -537,12 +537,12 @@ type SetFeaturedHandlerRequest struct {
 func (h *CollectionHandler) SetFeaturedHandler(ctx context.Context, req *SetFeaturedHandlerRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	err := h.collectionService.SetFeatured(req.Slug, req.Body.Featured)
+	err = h.collectionService.SetFeatured(req.Slug, req.Body.Featured)
 	if err != nil {
 		mappedErr := mapCollectionError(err)
 		if mappedErr != nil {
@@ -561,7 +561,7 @@ func (h *CollectionHandler) SetFeaturedHandler(ctx context.Context, req *SetFeat
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		go func() {
-			h.auditLogService.LogAction(user.ID, "set_collection_featured", "collection", 0, map[string]interface{}{
+			h.auditLogService.LogAction(user.ID, "set_crate_featured", "collection", 0, map[string]interface{}{
 				"slug":     req.Slug,
 				"featured": req.Body.Featured,
 			})
@@ -581,11 +581,11 @@ type GetUserCollectionsHandlerRequest struct {
 	Offset int `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
 }
 
-// GetUserCollectionsHandlerResponse represents the response for the user collections endpoint
+// GetUserCollectionsHandlerResponse represents the response for the user crates endpoint
 type GetUserCollectionsHandlerResponse struct {
 	Body struct {
-		Collections []*services.CollectionListResponse `json:"collections" doc:"List of user's collections"`
-		Total       int64                              `json:"total" doc:"Total number of collections"`
+		Collections []*services.CollectionListResponse `json:"crates" doc:"List of user's crates"`
+		Total       int64                              `json:"total" doc:"Total number of crates"`
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
@@ -17,16 +16,19 @@ import (
 type PipelineHandler struct {
 	pipelineService    services.PipelineServiceInterface
 	venueConfigService services.VenueSourceConfigServiceInterface
+	enrichmentService  services.EnrichmentServiceInterface
 }
 
 // NewPipelineHandler creates a new pipeline handler.
 func NewPipelineHandler(
 	pipelineService services.PipelineServiceInterface,
 	venueConfigService services.VenueSourceConfigServiceInterface,
+	enrichmentService services.EnrichmentServiceInterface,
 ) *PipelineHandler {
 	return &PipelineHandler{
 		pipelineService:    pipelineService,
 		venueConfigService: venueConfigService,
+		enrichmentService:  enrichmentService,
 	}
 }
 
@@ -45,9 +47,9 @@ type ExtractVenueResponse struct {
 
 // ExtractVenueHandler handles POST /admin/pipeline/extract/{venue_id}
 func (h *PipelineHandler) ExtractVenueHandler(ctx context.Context, req *ExtractVenueRequest) (*ExtractVenueResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	venueID, err := strconv.ParseUint(req.VenueID, 10, 64)
@@ -108,9 +110,9 @@ type ListPipelineVenuesResponse struct {
 
 // ListPipelineVenuesHandler handles GET /admin/pipeline/venues
 func (h *PipelineHandler) ListPipelineVenuesHandler(ctx context.Context, req *ListPipelineVenuesRequest) (*ListPipelineVenuesResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	configs, err := h.venueConfigService.ListConfigured()
@@ -174,9 +176,9 @@ type VenueRejectionStatsResponse struct {
 
 // VenueRejectionStatsHandler handles GET /admin/pipeline/venues/{venue_id}/stats
 func (h *PipelineHandler) VenueRejectionStatsHandler(ctx context.Context, req *VenueRejectionStatsRequest) (*VenueRejectionStatsResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	venueID, err := strconv.ParseUint(req.VenueID, 10, 64)
@@ -216,9 +218,9 @@ type UpdateExtractionNotesResponse struct {
 
 // UpdateExtractionNotesHandler handles PATCH /admin/pipeline/venues/{venue_id}/notes
 func (h *PipelineHandler) UpdateExtractionNotesHandler(ctx context.Context, req *UpdateExtractionNotesRequest) (*UpdateExtractionNotesResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	venueID, err := strconv.ParseUint(req.VenueID, 10, 64)
@@ -268,9 +270,9 @@ type UpdateVenueConfigResponse struct {
 
 // UpdateVenueConfigHandler handles PUT /admin/pipeline/venues/{venue_id}/config
 func (h *PipelineHandler) UpdateVenueConfigHandler(ctx context.Context, req *UpdateVenueConfigRequest) (*UpdateVenueConfigResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	venueID, err := strconv.ParseUint(req.VenueID, 10, 64)
@@ -342,9 +344,9 @@ type GetVenueRunsResponse struct {
 
 // GetVenueRunsHandler handles GET /admin/pipeline/venues/{venue_id}/runs
 func (h *PipelineHandler) GetVenueRunsHandler(ctx context.Context, req *GetVenueRunsRequest) (*GetVenueRunsResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	venueID, err := strconv.ParseUint(req.VenueID, 10, 64)
@@ -390,9 +392,9 @@ type GetImportHistoryResponse struct {
 
 // GetImportHistoryHandler handles GET /admin/pipeline/imports
 func (h *PipelineHandler) GetImportHistoryHandler(ctx context.Context, req *GetImportHistoryRequest) (*GetImportHistoryResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	imports, total, err := h.venueConfigService.GetAllRecentRuns(req.Limit, req.Offset)
@@ -425,9 +427,9 @@ type ResetRenderMethodResponse struct {
 
 // ResetRenderMethodHandler handles POST /admin/pipeline/venues/{venue_id}/reset-render-method
 func (h *PipelineHandler) ResetRenderMethodHandler(ctx context.Context, req *ResetRenderMethodRequest) (*ResetRenderMethodResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	venueID, err := strconv.ParseUint(req.VenueID, 10, 64)
@@ -450,5 +452,77 @@ func (h *PipelineHandler) ResetRenderMethodHandler(ctx context.Context, req *Res
 
 	resp := &ResetRenderMethodResponse{}
 	resp.Body.Success = true
+	return resp, nil
+}
+
+// --- Enrichment Status ---
+
+// EnrichmentStatusRequest is the Huma request for GET /admin/pipeline/enrichment/status
+type EnrichmentStatusRequest struct{}
+
+// EnrichmentStatusResponse is the Huma response for GET /admin/pipeline/enrichment/status
+type EnrichmentStatusResponse struct {
+	Body services.EnrichmentQueueStats
+}
+
+// EnrichmentStatusHandler handles GET /admin/pipeline/enrichment/status
+func (h *PipelineHandler) EnrichmentStatusHandler(ctx context.Context, req *EnrichmentStatusRequest) (*EnrichmentStatusResponse, error) {
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	stats, err := h.enrichmentService.GetQueueStats()
+	if err != nil {
+		logger.FromContext(ctx).Error("enrichment_status_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to get enrichment status")
+	}
+
+	return &EnrichmentStatusResponse{Body: *stats}, nil
+}
+
+// --- Trigger Enrichment ---
+
+// TriggerEnrichmentRequest is the Huma request for POST /admin/pipeline/enrichment/trigger/{show_id}
+type TriggerEnrichmentRequest struct {
+	ShowID string `path:"show_id" validate:"required" doc:"Show ID to enrich"`
+}
+
+// TriggerEnrichmentResponse is the Huma response for POST /admin/pipeline/enrichment/trigger/{show_id}
+type TriggerEnrichmentResponse struct {
+	Body struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+}
+
+// TriggerEnrichmentHandler handles POST /admin/pipeline/enrichment/trigger/{show_id}
+func (h *PipelineHandler) TriggerEnrichmentHandler(ctx context.Context, req *TriggerEnrichmentRequest) (*TriggerEnrichmentResponse, error) {
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	showID, err := strconv.ParseUint(req.ShowID, 10, 64)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid show ID")
+	}
+
+	if err := h.enrichmentService.QueueShowForEnrichment(uint(showID), "all"); err != nil {
+		logger.FromContext(ctx).Error("enrichment_trigger_failed",
+			"show_id", showID,
+			"error", err.Error(),
+		)
+		return nil, huma.Error422UnprocessableEntity(err.Error())
+	}
+
+	logger.FromContext(ctx).Info("enrichment_triggered",
+		"show_id", showID,
+		"admin_id", user.ID,
+	)
+
+	resp := &TriggerEnrichmentResponse{}
+	resp.Body.Success = true
+	resp.Body.Message = "Show queued for enrichment"
 	return resp, nil
 }
