@@ -28,9 +28,7 @@ func (s *FestivalIntelligenceHandlerSuite) TearDownTest() {
 }
 
 func (s *FestivalIntelligenceHandlerSuite) TearDownSuite() {
-	if s.deps.container != nil {
-		s.deps.container.Terminate(s.deps.ctx)
-	}
+	s.deps.testDB.Cleanup()
 }
 
 func TestFestivalIntelligenceHandler(t *testing.T) {
@@ -105,7 +103,7 @@ func (s *FestivalIntelligenceHandlerSuite) TestGetSimilarFestivals_LimitParamete
 	for j := 0; j < 3; j++ {
 		other := s.createFestival(fmt.Sprintf("Limit Target %d", j), fmt.Sprintf("lt%d", j), 2026)
 		for i := 0; i < 3; i++ {
-			a := createArtist(s.deps.db,fmt.Sprintf("LimitShared %d-%d", j, i))
+			a := createArtist(s.deps.db, fmt.Sprintf("LimitShared %d-%d", j, i))
 			_, _ = s.deps.festivalService.AddFestivalArtist(f1.ID, &services.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "mid_card"})
 			_, _ = s.deps.festivalService.AddFestivalArtist(other.ID, &services.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "mid_card"})
 		}
@@ -132,7 +130,7 @@ func (s *FestivalIntelligenceHandlerSuite) TestGetFestivalOverlap_Success() {
 	f1 := s.createFestival("Overlap A", "oa", 2026)
 	f2 := s.createFestival("Overlap B", "ob", 2026)
 
-	a := createArtist(s.deps.db,"Overlap Shared")
+	a := createArtist(s.deps.db, "Overlap Shared")
 	_, _ = s.deps.festivalService.AddFestivalArtist(f1.ID, &services.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "headliner"})
 	_, _ = s.deps.festivalService.AddFestivalArtist(f2.ID, &services.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "mid_card"})
 
@@ -161,7 +159,7 @@ func (s *FestivalIntelligenceHandlerSuite) TestGetFestivalBreakouts_Success() {
 	f1 := s.createFestival("Breakout Early", "be", 2024)
 	f2 := s.createFestival("Breakout Late", "bl", 2026)
 
-	a := createArtist(s.deps.db,"Rising Handler Star")
+	a := createArtist(s.deps.db, "Rising Handler Star")
 	_, _ = s.deps.festivalService.AddFestivalArtist(f1.ID, &services.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "undercard"})
 	_, _ = s.deps.festivalService.AddFestivalArtist(f2.ID, &services.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "headliner"})
 

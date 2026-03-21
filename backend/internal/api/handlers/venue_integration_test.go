@@ -25,9 +25,7 @@ func (s *VenueHandlerIntegrationSuite) TearDownTest() {
 }
 
 func (s *VenueHandlerIntegrationSuite) TearDownSuite() {
-	if s.deps.container != nil {
-		s.deps.container.Terminate(s.deps.ctx)
-	}
+	s.deps.testDB.Cleanup()
 }
 
 func TestVenueHandlerIntegration(t *testing.T) {
