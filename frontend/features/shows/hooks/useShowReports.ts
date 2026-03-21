@@ -1,8 +1,9 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { apiRequest } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
+import { showEndpoints } from '../api'
 import type {
   ShowReportResponse,
   MyShowReportResponse,
@@ -18,7 +19,7 @@ export const useMyShowReport = (showId: number | string | null) => {
     queryKey: queryKeys.showReports.myReport(String(showId)),
     queryFn: async (): Promise<MyShowReportResponse> => {
       return apiRequest<MyShowReportResponse>(
-        API_ENDPOINTS.SHOWS.MY_REPORT(showId!),
+        showEndpoints.MY_REPORT(showId!),
         {
           method: 'GET',
         }
@@ -48,7 +49,7 @@ export const useReportShow = () => {
       details?: string
     }): Promise<ShowReportResponse> => {
       return apiRequest<ShowReportResponse>(
-        API_ENDPOINTS.SHOWS.REPORT(showId),
+        showEndpoints.REPORT(showId),
         {
           method: 'POST',
           body: JSON.stringify({

@@ -2,8 +2,8 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useDebounce } from 'use-debounce'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { apiRequest } from '@/lib/api'
+import { artistEndpoints, artistQueryKeys } from '../api'
 import type { ArtistSearchResponse } from '../types'
 
 interface UseArtistSearchOptions {
@@ -22,9 +22,9 @@ export function useArtistSearch({
   const [debouncedQuery] = useDebounce(query, debounceMs)
 
   return useQuery({
-    queryKey: queryKeys.artists.search(debouncedQuery),
+    queryKey: artistQueryKeys.search(debouncedQuery),
     queryFn: async (): Promise<ArtistSearchResponse> => {
-      const url = `${API_ENDPOINTS.ARTISTS.SEARCH}?q=${encodeURIComponent(debouncedQuery)}`
+      const url = `${artistEndpoints.SEARCH}?q=${encodeURIComponent(debouncedQuery)}`
       return apiRequest<ArtistSearchResponse>(url)
     },
     enabled: debouncedQuery.length > 0,

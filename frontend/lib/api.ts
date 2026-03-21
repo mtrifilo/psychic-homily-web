@@ -6,39 +6,27 @@
  *
  * In development, requests go through a Next.js API proxy (/api/*)
  * to handle cookie same-origin requirements.
+ *
+ * Feature-specific endpoints are defined in their feature modules
+ * (e.g., features/artists/api.ts) and re-exported here for backward compat.
  */
 
 import { authLogger } from './utils/authLogger'
 import { AuthError, AuthErrorCode } from './errors'
 import * as Sentry from '@sentry/nextjs'
+import { artistEndpoints } from '@/features/artists/api'
+import { venueEndpoints } from '@/features/venues/api'
+import { showEndpoints } from '@/features/shows/api'
+import { releaseEndpoints } from '@/features/releases/api'
+import { labelEndpoints } from '@/features/labels/api'
+import { festivalEndpoints } from '@/features/festivals/api'
+
+// Re-export API_BASE_URL from api-base for backward compatibility
+export { API_BASE_URL } from './api-base'
+import { API_BASE_URL } from './api-base'
 
 // Request ID header name (must match backend middleware)
 const REQUEST_ID_HEADER = 'X-Request-ID'
-
-// Get the API base URL
-const getApiBaseUrl = (): string => {
-  // Check for environment-specific API URL first
-  if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL
-  }
-
-  // In browser during development, use Next.js API proxy
-  // This handles same-origin cookie requirements
-  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-    return '/api'
-  }
-
-  // Server-side in development
-  if (process.env.NODE_ENV === 'development') {
-    return 'http://localhost:8080'
-  }
-
-  // Production fallback
-  return 'https://api.psychichomily.com'
-}
-
-// Export the configured API base URL
-export const API_BASE_URL = getApiBaseUrl()
 
 // API endpoint configuration
 export const API_ENDPOINTS = {
@@ -81,127 +69,13 @@ export const API_ENDPOINTS = {
     UNSUBSCRIBE_SHOW_REMINDERS: `${API_BASE_URL}/auth/unsubscribe/show-reminders`,
   },
 
-  // Application endpoints
-  SHOWS: {
-    SUBMIT: `${API_BASE_URL}/shows`,
-    UPCOMING: `${API_BASE_URL}/shows/upcoming`,
-    CITIES: `${API_BASE_URL}/shows/cities`,
-    GET: (showId: string | number) => `${API_BASE_URL}/shows/${showId}`,
-    UPDATE: (showId: string | number) => `${API_BASE_URL}/shows/${showId}`,
-    DELETE: (showId: string | number) => `${API_BASE_URL}/shows/${showId}`,
-    UNPUBLISH: (showId: string | number) =>
-      `${API_BASE_URL}/shows/${showId}/unpublish`,
-    MAKE_PRIVATE: (showId: string | number) =>
-      `${API_BASE_URL}/shows/${showId}/make-private`,
-    PUBLISH: (showId: string | number) =>
-      `${API_BASE_URL}/shows/${showId}/publish`,
-    SET_SOLD_OUT: (showId: string | number) =>
-      `${API_BASE_URL}/shows/${showId}/sold-out`,
-    SET_CANCELLED: (showId: string | number) =>
-      `${API_BASE_URL}/shows/${showId}/cancelled`,
-    MY_SUBMISSIONS: `${API_BASE_URL}/shows/my-submissions`,
-    // Export endpoint (dev only)
-    EXPORT: (showId: string | number) =>
-      `${API_BASE_URL}/shows/${showId}/export`,
-    // Show report endpoints
-    REPORT: (showId: string | number) =>
-      `${API_BASE_URL}/shows/${showId}/report`,
-    MY_REPORT: (showId: string | number) =>
-      `${API_BASE_URL}/shows/${showId}/my-report`,
-  },
-  ARTISTS: {
-    LIST: `${API_BASE_URL}/artists`,
-    CITIES: `${API_BASE_URL}/artists/cities`,
-    SEARCH: `${API_BASE_URL}/artists/search`,
-    GET: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}`,
-    SHOWS: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}/shows`,
-    LABELS: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}/labels`,
-    ALIASES: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}/aliases`,
-    GRAPH: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}/graph`,
-    RELATED: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}/related`,
-    RELATIONSHIPS: {
-      CREATE: `${API_BASE_URL}/artists/relationships`,
-      VOTE: (sourceId: number, targetId: number) =>
-        `${API_BASE_URL}/artists/relationships/${sourceId}/${targetId}/vote`,
-    },
-    DELETE: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}`,
-    REPORT: (artistId: string | number) =>
-      `${API_BASE_URL}/artists/${artistId}/report`,
-    MY_REPORT: (artistId: string | number) =>
-      `${API_BASE_URL}/artists/${artistId}/my-report`,
-  },
-  VENUES: {
-    LIST: `${API_BASE_URL}/venues`,
-    CITIES: `${API_BASE_URL}/venues/cities`,
-    SEARCH: `${API_BASE_URL}/venues/search`,
-    GET: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
-    SHOWS: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}/shows`,
-    GENRES: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}/genres`,
-    UPDATE: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
-    DELETE: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
-    MY_PENDING_EDIT: (venueIdOrSlug: string | number) =>
-      `${API_BASE_URL}/venues/${venueIdOrSlug}/my-pending-edit`,
-  },
-  RELEASES: {
-    LIST: `${API_BASE_URL}/releases`,
-    GET: (idOrSlug: string | number) => `${API_BASE_URL}/releases/${idOrSlug}`,
-    CREATE: `${API_BASE_URL}/releases`,
-    UPDATE: (releaseId: string | number) => `${API_BASE_URL}/releases/${releaseId}`,
-    DELETE: (releaseId: string | number) => `${API_BASE_URL}/releases/${releaseId}`,
-    ADD_LINK: (releaseId: string | number) =>
-      `${API_BASE_URL}/releases/${releaseId}/links`,
-    REMOVE_LINK: (releaseId: string | number, linkId: string | number) =>
-      `${API_BASE_URL}/releases/${releaseId}/links/${linkId}`,
-    ARTIST_RELEASES: (artistIdOrSlug: string | number) =>
-      `${API_BASE_URL}/artists/${artistIdOrSlug}/releases`,
-  },
-  LABELS: {
-    LIST: `${API_BASE_URL}/labels`,
-    GET: (idOrSlug: string | number) => `${API_BASE_URL}/labels/${idOrSlug}`,
-    CREATE: `${API_BASE_URL}/labels`,
-    UPDATE: (labelId: string | number) => `${API_BASE_URL}/labels/${labelId}`,
-    DELETE: (labelId: string | number) => `${API_BASE_URL}/labels/${labelId}`,
-    ARTISTS: (idOrSlug: string | number) =>
-      `${API_BASE_URL}/labels/${idOrSlug}/artists`,
-    RELEASES: (idOrSlug: string | number) =>
-      `${API_BASE_URL}/labels/${idOrSlug}/releases`,
-  },
-  FESTIVALS: {
-    LIST: `${API_BASE_URL}/festivals`,
-    GET: (idOrSlug: string | number) => `${API_BASE_URL}/festivals/${idOrSlug}`,
-    CREATE: `${API_BASE_URL}/festivals`,
-    UPDATE: (festivalId: string | number) =>
-      `${API_BASE_URL}/festivals/${festivalId}`,
-    DELETE: (festivalId: string | number) =>
-      `${API_BASE_URL}/festivals/${festivalId}`,
-    ARTISTS: (festivalId: string | number) =>
-      `${API_BASE_URL}/festivals/${festivalId}/artists`,
-    ADD_ARTIST: (festivalId: string | number) =>
-      `${API_BASE_URL}/festivals/${festivalId}/artists`,
-    UPDATE_ARTIST: (festivalId: string | number, artistId: string | number) =>
-      `${API_BASE_URL}/festivals/${festivalId}/artists/${artistId}`,
-    REMOVE_ARTIST: (festivalId: string | number, artistId: string | number) =>
-      `${API_BASE_URL}/festivals/${festivalId}/artists/${artistId}`,
-    VENUES: (festivalId: string | number) =>
-      `${API_BASE_URL}/festivals/${festivalId}/venues`,
-    ADD_VENUE: (festivalId: string | number) =>
-      `${API_BASE_URL}/festivals/${festivalId}/venues`,
-    REMOVE_VENUE: (festivalId: string | number, venueId: string | number) =>
-      `${API_BASE_URL}/festivals/${festivalId}/venues/${venueId}`,
-    ARTIST_FESTIVALS: (artistIdOrSlug: string | number) =>
-      `${API_BASE_URL}/artists/${artistIdOrSlug}/festivals`,
-    // Festival intelligence endpoints
-    SIMILAR: (festivalId: string | number) =>
-      `${API_BASE_URL}/festivals/${festivalId}/similar`,
-    OVERLAP: (festivalAId: string | number, festivalBId: string | number) =>
-      `${API_BASE_URL}/festivals/${festivalAId}/overlap/${festivalBId}`,
-    BREAKOUTS: (festivalId: string | number) =>
-      `${API_BASE_URL}/festivals/${festivalId}/breakouts`,
-    ARTIST_TRAJECTORY: (artistIdOrSlug: string | number) =>
-      `${API_BASE_URL}/artists/${artistIdOrSlug}/festival-trajectory`,
-    SERIES_COMPARE: (seriesSlug: string) =>
-      `${API_BASE_URL}/festivals/series/${seriesSlug}/compare`,
-  },
+  // Feature module endpoints (defined in features/*/api.ts, re-exported here)
+  SHOWS: showEndpoints,
+  ARTISTS: artistEndpoints,
+  VENUES: venueEndpoints,
+  RELEASES: releaseEndpoints,
+  LABELS: labelEndpoints,
+  FESTIVALS: festivalEndpoints,
 
   // Calendar feed endpoints
   CALENDAR: {

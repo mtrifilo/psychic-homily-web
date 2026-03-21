@@ -1,5 +1,8 @@
 // Public API for the labels feature module
 
+// API (endpoints + query keys)
+export { labelEndpoints, labelQueryKeys } from './api'
+
 // Types
 export type {
   LabelStatus,

@@ -7,8 +7,9 @@
  */
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { apiRequest } from '@/lib/api'
+import { artistEndpoints, artistQueryKeys } from '@/features/artists/api'
+import { labelEndpoints, labelQueryKeys } from '../api'
 import type {
   LabelsListResponse,
   LabelDetail,
@@ -36,11 +37,11 @@ export function useLabels(options: UseLabelsOptions = {}) {
 
   const queryString = params.toString()
   const endpoint = queryString
-    ? `${API_ENDPOINTS.LABELS.LIST}?${queryString}`
-    : API_ENDPOINTS.LABELS.LIST
+    ? `${labelEndpoints.LIST}?${queryString}`
+    : labelEndpoints.LIST
 
   return useQuery({
-    queryKey: queryKeys.labels.list(
+    queryKey: labelQueryKeys.list(
       status || city || state
         ? { status, city, state }
         : undefined
@@ -67,10 +68,10 @@ export function useLabel(options: UseLabelOptions) {
   const { idOrSlug, enabled = true } = options
 
   return useQuery({
-    queryKey: queryKeys.labels.detail(idOrSlug),
+    queryKey: labelQueryKeys.detail(idOrSlug),
     queryFn: async (): Promise<LabelDetail> => {
       return apiRequest<LabelDetail>(
-        API_ENDPOINTS.LABELS.GET(idOrSlug),
+        labelEndpoints.GET(idOrSlug),
         { method: 'GET' }
       )
     },
@@ -93,10 +94,10 @@ export function useArtistLabels(options: UseArtistLabelsOptions) {
   const { artistIdOrSlug, enabled = true } = options
 
   return useQuery({
-    queryKey: queryKeys.artists.labels(artistIdOrSlug),
+    queryKey: artistQueryKeys.labels(artistIdOrSlug),
     queryFn: async (): Promise<ArtistLabelsResponse> => {
       return apiRequest<ArtistLabelsResponse>(
-        API_ENDPOINTS.ARTISTS.LABELS(artistIdOrSlug),
+        artistEndpoints.LABELS(artistIdOrSlug),
         { method: 'GET' }
       )
     },
@@ -121,10 +122,10 @@ export function useLabelRoster(options: UseLabelRosterOptions) {
   const { labelIdOrSlug, enabled = true } = options
 
   return useQuery({
-    queryKey: queryKeys.labels.roster(labelIdOrSlug),
+    queryKey: labelQueryKeys.roster(labelIdOrSlug),
     queryFn: async (): Promise<LabelArtistsResponse> => {
       return apiRequest<LabelArtistsResponse>(
-        API_ENDPOINTS.LABELS.ARTISTS(labelIdOrSlug),
+        labelEndpoints.ARTISTS(labelIdOrSlug),
         { method: 'GET' }
       )
     },
@@ -149,10 +150,10 @@ export function useLabelCatalog(options: UseLabelCatalogOptions) {
   const { labelIdOrSlug, enabled = true } = options
 
   return useQuery({
-    queryKey: queryKeys.labels.catalog(labelIdOrSlug),
+    queryKey: labelQueryKeys.catalog(labelIdOrSlug),
     queryFn: async (): Promise<LabelReleasesResponse> => {
       return apiRequest<LabelReleasesResponse>(
-        API_ENDPOINTS.LABELS.RELEASES(labelIdOrSlug),
+        labelEndpoints.RELEASES(labelIdOrSlug),
         { method: 'GET' }
       )
     },

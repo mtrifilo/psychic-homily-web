@@ -9,22 +9,18 @@ const mockApiRequest = vi.fn()
 // Mock the api module
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
-  API_ENDPOINTS: {
-    SHOWS: {
-      UPCOMING: '/shows/upcoming',
-      GET: (id: string | number) => `/shows/${id}`,
-    },
-  },
   API_BASE_URL: 'http://localhost:8080',
 }))
 
-// Mock queryClient module
-vi.mock('@/lib/queryClient', () => ({
-  queryKeys: {
-    shows: {
-      list: (filters?: Record<string, unknown>) => ['shows', 'list', filters],
-      detail: (id: string) => ['shows', 'detail', id],
-    },
+// Mock the feature api module
+vi.mock('../api', () => ({
+  showEndpoints: {
+    UPCOMING: '/shows/upcoming',
+    GET: (id: string | number) => `/shows/${id}`,
+  },
+  showQueryKeys: {
+    list: (filters?: Record<string, unknown>) => ['shows', 'list', filters],
+    detail: (id: string) => ['shows', 'detail', id],
   },
 }))
 

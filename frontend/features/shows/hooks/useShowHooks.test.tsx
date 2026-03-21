@@ -14,14 +14,16 @@ const mockInvalidateSavedShows = vi.fn()
 // Mock the api module
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
-  API_ENDPOINTS: {
-    SHOWS: {
-      SUBMIT: '/shows',
-      UPDATE: (id: number) => `/shows/${id}`,
-      DELETE: (id: number) => `/shows/${id}`,
-    },
-  },
   API_BASE_URL: 'http://localhost:8080',
+}))
+
+// Mock the feature api module
+vi.mock('../api', () => ({
+  showEndpoints: {
+    SUBMIT: '/shows',
+    UPDATE: (id: number) => `/shows/${id}`,
+    DELETE: (id: number) => `/shows/${id}`,
+  },
 }))
 
 // Mock the show logger

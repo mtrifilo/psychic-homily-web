@@ -1,8 +1,9 @@
 'use client'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { apiRequest } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
+import { showEndpoints } from '../api'
 import { showLogger } from '@/lib/utils/showLogger'
 import { ShowError } from '@/lib/errors'
 import type { ShowResponse } from '../types'
@@ -21,7 +22,7 @@ export function useShowUnpublish() {
       showLogger.unpublishAttempt(showId)
 
       return await apiRequest<ShowResponse>(
-        API_ENDPOINTS.SHOWS.UNPUBLISH(showId),
+        showEndpoints.UNPUBLISH(showId),
         {
           method: 'POST',
         }

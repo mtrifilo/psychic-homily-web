@@ -7,8 +7,8 @@
  */
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { apiRequest } from '@/lib/api'
+import { releaseEndpoints, releaseQueryKeys } from '../api'
 import type {
   ReleaseDetail,
   ReleasesListResponse,
@@ -34,11 +34,11 @@ export function useReleases(options: UseReleasesOptions = {}) {
 
   const queryString = params.toString()
   const endpoint = queryString
-    ? `${API_ENDPOINTS.RELEASES.LIST}?${queryString}`
-    : API_ENDPOINTS.RELEASES.LIST
+    ? `${releaseEndpoints.LIST}?${queryString}`
+    : releaseEndpoints.LIST
 
   return useQuery({
-    queryKey: queryKeys.releases.list(
+    queryKey: releaseQueryKeys.list(
       releaseType || year || artistId
         ? { releaseType, year, artistId }
         : undefined
@@ -65,10 +65,10 @@ export function useRelease(options: UseReleaseOptions) {
   const { idOrSlug, enabled = true } = options
 
   return useQuery({
-    queryKey: queryKeys.releases.detail(idOrSlug),
+    queryKey: releaseQueryKeys.detail(idOrSlug),
     queryFn: async (): Promise<ReleaseDetail> => {
       return apiRequest<ReleaseDetail>(
-        API_ENDPOINTS.RELEASES.GET(idOrSlug),
+        releaseEndpoints.GET(idOrSlug),
         { method: 'GET' }
       )
     },
@@ -91,10 +91,10 @@ export function useArtistReleases(options: UseArtistReleasesOptions) {
   const { artistIdOrSlug, enabled = true } = options
 
   return useQuery({
-    queryKey: queryKeys.releases.artistReleases(artistIdOrSlug),
+    queryKey: releaseQueryKeys.artistReleases(artistIdOrSlug),
     queryFn: async (): Promise<ArtistReleasesResponse> => {
       return apiRequest<ArtistReleasesResponse>(
-        API_ENDPOINTS.RELEASES.ARTIST_RELEASES(artistIdOrSlug),
+        releaseEndpoints.ARTIST_RELEASES(artistIdOrSlug),
         { method: 'GET' }
       )
     },
