@@ -80,7 +80,7 @@ export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityT
                 Add
               </button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
               <DialogHeader>
                 <DialogTitle>Add Tag</DialogTitle>
               </DialogHeader>

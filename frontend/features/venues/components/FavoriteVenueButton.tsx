@@ -4,7 +4,7 @@ import { Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useFavoriteVenueToggle } from '@/features/auth'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 interface FavoriteVenueButtonProps {
   venueId: number
@@ -22,6 +22,16 @@ export function FavoriteVenueButton({
   const { isAuthenticated } = useAuthContext()
   const { isFavorited, isLoading, toggle, error } = useFavoriteVenueToggle(venueId, isAuthenticated)
   const [showError, setShowError] = useState(false)
+  const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Clean up timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (errorTimeoutRef.current) {
+        clearTimeout(errorTimeoutRef.current)
+      }
+    }
+  }, [])
 
   // Don't render if not authenticated
   if (!isAuthenticated) {
@@ -34,11 +44,14 @@ export function FavoriteVenueButton({
 
     try {
       setShowError(false)
+      if (errorTimeoutRef.current) {
+        clearTimeout(errorTimeoutRef.current)
+      }
       await toggle()
     } catch (err) {
       setShowError(true)
       // Auto-hide error after 3 seconds
-      setTimeout(() => setShowError(false), 3000)
+      errorTimeoutRef.current = setTimeout(() => setShowError(false), 3000)
     }
   }
 

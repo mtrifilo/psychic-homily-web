@@ -30,6 +30,13 @@ export function DismissReportDialog({
   const [notes, setNotes] = useState('')
   const dismissMutation = useDismissReport()
 
+  const handleDialogOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setNotes('')
+    }
+    onOpenChange(nextOpen)
+  }
+
   const handleDismiss = () => {
     dismissMutation.mutate(
       {
@@ -48,7 +55,7 @@ export function DismissReportDialog({
   const showTitle = report.show?.title || 'Unknown Show'
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -88,7 +95,7 @@ export function DismissReportDialog({
         <DialogFooter>
           <Button
             variant="outline"
-            onClick={() => onOpenChange(false)}
+            onClick={() => handleDialogOpenChange(false)}
             disabled={dismissMutation.isPending}
           >
             Cancel

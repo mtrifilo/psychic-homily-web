@@ -30,6 +30,13 @@ export function DismissArtistReportDialog({
   const [notes, setNotes] = useState('')
   const dismissMutation = useDismissArtistReport()
 
+  const handleDialogOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setNotes('')
+    }
+    onOpenChange(nextOpen)
+  }
+
   const handleDismiss = () => {
     dismissMutation.mutate(
       {
@@ -48,7 +55,7 @@ export function DismissArtistReportDialog({
   const artistName = report.artist?.name || 'Unknown Artist'
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -90,7 +97,7 @@ export function DismissArtistReportDialog({
         <DialogFooter>
           <Button
             variant="outline"
-            onClick={() => onOpenChange(false)}
+            onClick={() => handleDialogOpenChange(false)}
             disabled={dismissMutation.isPending}
           >
             Cancel
