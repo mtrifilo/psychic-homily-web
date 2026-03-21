@@ -186,7 +186,7 @@ func (s *EnrichmentIntegrationTestSuite) SetupSuite() {
 				"POSTGRES_USER":     "test_user",
 				"POSTGRES_PASSWORD": "test_password",
 			},
-			WaitingFor: wait.ForListeningPort("5432/tcp").WithStartupTimeout(60 * time.Second),
+			WaitingFor: wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(120 * time.Second),
 		},
 		Started: true,
 	})
