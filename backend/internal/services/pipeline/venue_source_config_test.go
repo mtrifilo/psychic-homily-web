@@ -1,17 +1,11 @@
 package pipeline
 
 import (
-	"context"
-	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
@@ -89,53 +83,21 @@ func TestVenueSourceConfigService_NilDatabase(t *testing.T) {
 
 type VenueSourceConfigIntegrationTestSuite struct {
 	suite.Suite
-	container testcontainers.Container
-	db        *gorm.DB
-	svc       *VenueSourceConfigService
-	ctx       context.Context
-	venueID   uint
+	testDB  *testutil.TestDatabase
+	db      *gorm.DB
+	svc     *VenueSourceConfigService
+	venueID uint
 }
 
 func (s *VenueSourceConfigIntegrationTestSuite) SetupSuite() {
-	s.ctx = context.Background()
+	s.testDB = testutil.SetupTestPostgres(s.T())
+	s.db = s.testDB.DB
 
-	container, err := testcontainers.GenericContainer(s.ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "postgres:18",
-			ExposedPorts: []string{"5432/tcp"},
-			Env: map[string]string{
-				"POSTGRES_DB":       "test_db",
-				"POSTGRES_USER":     "test_user",
-				"POSTGRES_PASSWORD": "test_password",
-			},
-			WaitingFor: wait.ForListeningPort("5432/tcp").WithStartupTimeout(60 * time.Second),
-		},
-		Started: true,
-	})
-	s.Require().NoError(err)
-	s.container = container
-
-	host, _ := container.Host(s.ctx)
-	port, _ := container.MappedPort(s.ctx, "5432")
-
-	dsn := fmt.Sprintf("host=%s port=%s user=test_user password=test_password dbname=test_db sslmode=disable", host, port.Port())
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	s.Require().NoError(err)
-	s.db = db
-
-	sqlDB, err := db.DB()
-	s.Require().NoError(err)
-
-	migrationDir, _ := filepath.Abs("../../../db/migrations")
-	testutil.RunAllMigrations(s.T(), sqlDB, migrationDir)
-
-	s.svc = NewVenueSourceConfigService(db)
+	s.svc = NewVenueSourceConfigService(s.testDB.DB)
 }
 
 func (s *VenueSourceConfigIntegrationTestSuite) TearDownSuite() {
-	if s.container != nil {
-		s.container.Terminate(s.ctx)
-	}
+	s.testDB.Cleanup()
 }
 
 func (s *VenueSourceConfigIntegrationTestSuite) SetupTest() {

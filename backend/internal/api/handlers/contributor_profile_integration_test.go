@@ -33,9 +33,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TearDownTest() {
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TearDownSuite() {
-	if s.deps.container != nil {
-		s.deps.container.Terminate(s.deps.ctx)
-	}
+	s.deps.testDB.Cleanup()
 }
 
 func TestContributorProfileHandlerIntegration(t *testing.T) {

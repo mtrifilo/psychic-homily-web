@@ -1,20 +1,14 @@
 package middleware
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/stretchr/testify/suite"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
@@ -27,8 +21,7 @@ import (
 type JWTMiddlewareIntegrationSuite struct {
 	suite.Suite
 	db         *gorm.DB
-	container  testcontainers.Container
-	ctx        context.Context
+	testDB     *testutil.TestDatabase
 	cfg        *config.Config
 	jwtService *services.JWTService
 }
@@ -41,42 +34,8 @@ func TestJWTMiddlewareIntegration(t *testing.T) {
 }
 
 func (s *JWTMiddlewareIntegrationSuite) SetupSuite() {
-	s.ctx = context.Background()
-
-	container, err := testcontainers.GenericContainer(s.ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "postgres:18",
-			ExposedPorts: []string{"5432/tcp"},
-			Env: map[string]string{
-				"POSTGRES_DB":       "test_db",
-				"POSTGRES_USER":     "test_user",
-				"POSTGRES_PASSWORD": "test_password",
-			},
-			WaitingFor: wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(120 * time.Second),
-		},
-		Started: true,
-	})
-	s.Require().NoError(err, "failed to start postgres container")
-	s.container = container
-
-	host, err := container.Host(s.ctx)
-	s.Require().NoError(err, "failed to get host")
-	port, err := container.MappedPort(s.ctx, "5432")
-	s.Require().NoError(err, "failed to get port")
-
-	dsn := fmt.Sprintf("host=%s port=%s user=test_user password=test_password dbname=test_db sslmode=disable",
-		host, port.Port())
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	s.Require().NoError(err, "failed to connect to test database")
-	s.db = db
-
-	sqlDB, err := db.DB()
-	s.Require().NoError(err, "failed to get sql.DB")
-
-	testutil.RunAllMigrations(s.T(), sqlDB, filepath.Join("..", "..", "..", "db", "migrations"))
+	s.testDB = testutil.SetupTestPostgres(s.T())
+	s.db = s.testDB.DB
 
 	// Set up config and JWT service with real DB
 	s.cfg = &config.Config{
@@ -96,9 +55,7 @@ func (s *JWTMiddlewareIntegrationSuite) TearDownTest() {
 }
 
 func (s *JWTMiddlewareIntegrationSuite) TearDownSuite() {
-	if s.container != nil {
-		_ = s.container.Terminate(s.ctx)
-	}
+	s.testDB.Cleanup()
 }
 
 // --- Helpers ---

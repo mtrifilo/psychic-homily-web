@@ -25,9 +25,7 @@ func (s *ReleaseHandlerIntegrationSuite) TearDownTest() {
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TearDownSuite() {
-	if s.deps.container != nil {
-		s.deps.container.Terminate(s.deps.ctx)
-	}
+	s.deps.testDB.Cleanup()
 }
 
 func TestReleaseHandlerIntegration(t *testing.T) {
