@@ -9,6 +9,7 @@ type Artist struct {
 	State            *string   `gorm:"column:state"`
 	City             *string   `gorm:"column:city"`
 	BandcampEmbedURL *string   `gorm:"column:bandcamp_embed_url"`
+	Description      *string   `json:"description,omitempty" gorm:"column:description;type:text"`
 	Social           Social    `gorm:"embedded"`
 
 	// Data provenance fields

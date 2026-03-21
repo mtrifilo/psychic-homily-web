@@ -445,6 +445,7 @@ func (s *ArtistService) buildArtistResponse(artist *models.Artist) *contracts.Ar
 		State:            artist.State,
 		City:             artist.City,
 		BandcampEmbedURL: artist.BandcampEmbedURL,
+		Description:      artist.Description,
 		Social: contracts.SocialResponse{
 			Instagram:  artist.Social.Instagram,
 			Facebook:   artist.Social.Facebook,
