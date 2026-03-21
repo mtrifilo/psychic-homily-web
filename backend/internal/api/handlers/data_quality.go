@@ -5,7 +5,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
 )
@@ -48,9 +47,9 @@ type DataQualityCategoryResponse struct {
 
 // GetDataQualitySummaryHandler handles GET /admin/data-quality
 func (h *DataQualityHandler) GetDataQualitySummaryHandler(ctx context.Context, _ *GetDataQualitySummaryRequest) (*GetDataQualitySummaryResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	summary, err := h.dataQualityService.GetSummary()
@@ -106,9 +105,9 @@ type GetDataQualityCategoryResponse struct {
 
 // GetDataQualityCategoryHandler handles GET /admin/data-quality/{category}
 func (h *DataQualityHandler) GetDataQualityCategoryHandler(ctx context.Context, req *GetDataQualityCategoryRequest) (*GetDataQualityCategoryResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	limit := req.Limit

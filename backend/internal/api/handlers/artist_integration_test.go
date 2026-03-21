@@ -27,9 +27,7 @@ func (s *ArtistHandlerIntegrationSuite) TearDownTest() {
 }
 
 func (s *ArtistHandlerIntegrationSuite) TearDownSuite() {
-	if s.deps.container != nil {
-		s.deps.container.Terminate(s.deps.ctx)
-	}
+	s.deps.testDB.Cleanup()
 }
 
 func TestArtistHandlerIntegration(t *testing.T) {

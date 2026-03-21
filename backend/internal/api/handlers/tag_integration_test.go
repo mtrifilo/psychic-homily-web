@@ -30,9 +30,7 @@ func (s *TagHandlerIntegrationSuite) TearDownTest() {
 }
 
 func (s *TagHandlerIntegrationSuite) TearDownSuite() {
-	if s.deps.container != nil {
-		s.deps.container.Terminate(s.deps.ctx)
-	}
+	s.deps.testDB.Cleanup()
 }
 
 func TestTagHandlerIntegration(t *testing.T) {

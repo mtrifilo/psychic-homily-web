@@ -8,7 +8,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
@@ -186,10 +185,9 @@ type CreateFestivalResponse struct {
 func (h *FestivalHandler) CreateFestivalHandler(ctx context.Context, req *CreateFestivalRequest) (*CreateFestivalResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	if req.Body.Name == "" {
@@ -287,10 +285,9 @@ type UpdateFestivalResponse struct {
 func (h *FestivalHandler) UpdateFestivalHandler(ctx context.Context, req *UpdateFestivalRequest) (*UpdateFestivalResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	festivalID, err := h.resolveFestivalID(req.FestivalID)
@@ -385,10 +382,9 @@ type DeleteFestivalRequest struct {
 func (h *FestivalHandler) DeleteFestivalHandler(ctx context.Context, req *DeleteFestivalRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	festivalID, err := h.resolveFestivalID(req.FestivalID)
@@ -497,10 +493,9 @@ type AddFestivalArtistHandlerResponse struct {
 func (h *FestivalHandler) AddFestivalArtistHandler(ctx context.Context, req *AddFestivalArtistHandlerRequest) (*AddFestivalArtistHandlerResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	festivalID, err := strconv.ParseUint(req.FestivalID, 10, 32)
@@ -574,10 +569,9 @@ type UpdateFestivalArtistHandlerResponse struct {
 func (h *FestivalHandler) UpdateFestivalArtistHandler(ctx context.Context, req *UpdateFestivalArtistHandlerRequest) (*UpdateFestivalArtistHandlerResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	festivalID, err := strconv.ParseUint(req.FestivalID, 10, 32)
@@ -635,10 +629,9 @@ type RemoveFestivalArtistRequest struct {
 func (h *FestivalHandler) RemoveFestivalArtistHandler(ctx context.Context, req *RemoveFestivalArtistRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	festivalID, err := strconv.ParseUint(req.FestivalID, 10, 32)
@@ -735,10 +728,9 @@ type AddFestivalVenueHandlerResponse struct {
 func (h *FestivalHandler) AddFestivalVenueHandler(ctx context.Context, req *AddFestivalVenueHandlerRequest) (*AddFestivalVenueHandlerResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	festivalID, err := strconv.ParseUint(req.FestivalID, 10, 32)
@@ -794,10 +786,9 @@ type RemoveFestivalVenueRequest struct {
 func (h *FestivalHandler) RemoveFestivalVenueHandler(ctx context.Context, req *RemoveFestivalVenueRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	festivalID, err := strconv.ParseUint(req.FestivalID, 10, 32)

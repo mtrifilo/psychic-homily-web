@@ -28,9 +28,7 @@ func (s *ShowReportHandlerIntegrationSuite) TearDownTest() {
 }
 
 func (s *ShowReportHandlerIntegrationSuite) TearDownSuite() {
-	if s.deps.container != nil {
-		s.deps.container.Terminate(s.deps.ctx)
-	}
+	s.deps.testDB.Cleanup()
 }
 
 func TestShowReportHandlerIntegration(t *testing.T) {
