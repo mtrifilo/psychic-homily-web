@@ -1,15 +1,12 @@
 'use client'
 
-import { useEffect } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import { ArrowLeft, Hash, Loader2 } from 'lucide-react'
 import { NotifyMeButton } from '@/features/notifications'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Breadcrumb } from '@/components/shared'
-import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbContext'
 import { useTag } from '../hooks'
 import { getCategoryColor, getCategoryLabel } from '../types'
 
@@ -19,15 +16,6 @@ interface TagDetailProps {
 
 export function TagDetail({ slug }: TagDetailProps) {
   const { data: tag, isLoading, error } = useTag(slug)
-  const pathname = usePathname()
-  const { pushBreadcrumb } = useNavigationBreadcrumbs()
-
-  // Push breadcrumb when tag data is loaded
-  useEffect(() => {
-    if (tag) {
-      pushBreadcrumb(tag.name, pathname)
-    }
-  }, [tag, pathname, pushBreadcrumb])
 
   if (isLoading) {
     return (

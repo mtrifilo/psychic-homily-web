@@ -94,14 +94,6 @@ vi.mock('@/components/forms/ArtistEditForm', () => ({
   }) => (open ? <div data-testid="edit-form">Edit Form</div> : null),
 }))
 
-// Mock NavigationBreadcrumbContext
-vi.mock('@/lib/context/NavigationBreadcrumbContext', () => ({
-  useNavigationBreadcrumbs: () => ({
-    breadcrumbs: [],
-    pushBreadcrumb: vi.fn(),
-  }),
-}))
-
 // Mock next/navigation
 vi.mock('next/navigation', () => ({
   usePathname: () => '/artists/test-artist',

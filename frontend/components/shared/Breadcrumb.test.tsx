@@ -9,19 +9,8 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-// Track mock breadcrumbs
-let mockBreadcrumbs: Array<{ label: string; href: string }> = []
-
-vi.mock('@/lib/context/NavigationBreadcrumbContext', () => ({
-  useNavigationBreadcrumbs: () => ({
-    breadcrumbs: mockBreadcrumbs,
-    pushBreadcrumb: vi.fn(),
-  }),
-}))
-
 describe('Breadcrumb', () => {
-  it('renders fallback when no navigation history', () => {
-    mockBreadcrumbs = []
+  it('renders category link and entity name', () => {
     render(
       <Breadcrumb
         fallback={{ href: '/artists', label: 'Artists' }}
@@ -38,25 +27,7 @@ describe('Breadcrumb', () => {
     expect(screen.getByText('Macie Stewart')).toBeInTheDocument()
   })
 
-  it('renders navigation history when breadcrumbs exist', () => {
-    mockBreadcrumbs = [
-      { label: 'Shows', href: '/shows' },
-      { label: 'Jeff Tweedy at Van Buren', href: '/shows/jeff-tweedy' },
-    ]
-    render(
-      <Breadcrumb
-        fallback={{ href: '/artists', label: 'Artists' }}
-        currentPage="Macie Stewart"
-      />
-    )
-
-    expect(screen.getByRole('link', { name: 'Shows' })).toHaveAttribute('href', '/shows')
-    expect(screen.getByRole('link', { name: 'Jeff Tweedy at Van Buren' })).toHaveAttribute('href', '/shows/jeff-tweedy')
-    expect(screen.getByText('Macie Stewart')).toBeInTheDocument()
-  })
-
   it('current page is not a link', () => {
-    mockBreadcrumbs = []
     render(
       <Breadcrumb
         fallback={{ href: '/artists', label: 'Artists' }}
@@ -69,26 +40,22 @@ describe('Breadcrumb', () => {
     expect(currentPageElement.closest('a')).toBeNull()
   })
 
-  it('renders separator between crumbs', () => {
-    mockBreadcrumbs = [
-      { label: 'Shows', href: '/shows' },
-    ]
+  it('renders separator between category and entity', () => {
     render(
       <Breadcrumb
-        fallback={{ href: '/artists', label: 'Artists' }}
-        currentPage="Artist Name"
+        fallback={{ href: '/shows', label: 'Shows' }}
+        currentPage="Jeff Tweedy at Van Buren"
       />
     )
 
-    // Check for separator characters (rsaquo)
+    // Check for separator character (rsaquo)
     const separators = screen.getAllByText((_, element) =>
       element?.getAttribute('aria-hidden') === 'true' && element?.textContent === '\u203A'
     )
-    expect(separators.length).toBeGreaterThanOrEqual(1)
+    expect(separators).toHaveLength(1)
   })
 
   it('renders as an ordered list for accessibility', () => {
-    mockBreadcrumbs = []
     render(
       <Breadcrumb
         fallback={{ href: '/artists', label: 'Artists' }}
@@ -99,6 +66,31 @@ describe('Breadcrumb', () => {
     const list = screen.getByRole('list')
     expect(list).toBeInTheDocument()
     const items = screen.getAllByRole('listitem')
-    expect(items).toHaveLength(2) // fallback + current page
+    expect(items).toHaveLength(2) // category + current page
+  })
+
+  it('renders with different entity types', () => {
+    render(
+      <Breadcrumb
+        fallback={{ href: '/releases', label: 'Releases' }}
+        currentPage="Satori"
+      />
+    )
+
+    expect(screen.getByRole('link', { name: 'Releases' })).toHaveAttribute('href', '/releases')
+    expect(screen.getByText('Satori')).toBeInTheDocument()
+  })
+
+  it('only has one link (the category)', () => {
+    render(
+      <Breadcrumb
+        fallback={{ href: '/venues', label: 'Venues' }}
+        currentPage="The Van Buren"
+      />
+    )
+
+    const links = screen.getAllByRole('link')
+    expect(links).toHaveLength(1)
+    expect(links[0]).toHaveTextContent('Venues')
   })
 })

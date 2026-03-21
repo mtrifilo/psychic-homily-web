@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter, usePathname } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import {
   Loader2,
   ThumbsUp,
@@ -21,7 +21,6 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Breadcrumb } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbContext'
 import {
   useRequest,
   useUpdateRequest,
@@ -47,9 +46,7 @@ interface RequestDetailProps {
 
 export function RequestDetail({ requestId }: RequestDetailProps) {
   const router = useRouter()
-  const pathname = usePathname()
   const { user, isAuthenticated } = useAuthContext()
-  const { pushBreadcrumb } = useNavigationBreadcrumbs()
   const { data: request, isLoading, error } = useRequest(requestId)
   const deleteMutation = useDeleteRequest()
   const voteMutation = useVoteRequest()
@@ -58,13 +55,6 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
   const closeMutation = useCloseRequest()
 
   const [isEditing, setIsEditing] = useState(false)
-
-  // Push breadcrumb when request data is loaded
-  useEffect(() => {
-    if (request) {
-      pushBreadcrumb(request.title, pathname)
-    }
-  }, [request, pathname, pushBreadcrumb])
 
   if (isLoading) {
     return (

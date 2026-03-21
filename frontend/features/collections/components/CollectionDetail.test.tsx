@@ -39,14 +39,6 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/collections/test-collection',
 }))
 
-// Mock NavigationBreadcrumbContext
-vi.mock('@/lib/context/NavigationBreadcrumbContext', () => ({
-  useNavigationBreadcrumbs: () => ({
-    breadcrumbs: [],
-    pushBreadcrumb: vi.fn(),
-  }),
-}))
-
 // Mock shared components
 vi.mock('@/components/shared', () => ({
   Breadcrumb: ({

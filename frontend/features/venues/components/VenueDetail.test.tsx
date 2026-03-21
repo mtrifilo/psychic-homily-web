@@ -29,14 +29,6 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/venues/test-venue',
 }))
 
-// Mock NavigationBreadcrumbContext
-vi.mock('@/lib/context/NavigationBreadcrumbContext', () => ({
-  useNavigationBreadcrumbs: () => ({
-    breadcrumbs: [],
-    pushBreadcrumb: vi.fn(),
-  }),
-}))
-
 // Mock TanStack Query
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({
