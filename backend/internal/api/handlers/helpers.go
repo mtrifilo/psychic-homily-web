@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -22,4 +23,22 @@ func requireAdmin(ctx context.Context) (*models.User, error) {
 		return nil, huma.Error403Forbidden("Admin access required")
 	}
 	return user, nil
+}
+
+// getUserID safely gets user ID or returns 0 if user is nil
+func getUserID(user *models.User) uint {
+	if user == nil {
+		return 0
+	}
+	return user.ID
+}
+
+// ptrString converts a string to *string.
+func ptrString(s string) *string {
+	return &s
+}
+
+// parseDate parses a date string in YYYY-MM-DD format
+func parseDate(dateStr string) (time.Time, error) {
+	return time.Parse("2006-01-02", dateStr)
 }
