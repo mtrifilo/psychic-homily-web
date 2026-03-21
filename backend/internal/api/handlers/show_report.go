@@ -191,14 +191,9 @@ type GetPendingReportsResponse struct {
 func (h *ShowReportHandler) GetPendingReportsHandler(ctx context.Context, req *GetPendingReportsRequest) (*GetPendingReportsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate limit
@@ -260,14 +255,9 @@ type DismissReportResponse struct {
 func (h *ShowReportHandler) DismissReportHandler(ctx context.Context, req *DismissReportRequest) (*DismissReportResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse report ID
@@ -328,14 +318,9 @@ type ResolveReportResponse struct {
 func (h *ShowReportHandler) ResolveReportHandler(ctx context.Context, req *ResolveReportRequest) (*ResolveReportResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse report ID

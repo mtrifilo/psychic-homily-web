@@ -22,11 +22,26 @@ export function createTestQueryClient(): QueryClient {
 }
 
 /**
- * Create a wrapper component with all necessary providers
+ * Create a wrapper component with all necessary providers.
+ * Use with renderHook({ wrapper: createWrapper() })
  */
 export function createWrapper(): React.FC<{ children: ReactNode }> {
   const queryClient = createTestQueryClient()
 
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+  }
+}
+
+/**
+ * Create a wrapper component with a specific QueryClient instance.
+ * Use when you need to pre-populate the cache or inspect query state.
+ */
+export function createWrapperWithClient(
+  queryClient: QueryClient
+): React.FC<{ children: ReactNode }> {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>

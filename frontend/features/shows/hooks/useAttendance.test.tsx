@@ -1,7 +1,7 @@
-import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { createWrapper, createWrapperWithClient } from '@/test/utils'
 
 const mockApiRequest = vi.fn()
 const mockInvalidateAttendance = vi.fn()
@@ -43,19 +43,6 @@ import {
   useMyShows,
 } from './useAttendance'
 
-function createWrapper(queryClient?: QueryClient) {
-  const qc =
-    queryClient ??
-    new QueryClient({
-      defaultOptions: {
-        queries: { retry: false, gcTime: 0 },
-        mutations: { retry: false },
-      },
-    })
-  return function Wrapper({ children }: { children: React.ReactNode }) {
-    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
-  }
-}
 
 describe('useShowAttendance', () => {
   beforeEach(() => {
@@ -169,7 +156,7 @@ describe('useSetAttendance', () => {
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
     const { result } = renderHook(() => useSetAttendance(), {
-      wrapper: createWrapper(queryClient),
+      wrapper: createWrapperWithClient(queryClient),
     })
 
     await act(async () => {
@@ -245,7 +232,7 @@ describe('useRemoveAttendance', () => {
     mockApiRequest.mockResolvedValueOnce({ success: true })
 
     const { result } = renderHook(() => useRemoveAttendance(), {
-      wrapper: createWrapper(queryClient),
+      wrapper: createWrapperWithClient(queryClient),
     })
 
     await act(async () => {

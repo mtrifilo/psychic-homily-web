@@ -191,14 +191,9 @@ type GetPendingArtistReportsResponse struct {
 func (h *ArtistReportHandler) GetPendingArtistReportsHandler(ctx context.Context, req *GetPendingArtistReportsRequest) (*GetPendingArtistReportsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate limit
@@ -260,14 +255,9 @@ type DismissArtistReportResponse struct {
 func (h *ArtistReportHandler) DismissArtistReportHandler(ctx context.Context, req *DismissArtistReportRequest) (*DismissArtistReportResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse report ID
@@ -327,14 +317,9 @@ type ResolveArtistReportResponse struct {
 func (h *ArtistReportHandler) ResolveArtistReportHandler(ctx context.Context, req *ResolveArtistReportRequest) (*ResolveArtistReportResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse report ID
