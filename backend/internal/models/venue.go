@@ -12,7 +12,8 @@ type Venue struct {
 	City        string `gorm:"not null"` // Required
 	State       string `gorm:"not null"` // Required
 	Zipcode     *string
-	Social      Social `gorm:"embedded"`
+	Description *string `json:"description,omitempty" gorm:"column:description;type:text"`
+	Social      Social  `gorm:"embedded"`
 	Verified    bool
 	SubmittedBy *uint     `gorm:"column:submitted_by"` // User ID of the person who originally submitted this venue
 

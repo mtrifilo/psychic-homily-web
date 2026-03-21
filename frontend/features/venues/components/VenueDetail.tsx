@@ -5,11 +5,12 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, BadgeCheck, Pencil, Trash2, Loader2, ExternalLink } from 'lucide-react'
 import { useVenue, useVenueGenres } from '../hooks/useVenues'
+import { useVenueUpdate } from '../hooks/useVenueEdit'
 import type { ApiError } from '@/lib/api'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryClient'
-import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb, TagPill } from '@/components/shared'
+import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb, TagPill, EntityDescription } from '@/components/shared'
 import { NotifyMeButton } from '@/features/notifications'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
@@ -74,6 +75,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
   const { isAuthenticated, user } = useAuthContext()
   const queryClient = useQueryClient()
   const router = useRouter()
+  const venueUpdate = useVenueUpdate()
 
   const { data: venue, isLoading, error } = useVenue({ venueId })
 
@@ -224,6 +226,30 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
               <SocialLinks social={venue.social} className="mt-4" />
             )}
           </header>
+
+          {/* Description */}
+          <div className="mb-6">
+            <EntityDescription
+              description={venue.description}
+              canEdit={!!user?.is_admin}
+              onSave={async (description) => {
+                await new Promise<void>((resolve, reject) => {
+                  venueUpdate.mutate(
+                    { venueId: venue.id, data: { description } },
+                    {
+                      onSuccess: () => {
+                        queryClient.invalidateQueries({
+                          queryKey: queryKeys.venues.detail(String(venueId)),
+                        })
+                        resolve()
+                      },
+                      onError: (err) => reject(err),
+                    }
+                  )
+                })
+              }}
+            />
+          </div>
 
           {/* Shows List */}
           <VenueShowsList
