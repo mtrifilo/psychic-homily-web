@@ -16,10 +16,16 @@ import (
 	"psychic-homily-backend/internal/utils"
 )
 
+// enrichmentQueuer is the subset of EnrichmentService used by DiscoveryService.
+type enrichmentQueuer interface {
+	QueueShowForEnrichment(showID uint, enrichmentType string) error
+}
+
 // DiscoveryService handles importing discovered event data into the database
 type DiscoveryService struct {
-	db           *gorm.DB
-	venueService venueFinderCreator
+	db                *gorm.DB
+	venueService      venueFinderCreator
+	enrichmentService enrichmentQueuer
 }
 
 // venueFinderCreator is the subset of VenueService used by DiscoveryService.
@@ -38,6 +44,12 @@ func NewDiscoveryService(database *gorm.DB, venueSvc venueFinderCreator) *Discov
 	}
 }
 
+
+// SetEnrichmentService sets the enrichment service for post-import queuing.
+// Called after container construction to avoid circular dependencies.
+func (s *DiscoveryService) SetEnrichmentService(enrichment enrichmentQueuer) {
+	s.enrichmentService = enrichment
+}
 
 // VenueConfig maps venue slugs to their database info
 // NOTE: When adding venues, also update:
@@ -187,7 +199,7 @@ func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName stri
 }
 
 // importEvent imports a single scraped event
-// Returns a message and status ("imported", "duplicate", "rejected", "updated", "error")
+// Returns a message, status ("imported", "duplicate", "rejected", "updated", "error"), and show ID (if created)
 func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (string, string) {
 	// Validate required fields
 	if event.ID == "" || event.VenueSlug == "" {
@@ -807,6 +819,9 @@ func (s *DiscoveryService) ImportEvents(events []contracts.DiscoveredEvent, dryR
 		Messages: make([]string, 0),
 	}
 
+	// Track event IDs that were imported so we can queue them for enrichment
+	var importedEventIDs []string
+
 	for _, event := range events {
 		msg, status := s.importEvent(&event, dryRun, allowUpdates, initialStatus)
 		result.Messages = append(result.Messages, msg)
@@ -814,12 +829,14 @@ func (s *DiscoveryService) ImportEvents(events []contracts.DiscoveredEvent, dryR
 		switch status {
 		case "imported":
 			result.Imported++
+			importedEventIDs = append(importedEventIDs, event.ID)
 		case "duplicate":
 			result.Duplicates++
 		case "rejected":
 			result.Rejected++
 		case "pending_review":
 			result.PendingReview++
+			importedEventIDs = append(importedEventIDs, event.ID)
 		case "updated":
 			result.Updated++
 		case "error":
@@ -827,5 +844,24 @@ func (s *DiscoveryService) ImportEvents(events []contracts.DiscoveredEvent, dryR
 		}
 	}
 
+	// Fire-and-forget: queue newly imported shows for enrichment
+	if !dryRun && s.enrichmentService != nil && len(importedEventIDs) > 0 {
+		go s.queueImportedShowsForEnrichment(importedEventIDs)
+	}
+
 	return result, nil
+}
+
+// queueImportedShowsForEnrichment looks up shows by source_event_id and queues them for enrichment.
+func (s *DiscoveryService) queueImportedShowsForEnrichment(eventIDs []string) {
+	for _, eventID := range eventIDs {
+		var show models.Show
+		if err := s.db.Where("source_event_id = ?", eventID).First(&show).Error; err != nil {
+			continue
+		}
+		if err := s.enrichmentService.QueueShowForEnrichment(show.ID, models.EnrichmentTypeAll); err != nil {
+			// Fire-and-forget: log but don't fail
+			fmt.Printf("warning: failed to queue show %d for enrichment: %v\n", show.ID, err)
+		}
+	}
 }

@@ -2,6 +2,7 @@ package services
 
 import (
 	"log"
+	"os"
 
 	"gorm.io/gorm"
 
@@ -68,10 +69,12 @@ type ServiceContainer struct {
 	WebAuthn   *auth.WebAuthnService // nil if init fails (passkeys optional)
 	Cleanup    *adminsvc.CleanupService
 	DataSync   *adminsvc.DataSyncService
-	Discovery  *pipeline.DiscoveryService
-	Pipeline   *pipeline.PipelineService
-	Reminder   *engagement.ReminderService
-	Scheduler  *pipeline.SchedulerService
+	Discovery        *pipeline.DiscoveryService
+	Pipeline         *pipeline.PipelineService
+	Reminder         *engagement.ReminderService
+	Scheduler        *pipeline.SchedulerService
+	Enrichment       *pipeline.EnrichmentService
+	EnrichmentWorker *pipeline.EnrichmentWorker
 }
 
 // newFetcherWithChromedp creates a FetcherService with chromedp initialized at 3 workers.
@@ -108,6 +111,14 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// Services needed by SchedulerService — created before the container.
 	discord := notification.NewDiscordService(cfg)
 	pipelineSvc := pipeline.NewPipelineService(fetcher, extraction, discovery, venueSourceConfig, venue)
+
+	// Enrichment service — SeatGeek client ID is optional
+	seatgeekClientID := os.Getenv("SEATGEEK_CLIENT_ID")
+	enrichmentSvc := pipeline.NewEnrichmentService(database, artist, seatgeekClientID)
+	enrichmentWorker := pipeline.NewEnrichmentWorker(enrichmentSvc)
+
+	// Wire enrichment queuing into discovery service (fire-and-forget after imports)
+	discovery.SetEnrichmentService(enrichmentSvc)
 
 	return &ServiceContainer{
 		// DB-only leaf services
@@ -163,6 +174,8 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Discovery:  discovery,
 		Pipeline:   pipelineSvc,
 		Reminder:   engagement.NewReminderService(database, email, cfg),
-		Scheduler:  pipeline.NewSchedulerService(database, pipelineSvc, venueSourceConfig, discord),
+		Scheduler:        pipeline.NewSchedulerService(database, pipelineSvc, venueSourceConfig, discord),
+		Enrichment:       enrichmentSvc,
+		EnrichmentWorker: enrichmentWorker,
 	}
 }
