@@ -51,8 +51,8 @@ export function usePrefetchRoutes(timezone: string) {
 
     // Defer to idle time to avoid competing with rendering
     if ('requestIdleCallback' in window) {
-      const id = requestIdleCallback(prefetch)
-      return () => cancelIdleCallback(id)
+      const id = window.requestIdleCallback(prefetch)
+      return () => window.cancelIdleCallback(id)
     } else {
       const id = setTimeout(prefetch, 1000)
       return () => clearTimeout(id)

@@ -21,6 +21,14 @@ import {
   Tent,
 } from 'lucide-react'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   useCollection,
   useUpdateCollection,
   useRemoveCollectionItem,
@@ -38,6 +46,7 @@ import { Breadcrumb } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useNavigationBreadcrumbs } from '@/lib/context/NavigationBreadcrumbContext'
 import { useRouter, usePathname } from 'next/navigation'
+import type { ApiError } from '@/lib/api'
 
 interface CollectionDetailProps {
   slug: string
@@ -63,6 +72,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   const deleteMutation = useDeleteCollection()
 
   const [isEditing, setIsEditing] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
 
   // Push breadcrumb when collection data is loaded
   useEffect(() => {
@@ -82,8 +92,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   if (error) {
     const errorMessage =
       error instanceof Error ? error.message : 'Failed to load collection'
-    const is404 =
-      errorMessage.includes('not found') || errorMessage.includes('404')
+    const is404 = (error as ApiError).status === 404
 
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -133,12 +142,15 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   }
 
   const handleDelete = () => {
-    if (window.confirm('Are you sure you want to delete this collection? This action cannot be undone.')) {
-      deleteMutation.mutate(
-        { slug },
-        { onSuccess: () => router.push('/collections') }
-      )
-    }
+    deleteMutation.mutate(
+      { slug },
+      {
+        onSuccess: () => {
+          setIsDeleteDialogOpen(false)
+          router.push('/collections')
+        },
+      }
+    )
   }
 
   const items = collection.items ?? []
@@ -249,7 +261,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={handleDelete}
+                      onClick={() => setIsDeleteDialogOpen(true)}
                       disabled={deleteMutation.isPending}
                       className="text-destructive hover:text-destructive"
                     >
@@ -284,6 +296,55 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              Delete Collection
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete &quot;{collection.title}&quot;? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteMutation.isError && (
+            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              {deleteMutation.error?.message ||
+                'Failed to delete collection. Please try again.'}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsDeleteDialogOpen(false)}
+              disabled={deleteMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Collection
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

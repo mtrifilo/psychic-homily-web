@@ -3,11 +3,9 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ModeToggle } from './mode-toggle'
 
-// --- Mocks ---
-
 const mockSetTheme = vi.fn()
 const mockUseTheme = vi.fn(() => ({
-  theme: 'dark',
+  resolvedTheme: 'light',
   setTheme: mockSetTheme,
 }))
 
@@ -19,60 +17,48 @@ describe('ModeToggle', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUseTheme.mockReturnValue({
-      theme: 'dark',
+      resolvedTheme: 'light',
       setTheme: mockSetTheme,
     })
   })
 
-  it('renders a button', () => {
+  it('renders the toggle button', () => {
     render(<ModeToggle />)
-    expect(screen.getByRole('button')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Toggle theme' })).toBeInTheDocument()
   })
 
-  it('has screen reader text "Toggle theme"', () => {
-    render(<ModeToggle />)
-    expect(screen.getByText('Toggle theme')).toBeInTheDocument()
-    // The text should be in a sr-only span
-    const srText = screen.getByText('Toggle theme')
-    expect(srText.className).toContain('sr-only')
-  })
-
-  it('toggles from dark to light when clicked', async () => {
+  it('toggles from light to dark when resolvedTheme is light', async () => {
     const user = userEvent.setup()
     render(<ModeToggle />)
 
-    await user.click(screen.getByRole('button'))
-    expect(mockSetTheme).toHaveBeenCalledWith('light')
-  })
-
-  it('toggles from light to dark when clicked', async () => {
-    const user = userEvent.setup()
-    mockUseTheme.mockReturnValue({
-      theme: 'light',
-      setTheme: mockSetTheme,
-    })
-    render(<ModeToggle />)
-
-    await user.click(screen.getByRole('button'))
+    await user.click(screen.getByRole('button', { name: 'Toggle theme' }))
     expect(mockSetTheme).toHaveBeenCalledWith('dark')
   })
 
-  it('renders with outline variant and icon size', () => {
+  it('toggles from dark to light when resolvedTheme is dark', async () => {
+    mockUseTheme.mockReturnValue({
+      resolvedTheme: 'dark',
+      setTheme: mockSetTheme,
+    })
+    const user = userEvent.setup()
     render(<ModeToggle />)
-    const button = screen.getByRole('button')
-    // Shadcn Button with variant="outline" and size="icon"
-    expect(button).toHaveClass('cursor-pointer')
+
+    await user.click(screen.getByRole('button', { name: 'Toggle theme' }))
+    expect(mockSetTheme).toHaveBeenCalledWith('light')
   })
 
-  it('renders Sun and Moon icons', () => {
-    const { container } = render(<ModeToggle />)
-    // lucide-react renders SVGs
-    const svgs = container.querySelectorAll('svg')
-    expect(svgs.length).toBe(2) // Sun + Moon
-  })
-
-  it('has accessible button role', () => {
+  it('uses resolvedTheme not theme — when system prefers dark, toggle sets light', async () => {
+    // This is the bug fix: resolvedTheme reflects the actual system preference,
+    // while theme would be 'system' and incorrectly treated as light.
+    mockUseTheme.mockReturnValue({
+      resolvedTheme: 'dark', // system resolved to dark
+      setTheme: mockSetTheme,
+    })
+    const user = userEvent.setup()
     render(<ModeToggle />)
-    expect(screen.getByRole('button', { name: 'Toggle theme' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Toggle theme' }))
+    expect(mockSetTheme).toHaveBeenCalledWith('light')
+    expect(mockSetTheme).not.toHaveBeenCalledWith('dark')
   })
 })

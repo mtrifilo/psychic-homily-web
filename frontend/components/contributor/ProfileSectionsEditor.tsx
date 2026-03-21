@@ -203,6 +203,7 @@ export function ProfileSectionsEditor() {
                         size="icon"
                         className="h-8 w-8"
                         onClick={() => openEditDialog(section)}
+                        aria-label="Edit section"
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -211,6 +212,7 @@ export function ProfileSectionsEditor() {
                         size="icon"
                         className="h-8 w-8 text-destructive hover:text-destructive"
                         onClick={() => setDeletingSection(section)}
+                        aria-label="Delete section"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

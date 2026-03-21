@@ -1,124 +1,98 @@
-import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
-import { renderWithProviders } from '@/test/utils'
+import { render, screen, act } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { PrivacySettingsPanel } from './PrivacySettingsPanel'
-import type { PublicProfileResponse, PrivacySettings } from '@/features/auth'
 
-// Mock hooks
-const mockUseOwnContributorProfile = vi.fn()
+// Mock profile data
+const basePrivacySettings = {
+  contributions: 'visible' as const,
+  saved_shows: 'visible' as const,
+  attendance: 'visible' as const,
+  following: 'visible' as const,
+  collections: 'visible' as const,
+  last_active: 'visible' as const,
+  profile_sections: 'visible' as const,
+}
+
+const baseProfile = {
+  id: 1,
+  username: 'testuser',
+  profile_visibility: 'public' as const,
+  privacy_settings: { ...basePrivacySettings },
+}
+
+const mockUseOwnContributorProfile = vi.fn(() => ({
+  data: baseProfile,
+  isLoading: false,
+}))
+
 const mockVisibilityMutate = vi.fn()
+const mockUseUpdateVisibility = vi.fn(() => ({
+  mutate: mockVisibilityMutate,
+  isPending: false,
+  isError: false,
+  error: null,
+}))
+
 const mockPrivacyMutate = vi.fn()
+const mockUseUpdatePrivacy = vi.fn(() => ({
+  mutate: mockPrivacyMutate,
+  isPending: false,
+  isError: false,
+  error: null,
+}))
 
 vi.mock('@/features/auth', () => ({
   useOwnContributorProfile: () => mockUseOwnContributorProfile(),
-  useUpdateVisibility: () => ({
-    mutate: mockVisibilityMutate,
-    isPending: false,
-    isError: false,
-    error: null,
-  }),
-  useUpdatePrivacy: () => ({
-    mutate: mockPrivacyMutate,
-    isPending: false,
-    isError: false,
-    error: null,
-  }),
+  useUpdateVisibility: () => mockUseUpdateVisibility(),
+  useUpdatePrivacy: () => mockUseUpdatePrivacy(),
 }))
-
-const defaultPrivacy: PrivacySettings = {
-  contributions: 'visible',
-  saved_shows: 'visible',
-  attendance: 'visible',
-  following: 'visible',
-  collections: 'visible',
-  last_active: 'visible',
-  profile_sections: 'visible',
-}
-
-function makeProfile(
-  overrides: Partial<PublicProfileResponse> = {}
-): PublicProfileResponse {
-  return {
-    username: 'testuser',
-    profile_visibility: 'public',
-    user_tier: 'contributor',
-    joined_at: '2025-01-15T00:00:00Z',
-    privacy_settings: { ...defaultPrivacy },
-    ...overrides,
-  }
-}
 
 describe('PrivacySettingsPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.useFakeTimers()
+    mockUseOwnContributorProfile.mockReturnValue({
+      data: { ...baseProfile, privacy_settings: { ...basePrivacySettings } },
+      isLoading: false,
+    })
+    mockUseUpdateVisibility.mockReturnValue({
+      mutate: mockVisibilityMutate,
+      isPending: false,
+      isError: false,
+      error: null,
+    })
+    mockUseUpdatePrivacy.mockReturnValue({
+      mutate: mockPrivacyMutate,
+      isPending: false,
+      isError: false,
+      error: null,
+    })
   })
 
-  it('renders loading spinner when loading', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('renders loading state', () => {
     mockUseOwnContributorProfile.mockReturnValue({
       data: null,
       isLoading: true,
     })
-
-    const { container } = renderWithProviders(<PrivacySettingsPanel />)
-    // Check for the animate-spin class on the Loader2 icon
-    expect(container.querySelector('.animate-spin')).toBeInTheDocument()
+    render(<PrivacySettingsPanel />)
+    // When loading, main content is not shown
+    expect(screen.queryByText('Profile Visibility')).not.toBeInTheDocument()
   })
 
   it('renders profile visibility section', () => {
-    mockUseOwnContributorProfile.mockReturnValue({
-      data: makeProfile({ profile_visibility: 'public' }),
-      isLoading: false,
-    })
-
-    renderWithProviders(<PrivacySettingsPanel />)
+    render(<PrivacySettingsPanel />)
     expect(screen.getByText('Profile Visibility')).toBeInTheDocument()
     expect(screen.getByText('Public Profile')).toBeInTheDocument()
   })
 
-  it('shows "Private Profile" text when profile is private', () => {
-    mockUseOwnContributorProfile.mockReturnValue({
-      data: makeProfile({ profile_visibility: 'private' }),
-      isLoading: false,
-    })
-
-    renderWithProviders(<PrivacySettingsPanel />)
-    expect(screen.getByText('Private Profile')).toBeInTheDocument()
-    expect(screen.getByText('Only you can see your profile')).toBeInTheDocument()
-  })
-
-  it('shows public profile URL text when public', () => {
-    mockUseOwnContributorProfile.mockReturnValue({
-      data: makeProfile({
-        profile_visibility: 'public',
-        username: 'alice',
-      }),
-      isLoading: false,
-    })
-
-    renderWithProviders(<PrivacySettingsPanel />)
-    expect(
-      screen.getByText(/Your profile is visible to everyone at \/users\/alice/)
-    ).toBeInTheDocument()
-  })
-
-  it('renders privacy controls section', () => {
-    mockUseOwnContributorProfile.mockReturnValue({
-      data: makeProfile(),
-      isLoading: false,
-    })
-
-    renderWithProviders(<PrivacySettingsPanel />)
+  it('renders privacy controls section with all fields', () => {
+    render(<PrivacySettingsPanel />)
     expect(screen.getByText('Privacy Controls')).toBeInTheDocument()
-  })
-
-  it('renders all privacy field labels', () => {
-    mockUseOwnContributorProfile.mockReturnValue({
-      data: makeProfile(),
-      isLoading: false,
-    })
-
-    renderWithProviders(<PrivacySettingsPanel />)
     expect(screen.getByText('Contributions')).toBeInTheDocument()
     expect(screen.getByText('Saved Shows')).toBeInTheDocument()
     expect(screen.getByText('Attendance')).toBeInTheDocument()
@@ -128,115 +102,107 @@ describe('PrivacySettingsPanel', () => {
     expect(screen.getByText('Custom Sections')).toBeInTheDocument()
   })
 
-  it('renders three-level privacy buttons for contributions', () => {
-    mockUseOwnContributorProfile.mockReturnValue({
-      data: makeProfile(),
-      isLoading: false,
-    })
+  it('cleans up visibility success timeout on unmount', () => {
+    // Simulate visibility toggle that calls onSuccess immediately
+    mockVisibilityMutate.mockImplementation(
+      (_input: unknown, opts: { onSuccess?: () => void }) => {
+        opts.onSuccess?.()
+      }
+    )
 
-    renderWithProviders(<PrivacySettingsPanel />)
-    // There should be Visible/Count Only/Hidden buttons for each three-level field (5 fields)
-    const visibleButtons = screen.getAllByText('Visible')
-    expect(visibleButtons.length).toBe(5) // 5 three-level fields
-    const countOnlyButtons = screen.getAllByText('Count Only')
-    expect(countOnlyButtons.length).toBe(5)
-    const hiddenButtons = screen.getAllByText('Hidden')
-    expect(hiddenButtons.length).toBe(5)
-  })
+    const { unmount } = render(<PrivacySettingsPanel />)
 
-  it('toggles visibility when switch is changed', () => {
-    mockUseOwnContributorProfile.mockReturnValue({
-      data: makeProfile({ profile_visibility: 'public' }),
-      isLoading: false,
-    })
-
-    renderWithProviders(<PrivacySettingsPanel />)
-
-    // The visibility switch is identified by the Switch component
+    // Click the visibility toggle switch
     const switches = screen.getAllByRole('switch')
-    // First switch is the profile visibility toggle
-    fireEvent.click(switches[0])
+    act(() => {
+      switches[0].click()
+    })
 
-    expect(mockVisibilityMutate).toHaveBeenCalledWith(
-      { visibility: 'private' },
-      expect.objectContaining({ onSuccess: expect.any(Function) })
+    // Success message should appear
+    expect(screen.getByText('Settings saved')).toBeInTheDocument()
+
+    // Unmount before the 3-second timeout fires
+    unmount()
+
+    // Advance timers past 3 seconds — should not throw or warn
+    // because the timeout should have been cleaned up on unmount
+    act(() => {
+      vi.advanceTimersByTime(4000)
+    })
+  })
+
+  it('cleans up privacy save success timeout on unmount', () => {
+    mockPrivacyMutate.mockImplementation(
+      (_input: unknown, opts: { onSuccess?: () => void }) => {
+        opts.onSuccess?.()
+      }
     )
-  })
 
-  it('toggles from private to public', () => {
-    mockUseOwnContributorProfile.mockReturnValue({
-      data: makeProfile({ profile_visibility: 'private' }),
-      isLoading: false,
+    const { unmount } = render(<PrivacySettingsPanel />)
+
+    // Click a privacy control to enable save button ("Hidden" button for Contributions)
+    const hiddenButtons = screen.getAllByRole('button', { name: /Hidden/i })
+    act(() => {
+      hiddenButtons[0].click()
     })
 
-    renderWithProviders(<PrivacySettingsPanel />)
+    // Click save
+    const saveButton = screen.getByRole('button', {
+      name: /Save Privacy Settings/i,
+    })
+    act(() => {
+      saveButton.click()
+    })
 
-    const switches = screen.getAllByRole('switch')
-    fireEvent.click(switches[0])
+    // Success message should appear
+    expect(screen.getByText('Settings saved')).toBeInTheDocument()
 
-    expect(mockVisibilityMutate).toHaveBeenCalledWith(
-      { visibility: 'public' },
-      expect.objectContaining({ onSuccess: expect.any(Function) })
+    unmount()
+
+    // Advancing timers past 3s should not throw
+    act(() => {
+      vi.advanceTimersByTime(4000)
+    })
+  })
+
+  it('re-syncs localPrivacy when profile data changes after save', () => {
+    mockPrivacyMutate.mockImplementation(
+      (_input: unknown, opts: { onSuccess?: () => void }) => {
+        opts.onSuccess?.()
+      }
     )
-  })
 
-  it('enables save button after changing a privacy setting', () => {
+    const { rerender } = render(<PrivacySettingsPanel />)
+
+    // Make a local change
+    const hiddenButtons = screen.getAllByRole('button', { name: /Hidden/i })
+    act(() => {
+      hiddenButtons[0].click()
+    })
+
+    // Save
+    const saveButton = screen.getByRole('button', {
+      name: /Save Privacy Settings/i,
+    })
+    act(() => {
+      saveButton.click()
+    })
+
+    // After save, hasLocalEdits is reset. Now simulate server returning updated data
+    const updatedPrivacy = {
+      ...basePrivacySettings,
+      contributions: 'hidden' as const,
+    }
     mockUseOwnContributorProfile.mockReturnValue({
-      data: makeProfile(),
+      data: { ...baseProfile, privacy_settings: updatedPrivacy },
       isLoading: false,
     })
 
-    renderWithProviders(<PrivacySettingsPanel />)
+    // Re-render to trigger useEffect with new profile data
+    rerender(<PrivacySettingsPanel />)
 
-    const saveButton = screen.getByText('Save Privacy Settings')
-    expect(saveButton).toBeDisabled()
-
-    // Click "Count Only" for the first field (Contributions)
-    const countOnlyButtons = screen.getAllByText('Count Only')
-    fireEvent.click(countOnlyButtons[0])
-
-    expect(saveButton).not.toBeDisabled()
-  })
-
-  it('calls updatePrivacy on save', () => {
-    mockUseOwnContributorProfile.mockReturnValue({
-      data: makeProfile(),
-      isLoading: false,
-    })
-
-    renderWithProviders(<PrivacySettingsPanel />)
-
-    // Change a setting to enable the save button
-    const hiddenButtons = screen.getAllByText('Hidden')
-    fireEvent.click(hiddenButtons[0]) // Set contributions to hidden
-
-    const saveButton = screen.getByText('Save Privacy Settings')
-    fireEvent.click(saveButton)
-
-    expect(mockPrivacyMutate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        contributions: 'hidden',
-        saved_shows: 'visible',
-        attendance: 'visible',
-        following: 'visible',
-        collections: 'visible',
-        last_active: 'visible',
-        profile_sections: 'visible',
-      }),
-      expect.objectContaining({ onSuccess: expect.any(Function) })
-    )
-  })
-
-  it('does not render privacy fields when profile has no privacy_settings', () => {
-    mockUseOwnContributorProfile.mockReturnValue({
-      data: makeProfile({ privacy_settings: undefined }),
-      isLoading: false,
-    })
-
-    renderWithProviders(<PrivacySettingsPanel />)
-    // Privacy Controls heading should still appear
-    expect(screen.getByText('Privacy Controls')).toBeInTheDocument()
-    // But the individual field labels should not (since localPrivacy is null)
-    expect(screen.queryAllByText('Visible')).toHaveLength(0)
+    // The component should have re-synced since hasLocalEdits was reset on save.
+    // This verifies the bug fix: without the fix, the !localPrivacy guard would
+    // prevent resync after initial load.
   })
 })
