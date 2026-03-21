@@ -684,7 +684,7 @@ export function TagManagement() {
                     )}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-                    <span>{tag.usage_count} uses</span>
+                    <span>{tag.usage_count} {tag.usage_count === 1 ? 'use' : 'uses'}</span>
                     <span className="text-muted-foreground/50">
                       /{tag.slug}
                     </span>
