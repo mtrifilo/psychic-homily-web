@@ -537,12 +537,12 @@ type SetFeaturedHandlerRequest struct {
 func (h *CollectionHandler) SetFeaturedHandler(ctx context.Context, req *SetFeaturedHandlerRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	err := h.collectionService.SetFeatured(req.Slug, req.Body.Featured)
+	err = h.collectionService.SetFeatured(req.Slug, req.Body.Featured)
 	if err != nil {
 		mappedErr := mapCollectionError(err)
 		if mappedErr != nil {

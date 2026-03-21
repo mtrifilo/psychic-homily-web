@@ -278,10 +278,9 @@ type AdminCreateVenueResponse struct {
 func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCreateVenueRequest) (*AdminCreateVenueResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Build service request

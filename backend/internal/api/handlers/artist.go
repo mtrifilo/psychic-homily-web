@@ -336,10 +336,9 @@ type AdminCreateArtistResponse struct {
 func (h *ArtistHandler) AdminCreateArtistHandler(ctx context.Context, req *AdminCreateArtistRequest) (*AdminCreateArtistResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate name
@@ -743,10 +742,9 @@ type AdminUpdateArtistResponse struct {
 func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *AdminUpdateArtistRequest) (*AdminUpdateArtistResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse artist ID
@@ -970,9 +968,9 @@ type AddArtistAliasResponse struct {
 func (h *ArtistHandler) AddArtistAliasHandler(ctx context.Context, req *AddArtistAliasRequest) (*AddArtistAliasResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	artistID, err := strconv.ParseUint(req.ArtistID, 10, 32)
@@ -1023,9 +1021,9 @@ type DeleteArtistAliasRequest struct {
 func (h *ArtistHandler) DeleteArtistAliasHandler(ctx context.Context, req *DeleteArtistAliasRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	aliasID, err := strconv.ParseUint(req.AliasID, 10, 32)
@@ -1080,9 +1078,9 @@ type MergeArtistsResponse struct {
 func (h *ArtistHandler) MergeArtistsHandler(ctx context.Context, req *MergeArtistsRequest) (*MergeArtistsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	if req.Body.CanonicalArtistID == 0 || req.Body.MergeFromArtistID == 0 {

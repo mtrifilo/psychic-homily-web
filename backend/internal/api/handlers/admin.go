@@ -9,7 +9,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
@@ -176,14 +175,9 @@ type GetUnverifiedVenuesResponse struct {
 func (h *AdminHandler) GetPendingShowsHandler(ctx context.Context, req *GetPendingShowsRequest) (*GetPendingShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate limit
@@ -260,14 +254,9 @@ func (h *AdminHandler) GetPendingShowsHandler(ctx context.Context, req *GetPendi
 func (h *AdminHandler) GetRejectedShowsHandler(ctx context.Context, req *GetRejectedShowsRequest) (*GetRejectedShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate limit
@@ -322,14 +311,9 @@ func (h *AdminHandler) GetRejectedShowsHandler(ctx context.Context, req *GetReje
 func (h *AdminHandler) ApproveShowHandler(ctx context.Context, req *ApproveShowRequest) (*ApproveShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse show ID
@@ -398,14 +382,9 @@ func (h *AdminHandler) ApproveShowHandler(ctx context.Context, req *ApproveShowR
 func (h *AdminHandler) RejectShowHandler(ctx context.Context, req *RejectShowRequest) (*RejectShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse show ID
@@ -456,10 +435,9 @@ func (h *AdminHandler) RejectShowHandler(ctx context.Context, req *RejectShowReq
 
 // BatchApproveShowsHandler handles POST /admin/shows/batch-approve
 func (h *AdminHandler) BatchApproveShowsHandler(ctx context.Context, req *BatchApproveShowsRequest) (*BatchApproveShowsResponse, error) {
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	result, err := h.showService.BatchApproveShows(req.Body.ShowIDs)
@@ -518,10 +496,9 @@ func (h *AdminHandler) BatchApproveShowsHandler(ctx context.Context, req *BatchA
 
 // BatchRejectShowsHandler handles POST /admin/shows/batch-reject
 func (h *AdminHandler) BatchRejectShowsHandler(ctx context.Context, req *BatchRejectShowsRequest) (*BatchRejectShowsResponse, error) {
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate reason
@@ -564,14 +541,9 @@ func (h *AdminHandler) BatchRejectShowsHandler(ctx context.Context, req *BatchRe
 func (h *AdminHandler) VerifyVenueHandler(ctx context.Context, req *VerifyVenueRequest) (*VerifyVenueResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse venue ID
@@ -615,14 +587,9 @@ func (h *AdminHandler) VerifyVenueHandler(ctx context.Context, req *VerifyVenueR
 func (h *AdminHandler) GetUnverifiedVenuesHandler(ctx context.Context, req *GetUnverifiedVenuesRequest) (*GetUnverifiedVenuesResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate limit
@@ -702,14 +669,9 @@ type GetPendingVenueEditsResponse struct {
 func (h *AdminHandler) GetPendingVenueEditsHandler(ctx context.Context, req *GetPendingVenueEditsRequest) (*GetPendingVenueEditsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate limit
@@ -773,14 +735,9 @@ type ApproveVenueEditResponse struct {
 func (h *AdminHandler) ApproveVenueEditHandler(ctx context.Context, req *ApproveVenueEditRequest) (*ApproveVenueEditResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse edit ID
@@ -839,14 +796,9 @@ type RejectVenueEditResponse struct {
 func (h *AdminHandler) RejectVenueEditHandler(ctx context.Context, req *RejectVenueEditRequest) (*RejectVenueEditResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse edit ID
@@ -913,14 +865,9 @@ type ImportShowPreviewResponse struct {
 func (h *AdminHandler) ImportShowPreviewHandler(ctx context.Context, req *ImportShowPreviewRequest) (*ImportShowPreviewResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Decode base64 content
@@ -977,14 +924,9 @@ type ImportShowConfirmResponse struct {
 func (h *AdminHandler) ImportShowConfirmHandler(ctx context.Context, req *ImportShowConfirmRequest) (*ImportShowConfirmResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Decode base64 content
@@ -1061,14 +1003,9 @@ type GetAdminShowsResponse struct {
 func (h *AdminHandler) GetAdminShowsHandler(ctx context.Context, req *GetAdminShowsRequest) (*GetAdminShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate limit
@@ -1149,14 +1086,9 @@ type BulkExportShowsResponse struct {
 func (h *AdminHandler) BulkExportShowsHandler(ctx context.Context, req *BulkExportShowsRequest) (*BulkExportShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(req.Body.ShowIDs) == 0 {
@@ -1235,14 +1167,9 @@ type BulkImportPreviewResponse struct {
 func (h *AdminHandler) BulkImportPreviewHandler(ctx context.Context, req *BulkImportPreviewRequest) (*BulkImportPreviewResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(req.Body.Shows) == 0 {
@@ -1357,14 +1284,9 @@ type BulkImportConfirmResponse struct {
 func (h *AdminHandler) BulkImportConfirmHandler(ctx context.Context, req *BulkImportConfirmRequest) (*BulkImportConfirmResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(req.Body.Shows) == 0 {
@@ -1488,14 +1410,9 @@ type DiscoveryImportResponse struct {
 func (h *AdminHandler) DiscoveryImportHandler(ctx context.Context, req *DiscoveryImportRequest) (*DiscoveryImportResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(req.Body.Events) == 0 {
@@ -1593,14 +1510,9 @@ type DiscoveryCheckResponse struct {
 func (h *AdminHandler) DiscoveryCheckHandler(ctx context.Context, req *DiscoveryCheckRequest) (*DiscoveryCheckResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(req.Body.Events) == 0 {
@@ -1667,14 +1579,9 @@ type CreateAPITokenResponse struct {
 func (h *AdminHandler) CreateAPITokenHandler(ctx context.Context, req *CreateAPITokenRequest) (*CreateAPITokenResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate expiration days
@@ -1733,14 +1640,9 @@ type ListAPITokensResponse struct {
 func (h *AdminHandler) ListAPITokensHandler(ctx context.Context, req *ListAPITokensRequest) (*ListAPITokensResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	logger.FromContext(ctx).Debug("admin_list_tokens_attempt",
@@ -1788,14 +1690,9 @@ type RevokeAPITokenResponse struct {
 func (h *AdminHandler) RevokeAPITokenHandler(ctx context.Context, req *RevokeAPITokenRequest) (*RevokeAPITokenResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse token ID
@@ -1857,14 +1754,9 @@ type ExportShowsResponse struct {
 func (h *AdminHandler) ExportShowsHandler(ctx context.Context, req *ExportShowsRequest) (*ExportShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	offset := req.Offset
@@ -1931,14 +1823,9 @@ type ExportArtistsResponse struct {
 func (h *AdminHandler) ExportArtistsHandler(ctx context.Context, req *ExportArtistsRequest) (*ExportArtistsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	offset := req.Offset
@@ -1996,14 +1883,9 @@ type ExportVenuesResponse struct {
 func (h *AdminHandler) ExportVenuesHandler(ctx context.Context, req *ExportVenuesRequest) (*ExportVenuesResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	offset := req.Offset
@@ -2067,14 +1949,9 @@ type DataImportResponse struct {
 func (h *AdminHandler) DataImportHandler(ctx context.Context, req *DataImportRequest) (*DataImportResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate limits
@@ -2145,14 +2022,9 @@ type GetAdminUsersResponse struct {
 func (h *AdminHandler) GetAdminUsersHandler(ctx context.Context, req *GetAdminUsersRequest) (*GetAdminUsersResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate limit
@@ -2224,14 +2096,9 @@ type GetAdminStatsResponse struct {
 func (h *AdminHandler) GetAdminStatsHandler(ctx context.Context, req *GetAdminStatsRequest) (*GetAdminStatsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	logger.FromContext(ctx).Debug("admin_stats_attempt",
@@ -2272,14 +2139,9 @@ type GetActivityFeedResponse struct {
 func (h *AdminHandler) GetActivityFeedHandler(ctx context.Context, req *GetActivityFeedRequest) (*GetActivityFeedResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	logger.FromContext(ctx).Debug("admin_activity_feed_attempt",
