@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { screen } from '@testing-library/react'
+import { renderWithProviders } from '@/test/utils'
 import type { ArtistGraph } from '../types'
 
 // Mock the hooks
@@ -108,23 +108,6 @@ vi.mock('./ArtistGraph', () => ({
 
 import { RelatedArtists } from './RelatedArtists'
 
-function createTestQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  })
-}
-
-function renderWithProviders(ui: React.ReactElement) {
-  const queryClient = createTestQueryClient()
-  return render(
-    <QueryClientProvider client={queryClient}>
-      {ui}
-    </QueryClientProvider>
-  )
-}
 
 describe('RelatedArtists', () => {
   it('renders the section header', () => {

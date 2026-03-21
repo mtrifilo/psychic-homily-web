@@ -1,7 +1,6 @@
-import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createWrapper } from '@/test/utils'
 
 // Create mocks
 const mockApiRequest = vi.fn()
@@ -60,20 +59,6 @@ vi.mock('@/lib/errors', () => ({
 import { useShowSubmit } from './useShowSubmit'
 import type { ShowSubmission } from './useShowSubmit'
 
-// Helper to create wrapper with query client
-function createWrapper() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: 0 },
-      mutations: { retry: false },
-    },
-  })
-  return function Wrapper({ children }: { children: React.ReactNode }) {
-    return (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    )
-  }
-}
 
 const validSubmission: ShowSubmission = {
   event_date: '2025-06-15T20:00:00Z',

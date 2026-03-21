@@ -1,8 +1,6 @@
-import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createWrapper, createTestQueryClient } from '@/test/utils'
+import { createWrapper } from '@/test/utils'
 
 // Create mocks
 const mockApiRequest = vi.fn()
