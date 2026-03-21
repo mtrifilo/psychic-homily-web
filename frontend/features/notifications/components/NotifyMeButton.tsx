@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Bell, BellRing, Loader2 } from 'lucide-react'
+import { AlertCircle, Bell, BellRing, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
@@ -109,62 +109,83 @@ export function NotifyMeButton({
   }
 
   const showRemove = hasFilter && isHovering
+  const mutationError = quickCreate.isError || deleteFilter.isError
+  const errorMessage =
+    quickCreate.error?.message ||
+    deleteFilter.error?.message ||
+    'Failed to update notification. Please try again.'
 
   if (compact) {
     return (
+      <div className="inline-flex flex-col items-start gap-1">
+        <Button
+          variant={hasFilter ? 'secondary' : 'ghost'}
+          size="sm"
+          onClick={handleClick}
+          onMouseEnter={() => setIsHovering(true)}
+          onMouseLeave={() => setIsHovering(false)}
+          disabled={isMutating}
+          className={cn(
+            'h-7 px-2 gap-1 text-xs',
+            showRemove && 'text-destructive hover:text-destructive'
+          )}
+          title={
+            hasFilter
+              ? `Notifications on for ${entityName}`
+              : `${entityLabels[entityType]} ${entityName}`
+          }
+          aria-label={hasFilter ? 'Remove notification' : 'Notify me'}
+        >
+          {isMutating ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : hasFilter ? (
+            <BellRing className="h-3.5 w-3.5" />
+          ) : (
+            <Bell className="h-3.5 w-3.5" />
+          )}
+        </Button>
+        {mutationError && (
+          <span className="text-xs text-destructive flex items-center gap-1" role="alert">
+            <AlertCircle className="h-3 w-3 shrink-0" />
+            {errorMessage}
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="inline-flex flex-col items-start gap-1">
       <Button
-        variant={hasFilter ? 'secondary' : 'ghost'}
+        variant={hasFilter ? (showRemove ? 'destructive' : 'secondary') : 'outline'}
         size="sm"
         onClick={handleClick}
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
         disabled={isMutating}
-        className={cn(
-          'h-7 px-2 gap-1 text-xs',
-          showRemove && 'text-destructive hover:text-destructive'
-        )}
-        title={
-          hasFilter
-            ? `Notifications on for ${entityName}`
-            : `${entityLabels[entityType]} ${entityName}`
-        }
-        aria-label={hasFilter ? 'Remove notification' : 'Notify me'}
+        className="gap-1.5"
       >
         {isMutating ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <Loader2 className="h-4 w-4 animate-spin" />
         ) : hasFilter ? (
-          <BellRing className="h-3.5 w-3.5" />
+          <BellRing className="h-4 w-4" />
         ) : (
-          <Bell className="h-3.5 w-3.5" />
+          <Bell className="h-4 w-4" />
         )}
+        <span>
+          {showRemove
+            ? 'Remove notification'
+            : hasFilter
+              ? 'Notifications on'
+              : 'Notify me'}
+        </span>
       </Button>
-    )
-  }
-
-  return (
-    <Button
-      variant={hasFilter ? (showRemove ? 'destructive' : 'secondary') : 'outline'}
-      size="sm"
-      onClick={handleClick}
-      onMouseEnter={() => setIsHovering(true)}
-      onMouseLeave={() => setIsHovering(false)}
-      disabled={isMutating}
-      className="gap-1.5"
-    >
-      {isMutating ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      ) : hasFilter ? (
-        <BellRing className="h-4 w-4" />
-      ) : (
-        <Bell className="h-4 w-4" />
+      {mutationError && (
+        <span className="text-xs text-destructive flex items-center gap-1" role="alert">
+          <AlertCircle className="h-3 w-3 shrink-0" />
+          {errorMessage}
+        </span>
       )}
-      <span>
-        {showRemove
-          ? 'Remove notification'
-          : hasFilter
-            ? 'Notifications on'
-            : 'Notify me'}
-      </span>
-    </Button>
+    </div>
   )
 }

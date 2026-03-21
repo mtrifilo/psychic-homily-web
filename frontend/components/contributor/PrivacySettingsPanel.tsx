@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
@@ -121,13 +121,24 @@ export function PrivacySettingsPanel() {
   const [localPrivacy, setLocalPrivacy] = useState<PrivacySettings | null>(null)
   const [hasChanges, setHasChanges] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasLocalEdits = useRef(false)
 
-  // Initialize local privacy settings from profile
+  // Clean up timeouts on unmount
   useEffect(() => {
-    if (profile?.privacy_settings && !localPrivacy) {
+    return () => {
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  // Sync local privacy settings from profile, unless user has unsaved local edits
+  useEffect(() => {
+    if (profile?.privacy_settings && !hasLocalEdits.current) {
       setLocalPrivacy(profile.privacy_settings)
     }
-  }, [profile?.privacy_settings, localPrivacy])
+  }, [profile?.privacy_settings])
 
   const isPublic = profile?.profile_visibility === 'public'
 
@@ -137,7 +148,10 @@ export function PrivacySettingsPanel() {
       {
         onSuccess: () => {
           setSaveSuccess(true)
-          setTimeout(() => setSaveSuccess(false), 3000)
+          if (successTimeoutRef.current) {
+            clearTimeout(successTimeoutRef.current)
+          }
+          successTimeoutRef.current = setTimeout(() => setSaveSuccess(false), 3000)
         },
       }
     )
@@ -150,6 +164,7 @@ export function PrivacySettingsPanel() {
     if (!localPrivacy) return
     setLocalPrivacy({ ...localPrivacy, [key]: value })
     setHasChanges(true)
+    hasLocalEdits.current = true
     setSaveSuccess(false)
   }
 
@@ -169,8 +184,12 @@ export function PrivacySettingsPanel() {
     updatePrivacy.mutate(input, {
       onSuccess: () => {
         setHasChanges(false)
+        hasLocalEdits.current = false
         setSaveSuccess(true)
-        setTimeout(() => setSaveSuccess(false), 3000)
+        if (successTimeoutRef.current) {
+          clearTimeout(successTimeoutRef.current)
+        }
+        successTimeoutRef.current = setTimeout(() => setSaveSuccess(false), 3000)
       },
     })
   }
