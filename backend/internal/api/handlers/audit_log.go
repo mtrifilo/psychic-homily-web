@@ -6,7 +6,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
 )
@@ -43,14 +42,9 @@ type GetAuditLogsResponse struct {
 func (h *AuditLogHandler) GetAuditLogsHandler(ctx context.Context, req *GetAuditLogsRequest) (*GetAuditLogsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		logger.FromContext(ctx).Warn("admin_access_denied",
-			"user_id", getUserID(user),
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("Admin access required")
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate limit

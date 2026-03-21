@@ -8,7 +8,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
@@ -181,10 +180,9 @@ type CreateReleaseResponse struct {
 func (h *ReleaseHandler) CreateReleaseHandler(ctx context.Context, req *CreateReleaseRequest) (*CreateReleaseResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	if req.Body.Title == "" {
@@ -271,10 +269,9 @@ type UpdateReleaseResponse struct {
 func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateReleaseRequest) (*UpdateReleaseResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Resolve release ID
@@ -337,10 +334,9 @@ type DeleteReleaseRequest struct {
 func (h *ReleaseHandler) DeleteReleaseHandler(ctx context.Context, req *DeleteReleaseRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Resolve release ID
@@ -455,10 +451,9 @@ type AddExternalLinkResponse struct {
 func (h *ReleaseHandler) AddExternalLinkHandler(ctx context.Context, req *AddExternalLinkRequest) (*AddExternalLinkResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	releaseID, err := strconv.ParseUint(req.ReleaseID, 10, 32)
@@ -506,10 +501,9 @@ type RemoveExternalLinkRequest struct {
 func (h *ReleaseHandler) RemoveExternalLinkHandler(ctx context.Context, req *RemoveExternalLinkRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Verify admin access
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	linkID, err := strconv.ParseUint(req.LinkID, 10, 32)
