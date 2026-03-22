@@ -1,5 +1,8 @@
 // Public API for the releases feature module
 
+// API (endpoints + query keys)
+export { releaseEndpoints, releaseQueryKeys } from './api'
+
 // Types
 export type {
   ReleaseType,

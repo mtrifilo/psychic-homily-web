@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
+// Note: useAttendance uses ATTENDANCE endpoints from lib/api (not show-specific)
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type {
   AttendanceCounts,

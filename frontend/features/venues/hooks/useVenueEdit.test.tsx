@@ -9,22 +9,22 @@ const mockInvalidateVenues = vi.fn()
 // Mock the api module
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
-  API_ENDPOINTS: {
-    VENUES: {
-      UPDATE: (id: number) => `/venues/${id}`,
-      DELETE: (id: number) => `/venues/${id}`,
-      MY_PENDING_EDIT: (id: number) => `/venues/${id}/my-pending-edit`,
-    },
+}))
+
+// Mock the feature api module
+vi.mock('../api', () => ({
+  venueEndpoints: {
+    UPDATE: (id: number) => `/venues/${id}`,
+    DELETE: (id: number) => `/venues/${id}`,
+    MY_PENDING_EDIT: (id: number) => `/venues/${id}/my-pending-edit`,
+  },
+  venueQueryKeys: {
+    myPendingEdit: (venueId: number) => ['venues', 'myPendingEdit', venueId],
   },
 }))
 
 // Mock queryClient module
 vi.mock('@/lib/queryClient', () => ({
-  queryKeys: {
-    venues: {
-      myPendingEdit: (venueId: number) => ['venues', 'myPendingEdit', venueId],
-    },
-  },
   createInvalidateQueries: () => ({
     venues: mockInvalidateVenues,
   }),

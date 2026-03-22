@@ -1,6 +1,9 @@
 // Public API for the festivals feature module.
 // Other features should import from this file only.
 
+// API (endpoints + query keys)
+export { festivalEndpoints, festivalQueryKeys } from './api'
+
 // Types
 export type {
   FestivalStatus,

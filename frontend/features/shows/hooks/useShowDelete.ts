@@ -1,8 +1,9 @@
 'use client'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { apiRequest } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
+import { showEndpoints } from '../api'
 import { showLogger } from '@/lib/utils/showLogger'
 import { ShowError } from '@/lib/errors'
 
@@ -19,7 +20,7 @@ export function useShowDelete() {
     mutationFn: async (showId: number): Promise<void> => {
       showLogger.deleteAttempt(showId)
 
-      await apiRequest(API_ENDPOINTS.SHOWS.DELETE(showId), {
+      await apiRequest(showEndpoints.DELETE(showId), {
         method: 'DELETE',
       })
     },

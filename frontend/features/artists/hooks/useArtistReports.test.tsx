@@ -9,13 +9,15 @@ const mockInvalidateArtistReports = vi.fn()
 // Mock the api module
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
-  API_ENDPOINTS: {
-    ARTISTS: {
-      REPORT: (artistId: string | number) => `/artists/${artistId}/report`,
-      MY_REPORT: (artistId: string | number) => `/artists/${artistId}/my-report`,
-    },
-  },
   API_BASE_URL: 'http://localhost:8080',
+}))
+
+// Mock the feature api module
+vi.mock('../api', () => ({
+  artistEndpoints: {
+    REPORT: (artistId: string | number) => `/artists/${artistId}/report`,
+    MY_REPORT: (artistId: string | number) => `/artists/${artistId}/my-report`,
+  },
 }))
 
 // Mock queryClient module

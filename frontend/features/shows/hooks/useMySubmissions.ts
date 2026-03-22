@@ -1,8 +1,9 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { apiRequest } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { showEndpoints } from '../api'
 import type { MySubmissionsResponse } from '../types'
 
 interface UseMySubmissionsOptions {
@@ -23,7 +24,7 @@ export const useMySubmissions = (options: UseMySubmissionsOptions = {}) => {
   params.set('limit', limit.toString())
   params.set('offset', offset.toString())
 
-  const endpoint = `${API_ENDPOINTS.SHOWS.MY_SUBMISSIONS}?${params.toString()}`
+  const endpoint = `${showEndpoints.MY_SUBMISSIONS}?${params.toString()}`
 
   return useQuery({
     queryKey: queryKeys.mySubmissions.list(),

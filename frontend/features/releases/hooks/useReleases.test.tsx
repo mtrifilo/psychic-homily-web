@@ -6,23 +6,19 @@ const mockApiRequest = vi.fn()
 
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
-  API_ENDPOINTS: {
-    RELEASES: {
-      LIST: '/releases',
-      GET: (idOrSlug: string | number) => `/releases/${idOrSlug}`,
-      ARTIST_RELEASES: (artistIdOrSlug: string | number) => `/artists/${artistIdOrSlug}/releases`,
-    },
-  },
   API_BASE_URL: 'http://localhost:8080',
 }))
 
-vi.mock('@/lib/queryClient', () => ({
-  queryKeys: {
-    releases: {
-      list: (filters?: Record<string, unknown>) => ['releases', 'list', filters],
-      detail: (id: string | number) => ['releases', 'detail', String(id)],
-      artistReleases: (id: string | number) => ['releases', 'artist', String(id)],
-    },
+vi.mock('../api', () => ({
+  releaseEndpoints: {
+    LIST: '/releases',
+    GET: (idOrSlug: string | number) => `/releases/${idOrSlug}`,
+    ARTIST_RELEASES: (artistIdOrSlug: string | number) => `/artists/${artistIdOrSlug}/releases`,
+  },
+  releaseQueryKeys: {
+    list: (filters?: Record<string, unknown>) => ['releases', 'list', filters],
+    detail: (id: string | number) => ['releases', 'detail', String(id)],
+    artistReleases: (id: string | number) => ['releases', 'artist', String(id)],
   },
 }))
 

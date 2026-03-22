@@ -7,8 +7,9 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
+import { apiRequest } from '@/lib/api'
+import { createInvalidateQueries } from '@/lib/queryClient'
+import { venueEndpoints, venueQueryKeys } from '../api'
 import type {
   VenueEditRequest,
   UpdateVenueResponse,
@@ -33,7 +34,7 @@ export function useVenueUpdate() {
       data: VenueEditRequest
     }) => {
       return apiRequest<UpdateVenueResponse>(
-        API_ENDPOINTS.VENUES.UPDATE(venueId),
+        venueEndpoints.UPDATE(venueId),
         {
           method: 'PUT',
           body: JSON.stringify(data),
@@ -46,7 +47,7 @@ export function useVenueUpdate() {
 
       // Invalidate user's pending edit for this venue
       queryClient.invalidateQueries({
-        queryKey: queryKeys.venues.myPendingEdit(venueId),
+        queryKey: venueQueryKeys.myPendingEdit(venueId),
       })
 
       // If admin approved, also invalidate admin pending edits
@@ -64,10 +65,10 @@ export function useVenueUpdate() {
  */
 export function useMyPendingVenueEdit(venueId: number, enabled = true) {
   return useQuery({
-    queryKey: queryKeys.venues.myPendingEdit(venueId),
+    queryKey: venueQueryKeys.myPendingEdit(venueId),
     queryFn: async (): Promise<MyPendingEditResponse> => {
       return apiRequest<MyPendingEditResponse>(
-        API_ENDPOINTS.VENUES.MY_PENDING_EDIT(venueId),
+        venueEndpoints.MY_PENDING_EDIT(venueId),
         {
           method: 'GET',
         }
@@ -87,7 +88,7 @@ export function useCancelPendingVenueEdit() {
   return useMutation({
     mutationFn: async (venueId: number) => {
       return apiRequest<{ message: string }>(
-        API_ENDPOINTS.VENUES.MY_PENDING_EDIT(venueId),
+        venueEndpoints.MY_PENDING_EDIT(venueId),
         {
           method: 'DELETE',
         }
@@ -96,7 +97,7 @@ export function useCancelPendingVenueEdit() {
     onSuccess: (_, venueId) => {
       // Invalidate user's pending edit
       queryClient.invalidateQueries({
-        queryKey: queryKeys.venues.myPendingEdit(venueId),
+        queryKey: venueQueryKeys.myPendingEdit(venueId),
       })
     },
   })
@@ -114,7 +115,7 @@ export function useVenueDelete() {
 
   return useMutation({
     mutationFn: async (venueId: number): Promise<void> => {
-      await apiRequest(API_ENDPOINTS.VENUES.DELETE(venueId), {
+      await apiRequest(venueEndpoints.DELETE(venueId), {
         method: 'DELETE',
       })
     },

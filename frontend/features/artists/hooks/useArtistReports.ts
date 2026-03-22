@@ -1,8 +1,9 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { apiRequest } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
+import { artistEndpoints } from '../api'
 import type {
   ArtistReportResponse,
   MyArtistReportResponse,
@@ -18,7 +19,7 @@ export const useMyArtistReport = (artistId: number | string | null) => {
     queryKey: queryKeys.artistReports.myReport(String(artistId)),
     queryFn: async (): Promise<MyArtistReportResponse> => {
       return apiRequest<MyArtistReportResponse>(
-        API_ENDPOINTS.ARTISTS.MY_REPORT(artistId!),
+        artistEndpoints.MY_REPORT(artistId!),
         {
           method: 'GET',
         }
@@ -48,7 +49,7 @@ export const useReportArtist = () => {
       details?: string
     }): Promise<ArtistReportResponse> => {
       return apiRequest<ArtistReportResponse>(
-        API_ENDPOINTS.ARTISTS.REPORT(artistId),
+        artistEndpoints.REPORT(artistId),
         {
           method: 'POST',
           body: JSON.stringify({

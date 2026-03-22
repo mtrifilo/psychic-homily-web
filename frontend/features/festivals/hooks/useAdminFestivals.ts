@@ -8,8 +8,9 @@
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { apiRequest } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
+import { festivalEndpoints } from '../api'
 import type {
   FestivalDetail,
   FestivalArtist,
@@ -91,7 +92,7 @@ export function useCreateFestival() {
 
   return useMutation({
     mutationFn: async (input: CreateFestivalInput): Promise<FestivalDetail> => {
-      return apiRequest<FestivalDetail>(API_ENDPOINTS.FESTIVALS.CREATE, {
+      return apiRequest<FestivalDetail>(festivalEndpoints.CREATE, {
         method: 'POST',
         body: JSON.stringify(input),
       })
@@ -118,7 +119,7 @@ export function useUpdateFestival() {
       data: UpdateFestivalInput
     }): Promise<FestivalDetail> => {
       return apiRequest<FestivalDetail>(
-        API_ENDPOINTS.FESTIVALS.UPDATE(festivalId),
+        festivalEndpoints.UPDATE(festivalId),
         {
           method: 'PUT',
           body: JSON.stringify(data),
@@ -140,7 +141,7 @@ export function useDeleteFestival() {
 
   return useMutation({
     mutationFn: async (festivalId: number): Promise<void> => {
-      return apiRequest<void>(API_ENDPOINTS.FESTIVALS.DELETE(festivalId), {
+      return apiRequest<void>(festivalEndpoints.DELETE(festivalId), {
         method: 'DELETE',
       })
     },
@@ -170,7 +171,7 @@ export function useAddFestivalArtist() {
       data: AddFestivalArtistInput
     }): Promise<FestivalArtist> => {
       return apiRequest<FestivalArtist>(
-        API_ENDPOINTS.FESTIVALS.ADD_ARTIST(festivalId),
+        festivalEndpoints.ADD_ARTIST(festivalId),
         {
           method: 'POST',
           body: JSON.stringify(data),
@@ -201,7 +202,7 @@ export function useUpdateFestivalArtist() {
       data: UpdateFestivalArtistInput
     }): Promise<FestivalArtist> => {
       return apiRequest<FestivalArtist>(
-        API_ENDPOINTS.FESTIVALS.UPDATE_ARTIST(festivalId, artistId),
+        festivalEndpoints.UPDATE_ARTIST(festivalId, artistId),
         {
           method: 'PUT',
           body: JSON.stringify(data),
@@ -230,7 +231,7 @@ export function useRemoveFestivalArtist() {
       artistId: number
     }): Promise<void> => {
       return apiRequest<void>(
-        API_ENDPOINTS.FESTIVALS.REMOVE_ARTIST(festivalId, artistId),
+        festivalEndpoints.REMOVE_ARTIST(festivalId, artistId),
         { method: 'DELETE' }
       )
     },
@@ -260,7 +261,7 @@ export function useAddFestivalVenue() {
       data: AddFestivalVenueInput
     }): Promise<FestivalVenue> => {
       return apiRequest<FestivalVenue>(
-        API_ENDPOINTS.FESTIVALS.ADD_VENUE(festivalId),
+        festivalEndpoints.ADD_VENUE(festivalId),
         {
           method: 'POST',
           body: JSON.stringify(data),
@@ -289,7 +290,7 @@ export function useRemoveFestivalVenue() {
       venueId: number
     }): Promise<void> => {
       return apiRequest<void>(
-        API_ENDPOINTS.FESTIVALS.REMOVE_VENUE(festivalId, venueId),
+        festivalEndpoints.REMOVE_VENUE(festivalId, venueId),
         { method: 'DELETE' }
       )
     },

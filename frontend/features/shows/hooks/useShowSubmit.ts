@@ -1,8 +1,9 @@
 'use client'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { apiRequest } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
+import { showEndpoints } from '../api'
 import { showLogger } from '@/lib/utils/showLogger'
 import { ShowError, ShowErrorCode } from '@/lib/errors'
 import type { ShowResponse } from '../types'
@@ -71,7 +72,7 @@ export function useShowSubmit() {
       })
 
       const response = await apiRequest<ShowSubmitResponse>(
-        API_ENDPOINTS.SHOWS.SUBMIT,
+        showEndpoints.SUBMIT,
         {
           method: 'POST',
           body: JSON.stringify(submission),
