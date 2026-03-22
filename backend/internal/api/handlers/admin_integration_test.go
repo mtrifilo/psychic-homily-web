@@ -13,24 +13,39 @@ import (
 
 type AdminHandlerIntegrationSuite struct {
 	suite.Suite
-	deps    *handlerIntegrationDeps
-	handler *AdminHandler
+	deps         *handlerIntegrationDeps
+	showHandler  *AdminShowHandler
+	venueHandler *AdminVenueHandler
+	tokenHandler *AdminTokenHandler
+	dataHandler  *AdminDataHandler
+	userHandler  *AdminUserHandler
+	statsHandler *AdminStatsHandler
 }
 
 func (s *AdminHandlerIntegrationSuite) SetupSuite() {
 	s.deps = setupHandlerIntegrationDeps(s.T())
-	s.handler = NewAdminHandler(
+	s.showHandler = NewAdminShowHandler(
 		s.deps.showService,
-		s.deps.venueService,
 		s.deps.discordService,
-		s.deps.musicDiscoveryService,
-		s.deps.discoveryService,
-		s.deps.apiTokenService,
-		s.deps.dataSyncService,
 		s.deps.auditLogService,
-		s.deps.userService,
-		s.deps.adminStatsService,
 		nil, // notificationFilterService
+		s.deps.musicDiscoveryService,
+	)
+	s.venueHandler = NewAdminVenueHandler(
+		s.deps.venueService,
+		s.deps.auditLogService,
+	)
+	s.tokenHandler = NewAdminTokenHandler(
+		s.deps.apiTokenService,
+	)
+	s.dataHandler = NewAdminDataHandler(
+		s.deps.dataSyncService,
+	)
+	s.userHandler = NewAdminUserHandler(
+		s.deps.userService,
+	)
+	s.statsHandler = NewAdminStatsHandler(
+		s.deps.adminStatsService,
 	)
 }
 
@@ -56,7 +71,7 @@ func (s *AdminHandlerIntegrationSuite) TestGetPendingShows_Empty() {
 	ctx := ctxWithUser(admin)
 
 	req := &GetPendingShowsRequest{Limit: 50, Offset: 0}
-	resp, err := s.handler.GetPendingShowsHandler(ctx, req)
+	resp, err := s.showHandler.GetPendingShowsHandler(ctx, req)
 	s.NoError(err)
 	s.Equal(int64(0), resp.Body.Total)
 }
@@ -70,7 +85,7 @@ func (s *AdminHandlerIntegrationSuite) TestGetPendingShows_Success() {
 
 	ctx := ctxWithUser(admin)
 	req := &GetPendingShowsRequest{Limit: 50, Offset: 0}
-	resp, err := s.handler.GetPendingShowsHandler(ctx, req)
+	resp, err := s.showHandler.GetPendingShowsHandler(ctx, req)
 	s.NoError(err)
 	s.Equal(int64(2), resp.Body.Total)
 	s.Len(resp.Body.Shows, 2)
@@ -86,7 +101,7 @@ func (s *AdminHandlerIntegrationSuite) TestApproveShow_Success() {
 	ctx := ctxWithUser(admin)
 	req := &ApproveShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 
-	resp, err := s.handler.ApproveShowHandler(ctx, req)
+	resp, err := s.showHandler.ApproveShowHandler(ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal("approved", resp.Body.Status)
@@ -97,7 +112,7 @@ func (s *AdminHandlerIntegrationSuite) TestApproveShow_NotFound() {
 	ctx := ctxWithUser(admin)
 
 	req := &ApproveShowRequest{ShowID: "99999"}
-	_, err := s.handler.ApproveShowHandler(ctx, req)
+	_, err := s.showHandler.ApproveShowHandler(ctx, req)
 	s.Error(err)
 }
 
@@ -109,7 +124,7 @@ func (s *AdminHandlerIntegrationSuite) TestApproveShow_AlreadyApproved() {
 	ctx := ctxWithUser(admin)
 	req := &ApproveShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 
-	_, err := s.handler.ApproveShowHandler(ctx, req)
+	_, err := s.showHandler.ApproveShowHandler(ctx, req)
 	s.Error(err)
 }
 
@@ -137,7 +152,7 @@ func (s *AdminHandlerIntegrationSuite) TestApproveShow_WithVerifyVenues() {
 	req := &ApproveShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	req.Body.VerifyVenues = true
 
-	resp, err := s.handler.ApproveShowHandler(ctx, req)
+	resp, err := s.showHandler.ApproveShowHandler(ctx, req)
 	s.NoError(err)
 	s.Equal("approved", resp.Body.Status)
 }
@@ -153,7 +168,7 @@ func (s *AdminHandlerIntegrationSuite) TestRejectShow_Success() {
 	req := &RejectShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	req.Body.Reason = "Duplicate event"
 
-	resp, err := s.handler.RejectShowHandler(ctx, req)
+	resp, err := s.showHandler.RejectShowHandler(ctx, req)
 	s.NoError(err)
 	s.Equal("rejected", resp.Body.Status)
 }
@@ -164,7 +179,7 @@ func (s *AdminHandlerIntegrationSuite) TestRejectShow_NotFound() {
 
 	req := &RejectShowRequest{ShowID: "99999"}
 	req.Body.Reason = "Not found"
-	_, err := s.handler.RejectShowHandler(ctx, req)
+	_, err := s.showHandler.RejectShowHandler(ctx, req)
 	s.Error(err)
 }
 
@@ -177,7 +192,7 @@ func (s *AdminHandlerIntegrationSuite) TestRejectShow_EmptyReason() {
 	req := &RejectShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	req.Body.Reason = ""
 
-	_, err := s.handler.RejectShowHandler(ctx, req)
+	_, err := s.showHandler.RejectShowHandler(ctx, req)
 	s.Error(err)
 }
 
@@ -192,11 +207,11 @@ func (s *AdminHandlerIntegrationSuite) TestGetRejectedShows_Success() {
 	ctx := ctxWithUser(admin)
 	rejectReq := &RejectShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	rejectReq.Body.Reason = "Test rejection"
-	_, err := s.handler.RejectShowHandler(ctx, rejectReq)
+	_, err := s.showHandler.RejectShowHandler(ctx, rejectReq)
 	s.NoError(err)
 
 	req := &GetRejectedShowsRequest{Limit: 50, Offset: 0}
-	resp, err := s.handler.GetRejectedShowsHandler(ctx, req)
+	resp, err := s.showHandler.GetRejectedShowsHandler(ctx, req)
 	s.NoError(err)
 	s.GreaterOrEqual(resp.Body.Total, int64(1))
 }
@@ -210,7 +225,7 @@ func (s *AdminHandlerIntegrationSuite) TestVerifyVenue_Success() {
 	ctx := ctxWithUser(admin)
 	req := &VerifyVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
 
-	resp, err := s.handler.VerifyVenueHandler(ctx, req)
+	resp, err := s.venueHandler.VerifyVenueHandler(ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.True(resp.Body.Verified)
@@ -221,7 +236,7 @@ func (s *AdminHandlerIntegrationSuite) TestVerifyVenue_NotFound() {
 	ctx := ctxWithUser(admin)
 
 	req := &VerifyVenueRequest{VenueID: "99999"}
-	_, err := s.handler.VerifyVenueHandler(ctx, req)
+	_, err := s.venueHandler.VerifyVenueHandler(ctx, req)
 	s.Error(err)
 }
 
@@ -234,7 +249,7 @@ func (s *AdminHandlerIntegrationSuite) TestGetUnverifiedVenues_Success() {
 
 	ctx := ctxWithUser(admin)
 	req := &GetUnverifiedVenuesRequest{Limit: 50, Offset: 0}
-	resp, err := s.handler.GetUnverifiedVenuesHandler(ctx, req)
+	resp, err := s.venueHandler.GetUnverifiedVenuesHandler(ctx, req)
 	s.NoError(err)
 	s.GreaterOrEqual(resp.Body.Total, int64(2))
 }
@@ -244,7 +259,7 @@ func (s *AdminHandlerIntegrationSuite) TestGetUnverifiedVenues_Empty() {
 	ctx := ctxWithUser(admin)
 
 	req := &GetUnverifiedVenuesRequest{Limit: 50, Offset: 0}
-	resp, err := s.handler.GetUnverifiedVenuesHandler(ctx, req)
+	resp, err := s.venueHandler.GetUnverifiedVenuesHandler(ctx, req)
 	s.NoError(err)
 	s.Equal(int64(0), resp.Body.Total)
 }
@@ -256,7 +271,7 @@ func (s *AdminHandlerIntegrationSuite) TestGetPendingVenueEdits_Empty() {
 	ctx := ctxWithUser(admin)
 
 	req := &GetPendingVenueEditsRequest{Limit: 50, Offset: 0}
-	resp, err := s.handler.GetPendingVenueEditsHandler(ctx, req)
+	resp, err := s.venueHandler.GetPendingVenueEditsHandler(ctx, req)
 	s.NoError(err)
 	s.Equal(int64(0), resp.Body.Total)
 }
@@ -287,7 +302,7 @@ func (s *AdminHandlerIntegrationSuite) TestGetPendingVenueEdits_Success() {
 	// Admin queries pending edits
 	adminCtx := ctxWithUser(admin)
 	req := &GetPendingVenueEditsRequest{Limit: 50, Offset: 0}
-	resp, err := s.handler.GetPendingVenueEditsHandler(adminCtx, req)
+	resp, err := s.venueHandler.GetPendingVenueEditsHandler(adminCtx, req)
 	s.NoError(err)
 	s.GreaterOrEqual(resp.Body.Total, int64(1))
 }
@@ -320,7 +335,7 @@ func (s *AdminHandlerIntegrationSuite) TestApproveVenueEdit_Success() {
 	// Admin approves
 	adminCtx := ctxWithUser(admin)
 	approveReq := &ApproveVenueEditRequest{EditID: fmt.Sprintf("%d", updateResp.Body.PendingEdit.ID)}
-	resp, err := s.handler.ApproveVenueEditHandler(adminCtx, approveReq)
+	resp, err := s.venueHandler.ApproveVenueEditHandler(adminCtx, approveReq)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal("Approved Name", resp.Body.Name)
@@ -331,7 +346,7 @@ func (s *AdminHandlerIntegrationSuite) TestApproveVenueEdit_NotFound() {
 	ctx := ctxWithUser(admin)
 
 	req := &ApproveVenueEditRequest{EditID: "99999"}
-	_, err := s.handler.ApproveVenueEditHandler(ctx, req)
+	_, err := s.venueHandler.ApproveVenueEditHandler(ctx, req)
 	s.Error(err)
 }
 
@@ -363,7 +378,7 @@ func (s *AdminHandlerIntegrationSuite) TestRejectVenueEdit_Success() {
 	adminCtx := ctxWithUser(admin)
 	rejectReq := &RejectVenueEditRequest{EditID: fmt.Sprintf("%d", updateResp.Body.PendingEdit.ID)}
 	rejectReq.Body.Reason = "Not accurate"
-	resp, err := s.handler.RejectVenueEditHandler(adminCtx, rejectReq)
+	resp, err := s.venueHandler.RejectVenueEditHandler(adminCtx, rejectReq)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(models.VenueEditStatusRejected, resp.Body.Status)
@@ -380,7 +395,7 @@ func (s *AdminHandlerIntegrationSuite) TestGetAdminShows_Success() {
 
 	ctx := ctxWithUser(admin)
 	req := &GetAdminShowsRequest{Limit: 50, Offset: 0}
-	resp, err := s.handler.GetAdminShowsHandler(ctx, req)
+	resp, err := s.showHandler.GetAdminShowsHandler(ctx, req)
 	s.NoError(err)
 	s.GreaterOrEqual(resp.Body.Total, int64(2))
 }
@@ -394,7 +409,7 @@ func (s *AdminHandlerIntegrationSuite) TestGetAdminShows_StatusFilter() {
 
 	ctx := ctxWithUser(admin)
 	req := &GetAdminShowsRequest{Limit: 50, Offset: 0, Status: "pending"}
-	resp, err := s.handler.GetAdminShowsHandler(ctx, req)
+	resp, err := s.showHandler.GetAdminShowsHandler(ctx, req)
 	s.NoError(err)
 	s.GreaterOrEqual(resp.Body.Total, int64(1))
 	// All returned shows should be pending
@@ -410,7 +425,7 @@ func (s *AdminHandlerIntegrationSuite) TestGetAdminStats_Success() {
 	ctx := ctxWithUser(admin)
 
 	req := &GetAdminStatsRequest{}
-	resp, err := s.handler.GetAdminStatsHandler(ctx, req)
+	resp, err := s.statsHandler.GetAdminStatsHandler(ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 }
@@ -424,7 +439,7 @@ func (s *AdminHandlerIntegrationSuite) TestGetAdminUsers_Success() {
 
 	ctx := ctxWithUser(admin)
 	req := &GetAdminUsersRequest{Limit: 50, Offset: 0}
-	resp, err := s.handler.GetAdminUsersHandler(ctx, req)
+	resp, err := s.userHandler.GetAdminUsersHandler(ctx, req)
 	s.NoError(err)
 	s.GreaterOrEqual(resp.Body.Total, int64(3)) // admin + 2 users
 }
@@ -437,7 +452,7 @@ func (s *AdminHandlerIntegrationSuite) TestGetAdminUsers_Pagination() {
 
 	ctx := ctxWithUser(admin)
 	req := &GetAdminUsersRequest{Limit: 3, Offset: 0}
-	resp, err := s.handler.GetAdminUsersHandler(ctx, req)
+	resp, err := s.userHandler.GetAdminUsersHandler(ctx, req)
 	s.NoError(err)
 	s.Len(resp.Body.Users, 3)
 	s.GreaterOrEqual(resp.Body.Total, int64(6))
@@ -453,7 +468,7 @@ func (s *AdminHandlerIntegrationSuite) TestCreateAPIToken_Success() {
 	req.Body.Description = "Test token"
 	req.Body.ExpirationDays = 30
 
-	resp, err := s.handler.CreateAPITokenHandler(ctx, req)
+	resp, err := s.tokenHandler.CreateAPITokenHandler(ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.NotEmpty(resp.Body.Token)
@@ -466,7 +481,7 @@ func (s *AdminHandlerIntegrationSuite) TestCreateAPIToken_DefaultExpiration() {
 	req := &CreateAPITokenRequest{}
 	req.Body.Description = "Default expiry token"
 
-	resp, err := s.handler.CreateAPITokenHandler(ctx, req)
+	resp, err := s.tokenHandler.CreateAPITokenHandler(ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 }
@@ -478,7 +493,7 @@ func (s *AdminHandlerIntegrationSuite) TestCreateAPIToken_ExceededMaxDays() {
 	req := &CreateAPITokenRequest{}
 	req.Body.ExpirationDays = 500
 
-	_, err := s.handler.CreateAPITokenHandler(ctx, req)
+	_, err := s.tokenHandler.CreateAPITokenHandler(ctx, req)
 	s.Error(err)
 }
 
@@ -492,12 +507,12 @@ func (s *AdminHandlerIntegrationSuite) TestListAPITokens_Success() {
 	createReq := &CreateAPITokenRequest{}
 	createReq.Body.Description = "Token 1"
 	createReq.Body.ExpirationDays = 30
-	_, err := s.handler.CreateAPITokenHandler(ctx, createReq)
+	_, err := s.tokenHandler.CreateAPITokenHandler(ctx, createReq)
 	s.NoError(err)
 
 	// List
 	listReq := &ListAPITokensRequest{}
-	resp, err := s.handler.ListAPITokensHandler(ctx, listReq)
+	resp, err := s.tokenHandler.ListAPITokensHandler(ctx, listReq)
 	s.NoError(err)
 	s.GreaterOrEqual(len(resp.Body.Tokens), 1)
 }
@@ -512,12 +527,12 @@ func (s *AdminHandlerIntegrationSuite) TestRevokeAPIToken_Success() {
 	createReq := &CreateAPITokenRequest{}
 	createReq.Body.Description = "Revoke me"
 	createReq.Body.ExpirationDays = 30
-	createResp, err := s.handler.CreateAPITokenHandler(ctx, createReq)
+	createResp, err := s.tokenHandler.CreateAPITokenHandler(ctx, createReq)
 	s.NoError(err)
 
 	// Revoke
 	revokeReq := &RevokeAPITokenRequest{TokenID: fmt.Sprintf("%d", createResp.Body.ID)}
-	resp, err := s.handler.RevokeAPITokenHandler(ctx, revokeReq)
+	resp, err := s.tokenHandler.RevokeAPITokenHandler(ctx, revokeReq)
 	s.NoError(err)
 	s.Contains(resp.Body.Message, "revoked")
 }
@@ -527,7 +542,7 @@ func (s *AdminHandlerIntegrationSuite) TestRevokeAPIToken_NotFound() {
 	ctx := ctxWithUser(admin)
 
 	req := &RevokeAPITokenRequest{TokenID: "99999"}
-	_, err := s.handler.RevokeAPITokenHandler(ctx, req)
+	_, err := s.tokenHandler.RevokeAPITokenHandler(ctx, req)
 	s.Error(err)
 }
 
@@ -540,7 +555,7 @@ func (s *AdminHandlerIntegrationSuite) TestExportShows_Success() {
 
 	ctx := ctxWithUser(admin)
 	req := &ExportShowsRequest{Limit: 50, Offset: 0}
-	resp, err := s.handler.ExportShowsHandler(ctx, req)
+	resp, err := s.dataHandler.ExportShowsHandler(ctx, req)
 	s.NoError(err)
 	s.GreaterOrEqual(len(resp.Body.Shows), 1)
 }
@@ -553,7 +568,7 @@ func (s *AdminHandlerIntegrationSuite) TestExportArtists_Success() {
 
 	ctx := ctxWithUser(admin)
 	req := &ExportArtistsRequest{Limit: 50, Offset: 0}
-	resp, err := s.handler.ExportArtistsHandler(ctx, req)
+	resp, err := s.dataHandler.ExportArtistsHandler(ctx, req)
 	s.NoError(err)
 	s.GreaterOrEqual(len(resp.Body.Artists), 1)
 }
@@ -566,7 +581,7 @@ func (s *AdminHandlerIntegrationSuite) TestExportVenues_Success() {
 
 	ctx := ctxWithUser(admin)
 	req := &ExportVenuesRequest{Limit: 50, Offset: 0}
-	resp, err := s.handler.ExportVenuesHandler(ctx, req)
+	resp, err := s.dataHandler.ExportVenuesHandler(ctx, req)
 	s.NoError(err)
 	s.GreaterOrEqual(len(resp.Body.Venues), 1)
 }
