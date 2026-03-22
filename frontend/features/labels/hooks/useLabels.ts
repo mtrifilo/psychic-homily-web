@@ -9,6 +9,7 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { createDetailHook, createNamedDetailHook } from '@/lib/hooks/factories'
 import type {
   LabelsListResponse,
   LabelDetail,
@@ -55,112 +56,37 @@ export function useLabels(options: UseLabelsOptions = {}) {
   })
 }
 
-interface UseLabelOptions {
-  idOrSlug: string | number
-  enabled?: boolean
-}
-
 /**
  * Hook to fetch a single label by ID or slug
  */
-export function useLabel(options: UseLabelOptions) {
-  const { idOrSlug, enabled = true } = options
-
-  return useQuery({
-    queryKey: queryKeys.labels.detail(idOrSlug),
-    queryFn: async (): Promise<LabelDetail> => {
-      return apiRequest<LabelDetail>(
-        API_ENDPOINTS.LABELS.GET(idOrSlug),
-        { method: 'GET' }
-      )
-    },
-    enabled:
-      enabled &&
-      (typeof idOrSlug === 'string' ? Boolean(idOrSlug) : idOrSlug > 0),
-    staleTime: 5 * 60 * 1000,
-  })
-}
-
-interface UseArtistLabelsOptions {
-  artistIdOrSlug: string | number
-  enabled?: boolean
-}
+export const useLabel = createDetailHook<LabelDetail>(
+  API_ENDPOINTS.LABELS.GET,
+  queryKeys.labels.detail,
+)
 
 /**
  * Hook to fetch labels for a specific artist
  */
-export function useArtistLabels(options: UseArtistLabelsOptions) {
-  const { artistIdOrSlug, enabled = true } = options
-
-  return useQuery({
-    queryKey: queryKeys.artists.labels(artistIdOrSlug),
-    queryFn: async (): Promise<ArtistLabelsResponse> => {
-      return apiRequest<ArtistLabelsResponse>(
-        API_ENDPOINTS.ARTISTS.LABELS(artistIdOrSlug),
-        { method: 'GET' }
-      )
-    },
-    enabled:
-      enabled &&
-      (typeof artistIdOrSlug === 'string'
-        ? Boolean(artistIdOrSlug)
-        : artistIdOrSlug > 0),
-    staleTime: 5 * 60 * 1000,
-  })
-}
-
-interface UseLabelRosterOptions {
-  labelIdOrSlug: string | number
-  enabled?: boolean
-}
+export const useArtistLabels = createNamedDetailHook<ArtistLabelsResponse, 'artistIdOrSlug'>(
+  'artistIdOrSlug',
+  API_ENDPOINTS.ARTISTS.LABELS,
+  queryKeys.artists.labels,
+)
 
 /**
  * Hook to fetch artists on a label (roster)
  */
-export function useLabelRoster(options: UseLabelRosterOptions) {
-  const { labelIdOrSlug, enabled = true } = options
-
-  return useQuery({
-    queryKey: queryKeys.labels.roster(labelIdOrSlug),
-    queryFn: async (): Promise<LabelArtistsResponse> => {
-      return apiRequest<LabelArtistsResponse>(
-        API_ENDPOINTS.LABELS.ARTISTS(labelIdOrSlug),
-        { method: 'GET' }
-      )
-    },
-    enabled:
-      enabled &&
-      (typeof labelIdOrSlug === 'string'
-        ? Boolean(labelIdOrSlug)
-        : labelIdOrSlug > 0),
-    staleTime: 5 * 60 * 1000,
-  })
-}
-
-interface UseLabelCatalogOptions {
-  labelIdOrSlug: string | number
-  enabled?: boolean
-}
+export const useLabelRoster = createNamedDetailHook<LabelArtistsResponse, 'labelIdOrSlug'>(
+  'labelIdOrSlug',
+  API_ENDPOINTS.LABELS.ARTISTS,
+  queryKeys.labels.roster,
+)
 
 /**
  * Hook to fetch releases on a label (catalog)
  */
-export function useLabelCatalog(options: UseLabelCatalogOptions) {
-  const { labelIdOrSlug, enabled = true } = options
-
-  return useQuery({
-    queryKey: queryKeys.labels.catalog(labelIdOrSlug),
-    queryFn: async (): Promise<LabelReleasesResponse> => {
-      return apiRequest<LabelReleasesResponse>(
-        API_ENDPOINTS.LABELS.RELEASES(labelIdOrSlug),
-        { method: 'GET' }
-      )
-    },
-    enabled:
-      enabled &&
-      (typeof labelIdOrSlug === 'string'
-        ? Boolean(labelIdOrSlug)
-        : labelIdOrSlug > 0),
-    staleTime: 5 * 60 * 1000,
-  })
-}
+export const useLabelCatalog = createNamedDetailHook<LabelReleasesResponse, 'labelIdOrSlug'>(
+  'labelIdOrSlug',
+  API_ENDPOINTS.LABELS.RELEASES,
+  queryKeys.labels.catalog,
+)

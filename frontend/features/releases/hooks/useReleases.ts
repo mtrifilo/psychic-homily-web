@@ -9,6 +9,7 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { createDetailHook, createNamedDetailHook } from '@/lib/hooks/factories'
 import type {
   ReleaseDetail,
   ReleasesListResponse,
@@ -53,56 +54,19 @@ export function useReleases(options: UseReleasesOptions = {}) {
   })
 }
 
-interface UseReleaseOptions {
-  idOrSlug: string | number
-  enabled?: boolean
-}
-
 /**
  * Hook to fetch a single release by ID or slug
  */
-export function useRelease(options: UseReleaseOptions) {
-  const { idOrSlug, enabled = true } = options
-
-  return useQuery({
-    queryKey: queryKeys.releases.detail(idOrSlug),
-    queryFn: async (): Promise<ReleaseDetail> => {
-      return apiRequest<ReleaseDetail>(
-        API_ENDPOINTS.RELEASES.GET(idOrSlug),
-        { method: 'GET' }
-      )
-    },
-    enabled:
-      enabled &&
-      (typeof idOrSlug === 'string' ? Boolean(idOrSlug) : idOrSlug > 0),
-    staleTime: 5 * 60 * 1000,
-  })
-}
-
-interface UseArtistReleasesOptions {
-  artistIdOrSlug: string | number
-  enabled?: boolean
-}
+export const useRelease = createDetailHook<ReleaseDetail>(
+  API_ENDPOINTS.RELEASES.GET,
+  queryKeys.releases.detail,
+)
 
 /**
  * Hook to fetch releases for a specific artist
  */
-export function useArtistReleases(options: UseArtistReleasesOptions) {
-  const { artistIdOrSlug, enabled = true } = options
-
-  return useQuery({
-    queryKey: queryKeys.releases.artistReleases(artistIdOrSlug),
-    queryFn: async (): Promise<ArtistReleasesResponse> => {
-      return apiRequest<ArtistReleasesResponse>(
-        API_ENDPOINTS.RELEASES.ARTIST_RELEASES(artistIdOrSlug),
-        { method: 'GET' }
-      )
-    },
-    enabled:
-      enabled &&
-      (typeof artistIdOrSlug === 'string'
-        ? Boolean(artistIdOrSlug)
-        : artistIdOrSlug > 0),
-    staleTime: 5 * 60 * 1000,
-  })
-}
+export const useArtistReleases = createNamedDetailHook<ArtistReleasesResponse, 'artistIdOrSlug'>(
+  'artistIdOrSlug',
+  API_ENDPOINTS.RELEASES.ARTIST_RELEASES,
+  queryKeys.releases.artistReleases,
+)
