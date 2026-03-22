@@ -13,10 +13,11 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/auth"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
-// mockOAuthCompleter implements services.OAuthCompleter for testing
+// mockOAuthCompleter implements contracts.OAuthCompleter for testing
 type mockOAuthCompleter struct {
 	user goth.User
 	err  error
@@ -69,8 +70,8 @@ func TestOAuthHandlerIntegration(t *testing.T) {
 	suite.Run(t, new(OAuthHandlerIntegrationSuite))
 }
 
-func (s *OAuthHandlerIntegrationSuite) newHandler(completer services.OAuthCompleter) *OAuthHTTPHandler {
-	authService := services.NewAuthService(s.deps.db, s.cfg)
+func (s *OAuthHandlerIntegrationSuite) newHandler(completer contracts.OAuthCompleter) *OAuthHTTPHandler {
+	authService := auth.NewAuthService(s.deps.db, s.cfg, s.deps.userService)
 	authService.SetOAuthCompleter(completer)
 	return NewOAuthHTTPHandler(authService, s.cfg)
 }
@@ -90,7 +91,7 @@ func oauthCallbackRequest(provider string) (*httptest.ResponseRecorder, *http.Re
 }
 
 func (s *OAuthHandlerIntegrationSuite) addSignupConsentCookie(req *http.Request) {
-	encoded, err := encodeOAuthSignupConsent(services.OAuthSignupConsent{
+	encoded, err := encodeOAuthSignupConsent(contracts.OAuthSignupConsent{
 		TermsAccepted:  true,
 		TermsVersion:   "2026-01-31",
 		PrivacyVersion: "2026-02-15",
@@ -220,7 +221,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_CustomFrontendURL() {
 			FrontendURL: "https://myapp.example.com",
 		},
 	}
-	authService := services.NewAuthService(s.deps.db, customCfg)
+	authService := auth.NewAuthService(s.deps.db, customCfg, s.deps.userService)
 	authService.SetOAuthCompleter(&mockOAuthCompleter{err: http.ErrNoCookie})
 	handler := NewOAuthHTTPHandler(authService, customCfg)
 
@@ -239,7 +240,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_EmptyFrontendURL_Fallback() 
 		Session: s.cfg.Session,
 		Email:   config.EmailConfig{FrontendURL: ""},
 	}
-	authService := services.NewAuthService(s.deps.db, emptyCfg)
+	authService := auth.NewAuthService(s.deps.db, emptyCfg, s.deps.userService)
 	authService.SetOAuthCompleter(&mockOAuthCompleter{err: http.ErrNoCookie})
 	handler := NewOAuthHTTPHandler(authService, emptyCfg)
 

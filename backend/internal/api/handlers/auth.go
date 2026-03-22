@@ -12,28 +12,28 @@ import (
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // AuthHandler handles authentication requests
 type AuthHandler struct {
-	authService       services.AuthServiceInterface
-	jwtService        services.JWTServiceInterface
-	userService       services.UserServiceInterface
-	emailService      services.EmailServiceInterface
-	discordService    services.DiscordServiceInterface
-	passwordValidator services.PasswordValidatorInterface
+	authService       contracts.AuthServiceInterface
+	jwtService        contracts.JWTServiceInterface
+	userService       contracts.UserServiceInterface
+	emailService      contracts.EmailServiceInterface
+	discordService    contracts.DiscordServiceInterface
+	passwordValidator contracts.PasswordValidatorInterface
 	config            *config.Config
 }
 
 // NewAuthHandler creates a new authentication handler
 func NewAuthHandler(
-	authService services.AuthServiceInterface,
-	jwtService services.JWTServiceInterface,
-	userService services.UserServiceInterface,
-	emailService services.EmailServiceInterface,
-	discordService services.DiscordServiceInterface,
-	passwordValidator services.PasswordValidatorInterface,
+	authService contracts.AuthServiceInterface,
+	jwtService contracts.JWTServiceInterface,
+	userService contracts.UserServiceInterface,
+	emailService contracts.EmailServiceInterface,
+	discordService contracts.DiscordServiceInterface,
+	passwordValidator contracts.PasswordValidatorInterface,
 	cfg *config.Config,
 ) *AuthHandler {
 	return &AuthHandler{
@@ -488,7 +488,7 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		input.Body.Password,
 		firstName,
 		lastName,
-		services.LegalAcceptance{
+		contracts.LegalAcceptance{
 			TermsAcceptedAt: time.Now().UTC(),
 			TermsVersion:    input.Body.TermsVersion,
 			PrivacyVersion:  input.Body.PrivacyVersion,

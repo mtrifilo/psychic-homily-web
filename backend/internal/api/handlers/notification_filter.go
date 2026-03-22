@@ -11,19 +11,19 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/notification"
 )
 
 // NotificationFilterHandler handles notification filter HTTP requests.
 type NotificationFilterHandler struct {
-	filterService services.NotificationFilterServiceInterface
+	filterService contracts.NotificationFilterServiceInterface
 	jwtSecret     string
 }
 
 // NewNotificationFilterHandler creates a new notification filter handler.
 func NewNotificationFilterHandler(
-	filterService services.NotificationFilterServiceInterface,
+	filterService contracts.NotificationFilterServiceInterface,
 	jwtSecret string,
 ) *NotificationFilterHandler {
 	return &NotificationFilterHandler{
@@ -42,7 +42,7 @@ type ListFiltersRequest struct{}
 // ListFiltersResponse is the response for GET /me/notification-filters
 type ListFiltersResponse struct {
 	Body struct {
-		Filters []services.NotificationFilterResponse `json:"filters"`
+		Filters []contracts.NotificationFilterResponse `json:"filters"`
 	}
 }
 
@@ -64,7 +64,7 @@ type CreateFilterRequest struct {
 
 // CreateFilterResponse is the response for POST /me/notification-filters
 type CreateFilterResponse struct {
-	Body services.NotificationFilterResponse
+	Body contracts.NotificationFilterResponse
 }
 
 // UpdateFilterRequest is the request for PATCH /me/notification-filters/{id}
@@ -87,7 +87,7 @@ type UpdateFilterRequest struct {
 
 // UpdateFilterResponse is the response for PATCH /me/notification-filters/{id}
 type UpdateFilterResponse struct {
-	Body services.NotificationFilterResponse
+	Body contracts.NotificationFilterResponse
 }
 
 // DeleteFilterRequest is the request for DELETE /me/notification-filters/{id}
@@ -113,7 +113,7 @@ type QuickCreateFilterRequest struct {
 
 // QuickCreateFilterResponse is the response for POST /me/notification-filters/quick
 type QuickCreateFilterResponse struct {
-	Body services.NotificationFilterResponse
+	Body contracts.NotificationFilterResponse
 }
 
 // GetNotificationsRequest is the request for GET /me/notifications
@@ -125,7 +125,7 @@ type GetNotificationsRequest struct {
 // GetNotificationsResponse is the response for GET /me/notifications
 type GetNotificationsResponse struct {
 	Body struct {
-		Notifications []services.NotificationLogEntry `json:"notifications"`
+		Notifications []contracts.NotificationLogEntry `json:"notifications"`
 		UnreadCount   int64                           `json:"unread_count"`
 	}
 }
@@ -171,7 +171,7 @@ func (h *NotificationFilterHandler) ListFiltersHandler(ctx context.Context, _ *L
 	}
 
 	resp := &ListFiltersResponse{}
-	resp.Body.Filters = make([]services.NotificationFilterResponse, len(filters))
+	resp.Body.Filters = make([]contracts.NotificationFilterResponse, len(filters))
 	for i, f := range filters {
 		resp.Body.Filters[i] = filterToResponse(&f)
 	}
@@ -194,7 +194,7 @@ func (h *NotificationFilterHandler) CreateFilterHandler(ctx context.Context, req
 		notifyInApp = *req.Body.NotifyInApp
 	}
 
-	input := services.CreateFilterInput{
+	input := contracts.CreateFilterInput{
 		Name:          req.Body.Name,
 		ArtistIDs:     req.Body.ArtistIDs,
 		VenueIDs:      req.Body.VenueIDs,
@@ -244,7 +244,7 @@ func (h *NotificationFilterHandler) UpdateFilterHandler(ctx context.Context, req
 		return nil, huma.Error400BadRequest("Invalid filter ID")
 	}
 
-	input := services.UpdateFilterInput{
+	input := contracts.UpdateFilterInput{
 		Name:          req.Body.Name,
 		IsActive:      req.Body.IsActive,
 		ArtistIDs:     req.Body.ArtistIDs,
@@ -453,8 +453,8 @@ func (h *NotificationFilterHandler) UnsubscribeFilterHandler(ctx context.Context
 // ──────────────────────────────────────────────
 
 // filterToResponse converts a model to API response.
-func filterToResponse(f *models.NotificationFilter) services.NotificationFilterResponse {
-	resp := services.NotificationFilterResponse{
+func filterToResponse(f *models.NotificationFilter) contracts.NotificationFilterResponse {
+	resp := contracts.NotificationFilterResponse{
 		ID:            f.ID,
 		Name:          f.Name,
 		IsActive:      f.IsActive,

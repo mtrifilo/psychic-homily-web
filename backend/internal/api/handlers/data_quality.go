@@ -6,17 +6,17 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // DataQualityHandler handles data quality dashboard endpoints.
 type DataQualityHandler struct {
-	dataQualityService services.DataQualityServiceInterface
+	dataQualityService contracts.DataQualityServiceInterface
 }
 
 // NewDataQualityHandler creates a new data quality handler.
 func NewDataQualityHandler(
-	dataQualityService services.DataQualityServiceInterface,
+	dataQualityService contracts.DataQualityServiceInterface,
 ) *DataQualityHandler {
 	return &DataQualityHandler{
 		dataQualityService: dataQualityService,

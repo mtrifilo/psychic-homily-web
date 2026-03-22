@@ -10,7 +10,9 @@ import (
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/auth"
+	"psychic-homily-backend/internal/services/contracts"
+	usersvc "psychic-homily-backend/internal/services/user"
 )
 
 // --- helpers ---
@@ -44,8 +46,8 @@ func strPtr(s string) *string {
 	return &s
 }
 
-func testJWTService() *services.JWTService {
-	return services.NewJWTService(nil, testConfig())
+func testJWTService() *auth.JWTService {
+	return auth.NewJWTService(nil, testConfig(), usersvc.NewUserService(nil))
 }
 
 // --- TestNewAuthHandler ---
@@ -186,7 +188,7 @@ func TestRefreshTokenHandler_NilAuthService(t *testing.T) {
 
 func TestRefreshTokenHandler_NoUserContext(t *testing.T) {
 	// Need a non-nil authService to pass the nil check
-	authSvc := services.NewAuthService(nil, testConfig())
+	authSvc := auth.NewAuthService(nil, testConfig(), usersvc.NewUserService(nil))
 	h := NewAuthHandler(authSvc, nil, nil, nil, nil, nil, testConfig())
 
 	resp, err := h.RefreshTokenHandler(context.Background(), &struct{}{})
@@ -219,7 +221,7 @@ func TestGetProfileHandler_NilAuthService(t *testing.T) {
 }
 
 func TestGetProfileHandler_NoUserContext(t *testing.T) {
-	authSvc := services.NewAuthService(nil, testConfig())
+	authSvc := auth.NewAuthService(nil, testConfig(), usersvc.NewUserService(nil))
 	h := NewAuthHandler(authSvc, nil, nil, nil, nil, nil, testConfig())
 
 	resp, err := h.GetProfileHandler(context.Background(), &struct{}{})
@@ -313,7 +315,7 @@ func TestRegisterHandler_NilUserService(t *testing.T) {
 func TestRegisterHandler_WeakPassword(t *testing.T) {
 	// NewPasswordValidator works standalone; the HIBP call may fail in tests
 	// but the length check happens first and short-circuits the result.
-	pv := services.NewPasswordValidator()
+	pv := auth.NewPasswordValidator()
 	h := NewAuthHandler(nil, nil, nil, nil, nil, pv, testConfig())
 	input := &RegisterRequest{}
 	input.Body.Email = "user@example.com"
@@ -870,7 +872,7 @@ func TestRegisterHandler_Success(t *testing.T) {
 	var discordCalled bool
 	h := authHandler(func(ah *AuthHandler) {
 		ah.userService = &mockUserService{
-			createUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance services.LegalAcceptance) (*models.User, error) {
+			createUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*models.User, error) {
 				return user, nil
 			},
 		}
@@ -913,7 +915,7 @@ func TestRegisterHandler_Success(t *testing.T) {
 func TestRegisterHandler_UserExists(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.userService = &mockUserService{
-			createUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance services.LegalAcceptance) (*models.User, error) {
+			createUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*models.User, error) {
 				return nil, autherrors.ErrUserExists(email)
 			},
 		}
@@ -940,8 +942,8 @@ func TestRegisterHandler_UserExists(t *testing.T) {
 func TestRegisterHandler_WeakPasswordMock(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.passwordValidator = &mockPasswordValidator{
-			validatePasswordFn: func(password string) (*services.PasswordValidationResult, error) {
-				return &services.PasswordValidationResult{
+			validatePasswordFn: func(password string) (*contracts.PasswordValidationResult, error) {
+				return &contracts.PasswordValidationResult{
 					Valid:  false,
 					Errors: []string{"Password must be at least 12 characters"},
 				}, nil
@@ -973,7 +975,7 @@ func TestRegisterHandler_WeakPasswordMock(t *testing.T) {
 func TestRegisterHandler_TokenFails(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.userService = &mockUserService{
-			createUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance services.LegalAcceptance) (*models.User, error) {
+			createUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*models.User, error) {
 				return &models.User{ID: 1}, nil
 			},
 		}
@@ -1224,8 +1226,8 @@ func TestConfirmVerificationHandler_Success(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &mockJWTService{
-			validateVerificationTokenFn: func(tokenString string) (*services.VerificationTokenClaims, error) {
-				return &services.VerificationTokenClaims{UserID: 1, Email: email}, nil
+			validateVerificationTokenFn: func(tokenString string) (*contracts.VerificationTokenClaims, error) {
+				return &contracts.VerificationTokenClaims{UserID: 1, Email: email}, nil
 			},
 		}
 		ah.userService = &mockUserService{
@@ -1253,8 +1255,8 @@ func TestConfirmVerificationHandler_Success(t *testing.T) {
 func TestConfirmVerificationHandler_UserNotFound(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &mockJWTService{
-			validateVerificationTokenFn: func(tokenString string) (*services.VerificationTokenClaims, error) {
-				return &services.VerificationTokenClaims{UserID: 999, Email: "test@example.com"}, nil
+			validateVerificationTokenFn: func(tokenString string) (*contracts.VerificationTokenClaims, error) {
+				return &contracts.VerificationTokenClaims{UserID: 999, Email: "test@example.com"}, nil
 			},
 		}
 		ah.userService = &mockUserService{
@@ -1283,8 +1285,8 @@ func TestConfirmVerificationHandler_AlreadyVerified(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &mockJWTService{
-			validateVerificationTokenFn: func(tokenString string) (*services.VerificationTokenClaims, error) {
-				return &services.VerificationTokenClaims{UserID: 1, Email: email}, nil
+			validateVerificationTokenFn: func(tokenString string) (*contracts.VerificationTokenClaims, error) {
+				return &contracts.VerificationTokenClaims{UserID: 1, Email: email}, nil
 			},
 		}
 		ah.userService = &mockUserService{
@@ -1313,8 +1315,8 @@ func TestConfirmVerificationHandler_SetVerifiedFails(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &mockJWTService{
-			validateVerificationTokenFn: func(tokenString string) (*services.VerificationTokenClaims, error) {
-				return &services.VerificationTokenClaims{UserID: 1, Email: email}, nil
+			validateVerificationTokenFn: func(tokenString string) (*contracts.VerificationTokenClaims, error) {
+				return &contracts.VerificationTokenClaims{UserID: 1, Email: email}, nil
 			},
 		}
 		ah.userService = &mockUserService{
@@ -1434,8 +1436,8 @@ func TestVerifyMagicLinkHandler_Success(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &mockJWTService{
-			validateMagicLinkTokenFn: func(tokenString string) (*services.MagicLinkTokenClaims, error) {
-				return &services.MagicLinkTokenClaims{UserID: 1, Email: email}, nil
+			validateMagicLinkTokenFn: func(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
+				return &contracts.MagicLinkTokenClaims{UserID: 1, Email: email}, nil
 			},
 			createTokenFn: func(u *models.User) (string, error) {
 				return "session-token", nil
@@ -1469,8 +1471,8 @@ func TestVerifyMagicLinkHandler_Success(t *testing.T) {
 func TestVerifyMagicLinkHandler_UserNotFound(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &mockJWTService{
-			validateMagicLinkTokenFn: func(tokenString string) (*services.MagicLinkTokenClaims, error) {
-				return &services.MagicLinkTokenClaims{UserID: 999, Email: "test@example.com"}, nil
+			validateMagicLinkTokenFn: func(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
+				return &contracts.MagicLinkTokenClaims{UserID: 999, Email: "test@example.com"}, nil
 			},
 		}
 		ah.userService = &mockUserService{
@@ -1499,8 +1501,8 @@ func TestVerifyMagicLinkHandler_InactiveUser(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &mockJWTService{
-			validateMagicLinkTokenFn: func(tokenString string) (*services.MagicLinkTokenClaims, error) {
-				return &services.MagicLinkTokenClaims{UserID: 1, Email: email}, nil
+			validateMagicLinkTokenFn: func(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
+				return &contracts.MagicLinkTokenClaims{UserID: 1, Email: email}, nil
 			},
 		}
 		ah.userService = &mockUserService{
@@ -1608,8 +1610,8 @@ func TestGetDeletionSummaryHandler_Success(t *testing.T) {
 	hash := "$2a$10$fakehash"
 	h := authHandler(func(ah *AuthHandler) {
 		ah.userService = &mockUserService{
-			getDeletionSummaryFn: func(userID uint) (*services.DeletionSummary, error) {
-				return &services.DeletionSummary{
+			getDeletionSummaryFn: func(userID uint) (*contracts.DeletionSummary, error) {
+				return &contracts.DeletionSummary{
 					ShowsCount:      5,
 					SavedShowsCount: 12,
 					PasskeysCount:   2,
@@ -1643,7 +1645,7 @@ func TestGetDeletionSummaryHandler_Success(t *testing.T) {
 func TestGetDeletionSummaryHandler_ServiceError(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.userService = &mockUserService{
-			getDeletionSummaryFn: func(userID uint) (*services.DeletionSummary, error) {
+			getDeletionSummaryFn: func(userID uint) (*contracts.DeletionSummary, error) {
 				return nil, fmt.Errorf("db error")
 			},
 		}
@@ -2026,8 +2028,8 @@ func TestConfirmAccountRecoveryHandler_Success(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &mockJWTService{
-			validateAccountRecoveryTokenFn: func(tokenString string) (*services.AccountRecoveryTokenClaims, error) {
-				return &services.AccountRecoveryTokenClaims{UserID: 1, Email: email}, nil
+			validateAccountRecoveryTokenFn: func(tokenString string) (*contracts.AccountRecoveryTokenClaims, error) {
+				return &contracts.AccountRecoveryTokenClaims{UserID: 1, Email: email}, nil
 			},
 			createTokenFn: func(u *models.User) (string, error) {
 				return "session-token", nil
@@ -2070,8 +2072,8 @@ func TestConfirmAccountRecoveryHandler_Success(t *testing.T) {
 func TestConfirmAccountRecoveryHandler_UserNotFound(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &mockJWTService{
-			validateAccountRecoveryTokenFn: func(tokenString string) (*services.AccountRecoveryTokenClaims, error) {
-				return &services.AccountRecoveryTokenClaims{UserID: 999, Email: "test@example.com"}, nil
+			validateAccountRecoveryTokenFn: func(tokenString string) (*contracts.AccountRecoveryTokenClaims, error) {
+				return &contracts.AccountRecoveryTokenClaims{UserID: 999, Email: "test@example.com"}, nil
 			},
 		}
 		ah.userService = &mockUserService{
@@ -2100,8 +2102,8 @@ func TestConfirmAccountRecoveryHandler_AlreadyActive(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &mockJWTService{
-			validateAccountRecoveryTokenFn: func(tokenString string) (*services.AccountRecoveryTokenClaims, error) {
-				return &services.AccountRecoveryTokenClaims{UserID: 1, Email: email}, nil
+			validateAccountRecoveryTokenFn: func(tokenString string) (*contracts.AccountRecoveryTokenClaims, error) {
+				return &contracts.AccountRecoveryTokenClaims{UserID: 1, Email: email}, nil
 			},
 		}
 		ah.userService = &mockUserService{

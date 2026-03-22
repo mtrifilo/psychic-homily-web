@@ -10,15 +10,15 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 type LabelHandler struct {
-	labelService    services.LabelServiceInterface
-	auditLogService services.AuditLogServiceInterface
+	labelService    contracts.LabelServiceInterface
+	auditLogService contracts.AuditLogServiceInterface
 }
 
-func NewLabelHandler(labelService services.LabelServiceInterface, auditLogService services.AuditLogServiceInterface) *LabelHandler {
+func NewLabelHandler(labelService contracts.LabelServiceInterface, auditLogService contracts.AuditLogServiceInterface) *LabelHandler {
 	return &LabelHandler{
 		labelService:    labelService,
 		auditLogService: auditLogService,
@@ -37,7 +37,7 @@ type SearchLabelsRequest struct {
 // SearchLabelsResponse represents the autocomplete search response
 type SearchLabelsResponse struct {
 	Body struct {
-		Labels []*services.LabelListResponse `json:"labels" doc:"Matching labels"`
+		Labels []*contracts.LabelListResponse `json:"labels" doc:"Matching labels"`
 		Count  int                           `json:"count" doc:"Number of results"`
 	}
 }
@@ -70,7 +70,7 @@ type ListLabelsRequest struct {
 // ListLabelsResponse represents the response for listing labels
 type ListLabelsResponse struct {
 	Body struct {
-		Labels []*services.LabelListResponse `json:"labels" doc:"List of labels"`
+		Labels []*contracts.LabelListResponse `json:"labels" doc:"List of labels"`
 		Count  int                           `json:"count" doc:"Number of labels"`
 	}
 }
@@ -112,12 +112,12 @@ type GetLabelRequest struct {
 
 // GetLabelResponse represents the response for the get label endpoint
 type GetLabelResponse struct {
-	Body *services.LabelDetailResponse
+	Body *contracts.LabelDetailResponse
 }
 
 // GetLabelHandler handles GET /labels/{label_id}
 func (h *LabelHandler) GetLabelHandler(ctx context.Context, req *GetLabelRequest) (*GetLabelResponse, error) {
-	var label *services.LabelDetailResponse
+	var label *contracts.LabelDetailResponse
 	var err error
 
 	// Try to parse as numeric ID first
@@ -166,7 +166,7 @@ type CreateLabelRequest struct {
 
 // CreateLabelResponse represents the response for creating a label
 type CreateLabelResponse struct {
-	Body *services.LabelDetailResponse
+	Body *contracts.LabelDetailResponse
 }
 
 // CreateLabelHandler handles POST /labels
@@ -182,7 +182,7 @@ func (h *LabelHandler) CreateLabelHandler(ctx context.Context, req *CreateLabelR
 		return nil, huma.Error400BadRequest("Name is required")
 	}
 
-	serviceReq := &services.CreateLabelRequest{
+	serviceReq := &contracts.CreateLabelRequest{
 		Name:        req.Body.Name,
 		City:        req.Body.City,
 		State:       req.Body.State,
@@ -255,7 +255,7 @@ type UpdateLabelRequest struct {
 
 // UpdateLabelResponse represents the response for updating a label
 type UpdateLabelResponse struct {
-	Body *services.LabelDetailResponse
+	Body *contracts.LabelDetailResponse
 }
 
 // UpdateLabelHandler handles PUT /labels/{label_id}
@@ -273,7 +273,7 @@ func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelR
 		return nil, err
 	}
 
-	serviceReq := &services.UpdateLabelRequest{
+	serviceReq := &contracts.UpdateLabelRequest{
 		Name:        req.Body.Name,
 		City:        req.Body.City,
 		State:       req.Body.State,
@@ -391,7 +391,7 @@ type GetLabelRosterRequest struct {
 // GetLabelRosterResponse represents the response for the label roster endpoint
 type GetLabelRosterResponse struct {
 	Body struct {
-		Artists []*services.LabelArtistResponse `json:"artists" doc:"List of artists"`
+		Artists []*contracts.LabelArtistResponse `json:"artists" doc:"List of artists"`
 		Count   int                             `json:"count" doc:"Number of artists"`
 	}
 }
@@ -432,7 +432,7 @@ type GetLabelCatalogRequest struct {
 // GetLabelCatalogResponse represents the response for the label catalog endpoint
 type GetLabelCatalogResponse struct {
 	Body struct {
-		Releases []*services.LabelReleaseResponse `json:"releases" doc:"List of releases"`
+		Releases []*contracts.LabelReleaseResponse `json:"releases" doc:"List of releases"`
 		Count    int                               `json:"count" doc:"Number of releases"`
 	}
 }

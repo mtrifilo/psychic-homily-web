@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 type ReleaseHandlerIntegrationSuite struct {
@@ -37,14 +37,14 @@ func TestReleaseHandlerIntegration(t *testing.T) {
 
 // --- Helpers ---
 
-func (s *ReleaseHandlerIntegrationSuite) createReleaseViaService(title string) *services.ReleaseDetailResponse {
-	resp, err := s.deps.releaseService.CreateRelease(&services.CreateReleaseRequest{Title: title})
+func (s *ReleaseHandlerIntegrationSuite) createReleaseViaService(title string) *contracts.ReleaseDetailResponse {
+	resp, err := s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: title})
 	s.Require().NoError(err)
 	return resp
 }
 
 func (s *ReleaseHandlerIntegrationSuite) createArtistViaService(name string) uint {
-	resp, err := s.deps.artistService.CreateArtist(&services.CreateArtistRequest{Name: name})
+	resp, err := s.deps.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: name})
 	s.Require().NoError(err)
 	return resp.ID
 }
@@ -72,8 +72,8 @@ func (s *ReleaseHandlerIntegrationSuite) TestListReleases_Empty() {
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestListReleases_FilterByType() {
-	s.deps.releaseService.CreateRelease(&services.CreateReleaseRequest{Title: "LP Album", ReleaseType: "lp"})
-	s.deps.releaseService.CreateRelease(&services.CreateReleaseRequest{Title: "EP Release", ReleaseType: "ep"})
+	s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "LP Album", ReleaseType: "lp"})
+	s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "EP Release", ReleaseType: "ep"})
 
 	req := &ListReleasesRequest{ReleaseType: "ep"}
 	resp, err := s.handler.ListReleasesHandler(s.deps.ctx, req)
@@ -278,13 +278,13 @@ func (s *ReleaseHandlerIntegrationSuite) TestDeleteRelease_NonAdminForbidden() {
 func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_Success() {
 	artistID := s.createArtistViaService("Discography Artist")
 
-	s.deps.releaseService.CreateRelease(&services.CreateReleaseRequest{
+	s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Album One",
-		Artists: []services.CreateReleaseArtistEntry{{ArtistID: artistID, Role: "main"}},
+		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artistID, Role: "main"}},
 	})
-	s.deps.releaseService.CreateRelease(&services.CreateReleaseRequest{
+	s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Album Two",
-		Artists: []services.CreateReleaseArtistEntry{{ArtistID: artistID, Role: "featured"}},
+		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artistID, Role: "featured"}},
 	})
 
 	req := &GetArtistReleasesRequest{ArtistID: fmt.Sprintf("%d", artistID)}
@@ -305,9 +305,9 @@ func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_Success() {
 func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_BySlug() {
 	artistID := s.createArtistViaService("Slug Discography Artist")
 
-	s.deps.releaseService.CreateRelease(&services.CreateReleaseRequest{
+	s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Slug Album",
-		Artists: []services.CreateReleaseArtistEntry{{ArtistID: artistID, Role: "main"}},
+		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artistID, Role: "main"}},
 	})
 
 	req := &GetArtistReleasesRequest{ArtistID: "slug-discography-artist"}
@@ -379,9 +379,9 @@ func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_NonAdminForbidden()
 
 func (s *ReleaseHandlerIntegrationSuite) TestRemoveExternalLink_Success() {
 	admin := createAdminUser(s.deps.db)
-	release, err := s.deps.releaseService.CreateRelease(&services.CreateReleaseRequest{
+	release, err := s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title: "Remove Link Album",
-		ExternalLinks: []services.CreateReleaseLinkEntry{
+		ExternalLinks: []contracts.CreateReleaseLinkEntry{
 			{Platform: "spotify", URL: "https://open.spotify.com/album/abc"},
 		},
 	})
@@ -405,9 +405,9 @@ func (s *ReleaseHandlerIntegrationSuite) TestRemoveExternalLink_Success() {
 
 func (s *ReleaseHandlerIntegrationSuite) TestRemoveExternalLink_NonAdminForbidden() {
 	user := createTestUser(s.deps.db)
-	release, err := s.deps.releaseService.CreateRelease(&services.CreateReleaseRequest{
+	release, err := s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title: "Protected Remove Link",
-		ExternalLinks: []services.CreateReleaseLinkEntry{
+		ExternalLinks: []contracts.CreateReleaseLinkEntry{
 			{Platform: "spotify", URL: "https://open.spotify.com/album/abc"},
 		},
 	})

@@ -9,18 +9,18 @@ import (
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // AppleAuthHandler handles Sign in with Apple authentication
 type AppleAuthHandler struct {
-	appleAuthService services.AppleAuthServiceInterface
-	discordService   services.DiscordServiceInterface
+	appleAuthService contracts.AppleAuthServiceInterface
+	discordService   contracts.DiscordServiceInterface
 	config           *config.Config
 }
 
 // NewAppleAuthHandler creates a new Apple auth handler
-func NewAppleAuthHandler(appleAuthService services.AppleAuthServiceInterface, discordService services.DiscordServiceInterface, cfg *config.Config) *AppleAuthHandler {
+func NewAppleAuthHandler(appleAuthService contracts.AppleAuthServiceInterface, discordService contracts.DiscordServiceInterface, cfg *config.Config) *AppleAuthHandler {
 	return &AppleAuthHandler{
 		appleAuthService: appleAuthService,
 		discordService:   discordService,

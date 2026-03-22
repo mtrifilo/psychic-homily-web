@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 func testArtistReportHandler() *ArtistReportHandler {
@@ -42,9 +42,9 @@ func TestReportArtistHandler_InvalidID(t *testing.T) {
 }
 
 func TestReportArtistHandler_Success(t *testing.T) {
-	report := &services.ArtistReportResponse{ID: 10, ArtistID: 7, ReportType: "inaccurate", Status: "pending"}
+	report := &contracts.ArtistReportResponse{ID: 10, ArtistID: 7, ReportType: "inaccurate", Status: "pending"}
 	mock := &mockArtistReportService{
-		createReportFn: func(userID, artistID uint, reportType string, details *string) (*services.ArtistReportResponse, error) {
+		createReportFn: func(userID, artistID uint, reportType string, details *string) (*contracts.ArtistReportResponse, error) {
 			if userID != 1 || artistID != 7 {
 				t.Errorf("unexpected args: userID=%d, artistID=%d", userID, artistID)
 			}
@@ -74,7 +74,7 @@ func TestReportArtistHandler_Success(t *testing.T) {
 
 func TestReportArtistHandler_ServiceError(t *testing.T) {
 	mock := &mockArtistReportService{
-		createReportFn: func(_, _ uint, _ string, _ *string) (*services.ArtistReportResponse, error) {
+		createReportFn: func(_, _ uint, _ string, _ *string) (*contracts.ArtistReportResponse, error) {
 			return nil, fmt.Errorf("duplicate report")
 		},
 	}
@@ -107,9 +107,9 @@ func TestGetMyArtistReportHandler_InvalidID(t *testing.T) {
 }
 
 func TestGetMyArtistReportHandler_Success(t *testing.T) {
-	report := &services.ArtistReportResponse{ID: 10, ArtistID: 7}
+	report := &contracts.ArtistReportResponse{ID: 10, ArtistID: 7}
 	mock := &mockArtistReportService{
-		getUserReportFn: func(userID, artistID uint) (*services.ArtistReportResponse, error) {
+		getUserReportFn: func(userID, artistID uint) (*contracts.ArtistReportResponse, error) {
 			if userID != 1 || artistID != 7 {
 				t.Errorf("unexpected args: userID=%d, artistID=%d", userID, artistID)
 			}
@@ -133,7 +133,7 @@ func TestGetMyArtistReportHandler_Success(t *testing.T) {
 
 func TestGetMyArtistReportHandler_NoReport(t *testing.T) {
 	mock := &mockArtistReportService{
-		getUserReportFn: func(_, _ uint) (*services.ArtistReportResponse, error) {
+		getUserReportFn: func(_, _ uint) (*contracts.ArtistReportResponse, error) {
 			return nil, nil
 		},
 	}
@@ -151,7 +151,7 @@ func TestGetMyArtistReportHandler_NoReport(t *testing.T) {
 
 func TestGetMyArtistReportHandler_ServiceError(t *testing.T) {
 	mock := &mockArtistReportService{
-		getUserReportFn: func(_, _ uint) (*services.ArtistReportResponse, error) {
+		getUserReportFn: func(_, _ uint) (*contracts.ArtistReportResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -182,9 +182,9 @@ func TestGetPendingArtistReportsHandler_NonAdmin(t *testing.T) {
 }
 
 func TestGetPendingArtistReportsHandler_Success(t *testing.T) {
-	reports := []*services.ArtistReportResponse{{ID: 1}, {ID: 2}}
+	reports := []*contracts.ArtistReportResponse{{ID: 1}, {ID: 2}}
 	mock := &mockArtistReportService{
-		getPendingReportsFn: func(limit, offset int) ([]*services.ArtistReportResponse, int64, error) {
+		getPendingReportsFn: func(limit, offset int) ([]*contracts.ArtistReportResponse, int64, error) {
 			return reports, 2, nil
 		},
 	}
@@ -205,7 +205,7 @@ func TestGetPendingArtistReportsHandler_Success(t *testing.T) {
 
 func TestGetPendingArtistReportsHandler_ServiceError(t *testing.T) {
 	mock := &mockArtistReportService{
-		getPendingReportsFn: func(_, _ int) ([]*services.ArtistReportResponse, int64, error) {
+		getPendingReportsFn: func(_, _ int) ([]*contracts.ArtistReportResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
@@ -245,10 +245,10 @@ func TestDismissArtistReportHandler_InvalidID(t *testing.T) {
 }
 
 func TestDismissArtistReportHandler_Success(t *testing.T) {
-	report := &services.ArtistReportResponse{ID: 5, ArtistID: 7, Status: "dismissed"}
+	report := &contracts.ArtistReportResponse{ID: 5, ArtistID: 7, Status: "dismissed"}
 	var auditLogged bool
 	mock := &mockArtistReportService{
-		dismissReportFn: func(reportID, adminID uint, notes *string) (*services.ArtistReportResponse, error) {
+		dismissReportFn: func(reportID, adminID uint, notes *string) (*contracts.ArtistReportResponse, error) {
 			if reportID != 5 || adminID != 99 {
 				t.Errorf("unexpected args: reportID=%d, adminID=%d", reportID, adminID)
 			}
@@ -283,7 +283,7 @@ func TestDismissArtistReportHandler_Success(t *testing.T) {
 
 func TestDismissArtistReportHandler_ServiceError(t *testing.T) {
 	mock := &mockArtistReportService{
-		dismissReportFn: func(_, _ uint, _ *string) (*services.ArtistReportResponse, error) {
+		dismissReportFn: func(_, _ uint, _ *string) (*contracts.ArtistReportResponse, error) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
@@ -323,10 +323,10 @@ func TestResolveArtistReportHandler_InvalidID(t *testing.T) {
 }
 
 func TestResolveArtistReportHandler_Success(t *testing.T) {
-	report := &services.ArtistReportResponse{ID: 5, ArtistID: 7, Status: "resolved"}
+	report := &contracts.ArtistReportResponse{ID: 5, ArtistID: 7, Status: "resolved"}
 	var auditAction string
 	mock := &mockArtistReportService{
-		resolveReportFn: func(reportID, adminID uint, notes *string) (*services.ArtistReportResponse, error) {
+		resolveReportFn: func(reportID, adminID uint, notes *string) (*contracts.ArtistReportResponse, error) {
 			if reportID != 5 || adminID != 99 {
 				t.Errorf("unexpected args: reportID=%d, adminID=%d", reportID, adminID)
 			}
@@ -355,7 +355,7 @@ func TestResolveArtistReportHandler_Success(t *testing.T) {
 
 func TestResolveArtistReportHandler_ServiceError(t *testing.T) {
 	mock := &mockArtistReportService{
-		resolveReportFn: func(_, _ uint, _ *string) (*services.ArtistReportResponse, error) {
+		resolveReportFn: func(_, _ uint, _ *string) (*contracts.ArtistReportResponse, error) {
 			return nil, fmt.Errorf("not found")
 		},
 	}

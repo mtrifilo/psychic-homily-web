@@ -9,16 +9,16 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // FavoriteVenueHandler handles favorite venue HTTP requests
 type FavoriteVenueHandler struct {
-	favoriteVenueService services.FavoriteVenueServiceInterface
+	favoriteVenueService contracts.FavoriteVenueServiceInterface
 }
 
 // NewFavoriteVenueHandler creates a new favorite venue handler
-func NewFavoriteVenueHandler(favoriteVenueService services.FavoriteVenueServiceInterface) *FavoriteVenueHandler {
+func NewFavoriteVenueHandler(favoriteVenueService contracts.FavoriteVenueServiceInterface) *FavoriteVenueHandler {
 	return &FavoriteVenueHandler{
 		favoriteVenueService: favoriteVenueService,
 	}
@@ -59,7 +59,7 @@ type GetFavoriteVenuesRequest struct {
 // GetFavoriteVenuesResponse represents the HTTP response for listing favorite venues
 type GetFavoriteVenuesResponse struct {
 	Body struct {
-		Venues []*services.FavoriteVenueResponse `json:"venues"`
+		Venues []*contracts.FavoriteVenueResponse `json:"venues"`
 		Total  int64                             `json:"total"`
 		Limit  int                               `json:"limit"`
 		Offset int                               `json:"offset"`
@@ -88,7 +88,7 @@ type GetFavoriteVenueShowsRequest struct {
 // GetFavoriteVenueShowsResponse represents the HTTP response for getting shows from favorite venues
 type GetFavoriteVenueShowsResponse struct {
 	Body struct {
-		Shows    []*services.FavoriteVenueShowResponse `json:"shows"`
+		Shows    []*contracts.FavoriteVenueShowResponse `json:"shows"`
 		Total    int64                                 `json:"total"`
 		Limit    int                                   `json:"limit"`
 		Offset   int                                   `json:"offset"`
@@ -259,7 +259,7 @@ func (h *FavoriteVenueHandler) GetFavoriteVenuesHandler(ctx context.Context, req
 
 	return &GetFavoriteVenuesResponse{
 		Body: struct {
-			Venues []*services.FavoriteVenueResponse `json:"venues"`
+			Venues []*contracts.FavoriteVenueResponse `json:"venues"`
 			Total  int64                             `json:"total"`
 			Limit  int                               `json:"limit"`
 			Offset int                               `json:"offset"`
@@ -372,7 +372,7 @@ func (h *FavoriteVenueHandler) GetFavoriteVenueShowsHandler(ctx context.Context,
 
 	return &GetFavoriteVenueShowsResponse{
 		Body: struct {
-			Shows    []*services.FavoriteVenueShowResponse `json:"shows"`
+			Shows    []*contracts.FavoriteVenueShowResponse `json:"shows"`
 			Total    int64                                 `json:"total"`
 			Limit    int                                   `json:"limit"`
 			Offset   int                                   `json:"offset"`

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 type LabelHandlerIntegrationSuite struct {
@@ -38,8 +38,8 @@ func TestLabelHandlerIntegration(t *testing.T) {
 
 // --- Helpers ---
 
-func (s *LabelHandlerIntegrationSuite) createLabelViaService(name string) *services.LabelDetailResponse {
-	resp, err := s.deps.labelService.CreateLabel(&services.CreateLabelRequest{Name: name})
+func (s *LabelHandlerIntegrationSuite) createLabelViaService(name string) *contracts.LabelDetailResponse {
+	resp, err := s.deps.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: name})
 	s.Require().NoError(err)
 	return resp
 }
@@ -80,8 +80,8 @@ func (s *LabelHandlerIntegrationSuite) TestListLabels_Empty() {
 }
 
 func (s *LabelHandlerIntegrationSuite) TestListLabels_FilterByStatus() {
-	s.deps.labelService.CreateLabel(&services.CreateLabelRequest{Name: "Active Label", Status: "active"})
-	s.deps.labelService.CreateLabel(&services.CreateLabelRequest{Name: "Defunct Label", Status: "defunct"})
+	s.deps.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Active Label", Status: "active"})
+	s.deps.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Defunct Label", Status: "defunct"})
 
 	req := &ListLabelsRequest{Status: "defunct"}
 	resp, err := s.handler.ListLabelsHandler(s.deps.ctx, req)

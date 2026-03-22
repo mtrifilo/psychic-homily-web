@@ -11,7 +11,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // assertHumaError checks that an error is a huma.ErrorModel with the expected status code.
@@ -269,8 +269,8 @@ func TestExportShowHandler_NonDevEnvironment(t *testing.T) {
 
 func TestGetShowHandler_ByID(t *testing.T) {
 	mock := &mockShowService{
-		getShowFn: func(showID uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: showID, Status: "approved"}, nil
+		getShowFn: func(showID uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: showID, Status: "approved"}, nil
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil)
@@ -286,8 +286,8 @@ func TestGetShowHandler_ByID(t *testing.T) {
 
 func TestGetShowHandler_BySlug(t *testing.T) {
 	mock := &mockShowService{
-		getShowBySlugFn: func(slug string) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 10, Slug: slug, Status: "approved"}, nil
+		getShowBySlugFn: func(slug string) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 10, Slug: slug, Status: "approved"}, nil
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil)
@@ -303,7 +303,7 @@ func TestGetShowHandler_BySlug(t *testing.T) {
 
 func TestGetShowHandler_NotFound(t *testing.T) {
 	mock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
@@ -315,8 +315,8 @@ func TestGetShowHandler_NotFound(t *testing.T) {
 
 func TestGetShowHandler_NonApproved_Admin(t *testing.T) {
 	mock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 1, Status: "pending"}, nil
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, Status: "pending"}, nil
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil)
@@ -334,8 +334,8 @@ func TestGetShowHandler_NonApproved_Admin(t *testing.T) {
 func TestGetShowHandler_NonApproved_Submitter(t *testing.T) {
 	userID := uint(5)
 	mock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 1, Status: "pending", SubmittedBy: &userID}, nil
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, Status: "pending", SubmittedBy: &userID}, nil
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil)
@@ -353,8 +353,8 @@ func TestGetShowHandler_NonApproved_Submitter(t *testing.T) {
 func TestGetShowHandler_NonApproved_Denied(t *testing.T) {
 	otherUser := uint(99)
 	mock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 1, Status: "pending", SubmittedBy: &otherUser}, nil
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, Status: "pending", SubmittedBy: &otherUser}, nil
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil)
@@ -370,8 +370,8 @@ func TestGetShowHandler_NonApproved_Denied(t *testing.T) {
 
 func TestGetShowsHandler_Success(t *testing.T) {
 	mock := &mockShowService{
-		getShowsFn: func(filters map[string]interface{}) ([]*services.ShowResponse, error) {
-			return []*services.ShowResponse{{ID: 1}, {ID: 2}}, nil
+		getShowsFn: func(filters map[string]interface{}) ([]*contracts.ShowResponse, error) {
+			return []*contracts.ShowResponse{{ID: 1}, {ID: 2}}, nil
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil)
@@ -387,7 +387,7 @@ func TestGetShowsHandler_Success(t *testing.T) {
 
 func TestGetShowsHandler_ServiceError(t *testing.T) {
 	mock := &mockShowService{
-		getShowsFn: func(_ map[string]interface{}) ([]*services.ShowResponse, error) {
+		getShowsFn: func(_ map[string]interface{}) ([]*contracts.ShowResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -403,8 +403,8 @@ func TestGetShowsHandler_ServiceError(t *testing.T) {
 
 func TestGetShowCitiesHandler_Success(t *testing.T) {
 	mock := &mockShowService{
-		getShowCitiesFn: func(timezone string) ([]services.ShowCityResponse, error) {
-			return []services.ShowCityResponse{{City: "Phoenix", State: "AZ", ShowCount: 5}}, nil
+		getShowCitiesFn: func(timezone string) ([]contracts.ShowCityResponse, error) {
+			return []contracts.ShowCityResponse{{City: "Phoenix", State: "AZ", ShowCount: 5}}, nil
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil)
@@ -420,7 +420,7 @@ func TestGetShowCitiesHandler_Success(t *testing.T) {
 
 func TestGetShowCitiesHandler_ServiceError(t *testing.T) {
 	mock := &mockShowService{
-		getShowCitiesFn: func(_ string) ([]services.ShowCityResponse, error) {
+		getShowCitiesFn: func(_ string) ([]contracts.ShowCityResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -437,8 +437,8 @@ func TestGetShowCitiesHandler_ServiceError(t *testing.T) {
 func TestGetUpcomingShowsHandler_Success(t *testing.T) {
 	nextCursor := "abc123"
 	mock := &mockShowService{
-		getUpcomingShowsFn: func(timezone, cursor string, limit int, includeNonApproved bool, filters *services.UpcomingShowsFilter) ([]*services.ShowResponse, *string, error) {
-			return []*services.ShowResponse{{ID: 1}}, &nextCursor, nil
+		getUpcomingShowsFn: func(timezone, cursor string, limit int, includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error) {
+			return []*contracts.ShowResponse{{ID: 1}}, &nextCursor, nil
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil)
@@ -457,7 +457,7 @@ func TestGetUpcomingShowsHandler_Success(t *testing.T) {
 
 func TestGetUpcomingShowsHandler_ServiceError(t *testing.T) {
 	mock := &mockShowService{
-		getUpcomingShowsFn: func(_, _ string, _ int, _ bool, _ *services.UpcomingShowsFilter) ([]*services.ShowResponse, *string, error) {
+		getUpcomingShowsFn: func(_, _ string, _ int, _ bool, _ *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error) {
 			return nil, nil, fmt.Errorf("db error")
 		},
 	}
@@ -473,8 +473,8 @@ func TestGetUpcomingShowsHandler_ServiceError(t *testing.T) {
 
 func TestCreateShowHandler_Success(t *testing.T) {
 	showMock := &mockShowService{
-		createShowFn: func(req *services.CreateShowRequest) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 100, Title: req.Title, Status: "pending"}, nil
+		createShowFn: func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 100, Title: req.Title, Status: "pending"}, nil
 		},
 	}
 	h := NewShowHandler(showMock, &mockSavedShowService{}, &mockDiscordService{}, &mockMusicDiscoveryService{}, nil)
@@ -501,8 +501,8 @@ func TestCreateShowHandler_Success(t *testing.T) {
 func TestCreateShowHandler_AutoSave(t *testing.T) {
 	var savedUserID, savedShowID uint
 	showMock := &mockShowService{
-		createShowFn: func(_ *services.CreateShowRequest) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 50, Status: "pending"}, nil
+		createShowFn: func(_ *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 50, Status: "pending"}, nil
 		},
 	}
 	savedShowMock := &mockSavedShowService{
@@ -538,7 +538,7 @@ func TestCreateShowHandler_AutoSave(t *testing.T) {
 
 func TestCreateShowHandler_ServiceError(t *testing.T) {
 	showMock := &mockShowService{
-		createShowFn: func(_ *services.CreateShowRequest) (*services.ShowResponse, error) {
+		createShowFn: func(_ *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -565,11 +565,11 @@ func TestCreateShowHandler_ServiceError(t *testing.T) {
 func TestUpdateShowHandler_OwnerSuccess(t *testing.T) {
 	userID := uint(5)
 	showMock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 1, SubmittedBy: &userID, Status: "pending"}, nil
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, SubmittedBy: &userID, Status: "pending"}, nil
 		},
-		updateShowWithRelationsFn: func(showID uint, _ map[string]interface{}, _ []services.CreateShowVenue, _ []services.CreateShowArtist, _ bool) (*services.ShowResponse, []services.OrphanedArtist, error) {
-			return &services.ShowResponse{ID: showID, Title: "Updated"}, nil, nil
+		updateShowWithRelationsFn: func(showID uint, _ map[string]interface{}, _ []contracts.CreateShowVenue, _ []contracts.CreateShowArtist, _ bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
+			return &contracts.ShowResponse{ID: showID, Title: "Updated"}, nil, nil
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil)
@@ -590,11 +590,11 @@ func TestUpdateShowHandler_OwnerSuccess(t *testing.T) {
 func TestUpdateShowHandler_AdminSuccess(t *testing.T) {
 	otherUser := uint(99)
 	showMock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 1, SubmittedBy: &otherUser, Status: "approved"}, nil
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser, Status: "approved"}, nil
 		},
-		updateShowWithRelationsFn: func(showID uint, _ map[string]interface{}, _ []services.CreateShowVenue, _ []services.CreateShowArtist, _ bool) (*services.ShowResponse, []services.OrphanedArtist, error) {
-			return &services.ShowResponse{ID: showID}, nil, nil
+		updateShowWithRelationsFn: func(showID uint, _ map[string]interface{}, _ []contracts.CreateShowVenue, _ []contracts.CreateShowArtist, _ bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
+			return &contracts.ShowResponse{ID: showID}, nil, nil
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil)
@@ -611,7 +611,7 @@ func TestUpdateShowHandler_AdminSuccess(t *testing.T) {
 
 func TestUpdateShowHandler_NotFound(t *testing.T) {
 	showMock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
@@ -625,8 +625,8 @@ func TestUpdateShowHandler_NotFound(t *testing.T) {
 func TestUpdateShowHandler_Unauthorized(t *testing.T) {
 	otherUser := uint(99)
 	showMock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil)
@@ -639,10 +639,10 @@ func TestUpdateShowHandler_Unauthorized(t *testing.T) {
 func TestUpdateShowHandler_ServiceError(t *testing.T) {
 	userID := uint(1)
 	showMock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 1, SubmittedBy: &userID}, nil
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, SubmittedBy: &userID}, nil
 		},
-		updateShowWithRelationsFn: func(_ uint, _ map[string]interface{}, _ []services.CreateShowVenue, _ []services.CreateShowArtist, _ bool) (*services.ShowResponse, []services.OrphanedArtist, error) {
+		updateShowWithRelationsFn: func(_ uint, _ map[string]interface{}, _ []contracts.CreateShowVenue, _ []contracts.CreateShowArtist, _ bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
 			return nil, nil, fmt.Errorf("update failed")
 		},
 	}
@@ -663,8 +663,8 @@ func TestUpdateShowHandler_ServiceError(t *testing.T) {
 func TestDeleteShowHandler_OwnerSuccess(t *testing.T) {
 	userID := uint(5)
 	showMock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 1, SubmittedBy: &userID}, nil
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, SubmittedBy: &userID}, nil
 		},
 		deleteShowFn: func(showID uint) error {
 			if showID != 1 {
@@ -685,8 +685,8 @@ func TestDeleteShowHandler_OwnerSuccess(t *testing.T) {
 func TestDeleteShowHandler_AdminSuccess(t *testing.T) {
 	otherUser := uint(99)
 	showMock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 		deleteShowFn: func(_ uint) error { return nil },
 	}
@@ -701,7 +701,7 @@ func TestDeleteShowHandler_AdminSuccess(t *testing.T) {
 
 func TestDeleteShowHandler_NotFound(t *testing.T) {
 	showMock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
@@ -715,8 +715,8 @@ func TestDeleteShowHandler_NotFound(t *testing.T) {
 func TestDeleteShowHandler_Unauthorized(t *testing.T) {
 	otherUser := uint(99)
 	showMock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil)
@@ -729,8 +729,8 @@ func TestDeleteShowHandler_Unauthorized(t *testing.T) {
 func TestDeleteShowHandler_ServiceError(t *testing.T) {
 	userID := uint(1)
 	showMock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 1, SubmittedBy: &userID}, nil
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, SubmittedBy: &userID}, nil
 		},
 		deleteShowFn: func(_ uint) error { return fmt.Errorf("delete failed") },
 	}
@@ -747,8 +747,8 @@ func TestDeleteShowHandler_ServiceError(t *testing.T) {
 
 func TestUnpublishShowHandler_Success(t *testing.T) {
 	showMock := &mockShowService{
-		unpublishShowFn: func(showID, userID uint, isAdmin bool) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: showID, Status: "pending", Title: "Test"}, nil
+		unpublishShowFn: func(showID, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: showID, Status: "pending", Title: "Test"}, nil
 		},
 	}
 	h := NewShowHandler(showMock, nil, &mockDiscordService{}, nil, nil)
@@ -765,7 +765,7 @@ func TestUnpublishShowHandler_Success(t *testing.T) {
 
 func TestUnpublishShowHandler_NotFound(t *testing.T) {
 	showMock := &mockShowService{
-		unpublishShowFn: func(_, _ uint, _ bool) (*services.ShowResponse, error) {
+		unpublishShowFn: func(_, _ uint, _ bool) (*contracts.ShowResponse, error) {
 			return nil, apperrors.ErrShowNotFound(42)
 		},
 	}
@@ -778,7 +778,7 @@ func TestUnpublishShowHandler_NotFound(t *testing.T) {
 
 func TestUnpublishShowHandler_Unauthorized(t *testing.T) {
 	showMock := &mockShowService{
-		unpublishShowFn: func(_, _ uint, _ bool) (*services.ShowResponse, error) {
+		unpublishShowFn: func(_, _ uint, _ bool) (*contracts.ShowResponse, error) {
 			return nil, apperrors.ErrShowUnpublishUnauthorized(42)
 		},
 	}
@@ -795,8 +795,8 @@ func TestUnpublishShowHandler_Unauthorized(t *testing.T) {
 
 func TestMakePrivateShowHandler_Success(t *testing.T) {
 	showMock := &mockShowService{
-		makePrivateShowFn: func(showID, userID uint, isAdmin bool) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: showID, Status: "private", Title: "Test"}, nil
+		makePrivateShowFn: func(showID, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: showID, Status: "private", Title: "Test"}, nil
 		},
 	}
 	h := NewShowHandler(showMock, nil, &mockDiscordService{}, nil, nil)
@@ -813,7 +813,7 @@ func TestMakePrivateShowHandler_Success(t *testing.T) {
 
 func TestMakePrivateShowHandler_NotFound(t *testing.T) {
 	showMock := &mockShowService{
-		makePrivateShowFn: func(_, _ uint, _ bool) (*services.ShowResponse, error) {
+		makePrivateShowFn: func(_, _ uint, _ bool) (*contracts.ShowResponse, error) {
 			return nil, apperrors.ErrShowNotFound(42)
 		},
 	}
@@ -826,7 +826,7 @@ func TestMakePrivateShowHandler_NotFound(t *testing.T) {
 
 func TestMakePrivateShowHandler_Unauthorized(t *testing.T) {
 	showMock := &mockShowService{
-		makePrivateShowFn: func(_, _ uint, _ bool) (*services.ShowResponse, error) {
+		makePrivateShowFn: func(_, _ uint, _ bool) (*contracts.ShowResponse, error) {
 			return nil, apperrors.ErrShowMakePrivateUnauthorized(42)
 		},
 	}
@@ -843,8 +843,8 @@ func TestMakePrivateShowHandler_Unauthorized(t *testing.T) {
 
 func TestPublishShowHandler_Success(t *testing.T) {
 	showMock := &mockShowService{
-		publishShowFn: func(showID, userID uint, isAdmin bool) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: showID, Status: "approved", Title: "Test"}, nil
+		publishShowFn: func(showID, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: showID, Status: "approved", Title: "Test"}, nil
 		},
 	}
 	h := NewShowHandler(showMock, nil, &mockDiscordService{}, nil, nil)
@@ -861,7 +861,7 @@ func TestPublishShowHandler_Success(t *testing.T) {
 
 func TestPublishShowHandler_NotFound(t *testing.T) {
 	showMock := &mockShowService{
-		publishShowFn: func(_, _ uint, _ bool) (*services.ShowResponse, error) {
+		publishShowFn: func(_, _ uint, _ bool) (*contracts.ShowResponse, error) {
 			return nil, apperrors.ErrShowNotFound(42)
 		},
 	}
@@ -874,7 +874,7 @@ func TestPublishShowHandler_NotFound(t *testing.T) {
 
 func TestPublishShowHandler_Unauthorized(t *testing.T) {
 	showMock := &mockShowService{
-		publishShowFn: func(_, _ uint, _ bool) (*services.ShowResponse, error) {
+		publishShowFn: func(_, _ uint, _ bool) (*contracts.ShowResponse, error) {
 			return nil, apperrors.ErrShowPublishUnauthorized(42)
 		},
 	}
@@ -892,11 +892,11 @@ func TestPublishShowHandler_Unauthorized(t *testing.T) {
 func TestSetShowSoldOutHandler_Success(t *testing.T) {
 	userID := uint(5)
 	showMock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 1, SubmittedBy: &userID}, nil
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, SubmittedBy: &userID}, nil
 		},
-		setShowSoldOutFn: func(showID uint, value bool) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: showID, IsSoldOut: value}, nil
+		setShowSoldOutFn: func(showID uint, value bool) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: showID, IsSoldOut: value}, nil
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil)
@@ -916,8 +916,8 @@ func TestSetShowSoldOutHandler_Success(t *testing.T) {
 func TestSetShowSoldOutHandler_NotOwner(t *testing.T) {
 	otherUser := uint(99)
 	showMock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil)
@@ -936,11 +936,11 @@ func TestSetShowSoldOutHandler_NotOwner(t *testing.T) {
 func TestSetShowCancelledHandler_Success(t *testing.T) {
 	userID := uint(5)
 	showMock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 1, SubmittedBy: &userID}, nil
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, SubmittedBy: &userID}, nil
 		},
-		setShowCancelledFn: func(showID uint, value bool) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: showID, IsCancelled: value}, nil
+		setShowCancelledFn: func(showID uint, value bool) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: showID, IsCancelled: value}, nil
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil)
@@ -960,8 +960,8 @@ func TestSetShowCancelledHandler_Success(t *testing.T) {
 func TestSetShowCancelledHandler_NotOwner(t *testing.T) {
 	otherUser := uint(99)
 	showMock := &mockShowService{
-		getShowFn: func(_ uint) (*services.ShowResponse, error) {
-			return &services.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
+		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil)
@@ -979,8 +979,8 @@ func TestSetShowCancelledHandler_NotOwner(t *testing.T) {
 
 func TestGetMySubmissionsHandler_Success(t *testing.T) {
 	showMock := &mockShowService{
-		getUserSubmissionsFn: func(userID uint, limit, offset int) ([]services.ShowResponse, int, error) {
-			return []services.ShowResponse{{ID: 1}, {ID: 2}}, 2, nil
+		getUserSubmissionsFn: func(userID uint, limit, offset int) ([]contracts.ShowResponse, int, error) {
+			return []contracts.ShowResponse{{ID: 1}, {ID: 2}}, 2, nil
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil)
@@ -997,7 +997,7 @@ func TestGetMySubmissionsHandler_Success(t *testing.T) {
 
 func TestGetMySubmissionsHandler_ServiceError(t *testing.T) {
 	showMock := &mockShowService{
-		getUserSubmissionsFn: func(_ uint, _, _ int) ([]services.ShowResponse, int, error) {
+		getUserSubmissionsFn: func(_ uint, _, _ int) ([]contracts.ShowResponse, int, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
@@ -1014,8 +1014,8 @@ func TestGetMySubmissionsHandler_ServiceError(t *testing.T) {
 
 func TestAIProcessShowHandler_Success(t *testing.T) {
 	extractMock := &mockExtractionService{
-		extractShowFn: func(req *services.ExtractShowRequest) (*services.ExtractShowResponse, error) {
-			return &services.ExtractShowResponse{Success: true}, nil
+		extractShowFn: func(req *contracts.ExtractShowRequest) (*contracts.ExtractShowResponse, error) {
+			return &contracts.ExtractShowResponse{Success: true}, nil
 		},
 	}
 	h := NewShowHandler(nil, nil, nil, nil, extractMock)
@@ -1035,7 +1035,7 @@ func TestAIProcessShowHandler_Success(t *testing.T) {
 
 func TestAIProcessShowHandler_ServiceError(t *testing.T) {
 	extractMock := &mockExtractionService{
-		extractShowFn: func(_ *services.ExtractShowRequest) (*services.ExtractShowResponse, error) {
+		extractShowFn: func(_ *contracts.ExtractShowRequest) (*contracts.ExtractShowResponse, error) {
 			return nil, fmt.Errorf("AI service down")
 		},
 	}

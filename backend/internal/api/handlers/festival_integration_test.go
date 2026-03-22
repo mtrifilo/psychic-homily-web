@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -41,11 +41,11 @@ func TestFestivalHandlerIntegration(t *testing.T) {
 
 var handlerFestivalCounter int64
 
-func (s *FestivalHandlerIntegrationSuite) createFestivalViaService(name string) *services.FestivalDetailResponse {
+func (s *FestivalHandlerIntegrationSuite) createFestivalViaService(name string) *contracts.FestivalDetailResponse {
 	city := "Phoenix"
 	state := "AZ"
 	counter := atomic.AddInt64(&handlerFestivalCounter, 1)
-	resp, err := s.deps.festivalService.CreateFestival(&services.CreateFestivalRequest{
+	resp, err := s.deps.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name:        name,
 		SeriesSlug:  utils.GenerateArtistSlug(name),
 		EditionYear: 2026 + int(counter),
@@ -59,7 +59,7 @@ func (s *FestivalHandlerIntegrationSuite) createFestivalViaService(name string) 
 }
 
 func (s *FestivalHandlerIntegrationSuite) createArtistViaArtistService(name string) uint {
-	resp, err := s.deps.artistService.CreateArtist(&services.CreateArtistRequest{Name: name})
+	resp, err := s.deps.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: name})
 	s.Require().NoError(err)
 	return resp.ID
 }
@@ -91,11 +91,11 @@ func (s *FestivalHandlerIntegrationSuite) TestListFestivals_Empty() {
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestListFestivals_FilterByStatus() {
-	s.deps.festivalService.CreateFestival(&services.CreateFestivalRequest{
+	s.deps.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name: "Confirmed Fest", SeriesSlug: "cf", EditionYear: 2026,
 		StartDate: "2026-03-01", EndDate: "2026-03-03", Status: "confirmed",
 	})
-	s.deps.festivalService.CreateFestival(&services.CreateFestivalRequest{
+	s.deps.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name: "Announced Fest", SeriesSlug: "af", EditionYear: 2026,
 		StartDate: "2026-04-01", EndDate: "2026-04-03",
 	})
@@ -297,7 +297,7 @@ func (s *FestivalHandlerIntegrationSuite) TestGetFestivalArtists_Success() {
 	festival := s.createFestivalViaService("Lineup Festival")
 	artistID := s.createArtistViaArtistService("Lineup Artist")
 
-	s.deps.festivalService.AddFestivalArtist(festival.ID, &services.AddFestivalArtistRequest{
+	s.deps.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID:    artistID,
 		BillingTier: "headliner",
 	})
@@ -378,7 +378,7 @@ func (s *FestivalHandlerIntegrationSuite) TestUpdateFestivalArtist_Success() {
 	festival := s.createFestivalViaService("Update Artist Festival")
 	artistID := s.createArtistViaArtistService("Promoted Artist")
 
-	s.deps.festivalService.AddFestivalArtist(festival.ID, &services.AddFestivalArtistRequest{
+	s.deps.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID:    artistID,
 		BillingTier: "undercard",
 	})
@@ -418,7 +418,7 @@ func (s *FestivalHandlerIntegrationSuite) TestRemoveFestivalArtist_Success() {
 	festival := s.createFestivalViaService("Remove Artist Festival")
 	artistID := s.createArtistViaArtistService("Removed Artist")
 
-	s.deps.festivalService.AddFestivalArtist(festival.ID, &services.AddFestivalArtistRequest{
+	s.deps.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: artistID,
 	})
 
@@ -437,7 +437,7 @@ func (s *FestivalHandlerIntegrationSuite) TestRemoveFestivalArtist_NonAdminForbi
 	festival := s.createFestivalViaService("Protected Remove Festival")
 	artistID := s.createArtistViaArtistService("Protected Remove Artist")
 
-	s.deps.festivalService.AddFestivalArtist(festival.ID, &services.AddFestivalArtistRequest{
+	s.deps.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: artistID,
 	})
 
@@ -457,7 +457,7 @@ func (s *FestivalHandlerIntegrationSuite) TestGetFestivalVenues_Success() {
 	festival := s.createFestivalViaService("Venue Festival")
 	venueID := s.createVenueViaDB("Test Venue", "Phoenix", "AZ")
 
-	s.deps.festivalService.AddFestivalVenue(festival.ID, &services.AddFestivalVenueRequest{
+	s.deps.festivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
 		VenueID:   venueID,
 		IsPrimary: true,
 	})
@@ -528,7 +528,7 @@ func (s *FestivalHandlerIntegrationSuite) TestRemoveFestivalVenue_Success() {
 	festival := s.createFestivalViaService("Remove Venue Festival")
 	venueID := s.createVenueViaDB("Removable Venue", "Phoenix", "AZ")
 
-	s.deps.festivalService.AddFestivalVenue(festival.ID, &services.AddFestivalVenueRequest{
+	s.deps.festivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
 		VenueID: venueID,
 	})
 
@@ -547,7 +547,7 @@ func (s *FestivalHandlerIntegrationSuite) TestRemoveFestivalVenue_NonAdminForbid
 	festival := s.createFestivalViaService("Protected Remove Venue Festival")
 	venueID := s.createVenueViaDB("Protected Remove Venue", "Phoenix", "AZ")
 
-	s.deps.festivalService.AddFestivalVenue(festival.ID, &services.AddFestivalVenueRequest{
+	s.deps.festivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
 		VenueID: venueID,
 	})
 
@@ -567,7 +567,7 @@ func (s *FestivalHandlerIntegrationSuite) TestGetArtistFestivals_Success() {
 	festival := s.createFestivalViaService("Artist Fest History")
 	artistID := s.createArtistViaArtistService("Festival Artist")
 
-	s.deps.festivalService.AddFestivalArtist(festival.ID, &services.AddFestivalArtistRequest{
+	s.deps.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID:    artistID,
 		BillingTier: "headliner",
 	})
@@ -585,7 +585,7 @@ func (s *FestivalHandlerIntegrationSuite) TestGetArtistFestivals_BySlug() {
 	festival := s.createFestivalViaService("Slug Artist Festival")
 	artistID := s.createArtistViaArtistService("Slug Festival Artist")
 
-	s.deps.festivalService.AddFestivalArtist(festival.ID, &services.AddFestivalArtistRequest{
+	s.deps.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: artistID,
 	})
 

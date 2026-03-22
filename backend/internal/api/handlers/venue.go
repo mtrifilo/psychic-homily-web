@@ -11,19 +11,19 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 
 	"github.com/danielgtaylor/huma/v2"
 )
 
 type VenueHandler struct {
-	venueService    services.VenueServiceInterface
-	discordService  services.DiscordServiceInterface
-	auditLogService services.AuditLogServiceInterface
-	revisionService services.RevisionServiceInterface
+	venueService    contracts.VenueServiceInterface
+	discordService  contracts.DiscordServiceInterface
+	auditLogService contracts.AuditLogServiceInterface
+	revisionService contracts.RevisionServiceInterface
 }
 
-func NewVenueHandler(venueService services.VenueServiceInterface, discordService services.DiscordServiceInterface, auditLogService services.AuditLogServiceInterface, revisionService services.RevisionServiceInterface) *VenueHandler {
+func NewVenueHandler(venueService contracts.VenueServiceInterface, discordService contracts.DiscordServiceInterface, auditLogService contracts.AuditLogServiceInterface, revisionService contracts.RevisionServiceInterface) *VenueHandler {
 	return &VenueHandler{
 		venueService:    venueService,
 		discordService:  discordService,
@@ -38,7 +38,7 @@ type SearchVenuesRequest struct {
 
 type SearchVenuesResponse struct {
 	Body struct {
-		Venues []*services.VenueDetailResponse `json:"venues" doc:"Matching venues"`
+		Venues []*contracts.VenueDetailResponse `json:"venues" doc:"Matching venues"`
 		Count  int                             `json:"count" doc:"Number of results"`
 	}
 }
@@ -68,7 +68,7 @@ type ListVenuesRequest struct {
 // ListVenuesResponse represents the response for the list venues endpoint
 type ListVenuesResponse struct {
 	Body struct {
-		Venues []*services.VenueWithShowCountResponse `json:"venues" doc:"List of venues with show counts"`
+		Venues []*contracts.VenueWithShowCountResponse `json:"venues" doc:"List of venues with show counts"`
 		Total  int64                                  `json:"total" doc:"Total number of venues"`
 		Limit  int                                    `json:"limit" doc:"Limit used in query"`
 		Offset int                                    `json:"offset" doc:"Offset used in query"`
@@ -77,16 +77,16 @@ type ListVenuesResponse struct {
 
 // ListVenuesHandler handles GET /venues - returns verified venues with upcoming show counts
 func (h *VenueHandler) ListVenuesHandler(ctx context.Context, req *ListVenuesRequest) (*ListVenuesResponse, error) {
-	filters := services.VenueListFilters{}
+	filters := contracts.VenueListFilters{}
 
 	if req.Cities != "" {
 		// Parse pipe-delimited multi-city param: "Phoenix,AZ|Tucson,AZ"
 		pairs := strings.Split(req.Cities, "|")
-		var cityFilters []services.CityStateFilter
+		var cityFilters []contracts.CityStateFilter
 		for _, pair := range pairs {
 			parts := strings.SplitN(pair, ",", 2)
 			if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-				cityFilters = append(cityFilters, services.CityStateFilter{
+				cityFilters = append(cityFilters, contracts.CityStateFilter{
 					City:  strings.TrimSpace(parts[0]),
 					State: strings.TrimSpace(parts[1]),
 				})
@@ -128,12 +128,12 @@ type GetVenueRequest struct {
 
 // GetVenueResponse represents the response for the get venue endpoint
 type GetVenueResponse struct {
-	Body *services.VenueDetailResponse
+	Body *contracts.VenueDetailResponse
 }
 
 // GetVenueHandler handles GET /venues/{venue_id} - returns a single venue by ID or slug
 func (h *VenueHandler) GetVenueHandler(ctx context.Context, req *GetVenueRequest) (*GetVenueResponse, error) {
-	var venue *services.VenueDetailResponse
+	var venue *contracts.VenueDetailResponse
 	var err error
 
 	// Try to parse as numeric ID first
@@ -166,7 +166,7 @@ type GetVenueShowsRequest struct {
 // GetVenueShowsResponse represents the response for the venue shows endpoint
 type GetVenueShowsResponse struct {
 	Body struct {
-		Shows   []*services.VenueShowResponse `json:"shows" doc:"List of upcoming shows"`
+		Shows   []*contracts.VenueShowResponse `json:"shows" doc:"List of upcoming shows"`
 		VenueID uint                          `json:"venue_id" doc:"Venue ID"`
 		Total   int64                         `json:"total" doc:"Total number of upcoming shows"`
 	}
@@ -229,7 +229,7 @@ type GetVenueCitiesRequest struct{}
 // GetVenueCitiesResponse represents the response for the venue cities endpoint
 type GetVenueCitiesResponse struct {
 	Body struct {
-		Cities []*services.VenueCityResponse `json:"cities" doc:"List of cities with venue counts"`
+		Cities []*contracts.VenueCityResponse `json:"cities" doc:"List of cities with venue counts"`
 	}
 }
 
@@ -271,7 +271,7 @@ type AdminCreateVenueRequest struct {
 
 // AdminCreateVenueResponse represents the response for creating a venue
 type AdminCreateVenueResponse struct {
-	Body *services.VenueDetailResponse
+	Body *contracts.VenueDetailResponse
 }
 
 // AdminCreateVenueHandler handles POST /admin/venues - creates a venue directly (admin only)
@@ -284,7 +284,7 @@ func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCr
 	}
 
 	// Build service request
-	serviceReq := &services.CreateVenueRequest{
+	serviceReq := &contracts.CreateVenueRequest{
 		Name:        req.Body.Name,
 		City:        req.Body.City,
 		State:       req.Body.State,
@@ -364,8 +364,8 @@ type UpdateVenueRequest struct {
 // Can return either updated venue (admin) or pending edit info (non-admin)
 type UpdateVenueResponse struct {
 	Body struct {
-		Venue       *services.VenueDetailResponse       `json:"venue,omitempty" doc:"Updated venue (admin only)"`
-		PendingEdit *services.PendingVenueEditResponse  `json:"pending_edit,omitempty" doc:"Pending edit info (non-admin)"`
+		Venue       *contracts.VenueDetailResponse       `json:"venue,omitempty" doc:"Updated venue (admin only)"`
+		PendingEdit *contracts.PendingVenueEditResponse  `json:"pending_edit,omitempty" doc:"Pending edit info (non-admin)"`
 		Status      string                              `json:"status" doc:"Result status: updated or pending"`
 		Message     string                              `json:"message" doc:"Human-readable message"`
 	}
@@ -402,7 +402,7 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 	}
 
 	// Build edit request
-	editReq := &services.VenueEditRequest{
+	editReq := &contracts.VenueEditRequest{
 		Name:       req.Body.Name,
 		Address:    req.Body.Address,
 		City:       req.Body.City,
@@ -438,7 +438,7 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		)
 
 		// Capture old values for revision diff (fire-and-forget safe)
-		var oldVenue *services.VenueDetailResponse
+		var oldVenue *contracts.VenueDetailResponse
 		if h.revisionService != nil {
 			oldVenue, _ = h.venueService.GetVenue(uint(venueID))
 		}
@@ -518,8 +518,8 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 
 		return &UpdateVenueResponse{
 			Body: struct {
-				Venue       *services.VenueDetailResponse       `json:"venue,omitempty" doc:"Updated venue (admin only)"`
-				PendingEdit *services.PendingVenueEditResponse  `json:"pending_edit,omitempty" doc:"Pending edit info (non-admin)"`
+				Venue       *contracts.VenueDetailResponse       `json:"venue,omitempty" doc:"Updated venue (admin only)"`
+				PendingEdit *contracts.PendingVenueEditResponse  `json:"pending_edit,omitempty" doc:"Pending edit info (non-admin)"`
 				Status      string                              `json:"status" doc:"Result status: updated or pending"`
 				Message     string                              `json:"message" doc:"Human-readable message"`
 			}{
@@ -582,8 +582,8 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 
 	return &UpdateVenueResponse{
 		Body: struct {
-			Venue       *services.VenueDetailResponse       `json:"venue,omitempty" doc:"Updated venue (admin only)"`
-			PendingEdit *services.PendingVenueEditResponse  `json:"pending_edit,omitempty" doc:"Pending edit info (non-admin)"`
+			Venue       *contracts.VenueDetailResponse       `json:"venue,omitempty" doc:"Updated venue (admin only)"`
+			PendingEdit *contracts.PendingVenueEditResponse  `json:"pending_edit,omitempty" doc:"Pending edit info (non-admin)"`
 			Status      string                              `json:"status" doc:"Result status: updated or pending"`
 			Message     string                              `json:"message" doc:"Human-readable message"`
 		}{
@@ -602,7 +602,7 @@ type GetMyPendingEditRequest struct {
 // GetMyPendingEditResponse represents the response for user's pending edit
 type GetMyPendingEditResponse struct {
 	Body struct {
-		PendingEdit *services.PendingVenueEditResponse `json:"pending_edit" doc:"User's pending edit for this venue, null if none"`
+		PendingEdit *contracts.PendingVenueEditResponse `json:"pending_edit" doc:"User's pending edit for this venue, null if none"`
 	}
 }
 
@@ -637,7 +637,7 @@ func (h *VenueHandler) GetMyPendingEditHandler(ctx context.Context, req *GetMyPe
 
 	return &GetMyPendingEditResponse{
 		Body: struct {
-			PendingEdit *services.PendingVenueEditResponse `json:"pending_edit" doc:"User's pending edit for this venue, null if none"`
+			PendingEdit *contracts.PendingVenueEditResponse `json:"pending_edit" doc:"User's pending edit for this venue, null if none"`
 		}{
 			PendingEdit: pendingEdit,
 		},
@@ -834,7 +834,7 @@ type GetVenueGenresRequest struct {
 
 // GetVenueGenresResponse represents the response for venue genre profile.
 type GetVenueGenresResponse struct {
-	Body *services.VenueGenreResponse
+	Body *contracts.VenueGenreResponse
 }
 
 // GetVenueGenresHandler handles GET /venues/{venue_id}/genres — returns top genre tags for a venue.
@@ -857,18 +857,18 @@ func (h *VenueHandler) GetVenueGenresHandler(ctx context.Context, req *GetVenueG
 		return nil, huma.Error500InternalServerError("Failed to get venue genre profile", err)
 	}
 	if genres == nil {
-		genres = []services.GenreCount{}
+		genres = []contracts.GenreCount{}
 	}
 
 	return &GetVenueGenresResponse{
-		Body: &services.VenueGenreResponse{
+		Body: &contracts.VenueGenreResponse{
 			Genres: genres,
 		},
 	}, nil
 }
 
 // computeVenueChanges compares old and new venue detail responses and returns field-level diffs.
-func computeVenueChanges(old, new *services.VenueDetailResponse) []models.FieldChange {
+func computeVenueChanges(old, new *contracts.VenueDetailResponse) []models.FieldChange {
 	var changes []models.FieldChange
 
 	if old.Name != new.Name {

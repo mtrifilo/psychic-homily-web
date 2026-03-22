@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 type ArtistHandlerIntegrationSuite struct {
@@ -39,7 +39,7 @@ func TestArtistHandlerIntegration(t *testing.T) {
 
 // createArtistWithSlug creates an artist using the service (which generates a slug)
 func (s *ArtistHandlerIntegrationSuite) createArtistViaService(name string) uint {
-	resp, err := s.deps.artistService.CreateArtist(&services.CreateArtistRequest{Name: name})
+	resp, err := s.deps.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: name})
 	s.Require().NoError(err)
 	return resp.ID
 }

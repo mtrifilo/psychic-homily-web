@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 func testSavedShowHandler() *SavedShowHandler {
@@ -139,9 +139,9 @@ func TestGetSavedShowsHandler_NoAuth(t *testing.T) {
 }
 
 func TestGetSavedShowsHandler_Success(t *testing.T) {
-	shows := []*services.SavedShowResponse{{}}
+	shows := []*contracts.SavedShowResponse{{}}
 	mock := &mockSavedShowService{
-		getUserSavedFn: func(userID uint, limit, offset int) ([]*services.SavedShowResponse, int64, error) {
+		getUserSavedFn: func(userID uint, limit, offset int) ([]*contracts.SavedShowResponse, int64, error) {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
 			}
@@ -165,7 +165,7 @@ func TestGetSavedShowsHandler_Success(t *testing.T) {
 
 func TestGetSavedShowsHandler_ServiceError(t *testing.T) {
 	mock := &mockSavedShowService{
-		getUserSavedFn: func(_ uint, _, _ int) ([]*services.SavedShowResponse, int64, error) {
+		getUserSavedFn: func(_ uint, _, _ int) ([]*contracts.SavedShowResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
@@ -179,7 +179,7 @@ func TestGetSavedShowsHandler_ServiceError(t *testing.T) {
 func TestGetSavedShowsHandler_PaginationClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
 	mock := &mockSavedShowService{
-		getUserSavedFn: func(_ uint, limit, offset int) ([]*services.SavedShowResponse, int64, error) {
+		getUserSavedFn: func(_ uint, limit, offset int) ([]*contracts.SavedShowResponse, int64, error) {
 			capturedLimit = limit
 			capturedOffset = offset
 			return nil, 0, nil

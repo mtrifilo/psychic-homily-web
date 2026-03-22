@@ -11,17 +11,17 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // CollectionHandler handles collection-related API requests
 type CollectionHandler struct {
-	collectionService services.CollectionServiceInterface
-	auditLogService   services.AuditLogServiceInterface
+	collectionService contracts.CollectionServiceInterface
+	auditLogService   contracts.AuditLogServiceInterface
 }
 
 // NewCollectionHandler creates a new CollectionHandler
-func NewCollectionHandler(collectionService services.CollectionServiceInterface, auditLogService services.AuditLogServiceInterface) *CollectionHandler {
+func NewCollectionHandler(collectionService contracts.CollectionServiceInterface, auditLogService contracts.AuditLogServiceInterface) *CollectionHandler {
 	return &CollectionHandler{
 		collectionService: collectionService,
 		auditLogService:   auditLogService,
@@ -45,14 +45,14 @@ type ListCollectionsHandlerRequest struct {
 // ListCollectionsHandlerResponse represents the response for listing crates
 type ListCollectionsHandlerResponse struct {
 	Body struct {
-		Collections []*services.CollectionListResponse `json:"crates" doc:"List of crates"`
+		Collections []*contracts.CollectionListResponse `json:"crates" doc:"List of crates"`
 		Total       int64                              `json:"total" doc:"Total number of matching crates"`
 	}
 }
 
 // ListCollectionsHandler handles GET /collections
 func (h *CollectionHandler) ListCollectionsHandler(ctx context.Context, req *ListCollectionsHandlerRequest) (*ListCollectionsHandlerResponse, error) {
-	filters := services.CollectionFilters{
+	filters := contracts.CollectionFilters{
 		Search:     req.Search,
 		PublicOnly: true, // Public endpoint always filters to public
 	}
@@ -96,7 +96,7 @@ type GetCollectionHandlerRequest struct {
 
 // GetCollectionHandlerResponse represents the response for the get collection endpoint
 type GetCollectionHandlerResponse struct {
-	Body *services.CollectionDetailResponse
+	Body *contracts.CollectionDetailResponse
 }
 
 // GetCollectionHandler handles GET /collections/{slug}
@@ -126,7 +126,7 @@ type GetCollectionStatsHandlerRequest struct {
 
 // GetCollectionStatsHandlerResponse represents the response for the collection stats endpoint
 type GetCollectionStatsHandlerResponse struct {
-	Body *services.CollectionStatsResponse
+	Body *contracts.CollectionStatsResponse
 }
 
 // GetCollectionStatsHandler handles GET /collections/{slug}/stats
@@ -156,7 +156,7 @@ type CreateCollectionHandlerRequest struct {
 
 // CreateCollectionHandlerResponse represents the response for creating a collection
 type CreateCollectionHandlerResponse struct {
-	Body *services.CollectionDetailResponse
+	Body *contracts.CollectionDetailResponse
 }
 
 // CreateCollectionHandler handles POST /collections
@@ -172,7 +172,7 @@ func (h *CollectionHandler) CreateCollectionHandler(ctx context.Context, req *Cr
 		return nil, huma.Error400BadRequest("Title is required")
 	}
 
-	serviceReq := &services.CreateCollectionRequest{
+	serviceReq := &contracts.CreateCollectionRequest{
 		Title:         req.Body.Title,
 		Description:   req.Body.Description,
 		Collaborative: req.Body.Collaborative,
@@ -219,7 +219,7 @@ type UpdateCollectionHandlerRequest struct {
 
 // UpdateCollectionHandlerResponse represents the response for updating a collection
 type UpdateCollectionHandlerResponse struct {
-	Body *services.CollectionDetailResponse
+	Body *contracts.CollectionDetailResponse
 }
 
 // UpdateCollectionHandler handles PUT /collections/{slug}
@@ -231,7 +231,7 @@ func (h *CollectionHandler) UpdateCollectionHandler(ctx context.Context, req *Up
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	serviceReq := &services.UpdateCollectionRequest{
+	serviceReq := &contracts.UpdateCollectionRequest{
 		Title:         req.Body.Title,
 		Description:   req.Body.Description,
 		Collaborative: req.Body.Collaborative,
@@ -325,7 +325,7 @@ type AddItemHandlerRequest struct {
 
 // AddItemHandlerResponse represents the response for adding an item
 type AddItemHandlerResponse struct {
-	Body *services.CollectionItemResponse
+	Body *contracts.CollectionItemResponse
 }
 
 // AddItemHandler handles POST /collections/{slug}/items
@@ -344,7 +344,7 @@ func (h *CollectionHandler) AddItemHandler(ctx context.Context, req *AddItemHand
 		return nil, huma.Error400BadRequest("Entity ID is required")
 	}
 
-	serviceReq := &services.AddCollectionItemRequest{
+	serviceReq := &contracts.AddCollectionItemRequest{
 		EntityType: req.Body.EntityType,
 		EntityID:   req.Body.EntityID,
 		Notes:      req.Body.Notes,
@@ -441,7 +441,7 @@ func (h *CollectionHandler) RemoveItemHandler(ctx context.Context, req *RemoveIt
 type ReorderItemsHandlerRequest struct {
 	Slug string `path:"slug" doc:"Crate slug" example:"my-favorite-artists"`
 	Body struct {
-		Items []services.ReorderItem `json:"items" doc:"Items with new positions"`
+		Items []contracts.ReorderItem `json:"items" doc:"Items with new positions"`
 	}
 }
 
@@ -454,7 +454,7 @@ func (h *CollectionHandler) ReorderItemsHandler(ctx context.Context, req *Reorde
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	serviceReq := &services.ReorderCollectionItemsRequest{
+	serviceReq := &contracts.ReorderCollectionItemsRequest{
 		Items: req.Body.Items,
 	}
 
@@ -584,7 +584,7 @@ type GetUserCollectionsHandlerRequest struct {
 // GetUserCollectionsHandlerResponse represents the response for the user crates endpoint
 type GetUserCollectionsHandlerResponse struct {
 	Body struct {
-		Collections []*services.CollectionListResponse `json:"crates" doc:"List of user's crates"`
+		Collections []*contracts.CollectionListResponse `json:"crates" doc:"List of user's crates"`
 		Total       int64                              `json:"total" doc:"Total number of crates"`
 	}
 }

@@ -11,37 +11,37 @@ import (
 
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // AdminHandler handles admin-related HTTP requests
 type AdminHandler struct {
-	showService                services.ShowServiceInterface
-	venueService               services.VenueServiceInterface
-	discordService             services.DiscordServiceInterface
-	musicDiscoveryService      services.MusicDiscoveryServiceInterface
-	discoveryService           services.DiscoveryServiceInterface
-	apiTokenService            services.APITokenServiceInterface
-	dataSyncService            services.DataSyncServiceInterface
-	auditLogService            services.AuditLogServiceInterface
-	userService                services.UserServiceInterface
-	adminStatsService          services.AdminStatsServiceInterface
-	notificationFilterService  services.NotificationFilterServiceInterface
+	showService                contracts.ShowServiceInterface
+	venueService               contracts.VenueServiceInterface
+	discordService             contracts.DiscordServiceInterface
+	musicDiscoveryService      contracts.MusicDiscoveryServiceInterface
+	discoveryService           contracts.DiscoveryServiceInterface
+	apiTokenService            contracts.APITokenServiceInterface
+	dataSyncService            contracts.DataSyncServiceInterface
+	auditLogService            contracts.AuditLogServiceInterface
+	userService                contracts.UserServiceInterface
+	adminStatsService          contracts.AdminStatsServiceInterface
+	notificationFilterService  contracts.NotificationFilterServiceInterface
 }
 
 // NewAdminHandler creates a new admin handler
 func NewAdminHandler(
-	showService services.ShowServiceInterface,
-	venueService services.VenueServiceInterface,
-	discordService services.DiscordServiceInterface,
-	musicDiscoveryService services.MusicDiscoveryServiceInterface,
-	discoveryService services.DiscoveryServiceInterface,
-	apiTokenService services.APITokenServiceInterface,
-	dataSyncService services.DataSyncServiceInterface,
-	auditLogService services.AuditLogServiceInterface,
-	userService services.UserServiceInterface,
-	adminStatsService services.AdminStatsServiceInterface,
-	notificationFilterService services.NotificationFilterServiceInterface,
+	showService contracts.ShowServiceInterface,
+	venueService contracts.VenueServiceInterface,
+	discordService contracts.DiscordServiceInterface,
+	musicDiscoveryService contracts.MusicDiscoveryServiceInterface,
+	discoveryService contracts.DiscoveryServiceInterface,
+	apiTokenService contracts.APITokenServiceInterface,
+	dataSyncService contracts.DataSyncServiceInterface,
+	auditLogService contracts.AuditLogServiceInterface,
+	userService contracts.UserServiceInterface,
+	adminStatsService contracts.AdminStatsServiceInterface,
+	notificationFilterService contracts.NotificationFilterServiceInterface,
 ) *AdminHandler {
 	return &AdminHandler{
 		showService:                showService,
@@ -69,7 +69,7 @@ type GetPendingShowsRequest struct {
 // GetPendingShowsResponse represents the HTTP response for listing pending shows
 type GetPendingShowsResponse struct {
 	Body struct {
-		Shows []*services.ShowResponse `json:"shows"`
+		Shows []*contracts.ShowResponse `json:"shows"`
 		Total int64                    `json:"total"`
 	}
 }
@@ -84,7 +84,7 @@ type GetRejectedShowsRequest struct {
 // GetRejectedShowsResponse represents the HTTP response for listing rejected shows
 type GetRejectedShowsResponse struct {
 	Body struct {
-		Shows []*services.ShowResponse `json:"shows"`
+		Shows []*contracts.ShowResponse `json:"shows"`
 		Total int64                    `json:"total"`
 	}
 }
@@ -99,7 +99,7 @@ type ApproveShowRequest struct {
 
 // ApproveShowResponse represents the HTTP response for approving a show
 type ApproveShowResponse struct {
-	Body services.ShowResponse `json:"body"`
+	Body contracts.ShowResponse `json:"body"`
 }
 
 // RejectShowRequest represents the HTTP request for rejecting a show
@@ -112,7 +112,7 @@ type RejectShowRequest struct {
 
 // RejectShowResponse represents the HTTP response for rejecting a show
 type RejectShowResponse struct {
-	Body services.ShowResponse `json:"body"`
+	Body contracts.ShowResponse `json:"body"`
 }
 
 // BatchApproveShowsRequest represents the HTTP request for batch approving shows
@@ -126,7 +126,7 @@ type BatchApproveShowsRequest struct {
 type BatchApproveShowsResponse struct {
 	Body struct {
 		Approved int                      `json:"approved"`
-		Errors   []services.BatchShowError `json:"errors"`
+		Errors   []contracts.BatchShowError `json:"errors"`
 	}
 }
 
@@ -143,7 +143,7 @@ type BatchRejectShowsRequest struct {
 type BatchRejectShowsResponse struct {
 	Body struct {
 		Rejected int                      `json:"rejected"`
-		Errors   []services.BatchShowError `json:"errors"`
+		Errors   []contracts.BatchShowError `json:"errors"`
 	}
 }
 
@@ -154,7 +154,7 @@ type VerifyVenueRequest struct {
 
 // VerifyVenueResponse represents the HTTP response for verifying a venue
 type VerifyVenueResponse struct {
-	Body services.VenueDetailResponse `json:"body"`
+	Body contracts.VenueDetailResponse `json:"body"`
 }
 
 // GetUnverifiedVenuesRequest represents the HTTP request for listing unverified venues
@@ -166,7 +166,7 @@ type GetUnverifiedVenuesRequest struct {
 // GetUnverifiedVenuesResponse represents the HTTP response for listing unverified venues
 type GetUnverifiedVenuesResponse struct {
 	Body struct {
-		Venues []*services.UnverifiedVenueResponse `json:"venues"`
+		Venues []*contracts.UnverifiedVenueResponse `json:"venues"`
 		Total  int64                               `json:"total"`
 	}
 }
@@ -195,7 +195,7 @@ func (h *AdminHandler) GetPendingShowsHandler(ctx context.Context, req *GetPendi
 	}
 
 	// Build filters
-	var filters *services.PendingShowsFilter
+	var filters *contracts.PendingShowsFilter
 	if req.VenueID != 0 || req.Source != "" {
 		venueIDPtr := func() *uint {
 			if req.VenueID == 0 {
@@ -211,7 +211,7 @@ func (h *AdminHandler) GetPendingShowsHandler(ctx context.Context, req *GetPendi
 			s := req.Source
 			return &s
 		}()
-		filters = &services.PendingShowsFilter{
+		filters = &contracts.PendingShowsFilter{
 			VenueID: venueIDPtr,
 			Source:  sourcePtr,
 		}
@@ -241,7 +241,7 @@ func (h *AdminHandler) GetPendingShowsHandler(ctx context.Context, req *GetPendi
 
 	return &GetPendingShowsResponse{
 		Body: struct {
-			Shows []*services.ShowResponse `json:"shows"`
+			Shows []*contracts.ShowResponse `json:"shows"`
 			Total int64                    `json:"total"`
 		}{
 			Shows: shows,
@@ -298,7 +298,7 @@ func (h *AdminHandler) GetRejectedShowsHandler(ctx context.Context, req *GetReje
 
 	return &GetRejectedShowsResponse{
 		Body: struct {
-			Shows []*services.ShowResponse `json:"shows"`
+			Shows []*contracts.ShowResponse `json:"shows"`
 			Total int64                    `json:"total"`
 		}{
 			Shows: shows,
@@ -486,7 +486,7 @@ func (h *AdminHandler) BatchApproveShowsHandler(ctx context.Context, req *BatchA
 	return &BatchApproveShowsResponse{
 		Body: struct {
 			Approved int                      `json:"approved"`
-			Errors   []services.BatchShowError `json:"errors"`
+			Errors   []contracts.BatchShowError `json:"errors"`
 		}{
 			Approved: len(result.Succeeded),
 			Errors:   result.Errors,
@@ -529,7 +529,7 @@ func (h *AdminHandler) BatchRejectShowsHandler(ctx context.Context, req *BatchRe
 	return &BatchRejectShowsResponse{
 		Body: struct {
 			Rejected int                      `json:"rejected"`
-			Errors   []services.BatchShowError `json:"errors"`
+			Errors   []contracts.BatchShowError `json:"errors"`
 		}{
 			Rejected: len(result.Succeeded),
 			Errors:   result.Errors,
@@ -660,7 +660,7 @@ type GetPendingVenueEditsRequest struct {
 // GetPendingVenueEditsResponse represents the HTTP response for listing pending venue edits
 type GetPendingVenueEditsResponse struct {
 	Body struct {
-		Edits []*services.PendingVenueEditResponse `json:"edits"`
+		Edits []*contracts.PendingVenueEditResponse `json:"edits"`
 		Total int64                                 `json:"total"`
 	}
 }
@@ -712,7 +712,7 @@ func (h *AdminHandler) GetPendingVenueEditsHandler(ctx context.Context, req *Get
 
 	return &GetPendingVenueEditsResponse{
 		Body: struct {
-			Edits []*services.PendingVenueEditResponse `json:"edits"`
+			Edits []*contracts.PendingVenueEditResponse `json:"edits"`
 			Total int64                                 `json:"total"`
 		}{
 			Edits: edits,
@@ -728,7 +728,7 @@ type ApproveVenueEditRequest struct {
 
 // ApproveVenueEditResponse represents the HTTP response for approving a venue edit
 type ApproveVenueEditResponse struct {
-	Body services.VenueDetailResponse `json:"body"`
+	Body contracts.VenueDetailResponse `json:"body"`
 }
 
 // ApproveVenueEditHandler handles POST /admin/venues/pending-edits/{edit_id}/approve
@@ -789,7 +789,7 @@ type RejectVenueEditRequest struct {
 
 // RejectVenueEditResponse represents the HTTP response for rejecting a venue edit
 type RejectVenueEditResponse struct {
-	Body services.PendingVenueEditResponse `json:"body"`
+	Body contracts.PendingVenueEditResponse `json:"body"`
 }
 
 // RejectVenueEditHandler handles POST /admin/venues/pending-edits/{edit_id}/reject
@@ -858,7 +858,7 @@ type ImportShowPreviewRequest struct {
 
 // ImportShowPreviewResponse represents the HTTP response for previewing a show import
 type ImportShowPreviewResponse struct {
-	Body services.ImportPreviewResponse `json:"body"`
+	Body contracts.ImportPreviewResponse `json:"body"`
 }
 
 // ImportShowPreviewHandler handles POST /admin/shows/import/preview
@@ -917,7 +917,7 @@ type ImportShowConfirmRequest struct {
 
 // ImportShowConfirmResponse represents the HTTP response for confirming a show import
 type ImportShowConfirmResponse struct {
-	Body services.ShowResponse `json:"body"`
+	Body contracts.ShowResponse `json:"body"`
 }
 
 // ImportShowConfirmHandler handles POST /admin/shows/import/confirm
@@ -993,7 +993,7 @@ type GetAdminShowsRequest struct {
 // GetAdminShowsResponse represents the HTTP response for listing all shows (admin)
 type GetAdminShowsResponse struct {
 	Body struct {
-		Shows []*services.ShowResponse `json:"shows"`
+		Shows []*contracts.ShowResponse `json:"shows"`
 		Total int64                    `json:"total"`
 	}
 }
@@ -1032,7 +1032,7 @@ func (h *AdminHandler) GetAdminShowsHandler(ctx context.Context, req *GetAdminSh
 	)
 
 	// Build filters
-	filters := services.AdminShowFilters{
+	filters := contracts.AdminShowFilters{
 		Status:   req.Status,
 		FromDate: req.FromDate,
 		ToDate:   req.ToDate,
@@ -1058,7 +1058,7 @@ func (h *AdminHandler) GetAdminShowsHandler(ctx context.Context, req *GetAdminSh
 
 	return &GetAdminShowsResponse{
 		Body: struct {
-			Shows []*services.ShowResponse `json:"shows"`
+			Shows []*contracts.ShowResponse `json:"shows"`
 			Total int64                    `json:"total"`
 		}{
 			Shows: shows,
@@ -1157,7 +1157,7 @@ type BulkImportPreviewSummary struct {
 // BulkImportPreviewResponse represents the HTTP response for bulk import preview
 type BulkImportPreviewResponse struct {
 	Body struct {
-		Previews []services.ImportPreviewResponse `json:"previews"`
+		Previews []contracts.ImportPreviewResponse `json:"previews"`
 		Summary  BulkImportPreviewSummary         `json:"summary"`
 	}
 }
@@ -1186,7 +1186,7 @@ func (h *AdminHandler) BulkImportPreviewHandler(ctx context.Context, req *BulkIm
 	)
 
 	// Preview each show
-	previews := make([]services.ImportPreviewResponse, 0, len(req.Body.Shows))
+	previews := make([]contracts.ImportPreviewResponse, 0, len(req.Body.Shows))
 	summary := BulkImportPreviewSummary{
 		TotalShows:   len(req.Body.Shows),
 		CanImportAll: true,
@@ -1247,7 +1247,7 @@ func (h *AdminHandler) BulkImportPreviewHandler(ctx context.Context, req *BulkIm
 
 	return &BulkImportPreviewResponse{
 		Body: struct {
-			Previews []services.ImportPreviewResponse `json:"previews"`
+			Previews []contracts.ImportPreviewResponse `json:"previews"`
 			Summary  BulkImportPreviewSummary         `json:"summary"`
 		}{
 			Previews: previews,
@@ -1266,7 +1266,7 @@ type BulkImportConfirmRequest struct {
 // BulkImportResult represents the result of importing a single show
 type BulkImportResult struct {
 	Success bool                    `json:"success"`
-	Show    *services.ShowResponse  `json:"show,omitempty"`
+	Show    *contracts.ShowResponse  `json:"show,omitempty"`
 	Error   string                  `json:"error,omitempty"`
 }
 
@@ -1403,7 +1403,7 @@ type DiscoveryImportRequest struct {
 
 // DiscoveryImportResponse represents the HTTP response for importing discovered events
 type DiscoveryImportResponse struct {
-	Body services.ImportResult `json:"body"`
+	Body contracts.ImportResult `json:"body"`
 }
 
 // DiscoveryImportHandler handles POST /admin/discovery/import
@@ -1430,9 +1430,9 @@ func (h *AdminHandler) DiscoveryImportHandler(ctx context.Context, req *Discover
 	)
 
 	// Convert input events to DiscoveredEvent format
-	events := make([]services.DiscoveredEvent, len(req.Body.Events))
+	events := make([]contracts.DiscoveredEvent, len(req.Body.Events))
 	for i, e := range req.Body.Events {
-		events[i] = services.DiscoveredEvent{
+		events[i] = contracts.DiscoveredEvent{
 			ID:             e.ID,
 			Title:          e.Title,
 			Date:           e.Date,
@@ -1503,7 +1503,7 @@ type DiscoveryCheckRequest struct {
 
 // DiscoveryCheckResponse represents the HTTP response for checking discovered events
 type DiscoveryCheckResponse struct {
-	Body services.CheckEventsResult `json:"body"`
+	Body contracts.CheckEventsResult `json:"body"`
 }
 
 // DiscoveryCheckHandler handles POST /admin/discovery/check
@@ -1529,9 +1529,9 @@ func (h *AdminHandler) DiscoveryCheckHandler(ctx context.Context, req *Discovery
 	)
 
 	// Convert input to service types
-	events := make([]services.CheckEventInput, len(req.Body.Events))
+	events := make([]contracts.CheckEventInput, len(req.Body.Events))
 	for i, e := range req.Body.Events {
-		events[i] = services.CheckEventInput{
+		events[i] = contracts.CheckEventInput{
 			ID:        e.ID,
 			VenueSlug: e.VenueSlug,
 			Date:      e.Date,
@@ -1572,7 +1572,7 @@ type CreateAPITokenRequest struct {
 
 // CreateAPITokenResponse represents the HTTP response for creating an API token
 type CreateAPITokenResponse struct {
-	Body services.APITokenCreateResponse `json:"body"`
+	Body contracts.APITokenCreateResponse `json:"body"`
 }
 
 // CreateAPITokenHandler handles POST /admin/tokens
@@ -1632,7 +1632,7 @@ type ListAPITokensRequest struct{}
 // ListAPITokensResponse represents the HTTP response for listing API tokens
 type ListAPITokensResponse struct {
 	Body struct {
-		Tokens []services.APITokenResponse `json:"tokens"`
+		Tokens []contracts.APITokenResponse `json:"tokens"`
 	}
 }
 
@@ -1667,7 +1667,7 @@ func (h *AdminHandler) ListAPITokensHandler(ctx context.Context, req *ListAPITok
 
 	return &ListAPITokensResponse{
 		Body: struct {
-			Tokens []services.APITokenResponse `json:"tokens"`
+			Tokens []contracts.APITokenResponse `json:"tokens"`
 		}{
 			Tokens: tokens,
 		},
@@ -1747,7 +1747,7 @@ type ExportShowsRequest struct {
 
 // ExportShowsResponse represents the HTTP response for exporting shows
 type ExportShowsResponse struct {
-	Body services.ExportShowsResult `json:"body"`
+	Body contracts.ExportShowsResult `json:"body"`
 }
 
 // ExportShowsHandler handles GET /admin/export/shows
@@ -1765,7 +1765,7 @@ func (h *AdminHandler) ExportShowsHandler(ctx context.Context, req *ExportShowsR
 	}
 
 	// Build params
-	params := services.ExportShowsParams{
+	params := contracts.ExportShowsParams{
 		Limit:  req.Limit,
 		Offset: offset,
 		Status: req.Status,
@@ -1816,7 +1816,7 @@ type ExportArtistsRequest struct {
 
 // ExportArtistsResponse represents the HTTP response for exporting artists
 type ExportArtistsResponse struct {
-	Body services.ExportArtistsResult `json:"body"`
+	Body contracts.ExportArtistsResult `json:"body"`
 }
 
 // ExportArtistsHandler handles GET /admin/export/artists
@@ -1833,7 +1833,7 @@ func (h *AdminHandler) ExportArtistsHandler(ctx context.Context, req *ExportArti
 		offset = 0
 	}
 
-	params := services.ExportArtistsParams{
+	params := contracts.ExportArtistsParams{
 		Limit:  req.Limit,
 		Offset: offset,
 		Search: req.Search,
@@ -1876,7 +1876,7 @@ type ExportVenuesRequest struct {
 
 // ExportVenuesResponse represents the HTTP response for exporting venues
 type ExportVenuesResponse struct {
-	Body services.ExportVenuesResult `json:"body"`
+	Body contracts.ExportVenuesResult `json:"body"`
 }
 
 // ExportVenuesHandler handles GET /admin/export/venues
@@ -1893,7 +1893,7 @@ func (h *AdminHandler) ExportVenuesHandler(ctx context.Context, req *ExportVenue
 		offset = 0
 	}
 
-	params := services.ExportVenuesParams{
+	params := contracts.ExportVenuesParams{
 		Limit:  req.Limit,
 		Offset: offset,
 		Search: req.Search,
@@ -1937,12 +1937,12 @@ func (h *AdminHandler) ExportVenuesHandler(ctx context.Context, req *ExportVenue
 
 // DataImportRequest represents the HTTP request for importing data
 type DataImportRequest struct {
-	Body services.DataImportRequest `json:"body"`
+	Body contracts.DataImportRequest `json:"body"`
 }
 
 // DataImportResponse represents the HTTP response for importing data
 type DataImportResponse struct {
-	Body services.DataImportResult `json:"body"`
+	Body contracts.DataImportResult `json:"body"`
 }
 
 // DataImportHandler handles POST /admin/data/import
@@ -2013,7 +2013,7 @@ type GetAdminUsersRequest struct {
 // GetAdminUsersResponse represents the HTTP response for listing users
 type GetAdminUsersResponse struct {
 	Body struct {
-		Users []*services.AdminUserResponse `json:"users"`
+		Users []*contracts.AdminUserResponse `json:"users"`
 		Total int64                         `json:"total"`
 	}
 }
@@ -2048,7 +2048,7 @@ func (h *AdminHandler) GetAdminUsersHandler(ctx context.Context, req *GetAdminUs
 	)
 
 	// Build filters
-	filters := services.AdminUserFilters{
+	filters := contracts.AdminUserFilters{
 		Search: req.Search,
 	}
 
@@ -2071,7 +2071,7 @@ func (h *AdminHandler) GetAdminUsersHandler(ctx context.Context, req *GetAdminUs
 
 	return &GetAdminUsersResponse{
 		Body: struct {
-			Users []*services.AdminUserResponse `json:"users"`
+			Users []*contracts.AdminUserResponse `json:"users"`
 			Total int64                         `json:"total"`
 		}{
 			Users: users,
@@ -2089,7 +2089,7 @@ type GetAdminStatsRequest struct{}
 
 // GetAdminStatsResponse represents the HTTP response for admin dashboard stats
 type GetAdminStatsResponse struct {
-	Body services.AdminDashboardStats
+	Body contracts.AdminDashboardStats
 }
 
 // GetAdminStatsHandler handles GET /admin/stats
@@ -2132,7 +2132,7 @@ type GetActivityFeedRequest struct{}
 
 // GetActivityFeedResponse represents the HTTP response for admin activity feed
 type GetActivityFeedResponse struct {
-	Body services.ActivityFeedResponse
+	Body contracts.ActivityFeedResponse
 }
 
 // GetActivityFeedHandler handles GET /admin/activity

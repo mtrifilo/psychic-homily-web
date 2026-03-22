@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ============================================================================
@@ -13,38 +13,38 @@ import (
 // ============================================================================
 
 type mockReleaseServiceForSearch struct {
-	searchReleasesFn func(query string) ([]*services.ReleaseListResponse, error)
+	searchReleasesFn func(query string) ([]*contracts.ReleaseListResponse, error)
 }
 
-func (m *mockReleaseServiceForSearch) CreateRelease(req *services.CreateReleaseRequest) (*services.ReleaseDetailResponse, error) {
+func (m *mockReleaseServiceForSearch) CreateRelease(req *contracts.CreateReleaseRequest) (*contracts.ReleaseDetailResponse, error) {
 	return nil, nil
 }
-func (m *mockReleaseServiceForSearch) GetRelease(releaseID uint) (*services.ReleaseDetailResponse, error) {
+func (m *mockReleaseServiceForSearch) GetRelease(releaseID uint) (*contracts.ReleaseDetailResponse, error) {
 	return nil, nil
 }
-func (m *mockReleaseServiceForSearch) GetReleaseBySlug(slug string) (*services.ReleaseDetailResponse, error) {
+func (m *mockReleaseServiceForSearch) GetReleaseBySlug(slug string) (*contracts.ReleaseDetailResponse, error) {
 	return nil, nil
 }
-func (m *mockReleaseServiceForSearch) ListReleases(filters map[string]interface{}) ([]*services.ReleaseListResponse, error) {
+func (m *mockReleaseServiceForSearch) ListReleases(filters map[string]interface{}) ([]*contracts.ReleaseListResponse, error) {
 	return nil, nil
 }
-func (m *mockReleaseServiceForSearch) SearchReleases(query string) ([]*services.ReleaseListResponse, error) {
+func (m *mockReleaseServiceForSearch) SearchReleases(query string) ([]*contracts.ReleaseListResponse, error) {
 	if m.searchReleasesFn != nil {
 		return m.searchReleasesFn(query)
 	}
 	return nil, nil
 }
-func (m *mockReleaseServiceForSearch) UpdateRelease(releaseID uint, req *services.UpdateReleaseRequest) (*services.ReleaseDetailResponse, error) {
+func (m *mockReleaseServiceForSearch) UpdateRelease(releaseID uint, req *contracts.UpdateReleaseRequest) (*contracts.ReleaseDetailResponse, error) {
 	return nil, nil
 }
 func (m *mockReleaseServiceForSearch) DeleteRelease(releaseID uint) error { return nil }
-func (m *mockReleaseServiceForSearch) GetReleasesForArtist(artistID uint) ([]*services.ReleaseListResponse, error) {
+func (m *mockReleaseServiceForSearch) GetReleasesForArtist(artistID uint) ([]*contracts.ReleaseListResponse, error) {
 	return nil, nil
 }
-func (m *mockReleaseServiceForSearch) GetReleasesForArtistWithRoles(artistID uint) ([]*services.ArtistReleaseListResponse, error) {
+func (m *mockReleaseServiceForSearch) GetReleasesForArtistWithRoles(artistID uint) ([]*contracts.ArtistReleaseListResponse, error) {
 	return nil, nil
 }
-func (m *mockReleaseServiceForSearch) AddExternalLink(releaseID uint, platform, url string) (*services.ReleaseExternalLinkResponse, error) {
+func (m *mockReleaseServiceForSearch) AddExternalLink(releaseID uint, platform, url string) (*contracts.ReleaseExternalLinkResponse, error) {
 	return nil, nil
 }
 func (m *mockReleaseServiceForSearch) RemoveExternalLink(linkID uint) error { return nil }
@@ -54,35 +54,35 @@ func (m *mockReleaseServiceForSearch) RemoveExternalLink(linkID uint) error { re
 // ============================================================================
 
 type mockLabelServiceForSearch struct {
-	searchLabelsFn func(query string) ([]*services.LabelListResponse, error)
+	searchLabelsFn func(query string) ([]*contracts.LabelListResponse, error)
 }
 
-func (m *mockLabelServiceForSearch) CreateLabel(req *services.CreateLabelRequest) (*services.LabelDetailResponse, error) {
+func (m *mockLabelServiceForSearch) CreateLabel(req *contracts.CreateLabelRequest) (*contracts.LabelDetailResponse, error) {
 	return nil, nil
 }
-func (m *mockLabelServiceForSearch) GetLabel(labelID uint) (*services.LabelDetailResponse, error) {
+func (m *mockLabelServiceForSearch) GetLabel(labelID uint) (*contracts.LabelDetailResponse, error) {
 	return nil, nil
 }
-func (m *mockLabelServiceForSearch) GetLabelBySlug(slug string) (*services.LabelDetailResponse, error) {
+func (m *mockLabelServiceForSearch) GetLabelBySlug(slug string) (*contracts.LabelDetailResponse, error) {
 	return nil, nil
 }
-func (m *mockLabelServiceForSearch) ListLabels(filters map[string]interface{}) ([]*services.LabelListResponse, error) {
+func (m *mockLabelServiceForSearch) ListLabels(filters map[string]interface{}) ([]*contracts.LabelListResponse, error) {
 	return nil, nil
 }
-func (m *mockLabelServiceForSearch) SearchLabels(query string) ([]*services.LabelListResponse, error) {
+func (m *mockLabelServiceForSearch) SearchLabels(query string) ([]*contracts.LabelListResponse, error) {
 	if m.searchLabelsFn != nil {
 		return m.searchLabelsFn(query)
 	}
 	return nil, nil
 }
-func (m *mockLabelServiceForSearch) UpdateLabel(labelID uint, req *services.UpdateLabelRequest) (*services.LabelDetailResponse, error) {
+func (m *mockLabelServiceForSearch) UpdateLabel(labelID uint, req *contracts.UpdateLabelRequest) (*contracts.LabelDetailResponse, error) {
 	return nil, nil
 }
 func (m *mockLabelServiceForSearch) DeleteLabel(labelID uint) error { return nil }
-func (m *mockLabelServiceForSearch) GetLabelRoster(labelID uint) ([]*services.LabelArtistResponse, error) {
+func (m *mockLabelServiceForSearch) GetLabelRoster(labelID uint) ([]*contracts.LabelArtistResponse, error) {
 	return nil, nil
 }
-func (m *mockLabelServiceForSearch) GetLabelCatalog(labelID uint) ([]*services.LabelReleaseResponse, error) {
+func (m *mockLabelServiceForSearch) GetLabelCatalog(labelID uint) ([]*contracts.LabelReleaseResponse, error) {
 	return nil, nil
 }
 func (m *mockLabelServiceForSearch) AddArtistToLabel(labelID, artistID uint) error {
@@ -97,53 +97,53 @@ func (m *mockLabelServiceForSearch) AddReleaseToLabel(labelID, releaseID uint, c
 // ============================================================================
 
 type mockFestivalServiceForSearch struct {
-	searchFestivalsFn func(query string) ([]*services.FestivalListResponse, error)
+	searchFestivalsFn func(query string) ([]*contracts.FestivalListResponse, error)
 }
 
-func (m *mockFestivalServiceForSearch) CreateFestival(req *services.CreateFestivalRequest) (*services.FestivalDetailResponse, error) {
+func (m *mockFestivalServiceForSearch) CreateFestival(req *contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
 	return nil, nil
 }
-func (m *mockFestivalServiceForSearch) GetFestival(festivalID uint) (*services.FestivalDetailResponse, error) {
+func (m *mockFestivalServiceForSearch) GetFestival(festivalID uint) (*contracts.FestivalDetailResponse, error) {
 	return nil, nil
 }
-func (m *mockFestivalServiceForSearch) GetFestivalBySlug(slug string) (*services.FestivalDetailResponse, error) {
+func (m *mockFestivalServiceForSearch) GetFestivalBySlug(slug string) (*contracts.FestivalDetailResponse, error) {
 	return nil, nil
 }
-func (m *mockFestivalServiceForSearch) ListFestivals(filters map[string]interface{}) ([]*services.FestivalListResponse, error) {
+func (m *mockFestivalServiceForSearch) ListFestivals(filters map[string]interface{}) ([]*contracts.FestivalListResponse, error) {
 	return nil, nil
 }
-func (m *mockFestivalServiceForSearch) SearchFestivals(query string) ([]*services.FestivalListResponse, error) {
+func (m *mockFestivalServiceForSearch) SearchFestivals(query string) ([]*contracts.FestivalListResponse, error) {
 	if m.searchFestivalsFn != nil {
 		return m.searchFestivalsFn(query)
 	}
 	return nil, nil
 }
-func (m *mockFestivalServiceForSearch) UpdateFestival(festivalID uint, req *services.UpdateFestivalRequest) (*services.FestivalDetailResponse, error) {
+func (m *mockFestivalServiceForSearch) UpdateFestival(festivalID uint, req *contracts.UpdateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
 	return nil, nil
 }
 func (m *mockFestivalServiceForSearch) DeleteFestival(festivalID uint) error { return nil }
-func (m *mockFestivalServiceForSearch) GetFestivalArtists(festivalID uint, dayDate *string) ([]*services.FestivalArtistResponse, error) {
+func (m *mockFestivalServiceForSearch) GetFestivalArtists(festivalID uint, dayDate *string) ([]*contracts.FestivalArtistResponse, error) {
 	return nil, nil
 }
-func (m *mockFestivalServiceForSearch) AddFestivalArtist(festivalID uint, req *services.AddFestivalArtistRequest) (*services.FestivalArtistResponse, error) {
+func (m *mockFestivalServiceForSearch) AddFestivalArtist(festivalID uint, req *contracts.AddFestivalArtistRequest) (*contracts.FestivalArtistResponse, error) {
 	return nil, nil
 }
-func (m *mockFestivalServiceForSearch) UpdateFestivalArtist(festivalID, artistID uint, req *services.UpdateFestivalArtistRequest) (*services.FestivalArtistResponse, error) {
+func (m *mockFestivalServiceForSearch) UpdateFestivalArtist(festivalID, artistID uint, req *contracts.UpdateFestivalArtistRequest) (*contracts.FestivalArtistResponse, error) {
 	return nil, nil
 }
 func (m *mockFestivalServiceForSearch) RemoveFestivalArtist(festivalID, artistID uint) error {
 	return nil
 }
-func (m *mockFestivalServiceForSearch) GetFestivalVenues(festivalID uint) ([]*services.FestivalVenueResponse, error) {
+func (m *mockFestivalServiceForSearch) GetFestivalVenues(festivalID uint) ([]*contracts.FestivalVenueResponse, error) {
 	return nil, nil
 }
-func (m *mockFestivalServiceForSearch) AddFestivalVenue(festivalID uint, req *services.AddFestivalVenueRequest) (*services.FestivalVenueResponse, error) {
+func (m *mockFestivalServiceForSearch) AddFestivalVenue(festivalID uint, req *contracts.AddFestivalVenueRequest) (*contracts.FestivalVenueResponse, error) {
 	return nil, nil
 }
 func (m *mockFestivalServiceForSearch) RemoveFestivalVenue(festivalID, venueID uint) error {
 	return nil
 }
-func (m *mockFestivalServiceForSearch) GetFestivalsForArtist(artistID uint) ([]*services.ArtistFestivalListResponse, error) {
+func (m *mockFestivalServiceForSearch) GetFestivalsForArtist(artistID uint) ([]*contracts.ArtistFestivalListResponse, error) {
 	return nil, nil
 }
 
@@ -154,11 +154,11 @@ func (m *mockFestivalServiceForSearch) GetFestivalsForArtist(artistID uint) ([]*
 func TestSearchReleases_Success(t *testing.T) {
 	year := 1991
 	mock := &mockReleaseServiceForSearch{
-		searchReleasesFn: func(query string) ([]*services.ReleaseListResponse, error) {
+		searchReleasesFn: func(query string) ([]*contracts.ReleaseListResponse, error) {
 			if query != "nevermind" {
 				t.Errorf("expected query='nevermind', got %q", query)
 			}
-			return []*services.ReleaseListResponse{
+			return []*contracts.ReleaseListResponse{
 				{ID: 1, Title: "Nevermind", Slug: "nevermind", ReleaseType: "lp", ReleaseYear: &year},
 			}, nil
 		},
@@ -179,8 +179,8 @@ func TestSearchReleases_Success(t *testing.T) {
 
 func TestSearchReleases_EmptyQuery(t *testing.T) {
 	mock := &mockReleaseServiceForSearch{
-		searchReleasesFn: func(query string) ([]*services.ReleaseListResponse, error) {
-			return []*services.ReleaseListResponse{}, nil
+		searchReleasesFn: func(query string) ([]*contracts.ReleaseListResponse, error) {
+			return []*contracts.ReleaseListResponse{}, nil
 		},
 	}
 	h := NewReleaseHandler(mock, nil, nil)
@@ -196,7 +196,7 @@ func TestSearchReleases_EmptyQuery(t *testing.T) {
 
 func TestSearchReleases_ServiceError(t *testing.T) {
 	mock := &mockReleaseServiceForSearch{
-		searchReleasesFn: func(_ string) ([]*services.ReleaseListResponse, error) {
+		searchReleasesFn: func(_ string) ([]*contracts.ReleaseListResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -214,11 +214,11 @@ func TestSearchReleases_ServiceError(t *testing.T) {
 
 func TestSearchLabels_Success(t *testing.T) {
 	mock := &mockLabelServiceForSearch{
-		searchLabelsFn: func(query string) ([]*services.LabelListResponse, error) {
+		searchLabelsFn: func(query string) ([]*contracts.LabelListResponse, error) {
 			if query != "sub pop" {
 				t.Errorf("expected query='sub pop', got %q", query)
 			}
-			return []*services.LabelListResponse{
+			return []*contracts.LabelListResponse{
 				{ID: 1, Name: "Sub Pop", Slug: "sub-pop", Status: "active"},
 			}, nil
 		},
@@ -239,8 +239,8 @@ func TestSearchLabels_Success(t *testing.T) {
 
 func TestSearchLabels_EmptyQuery(t *testing.T) {
 	mock := &mockLabelServiceForSearch{
-		searchLabelsFn: func(query string) ([]*services.LabelListResponse, error) {
-			return []*services.LabelListResponse{}, nil
+		searchLabelsFn: func(query string) ([]*contracts.LabelListResponse, error) {
+			return []*contracts.LabelListResponse{}, nil
 		},
 	}
 	h := NewLabelHandler(mock, nil)
@@ -256,7 +256,7 @@ func TestSearchLabels_EmptyQuery(t *testing.T) {
 
 func TestSearchLabels_ServiceError(t *testing.T) {
 	mock := &mockLabelServiceForSearch{
-		searchLabelsFn: func(_ string) ([]*services.LabelListResponse, error) {
+		searchLabelsFn: func(_ string) ([]*contracts.LabelListResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -274,11 +274,11 @@ func TestSearchLabels_ServiceError(t *testing.T) {
 
 func TestSearchFestivals_Success(t *testing.T) {
 	mock := &mockFestivalServiceForSearch{
-		searchFestivalsFn: func(query string) ([]*services.FestivalListResponse, error) {
+		searchFestivalsFn: func(query string) ([]*contracts.FestivalListResponse, error) {
 			if query != "m3f" {
 				t.Errorf("expected query='m3f', got %q", query)
 			}
-			return []*services.FestivalListResponse{
+			return []*contracts.FestivalListResponse{
 				{ID: 1, Name: "M3F Festival", Slug: "m3f-2026", EditionYear: 2026, Status: "confirmed"},
 			}, nil
 		},
@@ -299,8 +299,8 @@ func TestSearchFestivals_Success(t *testing.T) {
 
 func TestSearchFestivals_EmptyQuery(t *testing.T) {
 	mock := &mockFestivalServiceForSearch{
-		searchFestivalsFn: func(query string) ([]*services.FestivalListResponse, error) {
-			return []*services.FestivalListResponse{}, nil
+		searchFestivalsFn: func(query string) ([]*contracts.FestivalListResponse, error) {
+			return []*contracts.FestivalListResponse{}, nil
 		},
 	}
 	h := NewFestivalHandler(mock, nil, nil, nil)
@@ -316,7 +316,7 @@ func TestSearchFestivals_EmptyQuery(t *testing.T) {
 
 func TestSearchFestivals_ServiceError(t *testing.T) {
 	mock := &mockFestivalServiceForSearch{
-		searchFestivalsFn: func(_ string) ([]*services.FestivalListResponse, error) {
+		searchFestivalsFn: func(_ string) ([]*contracts.FestivalListResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}

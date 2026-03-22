@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ============================================================================
@@ -13,33 +13,33 @@ import (
 // ============================================================================
 
 type mockSceneService struct {
-	listScenesFn     func() ([]*services.SceneListResponse, error)
-	getSceneDetailFn func(city, state string) (*services.SceneDetailResponse, error)
-	getActiveArtistsFn func(city, state string, periodDays, limit, offset int) ([]*services.SceneArtistResponse, int64, error)
+	listScenesFn     func() ([]*contracts.SceneListResponse, error)
+	getSceneDetailFn func(city, state string) (*contracts.SceneDetailResponse, error)
+	getActiveArtistsFn func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error)
 	parseSceneSlugFn func(slug string) (string, string, error)
-	getSceneGenreDistributionFn func(city, state string) ([]services.GenreCount, error)
+	getSceneGenreDistributionFn func(city, state string) ([]contracts.GenreCount, error)
 	getGenreDiversityIndexFn func(city, state string) (float64, error)
 }
 
-func (m *mockSceneService) ListScenes() ([]*services.SceneListResponse, error) {
+func (m *mockSceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	if m.listScenesFn != nil {
 		return m.listScenesFn()
 	}
-	return []*services.SceneListResponse{}, nil
+	return []*contracts.SceneListResponse{}, nil
 }
 
-func (m *mockSceneService) GetSceneDetail(city, state string) (*services.SceneDetailResponse, error) {
+func (m *mockSceneService) GetSceneDetail(city, state string) (*contracts.SceneDetailResponse, error) {
 	if m.getSceneDetailFn != nil {
 		return m.getSceneDetailFn(city, state)
 	}
 	return nil, nil
 }
 
-func (m *mockSceneService) GetActiveArtists(city, state string, periodDays, limit, offset int) ([]*services.SceneArtistResponse, int64, error) {
+func (m *mockSceneService) GetActiveArtists(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
 	if m.getActiveArtistsFn != nil {
 		return m.getActiveArtistsFn(city, state, periodDays, limit, offset)
 	}
-	return []*services.SceneArtistResponse{}, 0, nil
+	return []*contracts.SceneArtistResponse{}, 0, nil
 }
 
 func (m *mockSceneService) ParseSceneSlug(slug string) (string, string, error) {
@@ -49,11 +49,11 @@ func (m *mockSceneService) ParseSceneSlug(slug string) (string, string, error) {
 	return "", "", fmt.Errorf("scene not found for slug: %s", slug)
 }
 
-func (m *mockSceneService) GetSceneGenreDistribution(city, state string) ([]services.GenreCount, error) {
+func (m *mockSceneService) GetSceneGenreDistribution(city, state string) ([]contracts.GenreCount, error) {
 	if m.getSceneGenreDistributionFn != nil {
 		return m.getSceneGenreDistributionFn(city, state)
 	}
-	return []services.GenreCount{}, nil
+	return []contracts.GenreCount{}, nil
 }
 
 func (m *mockSceneService) GetGenreDiversityIndex(city, state string) (float64, error) {
@@ -80,8 +80,8 @@ func TestNewSceneHandler(t *testing.T) {
 
 func TestListScenes_Success(t *testing.T) {
 	mock := &mockSceneService{
-		listScenesFn: func() ([]*services.SceneListResponse, error) {
-			return []*services.SceneListResponse{
+		listScenesFn: func() ([]*contracts.SceneListResponse, error) {
+			return []*contracts.SceneListResponse{
 				{City: "Phoenix", State: "AZ", Slug: "phoenix-az", VenueCount: 5, UpcomingShowCount: 12},
 			}, nil
 		},
@@ -101,7 +101,7 @@ func TestListScenes_Success(t *testing.T) {
 
 func TestListScenes_Empty(t *testing.T) {
 	mock := &mockSceneService{
-		listScenesFn: func() ([]*services.SceneListResponse, error) {
+		listScenesFn: func() ([]*contracts.SceneListResponse, error) {
 			return nil, nil
 		},
 	}
@@ -117,7 +117,7 @@ func TestListScenes_Empty(t *testing.T) {
 
 func TestListScenes_ServiceError(t *testing.T) {
 	mock := &mockSceneService{
-		listScenesFn: func() ([]*services.SceneListResponse, error) {
+		listScenesFn: func() ([]*contracts.SceneListResponse, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
@@ -135,18 +135,18 @@ func TestGetSceneDetail_Success(t *testing.T) {
 		parseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getSceneDetailFn: func(city, state string) (*services.SceneDetailResponse, error) {
-			return &services.SceneDetailResponse{
+		getSceneDetailFn: func(city, state string) (*contracts.SceneDetailResponse, error) {
+			return &contracts.SceneDetailResponse{
 				City:  city,
 				State: state,
 				Slug:  "phoenix-az",
-				Stats: services.SceneStats{
+				Stats: contracts.SceneStats{
 					VenueCount:        5,
 					ArtistCount:       30,
 					UpcomingShowCount: 12,
 					FestivalCount:     2,
 				},
-				Pulse: services.ScenePulse{
+				Pulse: contracts.ScenePulse{
 					ShowsThisMonth: 8,
 					ShowsPrevMonth: 5,
 					ShowsTrend:     "+3",
@@ -186,7 +186,7 @@ func TestGetSceneDetail_SceneNotFound(t *testing.T) {
 		parseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Tiny", "XX", nil
 		},
-		getSceneDetailFn: func(city, state string) (*services.SceneDetailResponse, error) {
+		getSceneDetailFn: func(city, state string) (*contracts.SceneDetailResponse, error) {
 			return nil, fmt.Errorf("scene not found: %s, %s", city, state)
 		},
 	}
@@ -201,7 +201,7 @@ func TestGetSceneDetail_ServiceError(t *testing.T) {
 		parseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getSceneDetailFn: func(city, state string) (*services.SceneDetailResponse, error) {
+		getSceneDetailFn: func(city, state string) (*contracts.SceneDetailResponse, error) {
 			return nil, fmt.Errorf("database connection lost")
 		},
 	}
@@ -222,8 +222,8 @@ func TestGetSceneActiveArtists_Success(t *testing.T) {
 		parseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*services.SceneArtistResponse, int64, error) {
-			return []*services.SceneArtistResponse{
+		getActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
+			return []*contracts.SceneArtistResponse{
 				{ID: 1, Slug: "band-a", Name: "Band A", City: &phoenix, State: &az, ShowCount: 5},
 				{ID: 2, Slug: "band-b", Name: "Band B", City: &phoenix, State: &az, ShowCount: 3},
 			}, 2, nil
@@ -260,7 +260,7 @@ func TestGetSceneActiveArtists_SceneNotFound(t *testing.T) {
 		parseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Tiny", "XX", nil
 		},
-		getActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*services.SceneArtistResponse, int64, error) {
+		getActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
 			return nil, 0, fmt.Errorf("scene not found: %s, %s", city, state)
 		},
 	}
@@ -276,10 +276,10 @@ func TestGetSceneActiveArtists_DefaultPeriodAndLimit(t *testing.T) {
 		parseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*services.SceneArtistResponse, int64, error) {
+		getActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
 			capturedPeriod = periodDays
 			capturedLimit = limit
-			return []*services.SceneArtistResponse{}, 0, nil
+			return []*contracts.SceneArtistResponse{}, 0, nil
 		},
 	}
 	h := NewSceneHandler(mock)
@@ -301,7 +301,7 @@ func TestGetSceneActiveArtists_ServiceError(t *testing.T) {
 		parseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*services.SceneArtistResponse, int64, error) {
+		getActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
 			return nil, 0, fmt.Errorf("database connection lost")
 		},
 	}
@@ -339,8 +339,8 @@ func TestGetSceneGenres_Success(t *testing.T) {
 		parseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getSceneGenreDistributionFn: func(city, state string) ([]services.GenreCount, error) {
-			return []services.GenreCount{
+		getSceneGenreDistributionFn: func(city, state string) ([]contracts.GenreCount, error) {
+			return []contracts.GenreCount{
 				{TagID: 1, Name: "punk", Slug: "punk", Count: 20},
 				{TagID: 2, Name: "indie rock", Slug: "indie-rock", Count: 15},
 			}, nil
@@ -383,7 +383,7 @@ func TestGetSceneGenres_Empty(t *testing.T) {
 		parseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getSceneGenreDistributionFn: func(city, state string) ([]services.GenreCount, error) {
+		getSceneGenreDistributionFn: func(city, state string) ([]contracts.GenreCount, error) {
 			return nil, nil
 		},
 		getGenreDiversityIndexFn: func(city, state string) (float64, error) {
@@ -412,7 +412,7 @@ func TestGetSceneGenres_ServiceError(t *testing.T) {
 		parseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getSceneGenreDistributionFn: func(city, state string) ([]services.GenreCount, error) {
+		getSceneGenreDistributionFn: func(city, state string) ([]contracts.GenreCount, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}

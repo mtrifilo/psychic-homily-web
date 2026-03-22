@@ -11,6 +11,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -27,7 +28,7 @@ func TestCollectionService_NilDatabase(t *testing.T) {
 	svc := &CollectionService{db: nil}
 
 	t.Run("CreateCollection", func(t *testing.T) {
-		resp, err := svc.CreateCollection(1, &CreateCollectionRequest{Title: "Test"})
+		resp, err := svc.CreateCollection(1, &contracts.CreateCollectionRequest{Title: "Test"})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -41,7 +42,7 @@ func TestCollectionService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("ListCollections", func(t *testing.T) {
-		resp, total, err := svc.ListCollections(CollectionFilters{}, 20, 0)
+		resp, total, err := svc.ListCollections(contracts.CollectionFilters{}, 20, 0)
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -49,7 +50,7 @@ func TestCollectionService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("UpdateCollection", func(t *testing.T) {
-		resp, err := svc.UpdateCollection("test-slug", 1, false, &UpdateCollectionRequest{})
+		resp, err := svc.UpdateCollection("test-slug", 1, false, &contracts.UpdateCollectionRequest{})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -62,7 +63,7 @@ func TestCollectionService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("AddItem", func(t *testing.T) {
-		resp, err := svc.AddItem("test-slug", 1, &AddCollectionItemRequest{EntityType: "artist", EntityID: 1})
+		resp, err := svc.AddItem("test-slug", 1, &contracts.AddCollectionItemRequest{EntityType: "artist", EntityID: 1})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 		assert.Nil(t, resp)
@@ -75,7 +76,7 @@ func TestCollectionService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("ReorderItems", func(t *testing.T) {
-		err := svc.ReorderItems("test-slug", 1, &ReorderCollectionItemsRequest{})
+		err := svc.ReorderItems("test-slug", 1, &contracts.ReorderCollectionItemsRequest{})
 		assert.Error(t, err)
 		assert.Equal(t, "database not initialized", err.Error())
 	})
@@ -214,8 +215,8 @@ func (suite *CollectionServiceIntegrationTestSuite) createTestVenueForCollection
 	return venue
 }
 
-func (suite *CollectionServiceIntegrationTestSuite) createBasicCollection(user *models.User, title string) *CollectionDetailResponse {
-	req := &CreateCollectionRequest{
+func (suite *CollectionServiceIntegrationTestSuite) createBasicCollection(user *models.User, title string) *contracts.CollectionDetailResponse {
+	req := &contracts.CreateCollectionRequest{
 		Title:    title,
 		IsPublic: true,
 	}
@@ -240,7 +241,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_Success
 	user := suite.createTestUser("Creator")
 
 	desc := "My favorite artists"
-	req := &CreateCollectionRequest{
+	req := &contracts.CreateCollectionRequest{
 		Title:         "Best Artists",
 		Description:   &desc,
 		Collaborative: true,
@@ -267,7 +268,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_Success
 func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_Private() {
 	user := suite.createTestUser("PrivateCreator")
 
-	req := &CreateCollectionRequest{
+	req := &contracts.CreateCollectionRequest{
 		Title:    "Private List",
 		IsPublic: false,
 	}
@@ -323,7 +324,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_NotFound() {
 
 func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_PrivateCollectionByCreator() {
 	user := suite.createTestUser("PrivateViewer")
-	req := &CreateCollectionRequest{Title: "Private Collection", IsPublic: false}
+	req := &contracts.CreateCollectionRequest{Title: "Private Collection", IsPublic: false}
 	created, err := suite.collectionService.CreateCollection(user.ID, req)
 	suite.Require().NoError(err)
 
@@ -335,7 +336,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_PrivateCollect
 func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_PrivateCollectionByOtherUser() {
 	creator := suite.createTestUser("PrivateOwner")
 	other := suite.createTestUser("OtherViewer")
-	req := &CreateCollectionRequest{Title: "Secret Collection", IsPublic: false}
+	req := &contracts.CreateCollectionRequest{Title: "Secret Collection", IsPublic: false}
 	created, err := suite.collectionService.CreateCollection(creator.ID, req)
 	suite.Require().NoError(err)
 
@@ -366,7 +367,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_All() {
 	suite.createBasicCollection(user, "Collection A")
 	suite.createBasicCollection(user, "Collection B")
 
-	resp, total, err := suite.collectionService.ListCollections(CollectionFilters{}, 20, 0)
+	resp, total, err := suite.collectionService.ListCollections(contracts.CollectionFilters{}, 20, 0)
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), total)
@@ -377,10 +378,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_PublicOn
 	user := suite.createTestUser("MixedLister")
 	suite.createBasicCollection(user, "Public One")
 
-	privateReq := &CreateCollectionRequest{Title: "Private One", IsPublic: false}
+	privateReq := &contracts.CreateCollectionRequest{Title: "Private One", IsPublic: false}
 	suite.collectionService.CreateCollection(user.ID, privateReq)
 
-	resp, total, err := suite.collectionService.ListCollections(CollectionFilters{PublicOnly: true}, 20, 0)
+	resp, total, err := suite.collectionService.ListCollections(contracts.CollectionFilters{PublicOnly: true}, 20, 0)
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -394,7 +395,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBy
 	suite.createBasicCollection(user1, "User1 Collection")
 	suite.createBasicCollection(user2, "User2 Collection")
 
-	resp, total, err := suite.collectionService.ListCollections(CollectionFilters{CreatorID: user1.ID}, 20, 0)
+	resp, total, err := suite.collectionService.ListCollections(contracts.CollectionFilters{CreatorID: user1.ID}, 20, 0)
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -407,7 +408,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBy
 	suite.createBasicCollection(user, "Phoenix Punk Bands")
 	suite.createBasicCollection(user, "Chicago Jazz Venues")
 
-	resp, total, err := suite.collectionService.ListCollections(CollectionFilters{Search: "punk"}, 20, 0)
+	resp, total, err := suite.collectionService.ListCollections(contracts.CollectionFilters{Search: "punk"}, 20, 0)
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -422,7 +423,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBy
 
 	suite.collectionService.SetFeatured(coll.Slug, true)
 
-	resp, total, err := suite.collectionService.ListCollections(CollectionFilters{Featured: true}, 20, 0)
+	resp, total, err := suite.collectionService.ListCollections(contracts.CollectionFilters{Featured: true}, 20, 0)
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -436,7 +437,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_Paginati
 		suite.createBasicCollection(user, fmt.Sprintf("Collection %d", i))
 	}
 
-	resp, total, err := suite.collectionService.ListCollections(CollectionFilters{}, 2, 0)
+	resp, total, err := suite.collectionService.ListCollections(contracts.CollectionFilters{}, 2, 0)
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(5), total)
@@ -447,7 +448,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_DefaultL
 	user := suite.createTestUser("DefaultLimit")
 	suite.createBasicCollection(user, "Single")
 
-	resp, _, err := suite.collectionService.ListCollections(CollectionFilters{}, 0, 0)
+	resp, _, err := suite.collectionService.ListCollections(contracts.CollectionFilters{}, 0, 0)
 
 	suite.Require().NoError(err)
 	suite.Len(resp, 1) // Default limit 20, but only 1 exists
@@ -463,7 +464,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_BasicFi
 
 	newTitle := "Updated Title"
 	newDesc := "Updated description"
-	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &UpdateCollectionRequest{
+	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		Title:       &newTitle,
 		Description: &newDesc,
 	})
@@ -479,7 +480,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_TitleCh
 	oldSlug := created.Slug
 
 	newTitle := "Brand New Title"
-	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &UpdateCollectionRequest{
+	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		Title: &newTitle,
 	})
 
@@ -495,7 +496,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_BoolFie
 
 	collab := false
 	pub := false
-	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &UpdateCollectionRequest{
+	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		Collaborative: &collab,
 		IsPublic:      &pub,
 	})
@@ -507,7 +508,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_BoolFie
 
 func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_NotFound() {
 	newTitle := "Anything"
-	resp, err := suite.collectionService.UpdateCollection("nonexistent-slug", 1, false, &UpdateCollectionRequest{
+	resp, err := suite.collectionService.UpdateCollection("nonexistent-slug", 1, false, &contracts.UpdateCollectionRequest{
 		Title: &newTitle,
 	})
 
@@ -524,7 +525,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_Forbidd
 	created := suite.createBasicCollection(creator, "Protected Collection")
 
 	newTitle := "Hacked!"
-	resp, err := suite.collectionService.UpdateCollection(created.Slug, other.ID, false, &UpdateCollectionRequest{
+	resp, err := suite.collectionService.UpdateCollection(created.Slug, other.ID, false, &contracts.UpdateCollectionRequest{
 		Title: &newTitle,
 	})
 
@@ -541,7 +542,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_AdminCa
 	created := suite.createBasicCollection(creator, "Admin Editable")
 
 	newTitle := "Admin Updated"
-	resp, err := suite.collectionService.UpdateCollection(created.Slug, admin.ID, true, &UpdateCollectionRequest{
+	resp, err := suite.collectionService.UpdateCollection(created.Slug, admin.ID, true, &contracts.UpdateCollectionRequest{
 		Title: &newTitle,
 	})
 
@@ -553,7 +554,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_NoChang
 	user := suite.createTestUser("NoopUpdater")
 	created := suite.createBasicCollection(user, "Stable Collection")
 
-	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &UpdateCollectionRequest{})
+	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{})
 
 	suite.Require().NoError(err)
 	suite.Equal("Stable Collection", resp.Title)
@@ -611,7 +612,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestDeleteCollection_Cascade
 	created := suite.createBasicCollection(user, "Cascade Delete")
 
 	artist := suite.createTestArtist("Cascade Artist")
-	suite.collectionService.AddItem(created.Slug, user.ID, &AddCollectionItemRequest{
+	suite.collectionService.AddItem(created.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist,
 		EntityID:   artist.ID,
 	})
@@ -638,7 +639,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_Artist() {
 	coll := suite.createBasicCollection(user, "Artist Collection")
 	artist := suite.createTestArtist("Test Artist")
 
-	resp, err := suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	resp, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist,
 		EntityID:   artist.ID,
 	})
@@ -658,7 +659,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_Venue() {
 	coll := suite.createBasicCollection(user, "Venue Collection")
 	venue := suite.createTestVenueForCollection("The Rebel Lounge")
 
-	resp, err := suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	resp, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityVenue,
 		EntityID:   venue.ID,
 	})
@@ -675,13 +676,13 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_AutoIncrementPos
 	a2 := suite.createTestArtist("Second")
 	a3 := suite.createTestArtist("Third")
 
-	resp1, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	resp1, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: a1.ID,
 	})
-	resp2, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	resp2, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: a2.ID,
 	})
-	resp3, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	resp3, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: a3.ID,
 	})
 
@@ -696,7 +697,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_WithNotes() {
 	artist := suite.createTestArtist("Noted Artist")
 
 	notes := "Saw them live, amazing set"
-	resp, err := suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	resp, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist,
 		EntityID:   artist.ID,
 		Notes:      &notes,
@@ -712,12 +713,12 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_Duplicate() {
 	coll := suite.createBasicCollection(user, "Dup Collection")
 	artist := suite.createTestArtist("Unique Artist")
 
-	_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
 	})
 	suite.Require().NoError(err)
 
-	_, err = suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	_, err = suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
 	})
 	suite.Require().Error(err)
@@ -730,12 +731,12 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_CollaborativeByO
 	creator := suite.createTestUser("CollabOwner")
 	collaborator := suite.createTestUser("Collaborator")
 
-	req := &CreateCollectionRequest{Title: "Collab Collection", IsPublic: true, Collaborative: true}
+	req := &contracts.CreateCollectionRequest{Title: "Collab Collection", IsPublic: true, Collaborative: true}
 	coll, err := suite.collectionService.CreateCollection(creator.ID, req)
 	suite.Require().NoError(err)
 
 	artist := suite.createTestArtist("Collab Artist")
-	resp, err := suite.collectionService.AddItem(coll.Slug, collaborator.ID, &AddCollectionItemRequest{
+	resp, err := suite.collectionService.AddItem(coll.Slug, collaborator.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
 	})
 
@@ -747,12 +748,12 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_NonCollaborative
 	creator := suite.createTestUser("SoloOwner")
 	other := suite.createTestUser("Outsider")
 
-	req := &CreateCollectionRequest{Title: "Solo Collection", IsPublic: true, Collaborative: false}
+	req := &contracts.CreateCollectionRequest{Title: "Solo Collection", IsPublic: true, Collaborative: false}
 	coll, err := suite.collectionService.CreateCollection(creator.ID, req)
 	suite.Require().NoError(err)
 
 	artist := suite.createTestArtist("Blocked Artist")
-	resp, err := suite.collectionService.AddItem(coll.Slug, other.ID, &AddCollectionItemRequest{
+	resp, err := suite.collectionService.AddItem(coll.Slug, other.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
 	})
 
@@ -764,7 +765,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_NonCollaborative
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_CollectionNotFound() {
-	resp, err := suite.collectionService.AddItem("nonexistent-slug", 1, &AddCollectionItemRequest{
+	resp, err := suite.collectionService.AddItem("nonexistent-slug", 1, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: 1,
 	})
 
@@ -781,7 +782,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestRemoveItem_ByCreator() {
 	coll := suite.createBasicCollection(user, "Remove Collection")
 	artist := suite.createTestArtist("Removable Artist")
 
-	item, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	item, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
 	})
 
@@ -798,11 +799,11 @@ func (suite *CollectionServiceIntegrationTestSuite) TestRemoveItem_ByItemAdder()
 	creator := suite.createTestUser("RemoveOwner")
 	adder := suite.createTestUser("ItemAdderRemover")
 
-	req := &CreateCollectionRequest{Title: "Collab Remove", IsPublic: true, Collaborative: true}
+	req := &contracts.CreateCollectionRequest{Title: "Collab Remove", IsPublic: true, Collaborative: true}
 	coll, _ := suite.collectionService.CreateCollection(creator.ID, req)
 
 	artist := suite.createTestArtist("Adder Artist")
-	item, _ := suite.collectionService.AddItem(coll.Slug, adder.ID, &AddCollectionItemRequest{
+	item, _ := suite.collectionService.AddItem(coll.Slug, adder.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
 	})
 
@@ -816,11 +817,11 @@ func (suite *CollectionServiceIntegrationTestSuite) TestRemoveItem_Forbidden() {
 	adder := suite.createTestUser("RemoveAdder")
 	other := suite.createTestUser("RemoveOther")
 
-	req := &CreateCollectionRequest{Title: "Remove Forbidden", IsPublic: true, Collaborative: true}
+	req := &contracts.CreateCollectionRequest{Title: "Remove Forbidden", IsPublic: true, Collaborative: true}
 	coll, _ := suite.collectionService.CreateCollection(creator.ID, req)
 
 	artist := suite.createTestArtist("Forbidden Remove Artist")
-	item, _ := suite.collectionService.AddItem(coll.Slug, adder.ID, &AddCollectionItemRequest{
+	item, _ := suite.collectionService.AddItem(coll.Slug, adder.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
 	})
 
@@ -838,7 +839,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestRemoveItem_AdminCanRemov
 
 	coll := suite.createBasicCollection(creator, "Admin Remove")
 	artist := suite.createTestArtist("Admin Removable")
-	item, _ := suite.collectionService.AddItem(coll.Slug, creator.ID, &AddCollectionItemRequest{
+	item, _ := suite.collectionService.AddItem(coll.Slug, creator.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
 	})
 
@@ -869,19 +870,19 @@ func (suite *CollectionServiceIntegrationTestSuite) TestReorderItems_Success() {
 	a2 := suite.createTestArtist("Reorder Second")
 	a3 := suite.createTestArtist("Reorder Third")
 
-	item1, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	item1, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: a1.ID,
 	})
-	item2, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	item2, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: a2.ID,
 	})
-	item3, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	item3, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: a3.ID,
 	})
 
 	// Reverse the order
-	err := suite.collectionService.ReorderItems(coll.Slug, user.ID, &ReorderCollectionItemsRequest{
-		Items: []ReorderItem{
+	err := suite.collectionService.ReorderItems(coll.Slug, user.ID, &contracts.ReorderCollectionItemsRequest{
+		Items: []contracts.ReorderItem{
 			{ItemID: item3.ID, Position: 0},
 			{ItemID: item2.ID, Position: 1},
 			{ItemID: item1.ID, Position: 2},
@@ -904,8 +905,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestReorderItems_Forbidden()
 	other := suite.createTestUser("ReorderOther")
 	coll := suite.createBasicCollection(creator, "Reorder Forbidden")
 
-	err := suite.collectionService.ReorderItems(coll.Slug, other.ID, &ReorderCollectionItemsRequest{
-		Items: []ReorderItem{},
+	err := suite.collectionService.ReorderItems(coll.Slug, other.ID, &contracts.ReorderCollectionItemsRequest{
+		Items: []contracts.ReorderItem{},
 	})
 
 	suite.Require().Error(err)
@@ -915,7 +916,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestReorderItems_Forbidden()
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestReorderItems_CollectionNotFound() {
-	err := suite.collectionService.ReorderItems("nonexistent-slug", 1, &ReorderCollectionItemsRequest{})
+	err := suite.collectionService.ReorderItems("nonexistent-slug", 1, &contracts.ReorderCollectionItemsRequest{})
 	suite.Require().Error(err)
 }
 
@@ -960,7 +961,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestSubscribe_PrivateCollect
 	creator := suite.createTestUser("PrivSubCreator")
 	other := suite.createTestUser("PrivSubOther")
 
-	req := &CreateCollectionRequest{Title: "Private Sub", IsPublic: false}
+	req := &contracts.CreateCollectionRequest{Title: "Private Sub", IsPublic: false}
 	coll, _ := suite.collectionService.CreateCollection(creator.ID, req)
 
 	err := suite.collectionService.Subscribe(coll.Slug, other.ID)
@@ -1038,13 +1039,13 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetStats_Success() {
 	a2 := suite.createTestArtist("Stats Artist 2")
 	v1 := suite.createTestVenueForCollection("Stats Venue")
 
-	suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: a1.ID,
 	})
-	suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: a2.ID,
 	})
-	suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityVenue, EntityID: v1.ID,
 	})
 
@@ -1169,10 +1170,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ItemEntityName
 	artist := suite.createTestArtist("Resolved Artist")
 	venue := suite.createTestVenueForCollection("Resolved Venue")
 
-	suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
 	})
-	suite.collectionService.AddItem(coll.Slug, user.ID, &AddCollectionItemRequest{
+	suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityVenue, EntityID: venue.ID,
 	})
 
@@ -1190,20 +1191,20 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ContributorCou
 	collab1 := suite.createTestUser("Contrib1")
 	collab2 := suite.createTestUser("Contrib2")
 
-	req := &CreateCollectionRequest{Title: "Contrib Count", IsPublic: true, Collaborative: true}
+	req := &contracts.CreateCollectionRequest{Title: "Contrib Count", IsPublic: true, Collaborative: true}
 	coll, _ := suite.collectionService.CreateCollection(creator.ID, req)
 
 	a1 := suite.createTestArtist("Contrib Artist 1")
 	a2 := suite.createTestArtist("Contrib Artist 2")
 	a3 := suite.createTestArtist("Contrib Artist 3")
 
-	suite.collectionService.AddItem(coll.Slug, creator.ID, &AddCollectionItemRequest{
+	suite.collectionService.AddItem(coll.Slug, creator.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: a1.ID,
 	})
-	suite.collectionService.AddItem(coll.Slug, collab1.ID, &AddCollectionItemRequest{
+	suite.collectionService.AddItem(coll.Slug, collab1.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: a2.ID,
 	})
-	suite.collectionService.AddItem(coll.Slug, collab2.ID, &AddCollectionItemRequest{
+	suite.collectionService.AddItem(coll.Slug, collab2.ID, &contracts.AddCollectionItemRequest{
 		EntityType: models.CollectionEntityArtist, EntityID: a3.ID,
 	})
 

@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ============================================================================
@@ -18,7 +18,7 @@ import (
 type mockSavedShowService struct {
 	saveShowFn       func(userID, showID uint) error
 	unsaveShowFn     func(userID, showID uint) error
-	getUserSavedFn   func(userID uint, limit, offset int) ([]*services.SavedShowResponse, int64, error)
+	getUserSavedFn   func(userID uint, limit, offset int) ([]*contracts.SavedShowResponse, int64, error)
 	isShowSavedFn    func(userID, showID uint) (bool, error)
 	getSavedShowIDFn func(userID uint, showIDs []uint) (map[uint]bool, error)
 }
@@ -35,7 +35,7 @@ func (m *mockSavedShowService) UnsaveShow(userID, showID uint) error {
 	}
 	return nil
 }
-func (m *mockSavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]*services.SavedShowResponse, int64, error) {
+func (m *mockSavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]*contracts.SavedShowResponse, int64, error) {
 	if m.getUserSavedFn != nil {
 		return m.getUserSavedFn(userID, limit, offset)
 	}
@@ -61,9 +61,9 @@ func (m *mockSavedShowService) GetSavedShowIDs(userID uint, showIDs []uint) (map
 type mockFavoriteVenueService struct {
 	favoriteVenueFn    func(userID, venueID uint) error
 	unfavoriteVenueFn  func(userID, venueID uint) error
-	getUserFavoritesFn func(userID uint, limit, offset int) ([]*services.FavoriteVenueResponse, int64, error)
+	getUserFavoritesFn func(userID uint, limit, offset int) ([]*contracts.FavoriteVenueResponse, int64, error)
 	isVenueFavoritedFn func(userID, venueID uint) (bool, error)
-	getUpcomingShowsFn func(userID uint, timezone string, limit, offset int) ([]*services.FavoriteVenueShowResponse, int64, error)
+	getUpcomingShowsFn func(userID uint, timezone string, limit, offset int) ([]*contracts.FavoriteVenueShowResponse, int64, error)
 	getFavoriteIDsFn   func(userID uint, venueIDs []uint) (map[uint]bool, error)
 }
 
@@ -79,7 +79,7 @@ func (m *mockFavoriteVenueService) UnfavoriteVenue(userID, venueID uint) error {
 	}
 	return nil
 }
-func (m *mockFavoriteVenueService) GetUserFavoriteVenues(userID uint, limit, offset int) ([]*services.FavoriteVenueResponse, int64, error) {
+func (m *mockFavoriteVenueService) GetUserFavoriteVenues(userID uint, limit, offset int) ([]*contracts.FavoriteVenueResponse, int64, error) {
 	if m.getUserFavoritesFn != nil {
 		return m.getUserFavoritesFn(userID, limit, offset)
 	}
@@ -91,7 +91,7 @@ func (m *mockFavoriteVenueService) IsVenueFavorited(userID, venueID uint) (bool,
 	}
 	return false, nil
 }
-func (m *mockFavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezone string, limit, offset int) ([]*services.FavoriteVenueShowResponse, int64, error) {
+func (m *mockFavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezone string, limit, offset int) ([]*contracts.FavoriteVenueShowResponse, int64, error) {
 	if m.getUpcomingShowsFn != nil {
 		return m.getUpcomingShowsFn(userID, timezone, limit, offset)
 	}
@@ -110,7 +110,7 @@ func (m *mockFavoriteVenueService) GetFavoriteVenueIDs(userID uint, venueIDs []u
 
 type mockAuditLogService struct {
 	logActionFn    func(actorID uint, action string, entityType string, entityID uint, metadata map[string]interface{})
-	getAuditLogsFn func(limit, offset int, filters services.AuditLogFilters) ([]*services.AuditLogResponse, int64, error)
+	getAuditLogsFn func(limit, offset int, filters contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error)
 }
 
 func (m *mockAuditLogService) LogAction(actorID uint, action string, entityType string, entityID uint, metadata map[string]interface{}) {
@@ -118,7 +118,7 @@ func (m *mockAuditLogService) LogAction(actorID uint, action string, entityType 
 		m.logActionFn(actorID, action, entityType, entityID, metadata)
 	}
 }
-func (m *mockAuditLogService) GetAuditLogs(limit, offset int, filters services.AuditLogFilters) ([]*services.AuditLogResponse, int64, error) {
+func (m *mockAuditLogService) GetAuditLogs(limit, offset int, filters contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {
 	if m.getAuditLogsFn != nil {
 		return m.getAuditLogsFn(limit, offset, filters)
 	}
@@ -130,46 +130,46 @@ func (m *mockAuditLogService) GetAuditLogs(limit, offset int, filters services.A
 // ============================================================================
 
 type mockShowReportService struct {
-	createReportFn    func(userID, showID uint, reportType string, details *string) (*services.ShowReportResponse, error)
-	getUserReportFn   func(userID, showID uint) (*services.ShowReportResponse, error)
-	getPendingReportsFn func(limit, offset int) ([]*services.ShowReportResponse, int64, error)
-	dismissReportFn   func(reportID, adminID uint, notes *string) (*services.ShowReportResponse, error)
-	resolveReportFn   func(reportID, adminID uint, notes *string) (*services.ShowReportResponse, error)
-	resolveWithFlagFn func(reportID, adminID uint, notes *string, setShowFlag bool) (*services.ShowReportResponse, error)
+	createReportFn    func(userID, showID uint, reportType string, details *string) (*contracts.ShowReportResponse, error)
+	getUserReportFn   func(userID, showID uint) (*contracts.ShowReportResponse, error)
+	getPendingReportsFn func(limit, offset int) ([]*contracts.ShowReportResponse, int64, error)
+	dismissReportFn   func(reportID, adminID uint, notes *string) (*contracts.ShowReportResponse, error)
+	resolveReportFn   func(reportID, adminID uint, notes *string) (*contracts.ShowReportResponse, error)
+	resolveWithFlagFn func(reportID, adminID uint, notes *string, setShowFlag bool) (*contracts.ShowReportResponse, error)
 	getReportByIDFn   func(reportID uint) (*models.ShowReport, error)
 }
 
-func (m *mockShowReportService) CreateReport(userID, showID uint, reportType string, details *string) (*services.ShowReportResponse, error) {
+func (m *mockShowReportService) CreateReport(userID, showID uint, reportType string, details *string) (*contracts.ShowReportResponse, error) {
 	if m.createReportFn != nil {
 		return m.createReportFn(userID, showID, reportType, details)
 	}
 	return nil, nil
 }
-func (m *mockShowReportService) GetUserReportForShow(userID, showID uint) (*services.ShowReportResponse, error) {
+func (m *mockShowReportService) GetUserReportForShow(userID, showID uint) (*contracts.ShowReportResponse, error) {
 	if m.getUserReportFn != nil {
 		return m.getUserReportFn(userID, showID)
 	}
 	return nil, nil
 }
-func (m *mockShowReportService) GetPendingReports(limit, offset int) ([]*services.ShowReportResponse, int64, error) {
+func (m *mockShowReportService) GetPendingReports(limit, offset int) ([]*contracts.ShowReportResponse, int64, error) {
 	if m.getPendingReportsFn != nil {
 		return m.getPendingReportsFn(limit, offset)
 	}
 	return nil, 0, nil
 }
-func (m *mockShowReportService) DismissReport(reportID, adminID uint, notes *string) (*services.ShowReportResponse, error) {
+func (m *mockShowReportService) DismissReport(reportID, adminID uint, notes *string) (*contracts.ShowReportResponse, error) {
 	if m.dismissReportFn != nil {
 		return m.dismissReportFn(reportID, adminID, notes)
 	}
 	return nil, nil
 }
-func (m *mockShowReportService) ResolveReport(reportID, adminID uint, notes *string) (*services.ShowReportResponse, error) {
+func (m *mockShowReportService) ResolveReport(reportID, adminID uint, notes *string) (*contracts.ShowReportResponse, error) {
 	if m.resolveReportFn != nil {
 		return m.resolveReportFn(reportID, adminID, notes)
 	}
 	return nil, nil
 }
-func (m *mockShowReportService) ResolveReportWithFlag(reportID, adminID uint, notes *string, setShowFlag bool) (*services.ShowReportResponse, error) {
+func (m *mockShowReportService) ResolveReportWithFlag(reportID, adminID uint, notes *string, setShowFlag bool) (*contracts.ShowReportResponse, error) {
 	if m.resolveWithFlagFn != nil {
 		return m.resolveWithFlagFn(reportID, adminID, notes, setShowFlag)
 	}
@@ -187,39 +187,39 @@ func (m *mockShowReportService) GetReportByID(reportID uint) (*models.ShowReport
 // ============================================================================
 
 type mockArtistReportService struct {
-	createReportFn      func(userID, artistID uint, reportType string, details *string) (*services.ArtistReportResponse, error)
-	getUserReportFn     func(userID, artistID uint) (*services.ArtistReportResponse, error)
-	getPendingReportsFn func(limit, offset int) ([]*services.ArtistReportResponse, int64, error)
-	dismissReportFn     func(reportID, adminID uint, notes *string) (*services.ArtistReportResponse, error)
-	resolveReportFn     func(reportID, adminID uint, notes *string) (*services.ArtistReportResponse, error)
+	createReportFn      func(userID, artistID uint, reportType string, details *string) (*contracts.ArtistReportResponse, error)
+	getUserReportFn     func(userID, artistID uint) (*contracts.ArtistReportResponse, error)
+	getPendingReportsFn func(limit, offset int) ([]*contracts.ArtistReportResponse, int64, error)
+	dismissReportFn     func(reportID, adminID uint, notes *string) (*contracts.ArtistReportResponse, error)
+	resolveReportFn     func(reportID, adminID uint, notes *string) (*contracts.ArtistReportResponse, error)
 	getReportByIDFn     func(reportID uint) (*models.ArtistReport, error)
 }
 
-func (m *mockArtistReportService) CreateReport(userID, artistID uint, reportType string, details *string) (*services.ArtistReportResponse, error) {
+func (m *mockArtistReportService) CreateReport(userID, artistID uint, reportType string, details *string) (*contracts.ArtistReportResponse, error) {
 	if m.createReportFn != nil {
 		return m.createReportFn(userID, artistID, reportType, details)
 	}
 	return nil, nil
 }
-func (m *mockArtistReportService) GetUserReportForArtist(userID, artistID uint) (*services.ArtistReportResponse, error) {
+func (m *mockArtistReportService) GetUserReportForArtist(userID, artistID uint) (*contracts.ArtistReportResponse, error) {
 	if m.getUserReportFn != nil {
 		return m.getUserReportFn(userID, artistID)
 	}
 	return nil, nil
 }
-func (m *mockArtistReportService) GetPendingReports(limit, offset int) ([]*services.ArtistReportResponse, int64, error) {
+func (m *mockArtistReportService) GetPendingReports(limit, offset int) ([]*contracts.ArtistReportResponse, int64, error) {
 	if m.getPendingReportsFn != nil {
 		return m.getPendingReportsFn(limit, offset)
 	}
 	return nil, 0, nil
 }
-func (m *mockArtistReportService) DismissReport(reportID, adminID uint, notes *string) (*services.ArtistReportResponse, error) {
+func (m *mockArtistReportService) DismissReport(reportID, adminID uint, notes *string) (*contracts.ArtistReportResponse, error) {
 	if m.dismissReportFn != nil {
 		return m.dismissReportFn(reportID, adminID, notes)
 	}
 	return nil, nil
 }
-func (m *mockArtistReportService) ResolveReport(reportID, adminID uint, notes *string) (*services.ArtistReportResponse, error) {
+func (m *mockArtistReportService) ResolveReport(reportID, adminID uint, notes *string) (*contracts.ArtistReportResponse, error) {
 	if m.resolveReportFn != nil {
 		return m.resolveReportFn(reportID, adminID, notes)
 	}
@@ -239,10 +239,10 @@ func (m *mockArtistReportService) GetReportByID(reportID uint) (*models.ArtistRe
 type mockDiscordService struct {
 	isConfiguredFn             func() bool
 	notifyNewUserFn            func(user *models.User)
-	notifyNewShowFn            func(show *services.ShowResponse, submitterEmail string)
+	notifyNewShowFn            func(show *contracts.ShowResponse, submitterEmail string)
 	notifyShowStatusChangeFn   func(showTitle string, showID uint, oldStatus, newStatus, actorEmail string)
-	notifyShowApprovedFn       func(show *services.ShowResponse)
-	notifyShowRejectedFn       func(show *services.ShowResponse, reason string)
+	notifyShowApprovedFn       func(show *contracts.ShowResponse)
+	notifyShowRejectedFn       func(show *contracts.ShowResponse, reason string)
 	notifyShowReportFn         func(report *models.ShowReport, reporterEmail string)
 	notifyArtistReportFn       func(report *models.ArtistReport, reporterEmail string)
 	notifyNewVenueFn           func(venueID uint, venueName, city, state string, address *string, submitterEmail string)
@@ -260,7 +260,7 @@ func (m *mockDiscordService) NotifyNewUser(user *models.User) {
 		m.notifyNewUserFn(user)
 	}
 }
-func (m *mockDiscordService) NotifyNewShow(show *services.ShowResponse, submitterEmail string) {
+func (m *mockDiscordService) NotifyNewShow(show *contracts.ShowResponse, submitterEmail string) {
 	if m.notifyNewShowFn != nil {
 		m.notifyNewShowFn(show, submitterEmail)
 	}
@@ -270,12 +270,12 @@ func (m *mockDiscordService) NotifyShowStatusChange(showTitle string, showID uin
 		m.notifyShowStatusChangeFn(showTitle, showID, oldStatus, newStatus, actorEmail)
 	}
 }
-func (m *mockDiscordService) NotifyShowApproved(show *services.ShowResponse) {
+func (m *mockDiscordService) NotifyShowApproved(show *contracts.ShowResponse) {
 	if m.notifyShowApprovedFn != nil {
 		m.notifyShowApprovedFn(show)
 	}
 }
-func (m *mockDiscordService) NotifyShowRejected(show *services.ShowResponse, reason string) {
+func (m *mockDiscordService) NotifyShowRejected(show *contracts.ShowResponse, reason string) {
 	if m.notifyShowRejectedFn != nil {
 		m.notifyShowRejectedFn(show, reason)
 	}
@@ -306,12 +306,12 @@ func (m *mockDiscordService) NotifyPendingVenueEdit(editID, venueID uint, venueN
 // ============================================================================
 
 type mockUserService struct {
-	listUsersFn                     func(limit, offset int, filters services.AdminUserFilters) ([]*services.AdminUserResponse, int64, error)
+	listUsersFn                     func(limit, offset int, filters contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error)
 	findOrCreateUserFn              func(gothUser goth.User, provider string) (*models.User, error)
-	findOrCreateUserWithConsentFn   func(gothUser goth.User, provider string, consent *services.OAuthSignupConsent) (*models.User, error)
+	findOrCreateUserWithConsentFn   func(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*models.User, error)
 	authenticateUserWithPasswordFn  func(email, password string) (*models.User, error)
 	createUserWithPasswordFn        func(email, password, firstName, lastName string) (*models.User, error)
-	createUserWithPasswordWithLegalFn func(email, password, firstName, lastName string, acceptance services.LegalAcceptance) (*models.User, error)
+	createUserWithPasswordWithLegalFn func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*models.User, error)
 	getUserByIDFn                   func(userID uint) (*models.User, error)
 	getUserByEmailFn                func(email string) (*models.User, error)
 	getUserByUsernameFn             func(username string) (*models.User, error)
@@ -324,10 +324,10 @@ type mockUserService struct {
 	resetFailedAttemptsFn           func(userID uint) error
 	updatePasswordFn                func(userID uint, currentPassword, newPassword string) error
 	setEmailVerifiedFn              func(userID uint, verified bool) error
-	getDeletionSummaryFn            func(userID uint) (*services.DeletionSummary, error)
+	getDeletionSummaryFn            func(userID uint) (*contracts.DeletionSummary, error)
 	softDeleteAccountFn             func(userID uint, reason *string) error
 	createUserWithoutPasswordFn     func(email string) (*models.User, error)
-	exportUserDataFn                func(userID uint) (*services.UserDataExport, error)
+	exportUserDataFn                func(userID uint) (*contracts.UserDataExport, error)
 	exportUserDataJSONFn            func(userID uint) ([]byte, error)
 	getOAuthAccountsFn              func(userID uint) ([]models.OAuthAccount, error)
 	getUserByEmailIncludingDeletedFn func(email string) (*models.User, error)
@@ -343,7 +343,7 @@ type mockUserService struct {
 	setShowRemindersFn              func(userID uint, enabled bool) error
 }
 
-func (m *mockUserService) ListUsers(limit, offset int, filters services.AdminUserFilters) ([]*services.AdminUserResponse, int64, error) {
+func (m *mockUserService) ListUsers(limit, offset int, filters contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
 	if m.listUsersFn != nil {
 		return m.listUsersFn(limit, offset, filters)
 	}
@@ -355,7 +355,7 @@ func (m *mockUserService) FindOrCreateUser(gothUser goth.User, provider string) 
 	}
 	return nil, nil
 }
-func (m *mockUserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *services.OAuthSignupConsent) (*models.User, error) {
+func (m *mockUserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*models.User, error) {
 	if m.findOrCreateUserWithConsentFn != nil {
 		return m.findOrCreateUserWithConsentFn(gothUser, provider, consent)
 	}
@@ -373,7 +373,7 @@ func (m *mockUserService) CreateUserWithPassword(email, password, firstName, las
 	}
 	return nil, nil
 }
-func (m *mockUserService) CreateUserWithPasswordWithLegal(email, password, firstName, lastName string, acceptance services.LegalAcceptance) (*models.User, error) {
+func (m *mockUserService) CreateUserWithPasswordWithLegal(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*models.User, error) {
 	if m.createUserWithPasswordWithLegalFn != nil {
 		return m.createUserWithPasswordWithLegalFn(email, password, firstName, lastName, acceptance)
 	}
@@ -451,7 +451,7 @@ func (m *mockUserService) SetEmailVerified(userID uint, verified bool) error {
 	}
 	return nil
 }
-func (m *mockUserService) GetDeletionSummary(userID uint) (*services.DeletionSummary, error) {
+func (m *mockUserService) GetDeletionSummary(userID uint) (*contracts.DeletionSummary, error) {
 	if m.getDeletionSummaryFn != nil {
 		return m.getDeletionSummaryFn(userID)
 	}
@@ -469,7 +469,7 @@ func (m *mockUserService) CreateUserWithoutPassword(email string) (*models.User,
 	}
 	return nil, nil
 }
-func (m *mockUserService) ExportUserData(userID uint) (*services.UserDataExport, error) {
+func (m *mockUserService) ExportUserData(userID uint) (*contracts.UserDataExport, error) {
 	if m.exportUserDataFn != nil {
 		return m.exportUserDataFn(userID)
 	}
@@ -559,83 +559,83 @@ func (m *mockUserService) SetShowReminders(userID uint, enabled bool) error {
 // ============================================================================
 
 type mockShowService struct {
-	createShowFn            func(req *services.CreateShowRequest) (*services.ShowResponse, error)
-	getShowFn               func(showID uint) (*services.ShowResponse, error)
-	getShowBySlugFn         func(slug string) (*services.ShowResponse, error)
-	getShowsFn              func(filters map[string]interface{}) ([]*services.ShowResponse, error)
-	getUserSubmissionsFn    func(userID uint, limit, offset int) ([]services.ShowResponse, int, error)
-	updateShowFn            func(showID uint, updates map[string]interface{}) (*services.ShowResponse, error)
-	updateShowWithRelationsFn func(showID uint, updates map[string]interface{}, venues []services.CreateShowVenue, artists []services.CreateShowArtist, isAdmin bool) (*services.ShowResponse, []services.OrphanedArtist, error)
-	getUpcomingShowsFn      func(timezone string, cursor string, limit int, includeNonApproved bool, filters *services.UpcomingShowsFilter) ([]*services.ShowResponse, *string, error)
-	getShowCitiesFn         func(timezone string) ([]services.ShowCityResponse, error)
+	createShowFn            func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error)
+	getShowFn               func(showID uint) (*contracts.ShowResponse, error)
+	getShowBySlugFn         func(slug string) (*contracts.ShowResponse, error)
+	getShowsFn              func(filters map[string]interface{}) ([]*contracts.ShowResponse, error)
+	getUserSubmissionsFn    func(userID uint, limit, offset int) ([]contracts.ShowResponse, int, error)
+	updateShowFn            func(showID uint, updates map[string]interface{}) (*contracts.ShowResponse, error)
+	updateShowWithRelationsFn func(showID uint, updates map[string]interface{}, venues []contracts.CreateShowVenue, artists []contracts.CreateShowArtist, isAdmin bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error)
+	getUpcomingShowsFn      func(timezone string, cursor string, limit int, includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error)
+	getShowCitiesFn         func(timezone string) ([]contracts.ShowCityResponse, error)
 	deleteShowFn            func(showID uint) error
-	getPendingShowsFn       func(limit, offset int, filters *services.PendingShowsFilter) ([]*services.ShowResponse, int64, error)
-	getRejectedShowsFn      func(limit, offset int, search string) ([]*services.ShowResponse, int64, error)
-	approveShowFn           func(showID uint, verifyVenues bool) (*services.ShowResponse, error)
-	rejectShowFn            func(showID uint, reason string) (*services.ShowResponse, error)
-	unpublishShowFn         func(showID uint, userID uint, isAdmin bool) (*services.ShowResponse, error)
-	makePrivateShowFn       func(showID uint, userID uint, isAdmin bool) (*services.ShowResponse, error)
-	publishShowFn           func(showID uint, userID uint, isAdmin bool) (*services.ShowResponse, error)
+	getPendingShowsFn       func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error)
+	getRejectedShowsFn      func(limit, offset int, search string) ([]*contracts.ShowResponse, int64, error)
+	approveShowFn           func(showID uint, verifyVenues bool) (*contracts.ShowResponse, error)
+	rejectShowFn            func(showID uint, reason string) (*contracts.ShowResponse, error)
+	unpublishShowFn         func(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error)
+	makePrivateShowFn       func(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error)
+	publishShowFn           func(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error)
 	exportShowToMarkdownFn  func(showID uint) ([]byte, string, error)
-	parseShowMarkdownFn     func(content []byte) (*services.ParsedShowImport, error)
-	previewShowImportFn     func(content []byte) (*services.ImportPreviewResponse, error)
-	confirmShowImportFn     func(content []byte, isAdmin bool) (*services.ShowResponse, error)
-	getAdminShowsFn         func(limit, offset int, filters services.AdminShowFilters) ([]*services.ShowResponse, int64, error)
-	setShowSoldOutFn        func(showID uint, isSoldOut bool) (*services.ShowResponse, error)
-	setShowCancelledFn      func(showID uint, isCancelled bool) (*services.ShowResponse, error)
-	batchApproveShowsFn     func(showIDs []uint) (*services.BatchShowResult, error)
-	batchRejectShowsFn      func(showIDs []uint, reason string, category string) (*services.BatchShowResult, error)
+	parseShowMarkdownFn     func(content []byte) (*contracts.ParsedShowImport, error)
+	previewShowImportFn     func(content []byte) (*contracts.ImportPreviewResponse, error)
+	confirmShowImportFn     func(content []byte, isAdmin bool) (*contracts.ShowResponse, error)
+	getAdminShowsFn         func(limit, offset int, filters contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error)
+	setShowSoldOutFn        func(showID uint, isSoldOut bool) (*contracts.ShowResponse, error)
+	setShowCancelledFn      func(showID uint, isCancelled bool) (*contracts.ShowResponse, error)
+	batchApproveShowsFn     func(showIDs []uint) (*contracts.BatchShowResult, error)
+	batchRejectShowsFn      func(showIDs []uint, reason string, category string) (*contracts.BatchShowResult, error)
 }
 
-func (m *mockShowService) CreateShow(req *services.CreateShowRequest) (*services.ShowResponse, error) {
+func (m *mockShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
 	if m.createShowFn != nil {
 		return m.createShowFn(req)
 	}
 	return nil, nil
 }
-func (m *mockShowService) GetShow(showID uint) (*services.ShowResponse, error) {
+func (m *mockShowService) GetShow(showID uint) (*contracts.ShowResponse, error) {
 	if m.getShowFn != nil {
 		return m.getShowFn(showID)
 	}
 	return nil, nil
 }
-func (m *mockShowService) GetShowBySlug(slug string) (*services.ShowResponse, error) {
+func (m *mockShowService) GetShowBySlug(slug string) (*contracts.ShowResponse, error) {
 	if m.getShowBySlugFn != nil {
 		return m.getShowBySlugFn(slug)
 	}
 	return nil, nil
 }
-func (m *mockShowService) GetShows(filters map[string]interface{}) ([]*services.ShowResponse, error) {
+func (m *mockShowService) GetShows(filters map[string]interface{}) ([]*contracts.ShowResponse, error) {
 	if m.getShowsFn != nil {
 		return m.getShowsFn(filters)
 	}
 	return nil, nil
 }
-func (m *mockShowService) GetUserSubmissions(userID uint, limit, offset int) ([]services.ShowResponse, int, error) {
+func (m *mockShowService) GetUserSubmissions(userID uint, limit, offset int) ([]contracts.ShowResponse, int, error) {
 	if m.getUserSubmissionsFn != nil {
 		return m.getUserSubmissionsFn(userID, limit, offset)
 	}
 	return nil, 0, nil
 }
-func (m *mockShowService) UpdateShow(showID uint, updates map[string]interface{}) (*services.ShowResponse, error) {
+func (m *mockShowService) UpdateShow(showID uint, updates map[string]interface{}) (*contracts.ShowResponse, error) {
 	if m.updateShowFn != nil {
 		return m.updateShowFn(showID, updates)
 	}
 	return nil, nil
 }
-func (m *mockShowService) UpdateShowWithRelations(showID uint, updates map[string]interface{}, venues []services.CreateShowVenue, artists []services.CreateShowArtist, isAdmin bool) (*services.ShowResponse, []services.OrphanedArtist, error) {
+func (m *mockShowService) UpdateShowWithRelations(showID uint, updates map[string]interface{}, venues []contracts.CreateShowVenue, artists []contracts.CreateShowArtist, isAdmin bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
 	if m.updateShowWithRelationsFn != nil {
 		return m.updateShowWithRelationsFn(showID, updates, venues, artists, isAdmin)
 	}
 	return nil, nil, nil
 }
-func (m *mockShowService) GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *services.UpcomingShowsFilter) ([]*services.ShowResponse, *string, error) {
+func (m *mockShowService) GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error) {
 	if m.getUpcomingShowsFn != nil {
 		return m.getUpcomingShowsFn(timezone, cursor, limit, includeNonApproved, filters)
 	}
 	return nil, nil, nil
 }
-func (m *mockShowService) GetShowCities(timezone string) ([]services.ShowCityResponse, error) {
+func (m *mockShowService) GetShowCities(timezone string) ([]contracts.ShowCityResponse, error) {
 	if m.getShowCitiesFn != nil {
 		return m.getShowCitiesFn(timezone)
 	}
@@ -647,43 +647,43 @@ func (m *mockShowService) DeleteShow(showID uint) error {
 	}
 	return nil
 }
-func (m *mockShowService) GetPendingShows(limit, offset int, filters *services.PendingShowsFilter) ([]*services.ShowResponse, int64, error) {
+func (m *mockShowService) GetPendingShows(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 	if m.getPendingShowsFn != nil {
 		return m.getPendingShowsFn(limit, offset, filters)
 	}
 	return nil, 0, nil
 }
-func (m *mockShowService) GetRejectedShows(limit, offset int, search string) ([]*services.ShowResponse, int64, error) {
+func (m *mockShowService) GetRejectedShows(limit, offset int, search string) ([]*contracts.ShowResponse, int64, error) {
 	if m.getRejectedShowsFn != nil {
 		return m.getRejectedShowsFn(limit, offset, search)
 	}
 	return nil, 0, nil
 }
-func (m *mockShowService) ApproveShow(showID uint, verifyVenues bool) (*services.ShowResponse, error) {
+func (m *mockShowService) ApproveShow(showID uint, verifyVenues bool) (*contracts.ShowResponse, error) {
 	if m.approveShowFn != nil {
 		return m.approveShowFn(showID, verifyVenues)
 	}
 	return nil, nil
 }
-func (m *mockShowService) RejectShow(showID uint, reason string) (*services.ShowResponse, error) {
+func (m *mockShowService) RejectShow(showID uint, reason string) (*contracts.ShowResponse, error) {
 	if m.rejectShowFn != nil {
 		return m.rejectShowFn(showID, reason)
 	}
 	return nil, nil
 }
-func (m *mockShowService) UnpublishShow(showID uint, userID uint, isAdmin bool) (*services.ShowResponse, error) {
+func (m *mockShowService) UnpublishShow(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
 	if m.unpublishShowFn != nil {
 		return m.unpublishShowFn(showID, userID, isAdmin)
 	}
 	return nil, nil
 }
-func (m *mockShowService) MakePrivateShow(showID uint, userID uint, isAdmin bool) (*services.ShowResponse, error) {
+func (m *mockShowService) MakePrivateShow(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
 	if m.makePrivateShowFn != nil {
 		return m.makePrivateShowFn(showID, userID, isAdmin)
 	}
 	return nil, nil
 }
-func (m *mockShowService) PublishShow(showID uint, userID uint, isAdmin bool) (*services.ShowResponse, error) {
+func (m *mockShowService) PublishShow(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
 	if m.publishShowFn != nil {
 		return m.publishShowFn(showID, userID, isAdmin)
 	}
@@ -695,53 +695,53 @@ func (m *mockShowService) ExportShowToMarkdown(showID uint) ([]byte, string, err
 	}
 	return nil, "", nil
 }
-func (m *mockShowService) ParseShowMarkdown(content []byte) (*services.ParsedShowImport, error) {
+func (m *mockShowService) ParseShowMarkdown(content []byte) (*contracts.ParsedShowImport, error) {
 	if m.parseShowMarkdownFn != nil {
 		return m.parseShowMarkdownFn(content)
 	}
 	return nil, nil
 }
-func (m *mockShowService) PreviewShowImport(content []byte) (*services.ImportPreviewResponse, error) {
+func (m *mockShowService) PreviewShowImport(content []byte) (*contracts.ImportPreviewResponse, error) {
 	if m.previewShowImportFn != nil {
 		return m.previewShowImportFn(content)
 	}
 	return nil, nil
 }
-func (m *mockShowService) ConfirmShowImport(content []byte, isAdmin bool) (*services.ShowResponse, error) {
+func (m *mockShowService) ConfirmShowImport(content []byte, isAdmin bool) (*contracts.ShowResponse, error) {
 	if m.confirmShowImportFn != nil {
 		return m.confirmShowImportFn(content, isAdmin)
 	}
 	return nil, nil
 }
-func (m *mockShowService) GetAdminShows(limit, offset int, filters services.AdminShowFilters) ([]*services.ShowResponse, int64, error) {
+func (m *mockShowService) GetAdminShows(limit, offset int, filters contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error) {
 	if m.getAdminShowsFn != nil {
 		return m.getAdminShowsFn(limit, offset, filters)
 	}
 	return nil, 0, nil
 }
-func (m *mockShowService) SetShowSoldOut(showID uint, isSoldOut bool) (*services.ShowResponse, error) {
+func (m *mockShowService) SetShowSoldOut(showID uint, isSoldOut bool) (*contracts.ShowResponse, error) {
 	if m.setShowSoldOutFn != nil {
 		return m.setShowSoldOutFn(showID, isSoldOut)
 	}
 	return nil, nil
 }
-func (m *mockShowService) SetShowCancelled(showID uint, isCancelled bool) (*services.ShowResponse, error) {
+func (m *mockShowService) SetShowCancelled(showID uint, isCancelled bool) (*contracts.ShowResponse, error) {
 	if m.setShowCancelledFn != nil {
 		return m.setShowCancelledFn(showID, isCancelled)
 	}
 	return nil, nil
 }
-func (m *mockShowService) BatchApproveShows(showIDs []uint) (*services.BatchShowResult, error) {
+func (m *mockShowService) BatchApproveShows(showIDs []uint) (*contracts.BatchShowResult, error) {
 	if m.batchApproveShowsFn != nil {
 		return m.batchApproveShowsFn(showIDs)
 	}
-	return &services.BatchShowResult{Succeeded: showIDs, Errors: []services.BatchShowError{}}, nil
+	return &contracts.BatchShowResult{Succeeded: showIDs, Errors: []contracts.BatchShowError{}}, nil
 }
-func (m *mockShowService) BatchRejectShows(showIDs []uint, reason string, category string) (*services.BatchShowResult, error) {
+func (m *mockShowService) BatchRejectShows(showIDs []uint, reason string, category string) (*contracts.BatchShowResult, error) {
 	if m.batchRejectShowsFn != nil {
 		return m.batchRejectShowsFn(showIDs, reason, category)
 	}
-	return &services.BatchShowResult{Succeeded: showIDs, Errors: []services.BatchShowError{}}, nil
+	return &contracts.BatchShowResult{Succeeded: showIDs, Errors: []contracts.BatchShowError{}}, nil
 }
 
 // ============================================================================
@@ -749,56 +749,56 @@ func (m *mockShowService) BatchRejectShows(showIDs []uint, reason string, catego
 // ============================================================================
 
 type mockVenueService struct {
-	createVenueFn              func(req *services.CreateVenueRequest, isAdmin bool) (*services.VenueDetailResponse, error)
-	getVenueFn                 func(venueID uint) (*services.VenueDetailResponse, error)
-	getVenueBySlugFn           func(slug string) (*services.VenueDetailResponse, error)
-	getVenuesFn                func(filters map[string]interface{}) ([]*services.VenueDetailResponse, error)
-	updateVenueFn              func(venueID uint, updates map[string]interface{}) (*services.VenueDetailResponse, error)
+	createVenueFn              func(req *contracts.CreateVenueRequest, isAdmin bool) (*contracts.VenueDetailResponse, error)
+	getVenueFn                 func(venueID uint) (*contracts.VenueDetailResponse, error)
+	getVenueBySlugFn           func(slug string) (*contracts.VenueDetailResponse, error)
+	getVenuesFn                func(filters map[string]interface{}) ([]*contracts.VenueDetailResponse, error)
+	updateVenueFn              func(venueID uint, updates map[string]interface{}) (*contracts.VenueDetailResponse, error)
 	deleteVenueFn              func(venueID uint) error
-	searchVenuesFn             func(query string) ([]*services.VenueDetailResponse, error)
+	searchVenuesFn             func(query string) ([]*contracts.VenueDetailResponse, error)
 	findOrCreateVenueFn        func(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*models.Venue, bool, error)
-	verifyVenueFn              func(venueID uint) (*services.VenueDetailResponse, error)
-	getVenuesWithShowCountsFn  func(filters services.VenueListFilters, limit, offset int) ([]*services.VenueWithShowCountResponse, int64, error)
-	getUpcomingShowsForVenueFn func(venueID uint, timezone string, limit int) ([]*services.VenueShowResponse, int64, error)
-	getShowsForVenueFn         func(venueID uint, timezone string, limit int, timeFilter string) ([]*services.VenueShowResponse, int64, error)
-	getVenueCitiesFn           func() ([]*services.VenueCityResponse, error)
-	createPendingVenueEditFn   func(venueID uint, userID uint, req *services.VenueEditRequest) (*services.PendingVenueEditResponse, error)
-	getPendingEditForVenueFn   func(venueID uint, userID uint) (*services.PendingVenueEditResponse, error)
-	getPendingVenueEditsFn     func(limit, offset int) ([]*services.PendingVenueEditResponse, int64, error)
-	getPendingVenueEditFn      func(editID uint) (*services.PendingVenueEditResponse, error)
-	approveVenueEditFn         func(editID uint, reviewerID uint) (*services.VenueDetailResponse, error)
-	rejectVenueEditFn          func(editID uint, reviewerID uint, reason string) (*services.PendingVenueEditResponse, error)
+	verifyVenueFn              func(venueID uint) (*contracts.VenueDetailResponse, error)
+	getVenuesWithShowCountsFn  func(filters contracts.VenueListFilters, limit, offset int) ([]*contracts.VenueWithShowCountResponse, int64, error)
+	getUpcomingShowsForVenueFn func(venueID uint, timezone string, limit int) ([]*contracts.VenueShowResponse, int64, error)
+	getShowsForVenueFn         func(venueID uint, timezone string, limit int, timeFilter string) ([]*contracts.VenueShowResponse, int64, error)
+	getVenueCitiesFn           func() ([]*contracts.VenueCityResponse, error)
+	createPendingVenueEditFn   func(venueID uint, userID uint, req *contracts.VenueEditRequest) (*contracts.PendingVenueEditResponse, error)
+	getPendingEditForVenueFn   func(venueID uint, userID uint) (*contracts.PendingVenueEditResponse, error)
+	getPendingVenueEditsFn     func(limit, offset int) ([]*contracts.PendingVenueEditResponse, int64, error)
+	getPendingVenueEditFn      func(editID uint) (*contracts.PendingVenueEditResponse, error)
+	approveVenueEditFn         func(editID uint, reviewerID uint) (*contracts.VenueDetailResponse, error)
+	rejectVenueEditFn          func(editID uint, reviewerID uint, reason string) (*contracts.PendingVenueEditResponse, error)
 	cancelPendingVenueEditFn   func(editID uint, userID uint) error
 	getVenueModelFn            func(venueID uint) (*models.Venue, error)
-	getUnverifiedVenuesFn      func(limit, offset int) ([]*services.UnverifiedVenueResponse, int64, error)
-	getVenueGenreProfileFn     func(venueID uint) ([]services.GenreCount, error)
+	getUnverifiedVenuesFn      func(limit, offset int) ([]*contracts.UnverifiedVenueResponse, int64, error)
+	getVenueGenreProfileFn     func(venueID uint) ([]contracts.GenreCount, error)
 }
 
-func (m *mockVenueService) CreateVenue(req *services.CreateVenueRequest, isAdmin bool) (*services.VenueDetailResponse, error) {
+func (m *mockVenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bool) (*contracts.VenueDetailResponse, error) {
 	if m.createVenueFn != nil {
 		return m.createVenueFn(req, isAdmin)
 	}
 	return nil, nil
 }
-func (m *mockVenueService) GetVenue(venueID uint) (*services.VenueDetailResponse, error) {
+func (m *mockVenueService) GetVenue(venueID uint) (*contracts.VenueDetailResponse, error) {
 	if m.getVenueFn != nil {
 		return m.getVenueFn(venueID)
 	}
 	return nil, nil
 }
-func (m *mockVenueService) GetVenueBySlug(slug string) (*services.VenueDetailResponse, error) {
+func (m *mockVenueService) GetVenueBySlug(slug string) (*contracts.VenueDetailResponse, error) {
 	if m.getVenueBySlugFn != nil {
 		return m.getVenueBySlugFn(slug)
 	}
 	return nil, nil
 }
-func (m *mockVenueService) GetVenues(filters map[string]interface{}) ([]*services.VenueDetailResponse, error) {
+func (m *mockVenueService) GetVenues(filters map[string]interface{}) ([]*contracts.VenueDetailResponse, error) {
 	if m.getVenuesFn != nil {
 		return m.getVenuesFn(filters)
 	}
 	return nil, nil
 }
-func (m *mockVenueService) UpdateVenue(venueID uint, updates map[string]interface{}) (*services.VenueDetailResponse, error) {
+func (m *mockVenueService) UpdateVenue(venueID uint, updates map[string]interface{}) (*contracts.VenueDetailResponse, error) {
 	if m.updateVenueFn != nil {
 		return m.updateVenueFn(venueID, updates)
 	}
@@ -810,7 +810,7 @@ func (m *mockVenueService) DeleteVenue(venueID uint) error {
 	}
 	return nil
 }
-func (m *mockVenueService) SearchVenues(query string) ([]*services.VenueDetailResponse, error) {
+func (m *mockVenueService) SearchVenues(query string) ([]*contracts.VenueDetailResponse, error) {
 	if m.searchVenuesFn != nil {
 		return m.searchVenuesFn(query)
 	}
@@ -822,67 +822,67 @@ func (m *mockVenueService) FindOrCreateVenue(name, city, state string, address, 
 	}
 	return nil, false, nil
 }
-func (m *mockVenueService) VerifyVenue(venueID uint) (*services.VenueDetailResponse, error) {
+func (m *mockVenueService) VerifyVenue(venueID uint) (*contracts.VenueDetailResponse, error) {
 	if m.verifyVenueFn != nil {
 		return m.verifyVenueFn(venueID)
 	}
 	return nil, nil
 }
-func (m *mockVenueService) GetVenuesWithShowCounts(filters services.VenueListFilters, limit, offset int) ([]*services.VenueWithShowCountResponse, int64, error) {
+func (m *mockVenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilters, limit, offset int) ([]*contracts.VenueWithShowCountResponse, int64, error) {
 	if m.getVenuesWithShowCountsFn != nil {
 		return m.getVenuesWithShowCountsFn(filters, limit, offset)
 	}
 	return nil, 0, nil
 }
-func (m *mockVenueService) GetUpcomingShowsForVenue(venueID uint, timezone string, limit int) ([]*services.VenueShowResponse, int64, error) {
+func (m *mockVenueService) GetUpcomingShowsForVenue(venueID uint, timezone string, limit int) ([]*contracts.VenueShowResponse, int64, error) {
 	if m.getUpcomingShowsForVenueFn != nil {
 		return m.getUpcomingShowsForVenueFn(venueID, timezone, limit)
 	}
 	return nil, 0, nil
 }
-func (m *mockVenueService) GetShowsForVenue(venueID uint, timezone string, limit int, timeFilter string) ([]*services.VenueShowResponse, int64, error) {
+func (m *mockVenueService) GetShowsForVenue(venueID uint, timezone string, limit int, timeFilter string) ([]*contracts.VenueShowResponse, int64, error) {
 	if m.getShowsForVenueFn != nil {
 		return m.getShowsForVenueFn(venueID, timezone, limit, timeFilter)
 	}
 	return nil, 0, nil
 }
-func (m *mockVenueService) GetVenueCities() ([]*services.VenueCityResponse, error) {
+func (m *mockVenueService) GetVenueCities() ([]*contracts.VenueCityResponse, error) {
 	if m.getVenueCitiesFn != nil {
 		return m.getVenueCitiesFn()
 	}
 	return nil, nil
 }
-func (m *mockVenueService) CreatePendingVenueEdit(venueID uint, userID uint, req *services.VenueEditRequest) (*services.PendingVenueEditResponse, error) {
+func (m *mockVenueService) CreatePendingVenueEdit(venueID uint, userID uint, req *contracts.VenueEditRequest) (*contracts.PendingVenueEditResponse, error) {
 	if m.createPendingVenueEditFn != nil {
 		return m.createPendingVenueEditFn(venueID, userID, req)
 	}
 	return nil, nil
 }
-func (m *mockVenueService) GetPendingEditForVenue(venueID uint, userID uint) (*services.PendingVenueEditResponse, error) {
+func (m *mockVenueService) GetPendingEditForVenue(venueID uint, userID uint) (*contracts.PendingVenueEditResponse, error) {
 	if m.getPendingEditForVenueFn != nil {
 		return m.getPendingEditForVenueFn(venueID, userID)
 	}
 	return nil, nil
 }
-func (m *mockVenueService) GetPendingVenueEdits(limit, offset int) ([]*services.PendingVenueEditResponse, int64, error) {
+func (m *mockVenueService) GetPendingVenueEdits(limit, offset int) ([]*contracts.PendingVenueEditResponse, int64, error) {
 	if m.getPendingVenueEditsFn != nil {
 		return m.getPendingVenueEditsFn(limit, offset)
 	}
 	return nil, 0, nil
 }
-func (m *mockVenueService) GetPendingVenueEdit(editID uint) (*services.PendingVenueEditResponse, error) {
+func (m *mockVenueService) GetPendingVenueEdit(editID uint) (*contracts.PendingVenueEditResponse, error) {
 	if m.getPendingVenueEditFn != nil {
 		return m.getPendingVenueEditFn(editID)
 	}
 	return nil, nil
 }
-func (m *mockVenueService) ApproveVenueEdit(editID uint, reviewerID uint) (*services.VenueDetailResponse, error) {
+func (m *mockVenueService) ApproveVenueEdit(editID uint, reviewerID uint) (*contracts.VenueDetailResponse, error) {
 	if m.approveVenueEditFn != nil {
 		return m.approveVenueEditFn(editID, reviewerID)
 	}
 	return nil, nil
 }
-func (m *mockVenueService) RejectVenueEdit(editID uint, reviewerID uint, reason string) (*services.PendingVenueEditResponse, error) {
+func (m *mockVenueService) RejectVenueEdit(editID uint, reviewerID uint, reason string) (*contracts.PendingVenueEditResponse, error) {
 	if m.rejectVenueEditFn != nil {
 		return m.rejectVenueEditFn(editID, reviewerID, reason)
 	}
@@ -900,17 +900,17 @@ func (m *mockVenueService) GetVenueModel(venueID uint) (*models.Venue, error) {
 	}
 	return nil, nil
 }
-func (m *mockVenueService) GetUnverifiedVenues(limit, offset int) ([]*services.UnverifiedVenueResponse, int64, error) {
+func (m *mockVenueService) GetUnverifiedVenues(limit, offset int) ([]*contracts.UnverifiedVenueResponse, int64, error) {
 	if m.getUnverifiedVenuesFn != nil {
 		return m.getUnverifiedVenuesFn(limit, offset)
 	}
 	return nil, 0, nil
 }
-func (m *mockVenueService) GetVenueGenreProfile(venueID uint) ([]services.GenreCount, error) {
+func (m *mockVenueService) GetVenueGenreProfile(venueID uint) ([]contracts.GenreCount, error) {
 	if m.getVenueGenreProfileFn != nil {
 		return m.getVenueGenreProfileFn(venueID)
 	}
-	return []services.GenreCount{}, nil
+	return []contracts.GenreCount{}, nil
 }
 
 // ============================================================================
@@ -918,61 +918,61 @@ func (m *mockVenueService) GetVenueGenreProfile(venueID uint) ([]services.GenreC
 // ============================================================================
 
 type mockArtistService struct {
-	createArtistFn              func(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error)
-	getArtistFn                 func(artistID uint) (*services.ArtistDetailResponse, error)
-	getArtistByNameFn           func(name string) (*services.ArtistDetailResponse, error)
-	getArtistBySlugFn           func(slug string) (*services.ArtistDetailResponse, error)
-	getArtistsFn                func(filters map[string]interface{}) ([]*services.ArtistDetailResponse, error)
-	getArtistsWithShowCountsFn  func(filters map[string]interface{}) ([]*services.ArtistWithShowCountResponse, error)
-	updateArtistFn              func(artistID uint, updates map[string]interface{}) (*services.ArtistDetailResponse, error)
+	createArtistFn              func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error)
+	getArtistFn                 func(artistID uint) (*contracts.ArtistDetailResponse, error)
+	getArtistByNameFn           func(name string) (*contracts.ArtistDetailResponse, error)
+	getArtistBySlugFn           func(slug string) (*contracts.ArtistDetailResponse, error)
+	getArtistsFn                func(filters map[string]interface{}) ([]*contracts.ArtistDetailResponse, error)
+	getArtistsWithShowCountsFn  func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error)
+	updateArtistFn              func(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error)
 	deleteArtistFn              func(artistID uint) error
-	searchArtistsFn             func(query string) ([]*services.ArtistDetailResponse, error)
-	getShowsForArtistFn         func(artistID uint, timezone string, limit int, timeFilter string) ([]*services.ArtistShowResponse, int64, error)
-	getArtistCitiesFn           func() ([]*services.ArtistCityResponse, error)
-	getLabelsForArtistFn        func(artistID uint) ([]*services.ArtistLabelResponse, error)
-	addArtistAliasFn            func(artistID uint, alias string) (*services.ArtistAliasResponse, error)
+	searchArtistsFn             func(query string) ([]*contracts.ArtistDetailResponse, error)
+	getShowsForArtistFn         func(artistID uint, timezone string, limit int, timeFilter string) ([]*contracts.ArtistShowResponse, int64, error)
+	getArtistCitiesFn           func() ([]*contracts.ArtistCityResponse, error)
+	getLabelsForArtistFn        func(artistID uint) ([]*contracts.ArtistLabelResponse, error)
+	addArtistAliasFn            func(artistID uint, alias string) (*contracts.ArtistAliasResponse, error)
 	removeArtistAliasFn         func(aliasID uint) error
-	getArtistAliasesFn          func(artistID uint) ([]*services.ArtistAliasResponse, error)
-	mergeArtistsFn              func(canonicalID, mergeFromID uint) (*services.MergeArtistResult, error)
+	getArtistAliasesFn          func(artistID uint) ([]*contracts.ArtistAliasResponse, error)
+	mergeArtistsFn              func(canonicalID, mergeFromID uint) (*contracts.MergeArtistResult, error)
 }
 
-func (m *mockArtistService) CreateArtist(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
+func (m *mockArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 	if m.createArtistFn != nil {
 		return m.createArtistFn(req)
 	}
 	return nil, nil
 }
-func (m *mockArtistService) GetArtist(artistID uint) (*services.ArtistDetailResponse, error) {
+func (m *mockArtistService) GetArtist(artistID uint) (*contracts.ArtistDetailResponse, error) {
 	if m.getArtistFn != nil {
 		return m.getArtistFn(artistID)
 	}
 	return nil, nil
 }
-func (m *mockArtistService) GetArtistByName(name string) (*services.ArtistDetailResponse, error) {
+func (m *mockArtistService) GetArtistByName(name string) (*contracts.ArtistDetailResponse, error) {
 	if m.getArtistByNameFn != nil {
 		return m.getArtistByNameFn(name)
 	}
 	return nil, nil
 }
-func (m *mockArtistService) GetArtistBySlug(slug string) (*services.ArtistDetailResponse, error) {
+func (m *mockArtistService) GetArtistBySlug(slug string) (*contracts.ArtistDetailResponse, error) {
 	if m.getArtistBySlugFn != nil {
 		return m.getArtistBySlugFn(slug)
 	}
 	return nil, nil
 }
-func (m *mockArtistService) GetArtists(filters map[string]interface{}) ([]*services.ArtistDetailResponse, error) {
+func (m *mockArtistService) GetArtists(filters map[string]interface{}) ([]*contracts.ArtistDetailResponse, error) {
 	if m.getArtistsFn != nil {
 		return m.getArtistsFn(filters)
 	}
 	return nil, nil
 }
-func (m *mockArtistService) GetArtistsWithShowCounts(filters map[string]interface{}) ([]*services.ArtistWithShowCountResponse, error) {
+func (m *mockArtistService) GetArtistsWithShowCounts(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
 	if m.getArtistsWithShowCountsFn != nil {
 		return m.getArtistsWithShowCountsFn(filters)
 	}
 	return nil, nil
 }
-func (m *mockArtistService) UpdateArtist(artistID uint, updates map[string]interface{}) (*services.ArtistDetailResponse, error) {
+func (m *mockArtistService) UpdateArtist(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
 	if m.updateArtistFn != nil {
 		return m.updateArtistFn(artistID, updates)
 	}
@@ -984,31 +984,31 @@ func (m *mockArtistService) DeleteArtist(artistID uint) error {
 	}
 	return nil
 }
-func (m *mockArtistService) SearchArtists(query string) ([]*services.ArtistDetailResponse, error) {
+func (m *mockArtistService) SearchArtists(query string) ([]*contracts.ArtistDetailResponse, error) {
 	if m.searchArtistsFn != nil {
 		return m.searchArtistsFn(query)
 	}
 	return nil, nil
 }
-func (m *mockArtistService) GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*services.ArtistShowResponse, int64, error) {
+func (m *mockArtistService) GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*contracts.ArtistShowResponse, int64, error) {
 	if m.getShowsForArtistFn != nil {
 		return m.getShowsForArtistFn(artistID, timezone, limit, timeFilter)
 	}
 	return nil, 0, nil
 }
-func (m *mockArtistService) GetArtistCities() ([]*services.ArtistCityResponse, error) {
+func (m *mockArtistService) GetArtistCities() ([]*contracts.ArtistCityResponse, error) {
 	if m.getArtistCitiesFn != nil {
 		return m.getArtistCitiesFn()
 	}
 	return nil, nil
 }
-func (m *mockArtistService) GetLabelsForArtist(artistID uint) ([]*services.ArtistLabelResponse, error) {
+func (m *mockArtistService) GetLabelsForArtist(artistID uint) ([]*contracts.ArtistLabelResponse, error) {
 	if m.getLabelsForArtistFn != nil {
 		return m.getLabelsForArtistFn(artistID)
 	}
 	return nil, nil
 }
-func (m *mockArtistService) AddArtistAlias(artistID uint, alias string) (*services.ArtistAliasResponse, error) {
+func (m *mockArtistService) AddArtistAlias(artistID uint, alias string) (*contracts.ArtistAliasResponse, error) {
 	if m.addArtistAliasFn != nil {
 		return m.addArtistAliasFn(artistID, alias)
 	}
@@ -1020,13 +1020,13 @@ func (m *mockArtistService) RemoveArtistAlias(aliasID uint) error {
 	}
 	return nil
 }
-func (m *mockArtistService) GetArtistAliases(artistID uint) ([]*services.ArtistAliasResponse, error) {
+func (m *mockArtistService) GetArtistAliases(artistID uint) ([]*contracts.ArtistAliasResponse, error) {
 	if m.getArtistAliasesFn != nil {
 		return m.getArtistAliasesFn(artistID)
 	}
 	return nil, nil
 }
-func (m *mockArtistService) MergeArtists(canonicalID, mergeFromID uint) (*services.MergeArtistResult, error) {
+func (m *mockArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.MergeArtistResult, error) {
 	if m.mergeArtistsFn != nil {
 		return m.mergeArtistsFn(canonicalID, mergeFromID)
 	}
@@ -1059,22 +1059,22 @@ func (m *mockMusicDiscoveryService) DiscoverMusicForArtist(artistID uint, artist
 // ============================================================================
 
 type mockExtractionService struct {
-	extractShowFn         func(req *services.ExtractShowRequest) (*services.ExtractShowResponse, error)
-	extractCalendarPageFn func(venueName, content, contentType string, extractionNotes ...string) (*services.CalendarExtractionResponse, error)
+	extractShowFn         func(req *contracts.ExtractShowRequest) (*contracts.ExtractShowResponse, error)
+	extractCalendarPageFn func(venueName, content, contentType string, extractionNotes ...string) (*contracts.CalendarExtractionResponse, error)
 }
 
-func (m *mockExtractionService) ExtractShow(req *services.ExtractShowRequest) (*services.ExtractShowResponse, error) {
+func (m *mockExtractionService) ExtractShow(req *contracts.ExtractShowRequest) (*contracts.ExtractShowResponse, error) {
 	if m.extractShowFn != nil {
 		return m.extractShowFn(req)
 	}
 	return nil, nil
 }
 
-func (m *mockExtractionService) ExtractCalendarPage(venueName, content, contentType string, extractionNotes ...string) (*services.CalendarExtractionResponse, error) {
+func (m *mockExtractionService) ExtractCalendarPage(venueName, content, contentType string, extractionNotes ...string) (*contracts.CalendarExtractionResponse, error) {
 	if m.extractCalendarPageFn != nil {
 		return m.extractCalendarPageFn(venueName, content, contentType, extractionNotes...)
 	}
-	return &services.CalendarExtractionResponse{Success: true, Events: []services.CalendarEvent{}}, nil
+	return &contracts.CalendarExtractionResponse{Success: true, Events: []contracts.CalendarEvent{}}, nil
 }
 
 // ============================================================================
@@ -1082,31 +1082,31 @@ func (m *mockExtractionService) ExtractCalendarPage(venueName, content, contentT
 // ============================================================================
 
 type mockDiscoveryService struct {
-	importFromJSONFn       func(filepath string, dryRun bool) (*services.ImportResult, error)
-	importFromJSONWithDBFn func(filepath string, dryRun bool, database *gorm.DB) (*services.ImportResult, error)
-	checkEventsFn          func(events []services.CheckEventInput) (*services.CheckEventsResult, error)
-	importEventsFn         func(events []services.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*services.ImportResult, error)
+	importFromJSONFn       func(filepath string, dryRun bool) (*contracts.ImportResult, error)
+	importFromJSONWithDBFn func(filepath string, dryRun bool, database *gorm.DB) (*contracts.ImportResult, error)
+	checkEventsFn          func(events []contracts.CheckEventInput) (*contracts.CheckEventsResult, error)
+	importEventsFn         func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error)
 }
 
-func (m *mockDiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*services.ImportResult, error) {
+func (m *mockDiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*contracts.ImportResult, error) {
 	if m.importFromJSONFn != nil {
 		return m.importFromJSONFn(filepath, dryRun)
 	}
 	return nil, nil
 }
-func (m *mockDiscoveryService) ImportFromJSONWithDB(filepath string, dryRun bool, database *gorm.DB) (*services.ImportResult, error) {
+func (m *mockDiscoveryService) ImportFromJSONWithDB(filepath string, dryRun bool, database *gorm.DB) (*contracts.ImportResult, error) {
 	if m.importFromJSONWithDBFn != nil {
 		return m.importFromJSONWithDBFn(filepath, dryRun, database)
 	}
 	return nil, nil
 }
-func (m *mockDiscoveryService) CheckEvents(events []services.CheckEventInput) (*services.CheckEventsResult, error) {
+func (m *mockDiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*contracts.CheckEventsResult, error) {
 	if m.checkEventsFn != nil {
 		return m.checkEventsFn(events)
 	}
 	return nil, nil
 }
-func (m *mockDiscoveryService) ImportEvents(events []services.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*services.ImportResult, error) {
+func (m *mockDiscoveryService) ImportEvents(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
 	if m.importEventsFn != nil {
 		return m.importEventsFn(events, dryRun, allowUpdates, initialStatus)
 	}
@@ -1118,15 +1118,15 @@ func (m *mockDiscoveryService) ImportEvents(events []services.DiscoveredEvent, d
 // ============================================================================
 
 type mockAPITokenService struct {
-	createTokenFn          func(userID uint, description *string, expirationDays int) (*services.APITokenCreateResponse, error)
+	createTokenFn          func(userID uint, description *string, expirationDays int) (*contracts.APITokenCreateResponse, error)
 	validateTokenFn        func(plainToken string) (*models.User, *models.APIToken, error)
-	listTokensFn           func(userID uint) ([]services.APITokenResponse, error)
+	listTokensFn           func(userID uint) ([]contracts.APITokenResponse, error)
 	revokeTokenFn          func(userID uint, tokenID uint) error
-	getTokenFn             func(userID uint, tokenID uint) (*services.APITokenResponse, error)
+	getTokenFn             func(userID uint, tokenID uint) (*contracts.APITokenResponse, error)
 	cleanupExpiredTokensFn func() (int64, error)
 }
 
-func (m *mockAPITokenService) CreateToken(userID uint, description *string, expirationDays int) (*services.APITokenCreateResponse, error) {
+func (m *mockAPITokenService) CreateToken(userID uint, description *string, expirationDays int) (*contracts.APITokenCreateResponse, error) {
 	if m.createTokenFn != nil {
 		return m.createTokenFn(userID, description, expirationDays)
 	}
@@ -1138,7 +1138,7 @@ func (m *mockAPITokenService) ValidateToken(plainToken string) (*models.User, *m
 	}
 	return nil, nil, nil
 }
-func (m *mockAPITokenService) ListTokens(userID uint) ([]services.APITokenResponse, error) {
+func (m *mockAPITokenService) ListTokens(userID uint) ([]contracts.APITokenResponse, error) {
 	if m.listTokensFn != nil {
 		return m.listTokensFn(userID)
 	}
@@ -1150,7 +1150,7 @@ func (m *mockAPITokenService) RevokeToken(userID uint, tokenID uint) error {
 	}
 	return nil
 }
-func (m *mockAPITokenService) GetToken(userID uint, tokenID uint) (*services.APITokenResponse, error) {
+func (m *mockAPITokenService) GetToken(userID uint, tokenID uint) (*contracts.APITokenResponse, error) {
 	if m.getTokenFn != nil {
 		return m.getTokenFn(userID, tokenID)
 	}
@@ -1168,31 +1168,31 @@ func (m *mockAPITokenService) CleanupExpiredTokens() (int64, error) {
 // ============================================================================
 
 type mockDataSyncService struct {
-	exportShowsFn   func(params services.ExportShowsParams) (*services.ExportShowsResult, error)
-	exportArtistsFn func(params services.ExportArtistsParams) (*services.ExportArtistsResult, error)
-	exportVenuesFn  func(params services.ExportVenuesParams) (*services.ExportVenuesResult, error)
-	importDataFn    func(req services.DataImportRequest) (*services.DataImportResult, error)
+	exportShowsFn   func(params contracts.ExportShowsParams) (*contracts.ExportShowsResult, error)
+	exportArtistsFn func(params contracts.ExportArtistsParams) (*contracts.ExportArtistsResult, error)
+	exportVenuesFn  func(params contracts.ExportVenuesParams) (*contracts.ExportVenuesResult, error)
+	importDataFn    func(req contracts.DataImportRequest) (*contracts.DataImportResult, error)
 }
 
-func (m *mockDataSyncService) ExportShows(params services.ExportShowsParams) (*services.ExportShowsResult, error) {
+func (m *mockDataSyncService) ExportShows(params contracts.ExportShowsParams) (*contracts.ExportShowsResult, error) {
 	if m.exportShowsFn != nil {
 		return m.exportShowsFn(params)
 	}
 	return nil, nil
 }
-func (m *mockDataSyncService) ExportArtists(params services.ExportArtistsParams) (*services.ExportArtistsResult, error) {
+func (m *mockDataSyncService) ExportArtists(params contracts.ExportArtistsParams) (*contracts.ExportArtistsResult, error) {
 	if m.exportArtistsFn != nil {
 		return m.exportArtistsFn(params)
 	}
 	return nil, nil
 }
-func (m *mockDataSyncService) ExportVenues(params services.ExportVenuesParams) (*services.ExportVenuesResult, error) {
+func (m *mockDataSyncService) ExportVenues(params contracts.ExportVenuesParams) (*contracts.ExportVenuesResult, error) {
 	if m.exportVenuesFn != nil {
 		return m.exportVenuesFn(params)
 	}
 	return nil, nil
 }
-func (m *mockDataSyncService) ImportData(req services.DataImportRequest) (*services.DataImportResult, error) {
+func (m *mockDataSyncService) ImportData(req contracts.DataImportRequest) (*contracts.DataImportResult, error) {
 	if m.importDataFn != nil {
 		return m.importDataFn(req)
 	}
@@ -1204,22 +1204,22 @@ func (m *mockDataSyncService) ImportData(req services.DataImportRequest) (*servi
 // ============================================================================
 
 type mockAdminStatsService struct {
-	getDashboardStatsFn func() (*services.AdminDashboardStats, error)
-	getRecentActivityFn func() (*services.ActivityFeedResponse, error)
+	getDashboardStatsFn func() (*contracts.AdminDashboardStats, error)
+	getRecentActivityFn func() (*contracts.ActivityFeedResponse, error)
 }
 
-func (m *mockAdminStatsService) GetDashboardStats() (*services.AdminDashboardStats, error) {
+func (m *mockAdminStatsService) GetDashboardStats() (*contracts.AdminDashboardStats, error) {
 	if m.getDashboardStatsFn != nil {
 		return m.getDashboardStatsFn()
 	}
 	return nil, nil
 }
 
-func (m *mockAdminStatsService) GetRecentActivity() (*services.ActivityFeedResponse, error) {
+func (m *mockAdminStatsService) GetRecentActivity() (*contracts.ActivityFeedResponse, error) {
 	if m.getRecentActivityFn != nil {
 		return m.getRecentActivityFn()
 	}
-	return &services.ActivityFeedResponse{Events: []services.ActivityEvent{}}, nil
+	return &contracts.ActivityFeedResponse{Events: []contracts.ActivityEvent{}}, nil
 }
 
 // ============================================================================
@@ -1229,11 +1229,11 @@ func (m *mockAdminStatsService) GetRecentActivity() (*services.ActivityFeedRespo
 type mockAuthService struct {
 	oauthLoginFn              func(w http.ResponseWriter, r *http.Request, provider string) error
 	oauthCallbackFn           func(w http.ResponseWriter, r *http.Request, provider string) (*models.User, string, error)
-	oauthCallbackWithConsentFn func(w http.ResponseWriter, r *http.Request, provider string, consent *services.OAuthSignupConsent) (*models.User, string, error)
+	oauthCallbackWithConsentFn func(w http.ResponseWriter, r *http.Request, provider string, consent *contracts.OAuthSignupConsent) (*models.User, string, error)
 	getUserProfileFn          func(userID uint) (*models.User, error)
 	refreshUserTokenFn        func(user *models.User) (string, error)
 	logoutFn                  func(w http.ResponseWriter, r *http.Request) error
-	setOAuthCompleterFn       func(completer services.OAuthCompleter)
+	setOAuthCompleterFn       func(completer contracts.OAuthCompleter)
 }
 
 func (m *mockAuthService) OAuthLogin(w http.ResponseWriter, r *http.Request, provider string) error {
@@ -1248,7 +1248,7 @@ func (m *mockAuthService) OAuthCallback(w http.ResponseWriter, r *http.Request, 
 	}
 	return nil, "", nil
 }
-func (m *mockAuthService) OAuthCallbackWithConsent(w http.ResponseWriter, r *http.Request, provider string, consent *services.OAuthSignupConsent) (*models.User, string, error) {
+func (m *mockAuthService) OAuthCallbackWithConsent(w http.ResponseWriter, r *http.Request, provider string, consent *contracts.OAuthSignupConsent) (*models.User, string, error) {
 	if m.oauthCallbackWithConsentFn != nil {
 		return m.oauthCallbackWithConsentFn(w, r, provider, consent)
 	}
@@ -1272,7 +1272,7 @@ func (m *mockAuthService) Logout(w http.ResponseWriter, r *http.Request) error {
 	}
 	return nil
 }
-func (m *mockAuthService) SetOAuthCompleter(completer services.OAuthCompleter) {
+func (m *mockAuthService) SetOAuthCompleter(completer contracts.OAuthCompleter) {
 	if m.setOAuthCompleterFn != nil {
 		m.setOAuthCompleterFn(completer)
 	}
@@ -1288,11 +1288,11 @@ type mockJWTService struct {
 	refreshTokenFn                 func(tokenString string) (string, error)
 	validateTokenLenientFn         func(tokenString string, gracePeriod time.Duration) (*models.User, error)
 	createVerificationTokenFn      func(userID uint, email string) (string, error)
-	validateVerificationTokenFn    func(tokenString string) (*services.VerificationTokenClaims, error)
+	validateVerificationTokenFn    func(tokenString string) (*contracts.VerificationTokenClaims, error)
 	createMagicLinkTokenFn         func(userID uint, email string) (string, error)
-	validateMagicLinkTokenFn       func(tokenString string) (*services.MagicLinkTokenClaims, error)
+	validateMagicLinkTokenFn       func(tokenString string) (*contracts.MagicLinkTokenClaims, error)
 	createAccountRecoveryTokenFn   func(userID uint, email string) (string, error)
-	validateAccountRecoveryTokenFn func(tokenString string) (*services.AccountRecoveryTokenClaims, error)
+	validateAccountRecoveryTokenFn func(tokenString string) (*contracts.AccountRecoveryTokenClaims, error)
 }
 
 func (m *mockJWTService) CreateToken(user *models.User) (string, error) {
@@ -1325,7 +1325,7 @@ func (m *mockJWTService) CreateVerificationToken(userID uint, email string) (str
 	}
 	return "", nil
 }
-func (m *mockJWTService) ValidateVerificationToken(tokenString string) (*services.VerificationTokenClaims, error) {
+func (m *mockJWTService) ValidateVerificationToken(tokenString string) (*contracts.VerificationTokenClaims, error) {
 	if m.validateVerificationTokenFn != nil {
 		return m.validateVerificationTokenFn(tokenString)
 	}
@@ -1337,7 +1337,7 @@ func (m *mockJWTService) CreateMagicLinkToken(userID uint, email string) (string
 	}
 	return "", nil
 }
-func (m *mockJWTService) ValidateMagicLinkToken(tokenString string) (*services.MagicLinkTokenClaims, error) {
+func (m *mockJWTService) ValidateMagicLinkToken(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
 	if m.validateMagicLinkTokenFn != nil {
 		return m.validateMagicLinkTokenFn(tokenString)
 	}
@@ -1349,7 +1349,7 @@ func (m *mockJWTService) CreateAccountRecoveryToken(userID uint, email string) (
 	}
 	return "", nil
 }
-func (m *mockJWTService) ValidateAccountRecoveryToken(tokenString string) (*services.AccountRecoveryTokenClaims, error) {
+func (m *mockJWTService) ValidateAccountRecoveryToken(tokenString string) (*contracts.AccountRecoveryTokenClaims, error) {
 	if m.validateAccountRecoveryTokenFn != nil {
 		return m.validateAccountRecoveryTokenFn(tokenString)
 	}
@@ -1403,16 +1403,16 @@ func (m *mockEmailService) SendFilterNotificationEmail(toEmail, subject, htmlBod
 // ============================================================================
 
 type mockPasswordValidator struct {
-	validatePasswordFn func(password string) (*services.PasswordValidationResult, error)
+	validatePasswordFn func(password string) (*contracts.PasswordValidationResult, error)
 	isBreachedFn       func(password string) (bool, error)
 	isCommonPasswordFn func(password string) bool
 }
 
-func (m *mockPasswordValidator) ValidatePassword(password string) (*services.PasswordValidationResult, error) {
+func (m *mockPasswordValidator) ValidatePassword(password string) (*contracts.PasswordValidationResult, error) {
 	if m.validatePasswordFn != nil {
 		return m.validatePasswordFn(password)
 	}
-	return &services.PasswordValidationResult{Valid: true}, nil
+	return &contracts.PasswordValidationResult{Valid: true}, nil
 }
 func (m *mockPasswordValidator) IsBreached(password string) (bool, error) {
 	if m.isBreachedFn != nil {
@@ -1435,10 +1435,10 @@ type mockAttendanceService struct {
 	setAttendanceFn          func(userID, showID uint, status string) error
 	removeAttendanceFn       func(userID, showID uint) error
 	getUserAttendanceFn      func(userID, showID uint) (string, error)
-	getAttendanceCountsFn    func(showID uint) (*services.AttendanceCountsResponse, error)
-	getBatchCountsFn         func(showIDs []uint) (map[uint]*services.AttendanceCountsResponse, error)
+	getAttendanceCountsFn    func(showID uint) (*contracts.AttendanceCountsResponse, error)
+	getBatchCountsFn         func(showIDs []uint) (map[uint]*contracts.AttendanceCountsResponse, error)
 	getBatchUserAttendanceFn func(userID uint, showIDs []uint) (map[uint]string, error)
-	getUserAttendingShowsFn  func(userID uint, status string, limit, offset int) ([]*services.AttendingShowResponse, int64, error)
+	getUserAttendingShowsFn  func(userID uint, status string, limit, offset int) ([]*contracts.AttendingShowResponse, int64, error)
 }
 
 func (m *mockAttendanceService) SetAttendance(userID, showID uint, status string) error {
@@ -1459,19 +1459,19 @@ func (m *mockAttendanceService) GetUserAttendance(userID, showID uint) (string, 
 	}
 	return "", nil
 }
-func (m *mockAttendanceService) GetAttendanceCounts(showID uint) (*services.AttendanceCountsResponse, error) {
+func (m *mockAttendanceService) GetAttendanceCounts(showID uint) (*contracts.AttendanceCountsResponse, error) {
 	if m.getAttendanceCountsFn != nil {
 		return m.getAttendanceCountsFn(showID)
 	}
-	return &services.AttendanceCountsResponse{ShowID: showID}, nil
+	return &contracts.AttendanceCountsResponse{ShowID: showID}, nil
 }
-func (m *mockAttendanceService) GetBatchAttendanceCounts(showIDs []uint) (map[uint]*services.AttendanceCountsResponse, error) {
+func (m *mockAttendanceService) GetBatchAttendanceCounts(showIDs []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
 	if m.getBatchCountsFn != nil {
 		return m.getBatchCountsFn(showIDs)
 	}
-	result := make(map[uint]*services.AttendanceCountsResponse)
+	result := make(map[uint]*contracts.AttendanceCountsResponse)
 	for _, id := range showIDs {
-		result[id] = &services.AttendanceCountsResponse{ShowID: id}
+		result[id] = &contracts.AttendanceCountsResponse{ShowID: id}
 	}
 	return result, nil
 }
@@ -1481,7 +1481,7 @@ func (m *mockAttendanceService) GetBatchUserAttendance(userID uint, showIDs []ui
 	}
 	return make(map[uint]string), nil
 }
-func (m *mockAttendanceService) GetUserAttendingShows(userID uint, status string, limit, offset int) ([]*services.AttendingShowResponse, int64, error) {
+func (m *mockAttendanceService) GetUserAttendingShows(userID uint, status string, limit, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
 	if m.getUserAttendingShowsFn != nil {
 		return m.getUserAttendingShowsFn(userID, status, limit, offset)
 	}
@@ -1499,8 +1499,8 @@ type mockFollowService struct {
 	getFollowerCountFn      func(entityType string, entityID uint) (int64, error)
 	getBatchFollowerCountsFn func(entityType string, entityIDs []uint) (map[uint]int64, error)
 	getBatchUserFollowingFn  func(userID uint, entityType string, entityIDs []uint) (map[uint]bool, error)
-	getUserFollowingFn       func(userID uint, entityType string, limit, offset int) ([]*services.FollowingEntityResponse, int64, error)
-	getFollowersFn           func(entityType string, entityID uint, limit, offset int) ([]*services.FollowerResponse, int64, error)
+	getUserFollowingFn       func(userID uint, entityType string, limit, offset int) ([]*contracts.FollowingEntityResponse, int64, error)
+	getFollowersFn           func(entityType string, entityID uint, limit, offset int) ([]*contracts.FollowerResponse, int64, error)
 }
 
 func (m *mockFollowService) Follow(userID uint, entityType string, entityID uint) error {
@@ -1543,13 +1543,13 @@ func (m *mockFollowService) GetBatchUserFollowing(userID uint, entityType string
 	}
 	return make(map[uint]bool), nil
 }
-func (m *mockFollowService) GetUserFollowing(userID uint, entityType string, limit, offset int) ([]*services.FollowingEntityResponse, int64, error) {
+func (m *mockFollowService) GetUserFollowing(userID uint, entityType string, limit, offset int) ([]*contracts.FollowingEntityResponse, int64, error) {
 	if m.getUserFollowingFn != nil {
 		return m.getUserFollowingFn(userID, entityType, limit, offset)
 	}
 	return nil, 0, nil
 }
-func (m *mockFollowService) GetFollowers(entityType string, entityID uint, limit, offset int) ([]*services.FollowerResponse, int64, error) {
+func (m *mockFollowService) GetFollowers(entityType string, entityID uint, limit, offset int) ([]*contracts.FollowerResponse, int64, error) {
 	if m.getFollowersFn != nil {
 		return m.getFollowersFn(entityType, entityID, limit, offset)
 	}
@@ -1560,25 +1560,25 @@ func (m *mockFollowService) GetFollowers(entityType string, entityID uint, limit
 // Compile-time interface satisfaction checks
 // ============================================================================
 
-var _ services.FollowServiceInterface = (*mockFollowService)(nil)
-var _ services.AttendanceServiceInterface = (*mockAttendanceService)(nil)
-var _ services.SavedShowServiceInterface = (*mockSavedShowService)(nil)
-var _ services.FavoriteVenueServiceInterface = (*mockFavoriteVenueService)(nil)
-var _ services.AuditLogServiceInterface = (*mockAuditLogService)(nil)
-var _ services.ShowReportServiceInterface = (*mockShowReportService)(nil)
-var _ services.ArtistReportServiceInterface = (*mockArtistReportService)(nil)
-var _ services.DiscordServiceInterface = (*mockDiscordService)(nil)
-var _ services.UserServiceInterface = (*mockUserService)(nil)
-var _ services.ShowServiceInterface = (*mockShowService)(nil)
-var _ services.VenueServiceInterface = (*mockVenueService)(nil)
-var _ services.ArtistServiceInterface = (*mockArtistService)(nil)
-var _ services.MusicDiscoveryServiceInterface = (*mockMusicDiscoveryService)(nil)
-var _ services.ExtractionServiceInterface = (*mockExtractionService)(nil)
-var _ services.DiscoveryServiceInterface = (*mockDiscoveryService)(nil)
-var _ services.APITokenServiceInterface = (*mockAPITokenService)(nil)
-var _ services.DataSyncServiceInterface = (*mockDataSyncService)(nil)
-var _ services.AdminStatsServiceInterface = (*mockAdminStatsService)(nil)
-var _ services.AuthServiceInterface = (*mockAuthService)(nil)
-var _ services.JWTServiceInterface = (*mockJWTService)(nil)
-var _ services.EmailServiceInterface = (*mockEmailService)(nil)
-var _ services.PasswordValidatorInterface = (*mockPasswordValidator)(nil)
+var _ contracts.FollowServiceInterface = (*mockFollowService)(nil)
+var _ contracts.AttendanceServiceInterface = (*mockAttendanceService)(nil)
+var _ contracts.SavedShowServiceInterface = (*mockSavedShowService)(nil)
+var _ contracts.FavoriteVenueServiceInterface = (*mockFavoriteVenueService)(nil)
+var _ contracts.AuditLogServiceInterface = (*mockAuditLogService)(nil)
+var _ contracts.ShowReportServiceInterface = (*mockShowReportService)(nil)
+var _ contracts.ArtistReportServiceInterface = (*mockArtistReportService)(nil)
+var _ contracts.DiscordServiceInterface = (*mockDiscordService)(nil)
+var _ contracts.UserServiceInterface = (*mockUserService)(nil)
+var _ contracts.ShowServiceInterface = (*mockShowService)(nil)
+var _ contracts.VenueServiceInterface = (*mockVenueService)(nil)
+var _ contracts.ArtistServiceInterface = (*mockArtistService)(nil)
+var _ contracts.MusicDiscoveryServiceInterface = (*mockMusicDiscoveryService)(nil)
+var _ contracts.ExtractionServiceInterface = (*mockExtractionService)(nil)
+var _ contracts.DiscoveryServiceInterface = (*mockDiscoveryService)(nil)
+var _ contracts.APITokenServiceInterface = (*mockAPITokenService)(nil)
+var _ contracts.DataSyncServiceInterface = (*mockDataSyncService)(nil)
+var _ contracts.AdminStatsServiceInterface = (*mockAdminStatsService)(nil)
+var _ contracts.AuthServiceInterface = (*mockAuthService)(nil)
+var _ contracts.JWTServiceInterface = (*mockJWTService)(nil)
+var _ contracts.EmailServiceInterface = (*mockEmailService)(nil)
+var _ contracts.PasswordValidatorInterface = (*mockPasswordValidator)(nil)

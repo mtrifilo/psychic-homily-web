@@ -5,17 +5,17 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/catalog"
 )
 
 // SceneHandler handles scene (city aggregation) endpoints.
 type SceneHandler struct {
-	sceneService services.SceneServiceInterface
+	sceneService contracts.SceneServiceInterface
 }
 
 // NewSceneHandler creates a new SceneHandler.
-func NewSceneHandler(sceneService services.SceneServiceInterface) *SceneHandler {
+func NewSceneHandler(sceneService contracts.SceneServiceInterface) *SceneHandler {
 	return &SceneHandler{
 		sceneService: sceneService,
 	}
@@ -31,7 +31,7 @@ type ListScenesRequest struct{}
 // ListScenesResponse represents the response for listing scenes.
 type ListScenesResponse struct {
 	Body struct {
-		Scenes []*services.SceneListResponse `json:"scenes" doc:"List of city scenes"`
+		Scenes []*contracts.SceneListResponse `json:"scenes" doc:"List of city scenes"`
 		Count  int                           `json:"count" doc:"Number of scenes"`
 	}
 }
@@ -44,7 +44,7 @@ func (h *SceneHandler) ListScenesHandler(ctx context.Context, req *ListScenesReq
 	}
 
 	if scenes == nil {
-		scenes = []*services.SceneListResponse{}
+		scenes = []*contracts.SceneListResponse{}
 	}
 
 	resp := &ListScenesResponse{}
@@ -65,7 +65,7 @@ type GetSceneDetailRequest struct {
 
 // GetSceneDetailResponse represents the response for scene detail.
 type GetSceneDetailResponse struct {
-	Body *services.SceneDetailResponse
+	Body *contracts.SceneDetailResponse
 }
 
 // GetSceneDetailHandler handles GET /scenes/{slug} — returns full computed scene detail.
@@ -101,7 +101,7 @@ type GetSceneActiveArtistsRequest struct {
 // GetSceneActiveArtistsResponse represents the response for active artists.
 type GetSceneActiveArtistsResponse struct {
 	Body struct {
-		Artists []*services.SceneArtistResponse `json:"artists" doc:"List of active artists"`
+		Artists []*contracts.SceneArtistResponse `json:"artists" doc:"List of active artists"`
 		Total   int64                           `json:"total" doc:"Total number of active artists"`
 	}
 }
@@ -131,7 +131,7 @@ func (h *SceneHandler) GetSceneActiveArtistsHandler(ctx context.Context, req *Ge
 	}
 
 	if artists == nil {
-		artists = []*services.SceneArtistResponse{}
+		artists = []*contracts.SceneArtistResponse{}
 	}
 
 	resp := &GetSceneActiveArtistsResponse{}
@@ -152,7 +152,7 @@ type GetSceneGenresRequest struct {
 
 // GetSceneGenresResponse represents the response for scene genre distribution.
 type GetSceneGenresResponse struct {
-	Body *services.SceneGenreResponse
+	Body *contracts.SceneGenreResponse
 }
 
 // GetSceneGenresHandler handles GET /scenes/{slug}/genres — returns genre distribution and diversity index.
@@ -167,7 +167,7 @@ func (h *SceneHandler) GetSceneGenresHandler(ctx context.Context, req *GetSceneG
 		return nil, huma.Error500InternalServerError("Failed to get scene genre distribution", err)
 	}
 	if genres == nil {
-		genres = []services.GenreCount{}
+		genres = []contracts.GenreCount{}
 	}
 
 	diversityIndex, err := h.sceneService.GetGenreDiversityIndex(city, state)
@@ -176,7 +176,7 @@ func (h *SceneHandler) GetSceneGenresHandler(ctx context.Context, req *GetSceneG
 	}
 
 	resp := &GetSceneGenresResponse{
-		Body: &services.SceneGenreResponse{
+		Body: &contracts.SceneGenreResponse{
 			Genres:         genres,
 			DiversityIndex: diversityIndex,
 			DiversityLabel: catalog.DiversityLabel(diversityIndex),

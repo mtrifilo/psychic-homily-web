@@ -7,7 +7,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 func testArtistHandler() *ArtistHandler {
@@ -251,11 +251,11 @@ func TestNilIfEmpty(t *testing.T) {
 
 func TestSearchArtists_Success(t *testing.T) {
 	mock := &mockArtistService{
-		searchArtistsFn: func(query string) ([]*services.ArtistDetailResponse, error) {
+		searchArtistsFn: func(query string) ([]*contracts.ArtistDetailResponse, error) {
 			if query != "radio" {
 				t.Errorf("expected query='radio', got %q", query)
 			}
-			return []*services.ArtistDetailResponse{{ID: 1, Name: "Radiohead"}}, nil
+			return []*contracts.ArtistDetailResponse{{ID: 1, Name: "Radiohead"}}, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
@@ -274,7 +274,7 @@ func TestSearchArtists_Success(t *testing.T) {
 
 func TestSearchArtists_ServiceError(t *testing.T) {
 	mock := &mockArtistService{
-		searchArtistsFn: func(_ string) ([]*services.ArtistDetailResponse, error) {
+		searchArtistsFn: func(_ string) ([]*contracts.ArtistDetailResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -292,10 +292,10 @@ func TestSearchArtists_ServiceError(t *testing.T) {
 
 func TestListArtists_Success(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*services.ArtistWithShowCountResponse, error) {
-			return []*services.ArtistWithShowCountResponse{
-				{ArtistDetailResponse: services.ArtistDetailResponse{ID: 1, Name: "Artist A"}, UpcomingShowCount: 3},
-				{ArtistDetailResponse: services.ArtistDetailResponse{ID: 2, Name: "Artist B"}, UpcomingShowCount: 1},
+		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
+			return []*contracts.ArtistWithShowCountResponse{
+				{ArtistDetailResponse: contracts.ArtistDetailResponse{ID: 1, Name: "Artist A"}, UpcomingShowCount: 3},
+				{ArtistDetailResponse: contracts.ArtistDetailResponse{ID: 2, Name: "Artist B"}, UpcomingShowCount: 1},
 			}, nil
 		},
 	}
@@ -315,15 +315,15 @@ func TestListArtists_Success(t *testing.T) {
 
 func TestListArtists_WithFilters(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*services.ArtistWithShowCountResponse, error) {
+		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
 			if filters["state"] != "AZ" {
 				t.Errorf("expected state='AZ', got %v", filters["state"])
 			}
 			if filters["city"] != "Phoenix" {
 				t.Errorf("expected city='Phoenix', got %v", filters["city"])
 			}
-			return []*services.ArtistWithShowCountResponse{
-				{ArtistDetailResponse: services.ArtistDetailResponse{ID: 1}, UpcomingShowCount: 2},
+			return []*contracts.ArtistWithShowCountResponse{
+				{ArtistDetailResponse: contracts.ArtistDetailResponse{ID: 1}, UpcomingShowCount: 2},
 			}, nil
 		},
 	}
@@ -340,7 +340,7 @@ func TestListArtists_WithFilters(t *testing.T) {
 
 func TestListArtists_ServiceError(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistsWithShowCountsFn: func(_ map[string]interface{}) ([]*services.ArtistWithShowCountResponse, error) {
+		getArtistsWithShowCountsFn: func(_ map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -356,11 +356,11 @@ func TestListArtists_ServiceError(t *testing.T) {
 
 func TestGetArtist_ByID(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistFn: func(artistID uint) (*services.ArtistDetailResponse, error) {
+		getArtistFn: func(artistID uint) (*contracts.ArtistDetailResponse, error) {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
-			return &services.ArtistDetailResponse{ID: 42, Name: "Test Artist"}, nil
+			return &contracts.ArtistDetailResponse{ID: 42, Name: "Test Artist"}, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
@@ -376,11 +376,11 @@ func TestGetArtist_ByID(t *testing.T) {
 
 func TestGetArtist_BySlug(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistBySlugFn: func(slug string) (*services.ArtistDetailResponse, error) {
+		getArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
 			if slug != "the-national" {
 				t.Errorf("expected slug='the-national', got %q", slug)
 			}
-			return &services.ArtistDetailResponse{ID: 10, Slug: "the-national"}, nil
+			return &contracts.ArtistDetailResponse{ID: 10, Slug: "the-national"}, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
@@ -396,7 +396,7 @@ func TestGetArtist_BySlug(t *testing.T) {
 
 func TestGetArtist_NotFound(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistFn: func(_ uint) (*services.ArtistDetailResponse, error) {
+		getArtistFn: func(_ uint) (*contracts.ArtistDetailResponse, error) {
 			return nil, apperrors.ErrArtistNotFound(99)
 		},
 	}
@@ -408,7 +408,7 @@ func TestGetArtist_NotFound(t *testing.T) {
 
 func TestGetArtist_ServiceError(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistFn: func(_ uint) (*services.ArtistDetailResponse, error) {
+		getArtistFn: func(_ uint) (*contracts.ArtistDetailResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -424,11 +424,11 @@ func TestGetArtist_ServiceError(t *testing.T) {
 
 func TestGetArtistShows_ByID(t *testing.T) {
 	mock := &mockArtistService{
-		getShowsForArtistFn: func(artistID uint, timezone string, limit int, timeFilter string) ([]*services.ArtistShowResponse, int64, error) {
+		getShowsForArtistFn: func(artistID uint, timezone string, limit int, timeFilter string) ([]*contracts.ArtistShowResponse, int64, error) {
 			if artistID != 5 {
 				t.Errorf("expected artistID=5, got %d", artistID)
 			}
-			return []*services.ArtistShowResponse{{ID: 100}}, 1, nil
+			return []*contracts.ArtistShowResponse{{ID: 100}}, 1, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
@@ -447,14 +447,14 @@ func TestGetArtistShows_ByID(t *testing.T) {
 
 func TestGetArtistShows_BySlug(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistBySlugFn: func(slug string) (*services.ArtistDetailResponse, error) {
-			return &services.ArtistDetailResponse{ID: 10}, nil
+		getArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+			return &contracts.ArtistDetailResponse{ID: 10}, nil
 		},
-		getShowsForArtistFn: func(artistID uint, _ string, _ int, _ string) ([]*services.ArtistShowResponse, int64, error) {
+		getShowsForArtistFn: func(artistID uint, _ string, _ int, _ string) ([]*contracts.ArtistShowResponse, int64, error) {
 			if artistID != 10 {
 				t.Errorf("expected resolved artistID=10, got %d", artistID)
 			}
-			return []*services.ArtistShowResponse{{ID: 200}}, 1, nil
+			return []*contracts.ArtistShowResponse{{ID: 200}}, 1, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
@@ -470,7 +470,7 @@ func TestGetArtistShows_BySlug(t *testing.T) {
 
 func TestGetArtistShows_ArtistNotFound(t *testing.T) {
 	mock := &mockArtistService{
-		getShowsForArtistFn: func(_ uint, _ string, _ int, _ string) ([]*services.ArtistShowResponse, int64, error) {
+		getShowsForArtistFn: func(_ uint, _ string, _ int, _ string) ([]*contracts.ArtistShowResponse, int64, error) {
 			return nil, 0, apperrors.ErrArtistNotFound(99)
 		},
 	}
@@ -482,7 +482,7 @@ func TestGetArtistShows_ArtistNotFound(t *testing.T) {
 
 func TestGetArtistShows_ServiceError(t *testing.T) {
 	mock := &mockArtistService{
-		getShowsForArtistFn: func(_ uint, _ string, _ int, _ string) ([]*services.ArtistShowResponse, int64, error) {
+		getShowsForArtistFn: func(_ uint, _ string, _ int, _ string) ([]*contracts.ArtistShowResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
@@ -559,11 +559,11 @@ func TestDeleteArtist_ServiceError(t *testing.T) {
 
 func TestAdminUpdateArtist_Success(t *testing.T) {
 	mock := &mockArtistService{
-		updateArtistFn: func(artistID uint, updates map[string]interface{}) (*services.ArtistDetailResponse, error) {
+		updateArtistFn: func(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
-			return &services.ArtistDetailResponse{ID: 42, Name: "Updated"}, nil
+			return &contracts.ArtistDetailResponse{ID: 42, Name: "Updated"}, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
@@ -583,7 +583,7 @@ func TestAdminUpdateArtist_Success(t *testing.T) {
 
 func TestAdminUpdateArtist_NotFound(t *testing.T) {
 	mock := &mockArtistService{
-		updateArtistFn: func(_ uint, _ map[string]interface{}) (*services.ArtistDetailResponse, error) {
+		updateArtistFn: func(_ uint, _ map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
 			return nil, apperrors.ErrArtistNotFound(99)
 		},
 	}
@@ -600,8 +600,8 @@ func TestAdminUpdateArtist_NotFound(t *testing.T) {
 func TestAdminUpdateArtist_AuditLogCalled(t *testing.T) {
 	var auditCalled bool
 	artistMock := &mockArtistService{
-		updateArtistFn: func(_ uint, _ map[string]interface{}) (*services.ArtistDetailResponse, error) {
-			return &services.ArtistDetailResponse{ID: 42}, nil
+		updateArtistFn: func(_ uint, _ map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+			return &contracts.ArtistDetailResponse{ID: 42}, nil
 		},
 	}
 	auditMock := &mockAuditLogService{
@@ -642,7 +642,7 @@ func TestAdminUpdateArtist_AuditLogCalled(t *testing.T) {
 
 func TestUpdateBandcamp_Success(t *testing.T) {
 	mock := &mockArtistService{
-		updateArtistFn: func(artistID uint, updates map[string]interface{}) (*services.ArtistDetailResponse, error) {
+		updateArtistFn: func(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
@@ -654,7 +654,7 @@ func TestUpdateBandcamp_Success(t *testing.T) {
 			if _, ok := updates["bandcamp"]; !ok {
 				t.Error("expected bandcamp profile URL in updates")
 			}
-			return &services.ArtistDetailResponse{ID: 42}, nil
+			return &contracts.ArtistDetailResponse{ID: 42}, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
@@ -674,14 +674,14 @@ func TestUpdateBandcamp_Success(t *testing.T) {
 
 func TestUpdateBandcamp_ClearURL(t *testing.T) {
 	mock := &mockArtistService{
-		updateArtistFn: func(_ uint, updates map[string]interface{}) (*services.ArtistDetailResponse, error) {
+		updateArtistFn: func(_ uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
 			// When clearing, bandcamp_embed_url should be a nil *string
 			if v, ok := updates["bandcamp_embed_url"]; ok {
 				if sp, isStr := v.(*string); isStr && sp != nil {
 					t.Errorf("expected nil *string for bandcamp_embed_url, got %q", *sp)
 				}
 			}
-			return &services.ArtistDetailResponse{ID: 42}, nil
+			return &contracts.ArtistDetailResponse{ID: 42}, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
@@ -702,14 +702,14 @@ func TestUpdateBandcamp_ClearURL(t *testing.T) {
 
 func TestUpdateSpotify_Success(t *testing.T) {
 	mock := &mockArtistService{
-		updateArtistFn: func(artistID uint, updates map[string]interface{}) (*services.ArtistDetailResponse, error) {
+		updateArtistFn: func(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
 			if _, ok := updates["spotify"]; !ok {
 				t.Error("expected spotify in updates")
 			}
-			return &services.ArtistDetailResponse{ID: 42}, nil
+			return &contracts.ArtistDetailResponse{ID: 42}, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
@@ -733,8 +733,8 @@ func TestUpdateSpotify_Success(t *testing.T) {
 
 func TestGetArtistCities_Success(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistCitiesFn: func() ([]*services.ArtistCityResponse, error) {
-			return []*services.ArtistCityResponse{
+		getArtistCitiesFn: func() ([]*contracts.ArtistCityResponse, error) {
+			return []*contracts.ArtistCityResponse{
 				{City: "Phoenix", State: "AZ", ArtistCount: 10},
 				{City: "Mesa", State: "AZ", ArtistCount: 5},
 			}, nil
@@ -759,7 +759,7 @@ func TestGetArtistCities_Success(t *testing.T) {
 
 func TestGetArtistCities_ServiceError(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistCitiesFn: func() ([]*services.ArtistCityResponse, error) {
+		getArtistCitiesFn: func() ([]*contracts.ArtistCityResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -771,8 +771,8 @@ func TestGetArtistCities_ServiceError(t *testing.T) {
 
 func TestGetArtistCities_Empty(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistCitiesFn: func() ([]*services.ArtistCityResponse, error) {
-			return []*services.ArtistCityResponse{}, nil
+		getArtistCitiesFn: func() ([]*contracts.ArtistCityResponse, error) {
+			return []*contracts.ArtistCityResponse{}, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
@@ -792,7 +792,7 @@ func TestGetArtistCities_Empty(t *testing.T) {
 
 func TestListArtists_WithCitiesFilter(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*services.ArtistWithShowCountResponse, error) {
+		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
 			cities, ok := filters["cities"].([]map[string]string)
 			if !ok {
 				t.Error("expected cities filter to be []map[string]string")
@@ -803,8 +803,8 @@ func TestListArtists_WithCitiesFilter(t *testing.T) {
 			if cities[0]["city"] != "Phoenix" || cities[0]["state"] != "AZ" {
 				t.Errorf("expected first city=Phoenix,AZ, got %v", cities[0])
 			}
-			return []*services.ArtistWithShowCountResponse{
-				{ArtistDetailResponse: services.ArtistDetailResponse{ID: 1}, UpcomingShowCount: 1},
+			return []*contracts.ArtistWithShowCountResponse{
+				{ArtistDetailResponse: contracts.ArtistDetailResponse{ID: 1}, UpcomingShowCount: 1},
 			}, nil
 		},
 	}
@@ -821,7 +821,7 @@ func TestListArtists_WithCitiesFilter(t *testing.T) {
 
 func TestListArtists_CitiesOverridesLegacy(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*services.ArtistWithShowCountResponse, error) {
+		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
 			// When Cities param is set, legacy city/state should not be in filters
 			if _, ok := filters["city"]; ok {
 				t.Error("legacy city filter should not be set when Cities param is provided")
@@ -829,7 +829,7 @@ func TestListArtists_CitiesOverridesLegacy(t *testing.T) {
 			if _, ok := filters["state"]; ok {
 				t.Error("legacy state filter should not be set when Cities param is provided")
 			}
-			return []*services.ArtistWithShowCountResponse{}, nil
+			return []*contracts.ArtistWithShowCountResponse{}, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
@@ -856,11 +856,11 @@ func TestGetArtistAliases_InvalidID(t *testing.T) {
 
 func TestGetArtistAliases_Success(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistAliasesFn: func(artistID uint) ([]*services.ArtistAliasResponse, error) {
+		getArtistAliasesFn: func(artistID uint) ([]*contracts.ArtistAliasResponse, error) {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
-			return []*services.ArtistAliasResponse{
+			return []*contracts.ArtistAliasResponse{
 				{ID: 1, ArtistID: 42, Alias: "Alias One"},
 				{ID: 2, ArtistID: 42, Alias: "Alias Two"},
 			}, nil
@@ -879,7 +879,7 @@ func TestGetArtistAliases_Success(t *testing.T) {
 
 func TestGetArtistAliases_NotFound(t *testing.T) {
 	mock := &mockArtistService{
-		getArtistAliasesFn: func(artistID uint) ([]*services.ArtistAliasResponse, error) {
+		getArtistAliasesFn: func(artistID uint) ([]*contracts.ArtistAliasResponse, error) {
 			return nil, apperrors.ErrArtistNotFound(artistID)
 		},
 	}
@@ -934,11 +934,11 @@ func TestAddArtistAlias_EmptyAlias(t *testing.T) {
 
 func TestAddArtistAlias_Success(t *testing.T) {
 	mock := &mockArtistService{
-		addArtistAliasFn: func(artistID uint, alias string) (*services.ArtistAliasResponse, error) {
+		addArtistAliasFn: func(artistID uint, alias string) (*contracts.ArtistAliasResponse, error) {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
-			return &services.ArtistAliasResponse{ID: 1, ArtistID: 42, Alias: alias}, nil
+			return &contracts.ArtistAliasResponse{ID: 1, ArtistID: 42, Alias: alias}, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
@@ -957,7 +957,7 @@ func TestAddArtistAlias_Success(t *testing.T) {
 
 func TestAddArtistAlias_Conflict(t *testing.T) {
 	mock := &mockArtistService{
-		addArtistAliasFn: func(artistID uint, alias string) (*services.ArtistAliasResponse, error) {
+		addArtistAliasFn: func(artistID uint, alias string) (*contracts.ArtistAliasResponse, error) {
 			return nil, fmt.Errorf("alias 'Test' already exists")
 		},
 	}
@@ -1063,7 +1063,7 @@ func TestMergeArtists_MissingIDs(t *testing.T) {
 
 func TestMergeArtists_SelfMerge(t *testing.T) {
 	mock := &mockArtistService{
-		mergeArtistsFn: func(canonicalID, mergeFromID uint) (*services.MergeArtistResult, error) {
+		mergeArtistsFn: func(canonicalID, mergeFromID uint) (*contracts.MergeArtistResult, error) {
 			return nil, fmt.Errorf("cannot merge an artist with itself")
 		},
 	}
@@ -1079,14 +1079,14 @@ func TestMergeArtists_SelfMerge(t *testing.T) {
 
 func TestMergeArtists_Success(t *testing.T) {
 	mock := &mockArtistService{
-		mergeArtistsFn: func(canonicalID, mergeFromID uint) (*services.MergeArtistResult, error) {
+		mergeArtistsFn: func(canonicalID, mergeFromID uint) (*contracts.MergeArtistResult, error) {
 			if canonicalID != 1 {
 				t.Errorf("expected canonicalID=1, got %d", canonicalID)
 			}
 			if mergeFromID != 2 {
 				t.Errorf("expected mergeFromID=2, got %d", mergeFromID)
 			}
-			return &services.MergeArtistResult{
+			return &contracts.MergeArtistResult{
 				CanonicalArtistID: 1,
 				MergedArtistID:    2,
 				MergedArtistName:  "Old Name",
@@ -1115,7 +1115,7 @@ func TestMergeArtists_Success(t *testing.T) {
 
 func TestMergeArtists_NotFound(t *testing.T) {
 	mock := &mockArtistService{
-		mergeArtistsFn: func(canonicalID, mergeFromID uint) (*services.MergeArtistResult, error) {
+		mergeArtistsFn: func(canonicalID, mergeFromID uint) (*contracts.MergeArtistResult, error) {
 			return nil, apperrors.ErrArtistNotFound(canonicalID)
 		},
 	}
@@ -1164,11 +1164,11 @@ func TestAdminCreateArtist_EmptyName(t *testing.T) {
 
 func TestAdminCreateArtist_Success(t *testing.T) {
 	mock := &mockArtistService{
-		createArtistFn: func(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
+		createArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			if req.Name != "New Artist" {
 				t.Errorf("expected name='New Artist', got %q", req.Name)
 			}
-			return &services.ArtistDetailResponse{ID: 42, Name: "New Artist", Slug: "new-artist"}, nil
+			return &contracts.ArtistDetailResponse{ID: 42, Name: "New Artist", Slug: "new-artist"}, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
@@ -1193,7 +1193,7 @@ func TestAdminCreateArtist_Success(t *testing.T) {
 
 func TestAdminCreateArtist_WithSocials(t *testing.T) {
 	mock := &mockArtistService{
-		createArtistFn: func(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
+		createArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			if req.Name != "Social Artist" {
 				t.Errorf("expected name='Social Artist', got %q", req.Name)
 			}
@@ -1209,7 +1209,7 @@ func TestAdminCreateArtist_WithSocials(t *testing.T) {
 			if req.Website == nil || *req.Website != "https://example.com" {
 				t.Errorf("expected website='https://example.com', got %v", req.Website)
 			}
-			return &services.ArtistDetailResponse{ID: 43, Name: "Social Artist"}, nil
+			return &contracts.ArtistDetailResponse{ID: 43, Name: "Social Artist"}, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
@@ -1236,7 +1236,7 @@ func TestAdminCreateArtist_WithSocials(t *testing.T) {
 
 func TestAdminCreateArtist_Conflict(t *testing.T) {
 	mock := &mockArtistService{
-		createArtistFn: func(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
+		createArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			return nil, fmt.Errorf("artist with name 'Existing' already exists")
 		},
 	}
@@ -1251,7 +1251,7 @@ func TestAdminCreateArtist_Conflict(t *testing.T) {
 
 func TestAdminCreateArtist_ServiceError(t *testing.T) {
 	mock := &mockArtistService{
-		createArtistFn: func(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
+		createArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -1267,8 +1267,8 @@ func TestAdminCreateArtist_ServiceError(t *testing.T) {
 func TestAdminCreateArtist_AuditLogCalled(t *testing.T) {
 	var auditCalled bool
 	artistMock := &mockArtistService{
-		createArtistFn: func(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
-			return &services.ArtistDetailResponse{ID: 42, Name: req.Name}, nil
+		createArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+			return &contracts.ArtistDetailResponse{ID: 42, Name: req.Name}, nil
 		},
 	}
 	auditMock := &mockAuditLogService{
@@ -1307,11 +1307,11 @@ func TestAdminCreateArtist_AuditLogCalled(t *testing.T) {
 
 func TestAdminCreateArtist_NameTrimmed(t *testing.T) {
 	mock := &mockArtistService{
-		createArtistFn: func(req *services.CreateArtistRequest) (*services.ArtistDetailResponse, error) {
+		createArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			if req.Name != "Trimmed Name" {
 				t.Errorf("expected trimmed name='Trimmed Name', got %q", req.Name)
 			}
-			return &services.ArtistDetailResponse{ID: 44, Name: "Trimmed Name"}, nil
+			return &contracts.ArtistDetailResponse{ID: 44, Name: "Trimmed Name"}, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
