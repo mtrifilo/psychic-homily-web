@@ -15,6 +15,7 @@ export interface Venue {
   city: string
   state: string
   zipcode?: string | null
+  description?: string | null
   verified: boolean
   submitted_by?: number | null
   social?: {
@@ -122,6 +123,7 @@ export interface VenueEditRequest {
   city?: string
   state?: string
   zipcode?: string
+  description?: string
   instagram?: string
   facebook?: string
   twitter?: string

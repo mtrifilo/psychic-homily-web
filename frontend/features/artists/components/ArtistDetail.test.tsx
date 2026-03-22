@@ -64,6 +64,7 @@ vi.mock('@/lib/hooks/admin/useAdminArtists', () => ({
   useClearArtistBandcamp: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateArtistSpotify: () => ({ mutate: vi.fn(), isPending: false }),
   useClearArtistSpotify: () => ({ mutate: vi.fn(), isPending: false }),
+  useArtistUpdate: () => ({ mutate: vi.fn(), isPending: false }),
   useArtistAliases: () => ({ data: { aliases: [] }, isLoading: false }),
 }))
 
@@ -167,6 +168,9 @@ vi.mock('@/components/shared', () => ({
   RevisionHistory: () => <div data-testid="revision-history">Revision History</div>,
   FollowButton: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
     <button data-testid="follow-button">Follow {entityType} {entityId}</button>
+  ),
+  EntityDescription: ({ description, canEdit }: { description: string | null | undefined; canEdit: boolean }) => (
+    <div data-testid="entity-description">{description || (canEdit ? 'Add description' : '')}</div>
   ),
 }))
 

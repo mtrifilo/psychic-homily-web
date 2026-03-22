@@ -41,8 +41,12 @@ vi.mock('@/lib/queryClient', () => ({
     venues: {
       detail: (id: string) => ['venues', 'detail', id],
       shows: (id: number | string) => ['venues', 'shows', id],
+      myPendingEdit: (id: number) => ['venues', 'myPendingEdit', id],
     },
   },
+  createInvalidateQueries: () => ({
+    venues: vi.fn(),
+  }),
 }))
 
 // Mock useVenue and useVenueGenres hooks
@@ -51,6 +55,14 @@ const mockUseVenueGenres = vi.fn(() => ({ data: null }))
 vi.mock('../hooks/useVenues', () => ({
   useVenue: (opts: unknown) => mockUseVenue(opts),
   useVenueGenres: (id: number) => mockUseVenueGenres(id),
+}))
+
+// Mock useVenueEdit hook
+vi.mock('../hooks/useVenueEdit', () => ({
+  useVenueUpdate: () => ({ mutate: vi.fn(), isPending: false }),
+  useMyPendingVenueEdit: () => ({ data: null }),
+  useCancelPendingVenueEdit: () => ({ mutate: vi.fn() }),
+  useVenueDelete: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
 // Mock child components
@@ -65,6 +77,9 @@ vi.mock('@/components/shared', () => ({
   ),
   TagPill: ({ label, href }: { label: string; href: string }) => (
     <a href={href} data-testid="tag-pill">{label}</a>
+  ),
+  EntityDescription: ({ description, canEdit }: { description: string | null | undefined; canEdit: boolean }) => (
+    <div data-testid="entity-description">{description || (canEdit ? 'Add description' : '')}</div>
   ),
 }))
 
