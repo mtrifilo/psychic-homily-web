@@ -1511,3 +1511,688 @@ func TestBatchRejectShowsHandler_RequiresReason(t *testing.T) {
 	_, err := h.BatchRejectShowsHandler(adminCtx(), req)
 	assertHumaError(t, err, 400)
 }
+
+// ============================================================================
+// Pending shows with filters (admin_shows.go — filter path coverage)
+// ============================================================================
+
+func TestGetPendingShowsHandler_WithVenueIDFilter(t *testing.T) {
+	var capturedFilter *services.PendingShowsFilter
+	h := adminShowHandler(func(ah *AdminShowHandler) {
+		ah.showService = &mockShowService{
+			getPendingShowsFn: func(limit, offset int, filters *services.PendingShowsFilter) ([]*services.ShowResponse, int64, error) {
+				capturedFilter = filters
+				return []*services.ShowResponse{}, 0, nil
+			},
+		}
+	})
+	resp, err := h.GetPendingShowsHandler(adminCtx(), &GetPendingShowsRequest{Limit: 50, VenueID: 42})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	_ = resp
+	if capturedFilter == nil {
+		t.Fatal("expected non-nil filter when VenueID is set")
+	}
+	if capturedFilter.VenueID == nil || *capturedFilter.VenueID != 42 {
+		t.Errorf("expected VenueID=42 in filter, got %v", capturedFilter.VenueID)
+	}
+	if capturedFilter.Source != nil {
+		t.Errorf("expected nil Source in filter, got %v", capturedFilter.Source)
+	}
+}
+
+func TestGetPendingShowsHandler_WithSourceFilter(t *testing.T) {
+	var capturedFilter *services.PendingShowsFilter
+	h := adminShowHandler(func(ah *AdminShowHandler) {
+		ah.showService = &mockShowService{
+			getPendingShowsFn: func(limit, offset int, filters *services.PendingShowsFilter) ([]*services.ShowResponse, int64, error) {
+				capturedFilter = filters
+				return []*services.ShowResponse{}, 0, nil
+			},
+		}
+	})
+	_, err := h.GetPendingShowsHandler(adminCtx(), &GetPendingShowsRequest{Limit: 50, Source: "discovery"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedFilter == nil {
+		t.Fatal("expected non-nil filter when Source is set")
+	}
+	if capturedFilter.Source == nil || *capturedFilter.Source != "discovery" {
+		t.Errorf("expected Source='discovery' in filter, got %v", capturedFilter.Source)
+	}
+}
+
+func TestGetPendingShowsHandler_WithBothFilters(t *testing.T) {
+	var capturedFilter *services.PendingShowsFilter
+	h := adminShowHandler(func(ah *AdminShowHandler) {
+		ah.showService = &mockShowService{
+			getPendingShowsFn: func(limit, offset int, filters *services.PendingShowsFilter) ([]*services.ShowResponse, int64, error) {
+				capturedFilter = filters
+				return []*services.ShowResponse{}, 0, nil
+			},
+		}
+	})
+	_, err := h.GetPendingShowsHandler(adminCtx(), &GetPendingShowsRequest{Limit: 50, VenueID: 10, Source: "user"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedFilter == nil {
+		t.Fatal("expected non-nil filter")
+	}
+	if capturedFilter.VenueID == nil || *capturedFilter.VenueID != 10 {
+		t.Errorf("expected VenueID=10, got %v", capturedFilter.VenueID)
+	}
+	if capturedFilter.Source == nil || *capturedFilter.Source != "user" {
+		t.Errorf("expected Source='user', got %v", capturedFilter.Source)
+	}
+}
+
+func TestGetPendingShowsHandler_NoFilters(t *testing.T) {
+	var capturedFilter *services.PendingShowsFilter
+	h := adminShowHandler(func(ah *AdminShowHandler) {
+		ah.showService = &mockShowService{
+			getPendingShowsFn: func(limit, offset int, filters *services.PendingShowsFilter) ([]*services.ShowResponse, int64, error) {
+				capturedFilter = filters
+				return []*services.ShowResponse{}, 0, nil
+			},
+		}
+	})
+	_, err := h.GetPendingShowsHandler(adminCtx(), &GetPendingShowsRequest{Limit: 50})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedFilter != nil {
+		t.Error("expected nil filter when no VenueID or Source set")
+	}
+}
+
+// ============================================================================
+// Limit/offset clamping tests (admin_shows.go)
+// ============================================================================
+
+func TestGetPendingShowsHandler_LimitClamping(t *testing.T) {
+	var capturedLimit, capturedOffset int
+	h := adminShowHandler(func(ah *AdminShowHandler) {
+		ah.showService = &mockShowService{
+			getPendingShowsFn: func(limit, offset int, _ *services.PendingShowsFilter) ([]*services.ShowResponse, int64, error) {
+				capturedLimit = limit
+				capturedOffset = offset
+				return []*services.ShowResponse{}, 0, nil
+			},
+		}
+	})
+
+	// Limit < 1 => defaults to 50
+	_, err := h.GetPendingShowsHandler(adminCtx(), &GetPendingShowsRequest{Limit: 0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedLimit != 50 {
+		t.Errorf("expected limit clamped to 50, got %d", capturedLimit)
+	}
+
+	// Limit > 100 => capped to 100
+	_, err = h.GetPendingShowsHandler(adminCtx(), &GetPendingShowsRequest{Limit: 200})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedLimit != 100 {
+		t.Errorf("expected limit clamped to 100, got %d", capturedLimit)
+	}
+
+	// Negative offset => 0
+	_, err = h.GetPendingShowsHandler(adminCtx(), &GetPendingShowsRequest{Limit: 50, Offset: -5})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedOffset != 0 {
+		t.Errorf("expected offset clamped to 0, got %d", capturedOffset)
+	}
+}
+
+func TestGetRejectedShowsHandler_LimitClamping(t *testing.T) {
+	var capturedLimit, capturedOffset int
+	h := adminShowHandler(func(ah *AdminShowHandler) {
+		ah.showService = &mockShowService{
+			getRejectedShowsFn: func(limit, offset int, _ string) ([]*services.ShowResponse, int64, error) {
+				capturedLimit = limit
+				capturedOffset = offset
+				return []*services.ShowResponse{}, 0, nil
+			},
+		}
+	})
+
+	// Limit < 1 => 50
+	_, err := h.GetRejectedShowsHandler(adminCtx(), &GetRejectedShowsRequest{Limit: -1})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedLimit != 50 {
+		t.Errorf("expected limit=50, got %d", capturedLimit)
+	}
+
+	// Limit > 100 => 100
+	_, err = h.GetRejectedShowsHandler(adminCtx(), &GetRejectedShowsRequest{Limit: 150})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedLimit != 100 {
+		t.Errorf("expected limit=100, got %d", capturedLimit)
+	}
+
+	// Negative offset => 0
+	_, err = h.GetRejectedShowsHandler(adminCtx(), &GetRejectedShowsRequest{Limit: 50, Offset: -10})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedOffset != 0 {
+		t.Errorf("expected offset=0, got %d", capturedOffset)
+	}
+}
+
+func TestGetAdminShowsHandler_LimitClamping(t *testing.T) {
+	var capturedLimit, capturedOffset int
+	h := adminShowHandler(func(ah *AdminShowHandler) {
+		ah.showService = &mockShowService{
+			getAdminShowsFn: func(limit, offset int, _ services.AdminShowFilters) ([]*services.ShowResponse, int64, error) {
+				capturedLimit = limit
+				capturedOffset = offset
+				return []*services.ShowResponse{}, 0, nil
+			},
+		}
+	})
+
+	_, err := h.GetAdminShowsHandler(adminCtx(), &GetAdminShowsRequest{Limit: 0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedLimit != 50 {
+		t.Errorf("expected limit=50, got %d", capturedLimit)
+	}
+
+	_, err = h.GetAdminShowsHandler(adminCtx(), &GetAdminShowsRequest{Limit: 999})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedLimit != 100 {
+		t.Errorf("expected limit=100, got %d", capturedLimit)
+	}
+
+	_, err = h.GetAdminShowsHandler(adminCtx(), &GetAdminShowsRequest{Limit: 50, Offset: -3})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedOffset != 0 {
+		t.Errorf("expected offset=0, got %d", capturedOffset)
+	}
+}
+
+// ============================================================================
+// Batch handler service error paths (admin_shows.go)
+// ============================================================================
+
+func TestBatchApproveShowsHandler_ServiceError(t *testing.T) {
+	h := adminShowHandler(func(ah *AdminShowHandler) {
+		ah.showService = &mockShowService{
+			batchApproveShowsFn: func(_ []uint) (*services.BatchShowResult, error) {
+				return nil, fmt.Errorf("db error")
+			},
+		}
+	})
+	req := &BatchApproveShowsRequest{}
+	req.Body.ShowIDs = []uint{1, 2}
+	_, err := h.BatchApproveShowsHandler(adminCtx(), req)
+	assertHumaError(t, err, 500)
+}
+
+func TestBatchRejectShowsHandler_ServiceError(t *testing.T) {
+	h := adminShowHandler(func(ah *AdminShowHandler) {
+		ah.showService = &mockShowService{
+			batchRejectShowsFn: func(_ []uint, _ string, _ string) (*services.BatchShowResult, error) {
+				return nil, fmt.Errorf("db error")
+			},
+		}
+	})
+	req := &BatchRejectShowsRequest{}
+	req.Body.ShowIDs = []uint{1}
+	req.Body.Reason = "test reason"
+	_, err := h.BatchRejectShowsHandler(adminCtx(), req)
+	assertHumaError(t, err, 500)
+}
+
+// ============================================================================
+// Bulk import preview edge cases (admin_shows.go)
+// ============================================================================
+
+func TestBulkImportPreviewHandler_InvalidBase64(t *testing.T) {
+	h := adminShowHandler(func(ah *AdminShowHandler) {
+		ah.showService = &mockShowService{}
+	})
+	req := &BulkImportPreviewRequest{}
+	req.Body.Shows = []string{"not-valid-base64!!!"}
+	_, err := h.BulkImportPreviewHandler(adminCtx(), req)
+	assertHumaError(t, err, 400)
+}
+
+func TestBulkImportPreviewHandler_ServiceError(t *testing.T) {
+	h := adminShowHandler(func(ah *AdminShowHandler) {
+		ah.showService = &mockShowService{
+			previewShowImportFn: func(_ []byte) (*services.ImportPreviewResponse, error) {
+				return nil, fmt.Errorf("parse error")
+			},
+		}
+	})
+	req := &BulkImportPreviewRequest{}
+	req.Body.Shows = []string{base64.StdEncoding.EncodeToString([]byte("# Show"))}
+	_, err := h.BulkImportPreviewHandler(adminCtx(), req)
+	assertHumaError(t, err, 422)
+}
+
+func TestBulkImportPreviewHandler_SummaryAccumulation(t *testing.T) {
+	callCount := 0
+	h := adminShowHandler(func(ah *AdminShowHandler) {
+		ah.showService = &mockShowService{
+			previewShowImportFn: func(_ []byte) (*services.ImportPreviewResponse, error) {
+				callCount++
+				if callCount == 1 {
+					return &services.ImportPreviewResponse{
+						CanImport: true,
+						Venues:    []services.VenueMatchResult{{WillCreate: true}},
+						Artists:   []services.ArtistMatchResult{{WillCreate: true}, {WillCreate: false}},
+						Warnings:  []string{"warning1"},
+					}, nil
+				}
+				return &services.ImportPreviewResponse{
+					CanImport: false,
+					Venues:    []services.VenueMatchResult{{WillCreate: false}},
+					Artists:   []services.ArtistMatchResult{{WillCreate: true}},
+					Warnings:  []string{"warning2", "warning3"},
+				}, nil
+			},
+		}
+	})
+	req := &BulkImportPreviewRequest{}
+	req.Body.Shows = []string{
+		base64.StdEncoding.EncodeToString([]byte("# Show 1")),
+		base64.StdEncoding.EncodeToString([]byte("# Show 2")),
+	}
+	resp, err := h.BulkImportPreviewHandler(adminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Summary.TotalShows != 2 {
+		t.Errorf("expected total_shows=2, got %d", resp.Body.Summary.TotalShows)
+	}
+	if resp.Body.Summary.NewVenues != 1 {
+		t.Errorf("expected new_venues=1, got %d", resp.Body.Summary.NewVenues)
+	}
+	if resp.Body.Summary.ExistingVenues != 1 {
+		t.Errorf("expected existing_venues=1, got %d", resp.Body.Summary.ExistingVenues)
+	}
+	if resp.Body.Summary.NewArtists != 2 {
+		t.Errorf("expected new_artists=2, got %d", resp.Body.Summary.NewArtists)
+	}
+	if resp.Body.Summary.ExistingArtists != 1 {
+		t.Errorf("expected existing_artists=1, got %d", resp.Body.Summary.ExistingArtists)
+	}
+	if resp.Body.Summary.WarningCount != 3 {
+		t.Errorf("expected warning_count=3, got %d", resp.Body.Summary.WarningCount)
+	}
+	if resp.Body.Summary.CanImportAll {
+		t.Error("expected can_import_all=false when one show cannot be imported")
+	}
+}
+
+// ============================================================================
+// Bulk import confirm edge cases (admin_shows.go)
+// ============================================================================
+
+func TestBulkImportConfirmHandler_InvalidBase64InArray(t *testing.T) {
+	h := adminShowHandler(func(ah *AdminShowHandler) {
+		ah.showService = &mockShowService{
+			confirmShowImportFn: func(_ []byte, _ bool) (*services.ShowResponse, error) {
+				return &services.ShowResponse{ID: 1}, nil
+			},
+		}
+	})
+	req := &BulkImportConfirmRequest{}
+	req.Body.Shows = []string{
+		base64.StdEncoding.EncodeToString([]byte("# Good Show")),
+		"not-valid-base64!!!",
+	}
+	resp, err := h.BulkImportConfirmHandler(adminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.SuccessCount != 1 {
+		t.Errorf("expected success_count=1, got %d", resp.Body.SuccessCount)
+	}
+	if resp.Body.ErrorCount != 1 {
+		t.Errorf("expected error_count=1, got %d", resp.Body.ErrorCount)
+	}
+	// Verify the error result
+	found := false
+	for _, r := range resp.Body.Results {
+		if !r.Success && r.Error == "Invalid base64 content" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected 'Invalid base64 content' error in results")
+	}
+}
+
+// ============================================================================
+// Export venues verified filter paths (admin_data.go)
+// ============================================================================
+
+func TestExportVenuesHandler_VerifiedFilterTrue(t *testing.T) {
+	var capturedParams services.ExportVenuesParams
+	h := adminDataHandler(func(ah *AdminDataHandler) {
+		ah.dataSyncService = &mockDataSyncService{
+			exportVenuesFn: func(params services.ExportVenuesParams) (*services.ExportVenuesResult, error) {
+				capturedParams = params
+				return &services.ExportVenuesResult{Total: 1}, nil
+			},
+		}
+	})
+	_, err := h.ExportVenuesHandler(adminCtx(), &ExportVenuesRequest{Limit: 50, Verified: "true"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedParams.Verified == nil || *capturedParams.Verified != true {
+		t.Error("expected Verified=true in params")
+	}
+}
+
+func TestExportVenuesHandler_VerifiedFilterFalse(t *testing.T) {
+	var capturedParams services.ExportVenuesParams
+	h := adminDataHandler(func(ah *AdminDataHandler) {
+		ah.dataSyncService = &mockDataSyncService{
+			exportVenuesFn: func(params services.ExportVenuesParams) (*services.ExportVenuesResult, error) {
+				capturedParams = params
+				return &services.ExportVenuesResult{Total: 1}, nil
+			},
+		}
+	})
+	_, err := h.ExportVenuesHandler(adminCtx(), &ExportVenuesRequest{Limit: 50, Verified: "false"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedParams.Verified == nil || *capturedParams.Verified != false {
+		t.Error("expected Verified=false in params")
+	}
+}
+
+func TestExportVenuesHandler_NegativeOffset(t *testing.T) {
+	var capturedOffset int
+	h := adminDataHandler(func(ah *AdminDataHandler) {
+		ah.dataSyncService = &mockDataSyncService{
+			exportVenuesFn: func(params services.ExportVenuesParams) (*services.ExportVenuesResult, error) {
+				capturedOffset = params.Offset
+				return &services.ExportVenuesResult{Total: 0}, nil
+			},
+		}
+	})
+	_, err := h.ExportVenuesHandler(adminCtx(), &ExportVenuesRequest{Limit: 50, Offset: -5})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedOffset != 0 {
+		t.Errorf("expected offset clamped to 0, got %d", capturedOffset)
+	}
+}
+
+// ============================================================================
+// Export shows with valid date and negative offset (admin_data.go)
+// ============================================================================
+
+func TestExportShowsHandler_WithValidDate(t *testing.T) {
+	var capturedParams services.ExportShowsParams
+	h := adminDataHandler(func(ah *AdminDataHandler) {
+		ah.dataSyncService = &mockDataSyncService{
+			exportShowsFn: func(params services.ExportShowsParams) (*services.ExportShowsResult, error) {
+				capturedParams = params
+				return &services.ExportShowsResult{Total: 0}, nil
+			},
+		}
+	})
+	_, err := h.ExportShowsHandler(adminCtx(), &ExportShowsRequest{Limit: 50, FromDate: "2025-06-15"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedParams.FromDate == nil {
+		t.Fatal("expected FromDate to be set")
+	}
+	expected := time.Date(2025, 6, 15, 0, 0, 0, 0, time.UTC)
+	if !capturedParams.FromDate.Equal(expected) {
+		t.Errorf("expected FromDate=%v, got %v", expected, *capturedParams.FromDate)
+	}
+}
+
+func TestExportShowsHandler_NegativeOffset(t *testing.T) {
+	var capturedOffset int
+	h := adminDataHandler(func(ah *AdminDataHandler) {
+		ah.dataSyncService = &mockDataSyncService{
+			exportShowsFn: func(params services.ExportShowsParams) (*services.ExportShowsResult, error) {
+				capturedOffset = params.Offset
+				return &services.ExportShowsResult{Total: 0}, nil
+			},
+		}
+	})
+	_, err := h.ExportShowsHandler(adminCtx(), &ExportShowsRequest{Limit: 50, Offset: -10})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedOffset != 0 {
+		t.Errorf("expected offset clamped to 0, got %d", capturedOffset)
+	}
+}
+
+func TestExportArtistsHandler_NegativeOffset(t *testing.T) {
+	var capturedOffset int
+	h := adminDataHandler(func(ah *AdminDataHandler) {
+		ah.dataSyncService = &mockDataSyncService{
+			exportArtistsFn: func(params services.ExportArtistsParams) (*services.ExportArtistsResult, error) {
+				capturedOffset = params.Offset
+				return &services.ExportArtistsResult{Total: 0}, nil
+			},
+		}
+	})
+	_, err := h.ExportArtistsHandler(adminCtx(), &ExportArtistsRequest{Limit: 50, Offset: -3})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedOffset != 0 {
+		t.Errorf("expected offset clamped to 0, got %d", capturedOffset)
+	}
+}
+
+// ============================================================================
+// Venue handler limit clamping tests (admin_venues.go)
+// ============================================================================
+
+func TestGetUnverifiedVenuesHandler_LimitClamping(t *testing.T) {
+	var capturedLimit, capturedOffset int
+	h := adminVenueHandler(func(ah *AdminVenueHandler) {
+		ah.venueService = &mockVenueService{
+			getUnverifiedVenuesFn: func(limit, offset int) ([]*services.UnverifiedVenueResponse, int64, error) {
+				capturedLimit = limit
+				capturedOffset = offset
+				return []*services.UnverifiedVenueResponse{}, 0, nil
+			},
+		}
+	})
+
+	_, err := h.GetUnverifiedVenuesHandler(adminCtx(), &GetUnverifiedVenuesRequest{Limit: 0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedLimit != 50 {
+		t.Errorf("expected limit=50, got %d", capturedLimit)
+	}
+
+	_, err = h.GetUnverifiedVenuesHandler(adminCtx(), &GetUnverifiedVenuesRequest{Limit: 200})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedLimit != 100 {
+		t.Errorf("expected limit=100, got %d", capturedLimit)
+	}
+
+	_, err = h.GetUnverifiedVenuesHandler(adminCtx(), &GetUnverifiedVenuesRequest{Limit: 50, Offset: -1})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedOffset != 0 {
+		t.Errorf("expected offset=0, got %d", capturedOffset)
+	}
+}
+
+func TestGetPendingVenueEditsHandler_LimitClamping(t *testing.T) {
+	var capturedLimit, capturedOffset int
+	h := adminVenueHandler(func(ah *AdminVenueHandler) {
+		ah.venueService = &mockVenueService{
+			getPendingVenueEditsFn: func(limit, offset int) ([]*services.PendingVenueEditResponse, int64, error) {
+				capturedLimit = limit
+				capturedOffset = offset
+				return []*services.PendingVenueEditResponse{}, 0, nil
+			},
+		}
+	})
+
+	_, err := h.GetPendingVenueEditsHandler(adminCtx(), &GetPendingVenueEditsRequest{Limit: -5})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedLimit != 50 {
+		t.Errorf("expected limit=50, got %d", capturedLimit)
+	}
+
+	_, err = h.GetPendingVenueEditsHandler(adminCtx(), &GetPendingVenueEditsRequest{Limit: 150})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedLimit != 100 {
+		t.Errorf("expected limit=100, got %d", capturedLimit)
+	}
+
+	_, err = h.GetPendingVenueEditsHandler(adminCtx(), &GetPendingVenueEditsRequest{Limit: 50, Offset: -99})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedOffset != 0 {
+		t.Errorf("expected offset=0, got %d", capturedOffset)
+	}
+}
+
+// ============================================================================
+// User handler limit clamping tests (admin_users.go)
+// ============================================================================
+
+func TestGetAdminUsersHandler_LimitClamping(t *testing.T) {
+	var capturedLimit, capturedOffset int
+	h := adminUserHandler(func(ah *AdminUserHandler) {
+		ah.userService = &mockUserService{
+			listUsersFn: func(limit, offset int, _ services.AdminUserFilters) ([]*services.AdminUserResponse, int64, error) {
+				capturedLimit = limit
+				capturedOffset = offset
+				return []*services.AdminUserResponse{}, 0, nil
+			},
+		}
+	})
+
+	_, err := h.GetAdminUsersHandler(adminCtx(), &GetAdminUsersRequest{Limit: 0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedLimit != 50 {
+		t.Errorf("expected limit=50, got %d", capturedLimit)
+	}
+
+	_, err = h.GetAdminUsersHandler(adminCtx(), &GetAdminUsersRequest{Limit: 101})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedLimit != 100 {
+		t.Errorf("expected limit=100, got %d", capturedLimit)
+	}
+
+	_, err = h.GetAdminUsersHandler(adminCtx(), &GetAdminUsersRequest{Limit: 50, Offset: -1})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedOffset != 0 {
+		t.Errorf("expected offset=0, got %d", capturedOffset)
+	}
+}
+
+// ============================================================================
+// Helpers tests (helpers.go)
+// ============================================================================
+
+func TestParseDate_Valid(t *testing.T) {
+	d, err := parseDate("2025-06-15")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if d.Year() != 2025 || d.Month() != 6 || d.Day() != 15 {
+		t.Errorf("unexpected date: %v", d)
+	}
+}
+
+func TestParseDate_Invalid(t *testing.T) {
+	_, err := parseDate("not-a-date")
+	if err == nil {
+		t.Error("expected error for invalid date")
+	}
+}
+
+func TestGetUserID_Nil(t *testing.T) {
+	id := getUserID(nil)
+	if id != 0 {
+		t.Errorf("expected 0, got %d", id)
+	}
+}
+
+func TestGetUserID_NonNil(t *testing.T) {
+	id := getUserID(&models.User{ID: 42})
+	if id != 42 {
+		t.Errorf("expected 42, got %d", id)
+	}
+}
+
+func TestPtrString(t *testing.T) {
+	p := ptrString("hello")
+	if p == nil || *p != "hello" {
+		t.Errorf("expected pointer to 'hello', got %v", p)
+	}
+}
+
+// ============================================================================
+// Data import handler edge cases (admin_data.go)
+// ============================================================================
+
+func TestDataImportHandler_DryRun(t *testing.T) {
+	var capturedDryRun bool
+	h := adminDataHandler(func(ah *AdminDataHandler) {
+		ah.dataSyncService = &mockDataSyncService{
+			importDataFn: func(req services.DataImportRequest) (*services.DataImportResult, error) {
+				capturedDryRun = req.DryRun
+				return &services.DataImportResult{}, nil
+			},
+		}
+	})
+	req := &DataImportRequest{}
+	req.Body.Shows = []services.ExportedShow{{}}
+	req.Body.DryRun = true
+	_, err := h.DataImportHandler(adminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !capturedDryRun {
+		t.Error("expected dry_run=true to be passed to service")
+	}
+}
