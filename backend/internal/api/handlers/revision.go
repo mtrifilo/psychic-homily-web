@@ -10,19 +10,19 @@ import (
 
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // RevisionHandler handles revision history API endpoints.
 type RevisionHandler struct {
-	revisionService services.RevisionServiceInterface
-	auditLogService services.AuditLogServiceInterface
+	revisionService contracts.RevisionServiceInterface
+	auditLogService contracts.AuditLogServiceInterface
 }
 
 // NewRevisionHandler creates a new revision handler.
 func NewRevisionHandler(
-	revisionService services.RevisionServiceInterface,
-	auditLogService services.AuditLogServiceInterface,
+	revisionService contracts.RevisionServiceInterface,
+	auditLogService contracts.AuditLogServiceInterface,
 ) *RevisionHandler {
 	return &RevisionHandler{
 		revisionService: revisionService,

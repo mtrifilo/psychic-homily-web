@@ -9,23 +9,23 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ShowReportHandler handles show report HTTP requests
 type ShowReportHandler struct {
-	showReportService services.ShowReportServiceInterface
-	discordService    services.DiscordServiceInterface
-	userService       services.UserServiceInterface
-	auditLogService   services.AuditLogServiceInterface
+	showReportService contracts.ShowReportServiceInterface
+	discordService    contracts.DiscordServiceInterface
+	userService       contracts.UserServiceInterface
+	auditLogService   contracts.AuditLogServiceInterface
 }
 
 // NewShowReportHandler creates a new show report handler
 func NewShowReportHandler(
-	showReportService services.ShowReportServiceInterface,
-	discordService services.DiscordServiceInterface,
-	userService services.UserServiceInterface,
-	auditLogService services.AuditLogServiceInterface,
+	showReportService contracts.ShowReportServiceInterface,
+	discordService contracts.DiscordServiceInterface,
+	userService contracts.UserServiceInterface,
+	auditLogService contracts.AuditLogServiceInterface,
 ) *ShowReportHandler {
 	return &ShowReportHandler{
 		showReportService: showReportService,
@@ -50,7 +50,7 @@ type ReportShowRequest struct {
 
 // ReportShowResponse represents the HTTP response for reporting a show
 type ReportShowResponse struct {
-	Body services.ShowReportResponse `json:"body"`
+	Body contracts.ShowReportResponse `json:"body"`
 }
 
 // ReportShowHandler handles POST /shows/{show_id}/report
@@ -122,7 +122,7 @@ type GetMyReportRequest struct {
 // GetMyReportResponse represents the HTTP response for checking user's report
 type GetMyReportResponse struct {
 	Body struct {
-		Report *services.ShowReportResponse `json:"report"`
+		Report *contracts.ShowReportResponse `json:"report"`
 	}
 }
 
@@ -162,7 +162,7 @@ func (h *ShowReportHandler) GetMyReportHandler(ctx context.Context, req *GetMyRe
 
 	return &GetMyReportResponse{
 		Body: struct {
-			Report *services.ShowReportResponse `json:"report"`
+			Report *contracts.ShowReportResponse `json:"report"`
 		}{
 			Report: report,
 		},
@@ -182,7 +182,7 @@ type GetPendingReportsRequest struct {
 // GetPendingReportsResponse represents the HTTP response for listing pending reports
 type GetPendingReportsResponse struct {
 	Body struct {
-		Reports []*services.ShowReportResponse `json:"reports"`
+		Reports []*contracts.ShowReportResponse `json:"reports"`
 		Total   int64                          `json:"total"`
 	}
 }
@@ -229,7 +229,7 @@ func (h *ShowReportHandler) GetPendingReportsHandler(ctx context.Context, req *G
 
 	return &GetPendingReportsResponse{
 		Body: struct {
-			Reports []*services.ShowReportResponse `json:"reports"`
+			Reports []*contracts.ShowReportResponse `json:"reports"`
 			Total   int64                          `json:"total"`
 		}{
 			Reports: reports,
@@ -248,7 +248,7 @@ type DismissReportRequest struct {
 
 // DismissReportResponse represents the HTTP response for dismissing a report
 type DismissReportResponse struct {
-	Body services.ShowReportResponse `json:"body"`
+	Body contracts.ShowReportResponse `json:"body"`
 }
 
 // DismissReportHandler handles POST /admin/reports/{report_id}/dismiss
@@ -311,7 +311,7 @@ type ResolveReportRequest struct {
 
 // ResolveReportResponse represents the HTTP response for resolving a report
 type ResolveReportResponse struct {
-	Body services.ShowReportResponse `json:"body"`
+	Body contracts.ShowReportResponse `json:"body"`
 }
 
 // ResolveReportHandler handles POST /admin/reports/{report_id}/resolve

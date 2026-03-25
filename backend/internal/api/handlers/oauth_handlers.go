@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/markbates/goth/gothic"
@@ -78,12 +78,12 @@ func deleteCLICallback(id string) {
 
 // OAuthHTTPHandler handles OAuth HTTP requests directly
 type OAuthHTTPHandler struct {
-	authService services.AuthServiceInterface
+	authService contracts.AuthServiceInterface
 	config      *config.Config
 }
 
 // NewOAuthHTTPHandler creates a new OAuth HTTP handler
-func NewOAuthHTTPHandler(authService services.AuthServiceInterface, cfg *config.Config) *OAuthHTTPHandler {
+func NewOAuthHTTPHandler(authService contracts.AuthServiceInterface, cfg *config.Config) *OAuthHTTPHandler {
 	return &OAuthHTTPHandler{
 		authService: authService,
 		config:      cfg,
@@ -121,7 +121,7 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 			return
 		}
 
-		encodedConsent, err := encodeOAuthSignupConsent(services.OAuthSignupConsent{
+		encodedConsent, err := encodeOAuthSignupConsent(contracts.OAuthSignupConsent{
 			TermsAccepted:  true,
 			TermsVersion:   termsVersion,
 			PrivacyVersion: privacyVersion,
@@ -212,7 +212,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	}
 
 	// Read signup consent captured during OAuth initiation (if present).
-	var signupConsent *services.OAuthSignupConsent
+	var signupConsent *contracts.OAuthSignupConsent
 	if cookie, err := r.Cookie(oauthSignupConsentCookieName); err == nil {
 		consent, decodeErr := decodeOAuthSignupConsent(cookie.Value)
 		if decodeErr != nil {
@@ -285,7 +285,7 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	http.Redirect(w, r, frontendURL, http.StatusTemporaryRedirect)
 }
 
-func encodeOAuthSignupConsent(consent services.OAuthSignupConsent) (string, error) {
+func encodeOAuthSignupConsent(consent contracts.OAuthSignupConsent) (string, error) {
 	data, err := json.Marshal(consent)
 	if err != nil {
 		return "", err
@@ -293,12 +293,12 @@ func encodeOAuthSignupConsent(consent services.OAuthSignupConsent) (string, erro
 	return base64.RawURLEncoding.EncodeToString(data), nil
 }
 
-func decodeOAuthSignupConsent(value string) (*services.OAuthSignupConsent, error) {
+func decodeOAuthSignupConsent(value string) (*contracts.OAuthSignupConsent, error) {
 	data, err := base64.RawURLEncoding.DecodeString(value)
 	if err != nil {
 		return nil, err
 	}
-	var consent services.OAuthSignupConsent
+	var consent contracts.OAuthSignupConsent
 	if err := json.Unmarshal(data, &consent); err != nil {
 		return nil, err
 	}

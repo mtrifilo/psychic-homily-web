@@ -10,20 +10,19 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ArtistRelationshipHandler handles artist relationship API requests.
 type ArtistRelationshipHandler struct {
-	relService services.ArtistRelationshipServiceInterface
-	auditLog   services.AuditLogServiceInterface
+	relService contracts.ArtistRelationshipServiceInterface
+	auditLog   contracts.AuditLogServiceInterface
 }
 
 // NewArtistRelationshipHandler creates a new handler.
 func NewArtistRelationshipHandler(
-	relService services.ArtistRelationshipServiceInterface,
-	auditLog services.AuditLogServiceInterface,
+	relService contracts.ArtistRelationshipServiceInterface,
+	auditLog contracts.AuditLogServiceInterface,
 ) *ArtistRelationshipHandler {
 	return &ArtistRelationshipHandler{
 		relService: relService,

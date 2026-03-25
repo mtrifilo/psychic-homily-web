@@ -7,17 +7,17 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // AdminStatsHandler handles admin dashboard stats and activity feed
 type AdminStatsHandler struct {
-	adminStatsService services.AdminStatsServiceInterface
+	adminStatsService contracts.AdminStatsServiceInterface
 }
 
 // NewAdminStatsHandler creates a new admin stats handler
 func NewAdminStatsHandler(
-	adminStatsService services.AdminStatsServiceInterface,
+	adminStatsService contracts.AdminStatsServiceInterface,
 ) *AdminStatsHandler {
 	return &AdminStatsHandler{
 		adminStatsService: adminStatsService,
@@ -29,7 +29,7 @@ type GetAdminStatsRequest struct{}
 
 // GetAdminStatsResponse represents the HTTP response for admin dashboard stats
 type GetAdminStatsResponse struct {
-	Body services.AdminDashboardStats
+	Body contracts.AdminDashboardStats
 }
 
 // GetAdminStatsHandler handles GET /admin/stats
@@ -68,7 +68,7 @@ type GetActivityFeedRequest struct{}
 
 // GetActivityFeedResponse represents the HTTP response for admin activity feed
 type GetActivityFeedResponse struct {
-	Body services.ActivityFeedResponse
+	Body contracts.ActivityFeedResponse
 }
 
 // GetActivityFeedHandler handles GET /admin/activity

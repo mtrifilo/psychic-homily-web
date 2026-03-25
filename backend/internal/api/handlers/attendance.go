@@ -9,16 +9,16 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // AttendanceHandler handles show attendance (going/interested) HTTP requests.
 type AttendanceHandler struct {
-	attendanceService services.AttendanceServiceInterface
+	attendanceService contracts.AttendanceServiceInterface
 }
 
 // NewAttendanceHandler creates a new attendance handler.
-func NewAttendanceHandler(attendanceService services.AttendanceServiceInterface) *AttendanceHandler {
+func NewAttendanceHandler(attendanceService contracts.AttendanceServiceInterface) *AttendanceHandler {
 	return &AttendanceHandler{attendanceService: attendanceService}
 }
 
@@ -101,7 +101,7 @@ type GetMyShowsRequest struct {
 // GetMyShowsResponse is the response for GET /attendance/my-shows
 type GetMyShowsResponse struct {
 	Body struct {
-		Shows  []*services.AttendingShowResponse `json:"shows"`
+		Shows  []*contracts.AttendingShowResponse `json:"shows"`
 		Total  int64                             `json:"total"`
 		Limit  int                               `json:"limit"`
 		Offset int                               `json:"offset"`
@@ -394,7 +394,7 @@ func (h *AttendanceHandler) GetMyShowsHandler(ctx context.Context, req *GetMySho
 
 	return &GetMyShowsResponse{
 		Body: struct {
-			Shows  []*services.AttendingShowResponse `json:"shows"`
+			Shows  []*contracts.AttendingShowResponse `json:"shows"`
 			Total  int64                             `json:"total"`
 			Limit  int                               `json:"limit"`
 			Offset int                               `json:"offset"`

@@ -14,7 +14,8 @@ import (
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/auth"
+	usersvc "psychic-homily-backend/internal/services/user"
 )
 
 // --- GetUserFromContext tests ---
@@ -102,14 +103,14 @@ func TestWriteJWTError_EmptyRequestID(t *testing.T) {
 
 // --- JWTMiddleware tests (paths that don't hit DB) ---
 
-func newTestJWTService() *services.JWTService {
+func newTestJWTService() *auth.JWTService {
 	cfg := &config.Config{
 		JWT: config.JWTConfig{
 			SecretKey: "test-secret-key-for-unit-tests-32chars",
 			Expiry:    24,
 		},
 	}
-	return services.NewJWTService(nil, cfg)
+	return auth.NewJWTService(nil, cfg, usersvc.NewUserService(nil))
 }
 
 func TestJWTMiddleware_NoToken(t *testing.T) {
@@ -209,7 +210,7 @@ func TestJWTMiddleware_ExpiredToken(t *testing.T) {
 			Expiry:    0, // 0 hours = expires immediately
 		},
 	}
-	jwtService := services.NewJWTService(nil, cfg)
+	jwtService := auth.NewJWTService(nil, cfg, usersvc.NewUserService(nil))
 
 	// Create a token (it will be expired since expiry is 0 hours from now)
 	user := &models.User{Email: strPtr("test@example.com")}
@@ -409,7 +410,7 @@ func TestHumaJWTMiddleware_ExpiredToken(t *testing.T) {
 			Expiry:    0,
 		},
 	}
-	jwtService := services.NewJWTService(nil, cfg)
+	jwtService := auth.NewJWTService(nil, cfg, usersvc.NewUserService(nil))
 
 	user := &models.User{Email: strPtr("test@example.com")}
 	user.ID = 1
@@ -566,7 +567,7 @@ func TestHumaJWTMiddleware_WithSessionConfig_ExpiredClearsCookie(t *testing.T) {
 			Expiry:    0,
 		},
 	}
-	jwtService := services.NewJWTService(nil, cfg)
+	jwtService := auth.NewJWTService(nil, cfg, usersvc.NewUserService(nil))
 
 	user := &models.User{Email: strPtr("expired@example.com")}
 	user.ID = 1
@@ -707,7 +708,7 @@ func TestLenientHumaJWTMiddleware_ExpiredWithinGrace_FailsDBLookup(t *testing.T)
 			Expiry:    0,
 		},
 	}
-	jwtService := services.NewJWTService(nil, cfg)
+	jwtService := auth.NewJWTService(nil, cfg, usersvc.NewUserService(nil))
 
 	user := &models.User{Email: strPtr("grace@example.com")}
 	user.ID = 55
@@ -747,7 +748,7 @@ func TestLenientHumaJWTMiddleware_ExpiredBeyondGrace(t *testing.T) {
 			Expiry:    0,
 		},
 	}
-	jwtService := services.NewJWTService(nil, cfg)
+	jwtService := auth.NewJWTService(nil, cfg, usersvc.NewUserService(nil))
 
 	user := &models.User{Email: strPtr("expired@example.com")}
 	user.ID = 1
@@ -904,7 +905,7 @@ func TestOptionalHumaJWTMiddleware_ExpiredJWT_ProceedsWithoutUser(t *testing.T) 
 			Expiry:    0,
 		},
 	}
-	jwtService := services.NewJWTService(nil, cfg)
+	jwtService := auth.NewJWTService(nil, cfg, usersvc.NewUserService(nil))
 
 	user := &models.User{Email: strPtr("expired@example.com")}
 	user.ID = 1

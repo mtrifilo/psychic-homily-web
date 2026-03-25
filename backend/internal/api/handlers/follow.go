@@ -9,16 +9,16 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // FollowHandler handles follow/unfollow HTTP requests.
 type FollowHandler struct {
-	followService services.FollowServiceInterface
+	followService contracts.FollowServiceInterface
 }
 
 // NewFollowHandler creates a new follow handler.
-func NewFollowHandler(followService services.FollowServiceInterface) *FollowHandler {
+func NewFollowHandler(followService contracts.FollowServiceInterface) *FollowHandler {
 	return &FollowHandler{followService: followService}
 }
 
@@ -118,7 +118,7 @@ type GetMyFollowingRequest struct {
 // GetMyFollowingResponse is the response for GET /me/following
 type GetMyFollowingResponse struct {
 	Body struct {
-		Following []*services.FollowingEntityResponse `json:"following"`
+		Following []*contracts.FollowingEntityResponse `json:"following"`
 		Total     int64                               `json:"total"`
 		Limit     int                                 `json:"limit"`
 		Offset    int                                 `json:"offset"`
@@ -136,7 +136,7 @@ type GetFollowersListRequest struct {
 // GetFollowersListResponse is the response for GET /{entity_type}/{entity_id}/followers/list
 type GetFollowersListResponse struct {
 	Body struct {
-		Followers []*services.FollowerResponse `json:"followers"`
+		Followers []*contracts.FollowerResponse `json:"followers"`
 		Total     int64                        `json:"total"`
 		Limit     int                          `json:"limit"`
 		Offset    int                          `json:"offset"`
@@ -456,7 +456,7 @@ func (h *FollowHandler) GetMyFollowingHandler(ctx context.Context, req *GetMyFol
 
 	return &GetMyFollowingResponse{
 		Body: struct {
-			Following []*services.FollowingEntityResponse `json:"following"`
+			Following []*contracts.FollowingEntityResponse `json:"following"`
 			Total     int64                               `json:"total"`
 			Limit     int                                 `json:"limit"`
 			Offset    int                                 `json:"offset"`
@@ -511,7 +511,7 @@ func (h *FollowHandler) GetFollowersListHandler(ctx context.Context, req *GetFol
 
 	return &GetFollowersListResponse{
 		Body: struct {
-			Followers []*services.FollowerResponse `json:"followers"`
+			Followers []*contracts.FollowerResponse `json:"followers"`
 			Total     int64                        `json:"total"`
 			Limit     int                          `json:"limit"`
 			Offset    int                          `json:"offset"`

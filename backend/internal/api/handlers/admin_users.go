@@ -7,17 +7,17 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // AdminUserHandler handles admin user management
 type AdminUserHandler struct {
-	userService services.UserServiceInterface
+	userService contracts.UserServiceInterface
 }
 
 // NewAdminUserHandler creates a new admin user handler
 func NewAdminUserHandler(
-	userService services.UserServiceInterface,
+	userService contracts.UserServiceInterface,
 ) *AdminUserHandler {
 	return &AdminUserHandler{
 		userService: userService,
@@ -34,7 +34,7 @@ type GetAdminUsersRequest struct {
 // GetAdminUsersResponse represents the HTTP response for listing users
 type GetAdminUsersResponse struct {
 	Body struct {
-		Users []*services.AdminUserResponse `json:"users"`
+		Users []*contracts.AdminUserResponse `json:"users"`
 		Total int64                         `json:"total"`
 	}
 }
@@ -69,7 +69,7 @@ func (h *AdminUserHandler) GetAdminUsersHandler(ctx context.Context, req *GetAdm
 	)
 
 	// Build filters
-	filters := services.AdminUserFilters{
+	filters := contracts.AdminUserFilters{
 		Search: req.Search,
 	}
 
@@ -92,7 +92,7 @@ func (h *AdminUserHandler) GetAdminUsersHandler(ctx context.Context, req *GetAdm
 
 	return &GetAdminUsersResponse{
 		Body: struct {
-			Users []*services.AdminUserResponse `json:"users"`
+			Users []*contracts.AdminUserResponse `json:"users"`
 			Total int64                         `json:"total"`
 		}{
 			Users: users,

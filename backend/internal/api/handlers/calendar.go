@@ -11,17 +11,17 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // CalendarHandler handles calendar feed and token management
 type CalendarHandler struct {
-	calendarService services.CalendarServiceInterface
+	calendarService contracts.CalendarServiceInterface
 	config          *config.Config
 }
 
 // NewCalendarHandler creates a new calendar handler
-func NewCalendarHandler(calendarService services.CalendarServiceInterface, cfg *config.Config) *CalendarHandler {
+func NewCalendarHandler(calendarService contracts.CalendarServiceInterface, cfg *config.Config) *CalendarHandler {
 	return &CalendarHandler{
 		calendarService: calendarService,
 		config:          cfg,
@@ -76,7 +76,7 @@ type CreateCalendarTokenRequest struct{}
 
 // CreateCalendarTokenResponse wraps the service response
 type CreateCalendarTokenResponse struct {
-	Body services.CalendarTokenCreateResponse
+	Body contracts.CalendarTokenCreateResponse
 }
 
 // CreateCalendarTokenHandler creates or regenerates a calendar token
@@ -123,7 +123,7 @@ type GetCalendarTokenStatusRequest struct{}
 
 // GetCalendarTokenStatusResponse wraps the service response
 type GetCalendarTokenStatusResponse struct {
-	Body services.CalendarTokenStatusResponse
+	Body contracts.CalendarTokenStatusResponse
 }
 
 // GetCalendarTokenStatusHandler checks if a user has a calendar token

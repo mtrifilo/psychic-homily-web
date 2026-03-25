@@ -7,17 +7,17 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // AdminDataHandler handles admin data sync export/import
 type AdminDataHandler struct {
-	dataSyncService services.DataSyncServiceInterface
+	dataSyncService contracts.DataSyncServiceInterface
 }
 
 // NewAdminDataHandler creates a new admin data handler
 func NewAdminDataHandler(
-	dataSyncService services.DataSyncServiceInterface,
+	dataSyncService contracts.DataSyncServiceInterface,
 ) *AdminDataHandler {
 	return &AdminDataHandler{
 		dataSyncService: dataSyncService,
@@ -40,7 +40,7 @@ type ExportShowsRequest struct {
 
 // ExportShowsResponse represents the HTTP response for exporting shows
 type ExportShowsResponse struct {
-	Body services.ExportShowsResult `json:"body"`
+	Body contracts.ExportShowsResult `json:"body"`
 }
 
 // ExportShowsHandler handles GET /admin/export/shows
@@ -58,7 +58,7 @@ func (h *AdminDataHandler) ExportShowsHandler(ctx context.Context, req *ExportSh
 	}
 
 	// Build params
-	params := services.ExportShowsParams{
+	params := contracts.ExportShowsParams{
 		Limit:  req.Limit,
 		Offset: offset,
 		Status: req.Status,
@@ -109,7 +109,7 @@ type ExportArtistsRequest struct {
 
 // ExportArtistsResponse represents the HTTP response for exporting artists
 type ExportArtistsResponse struct {
-	Body services.ExportArtistsResult `json:"body"`
+	Body contracts.ExportArtistsResult `json:"body"`
 }
 
 // ExportArtistsHandler handles GET /admin/export/artists
@@ -126,7 +126,7 @@ func (h *AdminDataHandler) ExportArtistsHandler(ctx context.Context, req *Export
 		offset = 0
 	}
 
-	params := services.ExportArtistsParams{
+	params := contracts.ExportArtistsParams{
 		Limit:  req.Limit,
 		Offset: offset,
 		Search: req.Search,
@@ -169,7 +169,7 @@ type ExportVenuesRequest struct {
 
 // ExportVenuesResponse represents the HTTP response for exporting venues
 type ExportVenuesResponse struct {
-	Body services.ExportVenuesResult `json:"body"`
+	Body contracts.ExportVenuesResult `json:"body"`
 }
 
 // ExportVenuesHandler handles GET /admin/export/venues
@@ -186,7 +186,7 @@ func (h *AdminDataHandler) ExportVenuesHandler(ctx context.Context, req *ExportV
 		offset = 0
 	}
 
-	params := services.ExportVenuesParams{
+	params := contracts.ExportVenuesParams{
 		Limit:  req.Limit,
 		Offset: offset,
 		Search: req.Search,
@@ -230,12 +230,12 @@ func (h *AdminDataHandler) ExportVenuesHandler(ctx context.Context, req *ExportV
 
 // DataImportRequest represents the HTTP request for importing data
 type DataImportRequest struct {
-	Body services.DataImportRequest `json:"body"`
+	Body contracts.DataImportRequest `json:"body"`
 }
 
 // DataImportResponse represents the HTTP response for importing data
 type DataImportResponse struct {
-	Body services.DataImportResult `json:"body"`
+	Body contracts.DataImportResult `json:"body"`
 }
 
 // DataImportHandler handles POST /admin/data/import

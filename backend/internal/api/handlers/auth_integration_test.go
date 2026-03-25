@@ -13,7 +13,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/notification"
 )
 
@@ -74,11 +74,11 @@ func (s *AuthHandlerIntegrationSuite) newAuthHandler(emailConfigured bool) *Auth
 		}
 	}
 
-	authSvc := services.NewAuthService(s.deps.db, emailCfg)
-	jwtSvc := services.NewJWTService(s.deps.db, emailCfg)
+	authSvc := auth.NewAuthService(s.deps.db, emailCfg, s.deps.userService)
+	jwtSvc := auth.NewJWTService(s.deps.db, emailCfg, s.deps.userService)
 	emailSvc := notification.NewEmailService(emailCfg)
 	discordSvc := notification.NewDiscordService(emailCfg)
-	pv := services.NewPasswordValidator()
+	pv := auth.NewPasswordValidator()
 
 	return NewAuthHandler(
 		authSvc,
@@ -334,7 +334,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmVerification_Success() {
 	user := s.createUserWithPassword("confirm-v@test.com", "strong-password-123!")
 
 	// Generate a real verification token
-	jwtSvc := services.NewJWTService(s.deps.db, s.cfg)
+	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
 	token, err := jwtSvc.CreateVerificationToken(user.ID, "confirm-v@test.com")
 	s.Require().NoError(err)
 
@@ -355,7 +355,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmVerification_AlreadyVerified() 
 	user := s.createUserWithPassword("already-v@test.com", "strong-password-123!")
 	s.verifyEmail(user.ID)
 
-	jwtSvc := services.NewJWTService(s.deps.db, s.cfg)
+	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
 	token, err := jwtSvc.CreateVerificationToken(user.ID, "already-v@test.com")
 	s.Require().NoError(err)
 
@@ -373,7 +373,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmVerification_EmailMismatch() {
 	user := s.createUserWithPassword("mismatch@test.com", "strong-password-123!")
 
 	// Token generated with a different email
-	jwtSvc := services.NewJWTService(s.deps.db, s.cfg)
+	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
 	token, err := jwtSvc.CreateVerificationToken(user.ID, "different@test.com")
 	s.Require().NoError(err)
 
@@ -390,7 +390,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmVerification_UserNotFound() {
 	h := s.newAuthHandler(false)
 
 	// Token for a user ID that doesn't exist
-	jwtSvc := services.NewJWTService(s.deps.db, s.cfg)
+	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
 	token, err := jwtSvc.CreateVerificationToken(99999, "ghost@test.com")
 	s.Require().NoError(err)
 
@@ -462,7 +462,7 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_Success() {
 	user := s.createUserWithPassword("ml-ok@test.com", "strong-password-123!")
 	s.verifyEmail(user.ID)
 
-	jwtSvc := services.NewJWTService(s.deps.db, s.cfg)
+	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
 	token, err := jwtSvc.CreateMagicLinkToken(user.ID, "ml-ok@test.com")
 	s.Require().NoError(err)
 
@@ -480,7 +480,7 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_Success() {
 func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_UserNotFound() {
 	h := s.newAuthHandler(false)
 
-	jwtSvc := services.NewJWTService(s.deps.db, s.cfg)
+	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
 	token, err := jwtSvc.CreateMagicLinkToken(99999, "ghost@test.com")
 	s.Require().NoError(err)
 
@@ -497,7 +497,7 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_EmailMismatch() {
 	h := s.newAuthHandler(false)
 	user := s.createUserWithPassword("ml-mm@test.com", "strong-password-123!")
 
-	jwtSvc := services.NewJWTService(s.deps.db, s.cfg)
+	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
 	token, err := jwtSvc.CreateMagicLinkToken(user.ID, "different@test.com")
 	s.Require().NoError(err)
 
@@ -516,7 +516,7 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_InactiveUser() {
 	s.verifyEmail(user.ID)
 	s.softDeleteUser(user.ID)
 
-	jwtSvc := services.NewJWTService(s.deps.db, s.cfg)
+	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
 	token, err := jwtSvc.CreateMagicLinkToken(user.ID, "ml-inactive@test.com")
 	s.Require().NoError(err)
 
@@ -839,7 +839,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmRecovery_Success() {
 	user := s.createUserWithPassword("confirm-r@test.com", "strong-password-123!")
 	s.softDeleteUser(user.ID)
 
-	jwtSvc := services.NewJWTService(s.deps.db, s.cfg)
+	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
 	token, err := jwtSvc.CreateAccountRecoveryToken(user.ID, "confirm-r@test.com")
 	s.Require().NoError(err)
 
@@ -861,7 +861,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmRecovery_AccountActive() {
 	h := s.newAuthHandler(false)
 	user := s.createUserWithPassword("confirm-act@test.com", "strong-password-123!")
 
-	jwtSvc := services.NewJWTService(s.deps.db, s.cfg)
+	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
 	token, err := jwtSvc.CreateAccountRecoveryToken(user.ID, "confirm-act@test.com")
 	s.Require().NoError(err)
 
@@ -879,7 +879,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmRecovery_Expired() {
 	user := s.createUserWithPassword("confirm-exp@test.com", "strong-password-123!")
 	s.softDeleteUserExpired(user.ID)
 
-	jwtSvc := services.NewJWTService(s.deps.db, s.cfg)
+	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
 	token, err := jwtSvc.CreateAccountRecoveryToken(user.ID, "confirm-exp@test.com")
 	s.Require().NoError(err)
 
@@ -895,7 +895,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmRecovery_Expired() {
 func (s *AuthHandlerIntegrationSuite) TestConfirmRecovery_UserNotFound() {
 	h := s.newAuthHandler(false)
 
-	jwtSvc := services.NewJWTService(s.deps.db, s.cfg)
+	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
 	token, err := jwtSvc.CreateAccountRecoveryToken(99999, fmt.Sprintf("ghost-%d@test.com", time.Now().UnixNano()))
 	s.Require().NoError(err)
 

@@ -8,17 +8,17 @@ import (
 
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // AdminDiscoveryHandler handles admin discovery import/check endpoints
 type AdminDiscoveryHandler struct {
-	discoveryService services.DiscoveryServiceInterface
+	discoveryService contracts.DiscoveryServiceInterface
 }
 
 // NewAdminDiscoveryHandler creates a new admin discovery handler
 func NewAdminDiscoveryHandler(
-	discoveryService services.DiscoveryServiceInterface,
+	discoveryService contracts.DiscoveryServiceInterface,
 ) *AdminDiscoveryHandler {
 	return &AdminDiscoveryHandler{
 		discoveryService: discoveryService,
@@ -55,7 +55,7 @@ type DiscoveryImportRequest struct {
 
 // DiscoveryImportResponse represents the HTTP response for importing discovered events
 type DiscoveryImportResponse struct {
-	Body services.ImportResult `json:"body"`
+	Body contracts.ImportResult `json:"body"`
 }
 
 // DiscoveryImportHandler handles POST /admin/discovery/import
@@ -82,9 +82,9 @@ func (h *AdminDiscoveryHandler) DiscoveryImportHandler(ctx context.Context, req 
 	)
 
 	// Convert input events to DiscoveredEvent format
-	events := make([]services.DiscoveredEvent, len(req.Body.Events))
+	events := make([]contracts.DiscoveredEvent, len(req.Body.Events))
 	for i, e := range req.Body.Events {
-		events[i] = services.DiscoveredEvent{
+		events[i] = contracts.DiscoveredEvent{
 			ID:             e.ID,
 			Title:          e.Title,
 			Date:           e.Date,
@@ -151,7 +151,7 @@ type DiscoveryCheckRequest struct {
 
 // DiscoveryCheckResponse represents the HTTP response for checking discovered events
 type DiscoveryCheckResponse struct {
-	Body services.CheckEventsResult `json:"body"`
+	Body contracts.CheckEventsResult `json:"body"`
 }
 
 // DiscoveryCheckHandler handles POST /admin/discovery/check
@@ -177,9 +177,9 @@ func (h *AdminDiscoveryHandler) DiscoveryCheckHandler(ctx context.Context, req *
 	)
 
 	// Convert input to service types
-	events := make([]services.CheckEventInput, len(req.Body.Events))
+	events := make([]contracts.CheckEventInput, len(req.Body.Events))
 	for i, e := range req.Body.Events {
-		events[i] = services.CheckEventInput{
+		events[i] = contracts.CheckEventInput{
 			ID:        e.ID,
 			VenueSlug: e.VenueSlug,
 			Date:      e.Date,

@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/catalog"
 )
 
@@ -42,12 +42,12 @@ func TestFestivalIntelligenceHandler(t *testing.T) {
 
 var intelFestivalCounter int64
 
-func (s *FestivalIntelligenceHandlerSuite) createFestival(name, seriesSlug string, year int) *services.FestivalDetailResponse {
+func (s *FestivalIntelligenceHandlerSuite) createFestival(name, seriesSlug string, year int) *contracts.FestivalDetailResponse {
 	city := "Phoenix"
 	state := "AZ"
 	counter := atomic.AddInt64(&intelFestivalCounter, 1)
 	startDate := fmt.Sprintf("%d-03-%02d", year, int(counter%28)+1)
-	resp, err := s.deps.festivalService.CreateFestival(&services.CreateFestivalRequest{
+	resp, err := s.deps.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name:        name,
 		SeriesSlug:  seriesSlug,
 		EditionYear: year,
@@ -63,7 +63,7 @@ func (s *FestivalIntelligenceHandlerSuite) createFestival(name, seriesSlug strin
 
 func (s *FestivalIntelligenceHandlerSuite) addArtistToFestival(festivalID uint, name, tier string) uint {
 	artist := createArtist(s.deps.db, name)
-	_, err := s.deps.festivalService.AddFestivalArtist(festivalID, &services.AddFestivalArtistRequest{
+	_, err := s.deps.festivalService.AddFestivalArtist(festivalID, &contracts.AddFestivalArtistRequest{
 		ArtistID:    artist.ID,
 		BillingTier: tier,
 	})
@@ -83,8 +83,8 @@ func (s *FestivalIntelligenceHandlerSuite) TestGetSimilarFestivals_Success() {
 	for i := 0; i < 4; i++ {
 		name := fmt.Sprintf("Shared Intel %d", i)
 		artist := createArtist(s.deps.db, name)
-		_, _ = s.deps.festivalService.AddFestivalArtist(f1.ID, &services.AddFestivalArtistRequest{ArtistID: artist.ID, BillingTier: "mid_card"})
-		_, _ = s.deps.festivalService.AddFestivalArtist(f2.ID, &services.AddFestivalArtistRequest{ArtistID: artist.ID, BillingTier: "mid_card"})
+		_, _ = s.deps.festivalService.AddFestivalArtist(f1.ID, &contracts.AddFestivalArtistRequest{ArtistID: artist.ID, BillingTier: "mid_card"})
+		_, _ = s.deps.festivalService.AddFestivalArtist(f2.ID, &contracts.AddFestivalArtistRequest{ArtistID: artist.ID, BillingTier: "mid_card"})
 	}
 
 	req := &GetSimilarFestivalsRequest{FestivalID: fmt.Sprintf("%d", f1.ID), Limit: 10}
@@ -104,8 +104,8 @@ func (s *FestivalIntelligenceHandlerSuite) TestGetSimilarFestivals_LimitParamete
 		other := s.createFestival(fmt.Sprintf("Limit Target %d", j), fmt.Sprintf("lt%d", j), 2026)
 		for i := 0; i < 3; i++ {
 			a := createArtist(s.deps.db, fmt.Sprintf("LimitShared %d-%d", j, i))
-			_, _ = s.deps.festivalService.AddFestivalArtist(f1.ID, &services.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "mid_card"})
-			_, _ = s.deps.festivalService.AddFestivalArtist(other.ID, &services.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "mid_card"})
+			_, _ = s.deps.festivalService.AddFestivalArtist(f1.ID, &contracts.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "mid_card"})
+			_, _ = s.deps.festivalService.AddFestivalArtist(other.ID, &contracts.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "mid_card"})
 		}
 	}
 
@@ -131,8 +131,8 @@ func (s *FestivalIntelligenceHandlerSuite) TestGetFestivalOverlap_Success() {
 	f2 := s.createFestival("Overlap B", "ob", 2026)
 
 	a := createArtist(s.deps.db, "Overlap Shared")
-	_, _ = s.deps.festivalService.AddFestivalArtist(f1.ID, &services.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "headliner"})
-	_, _ = s.deps.festivalService.AddFestivalArtist(f2.ID, &services.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "mid_card"})
+	_, _ = s.deps.festivalService.AddFestivalArtist(f1.ID, &contracts.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "headliner"})
+	_, _ = s.deps.festivalService.AddFestivalArtist(f2.ID, &contracts.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "mid_card"})
 
 	req := &GetFestivalOverlapRequest{
 		FestivalAID: fmt.Sprintf("%d", f1.ID),
@@ -160,8 +160,8 @@ func (s *FestivalIntelligenceHandlerSuite) TestGetFestivalBreakouts_Success() {
 	f2 := s.createFestival("Breakout Late", "bl", 2026)
 
 	a := createArtist(s.deps.db, "Rising Handler Star")
-	_, _ = s.deps.festivalService.AddFestivalArtist(f1.ID, &services.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "undercard"})
-	_, _ = s.deps.festivalService.AddFestivalArtist(f2.ID, &services.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "headliner"})
+	_, _ = s.deps.festivalService.AddFestivalArtist(f1.ID, &contracts.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "undercard"})
+	_, _ = s.deps.festivalService.AddFestivalArtist(f2.ID, &contracts.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "headliner"})
 
 	req := &GetFestivalBreakoutsRequest{FestivalID: fmt.Sprintf("%d", f2.ID)}
 	resp, err := s.handler.GetFestivalBreakoutsHandler(s.deps.ctx, req)

@@ -8,7 +8,7 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // =============================================================================
@@ -16,21 +16,21 @@ import (
 // =============================================================================
 
 type mockCalendarService struct {
-	createTokenFn    func(userID uint, apiBaseURL string) (*services.CalendarTokenCreateResponse, error)
-	getTokenStatusFn func(userID uint) (*services.CalendarTokenStatusResponse, error)
+	createTokenFn    func(userID uint, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error)
+	getTokenStatusFn func(userID uint) (*contracts.CalendarTokenStatusResponse, error)
 	deleteTokenFn    func(userID uint) error
 	validateTokenFn  func(plainToken string) (*models.User, error)
 	generateFeedFn   func(userID uint, frontendURL string) ([]byte, error)
 }
 
-func (m *mockCalendarService) CreateToken(userID uint, apiBaseURL string) (*services.CalendarTokenCreateResponse, error) {
+func (m *mockCalendarService) CreateToken(userID uint, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
 	if m.createTokenFn != nil {
 		return m.createTokenFn(userID, apiBaseURL)
 	}
 	return nil, nil
 }
 
-func (m *mockCalendarService) GetTokenStatus(userID uint) (*services.CalendarTokenStatusResponse, error) {
+func (m *mockCalendarService) GetTokenStatus(userID uint) (*contracts.CalendarTokenStatusResponse, error) {
 	if m.getTokenStatusFn != nil {
 		return m.getTokenStatusFn(userID)
 	}
@@ -79,11 +79,11 @@ func TestCreateCalendarTokenHandler_NoAuth(t *testing.T) {
 func TestCreateCalendarTokenHandler_Success(t *testing.T) {
 	now := time.Now()
 	mock := &mockCalendarService{
-		createTokenFn: func(userID uint, apiBaseURL string) (*services.CalendarTokenCreateResponse, error) {
+		createTokenFn: func(userID uint, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
 			}
-			return &services.CalendarTokenCreateResponse{
+			return &contracts.CalendarTokenCreateResponse{
 				Token:     "phcal_abc123",
 				FeedURL:   apiBaseURL + "/calendar/phcal_abc123",
 				CreatedAt: now,
@@ -107,7 +107,7 @@ func TestCreateCalendarTokenHandler_Success(t *testing.T) {
 
 func TestCreateCalendarTokenHandler_ServiceError(t *testing.T) {
 	mock := &mockCalendarService{
-		createTokenFn: func(_ uint, _ string) (*services.CalendarTokenCreateResponse, error) {
+		createTokenFn: func(_ uint, _ string) (*contracts.CalendarTokenCreateResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -131,8 +131,8 @@ func TestGetCalendarTokenStatusHandler_NoAuth(t *testing.T) {
 func TestGetCalendarTokenStatusHandler_HasToken(t *testing.T) {
 	now := time.Now()
 	mock := &mockCalendarService{
-		getTokenStatusFn: func(userID uint) (*services.CalendarTokenStatusResponse, error) {
-			return &services.CalendarTokenStatusResponse{
+		getTokenStatusFn: func(userID uint) (*contracts.CalendarTokenStatusResponse, error) {
+			return &contracts.CalendarTokenStatusResponse{
 				HasToken:  true,
 				CreatedAt: &now,
 			}, nil
@@ -152,8 +152,8 @@ func TestGetCalendarTokenStatusHandler_HasToken(t *testing.T) {
 
 func TestGetCalendarTokenStatusHandler_NoToken(t *testing.T) {
 	mock := &mockCalendarService{
-		getTokenStatusFn: func(userID uint) (*services.CalendarTokenStatusResponse, error) {
-			return &services.CalendarTokenStatusResponse{HasToken: false}, nil
+		getTokenStatusFn: func(userID uint) (*contracts.CalendarTokenStatusResponse, error) {
+			return &contracts.CalendarTokenStatusResponse{HasToken: false}, nil
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
@@ -170,7 +170,7 @@ func TestGetCalendarTokenStatusHandler_NoToken(t *testing.T) {
 
 func TestGetCalendarTokenStatusHandler_ServiceError(t *testing.T) {
 	mock := &mockCalendarService{
-		getTokenStatusFn: func(_ uint) (*services.CalendarTokenStatusResponse, error) {
+		getTokenStatusFn: func(_ uint) (*contracts.CalendarTokenStatusResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}

@@ -7,21 +7,21 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // FestivalIntelligenceHandler handles festival intelligence endpoints.
 type FestivalIntelligenceHandler struct {
-	intelligenceService services.FestivalIntelligenceServiceInterface
-	festivalService     services.FestivalServiceInterface
-	artistService       services.ArtistServiceInterface
+	intelligenceService contracts.FestivalIntelligenceServiceInterface
+	festivalService     contracts.FestivalServiceInterface
+	artistService       contracts.ArtistServiceInterface
 }
 
 // NewFestivalIntelligenceHandler creates a new festival intelligence handler.
 func NewFestivalIntelligenceHandler(
-	intelligenceService services.FestivalIntelligenceServiceInterface,
-	festivalService services.FestivalServiceInterface,
-	artistService services.ArtistServiceInterface,
+	intelligenceService contracts.FestivalIntelligenceServiceInterface,
+	festivalService contracts.FestivalServiceInterface,
+	artistService contracts.ArtistServiceInterface,
 ) *FestivalIntelligenceHandler {
 	return &FestivalIntelligenceHandler{
 		intelligenceService: intelligenceService,
@@ -41,7 +41,7 @@ type GetSimilarFestivalsRequest struct {
 
 type GetSimilarFestivalsResponse struct {
 	Body struct {
-		Similar []services.SimilarFestival `json:"similar" doc:"List of similar festivals ranked by overlap"`
+		Similar []contracts.SimilarFestival `json:"similar" doc:"List of similar festivals ranked by overlap"`
 	}
 }
 
@@ -79,7 +79,7 @@ type GetFestivalOverlapRequest struct {
 }
 
 type GetFestivalOverlapResponse struct {
-	Body *services.FestivalOverlap
+	Body *contracts.FestivalOverlap
 }
 
 func (h *FestivalIntelligenceHandler) GetFestivalOverlapHandler(ctx context.Context, req *GetFestivalOverlapRequest) (*GetFestivalOverlapResponse, error) {
@@ -113,7 +113,7 @@ type GetFestivalBreakoutsRequest struct {
 }
 
 type GetFestivalBreakoutsResponse struct {
-	Body *services.FestivalBreakouts
+	Body *contracts.FestivalBreakouts
 }
 
 func (h *FestivalIntelligenceHandler) GetFestivalBreakoutsHandler(ctx context.Context, req *GetFestivalBreakoutsRequest) (*GetFestivalBreakoutsResponse, error) {
@@ -142,7 +142,7 @@ type GetArtistFestivalTrajectoryRequest struct {
 }
 
 type GetArtistFestivalTrajectoryResponse struct {
-	Body *services.ArtistTrajectory
+	Body *contracts.ArtistTrajectory
 }
 
 func (h *FestivalIntelligenceHandler) GetArtistFestivalTrajectoryHandler(ctx context.Context, req *GetArtistFestivalTrajectoryRequest) (*GetArtistFestivalTrajectoryResponse, error) {
@@ -172,7 +172,7 @@ type GetSeriesComparisonRequest struct {
 }
 
 type GetSeriesComparisonResponse struct {
-	Body *services.SeriesComparison
+	Body *contracts.SeriesComparison
 }
 
 func (h *FestivalIntelligenceHandler) GetSeriesComparisonHandler(ctx context.Context, req *GetSeriesComparisonRequest) (*GetSeriesComparisonResponse, error) {

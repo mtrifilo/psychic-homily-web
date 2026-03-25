@@ -10,16 +10,16 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 type ReleaseHandler struct {
-	releaseService  services.ReleaseServiceInterface
-	artistService   services.ArtistServiceInterface
-	auditLogService services.AuditLogServiceInterface
+	releaseService  contracts.ReleaseServiceInterface
+	artistService   contracts.ArtistServiceInterface
+	auditLogService contracts.AuditLogServiceInterface
 }
 
-func NewReleaseHandler(releaseService services.ReleaseServiceInterface, artistService services.ArtistServiceInterface, auditLogService services.AuditLogServiceInterface) *ReleaseHandler {
+func NewReleaseHandler(releaseService contracts.ReleaseServiceInterface, artistService contracts.ArtistServiceInterface, auditLogService contracts.AuditLogServiceInterface) *ReleaseHandler {
 	return &ReleaseHandler{
 		releaseService:  releaseService,
 		artistService:   artistService,
@@ -39,7 +39,7 @@ type SearchReleasesRequest struct {
 // SearchReleasesResponse represents the autocomplete search response
 type SearchReleasesResponse struct {
 	Body struct {
-		Releases []*services.ReleaseListResponse `json:"releases" doc:"Matching releases"`
+		Releases []*contracts.ReleaseListResponse `json:"releases" doc:"Matching releases"`
 		Count    int                              `json:"count" doc:"Number of results"`
 	}
 }
@@ -72,7 +72,7 @@ type ListReleasesRequest struct {
 // ListReleasesResponse represents the response for listing releases
 type ListReleasesResponse struct {
 	Body struct {
-		Releases []*services.ReleaseListResponse `json:"releases" doc:"List of releases"`
+		Releases []*contracts.ReleaseListResponse `json:"releases" doc:"List of releases"`
 		Count    int                              `json:"count" doc:"Number of releases"`
 	}
 }
@@ -114,12 +114,12 @@ type GetReleaseRequest struct {
 
 // GetReleaseResponse represents the response for the get release endpoint
 type GetReleaseResponse struct {
-	Body *services.ReleaseDetailResponse
+	Body *contracts.ReleaseDetailResponse
 }
 
 // GetReleaseHandler handles GET /releases/{release_id}
 func (h *ReleaseHandler) GetReleaseHandler(ctx context.Context, req *GetReleaseRequest) (*GetReleaseResponse, error) {
-	var release *services.ReleaseDetailResponse
+	var release *contracts.ReleaseDetailResponse
 	var err error
 
 	// Try to parse as numeric ID first
@@ -173,7 +173,7 @@ type CreateReleaseLinkInput struct {
 
 // CreateReleaseResponse represents the response for creating a release
 type CreateReleaseResponse struct {
-	Body *services.ReleaseDetailResponse
+	Body *contracts.ReleaseDetailResponse
 }
 
 // CreateReleaseHandler handles POST /releases
@@ -190,22 +190,22 @@ func (h *ReleaseHandler) CreateReleaseHandler(ctx context.Context, req *CreateRe
 	}
 
 	// Convert handler types to service types
-	artists := make([]services.CreateReleaseArtistEntry, len(req.Body.Artists))
+	artists := make([]contracts.CreateReleaseArtistEntry, len(req.Body.Artists))
 	for i, a := range req.Body.Artists {
-		artists[i] = services.CreateReleaseArtistEntry{
+		artists[i] = contracts.CreateReleaseArtistEntry{
 			ArtistID: a.ArtistID,
 			Role:     a.Role,
 		}
 	}
-	links := make([]services.CreateReleaseLinkEntry, len(req.Body.ExternalLinks))
+	links := make([]contracts.CreateReleaseLinkEntry, len(req.Body.ExternalLinks))
 	for i, l := range req.Body.ExternalLinks {
-		links[i] = services.CreateReleaseLinkEntry{
+		links[i] = contracts.CreateReleaseLinkEntry{
 			Platform: l.Platform,
 			URL:      l.URL,
 		}
 	}
 
-	serviceReq := &services.CreateReleaseRequest{
+	serviceReq := &contracts.CreateReleaseRequest{
 		Title:         req.Body.Title,
 		ReleaseType:   req.Body.ReleaseType,
 		ReleaseYear:   req.Body.ReleaseYear,
@@ -262,7 +262,7 @@ type UpdateReleaseRequest struct {
 
 // UpdateReleaseResponse represents the response for updating a release
 type UpdateReleaseResponse struct {
-	Body *services.ReleaseDetailResponse
+	Body *contracts.ReleaseDetailResponse
 }
 
 // UpdateReleaseHandler handles PUT /releases/{release_id}
@@ -280,7 +280,7 @@ func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateRe
 		return nil, err
 	}
 
-	serviceReq := &services.UpdateReleaseRequest{
+	serviceReq := &contracts.UpdateReleaseRequest{
 		Title:       req.Body.Title,
 		ReleaseType: req.Body.ReleaseType,
 		ReleaseYear: req.Body.ReleaseYear,
@@ -389,7 +389,7 @@ type GetArtistReleasesRequest struct {
 // GetArtistReleasesResponse represents the response for the artist releases endpoint
 type GetArtistReleasesResponse struct {
 	Body struct {
-		Releases []*services.ArtistReleaseListResponse `json:"releases" doc:"List of releases with artist roles"`
+		Releases []*contracts.ArtistReleaseListResponse `json:"releases" doc:"List of releases with artist roles"`
 		Count    int                                    `json:"count" doc:"Number of releases"`
 	}
 }
@@ -444,7 +444,7 @@ type AddExternalLinkRequest struct {
 
 // AddExternalLinkResponse represents the response for adding an external link
 type AddExternalLinkResponse struct {
-	Body *services.ReleaseExternalLinkResponse
+	Body *contracts.ReleaseExternalLinkResponse
 }
 
 // AddExternalLinkHandler handles POST /releases/{release_id}/links

@@ -12,18 +12,17 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
 // TagHandler handles tag-related API requests.
 type TagHandler struct {
-	tagService services.TagServiceInterface
-	auditLog   services.AuditLogServiceInterface
+	tagService contracts.TagServiceInterface
+	auditLog   contracts.AuditLogServiceInterface
 }
 
 // NewTagHandler creates a new TagHandler.
-func NewTagHandler(tagService services.TagServiceInterface, auditLog services.AuditLogServiceInterface) *TagHandler {
+func NewTagHandler(tagService contracts.TagServiceInterface, auditLog contracts.AuditLogServiceInterface) *TagHandler {
 	return &TagHandler{
 		tagService: tagService,
 		auditLog:   auditLog,

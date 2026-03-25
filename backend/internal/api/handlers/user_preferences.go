@@ -9,18 +9,18 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/engagement"
 )
 
 // UserPreferencesHandler handles user preferences endpoints
 type UserPreferencesHandler struct {
-	userService services.UserServiceInterface
+	userService contracts.UserServiceInterface
 	jwtSecret   string
 }
 
 // NewUserPreferencesHandler creates a new user preferences handler
-func NewUserPreferencesHandler(userService services.UserServiceInterface, jwtSecret string) *UserPreferencesHandler {
+func NewUserPreferencesHandler(userService contracts.UserServiceInterface, jwtSecret string) *UserPreferencesHandler {
 	return &UserPreferencesHandler{
 		userService: userService,
 		jwtSecret:   jwtSecret,

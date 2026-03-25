@@ -8,17 +8,17 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // AdminTokenHandler handles admin API token management
 type AdminTokenHandler struct {
-	apiTokenService services.APITokenServiceInterface
+	apiTokenService contracts.APITokenServiceInterface
 }
 
 // NewAdminTokenHandler creates a new admin token handler
 func NewAdminTokenHandler(
-	apiTokenService services.APITokenServiceInterface,
+	apiTokenService contracts.APITokenServiceInterface,
 ) *AdminTokenHandler {
 	return &AdminTokenHandler{
 		apiTokenService: apiTokenService,
@@ -35,7 +35,7 @@ type CreateAPITokenRequest struct {
 
 // CreateAPITokenResponse represents the HTTP response for creating an API token
 type CreateAPITokenResponse struct {
-	Body services.APITokenCreateResponse `json:"body"`
+	Body contracts.APITokenCreateResponse `json:"body"`
 }
 
 // CreateAPITokenHandler handles POST /admin/tokens
@@ -95,7 +95,7 @@ type ListAPITokensRequest struct{}
 // ListAPITokensResponse represents the HTTP response for listing API tokens
 type ListAPITokensResponse struct {
 	Body struct {
-		Tokens []services.APITokenResponse `json:"tokens"`
+		Tokens []contracts.APITokenResponse `json:"tokens"`
 	}
 }
 
@@ -130,7 +130,7 @@ func (h *AdminTokenHandler) ListAPITokensHandler(ctx context.Context, req *ListA
 
 	return &ListAPITokensResponse{
 		Body: struct {
-			Tokens []services.APITokenResponse `json:"tokens"`
+			Tokens []contracts.APITokenResponse `json:"tokens"`
 		}{
 			Tokens: tokens,
 		},

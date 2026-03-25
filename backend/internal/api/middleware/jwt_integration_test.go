@@ -13,7 +13,8 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/auth"
+	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -23,7 +24,7 @@ type JWTMiddlewareIntegrationSuite struct {
 	db         *gorm.DB
 	testDB     *testutil.TestDatabase
 	cfg        *config.Config
-	jwtService *services.JWTService
+	jwtService *auth.JWTService
 }
 
 func TestJWTMiddlewareIntegration(t *testing.T) {
@@ -44,7 +45,7 @@ func (s *JWTMiddlewareIntegrationSuite) SetupSuite() {
 			Expiry:    24,
 		},
 	}
-	s.jwtService = services.NewJWTService(s.db, s.cfg)
+	s.jwtService = auth.NewJWTService(s.db, s.cfg, usersvc.NewUserService(s.db))
 }
 
 func (s *JWTMiddlewareIntegrationSuite) TearDownTest() {
@@ -217,7 +218,7 @@ func (s *JWTMiddlewareIntegrationSuite) TestLenientJWT_ExpiredWithinGrace_UserIn
 			Expiry:    0,
 		},
 	}
-	expiredJWTService := services.NewJWTService(s.db, expiredCfg)
+	expiredJWTService := auth.NewJWTService(s.db, expiredCfg, usersvc.NewUserService(s.db))
 	token, err := expiredJWTService.CreateToken(user)
 	s.Require().NoError(err)
 
@@ -251,7 +252,7 @@ func (s *JWTMiddlewareIntegrationSuite) TestLenientJWT_ExpiredWithinGrace_Inacti
 			Expiry:    0,
 		},
 	}
-	expiredJWTService := services.NewJWTService(s.db, expiredCfg)
+	expiredJWTService := auth.NewJWTService(s.db, expiredCfg, usersvc.NewUserService(s.db))
 	token, err := expiredJWTService.CreateToken(user)
 	s.Require().NoError(err)
 

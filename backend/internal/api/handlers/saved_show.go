@@ -9,16 +9,16 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // SavedShowHandler handles saved show HTTP requests
 type SavedShowHandler struct {
-	savedShowService services.SavedShowServiceInterface
+	savedShowService contracts.SavedShowServiceInterface
 }
 
 // NewSavedShowHandler creates a new saved show handler
-func NewSavedShowHandler(savedShowService services.SavedShowServiceInterface) *SavedShowHandler {
+func NewSavedShowHandler(savedShowService contracts.SavedShowServiceInterface) *SavedShowHandler {
 	return &SavedShowHandler{
 		savedShowService: savedShowService,
 	}
@@ -59,7 +59,7 @@ type GetSavedShowsRequest struct {
 // GetSavedShowsResponse represents the HTTP response for listing saved shows
 type GetSavedShowsResponse struct {
 	Body struct {
-		Shows  []*services.SavedShowResponse `json:"shows"`
+		Shows  []*contracts.SavedShowResponse `json:"shows"`
 		Total  int64                         `json:"total"`
 		Limit  int                           `json:"limit"`
 		Offset int                           `json:"offset"`
@@ -241,7 +241,7 @@ func (h *SavedShowHandler) GetSavedShowsHandler(ctx context.Context, req *GetSav
 
 	return &GetSavedShowsResponse{
 		Body: struct {
-			Shows  []*services.SavedShowResponse `json:"shows"`
+			Shows  []*contracts.SavedShowResponse `json:"shows"`
 			Total  int64                         `json:"total"`
 			Limit  int                           `json:"limit"`
 			Offset int                           `json:"offset"`

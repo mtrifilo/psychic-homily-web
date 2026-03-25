@@ -8,19 +8,19 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // AdminVenueHandler handles admin venue management
 type AdminVenueHandler struct {
-	venueService    services.VenueServiceInterface
-	auditLogService services.AuditLogServiceInterface
+	venueService    contracts.VenueServiceInterface
+	auditLogService contracts.AuditLogServiceInterface
 }
 
 // NewAdminVenueHandler creates a new admin venue handler
 func NewAdminVenueHandler(
-	venueService services.VenueServiceInterface,
-	auditLogService services.AuditLogServiceInterface,
+	venueService contracts.VenueServiceInterface,
+	auditLogService contracts.AuditLogServiceInterface,
 ) *AdminVenueHandler {
 	return &AdminVenueHandler{
 		venueService:    venueService,
@@ -35,7 +35,7 @@ type VerifyVenueRequest struct {
 
 // VerifyVenueResponse represents the HTTP response for verifying a venue
 type VerifyVenueResponse struct {
-	Body services.VenueDetailResponse `json:"body"`
+	Body contracts.VenueDetailResponse `json:"body"`
 }
 
 // GetUnverifiedVenuesRequest represents the HTTP request for listing unverified venues
@@ -47,7 +47,7 @@ type GetUnverifiedVenuesRequest struct {
 // GetUnverifiedVenuesResponse represents the HTTP response for listing unverified venues
 type GetUnverifiedVenuesResponse struct {
 	Body struct {
-		Venues []*services.UnverifiedVenueResponse `json:"venues"`
+		Venues []*contracts.UnverifiedVenueResponse `json:"venues"`
 		Total  int64                               `json:"total"`
 	}
 }
@@ -162,7 +162,7 @@ type GetPendingVenueEditsRequest struct {
 // GetPendingVenueEditsResponse represents the HTTP response for listing pending venue edits
 type GetPendingVenueEditsResponse struct {
 	Body struct {
-		Edits []*services.PendingVenueEditResponse `json:"edits"`
+		Edits []*contracts.PendingVenueEditResponse `json:"edits"`
 		Total int64                                 `json:"total"`
 	}
 }
@@ -214,7 +214,7 @@ func (h *AdminVenueHandler) GetPendingVenueEditsHandler(ctx context.Context, req
 
 	return &GetPendingVenueEditsResponse{
 		Body: struct {
-			Edits []*services.PendingVenueEditResponse `json:"edits"`
+			Edits []*contracts.PendingVenueEditResponse `json:"edits"`
 			Total int64                                 `json:"total"`
 		}{
 			Edits: edits,
@@ -230,7 +230,7 @@ type ApproveVenueEditRequest struct {
 
 // ApproveVenueEditResponse represents the HTTP response for approving a venue edit
 type ApproveVenueEditResponse struct {
-	Body services.VenueDetailResponse `json:"body"`
+	Body contracts.VenueDetailResponse `json:"body"`
 }
 
 // ApproveVenueEditHandler handles POST /admin/venues/pending-edits/{edit_id}/approve
@@ -291,7 +291,7 @@ type RejectVenueEditRequest struct {
 
 // RejectVenueEditResponse represents the HTTP response for rejecting a venue edit
 type RejectVenueEditResponse struct {
-	Body services.PendingVenueEditResponse `json:"body"`
+	Body contracts.PendingVenueEditResponse `json:"body"`
 }
 
 // RejectVenueEditHandler handles POST /admin/venues/pending-edits/{edit_id}/reject
