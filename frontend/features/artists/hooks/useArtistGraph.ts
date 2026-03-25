@@ -7,8 +7,8 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { apiRequest } from '@/lib/api'
+import { artistEndpoints, artistQueryKeys } from '../api'
 import type { ArtistGraph } from '../types'
 
 interface UseArtistGraphOptions {
@@ -30,11 +30,11 @@ export function useArtistGraph(options: UseArtistGraphOptions) {
   }
   const queryString = params.toString()
   const endpoint = queryString
-    ? `${API_ENDPOINTS.ARTISTS.GRAPH(artistId)}?${queryString}`
-    : API_ENDPOINTS.ARTISTS.GRAPH(artistId)
+    ? `${artistEndpoints.GRAPH(artistId)}?${queryString}`
+    : artistEndpoints.GRAPH(artistId)
 
   return useQuery({
-    queryKey: queryKeys.artists.graph(artistId, types),
+    queryKey: artistQueryKeys.graph(artistId, types),
     queryFn: async (): Promise<ArtistGraph> => {
       return apiRequest<ArtistGraph>(endpoint, { method: 'GET' })
     },
@@ -61,7 +61,7 @@ export function useArtistRelationshipVote() {
   return useMutation({
     mutationFn: async (params: VoteRelationshipParams) => {
       return apiRequest(
-        API_ENDPOINTS.ARTISTS.RELATIONSHIPS.VOTE(params.sourceId, params.targetId),
+        artistEndpoints.RELATIONSHIPS.VOTE(params.sourceId, params.targetId),
         {
           method: 'POST',
           body: JSON.stringify({
@@ -95,7 +95,7 @@ export function useCreateArtistRelationship() {
 
   return useMutation({
     mutationFn: async (params: CreateRelationshipParams) => {
-      return apiRequest(API_ENDPOINTS.ARTISTS.RELATIONSHIPS.CREATE, {
+      return apiRequest(artistEndpoints.RELATIONSHIPS.CREATE, {
         method: 'POST',
         body: JSON.stringify({
           source_artist_id: params.sourceArtistId,

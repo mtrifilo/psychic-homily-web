@@ -727,8 +727,9 @@ type AdminUpdateArtistRequest struct {
 		Spotify    *string `json:"spotify,omitempty" required:"false" doc:"Spotify URL"`
 		Soundcloud *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`
 		Bandcamp   *string `json:"bandcamp,omitempty" required:"false" doc:"Bandcamp URL"`
-		Website    *string `json:"website,omitempty" required:"false" doc:"Website URL"`
-		Summary    *string `json:"summary,omitempty" required:"false" doc:"Revision summary describing the change"`
+		Website     *string `json:"website,omitempty" required:"false" doc:"Website URL"`
+		Description *string `json:"description,omitempty" required:"false" doc:"Markdown description (max 5000 chars)"`
+		Summary     *string `json:"summary,omitempty" required:"false" doc:"Revision summary describing the change"`
 	}
 }
 
@@ -756,6 +757,11 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 	// Validate name if provided
 	if req.Body.Name != nil && strings.TrimSpace(*req.Body.Name) == "" {
 		return nil, huma.Error400BadRequest("Artist name cannot be empty")
+	}
+
+	// Validate description length if provided
+	if req.Body.Description != nil && len(*req.Body.Description) > 5000 {
+		return nil, huma.Error400BadRequest("Description must be 5000 characters or fewer")
 	}
 
 	// Capture old values for revision diff (fire-and-forget safe)
@@ -799,6 +805,9 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 	}
 	if req.Body.Website != nil {
 		updates["website"] = nilIfEmpty(*req.Body.Website)
+	}
+	if req.Body.Description != nil {
+		updates["description"] = nilIfEmpty(*req.Body.Description)
 	}
 
 	if len(updates) == 0 {
@@ -890,6 +899,9 @@ func computeArtistChanges(old, new *contracts.ArtistDetailResponse) []models.Fie
 	}
 	if ptrToStr(old.Social.Website) != ptrToStr(new.Social.Website) {
 		changes = append(changes, models.FieldChange{Field: "website", OldValue: ptrToStr(old.Social.Website), NewValue: ptrToStr(new.Social.Website)})
+	}
+	if ptrToStr(old.Description) != ptrToStr(new.Description) {
+		changes = append(changes, models.FieldChange{Field: "description", OldValue: ptrToStr(old.Description), NewValue: ptrToStr(new.Description)})
 	}
 
 	return changes

@@ -355,8 +355,9 @@ type UpdateVenueRequest struct {
 		Spotify    *string `json:"spotify,omitempty" required:"false" doc:"Spotify URL"`
 		SoundCloud *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`
 		Bandcamp   *string `json:"bandcamp,omitempty" required:"false" doc:"Bandcamp URL"`
-		Website    *string `json:"website,omitempty" required:"false" doc:"Website URL"`
-		Summary    *string `json:"summary,omitempty" required:"false" doc:"Revision summary describing the change"`
+		Website     *string `json:"website,omitempty" required:"false" doc:"Website URL"`
+		Description *string `json:"description,omitempty" required:"false" doc:"Markdown description (max 5000 chars)"`
+		Summary     *string `json:"summary,omitempty" required:"false" doc:"Revision summary describing the change"`
 	}
 }
 
@@ -403,19 +404,20 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 
 	// Build edit request
 	editReq := &contracts.VenueEditRequest{
-		Name:       req.Body.Name,
-		Address:    req.Body.Address,
-		City:       req.Body.City,
-		State:      req.Body.State,
-		Zipcode:    req.Body.Zipcode,
-		Instagram:  req.Body.Instagram,
-		Facebook:   req.Body.Facebook,
-		Twitter:    req.Body.Twitter,
-		YouTube:    req.Body.YouTube,
-		Spotify:    req.Body.Spotify,
-		SoundCloud: req.Body.SoundCloud,
-		Bandcamp:   req.Body.Bandcamp,
-		Website:    req.Body.Website,
+		Name:        req.Body.Name,
+		Address:     req.Body.Address,
+		City:        req.Body.City,
+		State:       req.Body.State,
+		Zipcode:     req.Body.Zipcode,
+		Instagram:   req.Body.Instagram,
+		Facebook:    req.Body.Facebook,
+		Twitter:     req.Body.Twitter,
+		YouTube:     req.Body.YouTube,
+		Spotify:     req.Body.Spotify,
+		SoundCloud:  req.Body.SoundCloud,
+		Bandcamp:    req.Body.Bandcamp,
+		Website:     req.Body.Website,
+		Description: req.Body.Description,
 	}
 
 	// Validate required fields aren't being set to empty strings
@@ -427,6 +429,10 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 	}
 	if editReq.State != nil && *editReq.State == "" {
 		return nil, huma.Error422UnprocessableEntity("State cannot be empty")
+	}
+	// Validate description length if provided
+	if editReq.Description != nil && len(*editReq.Description) > 5000 {
+		return nil, huma.Error422UnprocessableEntity("Description must be 5000 characters or fewer")
 	}
 
 	// Admin flow: direct update
@@ -483,6 +489,9 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		}
 		if editReq.Website != nil {
 			updates["website"] = *editReq.Website
+		}
+		if editReq.Description != nil {
+			updates["description"] = nilIfEmpty(*editReq.Description)
 		}
 
 		updatedVenue, err := h.venueService.UpdateVenue(uint(venueID), updates)
@@ -909,6 +918,9 @@ func computeVenueChanges(old, new *contracts.VenueDetailResponse) []models.Field
 	}
 	if ptrToStr(old.Social.Website) != ptrToStr(new.Social.Website) {
 		changes = append(changes, models.FieldChange{Field: "website", OldValue: ptrToStr(old.Social.Website), NewValue: ptrToStr(new.Social.Website)})
+	}
+	if ptrToStr(old.Description) != ptrToStr(new.Description) {
+		changes = append(changes, models.FieldChange{Field: "description", OldValue: ptrToStr(old.Description), NewValue: ptrToStr(new.Description)})
 	}
 
 	return changes

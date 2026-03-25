@@ -7,8 +7,8 @@
  */
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { apiRequest } from '@/lib/api'
+import { venueEndpoints, venueQueryKeys } from '../api'
 import type {
   Venue,
   VenuesListResponse,
@@ -50,11 +50,11 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
 
   const queryString = params.toString()
   const endpoint = queryString
-    ? `${API_ENDPOINTS.VENUES.LIST}?${queryString}`
-    : API_ENDPOINTS.VENUES.LIST
+    ? `${venueEndpoints.LIST}?${queryString}`
+    : venueEndpoints.LIST
 
   return useQuery({
-    queryKey: queryKeys.venues.list({ state, city, cities, limit, offset }),
+    queryKey: venueQueryKeys.list({ state, city, cities, limit, offset }),
     queryFn: async (): Promise<VenuesListResponse> => {
       return apiRequest<VenuesListResponse>(endpoint, {
         method: 'GET',
@@ -77,9 +77,9 @@ export const useVenue = (options: UseVenueOptions) => {
   const { venueId, enabled = true } = options
 
   return useQuery({
-    queryKey: queryKeys.venues.detail(String(venueId)),
+    queryKey: venueQueryKeys.detail(String(venueId)),
     queryFn: async (): Promise<Venue> => {
-      return apiRequest<Venue>(API_ENDPOINTS.VENUES.GET(venueId), {
+      return apiRequest<Venue>(venueEndpoints.GET(venueId), {
         method: 'GET',
       })
     },
@@ -119,11 +119,11 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
 
   const queryString = params.toString()
   const endpoint = queryString
-    ? `${API_ENDPOINTS.VENUES.SHOWS(venueId)}?${queryString}`
-    : API_ENDPOINTS.VENUES.SHOWS(venueId)
+    ? `${venueEndpoints.SHOWS(venueId)}?${queryString}`
+    : venueEndpoints.SHOWS(venueId)
 
   return useQuery({
-    queryKey: [...queryKeys.venues.shows(venueId), timeFilter],
+    queryKey: [...venueQueryKeys.shows(venueId), timeFilter],
     queryFn: async (): Promise<VenueShowsResponse> => {
       return apiRequest<VenueShowsResponse>(endpoint, {
         method: 'GET',
@@ -139,9 +139,9 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
  */
 export const useVenueCities = () => {
   return useQuery({
-    queryKey: queryKeys.venues.cities,
+    queryKey: venueQueryKeys.cities,
     queryFn: async (): Promise<VenueCitiesResponse> => {
-      return apiRequest<VenueCitiesResponse>(API_ENDPOINTS.VENUES.CITIES, {
+      return apiRequest<VenueCitiesResponse>(venueEndpoints.CITIES, {
         method: 'GET',
       })
     },
@@ -155,10 +155,10 @@ export const useVenueCities = () => {
  */
 export const useVenueGenres = (venueIdOrSlug: string | number) => {
   return useQuery({
-    queryKey: queryKeys.venues.genres(venueIdOrSlug),
+    queryKey: venueQueryKeys.genres(venueIdOrSlug),
     queryFn: async (): Promise<VenueGenreResponse> => {
       return apiRequest<VenueGenreResponse>(
-        API_ENDPOINTS.VENUES.GENRES(venueIdOrSlug),
+        venueEndpoints.GENRES(venueIdOrSlug),
         { method: 'GET' }
       )
     },

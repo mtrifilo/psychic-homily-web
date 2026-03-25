@@ -1,6 +1,7 @@
 // Public API for the artists feature module
 
-// Public API for the artists feature module
+// API (endpoints + query keys)
+export { artistEndpoints, artistQueryKeys } from './api'
 
 // Types
 export type {

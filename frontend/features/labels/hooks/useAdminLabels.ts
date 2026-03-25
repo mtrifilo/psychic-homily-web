@@ -8,8 +8,9 @@
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { apiRequest } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
+import { labelEndpoints } from '../api'
 import type { LabelDetail } from '../types'
 
 // ============================================================================
@@ -65,7 +66,7 @@ export function useCreateLabel() {
 
   return useMutation({
     mutationFn: async (input: CreateLabelInput): Promise<LabelDetail> => {
-      return apiRequest<LabelDetail>(API_ENDPOINTS.LABELS.CREATE, {
+      return apiRequest<LabelDetail>(labelEndpoints.CREATE, {
         method: 'POST',
         body: JSON.stringify(input),
       })
@@ -92,7 +93,7 @@ export function useUpdateLabel() {
       data: UpdateLabelInput
     }): Promise<LabelDetail> => {
       return apiRequest<LabelDetail>(
-        API_ENDPOINTS.LABELS.UPDATE(labelId),
+        labelEndpoints.UPDATE(labelId),
         {
           method: 'PUT',
           body: JSON.stringify(data),
@@ -114,7 +115,7 @@ export function useDeleteLabel() {
 
   return useMutation({
     mutationFn: async (labelId: number): Promise<void> => {
-      return apiRequest<void>(API_ENDPOINTS.LABELS.DELETE(labelId), {
+      return apiRequest<void>(labelEndpoints.DELETE(labelId), {
         method: 'DELETE',
       })
     },

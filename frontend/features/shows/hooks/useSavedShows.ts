@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
+// Note: useSavedShows uses SAVED_SHOWS endpoints from lib/api (not show-specific)
 import type {
   SavedShowsListResponse,
   SaveShowResponse,

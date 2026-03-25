@@ -1,5 +1,8 @@
 // Public API for the shows feature module
 
+// API (endpoints + query keys)
+export { showEndpoints, showQueryKeys } from './api'
+
 // Types
 export type {
   ShowArtistSocials,

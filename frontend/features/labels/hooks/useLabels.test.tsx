@@ -6,31 +6,30 @@ const mockApiRequest = vi.fn()
 
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
-  API_ENDPOINTS: {
-    LABELS: {
-      LIST: '/labels',
-      GET: (idOrSlug: string | number) => `/labels/${idOrSlug}`,
-      ARTISTS: (idOrSlug: string | number) => `/labels/${idOrSlug}/artists`,
-      RELEASES: (idOrSlug: string | number) => `/labels/${idOrSlug}/releases`,
-    },
-    ARTISTS: {
-      LABELS: (artistIdOrSlug: string | number) => `/artists/${artistIdOrSlug}/labels`,
-    },
-  },
   API_BASE_URL: 'http://localhost:8080',
 }))
 
-vi.mock('@/lib/queryClient', () => ({
-  queryKeys: {
-    labels: {
-      list: (filters?: Record<string, unknown>) => ['labels', 'list', filters],
-      detail: (id: string | number) => ['labels', 'detail', String(id)],
-      roster: (id: string | number) => ['labels', 'roster', String(id)],
-      catalog: (id: string | number) => ['labels', 'catalog', String(id)],
-    },
-    artists: {
-      labels: (artistId: string | number) => ['artists', 'labels', String(artistId)],
-    },
+vi.mock('../api', () => ({
+  labelEndpoints: {
+    LIST: '/labels',
+    GET: (idOrSlug: string | number) => `/labels/${idOrSlug}`,
+    ARTISTS: (idOrSlug: string | number) => `/labels/${idOrSlug}/artists`,
+    RELEASES: (idOrSlug: string | number) => `/labels/${idOrSlug}/releases`,
+  },
+  labelQueryKeys: {
+    list: (filters?: Record<string, unknown>) => ['labels', 'list', filters],
+    detail: (id: string | number) => ['labels', 'detail', String(id)],
+    roster: (id: string | number) => ['labels', 'roster', String(id)],
+    catalog: (id: string | number) => ['labels', 'catalog', String(id)],
+  },
+}))
+
+vi.mock('@/features/artists/api', () => ({
+  artistEndpoints: {
+    LABELS: (artistIdOrSlug: string | number) => `/artists/${artistIdOrSlug}/labels`,
+  },
+  artistQueryKeys: {
+    labels: (artistId: string | number) => ['artists', 'labels', String(artistId)],
   },
 }))
 

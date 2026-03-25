@@ -1,0 +1,2 @@
+ALTER TABLE artists DROP COLUMN IF EXISTS description;
+ALTER TABLE venues DROP COLUMN IF EXISTS description;

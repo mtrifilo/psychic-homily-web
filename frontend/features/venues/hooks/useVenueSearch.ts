@@ -2,8 +2,8 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useDebounce } from 'use-debounce'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { apiRequest } from '@/lib/api'
+import { venueEndpoints, venueQueryKeys } from '../api'
 import type { VenueSearchResponse } from '../types'
 
 interface UseVenueSearchOptions {
@@ -22,9 +22,9 @@ export function useVenueSearch({
   const [debouncedQuery] = useDebounce(query, debounceMs)
 
   return useQuery({
-    queryKey: queryKeys.venues.search(debouncedQuery),
+    queryKey: venueQueryKeys.search(debouncedQuery),
     queryFn: async (): Promise<VenueSearchResponse> => {
-      const url = `${API_ENDPOINTS.VENUES.SEARCH}?q=${encodeURIComponent(debouncedQuery)}`
+      const url = `${venueEndpoints.SEARCH}?q=${encodeURIComponent(debouncedQuery)}`
       return apiRequest<VenueSearchResponse>(url)
     },
     enabled: debouncedQuery.length > 0,
