@@ -10,29 +10,6 @@ import (
 )
 
 // ============================================================================
-// Mock: DataQualityServiceInterface
-// ============================================================================
-
-type mockDataQualityService struct {
-	getSummaryFn      func() (*contracts.DataQualitySummary, error)
-	getCategoryItemsFn func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error)
-}
-
-func (m *mockDataQualityService) GetSummary() (*contracts.DataQualitySummary, error) {
-	if m.getSummaryFn != nil {
-		return m.getSummaryFn()
-	}
-	return &contracts.DataQualitySummary{Categories: []contracts.DataQualityCategory{}}, nil
-}
-
-func (m *mockDataQualityService) GetCategoryItems(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
-	if m.getCategoryItemsFn != nil {
-		return m.getCategoryItemsFn(category, limit, offset)
-	}
-	return nil, 0, nil
-}
-
-// ============================================================================
 // Test helpers
 // ============================================================================
 

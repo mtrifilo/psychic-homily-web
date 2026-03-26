@@ -67,10 +67,10 @@ HTTP Request → Chi Router → Global Middleware → Huma Adapter → Route Gro
 
 ### Backend Conventions
 
-- **Handlers** (`internal/api/handlers/`): HTTP layer only — parse Huma request structs, extract user from context via `middleware.GetUserFromContext()`, call services, map responses. Constructor takes pre-instantiated services.
+- **Handlers** (`internal/api/handlers/`): HTTP layer only — parse Huma request structs, extract user from context via `middleware.GetUserFromContext()`, call services, map responses. Constructor takes pre-instantiated services via focused interfaces (e.g., `ShowServiceInterface` for CRUD, `ShowAdminServiceInterface` for admin ops — not the full interface).
 - **Services** (`internal/services/`): Business logic + DB operations organized into domain sub-packages. Constructor pattern: `NewXService(db *gorm.DB)`.
 - **Service sub-packages:**
-  - `services/contracts/` — all service interfaces and shared request/response types
+  - `services/contracts/` — all service interfaces and shared request/response types. Large interfaces are split by concern (e.g., `ShowServiceInterface` for CRUD, `ShowAdminServiceInterface` for admin, `ShowImportServiceInterface` for import/export, `ShowStateServiceInterface` for state mutations, `ShowFullServiceInterface` composite).
   - `services/catalog/` — show, venue, artist, festival, label, release
   - `services/auth/` — auth (OAuth), JWT, Apple auth, WebAuthn, password validator
   - `services/engagement/` — bookmark, saved show, favorite venue, calendar, reminder
@@ -82,6 +82,7 @@ HTTP Request → Chi Router → Global Middleware → Huma Adapter → Route Gro
 - **Models** (`internal/models/`): GORM structs with `TableName()` methods. Use `*json.RawMessage` for JSONB columns (not `datatypes.JSON`).
 - **Routes**: Public/protected/admin routes registered in `routes/routes.go`. Admin routes don't use separate middleware — handlers check `user.IsAdmin` internally.
 - **Migrations**: Numbered SQL files in `db/migrations/` (`000XXX_name.up.sql` / `.down.sql`).
+- **Entity scaffolding**: `go run ./cmd/scaffold <entity> --fields "name:string,url:url,is_active:bool"` generates 12 boilerplate files (migration, model, contracts, service, handler, frontend feature module). Use `--dry-run` to preview. Prints manual wiring instructions for container, routes, query keys, sidebar, Cmd+K.
 - **Fire-and-forget**: Discord notifications and audit log writes log errors but never fail parent operations.
 
 #### Huma API Framework Quirks
@@ -107,7 +108,8 @@ HTTP Request → Chi Router → Global Middleware → Huma Adapter → Route Gro
 
 - **Service integration tests**: Use testcontainers (`postgres:18`), `testify/suite`. Migrations run via `testutil.RunAllMigrations()`.
 - **Handler integration tests**: Direct function calls (no httptest/router needed for Huma handlers). Shared setup in `handler_integration_helpers_test.go`.
-- **Unit tests**: Pure functions tested without DB. Nil DB → `"database not initialized"` error path.
+- **Unit tests**: Pure functions tested without DB. Nil DB → `"database not initialized"` error path. Use `testutil.AssertNilDBError(t, func() error { ... })` or `testutil.AssertNilDBErrorWithResult[T](t, func() (T, error) { ... })` for nil-DB assertions (1 line instead of 3-5).
+- **Handler mock generation**: Run `go run ./internal/api/handlers/gen/` to regenerate mock structs from contract interfaces. Mocks use function-field pattern (`methodNameFn`). Never hand-write mock structs — always regenerate.
 - **Migration helper**: `internal/testutil/migrations.go` — `RunAllMigrations(t, sqlDB, migrationDir)` globs all `*.up.sql` files, sorts them, strips `CONCURRENTLY`, and runs them. New migrations work automatically — no test files to update.
 - **GORM bool gotcha**: `IsActive: false` on Create is zero-value, GORM skips it → DB default wins. Fix: create as true, then Update to false.
 

@@ -141,7 +141,7 @@ func TestFavoriteVenueHandler_GetFavoriteVenues_NoAuth(t *testing.T) {
 func TestFavoriteVenueHandler_GetFavoriteVenues_Success(t *testing.T) {
 	venues := []*contracts.FavoriteVenueResponse{{}}
 	mock := &mockFavoriteVenueService{
-		getUserFavoritesFn: func(userID uint, limit, offset int) ([]*contracts.FavoriteVenueResponse, int64, error) {
+		getUserFavoriteVenuesFn: func(userID uint, limit, offset int) ([]*contracts.FavoriteVenueResponse, int64, error) {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
 			}
@@ -165,7 +165,7 @@ func TestFavoriteVenueHandler_GetFavoriteVenues_Success(t *testing.T) {
 
 func TestFavoriteVenueHandler_GetFavoriteVenues_ServiceError(t *testing.T) {
 	mock := &mockFavoriteVenueService{
-		getUserFavoritesFn: func(_ uint, _, _ int) ([]*contracts.FavoriteVenueResponse, int64, error) {
+		getUserFavoriteVenuesFn: func(_ uint, _, _ int) ([]*contracts.FavoriteVenueResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
@@ -179,7 +179,7 @@ func TestFavoriteVenueHandler_GetFavoriteVenues_ServiceError(t *testing.T) {
 func TestFavoriteVenueHandler_GetFavoriteVenues_PaginationClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
 	mock := &mockFavoriteVenueService{
-		getUserFavoritesFn: func(_ uint, limit, offset int) ([]*contracts.FavoriteVenueResponse, int64, error) {
+		getUserFavoriteVenuesFn: func(_ uint, limit, offset int) ([]*contracts.FavoriteVenueResponse, int64, error) {
 			capturedLimit = limit
 			capturedOffset = offset
 			return nil, 0, nil
@@ -291,7 +291,7 @@ func TestFavoriteVenueHandler_GetFavoriteVenueShows_NoAuth(t *testing.T) {
 func TestFavoriteVenueHandler_GetFavoriteVenueShows_Success(t *testing.T) {
 	shows := []*contracts.FavoriteVenueShowResponse{{}}
 	mock := &mockFavoriteVenueService{
-		getUpcomingShowsFn: func(userID uint, timezone string, limit, offset int) ([]*contracts.FavoriteVenueShowResponse, int64, error) {
+		getUpcomingShowsFromFavoritesFn: func(userID uint, timezone string, limit, offset int) ([]*contracts.FavoriteVenueShowResponse, int64, error) {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
 			}
@@ -318,7 +318,7 @@ func TestFavoriteVenueHandler_GetFavoriteVenueShows_Success(t *testing.T) {
 
 func TestFavoriteVenueHandler_GetFavoriteVenueShows_ServiceError(t *testing.T) {
 	mock := &mockFavoriteVenueService{
-		getUpcomingShowsFn: func(_ uint, _ string, _, _ int) ([]*contracts.FavoriteVenueShowResponse, int64, error) {
+		getUpcomingShowsFromFavoritesFn: func(_ uint, _ string, _, _ int) ([]*contracts.FavoriteVenueShowResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
@@ -332,7 +332,7 @@ func TestFavoriteVenueHandler_GetFavoriteVenueShows_ServiceError(t *testing.T) {
 func TestFavoriteVenueHandler_GetFavoriteVenueShows_DefaultTimezone(t *testing.T) {
 	var capturedTZ string
 	mock := &mockFavoriteVenueService{
-		getUpcomingShowsFn: func(_ uint, timezone string, _, _ int) ([]*contracts.FavoriteVenueShowResponse, int64, error) {
+		getUpcomingShowsFromFavoritesFn: func(_ uint, timezone string, _, _ int) ([]*contracts.FavoriteVenueShowResponse, int64, error) {
 			capturedTZ = timezone
 			return nil, 0, nil
 		},

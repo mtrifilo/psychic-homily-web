@@ -109,7 +109,7 @@ func TestGetMyArtistReportHandler_InvalidID(t *testing.T) {
 func TestGetMyArtistReportHandler_Success(t *testing.T) {
 	report := &contracts.ArtistReportResponse{ID: 10, ArtistID: 7}
 	mock := &mockArtistReportService{
-		getUserReportFn: func(userID, artistID uint) (*contracts.ArtistReportResponse, error) {
+		getUserReportForArtistFn: func(userID, artistID uint) (*contracts.ArtistReportResponse, error) {
 			if userID != 1 || artistID != 7 {
 				t.Errorf("unexpected args: userID=%d, artistID=%d", userID, artistID)
 			}
@@ -133,7 +133,7 @@ func TestGetMyArtistReportHandler_Success(t *testing.T) {
 
 func TestGetMyArtistReportHandler_NoReport(t *testing.T) {
 	mock := &mockArtistReportService{
-		getUserReportFn: func(_, _ uint) (*contracts.ArtistReportResponse, error) {
+		getUserReportForArtistFn: func(_, _ uint) (*contracts.ArtistReportResponse, error) {
 			return nil, nil
 		},
 	}
@@ -151,7 +151,7 @@ func TestGetMyArtistReportHandler_NoReport(t *testing.T) {
 
 func TestGetMyArtistReportHandler_ServiceError(t *testing.T) {
 	mock := &mockArtistReportService{
-		getUserReportFn: func(_, _ uint) (*contracts.ArtistReportResponse, error) {
+		getUserReportForArtistFn: func(_, _ uint) (*contracts.ArtistReportResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}

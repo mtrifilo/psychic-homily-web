@@ -10,68 +10,6 @@ import (
 )
 
 // ============================================================================
-// Mock: AnalyticsServiceInterface
-// ============================================================================
-
-type mockAnalyticsService struct {
-	getGrowthMetricsFn      func(months int) (*contracts.GrowthMetricsResponse, error)
-	getEngagementMetricsFn  func(months int) (*contracts.EngagementMetricsResponse, error)
-	getCommunityHealthFn    func() (*contracts.CommunityHealthResponse, error)
-	getDataQualityTrendsFn  func(months int) (*contracts.DataQualityTrendsResponse, error)
-}
-
-func (m *mockAnalyticsService) GetGrowthMetrics(months int) (*contracts.GrowthMetricsResponse, error) {
-	if m.getGrowthMetricsFn != nil {
-		return m.getGrowthMetricsFn(months)
-	}
-	return &contracts.GrowthMetricsResponse{
-		Shows:    []contracts.MonthlyCount{},
-		Artists:  []contracts.MonthlyCount{},
-		Venues:   []contracts.MonthlyCount{},
-		Releases: []contracts.MonthlyCount{},
-		Labels:   []contracts.MonthlyCount{},
-		Users:    []contracts.MonthlyCount{},
-	}, nil
-}
-
-func (m *mockAnalyticsService) GetEngagementMetrics(months int) (*contracts.EngagementMetricsResponse, error) {
-	if m.getEngagementMetricsFn != nil {
-		return m.getEngagementMetricsFn(months)
-	}
-	return &contracts.EngagementMetricsResponse{
-		Bookmarks:       []contracts.EngagementMetric{},
-		TagsAdded:       []contracts.EngagementMetric{},
-		TagVotes:        []contracts.EngagementMetric{},
-		CollectionItems: []contracts.EngagementMetric{},
-		Requests:        []contracts.EngagementMetric{},
-		RequestVotes:    []contracts.EngagementMetric{},
-		Revisions:       []contracts.EngagementMetric{},
-		Follows:         []contracts.EngagementMetric{},
-		Attendance:      []contracts.EngagementMetric{},
-	}, nil
-}
-
-func (m *mockAnalyticsService) GetCommunityHealth() (*contracts.CommunityHealthResponse, error) {
-	if m.getCommunityHealthFn != nil {
-		return m.getCommunityHealthFn()
-	}
-	return &contracts.CommunityHealthResponse{
-		ContributionsPerWeek: []contracts.WeeklyContributions{},
-		TopContributors:      []contracts.TopContributor{},
-	}, nil
-}
-
-func (m *mockAnalyticsService) GetDataQualityTrends(months int) (*contracts.DataQualityTrendsResponse, error) {
-	if m.getDataQualityTrendsFn != nil {
-		return m.getDataQualityTrendsFn(months)
-	}
-	return &contracts.DataQualityTrendsResponse{
-		ShowsApproved: []contracts.MonthlyCount{},
-		ShowsRejected: []contracts.MonthlyCount{},
-	}, nil
-}
-
-// ============================================================================
 // Test helpers
 // ============================================================================
 

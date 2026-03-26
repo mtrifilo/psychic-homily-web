@@ -141,7 +141,7 @@ func TestGetSavedShowsHandler_NoAuth(t *testing.T) {
 func TestGetSavedShowsHandler_Success(t *testing.T) {
 	shows := []*contracts.SavedShowResponse{{}}
 	mock := &mockSavedShowService{
-		getUserSavedFn: func(userID uint, limit, offset int) ([]*contracts.SavedShowResponse, int64, error) {
+		getUserSavedShowsFn: func(userID uint, limit, offset int) ([]*contracts.SavedShowResponse, int64, error) {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
 			}
@@ -165,7 +165,7 @@ func TestGetSavedShowsHandler_Success(t *testing.T) {
 
 func TestGetSavedShowsHandler_ServiceError(t *testing.T) {
 	mock := &mockSavedShowService{
-		getUserSavedFn: func(_ uint, _, _ int) ([]*contracts.SavedShowResponse, int64, error) {
+		getUserSavedShowsFn: func(_ uint, _, _ int) ([]*contracts.SavedShowResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
@@ -179,7 +179,7 @@ func TestGetSavedShowsHandler_ServiceError(t *testing.T) {
 func TestGetSavedShowsHandler_PaginationClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
 	mock := &mockSavedShowService{
-		getUserSavedFn: func(_ uint, limit, offset int) ([]*contracts.SavedShowResponse, int64, error) {
+		getUserSavedShowsFn: func(_ uint, limit, offset int) ([]*contracts.SavedShowResponse, int64, error) {
 			capturedLimit = limit
 			capturedOffset = offset
 			return nil, 0, nil
@@ -306,7 +306,7 @@ func TestCheckBatchSavedHandler_EmptyList(t *testing.T) {
 
 func TestCheckBatchSavedHandler_Success(t *testing.T) {
 	mock := &mockSavedShowService{
-		getSavedShowIDFn: func(userID uint, showIDs []uint) (map[uint]bool, error) {
+		getSavedShowIDsFn: func(userID uint, showIDs []uint) (map[uint]bool, error) {
 			return map[uint]bool{1: true, 3: true}, nil
 		},
 	}
@@ -337,7 +337,7 @@ func TestCheckBatchSavedHandler_NegativeID(t *testing.T) {
 
 func TestCheckBatchSavedHandler_ServiceError(t *testing.T) {
 	mock := &mockSavedShowService{
-		getSavedShowIDFn: func(_ uint, _ []uint) (map[uint]bool, error) {
+		getSavedShowIDsFn: func(_ uint, _ []uint) (map[uint]bool, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}

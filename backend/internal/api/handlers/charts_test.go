@@ -10,58 +10,6 @@ import (
 )
 
 // ============================================================================
-// Mock: ChartsServiceInterface
-// ============================================================================
-
-type mockChartsService struct {
-	getTrendingShowsFn  func(limit int) ([]contracts.TrendingShow, error)
-	getPopularArtistsFn func(limit int) ([]contracts.PopularArtist, error)
-	getActiveVenuesFn   func(limit int) ([]contracts.ActiveVenue, error)
-	getHotReleasesFn    func(limit int) ([]contracts.HotRelease, error)
-	getChartsOverviewFn func() (*contracts.ChartsOverview, error)
-}
-
-func (m *mockChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, error) {
-	if m.getTrendingShowsFn != nil {
-		return m.getTrendingShowsFn(limit)
-	}
-	return []contracts.TrendingShow{}, nil
-}
-
-func (m *mockChartsService) GetPopularArtists(limit int) ([]contracts.PopularArtist, error) {
-	if m.getPopularArtistsFn != nil {
-		return m.getPopularArtistsFn(limit)
-	}
-	return []contracts.PopularArtist{}, nil
-}
-
-func (m *mockChartsService) GetActiveVenues(limit int) ([]contracts.ActiveVenue, error) {
-	if m.getActiveVenuesFn != nil {
-		return m.getActiveVenuesFn(limit)
-	}
-	return []contracts.ActiveVenue{}, nil
-}
-
-func (m *mockChartsService) GetHotReleases(limit int) ([]contracts.HotRelease, error) {
-	if m.getHotReleasesFn != nil {
-		return m.getHotReleasesFn(limit)
-	}
-	return []contracts.HotRelease{}, nil
-}
-
-func (m *mockChartsService) GetChartsOverview() (*contracts.ChartsOverview, error) {
-	if m.getChartsOverviewFn != nil {
-		return m.getChartsOverviewFn()
-	}
-	return &contracts.ChartsOverview{
-		TrendingShows:  []contracts.TrendingShow{},
-		PopularArtists: []contracts.PopularArtist{},
-		ActiveVenues:   []contracts.ActiveVenue{},
-		HotReleases:    []contracts.HotRelease{},
-	}, nil
-}
-
-// ============================================================================
 // Test helpers
 // ============================================================================
 
