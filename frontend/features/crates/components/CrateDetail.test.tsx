@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { CollectionDetail } from './CollectionDetail'
-import type { CollectionDetail as CollectionDetailType } from '../types'
+import { CrateDetail } from './CrateDetail'
+import type { CrateDetail as CrateDetailType } from '../types'
 
 // Mock AuthContext
 const mockAuthContext = vi.fn(() => ({
@@ -36,7 +36,7 @@ vi.mock('next/link', () => ({
 const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
-  usePathname: () => '/collections/test-collection',
+  usePathname: () => '/crates/test-crate',
 }))
 
 // Mock shared components
@@ -54,7 +54,7 @@ vi.mock('@/components/shared', () => ({
 }))
 
 // Mock hooks
-const mockCollection = vi.fn()
+const mockCrate = vi.fn()
 const mockDeleteMutate = vi.fn()
 const mockDeleteMutation = vi.fn(() => ({
   mutate: mockDeleteMutate,
@@ -64,35 +64,35 @@ const mockDeleteMutation = vi.fn(() => ({
 }))
 
 vi.mock('../hooks', () => ({
-  useCollection: (...args: unknown[]) => mockCollection(...args),
-  useUpdateCollection: () => ({
+  useCrate: (...args: unknown[]) => mockCrate(...args),
+  useUpdateCrate: () => ({
     mutate: vi.fn(),
     isPending: false,
     error: null,
   }),
-  useRemoveCollectionItem: () => ({
+  useRemoveCrateItem: () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
-  useSubscribeCollection: () => ({
+  useSubscribeCrate: () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
-  useUnsubscribeCollection: () => ({
+  useUnsubscribeCrate: () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
-  useDeleteCollection: () => mockDeleteMutation(),
+  useDeleteCrate: () => mockDeleteMutation(),
 }))
 
-function makeCollection(
-  overrides: Partial<CollectionDetailType> = {}
-): CollectionDetailType {
+function makeCrate(
+  overrides: Partial<CrateDetailType> = {}
+): CrateDetailType {
   return {
     id: 1,
-    title: 'Test Collection',
-    slug: 'test-collection',
-    description: 'A test collection',
+    title: 'Test Crate',
+    slug: 'test-crate',
+    description: 'A test crate',
     is_public: true,
     collaborative: false,
     is_featured: false,
@@ -120,7 +120,7 @@ function findTrashButton(): HTMLElement {
   return trashButton
 }
 
-describe('CollectionDetail', () => {
+describe('CrateDetail', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockAuthContext.mockReturnValue({
@@ -135,50 +135,50 @@ describe('CollectionDetail', () => {
       isError: false,
       error: null,
     })
-    mockCollection.mockReturnValue({
-      data: makeCollection(),
+    mockCrate.mockReturnValue({
+      data: makeCrate(),
       isLoading: false,
       error: null,
     })
   })
 
-  it('renders collection title in heading', () => {
-    render(<CollectionDetail slug="test-collection" />)
+  it('renders crate title in heading', () => {
+    render(<CrateDetail slug="test-crate" />)
     expect(
-      screen.getByRole('heading', { name: 'Test Collection', level: 1 })
+      screen.getByRole('heading', { name: 'Test Crate', level: 1 })
     ).toBeInTheDocument()
   })
 
   it('renders loading state', () => {
-    mockCollection.mockReturnValue({
+    mockCrate.mockReturnValue({
       data: null,
       isLoading: true,
       error: null,
     })
-    render(<CollectionDetail slug="test-collection" />)
+    render(<CrateDetail slug="test-crate" />)
     expect(
-      screen.queryByRole('heading', { name: 'Test Collection' })
+      screen.queryByRole('heading', { name: 'Test Crate' })
     ).not.toBeInTheDocument()
   })
 
   it('renders error state', () => {
-    mockCollection.mockReturnValue({
+    mockCrate.mockReturnValue({
       data: null,
       isLoading: false,
       error: new Error('Failed to load'),
     })
-    render(<CollectionDetail slug="test-collection" />)
-    expect(screen.getByText('Error Loading Collection')).toBeInTheDocument()
+    render(<CrateDetail slug="test-crate" />)
+    expect(screen.getByText('Error Loading Crate')).toBeInTheDocument()
   })
 
   it('shows delete button for creator', () => {
-    render(<CollectionDetail slug="test-collection" />)
+    render(<CrateDetail slug="test-crate" />)
     expect(findTrashButton()).toBeTruthy()
   })
 
   it('opens delete confirmation dialog instead of window.confirm', async () => {
     const user = userEvent.setup()
-    render(<CollectionDetail slug="test-collection" />)
+    render(<CrateDetail slug="test-crate" />)
 
     await user.click(findTrashButton())
 
@@ -187,32 +187,32 @@ describe('CollectionDetail', () => {
     expect(
       screen.getByRole('button', { name: 'Cancel' })
     ).toBeInTheDocument()
-    // "Delete Collection" appears in dialog title and button
-    expect(screen.getAllByText('Delete Collection').length).toBeGreaterThanOrEqual(1)
+    // "Delete Crate" appears in dialog title and button
+    expect(screen.getAllByText('Delete Crate').length).toBeGreaterThanOrEqual(1)
   })
 
   it('calls deleteMutation.mutate when confirming delete in dialog', async () => {
     const user = userEvent.setup()
-    render(<CollectionDetail slug="test-collection" />)
+    render(<CrateDetail slug="test-crate" />)
 
     // Open dialog
     await user.click(findTrashButton())
 
-    // Click the destructive "Delete Collection" button in the dialog footer
+    // Click the destructive "Delete Crate" button in the dialog footer
     const deleteButtons = screen
       .getAllByRole('button')
-      .filter((b) => b.textContent?.includes('Delete Collection'))
+      .filter((b) => b.textContent?.includes('Delete Crate'))
     await user.click(deleteButtons[deleteButtons.length - 1])
 
     expect(mockDeleteMutate).toHaveBeenCalledWith(
-      { slug: 'test-collection' },
+      { slug: 'test-crate' },
       expect.any(Object)
     )
   })
 
   it('closes dialog when Cancel is clicked', async () => {
     const user = userEvent.setup()
-    render(<CollectionDetail slug="test-collection" />)
+    render(<CrateDetail slug="test-crate" />)
 
     // Open dialog
     await user.click(findTrashButton())
@@ -230,7 +230,7 @@ describe('CollectionDetail', () => {
       error: { message: 'Server error' },
     })
     const user = userEvent.setup()
-    render(<CollectionDetail slug="test-collection" />)
+    render(<CrateDetail slug="test-crate" />)
 
     // Open dialog
     await user.click(findTrashButton())
@@ -241,7 +241,7 @@ describe('CollectionDetail', () => {
   it('shows "Deleting..." text when deletion is pending in dialog', async () => {
     // Start with isPending false so we can open the dialog
     const user = userEvent.setup()
-    render(<CollectionDetail slug="test-collection" />)
+    render(<CrateDetail slug="test-crate" />)
 
     // Open dialog first
     await user.click(findTrashButton())
@@ -257,7 +257,7 @@ describe('CollectionDetail', () => {
     // Click the delete button to trigger the mutation
     const deleteButtons = screen
       .getAllByRole('button')
-      .filter((b) => b.textContent?.includes('Delete Collection'))
+      .filter((b) => b.textContent?.includes('Delete Crate'))
     await user.click(deleteButtons[deleteButtons.length - 1])
 
     // The mutate was called
@@ -271,12 +271,12 @@ describe('CollectionDetail', () => {
       isLoading: false,
       logout: vi.fn(),
     })
-    mockCollection.mockReturnValue({
-      data: makeCollection({ creator_id: 1 }),
+    mockCrate.mockReturnValue({
+      data: makeCrate({ creator_id: 1 }),
       isLoading: false,
       error: null,
     })
-    render(<CollectionDetail slug="test-collection" />)
+    render(<CrateDetail slug="test-crate" />)
 
     // No Edit or delete buttons for non-creators
     expect(screen.queryByText('Edit')).not.toBeInTheDocument()
@@ -290,7 +290,7 @@ describe('CollectionDetail', () => {
   it('does not use window.confirm for delete', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm')
     const user = userEvent.setup()
-    render(<CollectionDetail slug="test-collection" />)
+    render(<CrateDetail slug="test-crate" />)
 
     // Open dialog
     await user.click(findTrashButton())
@@ -298,7 +298,7 @@ describe('CollectionDetail', () => {
     // Confirm in dialog
     const deleteButtons = screen
       .getAllByRole('button')
-      .filter((b) => b.textContent?.includes('Delete Collection'))
+      .filter((b) => b.textContent?.includes('Delete Crate'))
     if (deleteButtons.length > 0) {
       await user.click(deleteButtons[deleteButtons.length - 1])
     }

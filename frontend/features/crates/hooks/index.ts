@@ -1,61 +1,61 @@
 'use client'
 
 /**
- * Collection Hooks
+ * Crate Hooks
  *
- * TanStack Query hooks for collection CRUD, items, and subscriptions.
+ * TanStack Query hooks for crate CRUD, items, and subscriptions.
  */
 
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
-import type { Collection, CollectionDetail, CollectionStats } from '../types'
+import type { Crate, CrateDetail, CrateStats } from '../types'
 
 // ──────────────────────────────────────────────
 // Queries
 // ──────────────────────────────────────────────
 
-/** Fetch public collections list */
-export function useCollections() {
+/** Fetch public crates list */
+export function useCrates() {
   return useQuery({
-    queryKey: queryKeys.collections.all,
+    queryKey: queryKeys.crates.all,
     queryFn: () =>
-      apiRequest<{ collections: Collection[]; total: number }>(
-        API_ENDPOINTS.COLLECTIONS.LIST
+      apiRequest<{ crates: Crate[]; total: number }>(
+        API_ENDPOINTS.CRATES.LIST
       ),
     staleTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,
   })
 }
 
-/** Fetch a single collection by slug (includes items) */
-export function useCollection(slug: string, options?: { enabled?: boolean }) {
+/** Fetch a single crate by slug (includes items) */
+export function useCrate(slug: string, options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: queryKeys.collections.detail(slug),
+    queryKey: queryKeys.crates.detail(slug),
     queryFn: () =>
-      apiRequest<CollectionDetail>(API_ENDPOINTS.COLLECTIONS.DETAIL(slug)),
+      apiRequest<CrateDetail>(API_ENDPOINTS.CRATES.DETAIL(slug)),
     enabled: (options?.enabled ?? true) && slug.length > 0,
     staleTime: 5 * 60 * 1000,
   })
 }
 
-/** Fetch collection stats */
-export function useCollectionStats(slug: string, options?: { enabled?: boolean }) {
+/** Fetch crate stats */
+export function useCrateStats(slug: string, options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: queryKeys.collections.stats(slug),
+    queryKey: queryKeys.crates.stats(slug),
     queryFn: () =>
-      apiRequest<CollectionStats>(API_ENDPOINTS.COLLECTIONS.STATS(slug)),
+      apiRequest<CrateStats>(API_ENDPOINTS.CRATES.STATS(slug)),
     enabled: (options?.enabled ?? true) && slug.length > 0,
   })
 }
 
-/** Fetch the authenticated user's own collections */
-export function useMyCollections() {
+/** Fetch the authenticated user's own crates */
+export function useMyCrates() {
   return useQuery({
-    queryKey: queryKeys.collections.my,
+    queryKey: queryKeys.crates.my,
     queryFn: () =>
-      apiRequest<{ collections: Collection[]; total: number }>(
-        API_ENDPOINTS.COLLECTIONS.MY
+      apiRequest<{ crates: Crate[]; total: number }>(
+        API_ENDPOINTS.CRATES.MY
       ),
     staleTime: 5 * 60 * 1000,
   })
@@ -65,23 +65,23 @@ export function useMyCollections() {
 // Mutations
 // ──────────────────────────────────────────────
 
-/** Toggle featured status on a collection (admin) */
+/** Toggle featured status on a crate (admin) */
 export function useSetFeatured() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ slug, featured }: { slug: string; featured: boolean }) =>
-      apiRequest<void>(API_ENDPOINTS.COLLECTIONS.FEATURE(slug), {
+      apiRequest<void>(API_ENDPOINTS.CRATES.FEATURE(slug), {
         method: 'PUT',
         body: JSON.stringify({ featured }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.crates.all })
     },
   })
 }
 
-/** Create a new collection */
-export function useCreateCollection() {
+/** Create a new crate */
+export function useCreateCrate() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (data: {
@@ -90,19 +90,19 @@ export function useCreateCollection() {
       is_public: boolean
       collaborative: boolean
     }) =>
-      apiRequest<CollectionDetail>(API_ENDPOINTS.COLLECTIONS.LIST, {
+      apiRequest<CrateDetail>(API_ENDPOINTS.CRATES.LIST, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.my })
+      queryClient.invalidateQueries({ queryKey: queryKeys.crates.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.crates.my })
     },
   })
 }
 
-/** Update an existing collection */
-export function useUpdateCollection() {
+/** Update an existing crate */
+export function useUpdateCrate() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({
@@ -115,37 +115,37 @@ export function useUpdateCollection() {
       is_public?: boolean
       collaborative?: boolean
     }) =>
-      apiRequest<CollectionDetail>(API_ENDPOINTS.COLLECTIONS.DETAIL(slug), {
+      apiRequest<CrateDetail>(API_ENDPOINTS.CRATES.DETAIL(slug), {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.crates.all })
       queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
+        queryKey: queryKeys.crates.detail(variables.slug),
       })
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.my })
+      queryClient.invalidateQueries({ queryKey: queryKeys.crates.my })
     },
   })
 }
 
-/** Delete a collection */
-export function useDeleteCollection() {
+/** Delete a crate */
+export function useDeleteCrate() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ slug }: { slug: string }) =>
-      apiRequest<void>(API_ENDPOINTS.COLLECTIONS.DETAIL(slug), {
+      apiRequest<void>(API_ENDPOINTS.CRATES.DETAIL(slug), {
         method: 'DELETE',
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.collections.my })
+      queryClient.invalidateQueries({ queryKey: queryKeys.crates.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.crates.my })
     },
   })
 }
 
-/** Add an item to a collection */
-export function useAddCollectionItem() {
+/** Add an item to a crate */
+export function useAddCrateItem() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({
@@ -159,7 +159,7 @@ export function useAddCollectionItem() {
       entityId: number
       notes?: string
     }) =>
-      apiRequest<void>(API_ENDPOINTS.COLLECTIONS.ITEMS(slug), {
+      apiRequest<void>(API_ENDPOINTS.CRATES.ITEMS(slug), {
         method: 'POST',
         body: JSON.stringify({
           entity_type: entityType,
@@ -169,55 +169,55 @@ export function useAddCollectionItem() {
       }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
+        queryKey: queryKeys.crates.detail(variables.slug),
       })
     },
   })
 }
 
-/** Remove an item from a collection */
-export function useRemoveCollectionItem() {
+/** Remove an item from a crate */
+export function useRemoveCrateItem() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ slug, itemId }: { slug: string; itemId: number }) =>
-      apiRequest<void>(API_ENDPOINTS.COLLECTIONS.ITEM(slug, itemId), {
+      apiRequest<void>(API_ENDPOINTS.CRATES.ITEM(slug, itemId), {
         method: 'DELETE',
       }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
+        queryKey: queryKeys.crates.detail(variables.slug),
       })
     },
   })
 }
 
-/** Subscribe to a collection */
-export function useSubscribeCollection() {
+/** Subscribe to a crate */
+export function useSubscribeCrate() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ slug }: { slug: string }) =>
-      apiRequest<void>(API_ENDPOINTS.COLLECTIONS.SUBSCRIBE(slug), {
+      apiRequest<void>(API_ENDPOINTS.CRATES.SUBSCRIBE(slug), {
         method: 'POST',
       }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
+        queryKey: queryKeys.crates.detail(variables.slug),
       })
     },
   })
 }
 
-/** Unsubscribe from a collection */
-export function useUnsubscribeCollection() {
+/** Unsubscribe from a crate */
+export function useUnsubscribeCrate() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ slug }: { slug: string }) =>
-      apiRequest<void>(API_ENDPOINTS.COLLECTIONS.SUBSCRIBE(slug), {
+      apiRequest<void>(API_ENDPOINTS.CRATES.SUBSCRIBE(slug), {
         method: 'DELETE',
       }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.collections.detail(variables.slug),
+        queryKey: queryKeys.crates.detail(variables.slug),
       })
     },
   })

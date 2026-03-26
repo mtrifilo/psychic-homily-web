@@ -283,7 +283,7 @@ function EngagementSection({ months }: { months: MonthRange }) {
   if (error) return <ErrorState message="Failed to load engagement metrics." />
   if (!data) return null
 
-  // Group 1: Content curation (tags + collections)
+  // Group 1: Content curation (tags + crates)
   const curationData = mergeMonthlyData({
     tags_added: data.tags_added,
     tag_votes: data.tag_votes,
@@ -350,7 +350,7 @@ function EngagementSection({ months }: { months: MonthRange }) {
               fill={COLORS.collection_items}
               fillOpacity={0.15}
               strokeWidth={2}
-              name="Collection Items"
+              name="Crate Items"
             />
           </AreaChart>
         </ResponsiveContainer>
@@ -492,9 +492,9 @@ function CommunityHealthSection() {
           description="Percentage of requests that have been fulfilled"
         />
         <StatCard
-          label="New Collections (30d)"
+          label="New Crates (30d)"
           value={data.new_collections_30d}
-          description="Collections created in the last 30 days"
+          description="Crates created in the last 30 days"
         />
       </div>
 

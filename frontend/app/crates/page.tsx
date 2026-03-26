@@ -1,26 +1,26 @@
 import { Suspense } from 'react'
-import { CollectionList } from '@/features/collections/components'
+import { CrateList } from '@/features/crates/components'
 import { LoadingSpinner } from '@/components/shared'
 
 export const metadata = {
-  title: 'Collections',
-  description: 'Browse curated collections of artists, releases, venues, and more.',
+  title: 'Crates',
+  description: 'Browse curated crates of artists, releases, venues, and more.',
   alternates: {
-    canonical: 'https://psychichomily.com/collections',
+    canonical: 'https://psychichomily.com/crates',
   },
   openGraph: {
-    title: 'Collections | Psychic Homily',
-    description: 'Browse curated collections of artists, releases, venues, and more.',
-    url: '/collections',
+    title: 'Crates | Psychic Homily',
+    description: 'Browse curated crates of artists, releases, venues, and more.',
+    url: '/crates',
     type: 'website',
   },
 }
 
-export default function CollectionsPage() {
+export default function CratesPage() {
   return (
     <div className="flex min-h-screen items-start justify-center">
       <main className="w-full max-w-6xl px-4 py-8 md:px-8">
-        <h1 className="text-3xl font-bold text-center mb-8">Collections</h1>
+        <h1 className="text-3xl font-bold text-center mb-8">Crates</h1>
         <Suspense
           fallback={
             <div className="flex justify-center items-center py-12">
@@ -28,7 +28,7 @@ export default function CollectionsPage() {
             </div>
           }
         >
-          <CollectionList />
+          <CrateList />
         </Suspense>
       </main>
     </div>
