@@ -8,6 +8,7 @@ import { NotifyMeButton } from './NotifyMeButton'
 const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
+  usePathname: () => '/artists/test-artist',
 }))
 
 // Mock AuthContext
@@ -96,7 +97,7 @@ describe('NotifyMeButton', () => {
       />
     )
     await user.click(screen.getByText('Notify me'))
-    expect(mockPush).toHaveBeenCalledWith('/auth')
+    expect(mockPush).toHaveBeenCalledWith('/auth?returnTo=%2Fartists%2Ftest-artist')
   })
 
   it('calls quickCreate.mutate when clicking notify without filter', async () => {

@@ -11,6 +11,7 @@ let mockStatusLoading = false
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
+  usePathname: () => '/artists/test-artist',
 }))
 
 vi.mock('@/lib/context/AuthContext', () => ({
@@ -103,7 +104,7 @@ describe('FollowButton', () => {
     )
 
     fireEvent.click(screen.getByRole('button'))
-    expect(mockPush).toHaveBeenCalledWith('/auth')
+    expect(mockPush).toHaveBeenCalledWith('/auth?returnTo=%2Fartists%2Ftest-artist')
     expect(mockFollowMutate).not.toHaveBeenCalled()
   })
 
