@@ -143,6 +143,9 @@ func main() {
 
 	fmt.Printf("✅ Successfully processed %d artists (%d created)\n", len(artists), artistResult.RowsAffected)
 
+	// Seed labels and releases with proper linking (completes the discovery loop)
+	labelsCreated, releasesCreated := seedLabelsAndReleases(db)
+
 	// Seed shows
 	fmt.Println("Seeding shows...")
 	shows := getShowData()
@@ -170,8 +173,8 @@ func main() {
 	usersCreated := seedTestUsers(db)
 
 	fmt.Printf("Database seeding completed!\n")
-	fmt.Printf("Summary: %d venues, %d artists, %d/%d shows, %d users\n",
-		len(venues), len(artists), successCount, showCount, usersCreated)
+	fmt.Printf("Summary: %d venues, %d artists, %d labels, %d releases, %d/%d shows, %d users\n",
+		len(venues), len(artists), labelsCreated, releasesCreated, successCount, showCount, usersCreated)
 }
 
 func getVenueData() map[string]VenueData {
@@ -565,6 +568,170 @@ func seedTestUserEngagement(db *gorm.DB) {
 	}
 
 	fmt.Println("  Seeded engagement data for testuser (follows + saved shows)")
+}
+
+// seedReleaseData describes a release to seed
+type seedReleaseData struct {
+	Title       string
+	ReleaseType models.ReleaseType
+	ReleaseYear int
+	ArtistName  string // matched by LOWER(name)
+	LabelName   string // matched by LOWER(name); must be seeded first
+}
+
+// seedLabelsAndReleases creates labels, releases, and the junction table entries
+// that complete the discovery loop: Show -> Artist -> Release -> Label -> label mates.
+func seedLabelsAndReleases(database *gorm.DB) (int, int) {
+	fmt.Println("Seeding labels...")
+
+	// Labels to seed (name -> optional metadata)
+	labelNames := []struct {
+		Name        string
+		City        string
+		State       string
+		Country     string
+		FoundedYear int
+	}{
+		{"Run For Cover Records", "Boston", "MA", "US", 2004},
+		{"Topshelf Records", "Portland", "OR", "US", 2006},
+		{"Loma Vista Recordings", "Los Angeles", "CA", "US", 2012},
+		{"Quarterstick Records", "Chicago", "IL", "US", 1990},
+		{"Asian Man Records", "Monte Sereno", "CA", "US", 1996},
+	}
+
+	var labelsCreated int
+	for _, l := range labelNames {
+		// Check if label already exists
+		var existing models.Label
+		if database.Where("LOWER(name) = LOWER(?)", l.Name).First(&existing).Error == nil {
+			if verbose := false; verbose {
+				fmt.Printf("  Label already exists: %s\n", l.Name)
+			}
+			continue
+		}
+
+		slug := utils.GenerateArtistSlug(l.Name) // reuse artist slug generator for labels
+		city := l.City
+		state := l.State
+		country := l.Country
+		label := &models.Label{
+			Name:        l.Name,
+			Slug:        &slug,
+			City:        &city,
+			State:       &state,
+			Country:     &country,
+			FoundedYear: &l.FoundedYear,
+			Status:      models.LabelStatusActive,
+		}
+		if err := database.Create(label).Error; err != nil {
+			log.Printf("Warning: Failed to create label %s: %v", l.Name, err)
+			continue
+		}
+		labelsCreated++
+	}
+	fmt.Printf("✅ Processed %d labels (%d created)\n", len(labelNames), labelsCreated)
+
+	fmt.Println("Seeding releases with label links...")
+
+	// Releases to seed with artist and label associations
+	releases := []seedReleaseData{
+		{"Futures", models.ReleaseTypeLP, 2004, "Jimmy Eat World", "Run For Cover Records"},
+		{"Clarity", models.ReleaseTypeLP, 1999, "Jimmy Eat World", "Run For Cover Records"},
+		{"Bleed American", models.ReleaseTypeLP, 2001, "Jimmy Eat World", "Run For Cover Records"},
+		{"Feast of Wire", models.ReleaseTypeLP, 2003, "Calexico", "Quarterstick Records"},
+		{"Hot Rail", models.ReleaseTypeLP, 2000, "Calexico", "Quarterstick Records"},
+		{"Knife Man", models.ReleaseTypeLP, 2011, "AJJ", "Asian Man Records"},
+		{"People Who Can Eat People Are the Luckiest People in the World", models.ReleaseTypeLP, 2007, "AJJ", "Asian Man Records"},
+		{"Can't Stay", models.ReleaseTypeLP, 2007, "The Maine", "Run For Cover Records"},
+		{"The Way We Talk", models.ReleaseTypeEP, 2007, "The Maine", "Run For Cover Records"},
+		{"Noises", models.ReleaseTypeLP, 2016, "Sundressed", "Topshelf Records"},
+	}
+
+	var releasesCreated int
+	for _, r := range releases {
+		// Check if release already exists
+		var existing models.Release
+		if database.Where("LOWER(title) = LOWER(?)", r.Title).First(&existing).Error == nil {
+			continue
+		}
+
+		// Find the artist
+		var artist models.Artist
+		if database.Where("LOWER(name) = LOWER(?)", r.ArtistName).First(&artist).Error != nil {
+			log.Printf("Warning: Artist not found for release %s: %s", r.Title, r.ArtistName)
+			continue
+		}
+
+		// Find the label
+		var label models.Label
+		if database.Where("LOWER(name) = LOWER(?)", r.LabelName).First(&label).Error != nil {
+			log.Printf("Warning: Label not found for release %s: %s", r.Title, r.LabelName)
+			continue
+		}
+
+		slug := utils.GenerateArtistSlug(r.Title)
+		// Ensure unique slug
+		slug = utils.GenerateUniqueSlug(slug, func(candidate string) bool {
+			var count int64
+			database.Model(&models.Release{}).Where("slug = ?", candidate).Count(&count)
+			return count > 0
+		})
+		year := r.ReleaseYear
+
+		release := &models.Release{
+			Title:       r.Title,
+			Slug:        &slug,
+			ReleaseType: r.ReleaseType,
+			ReleaseYear: &year,
+		}
+
+		err := database.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Create(release).Error; err != nil {
+				return fmt.Errorf("failed to create release: %w", err)
+			}
+
+			// Artist-release link
+			ar := models.ArtistRelease{
+				ArtistID:  artist.ID,
+				ReleaseID: release.ID,
+				Role:      models.ArtistReleaseRoleMain,
+				Position:  0,
+			}
+			if err := tx.Create(&ar).Error; err != nil {
+				return fmt.Errorf("failed to create artist-release link: %w", err)
+			}
+
+			// Release-label link (the key discovery loop connection)
+			rl := models.ReleaseLabel{
+				ReleaseID: release.ID,
+				LabelID:   label.ID,
+			}
+			if err := tx.Create(&rl).Error; err != nil {
+				return fmt.Errorf("failed to create release-label link: %w", err)
+			}
+
+			// Artist-label link (so the label page shows this artist)
+			al := models.ArtistLabel{
+				ArtistID: artist.ID,
+				LabelID:  label.ID,
+			}
+			if err := tx.Where("artist_id = ? AND label_id = ?", artist.ID, label.ID).
+				FirstOrCreate(&al).Error; err != nil {
+				return fmt.Errorf("failed to create artist-label link: %w", err)
+			}
+
+			return nil
+		})
+		if err != nil {
+			log.Printf("Warning: Failed to create release %s: %v", r.Title, err)
+			continue
+		}
+		releasesCreated++
+		fmt.Printf("  ✅ %s by %s on %s\n", r.Title, r.ArtistName, r.LabelName)
+	}
+	fmt.Printf("✅ Processed %d releases (%d created)\n", len(releases), releasesCreated)
+
+	return labelsCreated, releasesCreated
 }
 
 func connectToDatabase() *gorm.DB {
