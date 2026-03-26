@@ -21,6 +21,8 @@ func (s *ShowHandlerIntegrationSuite) SetupSuite() {
 	s.deps = setupHandlerIntegrationDeps(s.T())
 	s.handler = NewShowHandler(
 		s.deps.showService,
+		s.deps.showService,
+		s.deps.showService,
 		s.deps.savedShowService,
 		s.deps.discordService,
 		s.deps.musicDiscoveryService,

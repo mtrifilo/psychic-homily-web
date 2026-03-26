@@ -16,7 +16,7 @@ import (
 // ============================================================================
 
 func testAdminShowHandler() *AdminShowHandler {
-	return NewAdminShowHandler(nil, nil, nil, nil, nil)
+	return NewAdminShowHandler(nil, nil, nil, nil, nil, nil, nil)
 }
 
 func testAdminDiscoveryHandler() *AdminDiscoveryHandler {
@@ -543,7 +543,7 @@ func adminStatsHandler(opts ...func(*AdminStatsHandler)) *AdminStatsHandler {
 
 func TestGetPendingShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			getPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 				return []*contracts.ShowResponse{{ID: 1}}, 1, nil
 			},
@@ -560,7 +560,7 @@ func TestGetPendingShowsHandler_Success(t *testing.T) {
 
 func TestGetPendingShowsHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			getPendingShowsFn: func(_, _ int, _ *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 				return nil, 0, fmt.Errorf("db error")
 			},
@@ -572,7 +572,7 @@ func TestGetPendingShowsHandler_ServiceError(t *testing.T) {
 
 func TestGetRejectedShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			getRejectedShowsFn: func(limit, offset int, search string) ([]*contracts.ShowResponse, int64, error) {
 				return []*contracts.ShowResponse{{ID: 1}}, 1, nil
 			},
@@ -589,7 +589,7 @@ func TestGetRejectedShowsHandler_Success(t *testing.T) {
 
 func TestGetRejectedShowsHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			getRejectedShowsFn: func(_, _ int, _ string) ([]*contracts.ShowResponse, int64, error) {
 				return nil, 0, fmt.Errorf("db error")
 			},
@@ -659,7 +659,7 @@ func TestGetPendingVenueEditsHandler_ServiceError(t *testing.T) {
 
 func TestGetAdminShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			getAdminShowsFn: func(limit, offset int, filters contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error) {
 				return []*contracts.ShowResponse{{ID: 1}}, 1, nil
 			},
@@ -676,7 +676,7 @@ func TestGetAdminShowsHandler_Success(t *testing.T) {
 
 func TestGetAdminShowsHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			getAdminShowsFn: func(_, _ int, _ contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error) {
 				return nil, 0, fmt.Errorf("db error")
 			},
@@ -864,7 +864,7 @@ func TestGetAdminStatsHandler_ServiceError(t *testing.T) {
 func TestApproveShowHandler_Success(t *testing.T) {
 	var auditCalled bool
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			approveShowFn: func(showID uint, verifyVenues bool) (*contracts.ShowResponse, error) {
 				return &contracts.ShowResponse{ID: showID, Status: "approved"}, nil
 			},
@@ -892,7 +892,7 @@ func TestApproveShowHandler_Success(t *testing.T) {
 
 func TestApproveShowHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			approveShowFn: func(_ uint, _ bool) (*contracts.ShowResponse, error) {
 				return nil, fmt.Errorf("not found")
 			},
@@ -905,7 +905,7 @@ func TestApproveShowHandler_ServiceError(t *testing.T) {
 func TestRejectShowHandler_Success(t *testing.T) {
 	var auditCalled bool
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			rejectShowFn: func(showID uint, reason string) (*contracts.ShowResponse, error) {
 				if reason != "duplicate" {
 					t.Errorf("expected reason='duplicate', got %q", reason)
@@ -938,7 +938,7 @@ func TestRejectShowHandler_Success(t *testing.T) {
 
 func TestRejectShowHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			rejectShowFn: func(_ uint, _ string) (*contracts.ShowResponse, error) {
 				return nil, fmt.Errorf("not found")
 			},
@@ -1236,7 +1236,7 @@ func TestDiscoveryCheckHandler_ServiceError(t *testing.T) {
 
 func TestImportShowPreviewHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showImportService = &mockShowImportService{
 			previewShowImportFn: func(content []byte) (*contracts.ImportPreviewResponse, error) {
 				return &contracts.ImportPreviewResponse{CanImport: true}, nil
 			},
@@ -1255,7 +1255,7 @@ func TestImportShowPreviewHandler_Success(t *testing.T) {
 
 func TestImportShowPreviewHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showImportService = &mockShowImportService{
 			previewShowImportFn: func(_ []byte) (*contracts.ImportPreviewResponse, error) {
 				return nil, fmt.Errorf("parse error")
 			},
@@ -1269,7 +1269,7 @@ func TestImportShowPreviewHandler_ServiceError(t *testing.T) {
 
 func TestImportShowConfirmHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showImportService = &mockShowImportService{
 			confirmShowImportFn: func(content []byte, verifyVenues bool) (*contracts.ShowResponse, error) {
 				return &contracts.ShowResponse{ID: 100, Title: "Imported Show"}, nil
 			},
@@ -1288,7 +1288,7 @@ func TestImportShowConfirmHandler_Success(t *testing.T) {
 
 func TestImportShowConfirmHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showImportService = &mockShowImportService{
 			confirmShowImportFn: func(_ []byte, _ bool) (*contracts.ShowResponse, error) {
 				return nil, fmt.Errorf("import failed")
 			},
@@ -1302,7 +1302,7 @@ func TestImportShowConfirmHandler_ServiceError(t *testing.T) {
 
 func TestBulkExportShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showImportService = &mockShowImportService{
 			exportShowToMarkdownFn: func(showID uint) ([]byte, string, error) {
 				return []byte("# Show"), "show.md", nil
 			},
@@ -1322,7 +1322,7 @@ func TestBulkExportShowsHandler_Success(t *testing.T) {
 func TestBulkExportShowsHandler_PartialFail(t *testing.T) {
 	callCount := 0
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showImportService = &mockShowImportService{
 			exportShowToMarkdownFn: func(showID uint) ([]byte, string, error) {
 				callCount++
 				if callCount == 2 {
@@ -1340,7 +1340,7 @@ func TestBulkExportShowsHandler_PartialFail(t *testing.T) {
 
 func TestBulkImportPreviewHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showImportService = &mockShowImportService{
 			previewShowImportFn: func(_ []byte) (*contracts.ImportPreviewResponse, error) {
 				return &contracts.ImportPreviewResponse{CanImport: true}, nil
 			},
@@ -1362,7 +1362,7 @@ func TestBulkImportPreviewHandler_Success(t *testing.T) {
 
 func TestBulkImportConfirmHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showImportService = &mockShowImportService{
 			confirmShowImportFn: func(_ []byte, _ bool) (*contracts.ShowResponse, error) {
 				return &contracts.ShowResponse{ID: 1}, nil
 			},
@@ -1382,7 +1382,7 @@ func TestBulkImportConfirmHandler_Success(t *testing.T) {
 func TestBulkImportConfirmHandler_MixedResults(t *testing.T) {
 	callCount := 0
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showImportService = &mockShowImportService{
 			confirmShowImportFn: func(_ []byte, _ bool) (*contracts.ShowResponse, error) {
 				callCount++
 				if callCount == 2 {
@@ -1416,7 +1416,7 @@ func TestBulkImportConfirmHandler_MixedResults(t *testing.T) {
 
 func TestBatchApproveShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			batchApproveShowsFn: func(showIDs []uint) (*contracts.BatchShowResult, error) {
 				return &contracts.BatchShowResult{
 					Succeeded: showIDs,
@@ -1457,7 +1457,7 @@ func TestBatchApproveShowsHandler_AdminRequired(t *testing.T) {
 
 func TestBatchRejectShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			batchRejectShowsFn: func(showIDs []uint, reason string, category string) (*contracts.BatchShowResult, error) {
 				return &contracts.BatchShowResult{
 					Succeeded: showIDs,
@@ -1501,7 +1501,7 @@ func TestBatchRejectShowsHandler_AdminRequired(t *testing.T) {
 
 func TestBatchRejectShowsHandler_RequiresReason(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{}
+		ah.showAdminService = &mockShowAdminService{}
 	})
 
 	req := &BatchRejectShowsRequest{}
@@ -1519,7 +1519,7 @@ func TestBatchRejectShowsHandler_RequiresReason(t *testing.T) {
 func TestGetPendingShowsHandler_WithVenueIDFilter(t *testing.T) {
 	var capturedFilter *contracts.PendingShowsFilter
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			getPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 				capturedFilter = filters
 				return []*contracts.ShowResponse{}, 0, nil
@@ -1545,7 +1545,7 @@ func TestGetPendingShowsHandler_WithVenueIDFilter(t *testing.T) {
 func TestGetPendingShowsHandler_WithSourceFilter(t *testing.T) {
 	var capturedFilter *contracts.PendingShowsFilter
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			getPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 				capturedFilter = filters
 				return []*contracts.ShowResponse{}, 0, nil
@@ -1567,7 +1567,7 @@ func TestGetPendingShowsHandler_WithSourceFilter(t *testing.T) {
 func TestGetPendingShowsHandler_WithBothFilters(t *testing.T) {
 	var capturedFilter *contracts.PendingShowsFilter
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			getPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 				capturedFilter = filters
 				return []*contracts.ShowResponse{}, 0, nil
@@ -1592,7 +1592,7 @@ func TestGetPendingShowsHandler_WithBothFilters(t *testing.T) {
 func TestGetPendingShowsHandler_NoFilters(t *testing.T) {
 	var capturedFilter *contracts.PendingShowsFilter
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			getPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 				capturedFilter = filters
 				return []*contracts.ShowResponse{}, 0, nil
@@ -1615,7 +1615,7 @@ func TestGetPendingShowsHandler_NoFilters(t *testing.T) {
 func TestGetPendingShowsHandler_LimitClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			getPendingShowsFn: func(limit, offset int, _ *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 				capturedLimit = limit
 				capturedOffset = offset
@@ -1655,7 +1655,7 @@ func TestGetPendingShowsHandler_LimitClamping(t *testing.T) {
 func TestGetRejectedShowsHandler_LimitClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			getRejectedShowsFn: func(limit, offset int, _ string) ([]*contracts.ShowResponse, int64, error) {
 				capturedLimit = limit
 				capturedOffset = offset
@@ -1695,7 +1695,7 @@ func TestGetRejectedShowsHandler_LimitClamping(t *testing.T) {
 func TestGetAdminShowsHandler_LimitClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			getAdminShowsFn: func(limit, offset int, _ contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error) {
 				capturedLimit = limit
 				capturedOffset = offset
@@ -1735,7 +1735,7 @@ func TestGetAdminShowsHandler_LimitClamping(t *testing.T) {
 
 func TestBatchApproveShowsHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			batchApproveShowsFn: func(_ []uint) (*contracts.BatchShowResult, error) {
 				return nil, fmt.Errorf("db error")
 			},
@@ -1749,7 +1749,7 @@ func TestBatchApproveShowsHandler_ServiceError(t *testing.T) {
 
 func TestBatchRejectShowsHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showAdminService = &mockShowAdminService{
 			batchRejectShowsFn: func(_ []uint, _ string, _ string) (*contracts.BatchShowResult, error) {
 				return nil, fmt.Errorf("db error")
 			},
@@ -1768,7 +1768,7 @@ func TestBatchRejectShowsHandler_ServiceError(t *testing.T) {
 
 func TestBulkImportPreviewHandler_InvalidBase64(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{}
+		ah.showImportService = &mockShowImportService{}
 	})
 	req := &BulkImportPreviewRequest{}
 	req.Body.Shows = []string{"not-valid-base64!!!"}
@@ -1778,7 +1778,7 @@ func TestBulkImportPreviewHandler_InvalidBase64(t *testing.T) {
 
 func TestBulkImportPreviewHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showImportService = &mockShowImportService{
 			previewShowImportFn: func(_ []byte) (*contracts.ImportPreviewResponse, error) {
 				return nil, fmt.Errorf("parse error")
 			},
@@ -1793,7 +1793,7 @@ func TestBulkImportPreviewHandler_ServiceError(t *testing.T) {
 func TestBulkImportPreviewHandler_SummaryAccumulation(t *testing.T) {
 	callCount := 0
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showImportService = &mockShowImportService{
 			previewShowImportFn: func(_ []byte) (*contracts.ImportPreviewResponse, error) {
 				callCount++
 				if callCount == 1 {
@@ -1851,7 +1851,7 @@ func TestBulkImportPreviewHandler_SummaryAccumulation(t *testing.T) {
 
 func TestBulkImportConfirmHandler_InvalidBase64InArray(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showService = &mockShowService{
+		ah.showImportService = &mockShowImportService{
 			confirmShowImportFn: func(_ []byte, _ bool) (*contracts.ShowResponse, error) {
 				return &contracts.ShowResponse{ID: 1}, nil
 			},

@@ -31,7 +31,7 @@ func assertHumaError(t *testing.T, err error, expectedStatus int) {
 }
 
 func testShowHandler() *ShowHandler {
-	return NewShowHandler(nil, nil, nil, nil, nil)
+	return NewShowHandler(nil, nil, nil, nil, nil, nil, nil)
 }
 
 // --- NewShowHandler ---
@@ -273,7 +273,7 @@ func TestGetShowHandler_ByID(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, Status: "approved"}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 
 	resp, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "42"})
 	if err != nil {
@@ -290,7 +290,7 @@ func TestGetShowHandler_BySlug(t *testing.T) {
 			return &contracts.ShowResponse{ID: 10, Slug: slug, Status: "approved"}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 
 	resp, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "cool-show"})
 	if err != nil {
@@ -307,7 +307,7 @@ func TestGetShowHandler_NotFound(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 
 	_, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "99"})
 	assertHumaError(t, err, 404)
@@ -319,7 +319,7 @@ func TestGetShowHandler_NonApproved_Admin(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, Status: "pending"}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
 
 	resp, err := h.GetShowHandler(ctx, &GetShowRequest{ShowID: "1"})
@@ -338,7 +338,7 @@ func TestGetShowHandler_NonApproved_Submitter(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, Status: "pending", SubmittedBy: &userID}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 5})
 
 	resp, err := h.GetShowHandler(ctx, &GetShowRequest{ShowID: "1"})
@@ -357,7 +357,7 @@ func TestGetShowHandler_NonApproved_Denied(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, Status: "pending", SubmittedBy: &otherUser}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 5})
 
 	_, err := h.GetShowHandler(ctx, &GetShowRequest{ShowID: "1"})
@@ -374,7 +374,7 @@ func TestGetShowsHandler_Success(t *testing.T) {
 			return []*contracts.ShowResponse{{ID: 1}, {ID: 2}}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 
 	resp, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{})
 	if err != nil {
@@ -391,7 +391,7 @@ func TestGetShowsHandler_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 
 	_, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{})
 	assertHumaError(t, err, 500)
@@ -407,7 +407,7 @@ func TestGetShowCitiesHandler_Success(t *testing.T) {
 			return []contracts.ShowCityResponse{{City: "Phoenix", State: "AZ", ShowCount: 5}}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 
 	resp, err := h.GetShowCitiesHandler(context.Background(), &GetShowCitiesRequest{Timezone: "America/Phoenix"})
 	if err != nil {
@@ -424,7 +424,7 @@ func TestGetShowCitiesHandler_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 
 	_, err := h.GetShowCitiesHandler(context.Background(), &GetShowCitiesRequest{})
 	assertHumaError(t, err, 500)
@@ -441,7 +441,7 @@ func TestGetUpcomingShowsHandler_Success(t *testing.T) {
 			return []*contracts.ShowResponse{{ID: 1}}, &nextCursor, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 
 	resp, err := h.GetUpcomingShowsHandler(context.Background(), &GetUpcomingShowsRequest{Limit: 50})
 	if err != nil {
@@ -461,7 +461,7 @@ func TestGetUpcomingShowsHandler_ServiceError(t *testing.T) {
 			return nil, nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 
 	_, err := h.GetUpcomingShowsHandler(context.Background(), &GetUpcomingShowsRequest{Limit: 50})
 	assertHumaError(t, err, 500)
@@ -477,7 +477,7 @@ func TestCreateShowHandler_Success(t *testing.T) {
 			return &contracts.ShowResponse{ID: 100, Title: req.Title, Status: "pending"}, nil
 		},
 	}
-	h := NewShowHandler(showMock, &mockSavedShowService{}, &mockDiscordService{}, &mockMusicDiscoveryService{}, nil)
+	h := NewShowHandler(showMock, nil, nil, &mockSavedShowService{}, &mockDiscordService{}, &mockMusicDiscoveryService{}, nil)
 	ctx := ctxWithUser(&models.User{ID: 1, EmailVerified: true})
 
 	venueID := uint(1)
@@ -512,7 +512,7 @@ func TestCreateShowHandler_AutoSave(t *testing.T) {
 			return nil
 		},
 	}
-	h := NewShowHandler(showMock, savedShowMock, &mockDiscordService{}, &mockMusicDiscoveryService{}, nil)
+	h := NewShowHandler(showMock, nil, nil, savedShowMock, &mockDiscordService{}, &mockMusicDiscoveryService{}, nil)
 	ctx := ctxWithUser(&models.User{ID: 7, EmailVerified: true})
 
 	venueID := uint(1)
@@ -542,7 +542,7 @@ func TestCreateShowHandler_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewShowHandler(showMock, nil, &mockDiscordService{}, &mockMusicDiscoveryService{}, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, &mockDiscordService{}, &mockMusicDiscoveryService{}, nil)
 	ctx := ctxWithUser(&models.User{ID: 1, EmailVerified: true})
 
 	venueID := uint(1)
@@ -572,7 +572,7 @@ func TestUpdateShowHandler_OwnerSuccess(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, Title: "Updated"}, nil, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 5})
 	title := "Updated"
 	req := &UpdateShowRequest{ShowID: "1"}
@@ -597,7 +597,7 @@ func TestUpdateShowHandler_AdminSuccess(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID}, nil, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
 	title := "Admin Update"
 	req := &UpdateShowRequest{ShowID: "1"}
@@ -615,7 +615,7 @@ func TestUpdateShowHandler_NotFound(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 1})
 
 	_, err := h.UpdateShowHandler(ctx, &UpdateShowRequest{ShowID: "99"})
@@ -629,7 +629,7 @@ func TestUpdateShowHandler_Unauthorized(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 5})
 
 	_, err := h.UpdateShowHandler(ctx, &UpdateShowRequest{ShowID: "1"})
@@ -646,7 +646,7 @@ func TestUpdateShowHandler_ServiceError(t *testing.T) {
 			return nil, nil, fmt.Errorf("update failed")
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 1})
 	title := "New"
 	req := &UpdateShowRequest{ShowID: "1"}
@@ -673,7 +673,7 @@ func TestDeleteShowHandler_OwnerSuccess(t *testing.T) {
 			return nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 5})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
@@ -690,7 +690,7 @@ func TestDeleteShowHandler_AdminSuccess(t *testing.T) {
 		},
 		deleteShowFn: func(_ uint) error { return nil },
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
@@ -705,7 +705,7 @@ func TestDeleteShowHandler_NotFound(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 1})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "99"})
@@ -719,7 +719,7 @@ func TestDeleteShowHandler_Unauthorized(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 5})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
@@ -734,7 +734,7 @@ func TestDeleteShowHandler_ServiceError(t *testing.T) {
 		},
 		deleteShowFn: func(_ uint) error { return fmt.Errorf("delete failed") },
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 1})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
@@ -746,12 +746,12 @@ func TestDeleteShowHandler_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestUnpublishShowHandler_Success(t *testing.T) {
-	showMock := &mockShowService{
+	stateMock := &mockShowStateService{
 		unpublishShowFn: func(showID, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
 			return &contracts.ShowResponse{ID: showID, Status: "pending", Title: "Test"}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, &mockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &mockDiscordService{}, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 1})
 
 	resp, err := h.UnpublishShowHandler(ctx, &UnpublishShowRequest{ShowID: "42"})
@@ -764,12 +764,12 @@ func TestUnpublishShowHandler_Success(t *testing.T) {
 }
 
 func TestUnpublishShowHandler_NotFound(t *testing.T) {
-	showMock := &mockShowService{
+	stateMock := &mockShowStateService{
 		unpublishShowFn: func(_, _ uint, _ bool) (*contracts.ShowResponse, error) {
 			return nil, apperrors.ErrShowNotFound(42)
 		},
 	}
-	h := NewShowHandler(showMock, nil, &mockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &mockDiscordService{}, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 1})
 
 	_, err := h.UnpublishShowHandler(ctx, &UnpublishShowRequest{ShowID: "42"})
@@ -777,12 +777,12 @@ func TestUnpublishShowHandler_NotFound(t *testing.T) {
 }
 
 func TestUnpublishShowHandler_Unauthorized(t *testing.T) {
-	showMock := &mockShowService{
+	stateMock := &mockShowStateService{
 		unpublishShowFn: func(_, _ uint, _ bool) (*contracts.ShowResponse, error) {
 			return nil, apperrors.ErrShowUnpublishUnauthorized(42)
 		},
 	}
-	h := NewShowHandler(showMock, nil, &mockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &mockDiscordService{}, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 5})
 
 	_, err := h.UnpublishShowHandler(ctx, &UnpublishShowRequest{ShowID: "42"})
@@ -794,12 +794,12 @@ func TestUnpublishShowHandler_Unauthorized(t *testing.T) {
 // ============================================================================
 
 func TestMakePrivateShowHandler_Success(t *testing.T) {
-	showMock := &mockShowService{
+	stateMock := &mockShowStateService{
 		makePrivateShowFn: func(showID, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
 			return &contracts.ShowResponse{ID: showID, Status: "private", Title: "Test"}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, &mockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &mockDiscordService{}, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 1})
 
 	resp, err := h.MakePrivateShowHandler(ctx, &MakePrivateShowRequest{ShowID: "42"})
@@ -812,12 +812,12 @@ func TestMakePrivateShowHandler_Success(t *testing.T) {
 }
 
 func TestMakePrivateShowHandler_NotFound(t *testing.T) {
-	showMock := &mockShowService{
+	stateMock := &mockShowStateService{
 		makePrivateShowFn: func(_, _ uint, _ bool) (*contracts.ShowResponse, error) {
 			return nil, apperrors.ErrShowNotFound(42)
 		},
 	}
-	h := NewShowHandler(showMock, nil, &mockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &mockDiscordService{}, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 1})
 
 	_, err := h.MakePrivateShowHandler(ctx, &MakePrivateShowRequest{ShowID: "42"})
@@ -825,12 +825,12 @@ func TestMakePrivateShowHandler_NotFound(t *testing.T) {
 }
 
 func TestMakePrivateShowHandler_Unauthorized(t *testing.T) {
-	showMock := &mockShowService{
+	stateMock := &mockShowStateService{
 		makePrivateShowFn: func(_, _ uint, _ bool) (*contracts.ShowResponse, error) {
 			return nil, apperrors.ErrShowMakePrivateUnauthorized(42)
 		},
 	}
-	h := NewShowHandler(showMock, nil, &mockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &mockDiscordService{}, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 5})
 
 	_, err := h.MakePrivateShowHandler(ctx, &MakePrivateShowRequest{ShowID: "42"})
@@ -842,12 +842,12 @@ func TestMakePrivateShowHandler_Unauthorized(t *testing.T) {
 // ============================================================================
 
 func TestPublishShowHandler_Success(t *testing.T) {
-	showMock := &mockShowService{
+	stateMock := &mockShowStateService{
 		publishShowFn: func(showID, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
 			return &contracts.ShowResponse{ID: showID, Status: "approved", Title: "Test"}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, &mockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &mockDiscordService{}, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 1})
 
 	resp, err := h.PublishShowHandler(ctx, &PublishShowRequest{ShowID: "42"})
@@ -860,12 +860,12 @@ func TestPublishShowHandler_Success(t *testing.T) {
 }
 
 func TestPublishShowHandler_NotFound(t *testing.T) {
-	showMock := &mockShowService{
+	stateMock := &mockShowStateService{
 		publishShowFn: func(_, _ uint, _ bool) (*contracts.ShowResponse, error) {
 			return nil, apperrors.ErrShowNotFound(42)
 		},
 	}
-	h := NewShowHandler(showMock, nil, &mockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &mockDiscordService{}, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 1})
 
 	_, err := h.PublishShowHandler(ctx, &PublishShowRequest{ShowID: "42"})
@@ -873,12 +873,12 @@ func TestPublishShowHandler_NotFound(t *testing.T) {
 }
 
 func TestPublishShowHandler_Unauthorized(t *testing.T) {
-	showMock := &mockShowService{
+	stateMock := &mockShowStateService{
 		publishShowFn: func(_, _ uint, _ bool) (*contracts.ShowResponse, error) {
 			return nil, apperrors.ErrShowPublishUnauthorized(42)
 		},
 	}
-	h := NewShowHandler(showMock, nil, &mockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &mockDiscordService{}, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 5})
 
 	_, err := h.PublishShowHandler(ctx, &PublishShowRequest{ShowID: "42"})
@@ -895,11 +895,13 @@ func TestSetShowSoldOutHandler_Success(t *testing.T) {
 		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &userID}, nil
 		},
+	}
+	stateMock := &mockShowStateService{
 		setShowSoldOutFn: func(showID uint, value bool) (*contracts.ShowResponse, error) {
 			return &contracts.ShowResponse{ID: showID, IsSoldOut: value}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, stateMock, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 5})
 	req := &SetShowSoldOutRequest{ShowID: "1"}
 	req.Body.Value = true
@@ -920,7 +922,7 @@ func TestSetShowSoldOutHandler_NotOwner(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 5})
 	req := &SetShowSoldOutRequest{ShowID: "1"}
 	req.Body.Value = true
@@ -939,11 +941,13 @@ func TestSetShowCancelledHandler_Success(t *testing.T) {
 		getShowFn: func(_ uint) (*contracts.ShowResponse, error) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &userID}, nil
 		},
+	}
+	stateMock := &mockShowStateService{
 		setShowCancelledFn: func(showID uint, value bool) (*contracts.ShowResponse, error) {
 			return &contracts.ShowResponse{ID: showID, IsCancelled: value}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, stateMock, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 5})
 	req := &SetShowCancelledRequest{ShowID: "1"}
 	req.Body.Value = true
@@ -964,7 +968,7 @@ func TestSetShowCancelledHandler_NotOwner(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 5})
 	req := &SetShowCancelledRequest{ShowID: "1"}
 	req.Body.Value = true
@@ -983,7 +987,7 @@ func TestGetMySubmissionsHandler_Success(t *testing.T) {
 			return []contracts.ShowResponse{{ID: 1}, {ID: 2}}, 2, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 1})
 
 	resp, err := h.GetMySubmissionsHandler(ctx, &GetMySubmissionsRequest{Limit: 50})
@@ -1001,7 +1005,7 @@ func TestGetMySubmissionsHandler_ServiceError(t *testing.T) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
 	ctx := ctxWithUser(&models.User{ID: 1})
 
 	_, err := h.GetMySubmissionsHandler(ctx, &GetMySubmissionsRequest{Limit: 50})
@@ -1018,7 +1022,7 @@ func TestAIProcessShowHandler_Success(t *testing.T) {
 			return &contracts.ExtractShowResponse{Success: true}, nil
 		},
 	}
-	h := NewShowHandler(nil, nil, nil, nil, extractMock)
+	h := NewShowHandler(nil, nil, nil, nil, nil, nil, extractMock)
 
 	req := &AIProcessShowRequest{}
 	req.Body.Type = "text"
@@ -1039,7 +1043,7 @@ func TestAIProcessShowHandler_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("AI service down")
 		},
 	}
-	h := NewShowHandler(nil, nil, nil, nil, extractMock)
+	h := NewShowHandler(nil, nil, nil, nil, nil, nil, extractMock)
 
 	req := &AIProcessShowRequest{}
 	req.Body.Type = "text"

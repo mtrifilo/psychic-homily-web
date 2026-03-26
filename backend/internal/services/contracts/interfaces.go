@@ -13,7 +13,7 @@ import (
 	"psychic-homily-backend/internal/models"
 )
 
-// ShowServiceInterface defines the contract for show operations.
+// ShowServiceInterface defines the contract for core show CRUD and search operations.
 type ShowServiceInterface interface {
 	CreateShow(req *CreateShowRequest) (*ShowResponse, error)
 	GetShow(showID uint) (*ShowResponse, error)
@@ -25,22 +25,46 @@ type ShowServiceInterface interface {
 	GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *UpcomingShowsFilter) ([]*ShowResponse, *string, error)
 	GetShowCities(timezone string) ([]ShowCityResponse, error)
 	DeleteShow(showID uint) error
+}
+
+// ShowAdminServiceInterface defines the contract for admin show management operations
+// including pending/rejected queries, approval flows, and batch operations.
+type ShowAdminServiceInterface interface {
 	GetPendingShows(limit, offset int, filters *PendingShowsFilter) ([]*ShowResponse, int64, error)
 	GetRejectedShows(limit, offset int, search string) ([]*ShowResponse, int64, error)
 	ApproveShow(showID uint, verifyVenues bool) (*ShowResponse, error)
 	RejectShow(showID uint, reason string) (*ShowResponse, error)
 	BatchApproveShows(showIDs []uint) (*BatchShowResult, error)
 	BatchRejectShows(showIDs []uint, reason string, category string) (*BatchShowResult, error)
-	UnpublishShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error)
-	MakePrivateShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error)
-	PublishShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error)
+	GetAdminShows(limit, offset int, filters AdminShowFilters) ([]*ShowResponse, int64, error)
+}
+
+// ShowImportServiceInterface defines the contract for show import/export operations.
+type ShowImportServiceInterface interface {
 	ExportShowToMarkdown(showID uint) ([]byte, string, error)
 	ParseShowMarkdown(content []byte) (*ParsedShowImport, error)
 	PreviewShowImport(content []byte) (*ImportPreviewResponse, error)
 	ConfirmShowImport(content []byte, isAdmin bool) (*ShowResponse, error)
-	GetAdminShows(limit, offset int, filters AdminShowFilters) ([]*ShowResponse, int64, error)
+}
+
+// ShowStateServiceInterface defines the contract for show state mutation operations
+// such as publishing, unpublishing, and setting sold-out/cancelled flags.
+type ShowStateServiceInterface interface {
+	UnpublishShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error)
+	MakePrivateShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error)
+	PublishShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error)
 	SetShowSoldOut(showID uint, isSoldOut bool) (*ShowResponse, error)
 	SetShowCancelled(showID uint, isCancelled bool) (*ShowResponse, error)
+}
+
+// ShowFullServiceInterface is the composite interface that embeds all show service
+// concerns. The concrete ShowService satisfies this. Useful for the service container
+// and backward compatibility where a single reference to all methods is needed.
+type ShowFullServiceInterface interface {
+	ShowServiceInterface
+	ShowAdminServiceInterface
+	ShowImportServiceInterface
+	ShowStateServiceInterface
 }
 
 // VenueServiceInterface defines the contract for venue operations.
