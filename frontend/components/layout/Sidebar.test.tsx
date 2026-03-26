@@ -116,13 +116,14 @@ describe('Sidebar', () => {
     expect(onToggleCollapse).toHaveBeenCalledOnce()
   })
 
-  it('does not show Collection/Settings when unauthenticated', () => {
+  it('does not show Library/Collection/Settings when unauthenticated', () => {
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    expect(screen.queryByText('Library')).not.toBeInTheDocument()
     expect(screen.queryByText('Collection')).not.toBeInTheDocument()
     expect(screen.queryByText('Settings')).not.toBeInTheDocument()
   })
 
-  it('shows Collection/Settings when authenticated', () => {
+  it('shows Library/Collection/Settings when authenticated', () => {
     mockAuthContext.mockReturnValue({
       user: { email: 'test@test.com', is_admin: false },
       isAuthenticated: true,
@@ -130,8 +131,21 @@ describe('Sidebar', () => {
       logout: vi.fn(),
     })
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    expect(screen.getByText('Library')).toBeInTheDocument()
     expect(screen.getByText('Collection')).toBeInTheDocument()
     expect(screen.getByText('Settings')).toBeInTheDocument()
+  })
+
+  it('does not show My Shows or Following entries', () => {
+    mockAuthContext.mockReturnValue({
+      user: { email: 'test@test.com', is_admin: false },
+      isAuthenticated: true,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    expect(screen.queryByText('My Shows')).not.toBeInTheDocument()
+    expect(screen.queryByText('Following')).not.toBeInTheDocument()
   })
 
   it('shows Admin link for admin users', () => {

@@ -12,8 +12,8 @@ import {
   CommandSeparator,
 } from '@/components/ui/command'
 import {
-  Calendar, CalendarCheck, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
-  Library, LayoutList, MessageSquarePlus, Settings, Search, Clock, X, Globe, UserCheck,
+  Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
+  Library, LayoutList, MessageSquarePlus, Settings, Search, Clock, X, Globe,
   TrendingUp, LayoutDashboard, Upload, BadgeCheck, Flag, ScrollText, Users, Workflow,
   ClipboardCheck, BarChart3, Music, Bell,
 } from 'lucide-react'
@@ -118,28 +118,14 @@ const routes: RouteItem[] = [
   {
     label: 'Library',
     href: '/library',
-    icon: BookOpen,
-    keywords: ['library', 'saved', 'bookmarks', 'favorites', 'following', 'my stuff', 'personal'],
-    requireAuth: true,
-  },
-  {
-    label: 'My Shows',
-    href: '/my-shows',
-    icon: CalendarCheck,
-    keywords: ['my shows', 'going', 'interested', 'attending', 'rsvp'],
-    requireAuth: true,
-  },
-  {
-    label: 'Following',
-    href: '/following',
-    icon: UserCheck,
-    keywords: ['following', 'follow', 'followed', 'artists', 'venues', 'labels', 'festivals'],
+    icon: Library,
+    keywords: ['library', 'saved', 'bookmarks', 'favorites', 'following', 'my stuff', 'personal', 'my shows', 'going', 'interested', 'attending'],
     requireAuth: true,
   },
   {
     label: 'Collection',
     href: '/collection',
-    icon: Library,
+    icon: BookOpen,
     keywords: ['collection', 'saved', 'my list', 'favorites', 'bookmarks'],
     requireAuth: true,
   },

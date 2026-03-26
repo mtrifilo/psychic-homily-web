@@ -258,7 +258,7 @@ describe('TopBar', () => {
         logout: mockLogout,
       })
       render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-      expect(screen.getByText('My Shows')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
       expect(screen.getByText('Collection')).toBeInTheDocument()
       expect(screen.getByText('Settings')).toBeInTheDocument()
     })
