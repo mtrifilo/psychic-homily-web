@@ -109,7 +109,7 @@ func TestGetMyReportHandler_InvalidID(t *testing.T) {
 func TestGetMyReportHandler_Success(t *testing.T) {
 	report := &contracts.ShowReportResponse{ID: 10, ShowID: 42}
 	mock := &mockShowReportService{
-		getUserReportFn: func(userID, showID uint) (*contracts.ShowReportResponse, error) {
+		getUserReportForShowFn: func(userID, showID uint) (*contracts.ShowReportResponse, error) {
 			if userID != 1 || showID != 42 {
 				t.Errorf("unexpected args: userID=%d, showID=%d", userID, showID)
 			}
@@ -133,7 +133,7 @@ func TestGetMyReportHandler_Success(t *testing.T) {
 
 func TestGetMyReportHandler_NoReport(t *testing.T) {
 	mock := &mockShowReportService{
-		getUserReportFn: func(_, _ uint) (*contracts.ShowReportResponse, error) {
+		getUserReportForShowFn: func(_, _ uint) (*contracts.ShowReportResponse, error) {
 			return nil, nil
 		},
 	}
@@ -151,7 +151,7 @@ func TestGetMyReportHandler_NoReport(t *testing.T) {
 
 func TestGetMyReportHandler_ServiceError(t *testing.T) {
 	mock := &mockShowReportService{
-		getUserReportFn: func(_, _ uint) (*contracts.ShowReportResponse, error) {
+		getUserReportForShowFn: func(_, _ uint) (*contracts.ShowReportResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -326,7 +326,7 @@ func TestResolveReportHandler_Success(t *testing.T) {
 	report := &contracts.ShowReportResponse{ID: 5, ShowID: 42, Status: "resolved"}
 	var auditAction string
 	mock := &mockShowReportService{
-		resolveWithFlagFn: func(reportID, adminID uint, notes *string, setShowFlag bool) (*contracts.ShowReportResponse, error) {
+		resolveReportWithFlagFn: func(reportID, adminID uint, notes *string, setShowFlag bool) (*contracts.ShowReportResponse, error) {
 			if reportID != 5 || adminID != 99 {
 				t.Errorf("unexpected args: reportID=%d, adminID=%d", reportID, adminID)
 			}
@@ -361,7 +361,7 @@ func TestResolveReportHandler_WithFlag(t *testing.T) {
 	var capturedFlag bool
 	var auditAction string
 	mock := &mockShowReportService{
-		resolveWithFlagFn: func(_, _ uint, _ *string, setShowFlag bool) (*contracts.ShowReportResponse, error) {
+		resolveReportWithFlagFn: func(_, _ uint, _ *string, setShowFlag bool) (*contracts.ShowReportResponse, error) {
 			capturedFlag = setShowFlag
 			return report, nil
 		},
@@ -392,7 +392,7 @@ func TestResolveReportHandler_WithFlag(t *testing.T) {
 
 func TestResolveReportHandler_ServiceError(t *testing.T) {
 	mock := &mockShowReportService{
-		resolveWithFlagFn: func(_, _ uint, _ *string, _ bool) (*contracts.ShowReportResponse, error) {
+		resolveReportWithFlagFn: func(_, _ uint, _ *string, _ bool) (*contracts.ShowReportResponse, error) {
 			return nil, fmt.Errorf("not found")
 		},
 	}

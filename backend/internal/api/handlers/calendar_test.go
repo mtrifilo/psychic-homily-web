@@ -11,53 +11,6 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// =============================================================================
-// Mock: CalendarServiceInterface
-// =============================================================================
-
-type mockCalendarService struct {
-	createTokenFn    func(userID uint, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error)
-	getTokenStatusFn func(userID uint) (*contracts.CalendarTokenStatusResponse, error)
-	deleteTokenFn    func(userID uint) error
-	validateTokenFn  func(plainToken string) (*models.User, error)
-	generateFeedFn   func(userID uint, frontendURL string) ([]byte, error)
-}
-
-func (m *mockCalendarService) CreateToken(userID uint, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
-	if m.createTokenFn != nil {
-		return m.createTokenFn(userID, apiBaseURL)
-	}
-	return nil, nil
-}
-
-func (m *mockCalendarService) GetTokenStatus(userID uint) (*contracts.CalendarTokenStatusResponse, error) {
-	if m.getTokenStatusFn != nil {
-		return m.getTokenStatusFn(userID)
-	}
-	return nil, nil
-}
-
-func (m *mockCalendarService) DeleteToken(userID uint) error {
-	if m.deleteTokenFn != nil {
-		return m.deleteTokenFn(userID)
-	}
-	return nil
-}
-
-func (m *mockCalendarService) ValidateCalendarToken(plainToken string) (*models.User, error) {
-	if m.validateTokenFn != nil {
-		return m.validateTokenFn(plainToken)
-	}
-	return nil, nil
-}
-
-func (m *mockCalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]byte, error) {
-	if m.generateFeedFn != nil {
-		return m.generateFeedFn(userID, frontendURL)
-	}
-	return nil, nil
-}
-
 func testCalendarConfig() *config.Config {
 	return &config.Config{
 		Email: config.EmailConfig{

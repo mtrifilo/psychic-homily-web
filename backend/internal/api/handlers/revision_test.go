@@ -11,53 +11,6 @@ import (
 )
 
 // ============================================================================
-// Mock: RevisionServiceInterface
-// ============================================================================
-
-type mockRevisionService struct {
-	recordRevisionFn  func(entityType string, entityID uint, userID uint, changes []models.FieldChange, summary string) error
-	getEntityHistoryFn func(entityType string, entityID uint, limit, offset int) ([]models.Revision, int64, error)
-	getRevisionFn     func(revisionID uint) (*models.Revision, error)
-	getUserRevisionsFn func(userID uint, limit, offset int) ([]models.Revision, int64, error)
-	rollbackFn        func(revisionID uint, adminUserID uint) error
-}
-
-func (m *mockRevisionService) RecordRevision(entityType string, entityID uint, userID uint, changes []models.FieldChange, summary string) error {
-	if m.recordRevisionFn != nil {
-		return m.recordRevisionFn(entityType, entityID, userID, changes, summary)
-	}
-	return nil
-}
-
-func (m *mockRevisionService) GetEntityHistory(entityType string, entityID uint, limit, offset int) ([]models.Revision, int64, error) {
-	if m.getEntityHistoryFn != nil {
-		return m.getEntityHistoryFn(entityType, entityID, limit, offset)
-	}
-	return nil, 0, nil
-}
-
-func (m *mockRevisionService) GetRevision(revisionID uint) (*models.Revision, error) {
-	if m.getRevisionFn != nil {
-		return m.getRevisionFn(revisionID)
-	}
-	return nil, nil
-}
-
-func (m *mockRevisionService) GetUserRevisions(userID uint, limit, offset int) ([]models.Revision, int64, error) {
-	if m.getUserRevisionsFn != nil {
-		return m.getUserRevisionsFn(userID, limit, offset)
-	}
-	return nil, 0, nil
-}
-
-func (m *mockRevisionService) Rollback(revisionID uint, adminUserID uint) error {
-	if m.rollbackFn != nil {
-		return m.rollbackFn(revisionID, adminUserID)
-	}
-	return nil
-}
-
-// ============================================================================
 // Test helpers
 // ============================================================================
 

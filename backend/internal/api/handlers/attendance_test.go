@@ -327,7 +327,7 @@ func TestBatchAttendanceHandler_NegativeID(t *testing.T) {
 
 func TestBatchAttendanceHandler_Success_NoAuth(t *testing.T) {
 	mock := &mockAttendanceService{
-		getBatchCountsFn: func(showIDs []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
+		getBatchAttendanceCountsFn: func(showIDs []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
 			result := make(map[uint]*contracts.AttendanceCountsResponse)
 			for _, id := range showIDs {
 				result[id] = &contracts.AttendanceCountsResponse{
@@ -364,7 +364,7 @@ func TestBatchAttendanceHandler_Success_NoAuth(t *testing.T) {
 
 func TestBatchAttendanceHandler_Success_WithAuth(t *testing.T) {
 	mock := &mockAttendanceService{
-		getBatchCountsFn: func(showIDs []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
+		getBatchAttendanceCountsFn: func(showIDs []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
 			result := make(map[uint]*contracts.AttendanceCountsResponse)
 			for _, id := range showIDs {
 				result[id] = &contracts.AttendanceCountsResponse{ShowID: id}
@@ -397,7 +397,7 @@ func TestBatchAttendanceHandler_Success_WithAuth(t *testing.T) {
 
 func TestBatchAttendanceHandler_CountsError(t *testing.T) {
 	mock := &mockAttendanceService{
-		getBatchCountsFn: func(_ []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
+		getBatchAttendanceCountsFn: func(_ []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}

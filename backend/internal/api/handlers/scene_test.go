@@ -9,61 +9,6 @@ import (
 )
 
 // ============================================================================
-// Mock SceneService
-// ============================================================================
-
-type mockSceneService struct {
-	listScenesFn     func() ([]*contracts.SceneListResponse, error)
-	getSceneDetailFn func(city, state string) (*contracts.SceneDetailResponse, error)
-	getActiveArtistsFn func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error)
-	parseSceneSlugFn func(slug string) (string, string, error)
-	getSceneGenreDistributionFn func(city, state string) ([]contracts.GenreCount, error)
-	getGenreDiversityIndexFn func(city, state string) (float64, error)
-}
-
-func (m *mockSceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
-	if m.listScenesFn != nil {
-		return m.listScenesFn()
-	}
-	return []*contracts.SceneListResponse{}, nil
-}
-
-func (m *mockSceneService) GetSceneDetail(city, state string) (*contracts.SceneDetailResponse, error) {
-	if m.getSceneDetailFn != nil {
-		return m.getSceneDetailFn(city, state)
-	}
-	return nil, nil
-}
-
-func (m *mockSceneService) GetActiveArtists(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
-	if m.getActiveArtistsFn != nil {
-		return m.getActiveArtistsFn(city, state, periodDays, limit, offset)
-	}
-	return []*contracts.SceneArtistResponse{}, 0, nil
-}
-
-func (m *mockSceneService) ParseSceneSlug(slug string) (string, string, error) {
-	if m.parseSceneSlugFn != nil {
-		return m.parseSceneSlugFn(slug)
-	}
-	return "", "", fmt.Errorf("scene not found for slug: %s", slug)
-}
-
-func (m *mockSceneService) GetSceneGenreDistribution(city, state string) ([]contracts.GenreCount, error) {
-	if m.getSceneGenreDistributionFn != nil {
-		return m.getSceneGenreDistributionFn(city, state)
-	}
-	return []contracts.GenreCount{}, nil
-}
-
-func (m *mockSceneService) GetGenreDiversityIndex(city, state string) (float64, error) {
-	if m.getGenreDiversityIndexFn != nil {
-		return m.getGenreDiversityIndexFn(city, state)
-	}
-	return -1, nil
-}
-
-// ============================================================================
 // Constructor
 // ============================================================================
 
