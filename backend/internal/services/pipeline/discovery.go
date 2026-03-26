@@ -187,7 +187,8 @@ func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName stri
 		Joins("JOIN artists ON show_artists.artist_id = artists.id").
 		Joins("JOIN show_venues ON shows.id = show_venues.show_id").
 		Joins("JOIN venues ON show_venues.venue_id = venues.id").
-		Where("LOWER(artists.name) = LOWER(?) AND show_artists.set_type = ?", headlinerName, "headliner").
+		Where("LOWER(artists.name) = LOWER(?)", headlinerName).
+		Where("(show_artists.set_type = ? OR show_artists.position = 0)", "headliner").
 		Where("LOWER(venues.name) = LOWER(?)", venueName).
 		Where("shows.event_date >= ? AND shows.event_date < ?", startOfDay, endOfDay).
 		Where("shows.status NOT IN ?", []models.ShowStatus{models.ShowStatusRejected, models.ShowStatusPrivate}).
@@ -196,6 +197,37 @@ func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName stri
 		return nil
 	}
 	return &existingShow
+}
+
+// resolveHeadlinerName determines the headliner artist name for duplicate checking.
+// Prefers BillingArtists data (with explicit set_type/billing_order) over the plain Artists list.
+// Falls back to the first artist in the list, which the import logic treats as headliner.
+func (s *DiscoveryService) resolveHeadlinerName(event *contracts.DiscoveredEvent) string {
+	// Check BillingArtists first — these have explicit set_type from AI extraction
+	if len(event.BillingArtists) > 0 {
+		// Look for an explicit headliner
+		for _, ba := range event.BillingArtists {
+			if normalizeSetType(ba.SetType) == "headliner" {
+				return ba.Name
+			}
+		}
+		// If no explicit headliner, use billing_order=1 or first entry
+		lowest := event.BillingArtists[0]
+		for _, ba := range event.BillingArtists[1:] {
+			if ba.BillingOrder > 0 && (lowest.BillingOrder == 0 || ba.BillingOrder < lowest.BillingOrder) {
+				lowest = ba
+			}
+		}
+		return lowest.Name
+	}
+
+	// Fall back to plain Artists list — first entry is treated as headliner during import
+	if len(event.Artists) > 0 {
+		return event.Artists[0]
+	}
+
+	// No artist info — can't check for headliner duplicates
+	return ""
 }
 
 // importEvent imports a single scraped event
@@ -246,15 +278,13 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 			event.Title, rejectedShow.ID, venueConfig.Name, eventDate.Format("2006-01-02")), "rejected"
 	}
 
-	// Check for potential duplicate (same headliner + venue + date as an existing show)
-	var duplicateOfShowID *uint
-	if len(event.Artists) > 0 {
-		if dupShow := s.checkHeadlinerDuplicate(event.Artists[0], venueConfig.Name, eventDate); dupShow != nil {
-			duplicateOfShowID = &dupShow.ID
-			if dryRun {
-				return fmt.Sprintf("WOULD FLAG FOR REVIEW: %s at %s on %s (potential duplicate of show #%d: %s)",
-					event.Title, venueConfig.Name, eventDate.Format("2006-01-02 15:04"), dupShow.ID, dupShow.Title), "pending_review"
-			}
+	// Check for duplicate: same headliner + venue + date as an existing show.
+	// Determine the headliner name from billing data (preferred) or artist list.
+	headlinerName := s.resolveHeadlinerName(event)
+	if headlinerName != "" {
+		if dupShow := s.checkHeadlinerDuplicate(headlinerName, venueConfig.Name, eventDate); dupShow != nil {
+			return fmt.Sprintf("DUPLICATE: %s at %s on %s (matches existing show #%d: %s)",
+				event.Title, venueConfig.Name, eventDate.Format("2006-01-02 15:04"), dupShow.ID, dupShow.Title), "duplicate"
 		}
 	}
 
@@ -263,13 +293,9 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 	}
 
 	// Create the show
-	err = s.createShowFromEvent(event, eventDate, venueConfig, duplicateOfShowID, initialStatus)
+	err = s.createShowFromEvent(event, eventDate, venueConfig, nil, initialStatus)
 	if err != nil {
 		return fmt.Sprintf("ERROR: Failed to create show: %v", err), "error"
-	}
-
-	if duplicateOfShowID != nil {
-		return fmt.Sprintf("FLAGGED FOR REVIEW: %s at %s on %s", event.Title, venueConfig.Name, eventDate.Format("2006-01-02 15:04")), "pending_review"
 	}
 
 	return fmt.Sprintf("IMPORTED: %s at %s on %s", event.Title, venueConfig.Name, eventDate.Format("2006-01-02 15:04")), "imported"
