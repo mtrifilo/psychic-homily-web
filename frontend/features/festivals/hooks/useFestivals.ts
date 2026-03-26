@@ -7,9 +7,9 @@
  */
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { apiRequest } from '@/lib/api'
 import { createDetailHook, createNamedDetailHook } from '@/lib/hooks/factories'
+import { festivalEndpoints, festivalQueryKeys } from '@/features/festivals/api'
 import type {
   FestivalsListResponse,
   FestivalDetail,
@@ -45,11 +45,11 @@ export function useFestivals(options: UseFestivalsOptions = {}) {
 
   const queryString = params.toString()
   const endpoint = queryString
-    ? `${API_ENDPOINTS.FESTIVALS.LIST}?${queryString}`
-    : API_ENDPOINTS.FESTIVALS.LIST
+    ? `${festivalEndpoints.LIST}?${queryString}`
+    : festivalEndpoints.LIST
 
   return useQuery({
-    queryKey: queryKeys.festivals.list(
+    queryKey: festivalQueryKeys.list(
       status || city || state || year || seriesSlug
         ? { status, city, state, year, seriesSlug }
         : undefined
@@ -68,8 +68,8 @@ export function useFestivals(options: UseFestivalsOptions = {}) {
  * Hook to fetch a single festival by ID or slug
  */
 export const useFestival = createDetailHook<FestivalDetail>(
-  API_ENDPOINTS.FESTIVALS.GET,
-  queryKeys.festivals.detail,
+  festivalEndpoints.GET,
+  festivalQueryKeys.detail,
 )
 
 interface UseFestivalArtistsOptions {
@@ -88,11 +88,11 @@ export function useFestivalArtists(options: UseFestivalArtistsOptions) {
   if (dayDate) params.set('day_date', dayDate)
 
   const queryString = params.toString()
-  const baseUrl = API_ENDPOINTS.FESTIVALS.ARTISTS(festivalIdOrSlug)
+  const baseUrl = festivalEndpoints.ARTISTS(festivalIdOrSlug)
   const endpoint = queryString ? `${baseUrl}?${queryString}` : baseUrl
 
   return useQuery({
-    queryKey: queryKeys.festivals.artists(festivalIdOrSlug, dayDate),
+    queryKey: festivalQueryKeys.artists(festivalIdOrSlug, dayDate),
     queryFn: async (): Promise<FestivalArtistsResponse> => {
       return apiRequest<FestivalArtistsResponse>(endpoint, {
         method: 'GET',
@@ -121,8 +121,8 @@ export function useFestivalLineup(options: { festivalId: string | number; dayDat
  */
 export const useFestivalVenues = createNamedDetailHook<FestivalVenuesResponse, 'festivalIdOrSlug'>(
   'festivalIdOrSlug',
-  API_ENDPOINTS.FESTIVALS.VENUES,
-  queryKeys.festivals.venues,
+  festivalEndpoints.VENUES,
+  festivalQueryKeys.venues,
 )
 
 /**
@@ -130,8 +130,8 @@ export const useFestivalVenues = createNamedDetailHook<FestivalVenuesResponse, '
  */
 export const useArtistFestivals = createNamedDetailHook<ArtistFestivalsResponse, 'artistIdOrSlug'>(
   'artistIdOrSlug',
-  API_ENDPOINTS.FESTIVALS.ARTIST_FESTIVALS,
-  queryKeys.festivals.artistFestivals,
+  festivalEndpoints.ARTIST_FESTIVALS,
+  festivalQueryKeys.artistFestivals,
 )
 
 // ──────────────────────────────────────────────
@@ -147,11 +147,11 @@ export function useSimilarFestivals(options: { festivalIdOrSlug: string | number
   const params = new URLSearchParams()
   if (limit) params.set('limit', String(limit))
   const queryString = params.toString()
-  const baseUrl = API_ENDPOINTS.FESTIVALS.SIMILAR(festivalIdOrSlug)
+  const baseUrl = festivalEndpoints.SIMILAR(festivalIdOrSlug)
   const endpoint = queryString ? `${baseUrl}?${queryString}` : baseUrl
 
   return useQuery({
-    queryKey: queryKeys.festivals.similar(festivalIdOrSlug),
+    queryKey: festivalQueryKeys.similar(festivalIdOrSlug),
     queryFn: async (): Promise<SimilarFestivalsResponse> => {
       return apiRequest<SimilarFestivalsResponse>(endpoint, { method: 'GET' })
     },
@@ -165,8 +165,8 @@ export function useSimilarFestivals(options: { festivalIdOrSlug: string | number
  */
 export const useFestivalBreakouts = createNamedDetailHook<FestivalBreakouts, 'festivalIdOrSlug'>(
   'festivalIdOrSlug',
-  API_ENDPOINTS.FESTIVALS.BREAKOUTS,
-  queryKeys.festivals.breakouts,
+  festivalEndpoints.BREAKOUTS,
+  festivalQueryKeys.breakouts,
 )
 
 /**
@@ -174,8 +174,8 @@ export const useFestivalBreakouts = createNamedDetailHook<FestivalBreakouts, 'fe
  */
 export const useArtistFestivalTrajectory = createNamedDetailHook<ArtistTrajectory, 'artistIdOrSlug'>(
   'artistIdOrSlug',
-  API_ENDPOINTS.FESTIVALS.ARTIST_TRAJECTORY,
-  queryKeys.festivals.artistTrajectory,
+  festivalEndpoints.ARTIST_TRAJECTORY,
+  festivalQueryKeys.artistTrajectory,
 )
 
 /**
@@ -186,10 +186,10 @@ export function useSeriesComparison(options: { seriesSlug: string; years: number
 
   const params = new URLSearchParams()
   params.set('years', years.join(','))
-  const endpoint = `${API_ENDPOINTS.FESTIVALS.SERIES_COMPARE(seriesSlug)}?${params.toString()}`
+  const endpoint = `${festivalEndpoints.SERIES_COMPARE(seriesSlug)}?${params.toString()}`
 
   return useQuery({
-    queryKey: queryKeys.festivals.seriesCompare(seriesSlug, years),
+    queryKey: festivalQueryKeys.seriesCompare(seriesSlug, years),
     queryFn: async (): Promise<SeriesComparison> => {
       return apiRequest<SeriesComparison>(endpoint, { method: 'GET' })
     },

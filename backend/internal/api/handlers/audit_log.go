@@ -7,16 +7,16 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // AuditLogHandler handles audit log HTTP requests
 type AuditLogHandler struct {
-	auditLogService services.AuditLogServiceInterface
+	auditLogService contracts.AuditLogServiceInterface
 }
 
 // NewAuditLogHandler creates a new audit log handler
-func NewAuditLogHandler(auditLogService services.AuditLogServiceInterface) *AuditLogHandler {
+func NewAuditLogHandler(auditLogService contracts.AuditLogServiceInterface) *AuditLogHandler {
 	return &AuditLogHandler{
 		auditLogService: auditLogService,
 	}
@@ -33,7 +33,7 @@ type GetAuditLogsRequest struct {
 // GetAuditLogsResponse represents the HTTP response for listing audit logs
 type GetAuditLogsResponse struct {
 	Body struct {
-		Logs  []*services.AuditLogResponse `json:"logs"`
+		Logs  []*contracts.AuditLogResponse `json:"logs"`
 		Total int64                        `json:"total"`
 	}
 }
@@ -64,7 +64,7 @@ func (h *AuditLogHandler) GetAuditLogsHandler(ctx context.Context, req *GetAudit
 	)
 
 	// Build filters
-	filters := services.AuditLogFilters{
+	filters := contracts.AuditLogFilters{
 		EntityType: req.EntityType,
 		Action:     req.Action,
 	}
@@ -88,7 +88,7 @@ func (h *AuditLogHandler) GetAuditLogsHandler(ctx context.Context, req *GetAudit
 
 	return &GetAuditLogsResponse{
 		Body: struct {
-			Logs  []*services.AuditLogResponse `json:"logs"`
+			Logs  []*contracts.AuditLogResponse `json:"logs"`
 			Total int64                        `json:"total"`
 		}{
 			Logs:  logs,

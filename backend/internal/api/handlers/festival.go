@@ -11,17 +11,17 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 type FestivalHandler struct {
-	festivalService services.FestivalServiceInterface
-	artistService   services.ArtistServiceInterface
-	auditLogService services.AuditLogServiceInterface
-	revisionService services.RevisionServiceInterface
+	festivalService contracts.FestivalServiceInterface
+	artistService   contracts.ArtistServiceInterface
+	auditLogService contracts.AuditLogServiceInterface
+	revisionService contracts.RevisionServiceInterface
 }
 
-func NewFestivalHandler(festivalService services.FestivalServiceInterface, artistService services.ArtistServiceInterface, auditLogService services.AuditLogServiceInterface, revisionService services.RevisionServiceInterface) *FestivalHandler {
+func NewFestivalHandler(festivalService contracts.FestivalServiceInterface, artistService contracts.ArtistServiceInterface, auditLogService contracts.AuditLogServiceInterface, revisionService contracts.RevisionServiceInterface) *FestivalHandler {
 	return &FestivalHandler{
 		festivalService: festivalService,
 		artistService:   artistService,
@@ -42,7 +42,7 @@ type SearchFestivalsRequest struct {
 // SearchFestivalsResponse represents the autocomplete search response
 type SearchFestivalsResponse struct {
 	Body struct {
-		Festivals []*services.FestivalListResponse `json:"festivals" doc:"Matching festivals"`
+		Festivals []*contracts.FestivalListResponse `json:"festivals" doc:"Matching festivals"`
 		Count     int                              `json:"count" doc:"Number of results"`
 	}
 }
@@ -77,7 +77,7 @@ type ListFestivalsRequest struct {
 // ListFestivalsResponse represents the response for listing festivals
 type ListFestivalsResponse struct {
 	Body struct {
-		Festivals []*services.FestivalListResponse `json:"festivals" doc:"List of festivals"`
+		Festivals []*contracts.FestivalListResponse `json:"festivals" doc:"List of festivals"`
 		Count     int                              `json:"count" doc:"Number of festivals"`
 	}
 }
@@ -125,12 +125,12 @@ type GetFestivalRequest struct {
 
 // GetFestivalResponse represents the response for the get festival endpoint
 type GetFestivalResponse struct {
-	Body *services.FestivalDetailResponse
+	Body *contracts.FestivalDetailResponse
 }
 
 // GetFestivalHandler handles GET /festivals/{festival_id}
 func (h *FestivalHandler) GetFestivalHandler(ctx context.Context, req *GetFestivalRequest) (*GetFestivalResponse, error) {
-	var festival *services.FestivalDetailResponse
+	var festival *contracts.FestivalDetailResponse
 	var err error
 
 	// Try to parse as numeric ID first
@@ -178,7 +178,7 @@ type CreateFestivalRequest struct {
 
 // CreateFestivalResponse represents the response for creating a festival
 type CreateFestivalResponse struct {
-	Body *services.FestivalDetailResponse
+	Body *contracts.FestivalDetailResponse
 }
 
 // CreateFestivalHandler handles POST /festivals
@@ -206,7 +206,7 @@ func (h *FestivalHandler) CreateFestivalHandler(ctx context.Context, req *Create
 		return nil, huma.Error400BadRequest("End date is required")
 	}
 
-	serviceReq := &services.CreateFestivalRequest{
+	serviceReq := &contracts.CreateFestivalRequest{
 		Name:         req.Body.Name,
 		SeriesSlug:   req.Body.SeriesSlug,
 		EditionYear:  req.Body.EditionYear,
@@ -278,7 +278,7 @@ type UpdateFestivalRequest struct {
 
 // UpdateFestivalResponse represents the response for updating a festival
 type UpdateFestivalResponse struct {
-	Body *services.FestivalDetailResponse
+	Body *contracts.FestivalDetailResponse
 }
 
 // UpdateFestivalHandler handles PUT /festivals/{festival_id}
@@ -296,12 +296,12 @@ func (h *FestivalHandler) UpdateFestivalHandler(ctx context.Context, req *Update
 	}
 
 	// Capture old values for revision diff (fire-and-forget safe)
-	var oldFestival *services.FestivalDetailResponse
+	var oldFestival *contracts.FestivalDetailResponse
 	if h.revisionService != nil {
 		oldFestival, _ = h.festivalService.GetFestival(festivalID)
 	}
 
-	serviceReq := &services.UpdateFestivalRequest{
+	serviceReq := &contracts.UpdateFestivalRequest{
 		Name:         req.Body.Name,
 		SeriesSlug:   req.Body.SeriesSlug,
 		EditionYear:  req.Body.EditionYear,
@@ -437,7 +437,7 @@ type GetFestivalArtistsRequest struct {
 // GetFestivalArtistsResponse represents the response for the festival lineup endpoint
 type GetFestivalArtistsResponse struct {
 	Body struct {
-		Artists []*services.FestivalArtistResponse `json:"artists" doc:"List of artists in lineup"`
+		Artists []*contracts.FestivalArtistResponse `json:"artists" doc:"List of artists in lineup"`
 		Count   int                                `json:"count" doc:"Number of artists"`
 	}
 }
@@ -486,7 +486,7 @@ type AddFestivalArtistHandlerRequest struct {
 
 // AddFestivalArtistResponse represents the response for adding an artist to a festival
 type AddFestivalArtistHandlerResponse struct {
-	Body *services.FestivalArtistResponse
+	Body *contracts.FestivalArtistResponse
 }
 
 // AddFestivalArtistHandler handles POST /festivals/{festival_id}/artists
@@ -507,7 +507,7 @@ func (h *FestivalHandler) AddFestivalArtistHandler(ctx context.Context, req *Add
 		return nil, huma.Error400BadRequest("Artist ID is required")
 	}
 
-	serviceReq := &services.AddFestivalArtistRequest{
+	serviceReq := &contracts.AddFestivalArtistRequest{
 		ArtistID:    req.Body.ArtistID,
 		BillingTier: req.Body.BillingTier,
 		Position:    req.Body.Position,
@@ -562,7 +562,7 @@ type UpdateFestivalArtistHandlerRequest struct {
 
 // UpdateFestivalArtistHandlerResponse represents the response for updating a festival artist
 type UpdateFestivalArtistHandlerResponse struct {
-	Body *services.FestivalArtistResponse
+	Body *contracts.FestivalArtistResponse
 }
 
 // UpdateFestivalArtistHandler handles PUT /festivals/{festival_id}/artists/{artist_id}
@@ -584,7 +584,7 @@ func (h *FestivalHandler) UpdateFestivalArtistHandler(ctx context.Context, req *
 		return nil, huma.Error400BadRequest("Invalid artist ID")
 	}
 
-	serviceReq := &services.UpdateFestivalArtistRequest{
+	serviceReq := &contracts.UpdateFestivalArtistRequest{
 		BillingTier: req.Body.BillingTier,
 		Position:    req.Body.Position,
 		DayDate:     req.Body.DayDate,
@@ -682,7 +682,7 @@ type GetFestivalVenuesRequest struct {
 // GetFestivalVenuesResponse represents the response for the festival venues endpoint
 type GetFestivalVenuesResponse struct {
 	Body struct {
-		Venues []*services.FestivalVenueResponse `json:"venues" doc:"List of venues"`
+		Venues []*contracts.FestivalVenueResponse `json:"venues" doc:"List of venues"`
 		Count  int                               `json:"count" doc:"Number of venues"`
 	}
 }
@@ -721,7 +721,7 @@ type AddFestivalVenueHandlerRequest struct {
 
 // AddFestivalVenueHandlerResponse represents the response for adding a venue to a festival
 type AddFestivalVenueHandlerResponse struct {
-	Body *services.FestivalVenueResponse
+	Body *contracts.FestivalVenueResponse
 }
 
 // AddFestivalVenueHandler handles POST /festivals/{festival_id}/venues
@@ -742,7 +742,7 @@ func (h *FestivalHandler) AddFestivalVenueHandler(ctx context.Context, req *AddF
 		return nil, huma.Error400BadRequest("Venue ID is required")
 	}
 
-	serviceReq := &services.AddFestivalVenueRequest{
+	serviceReq := &contracts.AddFestivalVenueRequest{
 		VenueID:   req.Body.VenueID,
 		IsPrimary: req.Body.IsPrimary,
 	}
@@ -839,7 +839,7 @@ type GetArtistFestivalsRequest struct {
 // GetArtistFestivalsResponse represents the response for the artist festivals endpoint
 type GetArtistFestivalsResponse struct {
 	Body struct {
-		Festivals []*services.ArtistFestivalListResponse `json:"festivals" doc:"List of festivals"`
+		Festivals []*contracts.ArtistFestivalListResponse `json:"festivals" doc:"List of festivals"`
 		Count     int                                    `json:"count" doc:"Number of festivals"`
 	}
 }
@@ -903,7 +903,7 @@ func (h *FestivalHandler) resolveFestivalID(idOrSlug string) (uint, error) {
 }
 
 // computeFestivalChanges compares old and new festival detail responses and returns field-level diffs.
-func computeFestivalChanges(old, new *services.FestivalDetailResponse) []models.FieldChange {
+func computeFestivalChanges(old, new *contracts.FestivalDetailResponse) []models.FieldChange {
 	var changes []models.FieldChange
 
 	if old.Name != new.Name {

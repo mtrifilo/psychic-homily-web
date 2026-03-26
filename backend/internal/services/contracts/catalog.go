@@ -303,6 +303,7 @@ type VenueDetailResponse struct {
 	City        string         `json:"city"`
 	State       string         `json:"state"`
 	Zipcode     *string        `json:"zipcode"`
+	Description *string        `json:"description,omitempty"`
 	Verified    bool           `json:"verified"`    // Admin-verified as legitimate venue
 	SubmittedBy *uint          `json:"submitted_by"` // User ID who originally submitted this venue
 	Social      SocialResponse `json:"social"`
@@ -345,19 +346,20 @@ type VenueCityResponse struct {
 
 // VenueEditRequest represents the data for updating a venue
 type VenueEditRequest struct {
-	Name       *string `json:"name"`
-	Address    *string `json:"address"`
-	City       *string `json:"city"`
-	State      *string `json:"state"`
-	Zipcode    *string `json:"zipcode"`
-	Instagram  *string `json:"instagram"`
-	Facebook   *string `json:"facebook"`
-	Twitter    *string `json:"twitter"`
-	YouTube    *string `json:"youtube"`
-	Spotify    *string `json:"spotify"`
-	SoundCloud *string `json:"soundcloud"`
-	Bandcamp   *string `json:"bandcamp"`
-	Website    *string `json:"website"`
+	Name        *string `json:"name"`
+	Address     *string `json:"address"`
+	City        *string `json:"city"`
+	State       *string `json:"state"`
+	Zipcode     *string `json:"zipcode"`
+	Instagram   *string `json:"instagram"`
+	Facebook    *string `json:"facebook"`
+	Twitter     *string `json:"twitter"`
+	YouTube     *string `json:"youtube"`
+	Spotify     *string `json:"spotify"`
+	SoundCloud  *string `json:"soundcloud"`
+	Bandcamp    *string `json:"bandcamp"`
+	Website     *string `json:"website"`
+	Description *string `json:"description"`
 }
 
 // PendingVenueEditResponse represents a pending venue edit returned to clients
@@ -437,6 +439,7 @@ type ArtistDetailResponse struct {
 	State            *string        `json:"state"`
 	City             *string        `json:"city"`
 	BandcampEmbedURL *string        `json:"bandcamp_embed_url"`
+	Description      *string        `json:"description,omitempty"`
 	Social           SocialResponse `json:"social"`
 	CreatedAt        time.Time      `json:"created_at"`
 	UpdatedAt        time.Time      `json:"updated_at"`

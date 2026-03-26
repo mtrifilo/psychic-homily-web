@@ -7,9 +7,10 @@
  */
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { apiRequest } from '@/lib/api'
 import { createDetailHook, createNamedDetailHook } from '@/lib/hooks/factories'
+import { labelEndpoints, labelQueryKeys } from '@/features/labels/api'
+import { artistEndpoints, artistQueryKeys } from '@/features/artists/api'
 import type {
   LabelsListResponse,
   LabelDetail,
@@ -37,11 +38,11 @@ export function useLabels(options: UseLabelsOptions = {}) {
 
   const queryString = params.toString()
   const endpoint = queryString
-    ? `${API_ENDPOINTS.LABELS.LIST}?${queryString}`
-    : API_ENDPOINTS.LABELS.LIST
+    ? `${labelEndpoints.LIST}?${queryString}`
+    : labelEndpoints.LIST
 
   return useQuery({
-    queryKey: queryKeys.labels.list(
+    queryKey: labelQueryKeys.list(
       status || city || state
         ? { status, city, state }
         : undefined
@@ -60,8 +61,8 @@ export function useLabels(options: UseLabelsOptions = {}) {
  * Hook to fetch a single label by ID or slug
  */
 export const useLabel = createDetailHook<LabelDetail>(
-  API_ENDPOINTS.LABELS.GET,
-  queryKeys.labels.detail,
+  labelEndpoints.GET,
+  labelQueryKeys.detail,
 )
 
 /**
@@ -69,8 +70,8 @@ export const useLabel = createDetailHook<LabelDetail>(
  */
 export const useArtistLabels = createNamedDetailHook<ArtistLabelsResponse, 'artistIdOrSlug'>(
   'artistIdOrSlug',
-  API_ENDPOINTS.ARTISTS.LABELS,
-  queryKeys.artists.labels,
+  artistEndpoints.LABELS,
+  artistQueryKeys.labels,
 )
 
 /**
@@ -78,8 +79,8 @@ export const useArtistLabels = createNamedDetailHook<ArtistLabelsResponse, 'arti
  */
 export const useLabelRoster = createNamedDetailHook<LabelArtistsResponse, 'labelIdOrSlug'>(
   'labelIdOrSlug',
-  API_ENDPOINTS.LABELS.ARTISTS,
-  queryKeys.labels.roster,
+  labelEndpoints.ARTISTS,
+  labelQueryKeys.roster,
 )
 
 /**
@@ -87,6 +88,6 @@ export const useLabelRoster = createNamedDetailHook<LabelArtistsResponse, 'label
  */
 export const useLabelCatalog = createNamedDetailHook<LabelReleasesResponse, 'labelIdOrSlug'>(
   'labelIdOrSlug',
-  API_ENDPOINTS.LABELS.RELEASES,
-  queryKeys.labels.catalog,
+  labelEndpoints.RELEASES,
+  labelQueryKeys.catalog,
 )

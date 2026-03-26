@@ -9,21 +9,21 @@ import (
 
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // PipelineHandler handles AI extraction pipeline admin endpoints.
 type PipelineHandler struct {
-	pipelineService    services.PipelineServiceInterface
-	venueConfigService services.VenueSourceConfigServiceInterface
-	enrichmentService  services.EnrichmentServiceInterface
+	pipelineService    contracts.PipelineServiceInterface
+	venueConfigService contracts.VenueSourceConfigServiceInterface
+	enrichmentService  contracts.EnrichmentServiceInterface
 }
 
 // NewPipelineHandler creates a new pipeline handler.
 func NewPipelineHandler(
-	pipelineService services.PipelineServiceInterface,
-	venueConfigService services.VenueSourceConfigServiceInterface,
-	enrichmentService services.EnrichmentServiceInterface,
+	pipelineService contracts.PipelineServiceInterface,
+	venueConfigService contracts.VenueSourceConfigServiceInterface,
+	enrichmentService contracts.EnrichmentServiceInterface,
 ) *PipelineHandler {
 	return &PipelineHandler{
 		pipelineService:    pipelineService,
@@ -42,7 +42,7 @@ type ExtractVenueRequest struct {
 
 // ExtractVenueResponse is the Huma response for POST /admin/pipeline/extract/{venue_id}
 type ExtractVenueResponse struct {
-	Body services.PipelineResult
+	Body contracts.PipelineResult
 }
 
 // ExtractVenueHandler handles POST /admin/pipeline/extract/{venue_id}
@@ -171,7 +171,7 @@ type VenueRejectionStatsRequest struct {
 
 // VenueRejectionStatsResponse is the Huma response for GET /admin/pipeline/venues/{venue_id}/stats
 type VenueRejectionStatsResponse struct {
-	Body services.VenueRejectionStats
+	Body contracts.VenueRejectionStats
 }
 
 // VenueRejectionStatsHandler handles GET /admin/pipeline/venues/{venue_id}/stats
@@ -385,7 +385,7 @@ type GetImportHistoryRequest struct {
 // GetImportHistoryResponse is the Huma response for GET /admin/pipeline/imports
 type GetImportHistoryResponse struct {
 	Body struct {
-		Imports []services.ImportHistoryEntry `json:"imports"`
+		Imports []contracts.ImportHistoryEntry `json:"imports"`
 		Total   int64                        `json:"total"`
 	}
 }
@@ -462,7 +462,7 @@ type EnrichmentStatusRequest struct{}
 
 // EnrichmentStatusResponse is the Huma response for GET /admin/pipeline/enrichment/status
 type EnrichmentStatusResponse struct {
-	Body services.EnrichmentQueueStats
+	Body contracts.EnrichmentQueueStats
 }
 
 // EnrichmentStatusHandler handles GET /admin/pipeline/enrichment/status

@@ -6,18 +6,17 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
 // AnalyticsHandler handles platform analytics dashboard endpoints.
 type AnalyticsHandler struct {
-	analyticsService services.AnalyticsServiceInterface
+	analyticsService contracts.AnalyticsServiceInterface
 }
 
 // NewAnalyticsHandler creates a new analytics handler.
 func NewAnalyticsHandler(
-	analyticsService services.AnalyticsServiceInterface,
+	analyticsService contracts.AnalyticsServiceInterface,
 ) *AnalyticsHandler {
 	return &AnalyticsHandler{
 		analyticsService: analyticsService,

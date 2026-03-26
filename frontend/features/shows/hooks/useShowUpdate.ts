@@ -1,8 +1,9 @@
 'use client'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { apiRequest } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
+import { showEndpoints } from '@/features/shows/api'
 import { showLogger } from '@/lib/utils/showLogger'
 import { ShowError } from '@/lib/errors'
 import type { ShowResponse, OrphanedArtist } from '../types'
@@ -83,7 +84,7 @@ export function useShowUpdate() {
 
       const payload = JSON.stringify(updates)
       const response = await apiRequest<ShowUpdateResponse>(
-        API_ENDPOINTS.SHOWS.UPDATE(showId),
+        showEndpoints.UPDATE(showId),
         {
           method: 'PUT',
           body: payload,

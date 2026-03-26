@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 func testAttendanceHandler() *AttendanceHandler {
@@ -220,8 +220,8 @@ func TestGetAttendanceHandler_InvalidID(t *testing.T) {
 
 func TestGetAttendanceHandler_Success_NoAuth(t *testing.T) {
 	mock := &mockAttendanceService{
-		getAttendanceCountsFn: func(showID uint) (*services.AttendanceCountsResponse, error) {
-			return &services.AttendanceCountsResponse{
+		getAttendanceCountsFn: func(showID uint) (*contracts.AttendanceCountsResponse, error) {
+			return &contracts.AttendanceCountsResponse{
 				ShowID:          showID,
 				GoingCount:      5,
 				InterestedCount: 10,
@@ -248,8 +248,8 @@ func TestGetAttendanceHandler_Success_NoAuth(t *testing.T) {
 
 func TestGetAttendanceHandler_Success_WithAuth(t *testing.T) {
 	mock := &mockAttendanceService{
-		getAttendanceCountsFn: func(showID uint) (*services.AttendanceCountsResponse, error) {
-			return &services.AttendanceCountsResponse{
+		getAttendanceCountsFn: func(showID uint) (*contracts.AttendanceCountsResponse, error) {
+			return &contracts.AttendanceCountsResponse{
 				ShowID:          showID,
 				GoingCount:      3,
 				InterestedCount: 7,
@@ -277,7 +277,7 @@ func TestGetAttendanceHandler_Success_WithAuth(t *testing.T) {
 
 func TestGetAttendanceHandler_CountsError(t *testing.T) {
 	mock := &mockAttendanceService{
-		getAttendanceCountsFn: func(_ uint) (*services.AttendanceCountsResponse, error) {
+		getAttendanceCountsFn: func(_ uint) (*contracts.AttendanceCountsResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -327,10 +327,10 @@ func TestBatchAttendanceHandler_NegativeID(t *testing.T) {
 
 func TestBatchAttendanceHandler_Success_NoAuth(t *testing.T) {
 	mock := &mockAttendanceService{
-		getBatchCountsFn: func(showIDs []uint) (map[uint]*services.AttendanceCountsResponse, error) {
-			result := make(map[uint]*services.AttendanceCountsResponse)
+		getBatchCountsFn: func(showIDs []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
+			result := make(map[uint]*contracts.AttendanceCountsResponse)
 			for _, id := range showIDs {
-				result[id] = &services.AttendanceCountsResponse{
+				result[id] = &contracts.AttendanceCountsResponse{
 					ShowID:          id,
 					GoingCount:      2,
 					InterestedCount: 3,
@@ -364,10 +364,10 @@ func TestBatchAttendanceHandler_Success_NoAuth(t *testing.T) {
 
 func TestBatchAttendanceHandler_Success_WithAuth(t *testing.T) {
 	mock := &mockAttendanceService{
-		getBatchCountsFn: func(showIDs []uint) (map[uint]*services.AttendanceCountsResponse, error) {
-			result := make(map[uint]*services.AttendanceCountsResponse)
+		getBatchCountsFn: func(showIDs []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
+			result := make(map[uint]*contracts.AttendanceCountsResponse)
 			for _, id := range showIDs {
-				result[id] = &services.AttendanceCountsResponse{ShowID: id}
+				result[id] = &contracts.AttendanceCountsResponse{ShowID: id}
 			}
 			return result, nil
 		},
@@ -397,7 +397,7 @@ func TestBatchAttendanceHandler_Success_WithAuth(t *testing.T) {
 
 func TestBatchAttendanceHandler_CountsError(t *testing.T) {
 	mock := &mockAttendanceService{
-		getBatchCountsFn: func(_ []uint) (map[uint]*services.AttendanceCountsResponse, error) {
+		getBatchCountsFn: func(_ []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -430,7 +430,7 @@ func TestGetMyShowsHandler_InvalidStatus(t *testing.T) {
 
 func TestGetMyShowsHandler_Success(t *testing.T) {
 	now := time.Now().UTC()
-	shows := []*services.AttendingShowResponse{
+	shows := []*contracts.AttendingShowResponse{
 		{
 			ShowID:    1,
 			Title:     "Test Show",
@@ -440,7 +440,7 @@ func TestGetMyShowsHandler_Success(t *testing.T) {
 		},
 	}
 	mock := &mockAttendanceService{
-		getUserAttendingShowsFn: func(userID uint, status string, limit, offset int) ([]*services.AttendingShowResponse, int64, error) {
+		getUserAttendingShowsFn: func(userID uint, status string, limit, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
 			}
@@ -468,7 +468,7 @@ func TestGetMyShowsHandler_Success(t *testing.T) {
 
 func TestGetMyShowsHandler_ServiceError(t *testing.T) {
 	mock := &mockAttendanceService{
-		getUserAttendingShowsFn: func(_ uint, _ string, _, _ int) ([]*services.AttendingShowResponse, int64, error) {
+		getUserAttendingShowsFn: func(_ uint, _ string, _, _ int) ([]*contracts.AttendingShowResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
@@ -483,7 +483,7 @@ func TestGetMyShowsHandler_ServiceError(t *testing.T) {
 func TestGetMyShowsHandler_PaginationClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
 	mock := &mockAttendanceService{
-		getUserAttendingShowsFn: func(_ uint, _ string, limit, offset int) ([]*services.AttendingShowResponse, int64, error) {
+		getUserAttendingShowsFn: func(_ uint, _ string, limit, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
 			capturedLimit = limit
 			capturedOffset = offset
 			return nil, 0, nil
@@ -514,7 +514,7 @@ func TestGetMyShowsHandler_PaginationClamping(t *testing.T) {
 func TestGetMyShowsHandler_DefaultStatus(t *testing.T) {
 	var capturedStatus string
 	mock := &mockAttendanceService{
-		getUserAttendingShowsFn: func(_ uint, status string, _, _ int) ([]*services.AttendingShowResponse, int64, error) {
+		getUserAttendingShowsFn: func(_ uint, status string, _, _ int) ([]*contracts.AttendingShowResponse, int64, error) {
 			capturedStatus = status
 			return nil, 0, nil
 		},

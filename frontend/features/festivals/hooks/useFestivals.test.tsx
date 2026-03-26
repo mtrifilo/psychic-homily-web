@@ -6,35 +6,31 @@ const mockApiRequest = vi.fn()
 
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
-  API_ENDPOINTS: {
-    FESTIVALS: {
-      LIST: '/festivals',
-      GET: (id: string | number) => `/festivals/${id}`,
-      ARTISTS: (id: string | number) => `/festivals/${id}/artists`,
-      VENUES: (id: string | number) => `/festivals/${id}/venues`,
-      ARTIST_FESTIVALS: (id: string | number) => `/artists/${id}/festivals`,
-      SIMILAR: (id: string | number) => `/festivals/${id}/similar`,
-      BREAKOUTS: (id: string | number) => `/festivals/${id}/breakouts`,
-      ARTIST_TRAJECTORY: (id: string | number) => `/artists/${id}/festival-trajectory`,
-      SERIES_COMPARE: (slug: string) => `/festivals/series/${slug}/compare`,
-    },
-  },
   API_BASE_URL: 'http://localhost:8080',
 }))
 
-vi.mock('@/lib/queryClient', () => ({
-  queryKeys: {
-    festivals: {
-      list: (filters?: Record<string, unknown>) => ['festivals', 'list', filters],
-      detail: (id: string | number) => ['festivals', 'detail', String(id)],
-      artists: (id: string | number, dayDate?: string) => ['festivals', 'artists', String(id), dayDate],
-      venues: (id: string | number) => ['festivals', 'venues', String(id)],
-      artistFestivals: (id: string | number) => ['festivals', 'artist', String(id)],
-      similar: (id: string | number) => ['festivals', 'similar', String(id)],
-      breakouts: (id: string | number) => ['festivals', 'breakouts', String(id)],
-      artistTrajectory: (id: string | number) => ['festivals', 'trajectory', String(id)],
-      seriesCompare: (slug: string, years: number[]) => ['festivals', 'series', slug, years.join(',')],
-    },
+vi.mock('@/features/festivals/api', () => ({
+  festivalEndpoints: {
+    LIST: '/festivals',
+    GET: (id: string | number) => `/festivals/${id}`,
+    ARTISTS: (id: string | number) => `/festivals/${id}/artists`,
+    VENUES: (id: string | number) => `/festivals/${id}/venues`,
+    ARTIST_FESTIVALS: (id: string | number) => `/artists/${id}/festivals`,
+    SIMILAR: (id: string | number) => `/festivals/${id}/similar`,
+    BREAKOUTS: (id: string | number) => `/festivals/${id}/breakouts`,
+    ARTIST_TRAJECTORY: (id: string | number) => `/artists/${id}/festival-trajectory`,
+    SERIES_COMPARE: (slug: string) => `/festivals/series/${slug}/compare`,
+  },
+  festivalQueryKeys: {
+    list: (filters?: Record<string, unknown>) => ['festivals', 'list', filters],
+    detail: (id: string | number) => ['festivals', 'detail', String(id)],
+    artists: (id: string | number, dayDate?: string) => ['festivals', 'artists', String(id), dayDate],
+    venues: (id: string | number) => ['festivals', 'venues', String(id)],
+    artistFestivals: (id: string | number) => ['festivals', 'artist', String(id)],
+    similar: (id: string | number) => ['festivals', 'similar', String(id)],
+    breakouts: (id: string | number) => ['festivals', 'breakouts', String(id)],
+    artistTrajectory: (id: string | number) => ['festivals', 'trajectory', String(id)],
+    seriesCompare: (slug: string, years: number[]) => ['festivals', 'series', slug, years.join(',')],
   },
 }))
 

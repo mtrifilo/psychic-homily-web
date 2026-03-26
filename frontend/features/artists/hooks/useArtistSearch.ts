@@ -1,8 +1,7 @@
 'use client'
 
 import { createSearchHook } from '@/lib/hooks/factories'
-import { API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { artistEndpoints, artistQueryKeys } from '@/features/artists/api'
 import type { ArtistSearchResponse } from '../types'
 
 /**
@@ -10,6 +9,6 @@ import type { ArtistSearchResponse } from '../types'
  * Used for autocomplete in the show submission form
  */
 export const useArtistSearch = createSearchHook<ArtistSearchResponse>(
-  API_ENDPOINTS.ARTISTS.SEARCH,
-  queryKeys.artists.search,
+  artistEndpoints.SEARCH,
+  artistQueryKeys.search,
 )

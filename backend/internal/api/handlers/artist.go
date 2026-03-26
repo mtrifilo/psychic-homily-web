@@ -14,7 +14,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // isInternalServiceRequest checks if the request has a valid internal service secret
@@ -28,12 +28,12 @@ func isInternalServiceRequest(ctx huma.Context) bool {
 }
 
 type ArtistHandler struct {
-	artistService   services.ArtistServiceInterface
-	auditLogService services.AuditLogServiceInterface
-	revisionService services.RevisionServiceInterface
+	artistService   contracts.ArtistServiceInterface
+	auditLogService contracts.AuditLogServiceInterface
+	revisionService contracts.RevisionServiceInterface
 }
 
-func NewArtistHandler(artistService services.ArtistServiceInterface, auditLogService services.AuditLogServiceInterface, revisionService services.RevisionServiceInterface) *ArtistHandler {
+func NewArtistHandler(artistService contracts.ArtistServiceInterface, auditLogService contracts.AuditLogServiceInterface, revisionService contracts.RevisionServiceInterface) *ArtistHandler {
 	return &ArtistHandler{
 		artistService:   artistService,
 		auditLogService: auditLogService,
@@ -49,7 +49,7 @@ type SearchArtistsRequest struct {
 // SearchArtistsResponse represents the autocomplete search response
 type SearchArtistsResponse struct {
 	Body struct {
-		Artists []*services.ArtistDetailResponse `json:"artists" doc:"Matching artists"`
+		Artists []*contracts.ArtistDetailResponse `json:"artists" doc:"Matching artists"`
 		Count   int                              `json:"count" doc:"Number of results"`
 	}
 }
@@ -78,7 +78,7 @@ type ListArtistsRequest struct {
 // ListArtistsResponse represents the response for listing artists
 type ListArtistsResponse struct {
 	Body struct {
-		Artists []*services.ArtistWithShowCountResponse `json:"artists" doc:"List of artists with upcoming show counts"`
+		Artists []*contracts.ArtistWithShowCountResponse `json:"artists" doc:"List of artists with upcoming show counts"`
 		Count   int                                     `json:"count" doc:"Number of artists"`
 	}
 }
@@ -134,7 +134,7 @@ type GetArtistCitiesRequest struct{}
 // GetArtistCitiesResponse represents the response for the artist cities endpoint
 type GetArtistCitiesResponse struct {
 	Body struct {
-		Cities []*services.ArtistCityResponse `json:"cities" doc:"List of cities with artist counts"`
+		Cities []*contracts.ArtistCityResponse `json:"cities" doc:"List of cities with artist counts"`
 	}
 }
 
@@ -158,12 +158,12 @@ type GetArtistRequest struct {
 
 // GetArtistResponse represents the response for the get artist endpoint
 type GetArtistResponse struct {
-	Body *services.ArtistDetailResponse
+	Body *contracts.ArtistDetailResponse
 }
 
 // GetArtistHandler handles GET /artists/{artist_id} - returns a single artist by ID or slug
 func (h *ArtistHandler) GetArtistHandler(ctx context.Context, req *GetArtistRequest) (*GetArtistResponse, error) {
-	var artist *services.ArtistDetailResponse
+	var artist *contracts.ArtistDetailResponse
 	var err error
 
 	// Try to parse as numeric ID first
@@ -196,7 +196,7 @@ type GetArtistShowsRequest struct {
 // GetArtistShowsResponse represents the response for the artist shows endpoint
 type GetArtistShowsResponse struct {
 	Body struct {
-		Shows    []*services.ArtistShowResponse `json:"shows" doc:"List of shows"`
+		Shows    []*contracts.ArtistShowResponse `json:"shows" doc:"List of shows"`
 		ArtistID uint                           `json:"artist_id" doc:"Artist ID (resolved from slug if provided)"`
 		Total    int64                          `json:"total" doc:"Total number of shows matching filter"`
 	}
@@ -265,7 +265,7 @@ type GetArtistLabelsRequest struct {
 // GetArtistLabelsResponse represents the response for the artist labels endpoint
 type GetArtistLabelsResponse struct {
 	Body struct {
-		Labels []*services.ArtistLabelResponse `json:"labels" doc:"List of labels"`
+		Labels []*contracts.ArtistLabelResponse `json:"labels" doc:"List of labels"`
 		Count  int                             `json:"count" doc:"Number of labels"`
 	}
 }
@@ -328,7 +328,7 @@ type AdminCreateArtistRequest struct {
 
 // AdminCreateArtistResponse represents the response for creating an artist
 type AdminCreateArtistResponse struct {
-	Body *services.ArtistDetailResponse
+	Body *contracts.ArtistDetailResponse
 }
 
 // AdminCreateArtistHandler handles POST /admin/artists
@@ -348,7 +348,7 @@ func (h *ArtistHandler) AdminCreateArtistHandler(ctx context.Context, req *Admin
 	}
 
 	// Build the create request
-	createReq := &services.CreateArtistRequest{
+	createReq := &contracts.CreateArtistRequest{
 		Name:       name,
 		City:       req.Body.City,
 		State:      req.Body.State,
@@ -404,7 +404,7 @@ type UpdateArtistBandcampRequest struct {
 
 // UpdateArtistBandcampResponse represents the response for updating bandcamp URL
 type UpdateArtistBandcampResponse struct {
-	Body *services.ArtistDetailResponse
+	Body *contracts.ArtistDetailResponse
 }
 
 // UpdateArtistBandcampHandler handles PATCH /admin/artists/{artist_id}/bandcamp
@@ -541,7 +541,7 @@ type UpdateArtistSpotifyRequest struct {
 
 // UpdateArtistSpotifyResponse represents the response for updating Spotify URL
 type UpdateArtistSpotifyResponse struct {
-	Body *services.ArtistDetailResponse
+	Body *contracts.ArtistDetailResponse
 }
 
 // UpdateArtistSpotifyHandler handles PATCH /admin/artists/{artist_id}/spotify
@@ -727,14 +727,15 @@ type AdminUpdateArtistRequest struct {
 		Spotify    *string `json:"spotify,omitempty" required:"false" doc:"Spotify URL"`
 		Soundcloud *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`
 		Bandcamp   *string `json:"bandcamp,omitempty" required:"false" doc:"Bandcamp URL"`
-		Website    *string `json:"website,omitempty" required:"false" doc:"Website URL"`
-		Summary    *string `json:"summary,omitempty" required:"false" doc:"Revision summary describing the change"`
+		Website     *string `json:"website,omitempty" required:"false" doc:"Website URL"`
+		Description *string `json:"description,omitempty" required:"false" doc:"Markdown description (max 5000 chars)"`
+		Summary     *string `json:"summary,omitempty" required:"false" doc:"Revision summary describing the change"`
 	}
 }
 
 // AdminUpdateArtistResponse represents the response for updating an artist
 type AdminUpdateArtistResponse struct {
-	Body *services.ArtistDetailResponse
+	Body *contracts.ArtistDetailResponse
 }
 
 // AdminUpdateArtistHandler handles PATCH /admin/artists/{artist_id}
@@ -758,8 +759,13 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 		return nil, huma.Error400BadRequest("Artist name cannot be empty")
 	}
 
+	// Validate description length if provided
+	if req.Body.Description != nil && len(*req.Body.Description) > 5000 {
+		return nil, huma.Error400BadRequest("Description must be 5000 characters or fewer")
+	}
+
 	// Capture old values for revision diff (fire-and-forget safe)
-	var oldArtist *services.ArtistDetailResponse
+	var oldArtist *contracts.ArtistDetailResponse
 	if h.revisionService != nil {
 		oldArtist, _ = h.artistService.GetArtist(uint(artistID))
 	}
@@ -799,6 +805,9 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 	}
 	if req.Body.Website != nil {
 		updates["website"] = nilIfEmpty(*req.Body.Website)
+	}
+	if req.Body.Description != nil {
+		updates["description"] = nilIfEmpty(*req.Body.Description)
 	}
 
 	if len(updates) == 0 {
@@ -855,7 +864,7 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 }
 
 // computeArtistChanges compares old and new artist detail responses and returns field-level diffs.
-func computeArtistChanges(old, new *services.ArtistDetailResponse) []models.FieldChange {
+func computeArtistChanges(old, new *contracts.ArtistDetailResponse) []models.FieldChange {
 	var changes []models.FieldChange
 
 	if old.Name != new.Name {
@@ -891,6 +900,9 @@ func computeArtistChanges(old, new *services.ArtistDetailResponse) []models.Fiel
 	if ptrToStr(old.Social.Website) != ptrToStr(new.Social.Website) {
 		changes = append(changes, models.FieldChange{Field: "website", OldValue: ptrToStr(old.Social.Website), NewValue: ptrToStr(new.Social.Website)})
 	}
+	if ptrToStr(old.Description) != ptrToStr(new.Description) {
+		changes = append(changes, models.FieldChange{Field: "description", OldValue: ptrToStr(old.Description), NewValue: ptrToStr(new.Description)})
+	}
 
 	return changes
 }
@@ -923,7 +935,7 @@ type GetArtistAliasesRequest struct {
 // GetArtistAliasesResponse represents the response for the artist aliases endpoint
 type GetArtistAliasesResponse struct {
 	Body struct {
-		Aliases []*services.ArtistAliasResponse `json:"aliases" doc:"List of aliases"`
+		Aliases []*contracts.ArtistAliasResponse `json:"aliases" doc:"List of aliases"`
 		Count   int                             `json:"count" doc:"Number of aliases"`
 	}
 }
@@ -961,7 +973,7 @@ type AddArtistAliasRequest struct {
 
 // AddArtistAliasResponse represents the response for adding an alias
 type AddArtistAliasResponse struct {
-	Body *services.ArtistAliasResponse
+	Body *contracts.ArtistAliasResponse
 }
 
 // AddArtistAliasHandler handles POST /admin/artists/{artist_id}/aliases
@@ -1071,7 +1083,7 @@ type MergeArtistsRequest struct {
 
 // MergeArtistsResponse represents the response for merging two artists
 type MergeArtistsResponse struct {
-	Body *services.MergeArtistResult
+	Body *contracts.MergeArtistResult
 }
 
 // MergeArtistsHandler handles POST /admin/artists/merge

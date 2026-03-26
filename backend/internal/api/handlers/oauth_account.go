@@ -7,16 +7,16 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // OAuthAccountHandler handles OAuth account management HTTP requests
 type OAuthAccountHandler struct {
-	userService services.UserServiceInterface
+	userService contracts.UserServiceInterface
 }
 
 // NewOAuthAccountHandler creates a new OAuth account handler
-func NewOAuthAccountHandler(userService services.UserServiceInterface) *OAuthAccountHandler {
+func NewOAuthAccountHandler(userService contracts.UserServiceInterface) *OAuthAccountHandler {
 	return &OAuthAccountHandler{
 		userService: userService,
 	}

@@ -1,8 +1,7 @@
 'use client'
 
 import { createSearchHook } from '@/lib/hooks/factories'
-import { API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
 import type { VenueSearchResponse } from '../types'
 
 /**
@@ -10,6 +9,6 @@ import type { VenueSearchResponse } from '../types'
  * Used for autocomplete in the show submission form
  */
 export const useVenueSearch = createSearchHook<VenueSearchResponse>(
-  API_ENDPOINTS.VENUES.SEARCH,
-  queryKeys.venues.search,
+  venueEndpoints.SEARCH,
+  venueQueryKeys.search,
 )

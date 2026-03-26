@@ -9,25 +9,24 @@ const mockApiRequest = vi.fn()
 vi.mock('../../api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
   API_BASE_URL: '',
-  API_ENDPOINTS: {
-    ARTISTS: {
-      SEARCH: '/artists/search',
-    },
-    VENUES: {
-      SEARCH: '/venues/search',
-    },
+}))
+
+// Mock the feature api modules used by the hooks
+vi.mock('@/features/artists/api', () => ({
+  artistEndpoints: {
+    SEARCH: '/artists/search',
+  },
+  artistQueryKeys: {
+    search: (query: string) => ['artists', 'search', query.toLowerCase()],
   },
 }))
 
-// Mock queryClient module
-vi.mock('../../queryClient', () => ({
-  queryKeys: {
-    artists: {
-      search: (query: string) => ['artists', 'search', query.toLowerCase()],
-    },
-    venues: {
-      search: (query: string) => ['venues', 'search', query.toLowerCase()],
-    },
+vi.mock('@/features/venues/api', () => ({
+  venueEndpoints: {
+    SEARCH: '/venues/search',
+  },
+  venueQueryKeys: {
+    search: (query: string) => ['venues', 'search', query.toLowerCase()],
   },
 }))
 

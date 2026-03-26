@@ -1,5 +1,8 @@
 // Public API for the venues feature module
 
+// API (endpoints + query keys)
+export { venueEndpoints, venueQueryKeys } from './api'
+
 // Types
 export type {
   Venue,

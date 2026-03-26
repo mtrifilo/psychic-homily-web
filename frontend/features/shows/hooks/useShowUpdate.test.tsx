@@ -11,10 +11,11 @@ const mockInvalidateVenues = vi.fn()
 // Mock the api module
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
-  API_ENDPOINTS: {
-    SHOWS: {
-      UPDATE: (showId: string | number) => `/shows/${showId}`,
-    },
+}))
+
+vi.mock('@/features/shows/api', () => ({
+  showEndpoints: {
+    UPDATE: (showId: string | number) => `/shows/${showId}`,
   },
 }))
 

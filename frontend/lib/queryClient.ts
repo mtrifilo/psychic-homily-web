@@ -9,6 +9,12 @@
 
 import { QueryClient, DefaultOptions, QueryCache, MutationCache } from '@tanstack/react-query'
 import { AuthError, AuthErrorCode } from './errors'
+import { artistQueryKeys } from '@/features/artists/api'
+import { venueQueryKeys } from '@/features/venues/api'
+import { showQueryKeys } from '@/features/shows/api'
+import { releaseQueryKeys } from '@/features/releases/api'
+import { labelQueryKeys } from '@/features/labels/api'
+import { festivalQueryKeys } from '@/features/festivals/api'
 
 // Default query options for all queries
 const defaultQueryOptions: DefaultOptions = {
@@ -117,30 +123,11 @@ export const queryKeys = {
     user: (id: string) => ['auth', 'user', id] as const,
   },
 
-  // Show queries
-  shows: {
-    all: ['shows'] as const,
-    list: (filters?: Record<string, unknown>) =>
-      ['shows', 'list', filters] as const,
-    cities: (timezone?: string) => ['shows', 'cities', timezone] as const,
-    detail: (id: string) => ['shows', 'detail', id] as const,
-    userShows: (userId: string) => ['shows', 'user', userId] as const,
-  },
+  // Show queries (defined in features/shows/api.ts)
+  shows: showQueryKeys,
 
-  // Venue queries
-  venues: {
-    all: ['venues'] as const,
-    list: (filters?: Record<string, unknown>) =>
-      ['venues', 'list', filters] as const,
-    cities: ['venues', 'cities'] as const,
-    detail: (idOrSlug: string | number) => ['venues', 'detail', String(idOrSlug)] as const,
-    search: (query: string) =>
-      ['venues', 'search', query.toLowerCase()] as const,
-    shows: (venueIdOrSlug: string | number) => ['venues', 'shows', String(venueIdOrSlug)] as const,
-    genres: (venueIdOrSlug: string | number) => ['venues', 'genres', String(venueIdOrSlug)] as const,
-    myPendingEdit: (venueIdOrSlug: string | number) =>
-      ['venues', 'myPendingEdit', String(venueIdOrSlug)] as const,
-  },
+  // Venue queries (defined in features/venues/api.ts)
+  venues: venueQueryKeys,
 
   // Admin queries
   admin: {
@@ -167,65 +154,17 @@ export const queryKeys = {
     },
   },
 
-  // Artist queries
-  artists: {
-    all: ['artists'] as const,
-    list: (filters?: Record<string, unknown>) =>
-      ['artists', 'list', filters] as const,
-    cities: ['artists', 'cities'] as const,
-    search: (query: string) =>
-      ['artists', 'search', query.toLowerCase()] as const,
-    detail: (idOrSlug: string | number) => ['artists', 'detail', String(idOrSlug)] as const,
-    shows: (artistIdOrSlug: string | number) => ['artists', 'shows', String(artistIdOrSlug)] as const,
-    labels: (artistIdOrSlug: string | number) => ['artists', 'labels', String(artistIdOrSlug)] as const,
-    aliases: (artistId: number) => ['artists', 'aliases', artistId] as const,
-    graph: (idOrSlug: string | number, types?: string[]) =>
-      ['artists', 'graph', String(idOrSlug), types] as const,
-  },
+  // Artist queries (defined in features/artists/api.ts)
+  artists: artistQueryKeys,
 
-  // Release queries
-  releases: {
-    all: ['releases'] as const,
-    list: (filters?: Record<string, unknown>) =>
-      ['releases', 'list', filters] as const,
-    detail: (idOrSlug: string | number) => ['releases', 'detail', String(idOrSlug)] as const,
-    artistReleases: (artistIdOrSlug: string | number) =>
-      ['releases', 'artist', String(artistIdOrSlug)] as const,
-  },
+  // Release queries (defined in features/releases/api.ts)
+  releases: releaseQueryKeys,
 
-  // Label queries
-  labels: {
-    all: ['labels'] as const,
-    list: (filters?: Record<string, unknown>) =>
-      ['labels', 'list', filters] as const,
-    detail: (idOrSlug: string | number) => ['labels', 'detail', String(idOrSlug)] as const,
-    roster: (idOrSlug: string | number) => ['labels', 'roster', String(idOrSlug)] as const,
-    catalog: (idOrSlug: string | number) => ['labels', 'catalog', String(idOrSlug)] as const,
-  },
+  // Label queries (defined in features/labels/api.ts)
+  labels: labelQueryKeys,
 
-  // Festival queries
-  festivals: {
-    all: ['festivals'] as const,
-    list: (filters?: Record<string, unknown>) =>
-      ['festivals', 'list', filters] as const,
-    detail: (idOrSlug: string | number) => ['festivals', 'detail', String(idOrSlug)] as const,
-    artists: (idOrSlug: string | number, dayDate?: string) =>
-      ['festivals', 'artists', String(idOrSlug), dayDate] as const,
-    venues: (idOrSlug: string | number) =>
-      ['festivals', 'venues', String(idOrSlug)] as const,
-    artistFestivals: (artistIdOrSlug: string | number) =>
-      ['festivals', 'artist', String(artistIdOrSlug)] as const,
-    similar: (idOrSlug: string | number) =>
-      ['festivals', 'similar', String(idOrSlug)] as const,
-    overlap: (aId: string | number, bId: string | number) =>
-      ['festivals', 'overlap', String(aId), String(bId)] as const,
-    breakouts: (idOrSlug: string | number) =>
-      ['festivals', 'breakouts', String(idOrSlug)] as const,
-    artistTrajectory: (artistIdOrSlug: string | number) =>
-      ['festivals', 'trajectory', String(artistIdOrSlug)] as const,
-    seriesCompare: (seriesSlug: string, years: number[]) =>
-      ['festivals', 'series', seriesSlug, years.join(',')] as const,
-  },
+  // Festival queries (defined in features/festivals/api.ts)
+  festivals: festivalQueryKeys,
 
   // Calendar feed queries
   calendar: {

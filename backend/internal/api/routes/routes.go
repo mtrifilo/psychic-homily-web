@@ -486,73 +486,80 @@ func setupArtistReportRoutes(router *chi.Mux, protected *huma.Group, sc *service
 // setupAdminRoutes configures admin-only endpoints
 // Note: Admin check is performed inside handlers, JWT auth is required via protected group
 func setupAdminRoutes(protected *huma.Group, sc *services.ServiceContainer) {
-	adminHandler := handlers.NewAdminHandler(
-		sc.Show, sc.Venue, sc.Discord, sc.MusicDiscovery, sc.Discovery,
-		sc.APIToken, sc.DataSync, sc.AuditLog, sc.User, sc.AdminStats,
-		sc.NotificationFilter,
+	// Domain-specific admin handlers
+	statsHandler := handlers.NewAdminStatsHandler(sc.AdminStats)
+	showHandler := handlers.NewAdminShowHandler(
+		sc.Show, sc.Discord, sc.AuditLog, sc.NotificationFilter,
+		sc.MusicDiscovery,
 	)
+	venueHandler := handlers.NewAdminVenueHandler(sc.Venue, sc.AuditLog)
+	userHandler := handlers.NewAdminUserHandler(sc.User)
+	tokenHandler := handlers.NewAdminTokenHandler(sc.APIToken)
+	dataHandler := handlers.NewAdminDataHandler(sc.DataSync)
+	discoveryHandler := handlers.NewAdminDiscoveryHandler(sc.Discovery)
+
 	artistHandler := handlers.NewArtistHandler(sc.Artist, sc.AuditLog, sc.Revision)
 	auditLogHandler := handlers.NewAuditLogHandler(sc.AuditLog)
 
 	// Admin dashboard stats endpoint
-	huma.Get(protected, "/admin/stats", adminHandler.GetAdminStatsHandler)
-	huma.Get(protected, "/admin/activity", adminHandler.GetActivityFeedHandler)
+	huma.Get(protected, "/admin/stats", statsHandler.GetAdminStatsHandler)
+	huma.Get(protected, "/admin/activity", statsHandler.GetActivityFeedHandler)
 
 	// Admin show listing endpoint (for CLI export)
-	huma.Get(protected, "/admin/shows", adminHandler.GetAdminShowsHandler)
+	huma.Get(protected, "/admin/shows", showHandler.GetAdminShowsHandler)
 
 	// Admin show management endpoints
-	huma.Get(protected, "/admin/shows/pending", adminHandler.GetPendingShowsHandler)
-	huma.Get(protected, "/admin/shows/rejected", adminHandler.GetRejectedShowsHandler)
-	huma.Post(protected, "/admin/shows/{show_id}/approve", adminHandler.ApproveShowHandler)
-	huma.Post(protected, "/admin/shows/{show_id}/reject", adminHandler.RejectShowHandler)
-	huma.Post(protected, "/admin/shows/batch-approve", adminHandler.BatchApproveShowsHandler)
-	huma.Post(protected, "/admin/shows/batch-reject", adminHandler.BatchRejectShowsHandler)
+	huma.Get(protected, "/admin/shows/pending", showHandler.GetPendingShowsHandler)
+	huma.Get(protected, "/admin/shows/rejected", showHandler.GetRejectedShowsHandler)
+	huma.Post(protected, "/admin/shows/{show_id}/approve", showHandler.ApproveShowHandler)
+	huma.Post(protected, "/admin/shows/{show_id}/reject", showHandler.RejectShowHandler)
+	huma.Post(protected, "/admin/shows/batch-approve", showHandler.BatchApproveShowsHandler)
+	huma.Post(protected, "/admin/shows/batch-reject", showHandler.BatchRejectShowsHandler)
 
 	// Admin show import endpoints (single)
-	huma.Post(protected, "/admin/shows/import/preview", adminHandler.ImportShowPreviewHandler)
-	huma.Post(protected, "/admin/shows/import/confirm", adminHandler.ImportShowConfirmHandler)
+	huma.Post(protected, "/admin/shows/import/preview", showHandler.ImportShowPreviewHandler)
+	huma.Post(protected, "/admin/shows/import/confirm", showHandler.ImportShowConfirmHandler)
 
 	// Admin show export/import endpoints (bulk - for CLI)
-	huma.Post(protected, "/admin/shows/export/bulk", adminHandler.BulkExportShowsHandler)
-	huma.Post(protected, "/admin/shows/import/bulk/preview", adminHandler.BulkImportPreviewHandler)
-	huma.Post(protected, "/admin/shows/import/bulk/confirm", adminHandler.BulkImportConfirmHandler)
+	huma.Post(protected, "/admin/shows/export/bulk", showHandler.BulkExportShowsHandler)
+	huma.Post(protected, "/admin/shows/import/bulk/preview", showHandler.BulkImportPreviewHandler)
+	huma.Post(protected, "/admin/shows/import/bulk/confirm", showHandler.BulkImportConfirmHandler)
 
 	// Admin venue management endpoints
-	huma.Get(protected, "/admin/venues/unverified", adminHandler.GetUnverifiedVenuesHandler)
-	huma.Post(protected, "/admin/venues/{venue_id}/verify", adminHandler.VerifyVenueHandler)
+	huma.Get(protected, "/admin/venues/unverified", venueHandler.GetUnverifiedVenuesHandler)
+	huma.Post(protected, "/admin/venues/{venue_id}/verify", venueHandler.VerifyVenueHandler)
 
 	// Admin pending venue edit endpoints
-	huma.Get(protected, "/admin/venues/pending-edits", adminHandler.GetPendingVenueEditsHandler)
-	huma.Post(protected, "/admin/venues/pending-edits/{edit_id}/approve", adminHandler.ApproveVenueEditHandler)
-	huma.Post(protected, "/admin/venues/pending-edits/{edit_id}/reject", adminHandler.RejectVenueEditHandler)
+	huma.Get(protected, "/admin/venues/pending-edits", venueHandler.GetPendingVenueEditsHandler)
+	huma.Post(protected, "/admin/venues/pending-edits/{edit_id}/approve", venueHandler.ApproveVenueEditHandler)
+	huma.Post(protected, "/admin/venues/pending-edits/{edit_id}/reject", venueHandler.RejectVenueEditHandler)
 
 	// Admin artist management endpoints
 	huma.Patch(protected, "/admin/artists/{artist_id}/bandcamp", artistHandler.UpdateArtistBandcampHandler)
 	huma.Patch(protected, "/admin/artists/{artist_id}/spotify", artistHandler.UpdateArtistSpotifyHandler)
 
 	// Admin discovery endpoints (for local discovery app)
-	huma.Post(protected, "/admin/discovery/import", adminHandler.DiscoveryImportHandler)
-	huma.Post(protected, "/admin/discovery/check", adminHandler.DiscoveryCheckHandler)
+	huma.Post(protected, "/admin/discovery/import", discoveryHandler.DiscoveryImportHandler)
+	huma.Post(protected, "/admin/discovery/check", discoveryHandler.DiscoveryCheckHandler)
 
 	// Admin API token management endpoints
-	huma.Post(protected, "/admin/tokens", adminHandler.CreateAPITokenHandler)
-	huma.Get(protected, "/admin/tokens", adminHandler.ListAPITokensHandler)
-	huma.Delete(protected, "/admin/tokens/{token_id}", adminHandler.RevokeAPITokenHandler)
+	huma.Post(protected, "/admin/tokens", tokenHandler.CreateAPITokenHandler)
+	huma.Get(protected, "/admin/tokens", tokenHandler.ListAPITokensHandler)
+	huma.Delete(protected, "/admin/tokens/{token_id}", tokenHandler.RevokeAPITokenHandler)
 
 	// Admin data export endpoints (for syncing local data to Stage/Production)
-	huma.Get(protected, "/admin/export/shows", adminHandler.ExportShowsHandler)
-	huma.Get(protected, "/admin/export/artists", adminHandler.ExportArtistsHandler)
-	huma.Get(protected, "/admin/export/venues", adminHandler.ExportVenuesHandler)
+	huma.Get(protected, "/admin/export/shows", dataHandler.ExportShowsHandler)
+	huma.Get(protected, "/admin/export/artists", dataHandler.ExportArtistsHandler)
+	huma.Get(protected, "/admin/export/venues", dataHandler.ExportVenuesHandler)
 
 	// Admin data import endpoint (for syncing local data to Stage/Production)
-	huma.Post(protected, "/admin/data/import", adminHandler.DataImportHandler)
+	huma.Post(protected, "/admin/data/import", dataHandler.DataImportHandler)
 
 	// Admin audit log endpoint
 	huma.Get(protected, "/admin/audit-logs", auditLogHandler.GetAuditLogsHandler)
 
 	// Admin user list endpoint
-	huma.Get(protected, "/admin/users", adminHandler.GetAdminUsersHandler)
+	huma.Get(protected, "/admin/users", userHandler.GetAdminUsersHandler)
 
 	// Admin data quality endpoints
 	dataQualityHandler := handlers.NewDataQualityHandler(sc.DataQuality)

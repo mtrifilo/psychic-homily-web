@@ -7,9 +7,9 @@
  */
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { apiRequest } from '@/lib/api'
 import { createNamedDetailHook } from '@/lib/hooks/factories'
+import { artistEndpoints, artistQueryKeys } from '@/features/artists/api'
 import type { CityState } from '@/components/filters'
 import type {
   Artist,
@@ -37,11 +37,11 @@ export function useArtists(options: UseArtistsOptions = {}) {
 
   const queryString = params.toString()
   const endpoint = queryString
-    ? `${API_ENDPOINTS.ARTISTS.LIST}?${queryString}`
-    : API_ENDPOINTS.ARTISTS.LIST
+    ? `${artistEndpoints.LIST}?${queryString}`
+    : artistEndpoints.LIST
 
   return useQuery({
-    queryKey: queryKeys.artists.list(cities ? { cities } : undefined),
+    queryKey: artistQueryKeys.list(cities ? { cities } : undefined),
     queryFn: async (): Promise<ArtistsListResponse> => {
       return apiRequest<ArtistsListResponse>(endpoint, {
         method: 'GET',
@@ -57,9 +57,9 @@ export function useArtists(options: UseArtistsOptions = {}) {
  */
 export function useArtistCities() {
   return useQuery({
-    queryKey: queryKeys.artists.cities,
+    queryKey: artistQueryKeys.cities,
     queryFn: async (): Promise<ArtistCitiesResponse> => {
-      return apiRequest<ArtistCitiesResponse>(API_ENDPOINTS.ARTISTS.CITIES, {
+      return apiRequest<ArtistCitiesResponse>(artistEndpoints.CITIES, {
         method: 'GET',
       })
     },
@@ -73,8 +73,8 @@ export function useArtistCities() {
  */
 export const useArtist = createNamedDetailHook<Artist, 'artistId'>(
   'artistId',
-  API_ENDPOINTS.ARTISTS.GET,
-  queryKeys.artists.detail,
+  artistEndpoints.GET,
+  artistQueryKeys.detail,
 )
 
 interface UseArtistShowsOptions {
@@ -106,11 +106,11 @@ export function useArtistShows(options: UseArtistShowsOptions) {
 
   const queryString = params.toString()
   const endpoint = queryString
-    ? `${API_ENDPOINTS.ARTISTS.SHOWS(artistId)}?${queryString}`
-    : API_ENDPOINTS.ARTISTS.SHOWS(artistId)
+    ? `${artistEndpoints.SHOWS(artistId)}?${queryString}`
+    : artistEndpoints.SHOWS(artistId)
 
   return useQuery({
-    queryKey: [...queryKeys.artists.shows(artistId), timeFilter],
+    queryKey: [...artistQueryKeys.shows(artistId), timeFilter],
     queryFn: async (): Promise<ArtistShowsResponse> => {
       return apiRequest<ArtistShowsResponse>(endpoint, {
         method: 'GET',

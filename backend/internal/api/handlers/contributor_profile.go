@@ -10,19 +10,19 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ContributorProfileHandler handles contributor profile HTTP requests.
 type ContributorProfileHandler struct {
-	profileService services.ContributorProfileServiceInterface
-	userService    services.UserServiceInterface
+	profileService contracts.ContributorProfileServiceInterface
+	userService    contracts.UserServiceInterface
 }
 
 // NewContributorProfileHandler creates a new contributor profile handler.
 func NewContributorProfileHandler(
-	profileService services.ContributorProfileServiceInterface,
-	userService services.UserServiceInterface,
+	profileService contracts.ContributorProfileServiceInterface,
+	userService contracts.UserServiceInterface,
 ) *ContributorProfileHandler {
 	return &ContributorProfileHandler{
 		profileService: profileService,
@@ -37,7 +37,7 @@ type GetPublicProfileRequest struct {
 }
 
 type GetPublicProfileResponse struct {
-	Body *services.PublicProfileResponse
+	Body *contracts.PublicProfileResponse
 }
 
 type GetContributionHistoryRequest struct {
@@ -49,7 +49,7 @@ type GetContributionHistoryRequest struct {
 
 type GetContributionHistoryResponse struct {
 	Body struct {
-		Contributions []*services.ContributionEntry `json:"contributions"`
+		Contributions []*contracts.ContributionEntry `json:"contributions"`
 		Total         int64                         `json:"total"`
 		Limit         int                           `json:"limit"`
 		Offset        int                           `json:"offset"`
@@ -57,7 +57,7 @@ type GetContributionHistoryResponse struct {
 }
 
 type GetOwnProfileResponse struct {
-	Body *services.PublicProfileResponse
+	Body *contracts.PublicProfileResponse
 }
 
 type GetOwnContributionsRequest struct {
@@ -68,7 +68,7 @@ type GetOwnContributionsRequest struct {
 
 type GetOwnContributionsResponse struct {
 	Body struct {
-		Contributions []*services.ContributionEntry `json:"contributions"`
+		Contributions []*contracts.ContributionEntry `json:"contributions"`
 		Total         int64                         `json:"total"`
 		Limit         int                           `json:"limit"`
 		Offset        int                           `json:"offset"`
@@ -89,13 +89,13 @@ type UpdateProfileVisibilityResponse struct {
 }
 
 type UpdatePrivacySettingsRequest struct {
-	Body services.PrivacySettings
+	Body contracts.PrivacySettings
 }
 
 type UpdatePrivacySettingsResponse struct {
 	Body struct {
 		Success  bool                     `json:"success"`
-		Settings services.PrivacySettings `json:"privacy_settings"`
+		Settings contracts.PrivacySettings `json:"privacy_settings"`
 	}
 }
 
@@ -105,13 +105,13 @@ type GetUserSectionsRequest struct {
 
 type GetUserSectionsResponse struct {
 	Body struct {
-		Sections []*services.ProfileSectionResponse `json:"sections"`
+		Sections []*contracts.ProfileSectionResponse `json:"sections"`
 	}
 }
 
 type GetOwnSectionsResponse struct {
 	Body struct {
-		Sections []*services.ProfileSectionResponse `json:"sections"`
+		Sections []*contracts.ProfileSectionResponse `json:"sections"`
 	}
 }
 
@@ -124,7 +124,7 @@ type CreateSectionRequest struct {
 }
 
 type CreateSectionResponse struct {
-	Body *services.ProfileSectionResponse
+	Body *contracts.ProfileSectionResponse
 }
 
 type UpdateSectionRequest struct {
@@ -138,7 +138,7 @@ type UpdateSectionRequest struct {
 }
 
 type UpdateSectionResponse struct {
-	Body *services.ProfileSectionResponse
+	Body *contracts.ProfileSectionResponse
 }
 
 type DeleteSectionRequest struct {
@@ -212,15 +212,15 @@ func (h *ContributorProfileHandler) GetContributionHistoryHandler(ctx context.Co
 
 	// Granular privacy check for contributions
 	if !isOwner {
-		privacy := services.DefaultPrivacySettings()
+		privacy := contracts.DefaultPrivacySettings()
 		if targetUser.PrivacySettings != nil {
 			_ = json.Unmarshal(*targetUser.PrivacySettings, &privacy)
 		}
 
 		switch privacy.Contributions {
-		case services.PrivacyHidden:
+		case contracts.PrivacyHidden:
 			return nil, huma.Error404NotFound("User not found")
-		case services.PrivacyCountOnly:
+		case contracts.PrivacyCountOnly:
 			// Return total count but no items
 			stats, err := h.profileService.GetContributionStats(targetUser.ID)
 			if err != nil {
@@ -235,12 +235,12 @@ func (h *ContributorProfileHandler) GetContributionHistoryHandler(ctx context.Co
 			}
 			return &GetContributionHistoryResponse{
 				Body: struct {
-					Contributions []*services.ContributionEntry `json:"contributions"`
+					Contributions []*contracts.ContributionEntry `json:"contributions"`
 					Total         int64                         `json:"total"`
 					Limit         int                           `json:"limit"`
 					Offset        int                           `json:"offset"`
 				}{
-					Contributions: []*services.ContributionEntry{},
+					Contributions: []*contracts.ContributionEntry{},
 					Total:         stats.TotalContributions,
 					Limit:         req.Limit,
 					Offset:        req.Offset,
@@ -263,7 +263,7 @@ func (h *ContributorProfileHandler) GetContributionHistoryHandler(ctx context.Co
 
 	return &GetContributionHistoryResponse{
 		Body: struct {
-			Contributions []*services.ContributionEntry `json:"contributions"`
+			Contributions []*contracts.ContributionEntry `json:"contributions"`
 			Total         int64                         `json:"total"`
 			Limit         int                           `json:"limit"`
 			Offset        int                           `json:"offset"`
@@ -327,7 +327,7 @@ func (h *ContributorProfileHandler) GetOwnContributionsHandler(ctx context.Conte
 
 	return &GetOwnContributionsResponse{
 		Body: struct {
-			Contributions []*services.ContributionEntry `json:"contributions"`
+			Contributions []*contracts.ContributionEntry `json:"contributions"`
 			Total         int64                         `json:"total"`
 			Limit         int                           `json:"limit"`
 			Offset        int                           `json:"offset"`
@@ -409,7 +409,7 @@ func (h *ContributorProfileHandler) UpdatePrivacySettingsHandler(ctx context.Con
 	return &UpdatePrivacySettingsResponse{
 		Body: struct {
 			Success  bool                     `json:"success"`
-			Settings services.PrivacySettings `json:"privacy_settings"`
+			Settings contracts.PrivacySettings `json:"privacy_settings"`
 		}{
 			Success:  true,
 			Settings: *settings,
@@ -444,17 +444,17 @@ func (h *ContributorProfileHandler) GetUserSectionsHandler(ctx context.Context, 
 		return nil, huma.Error404NotFound("User not found")
 	}
 
-	var sections []*services.ProfileSectionResponse
+	var sections []*contracts.ProfileSectionResponse
 	if isOwner {
 		sections, err = h.profileService.GetOwnSections(targetUser.ID)
 	} else {
 		// Check granular privacy
-		privacy := services.DefaultPrivacySettings()
+		privacy := contracts.DefaultPrivacySettings()
 		if targetUser.PrivacySettings != nil {
 			_ = json.Unmarshal(*targetUser.PrivacySettings, &privacy)
 		}
-		if privacy.ProfileSections == services.PrivacyHidden {
-			sections = []*services.ProfileSectionResponse{}
+		if privacy.ProfileSections == contracts.PrivacyHidden {
+			sections = []*contracts.ProfileSectionResponse{}
 		} else {
 			sections, err = h.profileService.GetUserSections(targetUser.ID)
 		}
@@ -472,7 +472,7 @@ func (h *ContributorProfileHandler) GetUserSectionsHandler(ctx context.Context, 
 
 	return &GetUserSectionsResponse{
 		Body: struct {
-			Sections []*services.ProfileSectionResponse `json:"sections"`
+			Sections []*contracts.ProfileSectionResponse `json:"sections"`
 		}{
 			Sections: sections,
 		},
@@ -502,7 +502,7 @@ func (h *ContributorProfileHandler) GetOwnSectionsHandler(ctx context.Context, r
 
 	return &GetOwnSectionsResponse{
 		Body: struct {
-			Sections []*services.ProfileSectionResponse `json:"sections"`
+			Sections []*contracts.ProfileSectionResponse `json:"sections"`
 		}{
 			Sections: sections,
 		},

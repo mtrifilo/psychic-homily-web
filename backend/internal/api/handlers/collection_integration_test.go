@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 type CollectionHandlerIntegrationSuite struct {
@@ -39,8 +39,8 @@ func TestCollectionHandlerIntegration(t *testing.T) {
 
 // --- Helpers ---
 
-func (s *CollectionHandlerIntegrationSuite) createCollectionViaService(user *models.User, title string, isPublic bool) *services.CollectionDetailResponse {
-	resp, err := s.deps.collectionService.CreateCollection(user.ID, &services.CreateCollectionRequest{
+func (s *CollectionHandlerIntegrationSuite) createCollectionViaService(user *models.User, title string, isPublic bool) *contracts.CollectionDetailResponse {
+	resp, err := s.deps.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
 		Title:    title,
 		IsPublic: isPublic,
 	})
@@ -156,7 +156,7 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_Success() {
 
 	// Add an artist item
 	artist := createArtist(s.deps.db, "Stats Artist")
-	_, err := s.deps.collectionService.AddItem(coll.Slug, user.ID, &services.AddCollectionItemRequest{
+	_, err := s.deps.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
@@ -564,7 +564,7 @@ func (s *CollectionHandlerIntegrationSuite) TestRemoveItem_Success() {
 	artist := createArtist(s.deps.db, "Removable Artist")
 
 	// Add item via service
-	item, err := s.deps.collectionService.AddItem(coll.Slug, user.ID, &services.AddCollectionItemRequest{
+	item, err := s.deps.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
@@ -600,7 +600,7 @@ func (s *CollectionHandlerIntegrationSuite) TestRemoveItem_NotOwner() {
 	coll := s.createCollectionViaService(owner, "Not My Remove", true)
 	artist := createArtist(s.deps.db, "Not My Artist")
 
-	item, err := s.deps.collectionService.AddItem(coll.Slug, owner.ID, &services.AddCollectionItemRequest{
+	item, err := s.deps.collectionService.AddItem(coll.Slug, owner.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
@@ -634,13 +634,13 @@ func (s *CollectionHandlerIntegrationSuite) TestReorderItems_Success() {
 	artist1 := createArtist(s.deps.db, "Reorder Artist 1")
 	artist2 := createArtist(s.deps.db, "Reorder Artist 2")
 
-	item1, err := s.deps.collectionService.AddItem(coll.Slug, user.ID, &services.AddCollectionItemRequest{
+	item1, err := s.deps.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist1.ID,
 	})
 	s.Require().NoError(err)
 
-	item2, err := s.deps.collectionService.AddItem(coll.Slug, user.ID, &services.AddCollectionItemRequest{
+	item2, err := s.deps.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist2.ID,
 	})
@@ -648,7 +648,7 @@ func (s *CollectionHandlerIntegrationSuite) TestReorderItems_Success() {
 
 	ctx := ctxWithUser(user)
 	req := &ReorderItemsHandlerRequest{Slug: coll.Slug}
-	req.Body.Items = []services.ReorderItem{
+	req.Body.Items = []contracts.ReorderItem{
 		{ItemID: item1.ID, Position: 2},
 		{ItemID: item2.ID, Position: 1},
 	}
@@ -670,7 +670,7 @@ func (s *CollectionHandlerIntegrationSuite) TestReorderItems_NotOwner() {
 
 	ctx := ctxWithUser(other)
 	req := &ReorderItemsHandlerRequest{Slug: coll.Slug}
-	req.Body.Items = []services.ReorderItem{
+	req.Body.Items = []contracts.ReorderItem{
 		{ItemID: 1, Position: 1},
 	}
 

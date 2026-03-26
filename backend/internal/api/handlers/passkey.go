@@ -16,19 +16,19 @@ import (
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // PasskeyHandler handles passkey/WebAuthn requests
 type PasskeyHandler struct {
-	webauthnService services.WebAuthnServiceInterface
-	jwtService      services.JWTServiceInterface
-	userService     services.UserServiceInterface
+	webauthnService contracts.WebAuthnServiceInterface
+	jwtService      contracts.JWTServiceInterface
+	userService     contracts.UserServiceInterface
 	config          *config.Config
 }
 
 // NewPasskeyHandler creates a new passkey handler
-func NewPasskeyHandler(webauthnService services.WebAuthnServiceInterface, jwtService services.JWTServiceInterface, userService services.UserServiceInterface, cfg *config.Config) *PasskeyHandler {
+func NewPasskeyHandler(webauthnService contracts.WebAuthnServiceInterface, jwtService contracts.JWTServiceInterface, userService contracts.UserServiceInterface, cfg *config.Config) *PasskeyHandler {
 	return &PasskeyHandler{
 		webauthnService: webauthnService,
 		jwtService:      jwtService,
@@ -793,7 +793,7 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		session,
 		parsedResponse,
 		displayName,
-		services.LegalAcceptance{
+		contracts.LegalAcceptance{
 			TermsAcceptedAt: time.Now().UTC(),
 			TermsVersion:    input.Body.TermsVersion,
 			PrivacyVersion:  input.Body.PrivacyVersion,

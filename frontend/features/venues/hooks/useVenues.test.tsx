@@ -9,26 +9,22 @@ const mockApiRequest = vi.fn()
 // Mock the api module
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
-  API_ENDPOINTS: {
-    VENUES: {
-      LIST: '/venues',
-      CITIES: '/venues/cities',
-      GET: (venueId: string | number) => `/venues/${venueId}`,
-      SHOWS: (venueId: string | number) => `/venues/${venueId}/shows`,
-    },
-  },
   API_BASE_URL: 'http://localhost:8080',
 }))
 
-// Mock queryClient module
-vi.mock('@/lib/queryClient', () => ({
-  queryKeys: {
-    venues: {
-      list: (filters?: Record<string, unknown>) => ['venues', 'list', filters],
-      detail: (id: string) => ['venues', 'detail', id],
-      shows: (venueId: string | number) => ['venues', 'shows', String(venueId)],
-      cities: ['venues', 'cities'],
-    },
+// Mock the feature api module
+vi.mock('@/features/venues/api', () => ({
+  venueEndpoints: {
+    LIST: '/venues',
+    CITIES: '/venues/cities',
+    GET: (venueId: string | number) => `/venues/${venueId}`,
+    SHOWS: (venueId: string | number) => `/venues/${venueId}/shows`,
+  },
+  venueQueryKeys: {
+    list: (filters?: Record<string, unknown>) => ['venues', 'list', filters],
+    detail: (id: string) => ['venues', 'detail', id],
+    shows: (venueId: string | number) => ['venues', 'shows', String(venueId)],
+    cities: ['venues', 'cities'],
   },
 }))
 

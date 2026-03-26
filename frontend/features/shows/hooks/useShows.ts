@@ -7,8 +7,8 @@
  */
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { apiRequest } from '@/lib/api'
+import { showEndpoints, showQueryKeys } from '@/features/shows/api'
 import type { UpcomingShowsResponse, ShowResponse, ShowCitiesResponse } from '../types'
 
 interface UseUpcomingShowsOptions {
@@ -52,11 +52,11 @@ export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
 
   const queryString = params.toString()
   const endpoint = queryString
-    ? `${API_ENDPOINTS.SHOWS.UPCOMING}?${queryString}`
-    : API_ENDPOINTS.SHOWS.UPCOMING
+    ? `${showEndpoints.UPCOMING}?${queryString}`
+    : showEndpoints.UPCOMING
 
   return useQuery({
-    queryKey: queryKeys.shows.list({ timezone, cursor, limit, city, state, cities }),
+    queryKey: showQueryKeys.list({ timezone, cursor, limit, city, state, cities }),
     queryFn: async (): Promise<UpcomingShowsResponse> => {
       return apiRequest<UpcomingShowsResponse>(endpoint, {
         method: 'GET',
@@ -72,9 +72,9 @@ export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
  */
 export const useShow = (showId: string | number) => {
   return useQuery({
-    queryKey: queryKeys.shows.detail(String(showId)),
+    queryKey: showQueryKeys.detail(String(showId)),
     queryFn: async (): Promise<ShowResponse> => {
-      return apiRequest<ShowResponse>(API_ENDPOINTS.SHOWS.GET(showId), {
+      return apiRequest<ShowResponse>(showEndpoints.GET(showId), {
         method: 'GET',
       })
     },
@@ -99,11 +99,11 @@ export const useShowCities = (options: UseShowCitiesOptions = {}) => {
 
   const queryString = params.toString()
   const endpoint = queryString
-    ? `${API_ENDPOINTS.SHOWS.CITIES}?${queryString}`
-    : API_ENDPOINTS.SHOWS.CITIES
+    ? `${showEndpoints.CITIES}?${queryString}`
+    : showEndpoints.CITIES
 
   return useQuery({
-    queryKey: queryKeys.shows.cities(timezone),
+    queryKey: showQueryKeys.cities(timezone),
     queryFn: async (): Promise<ShowCitiesResponse> => {
       return apiRequest<ShowCitiesResponse>(endpoint, {
         method: 'GET',

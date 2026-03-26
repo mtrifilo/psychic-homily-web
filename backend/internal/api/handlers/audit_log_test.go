@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 func testAuditLogHandler() *AuditLogHandler {
@@ -42,9 +42,9 @@ func TestGetAuditLogsHandler_NonAdmin(t *testing.T) {
 }
 
 func TestGetAuditLogsHandler_Success(t *testing.T) {
-	logs := []*services.AuditLogResponse{{ID: 1, Action: "approve_show"}}
+	logs := []*contracts.AuditLogResponse{{ID: 1, Action: "approve_show"}}
 	mock := &mockAuditLogService{
-		getAuditLogsFn: func(limit, offset int, filters services.AuditLogFilters) ([]*services.AuditLogResponse, int64, error) {
+		getAuditLogsFn: func(limit, offset int, filters contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {
 			return logs, 1, nil
 		},
 	}
@@ -65,7 +65,7 @@ func TestGetAuditLogsHandler_Success(t *testing.T) {
 
 func TestGetAuditLogsHandler_ServiceError(t *testing.T) {
 	mock := &mockAuditLogService{
-		getAuditLogsFn: func(_, _ int, _ services.AuditLogFilters) ([]*services.AuditLogResponse, int64, error) {
+		getAuditLogsFn: func(_, _ int, _ contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
@@ -79,7 +79,7 @@ func TestGetAuditLogsHandler_ServiceError(t *testing.T) {
 func TestGetAuditLogsHandler_LimitClamping(t *testing.T) {
 	var capturedLimit int
 	mock := &mockAuditLogService{
-		getAuditLogsFn: func(limit, _ int, _ services.AuditLogFilters) ([]*services.AuditLogResponse, int64, error) {
+		getAuditLogsFn: func(limit, _ int, _ contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {
 			capturedLimit = limit
 			return nil, 0, nil
 		},
@@ -101,9 +101,9 @@ func TestGetAuditLogsHandler_LimitClamping(t *testing.T) {
 }
 
 func TestGetAuditLogsHandler_FiltersPassedThrough(t *testing.T) {
-	var capturedFilters services.AuditLogFilters
+	var capturedFilters contracts.AuditLogFilters
 	mock := &mockAuditLogService{
-		getAuditLogsFn: func(_ int, _ int, filters services.AuditLogFilters) ([]*services.AuditLogResponse, int64, error) {
+		getAuditLogsFn: func(_ int, _ int, filters contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {
 			capturedFilters = filters
 			return nil, 0, nil
 		},

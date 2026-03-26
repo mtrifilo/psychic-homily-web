@@ -12,17 +12,17 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // RequestHandler handles request-related API requests
 type RequestHandler struct {
-	requestService services.RequestServiceInterface
-	auditLog       services.AuditLogServiceInterface
+	requestService contracts.RequestServiceInterface
+	auditLog       contracts.AuditLogServiceInterface
 }
 
 // NewRequestHandler creates a new RequestHandler
-func NewRequestHandler(requestService services.RequestServiceInterface, auditLog services.AuditLogServiceInterface) *RequestHandler {
+func NewRequestHandler(requestService contracts.RequestServiceInterface, auditLog contracts.AuditLogServiceInterface) *RequestHandler {
 	return &RequestHandler{
 		requestService: requestService,
 		auditLog:       auditLog,
@@ -45,7 +45,7 @@ type CreateRequestHandlerRequest struct {
 
 // CreateRequestHandlerResponse represents the response for creating a request
 type CreateRequestHandlerResponse struct {
-	Body *services.RequestResponse
+	Body *contracts.RequestResponse
 }
 
 // CreateRequestHandler handles POST /requests
@@ -108,7 +108,7 @@ type ListRequestsHandlerRequest struct {
 // ListRequestsHandlerResponse represents the response for listing requests
 type ListRequestsHandlerResponse struct {
 	Body struct {
-		Requests []*services.RequestResponse `json:"requests" doc:"List of requests"`
+		Requests []*contracts.RequestResponse `json:"requests" doc:"List of requests"`
 		Total    int64                       `json:"total" doc:"Total number of matching requests"`
 	}
 }
@@ -128,7 +128,7 @@ func (h *RequestHandler) ListRequestsHandler(ctx context.Context, req *ListReque
 	// Check if user is authenticated for including their votes
 	user := middleware.GetUserFromContext(ctx)
 
-	responses := make([]*services.RequestResponse, len(requests))
+	responses := make([]*contracts.RequestResponse, len(requests))
 	for i := range requests {
 		var userVote *int
 		if user != nil {
@@ -158,7 +158,7 @@ type GetRequestHandlerRequest struct {
 
 // GetRequestHandlerResponse represents the response for getting a request
 type GetRequestHandlerResponse struct {
-	Body *services.RequestResponse
+	Body *contracts.RequestResponse
 }
 
 // GetRequestHandler handles GET /requests/{request_id}
@@ -205,7 +205,7 @@ type UpdateRequestHandlerRequest struct {
 
 // UpdateRequestHandlerResponse represents the response for updating a request
 type UpdateRequestHandlerResponse struct {
-	Body *services.RequestResponse
+	Body *contracts.RequestResponse
 }
 
 // UpdateRequestHandler handles PUT /requests/{request_id}
@@ -437,8 +437,8 @@ func (h *RequestHandler) CloseRequestHandler(ctx context.Context, req *CloseRequ
 // ============================================================================
 
 // buildRequestResponse converts a models.Request to a RequestResponse.
-func buildRequestResponse(request *models.Request, userVote *int) *services.RequestResponse {
-	resp := &services.RequestResponse{
+func buildRequestResponse(request *models.Request, userVote *int) *contracts.RequestResponse {
+	resp := &contracts.RequestResponse{
 		ID:                request.ID,
 		Title:             request.Title,
 		Description:       request.Description,

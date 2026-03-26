@@ -9,23 +9,23 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ArtistReportHandler handles artist report HTTP requests
 type ArtistReportHandler struct {
-	artistReportService services.ArtistReportServiceInterface
-	discordService      services.DiscordServiceInterface
-	userService         services.UserServiceInterface
-	auditLogService     services.AuditLogServiceInterface
+	artistReportService contracts.ArtistReportServiceInterface
+	discordService      contracts.DiscordServiceInterface
+	userService         contracts.UserServiceInterface
+	auditLogService     contracts.AuditLogServiceInterface
 }
 
 // NewArtistReportHandler creates a new artist report handler
 func NewArtistReportHandler(
-	artistReportService services.ArtistReportServiceInterface,
-	discordService services.DiscordServiceInterface,
-	userService services.UserServiceInterface,
-	auditLogService services.AuditLogServiceInterface,
+	artistReportService contracts.ArtistReportServiceInterface,
+	discordService contracts.DiscordServiceInterface,
+	userService contracts.UserServiceInterface,
+	auditLogService contracts.AuditLogServiceInterface,
 ) *ArtistReportHandler {
 	return &ArtistReportHandler{
 		artistReportService: artistReportService,
@@ -50,7 +50,7 @@ type ReportArtistRequest struct {
 
 // ReportArtistResponse represents the HTTP response for reporting an artist
 type ReportArtistResponse struct {
-	Body services.ArtistReportResponse `json:"body"`
+	Body contracts.ArtistReportResponse `json:"body"`
 }
 
 // ReportArtistHandler handles POST /artists/{artist_id}/report
@@ -122,7 +122,7 @@ type GetMyArtistReportRequest struct {
 // GetMyArtistReportResponse represents the HTTP response for checking user's report
 type GetMyArtistReportResponse struct {
 	Body struct {
-		Report *services.ArtistReportResponse `json:"report"`
+		Report *contracts.ArtistReportResponse `json:"report"`
 	}
 }
 
@@ -162,7 +162,7 @@ func (h *ArtistReportHandler) GetMyArtistReportHandler(ctx context.Context, req 
 
 	return &GetMyArtistReportResponse{
 		Body: struct {
-			Report *services.ArtistReportResponse `json:"report"`
+			Report *contracts.ArtistReportResponse `json:"report"`
 		}{
 			Report: report,
 		},
@@ -182,7 +182,7 @@ type GetPendingArtistReportsRequest struct {
 // GetPendingArtistReportsResponse represents the HTTP response for listing pending artist reports
 type GetPendingArtistReportsResponse struct {
 	Body struct {
-		Reports []*services.ArtistReportResponse `json:"reports"`
+		Reports []*contracts.ArtistReportResponse `json:"reports"`
 		Total   int64                            `json:"total"`
 	}
 }
@@ -229,7 +229,7 @@ func (h *ArtistReportHandler) GetPendingArtistReportsHandler(ctx context.Context
 
 	return &GetPendingArtistReportsResponse{
 		Body: struct {
-			Reports []*services.ArtistReportResponse `json:"reports"`
+			Reports []*contracts.ArtistReportResponse `json:"reports"`
 			Total   int64                            `json:"total"`
 		}{
 			Reports: reports,
@@ -248,7 +248,7 @@ type DismissArtistReportRequest struct {
 
 // DismissArtistReportResponse represents the HTTP response for dismissing an artist report
 type DismissArtistReportResponse struct {
-	Body services.ArtistReportResponse `json:"body"`
+	Body contracts.ArtistReportResponse `json:"body"`
 }
 
 // DismissArtistReportHandler handles POST /admin/artist-reports/{report_id}/dismiss
@@ -310,7 +310,7 @@ type ResolveArtistReportRequest struct {
 
 // ResolveArtistReportResponse represents the HTTP response for resolving an artist report
 type ResolveArtistReportResponse struct {
-	Body services.ArtistReportResponse `json:"body"`
+	Body contracts.ArtistReportResponse `json:"body"`
 }
 
 // ResolveArtistReportHandler handles POST /admin/artist-reports/{report_id}/resolve

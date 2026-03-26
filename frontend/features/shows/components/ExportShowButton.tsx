@@ -4,7 +4,7 @@ import { useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { Download, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { API_ENDPOINTS } from '@/lib/api'
+import { showEndpoints } from '@/features/shows/api'
 
 interface ExportShowButtonProps {
   showId: number
@@ -37,7 +37,7 @@ export function ExportShowButton({
   const handleExport = async () => {
     setIsExporting(true)
     try {
-      const response = await fetch(API_ENDPOINTS.SHOWS.EXPORT(showId), {
+      const response = await fetch(showEndpoints.EXPORT(showId), {
         credentials: 'include',
       })
 

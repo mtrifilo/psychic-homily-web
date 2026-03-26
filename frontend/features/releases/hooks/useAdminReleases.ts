@@ -8,8 +8,9 @@
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { apiRequest } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
+import { releaseEndpoints } from '@/features/releases/api'
 import type { ReleaseDetail, ReleaseExternalLink } from '../types'
 
 // ============================================================================
@@ -59,7 +60,7 @@ export function useCreateRelease() {
 
   return useMutation({
     mutationFn: async (input: CreateReleaseInput): Promise<ReleaseDetail> => {
-      return apiRequest<ReleaseDetail>(API_ENDPOINTS.RELEASES.CREATE, {
+      return apiRequest<ReleaseDetail>(releaseEndpoints.CREATE, {
         method: 'POST',
         body: JSON.stringify(input),
       })
@@ -86,7 +87,7 @@ export function useUpdateRelease() {
       data: UpdateReleaseInput
     }): Promise<ReleaseDetail> => {
       return apiRequest<ReleaseDetail>(
-        API_ENDPOINTS.RELEASES.UPDATE(releaseId),
+        releaseEndpoints.UPDATE(releaseId),
         {
           method: 'PUT',
           body: JSON.stringify(data),
@@ -108,7 +109,7 @@ export function useDeleteRelease() {
 
   return useMutation({
     mutationFn: async (releaseId: number): Promise<void> => {
-      return apiRequest<void>(API_ENDPOINTS.RELEASES.DELETE(releaseId), {
+      return apiRequest<void>(releaseEndpoints.DELETE(releaseId), {
         method: 'DELETE',
       })
     },
@@ -136,7 +137,7 @@ export function useAddReleaseLink() {
       url: string
     }): Promise<ReleaseExternalLink> => {
       return apiRequest<ReleaseExternalLink>(
-        API_ENDPOINTS.RELEASES.ADD_LINK(releaseId),
+        releaseEndpoints.ADD_LINK(releaseId),
         {
           method: 'POST',
           body: JSON.stringify({ platform, url }),
@@ -165,7 +166,7 @@ export function useRemoveReleaseLink() {
       linkId: number
     }): Promise<void> => {
       return apiRequest<void>(
-        API_ENDPOINTS.RELEASES.REMOVE_LINK(releaseId, linkId),
+        releaseEndpoints.REMOVE_LINK(releaseId, linkId),
         {
           method: 'DELETE',
         }

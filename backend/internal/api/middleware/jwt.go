@@ -14,7 +14,7 @@ import (
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/auth"
 	adminsvc "psychic-homily-backend/internal/services/admin"
 )
 
@@ -31,7 +31,7 @@ type JWTErrorResponse struct {
 }
 
 // JWTMiddleware validates JWT tokens (standard http.Handler version)
-func JWTMiddleware(jwtService *services.JWTService) func(http.Handler) http.Handler {
+func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -112,7 +112,7 @@ const APITokenPrefix = "phk_"
 
 // HumaJWTMiddleware validates JWT tokens or API tokens (Huma middleware version)
 // API tokens are identified by the "phk_" prefix and validated separately
-func HumaJWTMiddleware(jwtService *services.JWTService, sessionConfig ...config.SessionConfig) func(ctx huma.Context, next func(huma.Context)) {
+func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.SessionConfig) func(ctx huma.Context, next func(huma.Context)) {
 	// Get session config if provided (for clearing cookies on auth failure)
 	var sessConfig *config.SessionConfig
 	if len(sessionConfig) > 0 {
@@ -228,7 +228,7 @@ func HumaJWTMiddleware(jwtService *services.JWTService, sessionConfig ...config.
 // LenientHumaJWTMiddleware validates JWT tokens with a grace period for expired tokens.
 // This allows recently-expired tokens to reach the refresh endpoint so the client can
 // obtain a new token without forcing a full re-login.
-func LenientHumaJWTMiddleware(jwtService *services.JWTService, gracePeriod time.Duration) func(ctx huma.Context, next func(huma.Context)) {
+func LenientHumaJWTMiddleware(jwtService *auth.JWTService, gracePeriod time.Duration) func(ctx huma.Context, next func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
 		url := ctx.URL()
 
@@ -309,7 +309,7 @@ func LenientHumaJWTMiddleware(jwtService *services.JWTService, gracePeriod time.
 // OptionalHumaJWTMiddleware extracts user from JWT/API token if present,
 // but allows unauthenticated requests to proceed without user context.
 // Use this for endpoints that are public but behave differently for authenticated users.
-func OptionalHumaJWTMiddleware(jwtService *services.JWTService) func(ctx huma.Context, next func(huma.Context)) {
+func OptionalHumaJWTMiddleware(jwtService *auth.JWTService) func(ctx huma.Context, next func(huma.Context)) {
 	apiTokenService := adminsvc.NewAPITokenService(nil)
 
 	return func(ctx huma.Context, next func(huma.Context)) {

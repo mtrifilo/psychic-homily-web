@@ -8,20 +8,16 @@ const mockApiRequest = vi.fn()
 // Mock the api module
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
-  API_ENDPOINTS: {
-    VENUES: {
-      SEARCH: '/venues/search',
-    },
-  },
   API_BASE_URL: 'http://localhost:8080',
 }))
 
-// Mock queryClient module
-vi.mock('@/lib/queryClient', () => ({
-  queryKeys: {
-    venues: {
-      search: (query: string) => ['venues', 'search', query.toLowerCase()],
-    },
+// Mock the feature api module
+vi.mock('@/features/venues/api', () => ({
+  venueEndpoints: {
+    SEARCH: '/venues/search',
+  },
+  venueQueryKeys: {
+    search: (query: string) => ['venues', 'search', query.toLowerCase()],
   },
 }))
 

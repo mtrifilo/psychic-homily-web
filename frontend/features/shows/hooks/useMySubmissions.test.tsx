@@ -9,12 +9,14 @@ const mockApiRequest = vi.fn()
 // Mock the api module
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
-  API_ENDPOINTS: {
-    SHOWS: {
-      MY_SUBMISSIONS: '/shows/my-submissions',
-    },
-  },
   API_BASE_URL: 'http://localhost:8080',
+}))
+
+// Mock the feature api module
+vi.mock('@/features/shows/api', () => ({
+  showEndpoints: {
+    MY_SUBMISSIONS: '/shows/my-submissions',
+  },
 }))
 
 // Mock queryClient module

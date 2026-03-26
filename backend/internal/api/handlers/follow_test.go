@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 func testFollowHandler() *FollowHandler {
@@ -506,7 +506,7 @@ func TestGetMyFollowingHandler_InvalidType(t *testing.T) {
 
 func TestGetMyFollowingHandler_Success(t *testing.T) {
 	now := time.Now().UTC()
-	following := []*services.FollowingEntityResponse{
+	following := []*contracts.FollowingEntityResponse{
 		{
 			EntityType: "artist",
 			EntityID:   1,
@@ -516,7 +516,7 @@ func TestGetMyFollowingHandler_Success(t *testing.T) {
 		},
 	}
 	mock := &mockFollowService{
-		getUserFollowingFn: func(userID uint, entityType string, limit, offset int) ([]*services.FollowingEntityResponse, int64, error) {
+		getUserFollowingFn: func(userID uint, entityType string, limit, offset int) ([]*contracts.FollowingEntityResponse, int64, error) {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
 			}
@@ -545,7 +545,7 @@ func TestGetMyFollowingHandler_Success(t *testing.T) {
 func TestGetMyFollowingHandler_WithTypeFilter(t *testing.T) {
 	var capturedType string
 	mock := &mockFollowService{
-		getUserFollowingFn: func(_ uint, entityType string, _, _ int) ([]*services.FollowingEntityResponse, int64, error) {
+		getUserFollowingFn: func(_ uint, entityType string, _, _ int) ([]*contracts.FollowingEntityResponse, int64, error) {
 			capturedType = entityType
 			return nil, 0, nil
 		},
@@ -565,7 +565,7 @@ func TestGetMyFollowingHandler_WithTypeFilter(t *testing.T) {
 
 func TestGetMyFollowingHandler_ServiceError(t *testing.T) {
 	mock := &mockFollowService{
-		getUserFollowingFn: func(_ uint, _ string, _, _ int) ([]*services.FollowingEntityResponse, int64, error) {
+		getUserFollowingFn: func(_ uint, _ string, _, _ int) ([]*contracts.FollowingEntityResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
@@ -580,7 +580,7 @@ func TestGetMyFollowingHandler_ServiceError(t *testing.T) {
 func TestGetMyFollowingHandler_PaginationClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
 	mock := &mockFollowService{
-		getUserFollowingFn: func(_ uint, _ string, limit, offset int) ([]*services.FollowingEntityResponse, int64, error) {
+		getUserFollowingFn: func(_ uint, _ string, limit, offset int) ([]*contracts.FollowingEntityResponse, int64, error) {
 			capturedLimit = limit
 			capturedOffset = offset
 			return nil, 0, nil
@@ -613,7 +613,7 @@ func TestGetMyFollowingHandler_AllValidTypeFilters(t *testing.T) {
 		t.Run(typeFilter, func(t *testing.T) {
 			var capturedType string
 			mock := &mockFollowService{
-				getUserFollowingFn: func(_ uint, entityType string, _, _ int) ([]*services.FollowingEntityResponse, int64, error) {
+				getUserFollowingFn: func(_ uint, entityType string, _, _ int) ([]*contracts.FollowingEntityResponse, int64, error) {
 					capturedType = entityType
 					return nil, 0, nil
 				},
@@ -636,7 +636,7 @@ func TestGetMyFollowingHandler_AllValidTypeFilters(t *testing.T) {
 func TestGetMyFollowingHandler_DefaultType(t *testing.T) {
 	var capturedType string
 	mock := &mockFollowService{
-		getUserFollowingFn: func(_ uint, entityType string, _, _ int) ([]*services.FollowingEntityResponse, int64, error) {
+		getUserFollowingFn: func(_ uint, entityType string, _, _ int) ([]*contracts.FollowingEntityResponse, int64, error) {
 			capturedType = entityType
 			return nil, 0, nil
 		},
@@ -673,12 +673,12 @@ func TestGetFollowersListHandler_InvalidID(t *testing.T) {
 }
 
 func TestGetFollowersListHandler_Success(t *testing.T) {
-	followers := []*services.FollowerResponse{
+	followers := []*contracts.FollowerResponse{
 		{UserID: 1, Username: "user1", DisplayName: "User One"},
 		{UserID: 2, Username: "user2"},
 	}
 	mock := &mockFollowService{
-		getFollowersFn: func(entityType string, entityID uint, limit, offset int) ([]*services.FollowerResponse, int64, error) {
+		getFollowersFn: func(entityType string, entityID uint, limit, offset int) ([]*contracts.FollowerResponse, int64, error) {
 			if entityType != "artist" || entityID != 5 {
 				t.Errorf("unexpected args: entityType=%s, entityID=%d", entityType, entityID)
 			}
@@ -702,7 +702,7 @@ func TestGetFollowersListHandler_Success(t *testing.T) {
 
 func TestGetFollowersListHandler_ServiceError(t *testing.T) {
 	mock := &mockFollowService{
-		getFollowersFn: func(_ string, _ uint, _, _ int) ([]*services.FollowerResponse, int64, error) {
+		getFollowersFn: func(_ string, _ uint, _, _ int) ([]*contracts.FollowerResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
@@ -716,7 +716,7 @@ func TestGetFollowersListHandler_ServiceError(t *testing.T) {
 func TestGetFollowersListHandler_PaginationClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
 	mock := &mockFollowService{
-		getFollowersFn: func(_ string, _ uint, limit, offset int) ([]*services.FollowerResponse, int64, error) {
+		getFollowersFn: func(_ string, _ uint, limit, offset int) ([]*contracts.FollowerResponse, int64, error) {
 			capturedLimit = limit
 			capturedOffset = offset
 			return nil, 0, nil

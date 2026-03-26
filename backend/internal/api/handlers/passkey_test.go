@@ -10,7 +10,7 @@ import (
 
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ============================================================================
@@ -35,7 +35,7 @@ type mockWebAuthnService struct {
 	storeChallengeWithEmailFn        func(email string, session *webauthn.SessionData, operation string) (string, error)
 	getChallengeWithEmailFn          func(challengeID string, operation string) (*webauthn.SessionData, string, error)
 	finishSignupRegistrationFn       func(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*models.User, error)
-	finishSignupRegistrationWithLegalFn func(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string, acceptance services.LegalAcceptance) (*models.User, error)
+	finishSignupRegistrationWithLegalFn func(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string, acceptance contracts.LegalAcceptance) (*models.User, error)
 }
 
 func (m *mockWebAuthnService) BeginRegistration(user *models.User) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
@@ -140,7 +140,7 @@ func (m *mockWebAuthnService) FinishSignupRegistration(email string, session *we
 	}
 	return nil, nil
 }
-func (m *mockWebAuthnService) FinishSignupRegistrationWithLegal(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string, acceptance services.LegalAcceptance) (*models.User, error) {
+func (m *mockWebAuthnService) FinishSignupRegistrationWithLegal(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string, acceptance contracts.LegalAcceptance) (*models.User, error) {
 	if m.finishSignupRegistrationWithLegalFn != nil {
 		return m.finishSignupRegistrationWithLegalFn(email, session, response, displayName, acceptance)
 	}
@@ -148,7 +148,7 @@ func (m *mockWebAuthnService) FinishSignupRegistrationWithLegal(email string, se
 }
 
 // Compile-time check
-var _ services.WebAuthnServiceInterface = (*mockWebAuthnService)(nil)
+var _ contracts.WebAuthnServiceInterface = (*mockWebAuthnService)(nil)
 
 // ============================================================================
 // Helper to build a PasskeyHandler with mocks

@@ -10,12 +10,14 @@ const mockInvalidateSavedShows = vi.fn()
 // Mock the api module
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
-  API_ENDPOINTS: {
-    SHOWS: {
-      PUBLISH: (id: number) => `/shows/${id}/publish`,
-      MAKE_PRIVATE: (id: number) => `/shows/${id}/make-private`,
-      UNPUBLISH: (id: number) => `/shows/${id}/unpublish`,
-    },
+}))
+
+// Mock the feature api module
+vi.mock('@/features/shows/api', () => ({
+  showEndpoints: {
+    PUBLISH: (id: number) => `/shows/${id}/publish`,
+    MAKE_PRIVATE: (id: number) => `/shows/${id}/make-private`,
+    UNPUBLISH: (id: number) => `/shows/${id}/unpublish`,
   },
 }))
 

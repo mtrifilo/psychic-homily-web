@@ -28,9 +28,10 @@ import {
   useClearArtistBandcamp,
   useUpdateArtistSpotify,
   useClearArtistSpotify,
+  useArtistUpdate,
   type MusicPlatform,
 } from '@/lib/hooks/admin/useAdminArtists'
-import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader, RevisionHistory, FollowButton } from '@/components/shared'
+import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader, RevisionHistory, FollowButton, EntityDescription } from '@/components/shared'
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList } from '@/features/tags'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
@@ -828,6 +829,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   const { data: artist, isLoading, error } = useArtist({ artistId })
   const { user, isAuthenticated } = useIsAuthenticated()
   const isAdmin = isAuthenticated && user?.is_admin
+  const updateArtist = useArtistUpdate()
 
   const [activeTab, setActiveTab] = useState('overview')
   const [isEditing, setIsEditing] = useState(false)
@@ -952,6 +954,28 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
       >
         {/* Overview Tab */}
         <TabsContent value="overview">
+          {/* Description */}
+          <EntityDescription
+            description={artist.description}
+            canEdit={!!isAdmin}
+            onSave={async (description) => {
+              await new Promise<void>((resolve, reject) => {
+                updateArtist.mutate(
+                  { artistId: artist.id, data: { description } },
+                  {
+                    onSuccess: () => {
+                      queryClient.invalidateQueries({
+                        queryKey: queryKeys.artists.detail(artistId),
+                      })
+                      resolve()
+                    },
+                    onError: (err) => reject(err),
+                  }
+                )
+              })
+            }}
+          />
+
           {/* Admin music embed controls */}
           {isAdmin && (
             <AdminMusicControls artist={artist} artistId={artistId} />

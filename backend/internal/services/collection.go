@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -30,7 +31,7 @@ func NewCollectionService(database *gorm.DB) *CollectionService {
 }
 
 // CreateCollection creates a new collection and auto-subscribes the creator
-func (s *CollectionService) CreateCollection(creatorID uint, req *CreateCollectionRequest) (*CollectionDetailResponse, error) {
+func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.CreateCollectionRequest) (*contracts.CollectionDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -94,7 +95,7 @@ func (s *CollectionService) CreateCollection(creatorID uint, req *CreateCollecti
 }
 
 // GetBySlug retrieves a collection by slug with full detail
-func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*CollectionDetailResponse, error) {
+func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.CollectionDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -142,7 +143,7 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*CollectionDe
 		isSubscribed = subCount > 0
 	}
 
-	return &CollectionDetailResponse{
+	return &contracts.CollectionDetailResponse{
 		ID:               collection.ID,
 		Title:            collection.Title,
 		Slug:             collection.Slug,
@@ -164,7 +165,7 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*CollectionDe
 }
 
 // ListCollections retrieves collections with optional filtering
-func (s *CollectionService) ListCollections(filters CollectionFilters, limit, offset int) ([]*CollectionListResponse, int64, error) {
+func (s *CollectionService) ListCollections(filters contracts.CollectionFilters, limit, offset int) ([]*contracts.CollectionListResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -202,7 +203,7 @@ func (s *CollectionService) ListCollections(filters CollectionFilters, limit, of
 	}
 
 	if len(collections) == 0 {
-		return []*CollectionListResponse{}, total, nil
+		return []*contracts.CollectionListResponse{}, total, nil
 	}
 
 	// Batch-load counts and creator names
@@ -230,9 +231,9 @@ func (s *CollectionService) ListCollections(filters CollectionFilters, limit, of
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 
 	// Build responses
-	responses := make([]*CollectionListResponse, len(collections))
+	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
-		responses[i] = &CollectionListResponse{
+		responses[i] = &contracts.CollectionListResponse{
 			ID:               c.ID,
 			Title:            c.Title,
 			Slug:             c.Slug,
@@ -255,7 +256,7 @@ func (s *CollectionService) ListCollections(filters CollectionFilters, limit, of
 }
 
 // UpdateCollection updates an existing collection
-func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin bool, req *UpdateCollectionRequest) (*CollectionDetailResponse, error) {
+func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin bool, req *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -345,7 +346,7 @@ func (s *CollectionService) DeleteCollection(slug string, userID uint, isAdmin b
 }
 
 // AddItem adds an entity to a collection
-func (s *CollectionService) AddItem(slug string, userID uint, req *AddCollectionItemRequest) (*CollectionItemResponse, error) {
+func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.AddCollectionItemRequest) (*contracts.CollectionItemResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -400,7 +401,7 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *AddCollection
 	entityName, entitySlug := s.resolveEntityNameAndSlug(req.EntityType, req.EntityID)
 	addedByName := s.resolveUserName(userID)
 
-	return &CollectionItemResponse{
+	return &contracts.CollectionItemResponse{
 		ID:            item.ID,
 		EntityType:    item.EntityType,
 		EntityID:      item.EntityID,
@@ -451,7 +452,7 @@ func (s *CollectionService) RemoveItem(slug string, itemID uint, userID uint, is
 }
 
 // ReorderItems reorders items in a collection
-func (s *CollectionService) ReorderItems(slug string, userID uint, req *ReorderCollectionItemsRequest) error {
+func (s *CollectionService) ReorderItems(slug string, userID uint, req *contracts.ReorderCollectionItemsRequest) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
@@ -572,7 +573,7 @@ func (s *CollectionService) MarkVisited(slug string, userID uint) error {
 }
 
 // GetStats retrieves statistics for a collection
-func (s *CollectionService) GetStats(slug string) (*CollectionStatsResponse, error) {
+func (s *CollectionService) GetStats(slug string) (*contracts.CollectionStatsResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -616,7 +617,7 @@ func (s *CollectionService) GetStats(slug string) (*CollectionStatsResponse, err
 		entityTypeCounts[tc.EntityType] = tc.Count
 	}
 
-	return &CollectionStatsResponse{
+	return &contracts.CollectionStatsResponse{
 		ItemCount:        int(itemCount),
 		SubscriberCount:  int(subscriberCount),
 		ContributorCount: int(contributorCount),
@@ -625,7 +626,7 @@ func (s *CollectionService) GetStats(slug string) (*CollectionStatsResponse, err
 }
 
 // GetUserCollections retrieves collections created by or subscribed to by a user
-func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) ([]*CollectionListResponse, int64, error) {
+func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) ([]*contracts.CollectionListResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -654,7 +655,7 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 	}
 
 	if len(collections) == 0 {
-		return []*CollectionListResponse{}, total, nil
+		return []*contracts.CollectionListResponse{}, total, nil
 	}
 
 	// Batch-load counts and creator names
@@ -674,9 +675,9 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 	contributorCounts := s.batchCountContributors(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 
-	responses := make([]*CollectionListResponse, len(collections))
+	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
-		responses[i] = &CollectionListResponse{
+		responses[i] = &contracts.CollectionListResponse{
 			ID:               c.ID,
 			Title:            c.Title,
 			Slug:             c.Slug,
@@ -841,9 +842,9 @@ func (s *CollectionService) resolveEntityNameAndSlug(entityType string, entityID
 }
 
 // buildItemResponses converts model items to response items with resolved entity names
-func (s *CollectionService) buildItemResponses(items []models.CollectionItem) []CollectionItemResponse {
+func (s *CollectionService) buildItemResponses(items []models.CollectionItem) []contracts.CollectionItemResponse {
 	if len(items) == 0 {
-		return []CollectionItemResponse{}
+		return []contracts.CollectionItemResponse{}
 	}
 
 	// Group entity IDs by type for batch resolution
@@ -866,10 +867,10 @@ func (s *CollectionService) buildItemResponses(items []models.CollectionItem) []
 	userNames := s.batchResolveUserNames(userIDs)
 
 	// Build responses
-	responses := make([]CollectionItemResponse, len(items))
+	responses := make([]contracts.CollectionItemResponse, len(items))
 	for i, item := range items {
 		key := fmt.Sprintf("%s:%d", item.EntityType, item.EntityID)
-		responses[i] = CollectionItemResponse{
+		responses[i] = contracts.CollectionItemResponse{
 			ID:            item.ID,
 			EntityType:    item.EntityType,
 			EntityID:      item.EntityID,

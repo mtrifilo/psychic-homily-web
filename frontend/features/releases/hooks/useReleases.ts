@@ -7,9 +7,9 @@
  */
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys } from '@/lib/queryClient'
+import { apiRequest } from '@/lib/api'
 import { createDetailHook, createNamedDetailHook } from '@/lib/hooks/factories'
+import { releaseEndpoints, releaseQueryKeys } from '@/features/releases/api'
 import type {
   ReleaseDetail,
   ReleasesListResponse,
@@ -35,11 +35,11 @@ export function useReleases(options: UseReleasesOptions = {}) {
 
   const queryString = params.toString()
   const endpoint = queryString
-    ? `${API_ENDPOINTS.RELEASES.LIST}?${queryString}`
-    : API_ENDPOINTS.RELEASES.LIST
+    ? `${releaseEndpoints.LIST}?${queryString}`
+    : releaseEndpoints.LIST
 
   return useQuery({
-    queryKey: queryKeys.releases.list(
+    queryKey: releaseQueryKeys.list(
       releaseType || year || artistId
         ? { releaseType, year, artistId }
         : undefined
@@ -58,8 +58,8 @@ export function useReleases(options: UseReleasesOptions = {}) {
  * Hook to fetch a single release by ID or slug
  */
 export const useRelease = createDetailHook<ReleaseDetail>(
-  API_ENDPOINTS.RELEASES.GET,
-  queryKeys.releases.detail,
+  releaseEndpoints.GET,
+  releaseQueryKeys.detail,
 )
 
 /**
@@ -67,6 +67,6 @@ export const useRelease = createDetailHook<ReleaseDetail>(
  */
 export const useArtistReleases = createNamedDetailHook<ArtistReleasesResponse, 'artistIdOrSlug'>(
   'artistIdOrSlug',
-  API_ENDPOINTS.RELEASES.ARTIST_RELEASES,
-  queryKeys.releases.artistReleases,
+  releaseEndpoints.ARTIST_RELEASES,
+  releaseQueryKeys.artistReleases,
 )

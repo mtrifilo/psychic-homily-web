@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ============================================================================
@@ -14,14 +14,14 @@ import (
 // ============================================================================
 
 type mockPipelineService struct {
-	extractVenueFn func(venueID uint, dryRun bool) (*services.PipelineResult, error)
+	extractVenueFn func(venueID uint, dryRun bool) (*contracts.PipelineResult, error)
 }
 
-func (m *mockPipelineService) ExtractVenue(venueID uint, dryRun bool) (*services.PipelineResult, error) {
+func (m *mockPipelineService) ExtractVenue(venueID uint, dryRun bool) (*contracts.PipelineResult, error) {
 	if m.extractVenueFn != nil {
 		return m.extractVenueFn(venueID, dryRun)
 	}
-	return &services.PipelineResult{
+	return &contracts.PipelineResult{
 		VenueID:         venueID,
 		VenueName:       "Test Venue",
 		RenderMethod:    "static",
@@ -43,9 +43,9 @@ type mockVenueSourceConfigService struct {
 	incrementFailuresFn     func(venueID uint) error
 	recordRunFn             func(run *models.VenueExtractionRun) error
 	getRecentRunsFn         func(venueID uint, limit int) ([]models.VenueExtractionRun, error)
-	getAllRecentRunsFn      func(limit, offset int) ([]services.ImportHistoryEntry, int64, error)
+	getAllRecentRunsFn      func(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error)
 	listConfiguredFn        func() ([]models.VenueSourceConfig, error)
-	getRejectionStatsFn     func(venueID uint) (*services.VenueRejectionStats, error)
+	getRejectionStatsFn     func(venueID uint) (*contracts.VenueRejectionStats, error)
 	updateExtractionNotesFn func(venueID uint, notes *string) error
 	resetRenderMethodFn     func(venueID uint) error
 }
@@ -86,7 +86,7 @@ func (m *mockVenueSourceConfigService) GetRecentRuns(venueID uint, limit int) ([
 	}
 	return nil, nil
 }
-func (m *mockVenueSourceConfigService) GetAllRecentRuns(limit, offset int) ([]services.ImportHistoryEntry, int64, error) {
+func (m *mockVenueSourceConfigService) GetAllRecentRuns(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
 	if m.getAllRecentRunsFn != nil {
 		return m.getAllRecentRunsFn(limit, offset)
 	}
@@ -98,11 +98,11 @@ func (m *mockVenueSourceConfigService) ListConfigured() ([]models.VenueSourceCon
 	}
 	return nil, nil
 }
-func (m *mockVenueSourceConfigService) GetRejectionStats(venueID uint) (*services.VenueRejectionStats, error) {
+func (m *mockVenueSourceConfigService) GetRejectionStats(venueID uint) (*contracts.VenueRejectionStats, error) {
 	if m.getRejectionStatsFn != nil {
 		return m.getRejectionStatsFn(venueID)
 	}
-	return &services.VenueRejectionStats{RejectionBreakdown: make(map[string]int64)}, nil
+	return &contracts.VenueRejectionStats{RejectionBreakdown: make(map[string]int64)}, nil
 }
 func (m *mockVenueSourceConfigService) UpdateExtractionNotes(venueID uint, notes *string) error {
 	if m.updateExtractionNotesFn != nil {
@@ -124,8 +124,8 @@ func (m *mockVenueSourceConfigService) ResetRenderMethod(venueID uint) error {
 type mockEnrichmentService struct {
 	queueShowForEnrichmentFn func(showID uint, enrichmentType string) error
 	processQueueFn           func(ctx context.Context, batchSize int) (int, error)
-	enrichShowFn             func(ctx context.Context, showID uint) (*services.EnrichmentResult, error)
-	getQueueStatsFn          func() (*services.EnrichmentQueueStats, error)
+	enrichShowFn             func(ctx context.Context, showID uint) (*contracts.EnrichmentResult, error)
+	getQueueStatsFn          func() (*contracts.EnrichmentQueueStats, error)
 }
 
 func (m *mockEnrichmentService) QueueShowForEnrichment(showID uint, enrichmentType string) error {
@@ -140,17 +140,17 @@ func (m *mockEnrichmentService) ProcessQueue(ctx context.Context, batchSize int)
 	}
 	return 0, nil
 }
-func (m *mockEnrichmentService) EnrichShow(ctx context.Context, showID uint) (*services.EnrichmentResult, error) {
+func (m *mockEnrichmentService) EnrichShow(ctx context.Context, showID uint) (*contracts.EnrichmentResult, error) {
 	if m.enrichShowFn != nil {
 		return m.enrichShowFn(ctx, showID)
 	}
-	return &services.EnrichmentResult{ShowID: showID, CompletedSteps: []string{"artist_match", "musicbrainz", "api_crossref"}}, nil
+	return &contracts.EnrichmentResult{ShowID: showID, CompletedSteps: []string{"artist_match", "musicbrainz", "api_crossref"}}, nil
 }
-func (m *mockEnrichmentService) GetQueueStats() (*services.EnrichmentQueueStats, error) {
+func (m *mockEnrichmentService) GetQueueStats() (*contracts.EnrichmentQueueStats, error) {
 	if m.getQueueStatsFn != nil {
 		return m.getQueueStatsFn()
 	}
-	return &services.EnrichmentQueueStats{}, nil
+	return &contracts.EnrichmentQueueStats{}, nil
 }
 
 // ============================================================================
@@ -264,9 +264,9 @@ func TestPipelineHandler_ExtractVenue_DryRun(t *testing.T) {
 	var receivedDryRun bool
 	h := NewPipelineHandler(
 		&mockPipelineService{
-			extractVenueFn: func(venueID uint, dryRun bool) (*services.PipelineResult, error) {
+			extractVenueFn: func(venueID uint, dryRun bool) (*contracts.PipelineResult, error) {
 				receivedDryRun = dryRun
-				return &services.PipelineResult{VenueID: venueID, DryRun: dryRun, EventsExtracted: 3}, nil
+				return &contracts.PipelineResult{VenueID: venueID, DryRun: dryRun, EventsExtracted: 3}, nil
 			},
 		},
 		&mockVenueSourceConfigService{},
@@ -299,7 +299,7 @@ func TestPipelineHandler_ExtractVenue_InvalidVenueID(t *testing.T) {
 func TestPipelineHandler_ExtractVenue_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
 		&mockPipelineService{
-			extractVenueFn: func(venueID uint, dryRun bool) (*services.PipelineResult, error) {
+			extractVenueFn: func(venueID uint, dryRun bool) (*contracts.PipelineResult, error) {
 				return nil, fmt.Errorf("venue has no calendar URL configured")
 			},
 		},
@@ -422,8 +422,8 @@ func TestPipelineHandler_RejectionStats_Success(t *testing.T) {
 	h := NewPipelineHandler(
 		&mockPipelineService{},
 		&mockVenueSourceConfigService{
-			getRejectionStatsFn: func(venueID uint) (*services.VenueRejectionStats, error) {
-				return &services.VenueRejectionStats{
+			getRejectionStatsFn: func(venueID uint) (*contracts.VenueRejectionStats, error) {
+				return &contracts.VenueRejectionStats{
 					TotalExtracted:       100,
 					Approved:             85,
 					Rejected:             10,
@@ -463,7 +463,7 @@ func TestPipelineHandler_RejectionStats_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
 		&mockPipelineService{},
 		&mockVenueSourceConfigService{
-			getRejectionStatsFn: func(venueID uint) (*services.VenueRejectionStats, error) {
+			getRejectionStatsFn: func(venueID uint) (*contracts.VenueRejectionStats, error) {
 				return nil, fmt.Errorf("venue not found")
 			},
 		},
@@ -758,8 +758,8 @@ func TestPipelineHandler_GetImportHistory_Success(t *testing.T) {
 	h := NewPipelineHandler(
 		&mockPipelineService{},
 		&mockVenueSourceConfigService{
-			getAllRecentRunsFn: func(limit, offset int) ([]services.ImportHistoryEntry, int64, error) {
-				return []services.ImportHistoryEntry{
+			getAllRecentRunsFn: func(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
+				return []contracts.ImportHistoryEntry{
 					{
 						ID:              1,
 						VenueID:         10,
@@ -812,8 +812,8 @@ func TestPipelineHandler_GetImportHistory_Empty(t *testing.T) {
 	h := NewPipelineHandler(
 		&mockPipelineService{},
 		&mockVenueSourceConfigService{
-			getAllRecentRunsFn: func(limit, offset int) ([]services.ImportHistoryEntry, int64, error) {
-				return []services.ImportHistoryEntry{}, 0, nil
+			getAllRecentRunsFn: func(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
+				return []contracts.ImportHistoryEntry{}, 0, nil
 			},
 		},
 		nil,
@@ -836,7 +836,7 @@ func TestPipelineHandler_GetImportHistory_PaginationPassedThrough(t *testing.T) 
 	h := NewPipelineHandler(
 		&mockPipelineService{},
 		&mockVenueSourceConfigService{
-			getAllRecentRunsFn: func(limit, offset int) ([]services.ImportHistoryEntry, int64, error) {
+			getAllRecentRunsFn: func(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
 				receivedLimit = limit
 				receivedOffset = offset
 				return nil, 0, nil
@@ -861,7 +861,7 @@ func TestPipelineHandler_GetImportHistory_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
 		&mockPipelineService{},
 		&mockVenueSourceConfigService{
-			getAllRecentRunsFn: func(limit, offset int) ([]services.ImportHistoryEntry, int64, error) {
+			getAllRecentRunsFn: func(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
 				return nil, 0, fmt.Errorf("database error")
 			},
 		},
@@ -881,8 +881,8 @@ func TestPipelineHandler_EnrichmentStatus_Success(t *testing.T) {
 		&mockPipelineService{},
 		&mockVenueSourceConfigService{},
 		&mockEnrichmentService{
-			getQueueStatsFn: func() (*services.EnrichmentQueueStats, error) {
-				return &services.EnrichmentQueueStats{
+			getQueueStatsFn: func() (*contracts.EnrichmentQueueStats, error) {
+				return &contracts.EnrichmentQueueStats{
 					Pending:        5,
 					Processing:     2,
 					CompletedToday: 10,
@@ -924,7 +924,7 @@ func TestPipelineHandler_EnrichmentStatus_ServiceError(t *testing.T) {
 		&mockPipelineService{},
 		&mockVenueSourceConfigService{},
 		&mockEnrichmentService{
-			getQueueStatsFn: func() (*services.EnrichmentQueueStats, error) {
+			getQueueStatsFn: func() (*contracts.EnrichmentQueueStats, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		},

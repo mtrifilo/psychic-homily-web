@@ -430,6 +430,7 @@ func (s *VenueService) buildVenueResponse(venue *models.Venue) *contracts.VenueD
 		City:        venue.City,
 		State:       venue.State,
 		Zipcode:     zipcode,
+		Description: venue.Description,
 		Verified:    venue.Verified,
 		SubmittedBy: venue.SubmittedBy,
 		Social: contracts.SocialResponse{

@@ -1,8 +1,9 @@
 'use client'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { apiRequest } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
+import { showEndpoints } from '@/features/shows/api'
 import { showLogger } from '@/lib/utils/showLogger'
 import { ShowError } from '@/lib/errors'
 import type { ShowResponse } from '../types'
@@ -23,7 +24,7 @@ export function useShowPublish() {
       showLogger.debug('Publishing show', { showId })
 
       return await apiRequest<ShowResponse>(
-        API_ENDPOINTS.SHOWS.PUBLISH(showId),
+        showEndpoints.PUBLISH(showId),
         {
           method: 'POST',
         }

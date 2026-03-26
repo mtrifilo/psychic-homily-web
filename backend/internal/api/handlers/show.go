@@ -14,25 +14,25 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ShowHandler handles show-related HTTP requests
 type ShowHandler struct {
-	showService           services.ShowServiceInterface
-	savedShowService      services.SavedShowServiceInterface
-	discordService        services.DiscordServiceInterface
-	musicDiscoveryService services.MusicDiscoveryServiceInterface
-	extractionService     services.ExtractionServiceInterface
+	showService           contracts.ShowServiceInterface
+	savedShowService      contracts.SavedShowServiceInterface
+	discordService        contracts.DiscordServiceInterface
+	musicDiscoveryService contracts.MusicDiscoveryServiceInterface
+	extractionService     contracts.ExtractionServiceInterface
 }
 
 // NewShowHandler creates a new show handler
 func NewShowHandler(
-	showService services.ShowServiceInterface,
-	savedShowService services.SavedShowServiceInterface,
-	discordService services.DiscordServiceInterface,
-	musicDiscoveryService services.MusicDiscoveryServiceInterface,
-	extractionService services.ExtractionServiceInterface,
+	showService contracts.ShowServiceInterface,
+	savedShowService contracts.SavedShowServiceInterface,
+	discordService contracts.DiscordServiceInterface,
+	musicDiscoveryService contracts.MusicDiscoveryServiceInterface,
+	extractionService contracts.ExtractionServiceInterface,
 ) *ShowHandler {
 	return &ShowHandler{
 		showService:           showService,
@@ -180,7 +180,7 @@ type CreateShowRequest struct {
 
 // CreateShowResponse represents the HTTP response for creating a show
 type CreateShowResponse struct {
-	Body services.ShowResponse `json:"body"`
+	Body contracts.ShowResponse `json:"body"`
 }
 
 // GetShowRequest represents the HTTP request for getting a show
@@ -190,7 +190,7 @@ type GetShowRequest struct {
 
 // GetShowResponse represents the HTTP response for getting a show
 type GetShowResponse struct {
-	Body services.ShowResponse `json:"body"`
+	Body contracts.ShowResponse `json:"body"`
 }
 
 // GetShowsRequest represents the HTTP request for listing shows
@@ -203,7 +203,7 @@ type GetShowsRequest struct {
 
 // GetShowsResponse represents the HTTP response for listing shows
 type GetShowsResponse struct {
-	Body []*services.ShowResponse `json:"body"`
+	Body []*contracts.ShowResponse `json:"body"`
 }
 
 // GetUpcomingShowsRequest represents the HTTP request for listing upcoming shows
@@ -224,7 +224,7 @@ type GetShowCitiesRequest struct {
 // GetShowCitiesResponse represents the HTTP response for listing show cities
 type GetShowCitiesResponse struct {
 	Body struct {
-		Cities []services.ShowCityResponse `json:"cities"`
+		Cities []contracts.ShowCityResponse `json:"cities"`
 	}
 }
 
@@ -238,7 +238,7 @@ type CursorPaginationMeta struct {
 // GetUpcomingShowsResponse represents the HTTP response for listing upcoming shows
 type GetUpcomingShowsResponse struct {
 	Body struct {
-		Shows      []*services.ShowResponse `json:"shows"`
+		Shows      []*contracts.ShowResponse `json:"shows"`
 		Timezone   string                   `json:"timezone" doc:"The timezone used for filtering"`
 		Pagination CursorPaginationMeta     `json:"pagination"`
 	}
@@ -263,8 +263,8 @@ type UpdateShowRequest struct {
 
 // UpdateShowResponseBody represents the HTTP response body for updating a show
 type UpdateShowResponseBody struct {
-	services.ShowResponse
-	OrphanedArtists []services.OrphanedArtist `json:"orphaned_artists,omitempty" doc:"Artists that became orphaned (0 shows) after this update"`
+	contracts.ShowResponse
+	OrphanedArtists []contracts.OrphanedArtist `json:"orphaned_artists,omitempty" doc:"Artists that became orphaned (0 shows) after this update"`
 }
 
 // UpdateShowResponse represents the HTTP response for updating a show
@@ -279,12 +279,12 @@ type DeleteShowRequest struct {
 
 // AIProcessShowRequest represents the HTTP request for AI show processing
 type AIProcessShowRequest struct {
-	Body services.ExtractShowRequest
+	Body contracts.ExtractShowRequest
 }
 
 // AIProcessShowResponse represents the HTTP response for AI show processing
 type AIProcessShowResponse struct {
-	Body services.ExtractShowResponse
+	Body contracts.ExtractShowResponse
 }
 
 // CreateShowHandler handles POST /shows
@@ -322,7 +322,7 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	// Validation is now handled by Huma's custom resolvers
 
 	// Convert Venues to service format
-	serviceVenues := make([]services.CreateShowVenue, len(req.Body.Venues))
+	serviceVenues := make([]contracts.CreateShowVenue, len(req.Body.Venues))
 	for i, venue := range req.Body.Venues {
 		var name, city, state, address string
 		if venue.Name != nil {
@@ -337,7 +337,7 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 		if venue.Address != nil {
 			address = *venue.Address
 		}
-		serviceVenues[i] = services.CreateShowVenue{
+		serviceVenues[i] = contracts.CreateShowVenue{
 			ID:      venue.ID,
 			Name:    name,
 			City:    city,
@@ -347,13 +347,13 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	}
 
 	// Convert Artists to service format
-	serviceArtists := make([]services.CreateShowArtist, len(req.Body.Artists))
+	serviceArtists := make([]contracts.CreateShowArtist, len(req.Body.Artists))
 	for i, artist := range req.Body.Artists {
 		var name string
 		if artist.Name != nil {
 			name = *artist.Name
 		}
-		serviceArtists[i] = services.CreateShowArtist{
+		serviceArtists[i] = contracts.CreateShowArtist{
 			ID:              artist.ID,
 			Name:            name,
 			IsHeadliner:     artist.IsHeadliner,
@@ -383,7 +383,7 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	}
 
 	// Convert request to service request with user context
-	serviceReq := &services.CreateShowRequest{
+	serviceReq := &contracts.CreateShowRequest{
 		Title:             title,
 		EventDate:         req.Body.EventDate,
 		City:              req.Body.City,
@@ -465,7 +465,7 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 func (h *ShowHandler) GetShowHandler(ctx context.Context, req *GetShowRequest) (*GetShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	var show *services.ShowResponse
+	var show *contracts.ShowResponse
 	var err error
 
 	// Try to parse as numeric ID first
@@ -594,7 +594,7 @@ func (h *ShowHandler) GetShowCitiesHandler(ctx context.Context, req *GetShowCiti
 
 	return &GetShowCitiesResponse{
 		Body: struct {
-			Cities []services.ShowCityResponse `json:"cities"`
+			Cities []contracts.ShowCityResponse `json:"cities"`
 		}{
 			Cities: cities,
 		},
@@ -625,15 +625,15 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 	}
 
 	// Build filters from query params
-	var filters *services.UpcomingShowsFilter
+	var filters *contracts.UpcomingShowsFilter
 	if req.Cities != "" {
 		// Parse pipe-delimited multi-city param: "Phoenix,AZ|Mesa,AZ"
 		pairs := strings.Split(req.Cities, "|")
-		var cityFilters []services.CityStateFilter
+		var cityFilters []contracts.CityStateFilter
 		for _, pair := range pairs {
 			parts := strings.SplitN(pair, ",", 2)
 			if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-				cityFilters = append(cityFilters, services.CityStateFilter{
+				cityFilters = append(cityFilters, contracts.CityStateFilter{
 					City:  strings.TrimSpace(parts[0]),
 					State: strings.TrimSpace(parts[1]),
 				})
@@ -644,11 +644,11 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 			cityFilters = cityFilters[:10]
 		}
 		if len(cityFilters) > 0 {
-			filters = &services.UpcomingShowsFilter{Cities: cityFilters}
+			filters = &contracts.UpcomingShowsFilter{Cities: cityFilters}
 		}
 	} else if req.City != "" || req.State != "" {
 		// Legacy single-city filter
-		filters = &services.UpcomingShowsFilter{
+		filters = &contracts.UpcomingShowsFilter{
 			City:  req.City,
 			State: req.State,
 		}
@@ -684,7 +684,7 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 
 	return &GetUpcomingShowsResponse{
 		Body: struct {
-			Shows      []*services.ShowResponse `json:"shows"`
+			Shows      []*contracts.ShowResponse `json:"shows"`
 			Timezone   string                   `json:"timezone" doc:"The timezone used for filtering"`
 			Pagination CursorPaginationMeta     `json:"pagination"`
 		}{
@@ -805,9 +805,9 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	}
 
 	// Convert venues to service format (nil if not provided)
-	var serviceVenues []services.CreateShowVenue
+	var serviceVenues []contracts.CreateShowVenue
 	if len(req.Body.Venues) > 0 {
-		serviceVenues = make([]services.CreateShowVenue, len(req.Body.Venues))
+		serviceVenues = make([]contracts.CreateShowVenue, len(req.Body.Venues))
 		for i, venue := range req.Body.Venues {
 			var name, city, state, address string
 			if venue.Name != nil {
@@ -822,7 +822,7 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 			if venue.Address != nil {
 				address = *venue.Address
 			}
-			serviceVenues[i] = services.CreateShowVenue{
+			serviceVenues[i] = contracts.CreateShowVenue{
 				ID:      venue.ID,
 				Name:    name,
 				City:    city,
@@ -833,15 +833,15 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	}
 
 	// Convert artists to service format (nil if not provided)
-	var serviceArtists []services.CreateShowArtist
+	var serviceArtists []contracts.CreateShowArtist
 	if len(req.Body.Artists) > 0 {
-		serviceArtists = make([]services.CreateShowArtist, len(req.Body.Artists))
+		serviceArtists = make([]contracts.CreateShowArtist, len(req.Body.Artists))
 		for i, artist := range req.Body.Artists {
 			var name string
 			if artist.Name != nil {
 				name = *artist.Name
 			}
-			serviceArtists[i] = services.CreateShowArtist{
+			serviceArtists[i] = contracts.CreateShowArtist{
 				ID:              artist.ID,
 				Name:            name,
 				IsHeadliner:     artist.IsHeadliner,
@@ -980,7 +980,7 @@ type UnpublishShowRequest struct {
 
 // UnpublishShowResponse represents the HTTP response for unpublishing a show
 type UnpublishShowResponse struct {
-	Body services.ShowResponse
+	Body contracts.ShowResponse
 }
 
 // UnpublishShowHandler handles POST /shows/{show_id}/unpublish
@@ -1065,7 +1065,7 @@ type MakePrivateShowRequest struct {
 
 // MakePrivateShowResponse represents the HTTP response for making a show private
 type MakePrivateShowResponse struct {
-	Body services.ShowResponse
+	Body contracts.ShowResponse
 }
 
 // MakePrivateShowHandler handles POST /shows/{show_id}/make-private
@@ -1150,7 +1150,7 @@ type PublishShowRequest struct {
 
 // PublishShowResponse represents the HTTP response for publishing a show
 type PublishShowResponse struct {
-	Body services.ShowResponse
+	Body contracts.ShowResponse
 }
 
 // PublishShowHandler handles POST /shows/{show_id}/publish
@@ -1251,7 +1251,7 @@ func (h *ShowHandler) AIProcessShowHandler(ctx context.Context, req *AIProcessSh
 			"request_id", requestID,
 		)
 		return &AIProcessShowResponse{
-			Body: services.ExtractShowResponse{
+			Body: contracts.ExtractShowResponse{
 				Success: false,
 				Error:   "An unexpected error occurred. Please try again.",
 			},
@@ -1371,7 +1371,7 @@ type GetMySubmissionsRequest struct {
 // GetMySubmissionsResponse represents the HTTP response for user's submitted shows
 type GetMySubmissionsResponse struct {
 	Body struct {
-		Shows []services.ShowResponse `json:"shows" doc:"List of user's submitted shows"`
+		Shows []contracts.ShowResponse `json:"shows" doc:"List of user's submitted shows"`
 		Total int                     `json:"total" doc:"Total count of submissions"`
 	}
 }
@@ -1390,7 +1390,7 @@ type SetShowSoldOutRequest struct {
 
 // SetShowSoldOutResponse represents the HTTP response for setting sold out status
 type SetShowSoldOutResponse struct {
-	Body services.ShowResponse `json:"body"`
+	Body contracts.ShowResponse `json:"body"`
 }
 
 // SetShowSoldOutHandler handles POST /shows/{show_id}/sold-out
@@ -1473,7 +1473,7 @@ type SetShowCancelledRequest struct {
 
 // SetShowCancelledResponse represents the HTTP response for setting cancelled status
 type SetShowCancelledResponse struct {
-	Body services.ShowResponse `json:"body"`
+	Body contracts.ShowResponse `json:"body"`
 }
 
 // SetShowCancelledHandler handles POST /shows/{show_id}/cancelled
@@ -1598,7 +1598,7 @@ func (h *ShowHandler) GetMySubmissionsHandler(ctx context.Context, req *GetMySub
 
 	return &GetMySubmissionsResponse{
 		Body: struct {
-			Shows []services.ShowResponse `json:"shows" doc:"List of user's submitted shows"`
+			Shows []contracts.ShowResponse `json:"shows" doc:"List of user's submitted shows"`
 			Total int                     `json:"total" doc:"Total count of submissions"`
 		}{
 			Shows: shows,
