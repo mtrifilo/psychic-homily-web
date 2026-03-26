@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import {
   Menu, LogOut, Loader2, Shield, Settings, Moon, Sun, Search,
-  Library, CalendarCheck, ExternalLink,
+  Library, BookOpen, ExternalLink,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -109,17 +109,17 @@ export function TopBar({ mobileOpen, onMobileOpenChange, onSearchClick }: TopBar
                   <>
                     <div className="mx-3 mb-2 border-t border-border/30" />
                     <Link
-                      href="/my-shows"
+                      href="/library"
                       onClick={() => onMobileOpenChange(false)}
                       className={cn(
                         'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors',
-                        isActive('/my-shows')
+                        isActive('/library')
                           ? 'bg-accent text-accent-foreground'
                           : 'text-foreground/70 hover:bg-accent/50 hover:text-accent-foreground'
                       )}
                     >
-                      <CalendarCheck className="h-4 w-4" />
-                      My Shows
+                      <Library className="h-4 w-4" />
+                      Library
                     </Link>
                     <Link
                       href="/collection"
@@ -131,7 +131,7 @@ export function TopBar({ mobileOpen, onMobileOpenChange, onSearchClick }: TopBar
                           : 'text-foreground/70 hover:bg-accent/50 hover:text-accent-foreground'
                       )}
                     >
-                      <Library className="h-4 w-4" />
+                      <BookOpen className="h-4 w-4" />
                       Collection
                     </Link>
                     <Link
@@ -275,6 +275,12 @@ export function TopBar({ mobileOpen, onMobileOpenChange, onSearchClick }: TopBar
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   <DropdownMenuGroup>
+                    <DropdownMenuItem asChild>
+                      <Link href="/library">
+                        <Library className="mr-2 h-4 w-4" />
+                        My Library
+                      </Link>
+                    </DropdownMenuItem>
                     <DropdownMenuItem asChild>
                       <Link href="/profile">
                         <Settings className="mr-2 h-4 w-4" />

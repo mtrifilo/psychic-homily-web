@@ -53,6 +53,17 @@ const nextConfig: NextConfig = {
         destination: '/crates/:slug',
         permanent: true,
       },
+      // "my-shows" and "following" consolidated into Library
+      {
+        source: '/my-shows',
+        destination: '/library',
+        permanent: false,
+      },
+      {
+        source: '/following',
+        destination: '/library',
+        permanent: false,
+      },
     ]
   },
   async headers() {
