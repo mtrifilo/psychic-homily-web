@@ -220,7 +220,7 @@ func setupPasskeyRoutes(router *chi.Mux, api huma.API, protected *huma.Group, sc
 
 // setupShowRoutes configures all show-related endpoints
 func setupShowRoutes(router *chi.Mux, api huma.API, protected *huma.Group, sc *services.ServiceContainer, cfg *config.Config) {
-	showHandler := handlers.NewShowHandler(sc.Show, sc.SavedShow, sc.Discord, sc.MusicDiscovery, sc.Extraction)
+	showHandler := handlers.NewShowHandler(sc.Show, sc.Show, sc.Show, sc.SavedShow, sc.Discord, sc.MusicDiscovery, sc.Extraction)
 
 	// Public show endpoints - registered on main API without middleware
 	// Note: Static routes must come before parameterized routes
@@ -489,7 +489,7 @@ func setupAdminRoutes(protected *huma.Group, sc *services.ServiceContainer) {
 	// Domain-specific admin handlers
 	statsHandler := handlers.NewAdminStatsHandler(sc.AdminStats)
 	showHandler := handlers.NewAdminShowHandler(
-		sc.Show, sc.Discord, sc.AuditLog, sc.NotificationFilter,
+		sc.Show, sc.Show, sc.Show, sc.Discord, sc.AuditLog, sc.NotificationFilter,
 		sc.MusicDiscovery,
 	)
 	venueHandler := handlers.NewAdminVenueHandler(sc.Venue, sc.AuditLog)

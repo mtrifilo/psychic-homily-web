@@ -555,36 +555,20 @@ func (m *mockUserService) SetShowReminders(userID uint, enabled bool) error {
 }
 
 // ============================================================================
-// Mock: ShowServiceInterface
+// Mock: ShowServiceInterface (core CRUD)
 // ============================================================================
 
 type mockShowService struct {
-	createShowFn            func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error)
-	getShowFn               func(showID uint) (*contracts.ShowResponse, error)
-	getShowBySlugFn         func(slug string) (*contracts.ShowResponse, error)
-	getShowsFn              func(filters map[string]interface{}) ([]*contracts.ShowResponse, error)
-	getUserSubmissionsFn    func(userID uint, limit, offset int) ([]contracts.ShowResponse, int, error)
-	updateShowFn            func(showID uint, updates map[string]interface{}) (*contracts.ShowResponse, error)
+	createShowFn              func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error)
+	getShowFn                 func(showID uint) (*contracts.ShowResponse, error)
+	getShowBySlugFn           func(slug string) (*contracts.ShowResponse, error)
+	getShowsFn                func(filters map[string]interface{}) ([]*contracts.ShowResponse, error)
+	getUserSubmissionsFn      func(userID uint, limit, offset int) ([]contracts.ShowResponse, int, error)
+	updateShowFn              func(showID uint, updates map[string]interface{}) (*contracts.ShowResponse, error)
 	updateShowWithRelationsFn func(showID uint, updates map[string]interface{}, venues []contracts.CreateShowVenue, artists []contracts.CreateShowArtist, isAdmin bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error)
-	getUpcomingShowsFn      func(timezone string, cursor string, limit int, includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error)
-	getShowCitiesFn         func(timezone string) ([]contracts.ShowCityResponse, error)
-	deleteShowFn            func(showID uint) error
-	getPendingShowsFn       func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error)
-	getRejectedShowsFn      func(limit, offset int, search string) ([]*contracts.ShowResponse, int64, error)
-	approveShowFn           func(showID uint, verifyVenues bool) (*contracts.ShowResponse, error)
-	rejectShowFn            func(showID uint, reason string) (*contracts.ShowResponse, error)
-	unpublishShowFn         func(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error)
-	makePrivateShowFn       func(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error)
-	publishShowFn           func(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error)
-	exportShowToMarkdownFn  func(showID uint) ([]byte, string, error)
-	parseShowMarkdownFn     func(content []byte) (*contracts.ParsedShowImport, error)
-	previewShowImportFn     func(content []byte) (*contracts.ImportPreviewResponse, error)
-	confirmShowImportFn     func(content []byte, isAdmin bool) (*contracts.ShowResponse, error)
-	getAdminShowsFn         func(limit, offset int, filters contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error)
-	setShowSoldOutFn        func(showID uint, isSoldOut bool) (*contracts.ShowResponse, error)
-	setShowCancelledFn      func(showID uint, isCancelled bool) (*contracts.ShowResponse, error)
-	batchApproveShowsFn     func(showIDs []uint) (*contracts.BatchShowResult, error)
-	batchRejectShowsFn      func(showIDs []uint, reason string, category string) (*contracts.BatchShowResult, error)
+	getUpcomingShowsFn        func(timezone string, cursor string, limit int, includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error)
+	getShowCitiesFn           func(timezone string) ([]contracts.ShowCityResponse, error)
+	deleteShowFn              func(showID uint) error
 }
 
 func (m *mockShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
@@ -647,101 +631,141 @@ func (m *mockShowService) DeleteShow(showID uint) error {
 	}
 	return nil
 }
-func (m *mockShowService) GetPendingShows(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
+
+// ============================================================================
+// Mock: ShowAdminServiceInterface
+// ============================================================================
+
+type mockShowAdminService struct {
+	getPendingShowsFn   func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error)
+	getRejectedShowsFn  func(limit, offset int, search string) ([]*contracts.ShowResponse, int64, error)
+	approveShowFn       func(showID uint, verifyVenues bool) (*contracts.ShowResponse, error)
+	rejectShowFn        func(showID uint, reason string) (*contracts.ShowResponse, error)
+	batchApproveShowsFn func(showIDs []uint) (*contracts.BatchShowResult, error)
+	batchRejectShowsFn  func(showIDs []uint, reason string, category string) (*contracts.BatchShowResult, error)
+	getAdminShowsFn     func(limit, offset int, filters contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error)
+}
+
+func (m *mockShowAdminService) GetPendingShows(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 	if m.getPendingShowsFn != nil {
 		return m.getPendingShowsFn(limit, offset, filters)
 	}
 	return nil, 0, nil
 }
-func (m *mockShowService) GetRejectedShows(limit, offset int, search string) ([]*contracts.ShowResponse, int64, error) {
+func (m *mockShowAdminService) GetRejectedShows(limit, offset int, search string) ([]*contracts.ShowResponse, int64, error) {
 	if m.getRejectedShowsFn != nil {
 		return m.getRejectedShowsFn(limit, offset, search)
 	}
 	return nil, 0, nil
 }
-func (m *mockShowService) ApproveShow(showID uint, verifyVenues bool) (*contracts.ShowResponse, error) {
+func (m *mockShowAdminService) ApproveShow(showID uint, verifyVenues bool) (*contracts.ShowResponse, error) {
 	if m.approveShowFn != nil {
 		return m.approveShowFn(showID, verifyVenues)
 	}
 	return nil, nil
 }
-func (m *mockShowService) RejectShow(showID uint, reason string) (*contracts.ShowResponse, error) {
+func (m *mockShowAdminService) RejectShow(showID uint, reason string) (*contracts.ShowResponse, error) {
 	if m.rejectShowFn != nil {
 		return m.rejectShowFn(showID, reason)
 	}
 	return nil, nil
 }
-func (m *mockShowService) UnpublishShow(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
-	if m.unpublishShowFn != nil {
-		return m.unpublishShowFn(showID, userID, isAdmin)
-	}
-	return nil, nil
-}
-func (m *mockShowService) MakePrivateShow(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
-	if m.makePrivateShowFn != nil {
-		return m.makePrivateShowFn(showID, userID, isAdmin)
-	}
-	return nil, nil
-}
-func (m *mockShowService) PublishShow(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
-	if m.publishShowFn != nil {
-		return m.publishShowFn(showID, userID, isAdmin)
-	}
-	return nil, nil
-}
-func (m *mockShowService) ExportShowToMarkdown(showID uint) ([]byte, string, error) {
-	if m.exportShowToMarkdownFn != nil {
-		return m.exportShowToMarkdownFn(showID)
-	}
-	return nil, "", nil
-}
-func (m *mockShowService) ParseShowMarkdown(content []byte) (*contracts.ParsedShowImport, error) {
-	if m.parseShowMarkdownFn != nil {
-		return m.parseShowMarkdownFn(content)
-	}
-	return nil, nil
-}
-func (m *mockShowService) PreviewShowImport(content []byte) (*contracts.ImportPreviewResponse, error) {
-	if m.previewShowImportFn != nil {
-		return m.previewShowImportFn(content)
-	}
-	return nil, nil
-}
-func (m *mockShowService) ConfirmShowImport(content []byte, isAdmin bool) (*contracts.ShowResponse, error) {
-	if m.confirmShowImportFn != nil {
-		return m.confirmShowImportFn(content, isAdmin)
-	}
-	return nil, nil
-}
-func (m *mockShowService) GetAdminShows(limit, offset int, filters contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error) {
-	if m.getAdminShowsFn != nil {
-		return m.getAdminShowsFn(limit, offset, filters)
-	}
-	return nil, 0, nil
-}
-func (m *mockShowService) SetShowSoldOut(showID uint, isSoldOut bool) (*contracts.ShowResponse, error) {
-	if m.setShowSoldOutFn != nil {
-		return m.setShowSoldOutFn(showID, isSoldOut)
-	}
-	return nil, nil
-}
-func (m *mockShowService) SetShowCancelled(showID uint, isCancelled bool) (*contracts.ShowResponse, error) {
-	if m.setShowCancelledFn != nil {
-		return m.setShowCancelledFn(showID, isCancelled)
-	}
-	return nil, nil
-}
-func (m *mockShowService) BatchApproveShows(showIDs []uint) (*contracts.BatchShowResult, error) {
+func (m *mockShowAdminService) BatchApproveShows(showIDs []uint) (*contracts.BatchShowResult, error) {
 	if m.batchApproveShowsFn != nil {
 		return m.batchApproveShowsFn(showIDs)
 	}
 	return &contracts.BatchShowResult{Succeeded: showIDs, Errors: []contracts.BatchShowError{}}, nil
 }
-func (m *mockShowService) BatchRejectShows(showIDs []uint, reason string, category string) (*contracts.BatchShowResult, error) {
+func (m *mockShowAdminService) BatchRejectShows(showIDs []uint, reason string, category string) (*contracts.BatchShowResult, error) {
 	if m.batchRejectShowsFn != nil {
 		return m.batchRejectShowsFn(showIDs, reason, category)
 	}
 	return &contracts.BatchShowResult{Succeeded: showIDs, Errors: []contracts.BatchShowError{}}, nil
+}
+func (m *mockShowAdminService) GetAdminShows(limit, offset int, filters contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error) {
+	if m.getAdminShowsFn != nil {
+		return m.getAdminShowsFn(limit, offset, filters)
+	}
+	return nil, 0, nil
+}
+
+// ============================================================================
+// Mock: ShowImportServiceInterface
+// ============================================================================
+
+type mockShowImportService struct {
+	exportShowToMarkdownFn func(showID uint) ([]byte, string, error)
+	parseShowMarkdownFn    func(content []byte) (*contracts.ParsedShowImport, error)
+	previewShowImportFn    func(content []byte) (*contracts.ImportPreviewResponse, error)
+	confirmShowImportFn    func(content []byte, isAdmin bool) (*contracts.ShowResponse, error)
+}
+
+func (m *mockShowImportService) ExportShowToMarkdown(showID uint) ([]byte, string, error) {
+	if m.exportShowToMarkdownFn != nil {
+		return m.exportShowToMarkdownFn(showID)
+	}
+	return nil, "", nil
+}
+func (m *mockShowImportService) ParseShowMarkdown(content []byte) (*contracts.ParsedShowImport, error) {
+	if m.parseShowMarkdownFn != nil {
+		return m.parseShowMarkdownFn(content)
+	}
+	return nil, nil
+}
+func (m *mockShowImportService) PreviewShowImport(content []byte) (*contracts.ImportPreviewResponse, error) {
+	if m.previewShowImportFn != nil {
+		return m.previewShowImportFn(content)
+	}
+	return nil, nil
+}
+func (m *mockShowImportService) ConfirmShowImport(content []byte, isAdmin bool) (*contracts.ShowResponse, error) {
+	if m.confirmShowImportFn != nil {
+		return m.confirmShowImportFn(content, isAdmin)
+	}
+	return nil, nil
+}
+
+// ============================================================================
+// Mock: ShowStateServiceInterface
+// ============================================================================
+
+type mockShowStateService struct {
+	unpublishShowFn    func(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error)
+	makePrivateShowFn  func(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error)
+	publishShowFn      func(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error)
+	setShowSoldOutFn   func(showID uint, isSoldOut bool) (*contracts.ShowResponse, error)
+	setShowCancelledFn func(showID uint, isCancelled bool) (*contracts.ShowResponse, error)
+}
+
+func (m *mockShowStateService) UnpublishShow(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
+	if m.unpublishShowFn != nil {
+		return m.unpublishShowFn(showID, userID, isAdmin)
+	}
+	return nil, nil
+}
+func (m *mockShowStateService) MakePrivateShow(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
+	if m.makePrivateShowFn != nil {
+		return m.makePrivateShowFn(showID, userID, isAdmin)
+	}
+	return nil, nil
+}
+func (m *mockShowStateService) PublishShow(showID uint, userID uint, isAdmin bool) (*contracts.ShowResponse, error) {
+	if m.publishShowFn != nil {
+		return m.publishShowFn(showID, userID, isAdmin)
+	}
+	return nil, nil
+}
+func (m *mockShowStateService) SetShowSoldOut(showID uint, isSoldOut bool) (*contracts.ShowResponse, error) {
+	if m.setShowSoldOutFn != nil {
+		return m.setShowSoldOutFn(showID, isSoldOut)
+	}
+	return nil, nil
+}
+func (m *mockShowStateService) SetShowCancelled(showID uint, isCancelled bool) (*contracts.ShowResponse, error) {
+	if m.setShowCancelledFn != nil {
+		return m.setShowCancelledFn(showID, isCancelled)
+	}
+	return nil, nil
 }
 
 // ============================================================================
@@ -1570,6 +1594,9 @@ var _ contracts.ArtistReportServiceInterface = (*mockArtistReportService)(nil)
 var _ contracts.DiscordServiceInterface = (*mockDiscordService)(nil)
 var _ contracts.UserServiceInterface = (*mockUserService)(nil)
 var _ contracts.ShowServiceInterface = (*mockShowService)(nil)
+var _ contracts.ShowAdminServiceInterface = (*mockShowAdminService)(nil)
+var _ contracts.ShowImportServiceInterface = (*mockShowImportService)(nil)
+var _ contracts.ShowStateServiceInterface = (*mockShowStateService)(nil)
 var _ contracts.VenueServiceInterface = (*mockVenueService)(nil)
 var _ contracts.ArtistServiceInterface = (*mockArtistService)(nil)
 var _ contracts.MusicDiscoveryServiceInterface = (*mockMusicDiscoveryService)(nil)

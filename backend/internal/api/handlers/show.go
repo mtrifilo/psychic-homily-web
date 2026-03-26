@@ -19,7 +19,9 @@ import (
 
 // ShowHandler handles show-related HTTP requests
 type ShowHandler struct {
-	showService           contracts.ShowServiceInterface
+	showService      contracts.ShowServiceInterface
+	showStateService contracts.ShowStateServiceInterface
+	showImportService contracts.ShowImportServiceInterface
 	savedShowService      contracts.SavedShowServiceInterface
 	discordService        contracts.DiscordServiceInterface
 	musicDiscoveryService contracts.MusicDiscoveryServiceInterface
@@ -29,6 +31,8 @@ type ShowHandler struct {
 // NewShowHandler creates a new show handler
 func NewShowHandler(
 	showService contracts.ShowServiceInterface,
+	showStateService contracts.ShowStateServiceInterface,
+	showImportService contracts.ShowImportServiceInterface,
 	savedShowService contracts.SavedShowServiceInterface,
 	discordService contracts.DiscordServiceInterface,
 	musicDiscoveryService contracts.MusicDiscoveryServiceInterface,
@@ -36,6 +40,8 @@ func NewShowHandler(
 ) *ShowHandler {
 	return &ShowHandler{
 		showService:           showService,
+		showStateService:      showStateService,
+		showImportService:     showImportService,
 		savedShowService:      savedShowService,
 		discordService:        discordService,
 		musicDiscoveryService: musicDiscoveryService,
@@ -1016,7 +1022,7 @@ func (h *ShowHandler) UnpublishShowHandler(ctx context.Context, req *UnpublishSh
 	)
 
 	// Unpublish show using service (service handles authorization check)
-	show, err := h.showService.UnpublishShow(uint(showID), user.ID, user.IsAdmin)
+	show, err := h.showStateService.UnpublishShow(uint(showID), user.ID, user.IsAdmin)
 	if err != nil {
 		logger.FromContext(ctx).Warn("show_unpublish_failed",
 			"show_id", showID,
@@ -1101,7 +1107,7 @@ func (h *ShowHandler) MakePrivateShowHandler(ctx context.Context, req *MakePriva
 	)
 
 	// Make show private using service (service handles authorization check)
-	show, err := h.showService.MakePrivateShow(uint(showID), user.ID, user.IsAdmin)
+	show, err := h.showStateService.MakePrivateShow(uint(showID), user.ID, user.IsAdmin)
 	if err != nil {
 		logger.FromContext(ctx).Warn("show_make_private_failed",
 			"show_id", showID,
@@ -1188,7 +1194,7 @@ func (h *ShowHandler) PublishShowHandler(ctx context.Context, req *PublishShowRe
 	)
 
 	// Publish show using service (service handles authorization check)
-	show, err := h.showService.PublishShow(uint(showID), user.ID, user.IsAdmin)
+	show, err := h.showStateService.PublishShow(uint(showID), user.ID, user.IsAdmin)
 	if err != nil {
 		logger.FromContext(ctx).Warn("show_publish_failed",
 			"show_id", showID,
@@ -1330,7 +1336,7 @@ func (h *ShowHandler) ExportShowHandler(ctx context.Context, req *ExportShowRequ
 	)
 
 	// Export show to markdown
-	content, filename, err := h.showService.ExportShowToMarkdown(uint(showID))
+	content, filename, err := h.showImportService.ExportShowToMarkdown(uint(showID))
 	if err != nil {
 		logger.FromContext(ctx).Error("show_export_failed",
 			"show_id", showID,
@@ -1441,7 +1447,7 @@ func (h *ShowHandler) SetShowSoldOutHandler(ctx context.Context, req *SetShowSol
 	)
 
 	// Set sold out status
-	updatedShow, err := h.showService.SetShowSoldOut(uint(showID), req.Body.Value)
+	updatedShow, err := h.showStateService.SetShowSoldOut(uint(showID), req.Body.Value)
 	if err != nil {
 		logger.FromContext(ctx).Error("set_show_sold_out_failed",
 			"show_id", showID,
@@ -1524,7 +1530,7 @@ func (h *ShowHandler) SetShowCancelledHandler(ctx context.Context, req *SetShowC
 	)
 
 	// Set cancelled status
-	updatedShow, err := h.showService.SetShowCancelled(uint(showID), req.Body.Value)
+	updatedShow, err := h.showStateService.SetShowCancelled(uint(showID), req.Body.Value)
 	if err != nil {
 		logger.FromContext(ctx).Error("set_show_cancelled_failed",
 			"show_id", showID,
