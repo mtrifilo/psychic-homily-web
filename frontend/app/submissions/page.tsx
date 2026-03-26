@@ -93,7 +93,7 @@ export default function SubmissionsPage() {
   // Redirect unauthenticated users to login
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      router.push('/auth')
+      router.push('/auth?returnTo=%2Fsubmissions')
     }
   }, [isAuthenticated, isLoading, router])
 

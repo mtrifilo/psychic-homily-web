@@ -45,7 +45,7 @@ function StatCard({ label, value, icon: Icon, highlight, trend, onClick }: StatC
   const isZeroHighlight = highlight && value === 0
   return (
     <Card
-      className={`py-4${isZeroHighlight ? ' opacity-50' : ''}${onClick ? ' cursor-pointer transition-shadow hover:shadow-md hover:bg-muted/50' : ''}`}
+      className={`py-4${isZeroHighlight ? ' opacity-50' : ''}${onClick ? ' cursor-pointer transition-shadow hover:shadow-md hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2' : ''}`}
       onClick={onClick}
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}

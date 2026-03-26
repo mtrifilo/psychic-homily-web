@@ -24,7 +24,7 @@ export interface EngagementMetrics {
   bookmarks: MonthlyCount[]
   tags_added: MonthlyCount[]
   tag_votes: MonthlyCount[]
-  collection_items: MonthlyCount[]
+  collection_items: MonthlyCount[] // backend API field; displayed as "Crate Items"
   requests: MonthlyCount[]
   request_votes: MonthlyCount[]
   revisions: MonthlyCount[]
@@ -48,7 +48,7 @@ export interface CommunityHealth {
   active_contributors_30d: number
   contributions_per_week: WeeklyContribution[]
   request_fulfillment_rate: number
-  new_collections_30d: number
+  new_collections_30d: number // backend API field; displayed as "New Crates (30d)"
   top_contributors: TopContributor[]
 }
 
