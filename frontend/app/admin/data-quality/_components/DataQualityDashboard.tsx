@@ -63,8 +63,16 @@ function CategoryCard({
 
   return (
     <Card
-      className="cursor-pointer transition-colors hover:bg-muted/50"
+      className="cursor-pointer transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }}
     >
       <CardContent className="flex items-center gap-4 py-4">
         <div

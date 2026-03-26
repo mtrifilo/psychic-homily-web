@@ -271,8 +271,17 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-sm mb-4 py-0">
       <CardHeader
-        className="cursor-pointer py-3 flex flex-row items-center justify-between"
+        className="cursor-pointer py-3 flex flex-row items-center justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-t-xl"
         onClick={() => setIsExpanded(!isExpanded)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setIsExpanded(!isExpanded)
+          }
+        }}
+        aria-expanded={isExpanded}
       >
         <CardTitle className="flex items-center gap-2 text-base">
           <Sparkles className="h-4 w-4 text-primary" />
@@ -312,10 +321,19 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
             </div>
           ) : (
             <div
-              className="border-2 border-dashed border-input rounded-md p-4 text-center hover:border-primary/50 transition-colors cursor-pointer"
+              className="border-2 border-dashed border-input rounded-md p-4 text-center hover:border-primary/50 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               onDrop={handleDrop}
               onDragOver={handleDragOver}
               onClick={() => fileInputRef.current?.click()}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  fileInputRef.current?.click()
+                }
+              }}
+              aria-label="Upload a flyer image"
             >
               <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-3">
                 <div className="flex items-center justify-center h-10 w-10 rounded-full bg-muted">
