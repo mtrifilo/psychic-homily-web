@@ -16,6 +16,10 @@ import (
 // Admin services:      internal/services/admin/interfaces.go
 var (
 	_ contracts.ShowServiceInterface                = (*catalog.ShowService)(nil)
+	_ contracts.ShowAdminServiceInterface           = (*catalog.ShowService)(nil)
+	_ contracts.ShowImportServiceInterface          = (*catalog.ShowService)(nil)
+	_ contracts.ShowStateServiceInterface           = (*catalog.ShowService)(nil)
+	_ contracts.ShowFullServiceInterface            = (*catalog.ShowService)(nil)
 	_ contracts.VenueServiceInterface               = (*catalog.VenueService)(nil)
 	_ contracts.ArtistServiceInterface              = (*catalog.ArtistService)(nil)
 	_ contracts.FestivalServiceInterface            = (*catalog.FestivalService)(nil)

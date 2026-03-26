@@ -16,6 +16,8 @@ import (
 // AdminShowHandler handles admin show management
 type AdminShowHandler struct {
 	showService               contracts.ShowServiceInterface
+	showAdminService          contracts.ShowAdminServiceInterface
+	showImportService         contracts.ShowImportServiceInterface
 	discordService            contracts.DiscordServiceInterface
 	auditLogService           contracts.AuditLogServiceInterface
 	notificationFilterService contracts.NotificationFilterServiceInterface
@@ -25,6 +27,8 @@ type AdminShowHandler struct {
 // NewAdminShowHandler creates a new admin show handler
 func NewAdminShowHandler(
 	showService contracts.ShowServiceInterface,
+	showAdminService contracts.ShowAdminServiceInterface,
+	showImportService contracts.ShowImportServiceInterface,
 	discordService contracts.DiscordServiceInterface,
 	auditLogService contracts.AuditLogServiceInterface,
 	notificationFilterService contracts.NotificationFilterServiceInterface,
@@ -32,6 +36,8 @@ func NewAdminShowHandler(
 ) *AdminShowHandler {
 	return &AdminShowHandler{
 		showService:               showService,
+		showAdminService:          showAdminService,
+		showImportService:         showImportService,
 		discordService:            discordService,
 		auditLogService:           auditLogService,
 		notificationFilterService: notificationFilterService,
@@ -180,7 +186,7 @@ func (h *AdminShowHandler) GetPendingShowsHandler(ctx context.Context, req *GetP
 	)
 
 	// Get pending shows
-	shows, total, err := h.showService.GetPendingShows(limit, offset, filters)
+	shows, total, err := h.showAdminService.GetPendingShows(limit, offset, filters)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_pending_shows_failed",
 			"error", err.Error(),
@@ -237,7 +243,7 @@ func (h *AdminShowHandler) GetRejectedShowsHandler(ctx context.Context, req *Get
 	)
 
 	// Get rejected shows
-	shows, total, err := h.showService.GetRejectedShows(limit, offset, req.Search)
+	shows, total, err := h.showAdminService.GetRejectedShows(limit, offset, req.Search)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_rejected_shows_failed",
 			"error", err.Error(),
@@ -286,7 +292,7 @@ func (h *AdminShowHandler) ApproveShowHandler(ctx context.Context, req *ApproveS
 	)
 
 	// Approve the show
-	show, err := h.showService.ApproveShow(uint(showID), req.Body.VerifyVenues)
+	show, err := h.showAdminService.ApproveShow(uint(showID), req.Body.VerifyVenues)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_approve_show_failed",
 			"show_id", showID,
@@ -361,7 +367,7 @@ func (h *AdminShowHandler) RejectShowHandler(ctx context.Context, req *RejectSho
 	)
 
 	// Reject the show
-	show, err := h.showService.RejectShow(uint(showID), req.Body.Reason)
+	show, err := h.showAdminService.RejectShow(uint(showID), req.Body.Reason)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_reject_show_failed",
 			"show_id", showID,
@@ -397,7 +403,7 @@ func (h *AdminShowHandler) BatchApproveShowsHandler(ctx context.Context, req *Ba
 		return nil, err
 	}
 
-	result, err := h.showService.BatchApproveShows(req.Body.ShowIDs)
+	result, err := h.showAdminService.BatchApproveShows(req.Body.ShowIDs)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to batch approve shows")
 	}
@@ -463,7 +469,7 @@ func (h *AdminShowHandler) BatchRejectShowsHandler(ctx context.Context, req *Bat
 		return nil, huma.Error400BadRequest("Rejection reason is required")
 	}
 
-	result, err := h.showService.BatchRejectShows(req.Body.ShowIDs, req.Body.Reason, req.Body.Category)
+	result, err := h.showAdminService.BatchRejectShows(req.Body.ShowIDs, req.Body.Reason, req.Body.Category)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to batch reject shows")
 	}
@@ -536,7 +542,7 @@ func (h *AdminShowHandler) ImportShowPreviewHandler(ctx context.Context, req *Im
 	)
 
 	// Preview the import
-	preview, err := h.showService.PreviewShowImport(content)
+	preview, err := h.showImportService.PreviewShowImport(content)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_import_preview_failed",
 			"error", err.Error(),
@@ -595,7 +601,7 @@ func (h *AdminShowHandler) ImportShowConfirmHandler(ctx context.Context, req *Im
 	)
 
 	// Confirm the import (admin imports auto-verify venues)
-	show, err := h.showService.ConfirmShowImport(content, true)
+	show, err := h.showImportService.ConfirmShowImport(content, true)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_import_confirm_failed",
 			"error", err.Error(),
@@ -690,7 +696,7 @@ func (h *AdminShowHandler) GetAdminShowsHandler(ctx context.Context, req *GetAdm
 	}
 
 	// Get shows
-	shows, total, err := h.showService.GetAdminShows(limit, offset, filters)
+	shows, total, err := h.showAdminService.GetAdminShows(limit, offset, filters)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_shows_list_failed",
 			"error", err.Error(),
@@ -757,7 +763,7 @@ func (h *AdminShowHandler) BulkExportShowsHandler(ctx context.Context, req *Bulk
 	// Export each show
 	exports := make([]string, 0, len(req.Body.ShowIDs))
 	for _, showID := range req.Body.ShowIDs {
-		content, _, err := h.showService.ExportShowToMarkdown(showID)
+		content, _, err := h.showImportService.ExportShowToMarkdown(showID)
 		if err != nil {
 			logger.FromContext(ctx).Error("admin_bulk_export_show_failed",
 				"show_id", showID,
@@ -853,7 +859,7 @@ func (h *AdminShowHandler) BulkImportPreviewHandler(ctx context.Context, req *Bu
 			return nil, huma.Error400BadRequest(fmt.Sprintf("Invalid base64 content for show %d", i+1))
 		}
 
-		preview, err := h.showService.PreviewShowImport(content)
+		preview, err := h.showImportService.PreviewShowImport(content)
 		if err != nil {
 			logger.FromContext(ctx).Error("admin_bulk_import_preview_failed",
 				"show_index", i,
@@ -968,7 +974,7 @@ func (h *AdminShowHandler) BulkImportConfirmHandler(ctx context.Context, req *Bu
 			continue
 		}
 
-		show, err := h.showService.ConfirmShowImport(content, true)
+		show, err := h.showImportService.ConfirmShowImport(content, true)
 		if err != nil {
 			results = append(results, BulkImportResult{
 				Success: false,

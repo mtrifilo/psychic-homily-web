@@ -26,6 +26,8 @@ func (s *AdminHandlerIntegrationSuite) SetupSuite() {
 	s.deps = setupHandlerIntegrationDeps(s.T())
 	s.showHandler = NewAdminShowHandler(
 		s.deps.showService,
+		s.deps.showService,
+		s.deps.showService,
 		s.deps.discordService,
 		s.deps.auditLogService,
 		nil, // notificationFilterService
