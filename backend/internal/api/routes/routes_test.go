@@ -75,7 +75,7 @@ func TestSetupAuthRoutes(t *testing.T) {
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	setupAuthRoutes(router, api, sc, cfg)
+	setupAuthRoutes(RouteContext{Router: router, API: api, SC: sc, Cfg: cfg})
 
 	// Test OAuth login route
 	t.Run("OAuth Login Route", func(t *testing.T) {
@@ -133,7 +133,7 @@ func TestSetupSystemRoutes(t *testing.T) {
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	setupSystemRoutes(router, api)
+	setupSystemRoutes(RouteContext{Router: router, API: api})
 
 	// Test health check route
 	t.Run("Health Check Route", func(t *testing.T) {
@@ -247,7 +247,7 @@ func TestRouteMiddleware(t *testing.T) {
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	setupAuthRoutes(router, api, sc, cfg)
+	setupAuthRoutes(RouteContext{Router: router, API: api, SC: sc, Cfg: cfg})
 
 	// Test that CORS headers are set (if middleware is configured)
 	t.Run("CORS Headers", func(t *testing.T) {
@@ -271,7 +271,7 @@ func TestRouteErrorHandling(t *testing.T) {
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	setupAuthRoutes(router, api, sc, cfg)
+	setupAuthRoutes(RouteContext{Router: router, API: api, SC: sc, Cfg: cfg})
 
 	// Test OAuth callback with error (this will fail due to missing OAuth setup)
 	t.Run("OAuth Callback With Error", func(t *testing.T) {
@@ -300,7 +300,7 @@ func TestRouteParameterExtraction(t *testing.T) {
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	setupAuthRoutes(router, api, sc, cfg)
+	setupAuthRoutes(RouteContext{Router: router, API: api, SC: sc, Cfg: cfg})
 
 	// Test different provider parameters
 	providers := []string{"google", "github"}
@@ -333,7 +333,7 @@ func TestRouteRegistration(t *testing.T) {
 	router := chi.NewRouter()
 	api := humachi.New(router, huma.DefaultConfig("Test", "1.0.0"))
 
-	setupAuthRoutes(router, api, sc, cfg)
+	setupAuthRoutes(RouteContext{Router: router, API: api, SC: sc, Cfg: cfg})
 
 	// Test that routes are registered by checking if they respond
 	// (even if they fail due to missing OAuth configuration)
