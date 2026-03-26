@@ -484,20 +484,18 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate(
 	suite.Equal(1, result1.Imported)
 
 	// Import another event with the same headliner at the same venue on the same date
-	// but different source_event_id
+	// but different source_event_id — should be blocked as duplicate
 	events2 := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-004b", "Bon Iver (Late Show)", "valley-bar", "2026-09-01", []string{"Bon Iver"}),
 	}
 	result2, err := suite.svc.ImportEvents(events2, false, false, models.ShowStatusApproved)
 	suite.Require().NoError(err)
-	suite.Equal(1, result2.PendingReview)
+	suite.Equal(1, result2.Duplicates)
 
-	// Verify the second show is pending
-	var show models.Show
-	err = suite.db.Where("source_event_id = ?", "evt-004b").First(&show).Error
-	suite.Require().NoError(err)
-	suite.Equal(models.ShowStatusPending, show.Status)
-	suite.NotNil(show.DuplicateOfShowID)
+	// Verify the second show was NOT created
+	var count int64
+	suite.db.Model(&models.Show{}).Where("source_event_id = ?", "evt-004b").Count(&count)
+	suite.Equal(int64(0), count)
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_RejectedShowSkipped() {
@@ -723,4 +721,139 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WithSpecialGuestAnd
 	suite.Equal("headliner", showArtists[0].SetType)
 	suite.Equal("special_guest", showArtists[1].SetType)
 	suite.Equal("performer", showArtists[2].SetType) // dj normalized to performer
+}
+
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate_WithBillingArtists() {
+	// Import a show with billing data
+	events1 := []contracts.DiscoveredEvent{
+		{
+			ID:        "evt-billing-001",
+			Title:     "Big Show Night",
+			Date:      "2026-11-01",
+			Venue:     "Valley Bar",
+			VenueSlug: "valley-bar",
+			Artists:   []string{"Star Band", "Opener"},
+			BillingArtists: []contracts.DiscoveredArtist{
+				{Name: "Star Band", SetType: "headliner", BillingOrder: 1},
+				{Name: "Opener", SetType: "opener", BillingOrder: 2},
+			},
+			ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+	result1, err := suite.svc.ImportEvents(events1, false, false, models.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result1.Imported)
+
+	// Import another event with the same headliner via billing data but different source_event_id
+	events2 := []contracts.DiscoveredEvent{
+		{
+			ID:        "evt-billing-002",
+			Title:     "Big Show Night (Late)",
+			Date:      "2026-11-01",
+			Venue:     "Valley Bar",
+			VenueSlug: "valley-bar",
+			Artists:   []string{"Star Band"},
+			BillingArtists: []contracts.DiscoveredArtist{
+				{Name: "Star Band", SetType: "headliner", BillingOrder: 1},
+			},
+			ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+	result2, err := suite.svc.ImportEvents(events2, false, false, models.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result2.Duplicates)
+
+	// Verify the second show was NOT created
+	var count int64
+	suite.db.Model(&models.Show{}).Where("source_event_id = ?", "evt-billing-002").Count(&count)
+	suite.Equal(int64(0), count)
+}
+
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate_Position0Match() {
+	// Import a show where the headliner is assigned position=0 but set_type is just "performer"
+	// This simulates shows created without explicit headliner tagging
+	venue := &models.Venue{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	suite.Require().NoError(suite.db.Create(venue).Error)
+
+	artist := &models.Artist{Name: "Position Zero Band"}
+	slug := utils.GenerateArtistSlug(artist.Name)
+	artist.Slug = &slug
+	suite.Require().NoError(suite.db.Create(artist).Error)
+
+	show := &models.Show{
+		Title:     "Existing Show",
+		EventDate: time.Date(2026, 11, 15, 2, 0, 0, 0, time.UTC),
+		Status:    models.ShowStatusApproved,
+		Source:    models.ShowSourceUser,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+
+	suite.Require().NoError(suite.db.Exec(
+		"INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID).Error)
+	suite.Require().NoError(suite.db.Exec(
+		"INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'performer')",
+		show.ID, artist.ID).Error)
+
+	// Now try to import an event with the same artist at the same venue on the same date
+	events := []contracts.DiscoveredEvent{
+		suite.makeEvent("evt-pos0-001", "Position Zero Band Live", "valley-bar", "2026-11-15", []string{"Position Zero Band"}),
+	}
+	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Duplicates)
+	suite.Contains(result.Messages[0], "DUPLICATE")
+}
+
+// =============================================================================
+// UNIT TESTS — resolveHeadlinerName
+// =============================================================================
+
+func TestResolveHeadlinerName_BillingArtists_ExplicitHeadliner(t *testing.T) {
+	svc := &DiscoveryService{}
+	event := &contracts.DiscoveredEvent{
+		BillingArtists: []contracts.DiscoveredArtist{
+			{Name: "Opener", SetType: "opener", BillingOrder: 2},
+			{Name: "Headliner Band", SetType: "headliner", BillingOrder: 1},
+		},
+		Artists: []string{"Opener", "Headliner Band"},
+	}
+	assert.Equal(t, "Headliner Band", svc.resolveHeadlinerName(event))
+}
+
+func TestResolveHeadlinerName_BillingArtists_ByBillingOrder(t *testing.T) {
+	svc := &DiscoveryService{}
+	event := &contracts.DiscoveredEvent{
+		BillingArtists: []contracts.DiscoveredArtist{
+			{Name: "Second Act", SetType: "performer", BillingOrder: 2},
+			{Name: "First Act", SetType: "performer", BillingOrder: 1},
+		},
+	}
+	// Should return the one with lowest billing order
+	assert.Equal(t, "First Act", svc.resolveHeadlinerName(event))
+}
+
+func TestResolveHeadlinerName_BillingArtists_NoHeadlinerNoOrder(t *testing.T) {
+	svc := &DiscoveryService{}
+	event := &contracts.DiscoveredEvent{
+		BillingArtists: []contracts.DiscoveredArtist{
+			{Name: "First Entry", SetType: "performer"},
+			{Name: "Second Entry", SetType: "performer"},
+		},
+	}
+	// Should return first entry when no explicit headliner or billing order
+	assert.Equal(t, "First Entry", svc.resolveHeadlinerName(event))
+}
+
+func TestResolveHeadlinerName_FallbackToArtistsList(t *testing.T) {
+	svc := &DiscoveryService{}
+	event := &contracts.DiscoveredEvent{
+		Artists: []string{"Main Band", "Support Band"},
+	}
+	assert.Equal(t, "Main Band", svc.resolveHeadlinerName(event))
+}
+
+func TestResolveHeadlinerName_NoArtists(t *testing.T) {
+	svc := &DiscoveryService{}
+	event := &contracts.DiscoveredEvent{}
+	assert.Equal(t, "", svc.resolveHeadlinerName(event))
 }

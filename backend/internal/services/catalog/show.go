@@ -210,7 +210,8 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 		}
 	}
 
-	// Check for conflicts: same headliner + same venue + same day (case-insensitive)
+	// Check for conflicts: same headliner + same venue + same day (case-insensitive).
+	// Matches headliner by explicit set_type='headliner' OR position=0 (first billed artist).
 	for _, headlinerName := range headlinerNames {
 		for _, venueName := range venueNames {
 			var existingShows []models.Show
@@ -221,8 +222,9 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 				Joins("JOIN artists ON show_artists.artist_id = artists.id").
 				Joins("JOIN show_venues ON shows.id = show_venues.show_id").
 				Joins("JOIN venues ON show_venues.venue_id = venues.id").
-				Where("LOWER(artists.name) = LOWER(?) AND LOWER(venues.name) = LOWER(?) AND show_artists.set_type = ?",
-					headlinerName, venueName, "headliner").
+				Where("LOWER(artists.name) = LOWER(?) AND LOWER(venues.name) = LOWER(?)",
+					headlinerName, venueName).
+				Where("(show_artists.set_type = ? OR show_artists.position = 0)", "headliner").
 				Where("shows.event_date >= ? AND shows.event_date < ?", startOfDay, endOfDay).
 				Find(&existingShows).Error
 
