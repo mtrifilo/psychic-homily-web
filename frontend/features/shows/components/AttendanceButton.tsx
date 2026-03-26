@@ -10,7 +10,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useShowAttendance, useSetAttendance, useRemoveAttendance } from '../hooks/useAttendance'
 import type { AttendanceCounts } from '../types'
 
@@ -29,6 +29,7 @@ export function AttendanceButton({
 }: AttendanceButtonProps) {
   const { isAuthenticated } = useAuthContext()
   const router = useRouter()
+  const pathname = usePathname()
 
   // Only fetch individual attendance if no batch data provided
   const { data: fetchedData } = useShowAttendance(
@@ -49,7 +50,7 @@ export function AttendanceButton({
 
   const handleClick = (status: 'going' | 'interested') => {
     if (!isAuthenticated) {
-      router.push('/auth')
+      router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
       return
     }
 
