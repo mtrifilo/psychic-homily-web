@@ -3,9 +3,9 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  Calendar, CalendarCheck, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Newspaper,
+  Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Newspaper,
   Send, Library, LayoutList, MessageSquarePlus, Settings, Shield, PanelLeftClose, PanelLeft,
-  ExternalLink, Globe, UserCheck, TrendingUp, Bell,
+  ExternalLink, Globe, TrendingUp, Bell,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -131,10 +131,8 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
             <div>
               <div className={cn('mb-2 border-t border-sidebar-border', collapsed ? 'mx-2' : 'mx-3')} />
               <div className="space-y-0.5">
-                {renderItem({ href: '/library', label: 'Library', icon: BookOpen })}
-                {renderItem({ href: '/my-shows', label: 'My Shows', icon: CalendarCheck })}
-                {renderItem({ href: '/following', label: 'Following', icon: UserCheck })}
-                {renderItem({ href: '/collection', label: 'Collection', icon: Library })}
+                {renderItem({ href: '/library', label: 'Library', icon: Library })}
+                {renderItem({ href: '/collection', label: 'Collection', icon: BookOpen })}
                 {renderItem({ href: '/settings/notifications', label: 'Notifications', icon: Bell })}
                 {renderItem({ href: '/profile', label: 'Settings', icon: Settings })}
                 {user?.is_admin && renderItem({ href: '/admin', label: 'Admin', icon: Shield })}
