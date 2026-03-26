@@ -16,6 +16,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/joho/godotenv"
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 	"gorm.io/gorm"
@@ -164,9 +165,13 @@ func main() {
 		}
 	}
 
-	fmt.Printf("🎉 Database seeding completed!\n")
-	fmt.Printf("📊 Summary: %d venues, %d artists, %d/%d shows\n",
-		len(venues), len(artists), successCount, showCount)
+	// Seed test users
+	fmt.Println("Seeding test users...")
+	usersCreated := seedTestUsers(db)
+
+	fmt.Printf("Database seeding completed!\n")
+	fmt.Printf("Summary: %d venues, %d artists, %d/%d shows, %d users\n",
+		len(venues), len(artists), successCount, showCount, usersCreated)
 }
 
 func getVenueData() map[string]VenueData {
@@ -412,6 +417,154 @@ func generateNormalizedTitle(showData ShowData) string {
 	}
 
 	return bandList
+}
+
+type seedUser struct {
+	Email         string
+	Username      string
+	Password      string
+	FirstName     string
+	LastName      string
+	IsAdmin       bool
+	EmailVerified bool
+	UserTier      string
+}
+
+func seedTestUsers(db *gorm.DB) int {
+	users := []seedUser{
+		{
+			Email:         "admin@test.local",
+			Username:      "admin",
+			Password:      "admin123",
+			FirstName:     "Admin",
+			LastName:      "User",
+			IsAdmin:       true,
+			EmailVerified: true,
+			UserTier:      "trusted_contributor",
+		},
+		{
+			Email:         "testuser@test.local",
+			Username:      "testuser",
+			Password:      "testuser123",
+			FirstName:     "Test",
+			LastName:      "User",
+			IsAdmin:       false,
+			EmailVerified: true,
+			UserTier:      "new_user",
+		},
+	}
+
+	created := 0
+	for _, u := range users {
+		// Check if user already exists
+		var existing models.User
+		if err := db.Where("email = ?", u.Email).First(&existing).Error; err == nil {
+			fmt.Printf("  User %s already exists, skipping\n", u.Email)
+			continue
+		}
+
+		// Hash password
+		hashedBytes, err := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
+		if err != nil {
+			log.Printf("Warning: Failed to hash password for %s: %v", u.Email, err)
+			continue
+		}
+		hashedPassword := string(hashedBytes)
+
+		user := &models.User{
+			Email:         &u.Email,
+			Username:      &u.Username,
+			PasswordHash:  &hashedPassword,
+			FirstName:     &u.FirstName,
+			LastName:      &u.LastName,
+			IsAdmin:       u.IsAdmin,
+			EmailVerified: u.EmailVerified,
+			IsActive:      true,
+			UserTier:      u.UserTier,
+		}
+
+		if err := db.Create(user).Error; err != nil {
+			log.Printf("Warning: Failed to create user %s: %v", u.Email, err)
+			continue
+		}
+
+		// Create user preferences
+		prefs := &models.UserPreferences{
+			UserID:            user.ID,
+			NotificationEmail: true,
+			Theme:             "system",
+			Timezone:          "America/Phoenix",
+			Language:          "en",
+		}
+		if err := db.Create(prefs).Error; err != nil {
+			log.Printf("Warning: Failed to create preferences for %s: %v", u.Email, err)
+		}
+
+		created++
+		fmt.Printf("  Created user: %s (%s)\n", u.Email, u.Username)
+	}
+
+	// Seed engagement data for testuser
+	seedTestUserEngagement(db)
+
+	return created
+}
+
+func seedTestUserEngagement(db *gorm.DB) {
+	// Find the test user
+	var testUser models.User
+	if err := db.Where("email = ?", "testuser@test.local").First(&testUser).Error; err != nil {
+		log.Printf("Warning: Could not find testuser for engagement seeding: %v", err)
+		return
+	}
+
+	// Follow a couple of artists (via user_bookmarks with entity_type=artist, action=follow)
+	var artists []models.Artist
+	if err := db.Limit(2).Find(&artists).Error; err != nil || len(artists) == 0 {
+		log.Printf("Warning: No artists found for engagement seeding")
+		return
+	}
+
+	for _, artist := range artists {
+		bookmark := models.UserBookmark{
+			UserID:     testUser.ID,
+			EntityType: models.BookmarkEntityArtist,
+			EntityID:   artist.ID,
+			Action:     models.BookmarkActionFollow,
+		}
+		result := db.Where(
+			"user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
+			testUser.ID, models.BookmarkEntityArtist, artist.ID, models.BookmarkActionFollow,
+		).FirstOrCreate(&bookmark)
+		if result.Error != nil {
+			log.Printf("Warning: Failed to create artist follow for %s: %v", artist.Name, result.Error)
+		}
+	}
+
+	// Save a couple of shows (via user_bookmarks with entity_type=show, action=save)
+	var shows []models.Show
+	if err := db.Where("status = ?", "approved").Limit(2).Find(&shows).Error; err != nil || len(shows) == 0 {
+		log.Printf("Warning: No approved shows found for engagement seeding")
+		return
+	}
+
+	for _, show := range shows {
+		bookmark := models.UserBookmark{
+			UserID:     testUser.ID,
+			EntityType: models.BookmarkEntityShow,
+			EntityID:   show.ID,
+			Action:     models.BookmarkActionSave,
+		}
+		result := db.Where(
+			"user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
+			testUser.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionSave,
+		).FirstOrCreate(&bookmark)
+		if result.Error != nil {
+			log.Printf("Warning: Failed to create show save for %s: %v", show.Title, result.Error)
+		}
+	}
+
+	fmt.Println("  Seeded engagement data for testuser (follows + saved shows)")
 }
 
 func connectToDatabase() *gorm.DB {
