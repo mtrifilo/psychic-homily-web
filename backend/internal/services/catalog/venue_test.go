@@ -28,168 +28,147 @@ func TestVenueService_NilDatabase(t *testing.T) {
 	svc := &VenueService{db: nil}
 
 	t.Run("CreateVenue", func(t *testing.T) {
-		resp, err := svc.CreateVenue(&contracts.CreateVenueRequest{Name: "Test", City: "Phoenix", State: "AZ"}, false)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateVenue(&contracts.CreateVenueRequest{Name: "Test", City: "Phoenix", State: "AZ"}, false)
+		})
 	})
 
 	t.Run("GetVenue", func(t *testing.T) {
-		resp, err := svc.GetVenue(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetVenue(1)
+		})
 	})
 
 	t.Run("GetVenueBySlug", func(t *testing.T) {
-		resp, err := svc.GetVenueBySlug("test-slug")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetVenueBySlug("test-slug")
+		})
 	})
 
 	t.Run("GetVenues", func(t *testing.T) {
-		resp, err := svc.GetVenues(nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetVenues(nil)
+		})
 	})
 
 	t.Run("UpdateVenue", func(t *testing.T) {
-		resp, err := svc.UpdateVenue(1, map[string]interface{}{"name": "x"})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.UpdateVenue(1, map[string]interface{}{"name": "x"})
+		})
 	})
 
 	t.Run("DeleteVenue", func(t *testing.T) {
-		err := svc.DeleteVenue(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.DeleteVenue(1)
+		})
 	})
 
 	t.Run("SearchVenues", func(t *testing.T) {
-		resp, err := svc.SearchVenues("test")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.SearchVenues("test")
+		})
 	})
 
 	t.Run("FindOrCreateVenue", func(t *testing.T) {
-		venue, created, err := svc.FindOrCreateVenue("Test", "Phoenix", "AZ", nil, nil, nil, false)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, venue)
-		assert.False(t, created)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.FindOrCreateVenue("Test", "Phoenix", "AZ", nil, nil, nil, false)
+			return err
+		})
 	})
 
 	t.Run("VerifyVenue", func(t *testing.T) {
-		resp, err := svc.VerifyVenue(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.VerifyVenue(1)
+		})
 	})
 
 	t.Run("GetVenuesWithShowCounts", func(t *testing.T) {
-		resp, total, err := svc.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
+			return err
+		})
 	})
 
 	t.Run("GetShowsForVenue", func(t *testing.T) {
-		resp, total, err := svc.GetShowsForVenue(1, "UTC", 10, "upcoming")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetShowsForVenue(1, "UTC", 10, "upcoming")
+			return err
+		})
 	})
 
 	t.Run("GetUpcomingShowsForVenue", func(t *testing.T) {
-		resp, total, err := svc.GetUpcomingShowsForVenue(1, "UTC", 10)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetUpcomingShowsForVenue(1, "UTC", 10)
+			return err
+		})
 	})
 
 	t.Run("GetVenueCities", func(t *testing.T) {
-		resp, err := svc.GetVenueCities()
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetVenueCities()
+		})
 	})
 
 	t.Run("CreatePendingVenueEdit", func(t *testing.T) {
-		resp, err := svc.CreatePendingVenueEdit(1, 1, &contracts.VenueEditRequest{})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreatePendingVenueEdit(1, 1, &contracts.VenueEditRequest{})
+		})
 	})
 
 	t.Run("GetPendingEditForVenue", func(t *testing.T) {
-		resp, err := svc.GetPendingEditForVenue(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetPendingEditForVenue(1, 1)
+		})
 	})
 
 	t.Run("GetPendingVenueEdits", func(t *testing.T) {
-		resp, total, err := svc.GetPendingVenueEdits(10, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetPendingVenueEdits(10, 0)
+			return err
+		})
 	})
 
 	t.Run("GetPendingVenueEdit", func(t *testing.T) {
-		resp, err := svc.GetPendingVenueEdit(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetPendingVenueEdit(1)
+		})
 	})
 
 	t.Run("ApproveVenueEdit", func(t *testing.T) {
-		resp, err := svc.ApproveVenueEdit(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ApproveVenueEdit(1, 1)
+		})
 	})
 
 	t.Run("RejectVenueEdit", func(t *testing.T) {
-		resp, err := svc.RejectVenueEdit(1, 1, "reason")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.RejectVenueEdit(1, 1, "reason")
+		})
 	})
 
 	t.Run("CancelPendingVenueEdit", func(t *testing.T) {
-		err := svc.CancelPendingVenueEdit(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.CancelPendingVenueEdit(1, 1)
+		})
 	})
 
 	t.Run("GetVenueModel", func(t *testing.T) {
-		resp, err := svc.GetVenueModel(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetVenueModel(1)
+		})
 	})
 
 	t.Run("GetUnverifiedVenues", func(t *testing.T) {
-		resp, total, err := svc.GetUnverifiedVenues(10, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetUnverifiedVenues(10, 0)
+			return err
+		})
 	})
 
 	t.Run("GetVenueGenreProfile", func(t *testing.T) {
-		resp, err := svc.GetVenueGenreProfile(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetVenueGenreProfile(1)
+		})
 	})
 }
 

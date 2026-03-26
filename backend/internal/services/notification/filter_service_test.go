@@ -29,73 +29,69 @@ func TestNotificationFilterService_NilDatabase(t *testing.T) {
 	svc := &NotificationFilterService{db: nil}
 
 	t.Run("CreateFilter", func(t *testing.T) {
-		_, err := svc.CreateFilter(1, contracts.CreateFilterInput{ArtistIDs: []int64{1}})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateFilter(1, contracts.CreateFilterInput{ArtistIDs: []int64{1}})
+		})
 	})
 
 	t.Run("UpdateFilter", func(t *testing.T) {
-		_, err := svc.UpdateFilter(1, 1, contracts.UpdateFilterInput{})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.UpdateFilter(1, 1, contracts.UpdateFilterInput{})
+		})
 	})
 
 	t.Run("DeleteFilter", func(t *testing.T) {
-		err := svc.DeleteFilter(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.DeleteFilter(1, 1)
+		})
 	})
 
 	t.Run("GetUserFilters", func(t *testing.T) {
-		filters, err := svc.GetUserFilters(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, filters)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetUserFilters(1)
+		})
 	})
 
 	t.Run("GetFilter", func(t *testing.T) {
-		filter, err := svc.GetFilter(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, filter)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetFilter(1, 1)
+		})
 	})
 
 	t.Run("QuickCreateFilter", func(t *testing.T) {
-		_, err := svc.QuickCreateFilter(1, "artist", 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.QuickCreateFilter(1, "artist", 1)
+		})
 	})
 
 	t.Run("MatchAndNotify", func(t *testing.T) {
-		err := svc.MatchAndNotify(&models.Show{ID: 1})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.MatchAndNotify(&models.Show{ID: 1})
+		})
 	})
 
 	t.Run("MatchAndNotifyBatch", func(t *testing.T) {
-		err := svc.MatchAndNotifyBatch([]models.Show{{ID: 1}})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.MatchAndNotifyBatch([]models.Show{{ID: 1}})
+		})
 	})
 
 	t.Run("GetUserNotifications", func(t *testing.T) {
-		entries, err := svc.GetUserNotifications(1, 10, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, entries)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetUserNotifications(1, 10, 0)
+		})
 	})
 
 	t.Run("GetUnreadCount", func(t *testing.T) {
-		count, err := svc.GetUnreadCount(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Zero(t, count)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetUnreadCount(1)
+		})
 	})
 
 	t.Run("PauseFilter", func(t *testing.T) {
-		err := svc.PauseFilter(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.PauseFilter(1)
+		})
 	})
 }
 

@@ -26,53 +26,46 @@ func TestShowReportService_NilDatabase(t *testing.T) {
 	svc := &ShowReportService{db: nil}
 
 	t.Run("CreateReport", func(t *testing.T) {
-		resp, err := svc.CreateReport(1, 1, "cancelled", nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateReport(1, 1, "cancelled", nil)
+		})
 	})
 
 	t.Run("GetUserReportForShow", func(t *testing.T) {
-		resp, err := svc.GetUserReportForShow(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetUserReportForShow(1, 1)
+		})
 	})
 
 	t.Run("GetPendingReports", func(t *testing.T) {
-		resp, total, err := svc.GetPendingReports(10, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetPendingReports(10, 0)
+			return err
+		})
 	})
 
 	t.Run("DismissReport", func(t *testing.T) {
-		resp, err := svc.DismissReport(1, 1, nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.DismissReport(1, 1, nil)
+		})
 	})
 
 	t.Run("ResolveReport", func(t *testing.T) {
-		resp, err := svc.ResolveReport(1, 1, nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ResolveReport(1, 1, nil)
+		})
 	})
 
 	t.Run("ResolveReportWithFlag", func(t *testing.T) {
-		resp, err := svc.ResolveReportWithFlag(1, 1, nil, true)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ResolveReportWithFlag(1, 1, nil, true)
+		})
 	})
 
 	t.Run("GetReportByID", func(t *testing.T) {
-		resp, err := svc.GetReportByID(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetReportByID(1)
+		})
 	})
 }
 

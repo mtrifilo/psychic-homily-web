@@ -27,126 +27,113 @@ func TestTagService_NilDatabase(t *testing.T) {
 	svc := &TagService{db: nil}
 
 	t.Run("CreateTag", func(t *testing.T) {
-		tag, err := svc.CreateTag("test", nil, nil, "genre", false)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, tag)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateTag("test", nil, nil, "genre", false)
+		})
 	})
 
 	t.Run("GetTag", func(t *testing.T) {
-		tag, err := svc.GetTag(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, tag)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetTag(1)
+		})
 	})
 
 	t.Run("GetTagBySlug", func(t *testing.T) {
-		tag, err := svc.GetTagBySlug("test")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, tag)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetTagBySlug("test")
+		})
 	})
 
 	t.Run("ListTags", func(t *testing.T) {
-		tags, total, err := svc.ListTags("", "", nil, "usage", 20, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, tags)
-		assert.Equal(t, int64(0), total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.ListTags("", "", nil, "usage", 20, 0)
+			return err
+		})
 	})
 
 	t.Run("UpdateTag", func(t *testing.T) {
 		name := "updated"
-		tag, err := svc.UpdateTag(1, &name, nil, nil, nil, nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, tag)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.UpdateTag(1, &name, nil, nil, nil, nil)
+		})
 	})
 
 	t.Run("DeleteTag", func(t *testing.T) {
-		err := svc.DeleteTag(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.DeleteTag(1)
+		})
 	})
 
 	t.Run("AddTagToEntity", func(t *testing.T) {
-		et, err := svc.AddTagToEntity(1, "", "artist", 1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, et)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.AddTagToEntity(1, "", "artist", 1, 1)
+		})
 	})
 
 	t.Run("RemoveTagFromEntity", func(t *testing.T) {
-		err := svc.RemoveTagFromEntity(1, "artist", 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.RemoveTagFromEntity(1, "artist", 1)
+		})
 	})
 
 	t.Run("ListEntityTags", func(t *testing.T) {
-		tags, err := svc.ListEntityTags("artist", 1, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, tags)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ListEntityTags("artist", 1, 0)
+		})
 	})
 
 	t.Run("VoteOnTag", func(t *testing.T) {
-		err := svc.VoteOnTag(1, "artist", 1, 1, true)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.VoteOnTag(1, "artist", 1, 1, true)
+		})
 	})
 
 	t.Run("RemoveTagVote", func(t *testing.T) {
-		err := svc.RemoveTagVote(1, "artist", 1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.RemoveTagVote(1, "artist", 1, 1)
+		})
 	})
 
 	t.Run("CreateAlias", func(t *testing.T) {
-		alias, err := svc.CreateAlias(1, "test")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, alias)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateAlias(1, "test")
+		})
 	})
 
 	t.Run("DeleteAlias", func(t *testing.T) {
-		err := svc.DeleteAlias(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.DeleteAlias(1)
+		})
 	})
 
 	t.Run("ListAliases", func(t *testing.T) {
-		aliases, err := svc.ListAliases(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, aliases)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ListAliases(1)
+		})
 	})
 
 	t.Run("ResolveAlias", func(t *testing.T) {
-		tag, err := svc.ResolveAlias("test")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, tag)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ResolveAlias("test")
+		})
 	})
 
 	t.Run("SearchTags", func(t *testing.T) {
-		tags, err := svc.SearchTags("test", 10)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, tags)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.SearchTags("test", 10)
+		})
 	})
 
 	t.Run("GetTrendingTags", func(t *testing.T) {
-		tags, err := svc.GetTrendingTags(10, "")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, tags)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetTrendingTags(10, "")
+		})
 	})
 
 	t.Run("PruneDownvotedTags", func(t *testing.T) {
-		count, err := svc.PruneDownvotedTags()
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Equal(t, int64(0), count)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.PruneDownvotedTags()
+		})
 	})
 }
 

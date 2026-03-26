@@ -27,98 +27,87 @@ func TestFestivalService_NilDatabase(t *testing.T) {
 	svc := &FestivalService{db: nil}
 
 	t.Run("CreateFestival", func(t *testing.T) {
-		resp, err := svc.CreateFestival(&contracts.CreateFestivalRequest{Name: "Test"})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateFestival(&contracts.CreateFestivalRequest{Name: "Test"})
+		})
 	})
 
 	t.Run("GetFestival", func(t *testing.T) {
-		resp, err := svc.GetFestival(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetFestival(1)
+		})
 	})
 
 	t.Run("GetFestivalBySlug", func(t *testing.T) {
-		resp, err := svc.GetFestivalBySlug("test-slug")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetFestivalBySlug("test-slug")
+		})
 	})
 
 	t.Run("ListFestivals", func(t *testing.T) {
-		resp, err := svc.ListFestivals(nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ListFestivals(nil)
+		})
 	})
 
 	t.Run("UpdateFestival", func(t *testing.T) {
-		resp, err := svc.UpdateFestival(1, &contracts.UpdateFestivalRequest{})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.UpdateFestival(1, &contracts.UpdateFestivalRequest{})
+		})
 	})
 
 	t.Run("DeleteFestival", func(t *testing.T) {
-		err := svc.DeleteFestival(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.DeleteFestival(1)
+		})
 	})
 
 	t.Run("GetFestivalArtists", func(t *testing.T) {
-		resp, err := svc.GetFestivalArtists(1, nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetFestivalArtists(1, nil)
+		})
 	})
 
 	t.Run("AddFestivalArtist", func(t *testing.T) {
-		resp, err := svc.AddFestivalArtist(1, &contracts.AddFestivalArtistRequest{ArtistID: 1})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.AddFestivalArtist(1, &contracts.AddFestivalArtistRequest{ArtistID: 1})
+		})
 	})
 
 	t.Run("UpdateFestivalArtist", func(t *testing.T) {
-		resp, err := svc.UpdateFestivalArtist(1, 1, &contracts.UpdateFestivalArtistRequest{})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.UpdateFestivalArtist(1, 1, &contracts.UpdateFestivalArtistRequest{})
+		})
 	})
 
 	t.Run("RemoveFestivalArtist", func(t *testing.T) {
-		err := svc.RemoveFestivalArtist(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.RemoveFestivalArtist(1, 1)
+		})
 	})
 
 	t.Run("GetFestivalVenues", func(t *testing.T) {
-		resp, err := svc.GetFestivalVenues(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetFestivalVenues(1)
+		})
 	})
 
 	t.Run("AddFestivalVenue", func(t *testing.T) {
-		resp, err := svc.AddFestivalVenue(1, &contracts.AddFestivalVenueRequest{VenueID: 1})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.AddFestivalVenue(1, &contracts.AddFestivalVenueRequest{VenueID: 1})
+		})
 	})
 
 	t.Run("RemoveFestivalVenue", func(t *testing.T) {
-		err := svc.RemoveFestivalVenue(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.RemoveFestivalVenue(1, 1)
+		})
 	})
 
 	t.Run("GetFestivalsForArtist", func(t *testing.T) {
-		resp, err := svc.GetFestivalsForArtist(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetFestivalsForArtist(1)
+		})
 	})
 }
 

@@ -25,55 +25,51 @@ func TestVenueSourceConfigService_NilDatabase(t *testing.T) {
 	svc := &VenueSourceConfigService{db: nil}
 
 	t.Run("GetByVenueID", func(t *testing.T) {
-		result, err := svc.GetByVenueID(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, result)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetByVenueID(1)
+		})
 	})
 
 	t.Run("CreateOrUpdate", func(t *testing.T) {
-		result, err := svc.CreateOrUpdate(&models.VenueSourceConfig{VenueID: 1})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, result)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateOrUpdate(&models.VenueSourceConfig{VenueID: 1})
+		})
 	})
 
 	t.Run("UpdateAfterRun", func(t *testing.T) {
-		err := svc.UpdateAfterRun(1, nil, nil, 5)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.UpdateAfterRun(1, nil, nil, 5)
+		})
 	})
 
 	t.Run("IncrementFailures", func(t *testing.T) {
-		err := svc.IncrementFailures(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.IncrementFailures(1)
+		})
 	})
 
 	t.Run("RecordRun", func(t *testing.T) {
-		err := svc.RecordRun(&models.VenueExtractionRun{VenueID: 1})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.RecordRun(&models.VenueExtractionRun{VenueID: 1})
+		})
 	})
 
 	t.Run("GetRecentRuns", func(t *testing.T) {
-		result, err := svc.GetRecentRuns(1, 10)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, result)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetRecentRuns(1, 10)
+		})
 	})
 
 	t.Run("ListConfigured", func(t *testing.T) {
-		result, err := svc.ListConfigured()
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, result)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ListConfigured()
+		})
 	})
 
 	t.Run("ResetRenderMethod", func(t *testing.T) {
-		err := svc.ResetRenderMethod(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.ResetRenderMethod(1)
+		})
 	})
 }
 

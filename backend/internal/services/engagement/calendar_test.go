@@ -28,37 +28,33 @@ func TestCalendarService_NilDatabase(t *testing.T) {
 	svc := &CalendarService{db: nil}
 
 	t.Run("CreateToken", func(t *testing.T) {
-		resp, err := svc.CreateToken(1, "http://localhost:8080")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateToken(1, "http://localhost:8080")
+		})
 	})
 
 	t.Run("GetTokenStatus", func(t *testing.T) {
-		resp, err := svc.GetTokenStatus(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetTokenStatus(1)
+		})
 	})
 
 	t.Run("DeleteToken", func(t *testing.T) {
-		err := svc.DeleteToken(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.DeleteToken(1)
+		})
 	})
 
 	t.Run("ValidateCalendarToken", func(t *testing.T) {
-		user, err := svc.ValidateCalendarToken("phcal_abc123")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ValidateCalendarToken("phcal_abc123")
+		})
 	})
 
 	t.Run("GenerateICSFeed", func(t *testing.T) {
-		data, err := svc.GenerateICSFeed(1, "http://localhost:3000")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, data)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GenerateICSFeed(1, "http://localhost:3000")
+		})
 	})
 }
 

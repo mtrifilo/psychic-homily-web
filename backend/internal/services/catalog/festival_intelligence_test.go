@@ -26,38 +26,33 @@ func TestFestivalIntelligenceService_NilDatabase(t *testing.T) {
 	svc := &FestivalIntelligenceService{db: nil}
 
 	t.Run("GetSimilarFestivals", func(t *testing.T) {
-		resp, err := svc.GetSimilarFestivals(1, 10)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetSimilarFestivals(1, 10)
+		})
 	})
 
 	t.Run("GetFestivalOverlap", func(t *testing.T) {
-		resp, err := svc.GetFestivalOverlap(1, 2)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetFestivalOverlap(1, 2)
+		})
 	})
 
 	t.Run("GetFestivalBreakouts", func(t *testing.T) {
-		resp, err := svc.GetFestivalBreakouts(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetFestivalBreakouts(1)
+		})
 	})
 
 	t.Run("GetArtistFestivalTrajectory", func(t *testing.T) {
-		resp, err := svc.GetArtistFestivalTrajectory(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetArtistFestivalTrajectory(1)
+		})
 	})
 
 	t.Run("GetSeriesComparison", func(t *testing.T) {
-		resp, err := svc.GetSeriesComparison("m3f", []int{2024, 2025})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetSeriesComparison("m3f", []int{2024, 2025})
+		})
 	})
 }
 

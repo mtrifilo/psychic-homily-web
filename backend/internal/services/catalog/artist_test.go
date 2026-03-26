@@ -28,107 +28,94 @@ func TestArtistService_NilDatabase(t *testing.T) {
 	svc := &ArtistService{db: nil}
 
 	t.Run("CreateArtist", func(t *testing.T) {
-		resp, err := svc.CreateArtist(&contracts.CreateArtistRequest{Name: "Test"})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateArtist(&contracts.CreateArtistRequest{Name: "Test"})
+		})
 	})
 
 	t.Run("GetArtist", func(t *testing.T) {
-		resp, err := svc.GetArtist(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetArtist(1)
+		})
 	})
 
 	t.Run("GetArtistByName", func(t *testing.T) {
-		resp, err := svc.GetArtistByName("Test")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetArtistByName("Test")
+		})
 	})
 
 	t.Run("GetArtistBySlug", func(t *testing.T) {
-		resp, err := svc.GetArtistBySlug("test-slug")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetArtistBySlug("test-slug")
+		})
 	})
 
 	t.Run("GetArtists", func(t *testing.T) {
-		resp, err := svc.GetArtists(nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetArtists(nil)
+		})
 	})
 
 	t.Run("UpdateArtist", func(t *testing.T) {
-		resp, err := svc.UpdateArtist(1, map[string]interface{}{"name": "x"})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.UpdateArtist(1, map[string]interface{}{"name": "x"})
+		})
 	})
 
 	t.Run("DeleteArtist", func(t *testing.T) {
-		err := svc.DeleteArtist(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.DeleteArtist(1)
+		})
 	})
 
 	t.Run("SearchArtists", func(t *testing.T) {
-		resp, err := svc.SearchArtists("test")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.SearchArtists("test")
+		})
 	})
 
 	t.Run("GetShowsForArtist", func(t *testing.T) {
-		resp, total, err := svc.GetShowsForArtist(1, "UTC", 10, "upcoming")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetShowsForArtist(1, "UTC", 10, "upcoming")
+			return err
+		})
 	})
 
 	t.Run("GetArtistCities", func(t *testing.T) {
-		resp, err := svc.GetArtistCities()
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetArtistCities()
+		})
 	})
 
 	t.Run("GetArtistsWithShowCounts", func(t *testing.T) {
-		resp, err := svc.GetArtistsWithShowCounts(nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetArtistsWithShowCounts(nil)
+		})
 	})
 
 	t.Run("AddArtistAlias", func(t *testing.T) {
-		resp, err := svc.AddArtistAlias(1, "test")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.AddArtistAlias(1, "test")
+		})
 	})
 
 	t.Run("RemoveArtistAlias", func(t *testing.T) {
-		err := svc.RemoveArtistAlias(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.RemoveArtistAlias(1)
+		})
 	})
 
 	t.Run("GetArtistAliases", func(t *testing.T) {
-		resp, err := svc.GetArtistAliases(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetArtistAliases(1)
+		})
 	})
 
 	t.Run("MergeArtists", func(t *testing.T) {
-		resp, err := svc.MergeArtists(1, 2)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.MergeArtists(1, 2)
+		})
 	})
 }
 

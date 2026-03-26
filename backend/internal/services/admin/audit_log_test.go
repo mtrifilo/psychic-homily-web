@@ -35,11 +35,10 @@ func TestAuditLogService_NilDatabase(t *testing.T) {
 	})
 
 	t.Run("GetAuditLogs", func(t *testing.T) {
-		resp, total, err := svc.GetAuditLogs(10, 0, contracts.AuditLogFilters{})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetAuditLogs(10, 0, contracts.AuditLogFilters{})
+			return err
+		})
 	})
 }
 

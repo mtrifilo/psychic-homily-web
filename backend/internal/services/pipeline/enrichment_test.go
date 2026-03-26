@@ -28,27 +28,27 @@ func TestEnrichmentService_NilDB(t *testing.T) {
 	svc := &EnrichmentService{db: nil}
 
 	t.Run("QueueShowForEnrichment", func(t *testing.T) {
-		err := svc.QueueShowForEnrichment(1, models.EnrichmentTypeAll)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.QueueShowForEnrichment(1, models.EnrichmentTypeAll)
+		})
 	})
 
 	t.Run("ProcessQueue", func(t *testing.T) {
-		_, err := svc.ProcessQueue(context.Background(), 10)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ProcessQueue(context.Background(), 10)
+		})
 	})
 
 	t.Run("EnrichShow", func(t *testing.T) {
-		_, err := svc.EnrichShow(context.Background(), 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.EnrichShow(context.Background(), 1)
+		})
 	})
 
 	t.Run("GetQueueStats", func(t *testing.T) {
-		_, err := svc.GetQueueStats()
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetQueueStats()
+		})
 	})
 }
 

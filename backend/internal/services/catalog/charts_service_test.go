@@ -26,38 +26,33 @@ func TestChartsService_NilDatabase(t *testing.T) {
 	svc := &ChartsService{db: nil}
 
 	t.Run("GetTrendingShows", func(t *testing.T) {
-		resp, err := svc.GetTrendingShows(20)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetTrendingShows(20)
+		})
 	})
 
 	t.Run("GetPopularArtists", func(t *testing.T) {
-		resp, err := svc.GetPopularArtists(20)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetPopularArtists(20)
+		})
 	})
 
 	t.Run("GetActiveVenues", func(t *testing.T) {
-		resp, err := svc.GetActiveVenues(20)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetActiveVenues(20)
+		})
 	})
 
 	t.Run("GetHotReleases", func(t *testing.T) {
-		resp, err := svc.GetHotReleases(20)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetHotReleases(20)
+		})
 	})
 
 	t.Run("GetChartsOverview", func(t *testing.T) {
-		resp, err := svc.GetChartsOverview()
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetChartsOverview()
+		})
 	})
 }
 

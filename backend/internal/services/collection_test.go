@@ -28,96 +28,89 @@ func TestCollectionService_NilDatabase(t *testing.T) {
 	svc := &CollectionService{db: nil}
 
 	t.Run("CreateCollection", func(t *testing.T) {
-		resp, err := svc.CreateCollection(1, &contracts.CreateCollectionRequest{Title: "Test"})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateCollection(1, &contracts.CreateCollectionRequest{Title: "Test"})
+		})
 	})
 
 	t.Run("GetBySlug", func(t *testing.T) {
-		resp, err := svc.GetBySlug("test-slug", 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetBySlug("test-slug", 1)
+		})
 	})
 
 	t.Run("ListCollections", func(t *testing.T) {
-		resp, total, err := svc.ListCollections(contracts.CollectionFilters{}, 20, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Equal(t, int64(0), total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.ListCollections(contracts.CollectionFilters{}, 20, 0)
+			return err
+		})
 	})
 
 	t.Run("UpdateCollection", func(t *testing.T) {
-		resp, err := svc.UpdateCollection("test-slug", 1, false, &contracts.UpdateCollectionRequest{})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.UpdateCollection("test-slug", 1, false, &contracts.UpdateCollectionRequest{})
+		})
 	})
 
 	t.Run("DeleteCollection", func(t *testing.T) {
-		err := svc.DeleteCollection("test-slug", 1, false)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.DeleteCollection("test-slug", 1, false)
+		})
 	})
 
 	t.Run("AddItem", func(t *testing.T) {
-		resp, err := svc.AddItem("test-slug", 1, &contracts.AddCollectionItemRequest{EntityType: "artist", EntityID: 1})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.AddItem("test-slug", 1, &contracts.AddCollectionItemRequest{EntityType: "artist", EntityID: 1})
+		})
 	})
 
 	t.Run("RemoveItem", func(t *testing.T) {
-		err := svc.RemoveItem("test-slug", 1, 1, false)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.RemoveItem("test-slug", 1, 1, false)
+		})
 	})
 
 	t.Run("ReorderItems", func(t *testing.T) {
-		err := svc.ReorderItems("test-slug", 1, &contracts.ReorderCollectionItemsRequest{})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.ReorderItems("test-slug", 1, &contracts.ReorderCollectionItemsRequest{})
+		})
 	})
 
 	t.Run("Subscribe", func(t *testing.T) {
-		err := svc.Subscribe("test-slug", 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.Subscribe("test-slug", 1)
+		})
 	})
 
 	t.Run("Unsubscribe", func(t *testing.T) {
-		err := svc.Unsubscribe("test-slug", 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.Unsubscribe("test-slug", 1)
+		})
 	})
 
 	t.Run("MarkVisited", func(t *testing.T) {
-		err := svc.MarkVisited("test-slug", 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.MarkVisited("test-slug", 1)
+		})
 	})
 
 	t.Run("GetStats", func(t *testing.T) {
-		resp, err := svc.GetStats("test-slug")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetStats("test-slug")
+		})
 	})
 
 	t.Run("GetUserCollections", func(t *testing.T) {
-		resp, total, err := svc.GetUserCollections(1, 20, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Equal(t, int64(0), total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetUserCollections(1, 20, 0)
+			return err
+		})
 	})
 
 	t.Run("SetFeatured", func(t *testing.T) {
-		err := svc.SetFeatured("test-slug", true)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.SetFeatured("test-slug", true)
+		})
 	})
 }
 

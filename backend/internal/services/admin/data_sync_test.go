@@ -36,31 +36,27 @@ func TestDataSyncService_NilDB(t *testing.T) {
 	svc := &DataSyncService{db: nil}
 
 	t.Run("ExportShows", func(t *testing.T) {
-		result, err := svc.ExportShows(contracts.ExportShowsParams{})
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "database not initialized")
-		assert.Nil(t, result)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ExportShows(contracts.ExportShowsParams{})
+		})
 	})
 
 	t.Run("ExportArtists", func(t *testing.T) {
-		result, err := svc.ExportArtists(contracts.ExportArtistsParams{})
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "database not initialized")
-		assert.Nil(t, result)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ExportArtists(contracts.ExportArtistsParams{})
+		})
 	})
 
 	t.Run("ExportVenues", func(t *testing.T) {
-		result, err := svc.ExportVenues(contracts.ExportVenuesParams{})
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "database not initialized")
-		assert.Nil(t, result)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ExportVenues(contracts.ExportVenuesParams{})
+		})
 	})
 
 	t.Run("ImportData", func(t *testing.T) {
-		result, err := svc.ImportData(contracts.DataImportRequest{})
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "database not initialized")
-		assert.Nil(t, result)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ImportData(contracts.DataImportRequest{})
+		})
 	})
 }
 

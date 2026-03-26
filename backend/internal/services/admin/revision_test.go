@@ -28,38 +28,35 @@ func TestRevisionService_NilDatabase(t *testing.T) {
 
 	t.Run("RecordRevision", func(t *testing.T) {
 		changes := []models.FieldChange{{Field: "name", OldValue: "old", NewValue: "new"}}
-		err := svc.RecordRevision("artist", 1, 1, changes, "test")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.RecordRevision("artist", 1, 1, changes, "test")
+		})
 	})
 
 	t.Run("GetEntityHistory", func(t *testing.T) {
-		revisions, total, err := svc.GetEntityHistory("artist", 1, 10, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, revisions)
-		assert.Zero(t, total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetEntityHistory("artist", 1, 10, 0)
+			return err
+		})
 	})
 
 	t.Run("GetRevision", func(t *testing.T) {
-		revision, err := svc.GetRevision(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, revision)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetRevision(1)
+		})
 	})
 
 	t.Run("GetUserRevisions", func(t *testing.T) {
-		revisions, total, err := svc.GetUserRevisions(1, 10, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, revisions)
-		assert.Zero(t, total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetUserRevisions(1, 10, 0)
+			return err
+		})
 	})
 
 	t.Run("Rollback", func(t *testing.T) {
-		err := svc.Rollback(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.Rollback(1, 1)
+		})
 	})
 }
 

@@ -29,73 +29,64 @@ func TestContributorProfileService_NilDatabase(t *testing.T) {
 	svc := &ContributorProfileService{db: nil}
 
 	t.Run("GetPublicProfile", func(t *testing.T) {
-		resp, err := svc.GetPublicProfile("testuser", nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetPublicProfile("testuser", nil)
+		})
 	})
 
 	t.Run("GetOwnProfile", func(t *testing.T) {
-		resp, err := svc.GetOwnProfile(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetOwnProfile(1)
+		})
 	})
 
 	t.Run("GetContributionStats", func(t *testing.T) {
-		resp, err := svc.GetContributionStats(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetContributionStats(1)
+		})
 	})
 
 	t.Run("GetContributionHistory", func(t *testing.T) {
-		resp, total, err := svc.GetContributionHistory(1, 20, 0, "")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetContributionHistory(1, 20, 0, "")
+			return err
+		})
 	})
 
 	t.Run("UpdatePrivacySettings", func(t *testing.T) {
-		resp, err := svc.UpdatePrivacySettings(1, contracts.DefaultPrivacySettings())
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.UpdatePrivacySettings(1, contracts.DefaultPrivacySettings())
+		})
 	})
 
 	t.Run("GetUserSections", func(t *testing.T) {
-		resp, err := svc.GetUserSections(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetUserSections(1)
+		})
 	})
 
 	t.Run("GetOwnSections", func(t *testing.T) {
-		resp, err := svc.GetOwnSections(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetOwnSections(1)
+		})
 	})
 
 	t.Run("CreateSection", func(t *testing.T) {
-		resp, err := svc.CreateSection(1, "Title", "Content", 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateSection(1, "Title", "Content", 0)
+		})
 	})
 
 	t.Run("UpdateSection", func(t *testing.T) {
-		resp, err := svc.UpdateSection(1, 1, map[string]interface{}{"title": "New"})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.UpdateSection(1, 1, map[string]interface{}{"title": "New"})
+		})
 	})
 
 	t.Run("DeleteSection", func(t *testing.T) {
-		err := svc.DeleteSection(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.DeleteSection(1, 1)
+		})
 	})
 }
 

@@ -27,45 +27,40 @@ func TestAPITokenService_NilDatabase(t *testing.T) {
 	svc := &APITokenService{db: nil}
 
 	t.Run("CreateToken", func(t *testing.T) {
-		resp, err := svc.CreateToken(1, nil, 90)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateToken(1, nil, 90)
+		})
 	})
 
 	t.Run("ValidateToken", func(t *testing.T) {
-		user, token, err := svc.ValidateToken("phk_abc123")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
-		assert.Nil(t, token)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.ValidateToken("phk_abc123")
+			return err
+		})
 	})
 
 	t.Run("ListTokens", func(t *testing.T) {
-		tokens, err := svc.ListTokens(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, tokens)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ListTokens(1)
+		})
 	})
 
 	t.Run("RevokeToken", func(t *testing.T) {
-		err := svc.RevokeToken(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.RevokeToken(1, 1)
+		})
 	})
 
 	t.Run("GetToken", func(t *testing.T) {
-		resp, err := svc.GetToken(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetToken(1, 1)
+		})
 	})
 
 	t.Run("CleanupExpiredTokens", func(t *testing.T) {
-		count, err := svc.CleanupExpiredTokens()
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Zero(t, count)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CleanupExpiredTokens()
+		})
 	})
 }
 

@@ -27,37 +27,34 @@ func TestSavedShowService_NilDatabase(t *testing.T) {
 	svc := &SavedShowService{db: nil}
 
 	t.Run("SaveShow", func(t *testing.T) {
-		err := svc.SaveShow(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.SaveShow(1, 1)
+		})
 	})
 
 	t.Run("UnsaveShow", func(t *testing.T) {
-		err := svc.UnsaveShow(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.UnsaveShow(1, 1)
+		})
 	})
 
 	t.Run("GetUserSavedShows", func(t *testing.T) {
-		resp, total, err := svc.GetUserSavedShows(1, 10, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetUserSavedShows(1, 10, 0)
+			return err
+		})
 	})
 
 	t.Run("IsShowSaved", func(t *testing.T) {
-		saved, err := svc.IsShowSaved(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.False(t, saved)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.IsShowSaved(1, 1)
+		})
 	})
 
 	t.Run("GetSavedShowIDs", func(t *testing.T) {
-		result, err := svc.GetSavedShowIDs(1, []uint{1, 2})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, result)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetSavedShowIDs(1, []uint{1, 2})
+		})
 	})
 }
 

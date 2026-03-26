@@ -26,47 +26,41 @@ func TestSceneService_NilDatabase(t *testing.T) {
 	svc := &SceneService{db: nil}
 
 	t.Run("ListScenes", func(t *testing.T) {
-		resp, err := svc.ListScenes()
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ListScenes()
+		})
 	})
 
 	t.Run("GetSceneDetail", func(t *testing.T) {
-		resp, err := svc.GetSceneDetail("Phoenix", "AZ")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetSceneDetail("Phoenix", "AZ")
+		})
 	})
 
 	t.Run("GetActiveArtists", func(t *testing.T) {
-		resp, total, err := svc.GetActiveArtists("Phoenix", "AZ", 90, 20, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetActiveArtists("Phoenix", "AZ", 90, 20, 0)
+			return err
+		})
 	})
 
 	t.Run("ParseSceneSlug", func(t *testing.T) {
-		city, state, err := svc.ParseSceneSlug("phoenix-az")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Empty(t, city)
-		assert.Empty(t, state)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.ParseSceneSlug("phoenix-az")
+			return err
+		})
 	})
 
 	t.Run("GetSceneGenreDistribution", func(t *testing.T) {
-		resp, err := svc.GetSceneGenreDistribution("Phoenix", "AZ")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetSceneGenreDistribution("Phoenix", "AZ")
+		})
 	})
 
 	t.Run("GetGenreDiversityIndex", func(t *testing.T) {
-		resp, err := svc.GetGenreDiversityIndex("Phoenix", "AZ")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Zero(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetGenreDiversityIndex("Phoenix", "AZ")
+		})
 	})
 }
 
