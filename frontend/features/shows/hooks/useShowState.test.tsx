@@ -13,7 +13,7 @@ vi.mock('@/lib/api', () => ({
 }))
 
 // Mock the feature api module
-vi.mock('../api', () => ({
+vi.mock('@/features/shows/api', () => ({
   showEndpoints: {
     PUBLISH: (id: number) => `/shows/${id}/publish`,
     MAKE_PRIVATE: (id: number) => `/shows/${id}/make-private`,

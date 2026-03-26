@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
-import { showEndpoints } from '../api'
+import { showEndpoints } from '@/features/shows/api'
 import type { MySubmissionsResponse } from '../types'
 
 interface UseMySubmissionsOptions {

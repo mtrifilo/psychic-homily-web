@@ -35,9 +35,9 @@ vi.mock('use-debounce', () => ({
   useDebounce: (value: string) => [value], // No debounce in tests
 }))
 
-// Import hooks after mocks are set up
-import { useArtistSearch } from '@/features/artists'
-import { useVenueSearch } from '@/features/venues'
+// Import hooks directly from hook files (not barrels) to avoid dragging in component tree
+import { useArtistSearch } from '@/features/artists/hooks/useArtistSearch'
+import { useVenueSearch } from '@/features/venues/hooks/useVenueSearch'
 
 
 describe('useArtistSearch', () => {

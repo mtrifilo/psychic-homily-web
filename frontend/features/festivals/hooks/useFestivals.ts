@@ -8,7 +8,8 @@
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
-import { festivalEndpoints, festivalQueryKeys } from '../api'
+import { createDetailHook, createNamedDetailHook } from '@/lib/hooks/factories'
+import { festivalEndpoints, festivalQueryKeys } from '@/features/festivals/api'
 import type {
   FestivalsListResponse,
   FestivalDetail,
@@ -16,7 +17,6 @@ import type {
   FestivalVenuesResponse,
   ArtistFestivalsResponse,
   SimilarFestivalsResponse,
-  FestivalOverlap,
   FestivalBreakouts,
   ArtistTrajectory,
   SeriesComparison,
@@ -64,31 +64,13 @@ export function useFestivals(options: UseFestivalsOptions = {}) {
   })
 }
 
-interface UseFestivalOptions {
-  idOrSlug: string | number
-  enabled?: boolean
-}
-
 /**
  * Hook to fetch a single festival by ID or slug
  */
-export function useFestival(options: UseFestivalOptions) {
-  const { idOrSlug, enabled = true } = options
-
-  return useQuery({
-    queryKey: festivalQueryKeys.detail(idOrSlug),
-    queryFn: async (): Promise<FestivalDetail> => {
-      return apiRequest<FestivalDetail>(
-        festivalEndpoints.GET(idOrSlug),
-        { method: 'GET' }
-      )
-    },
-    enabled:
-      enabled &&
-      (typeof idOrSlug === 'string' ? Boolean(idOrSlug) : idOrSlug > 0),
-    staleTime: 5 * 60 * 1000,
-  })
-}
+export const useFestival = createDetailHook<FestivalDetail>(
+  festivalEndpoints.GET,
+  festivalQueryKeys.detail,
+)
 
 interface UseFestivalArtistsOptions {
   festivalIdOrSlug: string | number
@@ -134,61 +116,23 @@ export function useFestivalLineup(options: { festivalId: string | number; dayDat
   })
 }
 
-interface UseFestivalVenuesOptions {
-  festivalIdOrSlug: string | number
-  enabled?: boolean
-}
-
 /**
  * Hook to fetch venues for a festival
  */
-export function useFestivalVenues(options: UseFestivalVenuesOptions) {
-  const { festivalIdOrSlug, enabled = true } = options
-
-  return useQuery({
-    queryKey: festivalQueryKeys.venues(festivalIdOrSlug),
-    queryFn: async (): Promise<FestivalVenuesResponse> => {
-      return apiRequest<FestivalVenuesResponse>(
-        festivalEndpoints.VENUES(festivalIdOrSlug),
-        { method: 'GET' }
-      )
-    },
-    enabled:
-      enabled &&
-      (typeof festivalIdOrSlug === 'string'
-        ? Boolean(festivalIdOrSlug)
-        : festivalIdOrSlug > 0),
-    staleTime: 5 * 60 * 1000,
-  })
-}
-
-interface UseArtistFestivalsOptions {
-  artistIdOrSlug: string | number
-  enabled?: boolean
-}
+export const useFestivalVenues = createNamedDetailHook<FestivalVenuesResponse, 'festivalIdOrSlug'>(
+  'festivalIdOrSlug',
+  festivalEndpoints.VENUES,
+  festivalQueryKeys.venues,
+)
 
 /**
  * Hook to fetch festivals for a specific artist
  */
-export function useArtistFestivals(options: UseArtistFestivalsOptions) {
-  const { artistIdOrSlug, enabled = true } = options
-
-  return useQuery({
-    queryKey: festivalQueryKeys.artistFestivals(artistIdOrSlug),
-    queryFn: async (): Promise<ArtistFestivalsResponse> => {
-      return apiRequest<ArtistFestivalsResponse>(
-        festivalEndpoints.ARTIST_FESTIVALS(artistIdOrSlug),
-        { method: 'GET' }
-      )
-    },
-    enabled:
-      enabled &&
-      (typeof artistIdOrSlug === 'string'
-        ? Boolean(artistIdOrSlug)
-        : artistIdOrSlug > 0),
-    staleTime: 5 * 60 * 1000,
-  })
-}
+export const useArtistFestivals = createNamedDetailHook<ArtistFestivalsResponse, 'artistIdOrSlug'>(
+  'artistIdOrSlug',
+  festivalEndpoints.ARTIST_FESTIVALS,
+  festivalQueryKeys.artistFestivals,
+)
 
 // ──────────────────────────────────────────────
 // Festival Intelligence hooks
@@ -219,40 +163,20 @@ export function useSimilarFestivals(options: { festivalIdOrSlug: string | number
 /**
  * Hook to fetch breakout artists at a festival
  */
-export function useFestivalBreakouts(options: { festivalIdOrSlug: string | number; enabled?: boolean }) {
-  const { festivalIdOrSlug, enabled = true } = options
-
-  return useQuery({
-    queryKey: festivalQueryKeys.breakouts(festivalIdOrSlug),
-    queryFn: async (): Promise<FestivalBreakouts> => {
-      return apiRequest<FestivalBreakouts>(
-        festivalEndpoints.BREAKOUTS(festivalIdOrSlug),
-        { method: 'GET' }
-      )
-    },
-    enabled: enabled && (typeof festivalIdOrSlug === 'string' ? Boolean(festivalIdOrSlug) : festivalIdOrSlug > 0),
-    staleTime: 5 * 60 * 1000,
-  })
-}
+export const useFestivalBreakouts = createNamedDetailHook<FestivalBreakouts, 'festivalIdOrSlug'>(
+  'festivalIdOrSlug',
+  festivalEndpoints.BREAKOUTS,
+  festivalQueryKeys.breakouts,
+)
 
 /**
  * Hook to fetch an artist's festival billing trajectory
  */
-export function useArtistFestivalTrajectory(options: { artistIdOrSlug: string | number; enabled?: boolean }) {
-  const { artistIdOrSlug, enabled = true } = options
-
-  return useQuery({
-    queryKey: festivalQueryKeys.artistTrajectory(artistIdOrSlug),
-    queryFn: async (): Promise<ArtistTrajectory> => {
-      return apiRequest<ArtistTrajectory>(
-        festivalEndpoints.ARTIST_TRAJECTORY(artistIdOrSlug),
-        { method: 'GET' }
-      )
-    },
-    enabled: enabled && (typeof artistIdOrSlug === 'string' ? Boolean(artistIdOrSlug) : artistIdOrSlug > 0),
-    staleTime: 5 * 60 * 1000,
-  })
-}
+export const useArtistFestivalTrajectory = createNamedDetailHook<ArtistTrajectory, 'artistIdOrSlug'>(
+  'artistIdOrSlug',
+  festivalEndpoints.ARTIST_TRAJECTORY,
+  festivalQueryKeys.artistTrajectory,
+)
 
 /**
  * Hook to fetch year-over-year comparison for a festival series

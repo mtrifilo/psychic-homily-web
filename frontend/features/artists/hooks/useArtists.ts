@@ -8,7 +8,8 @@
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
-import { artistEndpoints, artistQueryKeys } from '../api'
+import { createNamedDetailHook } from '@/lib/hooks/factories'
+import { artistEndpoints, artistQueryKeys } from '@/features/artists/api'
 import type { CityState } from '@/components/filters'
 import type {
   Artist,
@@ -67,28 +68,14 @@ export function useArtistCities() {
   })
 }
 
-interface UseArtistOptions {
-  artistId: string | number
-  enabled?: boolean
-}
-
 /**
  * Hook to fetch a single artist by ID or slug
  */
-export function useArtist(options: UseArtistOptions) {
-  const { artistId, enabled = true } = options
-
-  return useQuery({
-    queryKey: artistQueryKeys.detail(artistId),
-    queryFn: async (): Promise<Artist> => {
-      return apiRequest<Artist>(artistEndpoints.GET(artistId), {
-        method: 'GET',
-      })
-    },
-    enabled: enabled && (typeof artistId === 'string' ? Boolean(artistId) : artistId > 0),
-    staleTime: 5 * 60 * 1000, // 5 minutes
-  })
-}
+export const useArtist = createNamedDetailHook<Artist, 'artistId'>(
+  'artistId',
+  artistEndpoints.GET,
+  artistQueryKeys.detail,
+)
 
 interface UseArtistShowsOptions {
   artistId: string | number

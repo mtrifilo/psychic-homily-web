@@ -12,7 +12,7 @@ vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
 }))
 
-vi.mock('../api', () => ({
+vi.mock('@/features/shows/api', () => ({
   showEndpoints: {
     DELETE: (showId: string | number) => `/shows/${showId}`,
   },

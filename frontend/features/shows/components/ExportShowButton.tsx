@@ -4,7 +4,7 @@ import { useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { Download, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { showEndpoints } from '../api'
+import { showEndpoints } from '@/features/shows/api'
 
 interface ExportShowButtonProps {
   showId: number

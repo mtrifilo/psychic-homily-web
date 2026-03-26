@@ -9,7 +9,7 @@ vi.mock('@/lib/api', () => ({
   API_BASE_URL: 'http://localhost:8080',
 }))
 
-vi.mock('../api', () => ({
+vi.mock('@/features/releases/api', () => ({
   releaseEndpoints: {
     LIST: '/releases',
     GET: (idOrSlug: string | number) => `/releases/${idOrSlug}`,

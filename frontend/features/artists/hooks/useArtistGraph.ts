@@ -8,7 +8,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
-import { artistEndpoints, artistQueryKeys } from '../api'
+import { artistEndpoints, artistQueryKeys } from '@/features/artists/api'
 import type { ArtistGraph } from '../types'
 
 interface UseArtistGraphOptions {

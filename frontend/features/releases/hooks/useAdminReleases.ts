@@ -10,7 +10,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
-import { releaseEndpoints } from '../api'
+import { releaseEndpoints } from '@/features/releases/api'
 import type { ReleaseDetail, ReleaseExternalLink } from '../types'
 
 // ============================================================================

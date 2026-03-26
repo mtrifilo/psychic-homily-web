@@ -8,7 +8,8 @@
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
-import { venueEndpoints, venueQueryKeys } from '../api'
+import { createNamedDetailHook } from '@/lib/hooks/factories'
+import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
 import type {
   Venue,
   VenuesListResponse,
@@ -65,28 +66,14 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
   })
 }
 
-interface UseVenueOptions {
-  venueId: string | number
-  enabled?: boolean
-}
-
 /**
  * Hook to fetch a single venue by ID or slug
  */
-export const useVenue = (options: UseVenueOptions) => {
-  const { venueId, enabled = true } = options
-
-  return useQuery({
-    queryKey: venueQueryKeys.detail(String(venueId)),
-    queryFn: async (): Promise<Venue> => {
-      return apiRequest<Venue>(venueEndpoints.GET(venueId), {
-        method: 'GET',
-      })
-    },
-    enabled: enabled && (typeof venueId === 'string' ? Boolean(venueId) : venueId > 0),
-    staleTime: 5 * 60 * 1000, // 5 minutes
-  })
-}
+export const useVenue = createNamedDetailHook<Venue, 'venueId'>(
+  'venueId',
+  venueEndpoints.GET,
+  venueQueryKeys.detail,
+)
 
 export type TimeFilter = 'upcoming' | 'past' | 'all'
 

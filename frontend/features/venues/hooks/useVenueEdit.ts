@@ -9,7 +9,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
-import { venueEndpoints, venueQueryKeys } from '../api'
+import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
 import type {
   VenueEditRequest,
   UpdateVenueResponse,

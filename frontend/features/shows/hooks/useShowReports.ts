@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
-import { showEndpoints } from '../api'
+import { showEndpoints } from '@/features/shows/api'
 import type {
   ShowReportResponse,
   MyShowReportResponse,

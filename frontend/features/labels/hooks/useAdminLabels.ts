@@ -10,7 +10,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
-import { labelEndpoints } from '../api'
+import { labelEndpoints } from '@/features/labels/api'
 import type { LabelDetail } from '../types'
 
 // ============================================================================

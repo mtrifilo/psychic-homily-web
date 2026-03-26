@@ -18,7 +18,7 @@ vi.mock('@/lib/api', () => ({
 }))
 
 // Mock the feature api module
-vi.mock('../api', () => ({
+vi.mock('@/features/shows/api', () => ({
   showEndpoints: {
     SUBMIT: '/shows',
     UPDATE: (id: number) => `/shows/${id}`,

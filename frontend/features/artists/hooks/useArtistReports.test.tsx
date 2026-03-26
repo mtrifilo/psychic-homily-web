@@ -13,7 +13,7 @@ vi.mock('@/lib/api', () => ({
 }))
 
 // Mock the feature api module
-vi.mock('../api', () => ({
+vi.mock('@/features/artists/api', () => ({
   artistEndpoints: {
     REPORT: (artistId: string | number) => `/artists/${artistId}/report`,
     MY_REPORT: (artistId: string | number) => `/artists/${artistId}/my-report`,

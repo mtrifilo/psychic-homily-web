@@ -8,7 +8,7 @@
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
-import { showEndpoints, showQueryKeys } from '../api'
+import { showEndpoints, showQueryKeys } from '@/features/shows/api'
 import type { UpcomingShowsResponse, ShowResponse, ShowCitiesResponse } from '../types'
 
 interface UseUpcomingShowsOptions {

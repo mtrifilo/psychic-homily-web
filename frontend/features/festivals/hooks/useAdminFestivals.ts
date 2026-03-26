@@ -10,7 +10,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
-import { festivalEndpoints } from '../api'
+import { festivalEndpoints } from '@/features/festivals/api'
 import type {
   FestivalDetail,
   FestivalArtist,

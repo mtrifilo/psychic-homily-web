@@ -10,7 +10,7 @@ vi.mock('@/lib/api', () => ({
   API_BASE_URL: 'http://localhost:8080',
 }))
 
-vi.mock('../api', () => ({
+vi.mock('@/features/shows/api', () => ({
   showEndpoints: {
     REPORT: (showId: string | number) => `/shows/${showId}/report`,
     MY_REPORT: (showId: string | number) => `/shows/${showId}/my-report`,
