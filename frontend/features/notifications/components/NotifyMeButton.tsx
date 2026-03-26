@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { AlertCircle, Bell, BellRing, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -35,6 +35,7 @@ export function NotifyMeButton({
   compact = false,
 }: NotifyMeButtonProps) {
   const router = useRouter()
+  const pathname = usePathname()
   const { isAuthenticated } = useAuthContext()
   const [isHovering, setIsHovering] = useState(false)
 
@@ -51,7 +52,7 @@ export function NotifyMeButton({
     e.stopPropagation()
 
     if (!isAuthenticated) {
-      router.push('/auth')
+      router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
       return
     }
 
@@ -71,7 +72,7 @@ export function NotifyMeButton({
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => router.push('/auth')}
+          onClick={() => router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)}
           className="h-7 px-2 gap-1 text-xs"
           title="Sign in to get notifications"
         >
@@ -83,7 +84,7 @@ export function NotifyMeButton({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => router.push('/auth')}
+        onClick={() => router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)}
         className="gap-1.5"
       >
         <Bell className="h-4 w-4" />

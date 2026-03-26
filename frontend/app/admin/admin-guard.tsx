@@ -16,7 +16,7 @@ export default function AdminGuard({
   useEffect(() => {
     // Redirect non-authenticated users to login
     if (!isLoading && !isAuthenticated) {
-      router.push('/auth')
+      router.push('/auth?returnTo=%2Fadmin')
       return
     }
 

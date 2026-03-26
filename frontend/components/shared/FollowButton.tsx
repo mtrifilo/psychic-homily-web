@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { UserPlus, UserCheck, UserMinus, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -29,6 +29,7 @@ export function FollowButton({
   followData,
 }: FollowButtonProps) {
   const router = useRouter()
+  const pathname = usePathname()
   const { isAuthenticated } = useAuthContext()
   const [isHovering, setIsHovering] = useState(false)
 
@@ -52,7 +53,7 @@ export function FollowButton({
     e.stopPropagation()
 
     if (!isAuthenticated) {
-      router.push('/auth')
+      router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
       return
     }
 

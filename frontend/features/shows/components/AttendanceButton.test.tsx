@@ -19,6 +19,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
+  usePathname: () => '/shows/test-show',
 }))
 
 // Mock attendance hooks
@@ -248,7 +249,7 @@ describe('AttendanceButton', () => {
       const user = userEvent.setup()
       render(<AttendanceButton showId={1} compact />)
       await user.click(screen.getByLabelText('Going'))
-      expect(mockPush).toHaveBeenCalledWith('/auth')
+      expect(mockPush).toHaveBeenCalledWith('/auth?returnTo=%2Fshows%2Ftest-show')
       expect(mockSetAttendanceMutate).not.toHaveBeenCalled()
     })
 
@@ -256,7 +257,7 @@ describe('AttendanceButton', () => {
       const user = userEvent.setup()
       render(<AttendanceButton showId={1} />)
       await user.click(screen.getByText('Going'))
-      expect(mockPush).toHaveBeenCalledWith('/auth')
+      expect(mockPush).toHaveBeenCalledWith('/auth?returnTo=%2Fshows%2Ftest-show')
       expect(mockSetAttendanceMutate).not.toHaveBeenCalled()
     })
 
