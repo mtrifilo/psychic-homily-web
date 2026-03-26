@@ -291,18 +291,16 @@ func TestNewDiscoveryService(t *testing.T) {
 
 func TestImportEvents_NilDB(t *testing.T) {
 	svc := &DiscoveryService{db: nil}
-	result, err := svc.ImportEvents([]contracts.DiscoveredEvent{}, false, false, models.ShowStatusApproved)
-	assert.Error(t, err)
-	assert.Equal(t, "database not initialized", err.Error())
-	assert.Nil(t, result)
+	testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+		return svc.ImportEvents([]contracts.DiscoveredEvent{}, false, false, models.ShowStatusApproved)
+	})
 }
 
 func TestCheckEvents_NilDB(t *testing.T) {
 	svc := &DiscoveryService{db: nil}
-	result, err := svc.CheckEvents([]contracts.CheckEventInput{})
-	assert.Error(t, err)
-	assert.Equal(t, "database not initialized", err.Error())
-	assert.Nil(t, result)
+	testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+		return svc.CheckEvents([]contracts.CheckEventInput{})
+	})
 }
 
 // =============================================================================

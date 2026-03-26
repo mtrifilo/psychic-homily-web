@@ -29,170 +29,148 @@ func TestShowService_NilDatabase(t *testing.T) {
 	svc := &ShowService{db: nil}
 
 	t.Run("CreateShow", func(t *testing.T) {
-		resp, err := svc.CreateShow(&contracts.CreateShowRequest{})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateShow(&contracts.CreateShowRequest{})
+		})
 	})
 
 	t.Run("GetShow", func(t *testing.T) {
-		resp, err := svc.GetShow(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetShow(1)
+		})
 	})
 
 	t.Run("GetShowBySlug", func(t *testing.T) {
-		resp, err := svc.GetShowBySlug("test-slug")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetShowBySlug("test-slug")
+		})
 	})
 
 	t.Run("GetShows", func(t *testing.T) {
-		resp, err := svc.GetShows(nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetShows(nil)
+		})
 	})
 
 	t.Run("UpdateShow", func(t *testing.T) {
-		resp, err := svc.UpdateShow(1, map[string]interface{}{"title": "x"})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.UpdateShow(1, map[string]interface{}{"title": "x"})
+		})
 	})
 
 	t.Run("UpdateShowWithRelations", func(t *testing.T) {
-		resp, orphans, err := svc.UpdateShowWithRelations(1, nil, nil, nil, false)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Nil(t, orphans)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.UpdateShowWithRelations(1, nil, nil, nil, false)
+			return err
+		})
 	})
 
 	t.Run("DeleteShow", func(t *testing.T) {
-		err := svc.DeleteShow(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.DeleteShow(1)
+		})
 	})
 
 	t.Run("GetPendingShows", func(t *testing.T) {
-		resp, count, err := svc.GetPendingShows(10, 0, nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, count)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetPendingShows(10, 0, nil)
+			return err
+		})
 	})
 
 	t.Run("GetRejectedShows", func(t *testing.T) {
-		resp, count, err := svc.GetRejectedShows(10, 0, "")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, count)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetRejectedShows(10, 0, "")
+			return err
+		})
 	})
 
 	t.Run("ApproveShow", func(t *testing.T) {
-		resp, err := svc.ApproveShow(1, false)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ApproveShow(1, false)
+		})
 	})
 
 	t.Run("RejectShow", func(t *testing.T) {
-		resp, err := svc.RejectShow(1, "reason")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.RejectShow(1, "reason")
+		})
 	})
 
 	t.Run("UnpublishShow", func(t *testing.T) {
-		resp, err := svc.UnpublishShow(1, 1, false)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.UnpublishShow(1, 1, false)
+		})
 	})
 
 	t.Run("MakePrivateShow", func(t *testing.T) {
-		resp, err := svc.MakePrivateShow(1, 1, false)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.MakePrivateShow(1, 1, false)
+		})
 	})
 
 	t.Run("PublishShow", func(t *testing.T) {
-		resp, err := svc.PublishShow(1, 1, false)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.PublishShow(1, 1, false)
+		})
 	})
 
 	t.Run("GetUserSubmissions", func(t *testing.T) {
-		resp, count, err := svc.GetUserSubmissions(1, 10, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, count)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetUserSubmissions(1, 10, 0)
+			return err
+		})
 	})
 
 	t.Run("GetUpcomingShows", func(t *testing.T) {
-		resp, cursor, err := svc.GetUpcomingShows("UTC", "", 10, false, nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Nil(t, cursor)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetUpcomingShows("UTC", "", 10, false, nil)
+			return err
+		})
 	})
 
 	t.Run("GetShowCities", func(t *testing.T) {
-		resp, err := svc.GetShowCities("UTC")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetShowCities("UTC")
+		})
 	})
 
 	t.Run("SetShowSoldOut", func(t *testing.T) {
-		resp, err := svc.SetShowSoldOut(1, true)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.SetShowSoldOut(1, true)
+		})
 	})
 
 	t.Run("SetShowCancelled", func(t *testing.T) {
-		resp, err := svc.SetShowCancelled(1, true)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.SetShowCancelled(1, true)
+		})
 	})
 
 	t.Run("ExportShowToMarkdown", func(t *testing.T) {
-		data, filename, err := svc.ExportShowToMarkdown(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, data)
-		assert.Empty(t, filename)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.ExportShowToMarkdown(1)
+			return err
+		})
 	})
 
 	t.Run("PreviewShowImport", func(t *testing.T) {
-		resp, err := svc.PreviewShowImport([]byte("---\n---"))
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.PreviewShowImport([]byte("---\n---"))
+		})
 	})
 
 	t.Run("ConfirmShowImport", func(t *testing.T) {
-		resp, err := svc.ConfirmShowImport([]byte("---\n---"), false)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ConfirmShowImport([]byte("---\n---"), false)
+		})
 	})
 
 	t.Run("GetAdminShows", func(t *testing.T) {
-		resp, count, err := svc.GetAdminShows(10, 0, contracts.AdminShowFilters{})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, count)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetAdminShows(10, 0, contracts.AdminShowFilters{})
+			return err
+		})
 	})
 }
 

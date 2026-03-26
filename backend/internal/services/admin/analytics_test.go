@@ -35,27 +35,27 @@ func TestAnalyticsService_NilDB(t *testing.T) {
 	svc := &AnalyticsService{db: nil}
 
 	t.Run("GetGrowthMetrics", func(t *testing.T) {
-		_, err := svc.GetGrowthMetrics(6)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "database not initialized")
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetGrowthMetrics(6)
+		})
 	})
 
 	t.Run("GetEngagementMetrics", func(t *testing.T) {
-		_, err := svc.GetEngagementMetrics(6)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "database not initialized")
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetEngagementMetrics(6)
+		})
 	})
 
 	t.Run("GetCommunityHealth", func(t *testing.T) {
-		_, err := svc.GetCommunityHealth()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "database not initialized")
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetCommunityHealth()
+		})
 	})
 
 	t.Run("GetDataQualityTrends", func(t *testing.T) {
-		_, err := svc.GetDataQualityTrends(6)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "database not initialized")
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetDataQualityTrends(6)
+		})
 	})
 }
 

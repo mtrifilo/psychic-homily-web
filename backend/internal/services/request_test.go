@@ -27,70 +27,65 @@ func TestRequestService_NilDatabase(t *testing.T) {
 	svc := &RequestService{db: nil}
 
 	t.Run("CreateRequest", func(t *testing.T) {
-		resp, err := svc.CreateRequest(1, "Test", "desc", "artist", nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateRequest(1, "Test", "desc", "artist", nil)
+		})
 	})
 
 	t.Run("GetRequest", func(t *testing.T) {
-		resp, err := svc.GetRequest(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetRequest(1)
+		})
 	})
 
 	t.Run("ListRequests", func(t *testing.T) {
-		resp, total, err := svc.ListRequests("", "", "votes", 20, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Equal(t, int64(0), total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.ListRequests("", "", "votes", 20, 0)
+			return err
+		})
 	})
 
 	t.Run("UpdateRequest", func(t *testing.T) {
 		title := "Updated"
-		resp, err := svc.UpdateRequest(1, 1, &title, nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.UpdateRequest(1, 1, &title, nil)
+		})
 	})
 
 	t.Run("DeleteRequest", func(t *testing.T) {
-		err := svc.DeleteRequest(1, 1, false)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.DeleteRequest(1, 1, false)
+		})
 	})
 
 	t.Run("Vote", func(t *testing.T) {
-		err := svc.Vote(1, 1, true)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.Vote(1, 1, true)
+		})
 	})
 
 	t.Run("RemoveVote", func(t *testing.T) {
-		err := svc.RemoveVote(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.RemoveVote(1, 1)
+		})
 	})
 
 	t.Run("FulfillRequest", func(t *testing.T) {
-		err := svc.FulfillRequest(1, 1, nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.FulfillRequest(1, 1, nil)
+		})
 	})
 
 	t.Run("CloseRequest", func(t *testing.T) {
-		err := svc.CloseRequest(1, 1, false)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.CloseRequest(1, 1, false)
+		})
 	})
 
 	t.Run("GetUserVote", func(t *testing.T) {
-		resp, err := svc.GetUserVote(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetUserVote(1, 1)
+		})
 	})
 }
 

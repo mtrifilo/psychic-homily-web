@@ -37,31 +37,27 @@ func TestUserService_NilDatabase(t *testing.T) {
 	userService := &UserService{db: nil}
 
 	t.Run("GetUserByID", func(t *testing.T) {
-		user, err := userService.GetUserByID(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.GetUserByID(1)
+		})
 	})
 
 	t.Run("GetUserByEmail", func(t *testing.T) {
-		user, err := userService.GetUserByEmail("test@example.com")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.GetUserByEmail("test@example.com")
+		})
 	})
 
 	t.Run("GetUserByUsername", func(t *testing.T) {
-		user, err := userService.GetUserByUsername("testuser")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.GetUserByUsername("testuser")
+		})
 	})
 
 	t.Run("UpdateUser", func(t *testing.T) {
-		user, err := userService.UpdateUser(1, map[string]any{"first_name": "Test"})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.UpdateUser(1, map[string]any{"first_name": "Test"})
+		})
 	})
 
 	t.Run("FindOrCreateUser", func(t *testing.T) {
@@ -69,10 +65,9 @@ func TestUserService_NilDatabase(t *testing.T) {
 			UserID: "12345",
 			Email:  "test@example.com",
 		}
-		user, err := userService.FindOrCreateUser(gothUser, "google")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.FindOrCreateUser(gothUser, "google")
+		})
 	})
 
 	t.Run("createNewUser", func(t *testing.T) {
@@ -80,10 +75,9 @@ func TestUserService_NilDatabase(t *testing.T) {
 			UserID: "12345",
 			Email:  "test@example.com",
 		}
-		user, err := userService.createNewUserOauth(gothUser, "google")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.createNewUserOauth(gothUser, "google")
+		})
 	})
 
 	t.Run("linkOAuthAccount", func(t *testing.T) {
@@ -95,109 +89,100 @@ func TestUserService_NilDatabase(t *testing.T) {
 			UserID: "12345",
 			Email:  "test@example.com",
 		}
-		user, err := userService.linkOAuthAccount(existingUser, gothUser, "google")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.linkOAuthAccount(existingUser, gothUser, "google")
+		})
 	})
 
 	t.Run("CreateUserWithPassword", func(t *testing.T) {
-		user, err := userService.CreateUserWithPassword("test@example.com", "password", "First", "Last")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.CreateUserWithPassword("test@example.com", "password", "First", "Last")
+		})
 	})
 
 	t.Run("AuthenticateUserWithPassword", func(t *testing.T) {
-		user, err := userService.AuthenticateUserWithPassword("test@example.com", "password")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.AuthenticateUserWithPassword("test@example.com", "password")
+		})
 	})
 
 	t.Run("CreateUserWithoutPassword", func(t *testing.T) {
-		user, err := userService.CreateUserWithoutPassword("test@example.com")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.CreateUserWithoutPassword("test@example.com")
+		})
 	})
 
 	t.Run("SoftDeleteAccount", func(t *testing.T) {
-		err := userService.SoftDeleteAccount(1, nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return userService.SoftDeleteAccount(1, nil)
+		})
 	})
 
 	t.Run("GetDeletionSummary", func(t *testing.T) {
-		summary, err := userService.GetDeletionSummary(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, summary)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.GetDeletionSummary(1)
+		})
 	})
 
 	t.Run("ExportUserData", func(t *testing.T) {
-		export, err := userService.ExportUserData(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, export)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.ExportUserData(1)
+		})
 	})
 
 	t.Run("GetUserByEmailIncludingDeleted", func(t *testing.T) {
-		user, err := userService.GetUserByEmailIncludingDeleted("test@example.com")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.GetUserByEmailIncludingDeleted("test@example.com")
+		})
 	})
 
 	t.Run("ListUsers", func(t *testing.T) {
-		users, total, err := userService.ListUsers(10, 0, contracts.AdminUserFilters{})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, users)
-		assert.Equal(t, int64(0), total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := userService.ListUsers(10, 0, contracts.AdminUserFilters{})
+			return err
+		})
 	})
 
 	t.Run("RestoreAccount", func(t *testing.T) {
-		err := userService.RestoreAccount(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return userService.RestoreAccount(1)
+		})
 	})
 
 	t.Run("GetExpiredDeletedAccounts", func(t *testing.T) {
-		users, err := userService.GetExpiredDeletedAccounts()
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, users)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.GetExpiredDeletedAccounts()
+		})
 	})
 
 	t.Run("PermanentlyDeleteUser", func(t *testing.T) {
-		err := userService.PermanentlyDeleteUser(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return userService.PermanentlyDeleteUser(1)
+		})
 	})
 
 	t.Run("IncrementFailedAttempts", func(t *testing.T) {
-		err := userService.IncrementFailedAttempts(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return userService.IncrementFailedAttempts(1)
+		})
 	})
 
 	t.Run("ResetFailedAttempts", func(t *testing.T) {
-		err := userService.ResetFailedAttempts(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return userService.ResetFailedAttempts(1)
+		})
 	})
 
 	t.Run("UpdatePassword", func(t *testing.T) {
-		err := userService.UpdatePassword(1, "old", "new")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return userService.UpdatePassword(1, "old", "new")
+		})
 	})
 
 	t.Run("SetEmailVerified", func(t *testing.T) {
-		err := userService.SetEmailVerified(1, true)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return userService.SetEmailVerified(1, true)
+		})
 	})
 }
 
@@ -206,31 +191,27 @@ func TestUserService_EdgeCases(t *testing.T) {
 	userService := &UserService{db: nil}
 
 	t.Run("GetUserByID with zero ID", func(t *testing.T) {
-		user, err := userService.GetUserByID(0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.GetUserByID(0)
+		})
 	})
 
 	t.Run("GetUserByEmail with empty email", func(t *testing.T) {
-		user, err := userService.GetUserByEmail("")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.GetUserByEmail("")
+		})
 	})
 
 	t.Run("GetUserByUsername with empty username", func(t *testing.T) {
-		user, err := userService.GetUserByUsername("")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.GetUserByUsername("")
+		})
 	})
 
 	t.Run("UpdateUser with empty updates map", func(t *testing.T) {
-		user, err := userService.UpdateUser(1, map[string]any{})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, user)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return userService.UpdateUser(1, map[string]any{})
+		})
 	})
 }
 

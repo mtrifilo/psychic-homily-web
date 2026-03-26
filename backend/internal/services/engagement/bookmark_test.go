@@ -26,51 +26,46 @@ func TestBookmarkService_NilDatabase(t *testing.T) {
 	svc := &BookmarkService{db: nil}
 
 	t.Run("CreateBookmark", func(t *testing.T) {
-		err := svc.CreateBookmark(1, models.BookmarkEntityShow, 1, models.BookmarkActionSave)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.CreateBookmark(1, models.BookmarkEntityShow, 1, models.BookmarkActionSave)
+		})
 	})
 
 	t.Run("DeleteBookmark", func(t *testing.T) {
-		err := svc.DeleteBookmark(1, models.BookmarkEntityShow, 1, models.BookmarkActionSave)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.DeleteBookmark(1, models.BookmarkEntityShow, 1, models.BookmarkActionSave)
+		})
 	})
 
 	t.Run("IsBookmarked", func(t *testing.T) {
-		result, err := svc.IsBookmarked(1, models.BookmarkEntityShow, 1, models.BookmarkActionSave)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.False(t, result)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.IsBookmarked(1, models.BookmarkEntityShow, 1, models.BookmarkActionSave)
+		})
 	})
 
 	t.Run("GetBookmarkedEntityIDs", func(t *testing.T) {
-		result, err := svc.GetBookmarkedEntityIDs(1, models.BookmarkEntityShow, models.BookmarkActionSave, []uint{1, 2})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, result)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetBookmarkedEntityIDs(1, models.BookmarkEntityShow, models.BookmarkActionSave, []uint{1, 2})
+		})
 	})
 
 	t.Run("GetUserBookmarks", func(t *testing.T) {
-		result, total, err := svc.GetUserBookmarks(1, models.BookmarkEntityShow, models.BookmarkActionSave, 10, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, result)
-		assert.Zero(t, total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetUserBookmarks(1, models.BookmarkEntityShow, models.BookmarkActionSave, 10, 0)
+			return err
+		})
 	})
 
 	t.Run("GetUserBookmarksByEntityType", func(t *testing.T) {
-		result, err := svc.GetUserBookmarksByEntityType(1, models.BookmarkEntityVenue, models.BookmarkActionFollow)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, result)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetUserBookmarksByEntityType(1, models.BookmarkEntityVenue, models.BookmarkActionFollow)
+		})
 	})
 
 	t.Run("CountUserBookmarks", func(t *testing.T) {
-		count, err := svc.CountUserBookmarks(1, models.BookmarkEntityShow, models.BookmarkActionSave)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Zero(t, count)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CountUserBookmarks(1, models.BookmarkEntityShow, models.BookmarkActionSave)
+		})
 	})
 }
 

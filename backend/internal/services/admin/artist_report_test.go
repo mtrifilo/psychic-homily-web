@@ -26,46 +26,40 @@ func TestArtistReportService_NilDatabase(t *testing.T) {
 	svc := &ArtistReportService{db: nil}
 
 	t.Run("CreateReport", func(t *testing.T) {
-		resp, err := svc.CreateReport(1, 1, "inaccurate", nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateReport(1, 1, "inaccurate", nil)
+		})
 	})
 
 	t.Run("GetUserReportForArtist", func(t *testing.T) {
-		resp, err := svc.GetUserReportForArtist(1, 1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetUserReportForArtist(1, 1)
+		})
 	})
 
 	t.Run("GetPendingReports", func(t *testing.T) {
-		resp, total, err := svc.GetPendingReports(10, 0)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
-		assert.Zero(t, total)
+		testutil.AssertNilDBError(t, func() error {
+			_, _, err := svc.GetPendingReports(10, 0)
+			return err
+		})
 	})
 
 	t.Run("DismissReport", func(t *testing.T) {
-		resp, err := svc.DismissReport(1, 1, nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.DismissReport(1, 1, nil)
+		})
 	})
 
 	t.Run("ResolveReport", func(t *testing.T) {
-		resp, err := svc.ResolveReport(1, 1, nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ResolveReport(1, 1, nil)
+		})
 	})
 
 	t.Run("GetReportByID", func(t *testing.T) {
-		resp, err := svc.GetReportByID(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetReportByID(1)
+		})
 	})
 }
 

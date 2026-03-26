@@ -26,58 +26,51 @@ func TestLabelService_NilDatabase(t *testing.T) {
 	svc := &LabelService{db: nil}
 
 	t.Run("CreateLabel", func(t *testing.T) {
-		resp, err := svc.CreateLabel(&contracts.CreateLabelRequest{Name: "Test"})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.CreateLabel(&contracts.CreateLabelRequest{Name: "Test"})
+		})
 	})
 
 	t.Run("GetLabel", func(t *testing.T) {
-		resp, err := svc.GetLabel(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetLabel(1)
+		})
 	})
 
 	t.Run("GetLabelBySlug", func(t *testing.T) {
-		resp, err := svc.GetLabelBySlug("test-slug")
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetLabelBySlug("test-slug")
+		})
 	})
 
 	t.Run("ListLabels", func(t *testing.T) {
-		resp, err := svc.ListLabels(nil)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.ListLabels(nil)
+		})
 	})
 
 	t.Run("UpdateLabel", func(t *testing.T) {
-		resp, err := svc.UpdateLabel(1, &contracts.UpdateLabelRequest{})
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.UpdateLabel(1, &contracts.UpdateLabelRequest{})
+		})
 	})
 
 	t.Run("DeleteLabel", func(t *testing.T) {
-		err := svc.DeleteLabel(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
+		testutil.AssertNilDBError(t, func() error {
+			return svc.DeleteLabel(1)
+		})
 	})
 
 	t.Run("GetLabelRoster", func(t *testing.T) {
-		resp, err := svc.GetLabelRoster(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetLabelRoster(1)
+		})
 	})
 
 	t.Run("GetLabelCatalog", func(t *testing.T) {
-		resp, err := svc.GetLabelCatalog(1)
-		assert.Error(t, err)
-		assert.Equal(t, "database not initialized", err.Error())
-		assert.Nil(t, resp)
+		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
+			return svc.GetLabelCatalog(1)
+		})
 	})
 }
 
