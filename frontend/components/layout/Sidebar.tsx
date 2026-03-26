@@ -38,7 +38,7 @@ export const sidebarGroups: SidebarGroup[] = [
       { href: '/labels', label: 'Labels', icon: Tag },
       { href: '/tags', label: 'Tags', icon: Tags },
       { href: '/scenes', label: 'Scenes', icon: Globe },
-      { href: '/collections', label: 'Collections', icon: LayoutList },
+      { href: '/crates', label: 'Crates', icon: LayoutList },
       { href: '/charts', label: 'Charts', icon: TrendingUp },
     ],
   },

@@ -42,6 +42,17 @@ const nextConfig: NextConfig = {
         destination: '/',
         permanent: true,
       },
+      // "collections" renamed to "crates"
+      {
+        source: '/collections',
+        destination: '/crates',
+        permanent: true,
+      },
+      {
+        source: '/collections/:slug',
+        destination: '/crates/:slug',
+        permanent: true,
+      },
     ]
   },
   async headers() {

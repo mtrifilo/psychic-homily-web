@@ -97,7 +97,7 @@ describe('PrivacySettingsPanel', () => {
     expect(screen.getByText('Saved Shows')).toBeInTheDocument()
     expect(screen.getByText('Attendance')).toBeInTheDocument()
     expect(screen.getByText('Following')).toBeInTheDocument()
-    expect(screen.getByText('Collections')).toBeInTheDocument()
+    expect(screen.getByText('Crates')).toBeInTheDocument()
     expect(screen.getByText('Last Active')).toBeInTheDocument()
     expect(screen.getByText('Custom Sections')).toBeInTheDocument()
   })

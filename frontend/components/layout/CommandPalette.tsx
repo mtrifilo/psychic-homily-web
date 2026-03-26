@@ -80,10 +80,10 @@ const routes: RouteItem[] = [
     keywords: ['scenes', 'cities', 'city', 'local', 'geographic', 'phoenix', 'music scene'],
   },
   {
-    label: 'Collections',
-    href: '/collections',
+    label: 'Crates',
+    href: '/crates',
     icon: LayoutList,
-    keywords: ['collections', 'curated', 'lists', 'playlists'],
+    keywords: ['crates', 'curated', 'lists', 'playlists', 'collections'],
   },
   {
     label: 'Charts',
@@ -231,10 +231,10 @@ const adminRoutes: RouteItem[] = [
     requireAdmin: true,
   },
   {
-    label: 'Admin: Collections',
-    href: '/admin?tab=collections',
+    label: 'Admin: Crates',
+    href: '/admin?tab=crates',
     icon: Library,
-    keywords: ['admin', 'collections', 'manage', 'featured'],
+    keywords: ['admin', 'crates', 'manage', 'featured', 'collections'],
     requireAdmin: true,
   },
   {

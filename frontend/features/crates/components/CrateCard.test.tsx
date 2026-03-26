@@ -11,10 +11,10 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-import { CollectionCard } from './CollectionCard'
-import type { Collection } from '../types'
+import { CrateCard } from './CrateCard'
+import type { Crate } from '../types'
 
-const baseCollection: Collection = {
+const baseCrate: Crate = {
   id: 1,
   title: 'Arizona Indie Essentials',
   slug: 'arizona-indie-essentials',
@@ -31,97 +31,97 @@ const baseCollection: Collection = {
   updated_at: '2025-01-01T00:00:00Z',
 }
 
-describe('CollectionCard', () => {
-  it('renders collection title as a link', () => {
-    render(<CollectionCard collection={baseCollection} />)
+describe('CrateCard', () => {
+  it('renders crate title as a link', () => {
+    render(<CrateCard crate={baseCrate} />)
 
     const link = screen.getByRole('link', { name: 'Arizona Indie Essentials' })
     expect(link).toBeInTheDocument()
-    expect(link).toHaveAttribute('href', '/collections/arizona-indie-essentials')
+    expect(link).toHaveAttribute('href', '/crates/arizona-indie-essentials')
   })
 
   it('renders description when present', () => {
-    render(<CollectionCard collection={baseCollection} />)
+    render(<CrateCard crate={baseCrate} />)
 
     expect(screen.getByText('The best indie bands from AZ')).toBeInTheDocument()
   })
 
   it('does not render description when absent', () => {
-    const collection = { ...baseCollection, description: null as unknown as string }
-    render(<CollectionCard collection={collection} />)
+    const crate = { ...baseCrate, description: null as unknown as string }
+    render(<CrateCard crate={crate} />)
 
     expect(screen.queryByText('The best indie bands from AZ')).not.toBeInTheDocument()
   })
 
   it('renders creator name', () => {
-    render(<CollectionCard collection={baseCollection} />)
+    render(<CrateCard crate={baseCrate} />)
 
     expect(screen.getByText('by testuser')).toBeInTheDocument()
   })
 
   it('renders item count (plural)', () => {
-    render(<CollectionCard collection={baseCollection} />)
+    render(<CrateCard crate={baseCrate} />)
 
     expect(screen.getByText('5 items')).toBeInTheDocument()
   })
 
   it('renders singular item count', () => {
-    const collection = { ...baseCollection, item_count: 1 }
-    render(<CollectionCard collection={collection} />)
+    const crate = { ...baseCrate, item_count: 1 }
+    render(<CrateCard crate={crate} />)
 
     expect(screen.getByText('1 item')).toBeInTheDocument()
   })
 
   it('renders subscriber count when > 0', () => {
-    render(<CollectionCard collection={baseCollection} />)
+    render(<CrateCard crate={baseCrate} />)
 
     expect(screen.getByText('10 subscribers')).toBeInTheDocument()
   })
 
   it('renders singular subscriber count', () => {
-    const collection = { ...baseCollection, subscriber_count: 1 }
-    render(<CollectionCard collection={collection} />)
+    const crate = { ...baseCrate, subscriber_count: 1 }
+    render(<CrateCard crate={crate} />)
 
     expect(screen.getByText('1 subscriber')).toBeInTheDocument()
   })
 
   it('does not render subscriber count when 0', () => {
-    const collection = { ...baseCollection, subscriber_count: 0 }
-    render(<CollectionCard collection={collection} />)
+    const crate = { ...baseCrate, subscriber_count: 0 }
+    render(<CrateCard crate={crate} />)
 
     expect(screen.queryByText('0 subscribers')).not.toBeInTheDocument()
     expect(screen.queryByText('subscribers')).not.toBeInTheDocument()
   })
 
   it('shows Featured badge when is_featured', () => {
-    const collection = { ...baseCollection, is_featured: true }
-    render(<CollectionCard collection={collection} />)
+    const crate = { ...baseCrate, is_featured: true }
+    render(<CrateCard crate={crate} />)
 
     expect(screen.getByText('Featured')).toBeInTheDocument()
   })
 
   it('does not show Featured badge when not featured', () => {
-    render(<CollectionCard collection={baseCollection} />)
+    render(<CrateCard crate={baseCrate} />)
 
     expect(screen.queryByText('Featured')).not.toBeInTheDocument()
   })
 
   it('shows Collaborative badge when collaborative', () => {
-    const collection = { ...baseCollection, collaborative: true }
-    render(<CollectionCard collection={collection} />)
+    const crate = { ...baseCrate, collaborative: true }
+    render(<CrateCard crate={crate} />)
 
     expect(screen.getByText('Collaborative')).toBeInTheDocument()
   })
 
   it('does not show Collaborative badge when not collaborative', () => {
-    render(<CollectionCard collection={baseCollection} />)
+    render(<CrateCard crate={baseCrate} />)
 
     expect(screen.queryByText('Collaborative')).not.toBeInTheDocument()
   })
 
   it('renders cover image when URL is provided', () => {
-    const collection = { ...baseCollection, cover_image_url: 'https://example.com/cover.jpg' }
-    render(<CollectionCard collection={collection} />)
+    const crate = { ...baseCrate, cover_image_url: 'https://example.com/cover.jpg' }
+    render(<CrateCard crate={crate} />)
 
     const img = screen.getByRole('img', { name: 'Arizona Indie Essentials cover' })
     expect(img).toBeInTheDocument()

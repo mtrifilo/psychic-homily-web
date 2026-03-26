@@ -222,7 +222,7 @@ describe('AnalyticsDashboard', () => {
     expect(screen.getByText('42')).toBeInTheDocument()
     expect(screen.getByText('Request Fulfillment Rate')).toBeInTheDocument()
     expect(screen.getByText('72%')).toBeInTheDocument()
-    expect(screen.getByText('New Collections (30d)')).toBeInTheDocument()
+    expect(screen.getByText('New Crates (30d)')).toBeInTheDocument()
     expect(screen.getByText('8')).toBeInTheDocument()
   })
 

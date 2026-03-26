@@ -29,15 +29,15 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
-  useCollection,
-  useUpdateCollection,
-  useRemoveCollectionItem,
-  useSubscribeCollection,
-  useUnsubscribeCollection,
-  useDeleteCollection,
+  useCrate,
+  useUpdateCrate,
+  useRemoveCrateItem,
+  useSubscribeCrate,
+  useUnsubscribeCrate,
+  useDeleteCrate,
 } from '../hooks'
 import { getEntityUrl, getEntityTypeLabel } from '../types'
-import type { CollectionItem } from '../types'
+import type { CrateItem } from '../types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -47,7 +47,7 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { useRouter } from 'next/navigation'
 import type { ApiError } from '@/lib/api'
 
-interface CollectionDetailProps {
+interface CrateDetailProps {
   slug: string
 }
 
@@ -60,13 +60,13 @@ const ENTITY_ICONS: Record<string, React.ElementType> = {
   festival: Tent,
 }
 
-export function CollectionDetail({ slug }: CollectionDetailProps) {
+export function CrateDetail({ slug }: CrateDetailProps) {
   const router = useRouter()
   const { user, isAuthenticated } = useAuthContext()
-  const { data: collection, isLoading, error } = useCollection(slug)
-  const subscribeMutation = useSubscribeCollection()
-  const unsubscribeMutation = useUnsubscribeCollection()
-  const deleteMutation = useDeleteCollection()
+  const { data: crate, isLoading, error } = useCrate(slug)
+  const subscribeMutation = useSubscribeCrate()
+  const unsubscribeMutation = useUnsubscribeCrate()
+  const deleteMutation = useDeleteCrate()
 
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -81,38 +81,38 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 
   if (error) {
     const errorMessage =
-      error instanceof Error ? error.message : 'Failed to load collection'
+      error instanceof Error ? error.message : 'Failed to load crate'
     const is404 = (error as ApiError).status === 404
 
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold mb-2">
-            {is404 ? 'Collection Not Found' : 'Error Loading Collection'}
+            {is404 ? 'Crate Not Found' : 'Error Loading Crate'}
           </h1>
           <p className="text-muted-foreground mb-4">
             {is404
-              ? "The collection you're looking for doesn't exist or has been removed."
+              ? "The crate you're looking for doesn't exist or has been removed."
               : errorMessage}
           </p>
           <Button asChild variant="outline">
-            <Link href="/collections">Back to Collections</Link>
+            <Link href="/crates">Back to Crates</Link>
           </Button>
         </div>
       </div>
     )
   }
 
-  if (!collection) {
+  if (!crate) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">Collection Not Found</h1>
+          <h1 className="text-2xl font-bold mb-2">Crate Not Found</h1>
           <p className="text-muted-foreground mb-4">
-            The collection you&apos;re looking for doesn&apos;t exist.
+            The crate you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button asChild variant="outline">
-            <Link href="/collections">Back to Collections</Link>
+            <Link href="/crates">Back to Crates</Link>
           </Button>
         </div>
       </div>
@@ -120,11 +120,11 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   }
 
   const currentUserId = user?.id ? Number(user.id) : undefined
-  const isCreator = currentUserId === collection.creator_id
+  const isCreator = currentUserId === crate.creator_id
   const canSubscribe = isAuthenticated && !isCreator
 
   const handleSubscribe = () => {
-    if (collection.is_subscribed) {
+    if (crate.is_subscribed) {
       unsubscribeMutation.mutate({ slug })
     } else {
       subscribeMutation.mutate({ slug })
@@ -137,20 +137,20 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
       {
         onSuccess: () => {
           setIsDeleteDialogOpen(false)
-          router.push('/collections')
+          router.push('/crates')
         },
       }
     )
   }
 
-  const items = collection.items ?? []
+  const items = crate.items ?? []
 
   return (
     <div className="container max-w-6xl mx-auto px-4 py-6">
       {/* Breadcrumb Navigation */}
       <Breadcrumb
-        fallback={{ href: '/collections', label: 'Collections' }}
-        currentPage={collection.title}
+        fallback={{ href: '/crates', label: 'Crates' }}
+        currentPage={crate.title}
       />
 
       {/* Header */}
@@ -158,10 +158,10 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
         {isEditing ? (
           <InlineEditForm
             slug={slug}
-            title={collection.title}
-            description={collection.description}
-            isPublic={collection.is_public}
-            collaborative={collection.collaborative}
+            title={crate.title}
+            description={crate.description}
+            isPublic={crate.is_public}
+            collaborative={crate.collaborative}
             onDone={() => setIsEditing(false)}
           />
         ) : (
@@ -170,15 +170,15 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
               <div>
                 <div className="flex items-center gap-3 mb-1">
                   <h1 className="text-3xl font-bold tracking-tight">
-                    {collection.title}
+                    {crate.title}
                   </h1>
-                  {collection.is_featured && (
+                  {crate.is_featured && (
                     <Badge variant="default" className="text-xs">
                       <Star className="h-3 w-3 mr-0.5" />
                       Featured
                     </Badge>
                   )}
-                  {collection.collaborative && (
+                  {crate.collaborative && (
                     <Badge variant="secondary" className="text-xs">
                       Collaborative
                     </Badge>
@@ -186,12 +186,12 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                 </div>
 
                 <p className="text-sm text-muted-foreground">
-                  by {collection.creator_name}
+                  by {crate.creator_name}
                 </p>
 
-                {collection.description && (
+                {crate.description && (
                   <p className="text-muted-foreground mt-3 whitespace-pre-line">
-                    {collection.description}
+                    {crate.description}
                   </p>
                 )}
 
@@ -199,15 +199,15 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                 <div className="mt-3 flex items-center gap-4 text-sm text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <Library className="h-4 w-4" />
-                    {collection.item_count === 1
+                    {crate.item_count === 1
                       ? '1 item'
-                      : `${collection.item_count} items`}
+                      : `${crate.item_count} items`}
                   </span>
                   <span className="flex items-center gap-1">
                     <Users className="h-4 w-4" />
-                    {collection.subscriber_count === 1
+                    {crate.subscriber_count === 1
                       ? '1 subscriber'
-                      : `${collection.subscriber_count} subscribers`}
+                      : `${crate.subscriber_count} subscribers`}
                   </span>
                 </div>
               </div>
@@ -216,7 +216,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
               <div className="flex items-center gap-2 shrink-0">
                 {canSubscribe && (
                   <Button
-                    variant={collection.is_subscribed ? 'secondary' : 'default'}
+                    variant={crate.is_subscribed ? 'secondary' : 'default'}
                     size="sm"
                     onClick={handleSubscribe}
                     disabled={
@@ -224,7 +224,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                       unsubscribeMutation.isPending
                     }
                   >
-                    {collection.is_subscribed ? (
+                    {crate.is_subscribed ? (
                       <>
                         <BellOff className="h-4 w-4 mr-1.5" />
                         Unsubscribe
@@ -271,12 +271,12 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
         {items.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <Library className="h-12 w-12 mx-auto mb-3 text-muted-foreground/30" />
-            <p>This collection is empty.</p>
+            <p>This crate is empty.</p>
           </div>
         ) : (
           <div className="space-y-2">
             {items.map(item => (
-              <CollectionItemRow
+              <CrateItemRow
                 key={item.id}
                 item={item}
                 slug={slug}
@@ -293,17 +293,17 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Trash2 className="h-5 w-5 text-destructive" />
-              Delete Collection
+              Delete Crate
             </DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete &quot;{collection.title}&quot;? This action cannot be undone.
+              Are you sure you want to delete &quot;{crate.title}&quot;? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
 
           {deleteMutation.isError && (
             <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               {deleteMutation.error?.message ||
-                'Failed to delete collection. Please try again.'}
+                'Failed to delete crate. Please try again.'}
             </div>
           )}
 
@@ -328,7 +328,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
               ) : (
                 <>
                   <Trash2 className="h-4 w-4 mr-2" />
-                  Delete Collection
+                  Delete Crate
                 </>
               )}
             </Button>
@@ -343,16 +343,16 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 // Item Row
 // ──────────────────────────────────────────────
 
-function CollectionItemRow({
+function CrateItemRow({
   item,
   slug,
   isCreator,
 }: {
-  item: CollectionItem
+  item: CrateItem
   slug: string
   isCreator: boolean
 }) {
-  const removeMutation = useRemoveCollectionItem()
+  const removeMutation = useRemoveCrateItem()
   const Icon = ENTITY_ICONS[item.entity_type] ?? Library
 
   const handleRemove = () => {
@@ -398,7 +398,7 @@ function CollectionItemRow({
           className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
           onClick={handleRemove}
           disabled={removeMutation.isPending}
-          title="Remove from collection"
+          title="Remove from crate"
         >
           <X className="h-4 w-4" />
         </Button>
@@ -426,7 +426,7 @@ function InlineEditForm({
   collaborative: boolean
   onDone: () => void
 }) {
-  const updateMutation = useUpdateCollection()
+  const updateMutation = useUpdateCrate()
   const [title, setTitle] = useState(initialTitle)
   const [description, setDescription] = useState(initialDescription)
   const [isPublic, setIsPublic] = useState(initialPublic)
@@ -500,7 +500,7 @@ function InlineEditForm({
         <p className="text-sm text-destructive">
           {updateMutation.error instanceof Error
             ? updateMutation.error.message
-            : 'Failed to update collection'}
+            : 'Failed to update crate'}
         </p>
       )}
 
