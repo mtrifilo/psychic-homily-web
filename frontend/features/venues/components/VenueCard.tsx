@@ -63,6 +63,7 @@ export function VenueCard({ venue }: VenueCardProps) {
             setIsExpanded(!isExpanded)
           }
         }}
+        aria-expanded={hasShows ? isExpanded : undefined}
         className={`w-full px-4 py-4 text-left transition-colors duration-75 ${
           hasShows
             ? 'hover:bg-muted/30 cursor-pointer'
