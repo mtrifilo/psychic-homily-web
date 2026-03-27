@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, MapPin, Pencil, X, Trash2 } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Loader2, MapPin, Pencil, X, Trash2 } from 'lucide-react'
 import { useShow } from '../hooks/useShows'
 import type { ApiError } from '@/lib/api'
 import { useSetShowSoldOut, useSetShowCancelled } from '@/lib/hooks/admin/useAdminShows'
@@ -249,6 +249,21 @@ export function ShowDetail({ showId }: ShowDetailProps) {
               {show.price != null && <span>{formatPrice(show.price)}</span>}
               {show.age_requirement && <span>{show.age_requirement}</span>}
             </div>
+
+            {/* Ticket URL */}
+            {show.ticket_url && (
+              <div className="mt-3">
+                <a
+                  href={show.ticket_url.startsWith('http') ? show.ticket_url : `https://${show.ticket_url}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                >
+                  Buy Tickets
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </div>
+            )}
 
             {/* Description */}
             {show.description && (

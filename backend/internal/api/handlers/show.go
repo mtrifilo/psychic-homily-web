@@ -88,6 +88,7 @@ type CreateShowRequestBody struct {
 	Price          *float64  `json:"price,omitempty" doc:"Ticket price"`
 	AgeRequirement *string   `json:"age_requirement,omitempty" doc:"Age requirement (e.g., '21+', 'All Ages')"`
 	Description    *string   `json:"description,omitempty" doc:"Show description"`
+	TicketURL      *string   `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
 	Venues         []Venue   `json:"venues" validate:"required,min=1" doc:"List of venues for the show"`
 	Artists        []Artist  `json:"artists" validate:"required,min=1" doc:"List of artists in the show"`
 	IsPrivate      *bool     `json:"is_private,omitempty" doc:"If true, show is private and only visible to submitter"`
@@ -117,6 +118,14 @@ func (r *CreateShowRequestBody) Resolve(ctx huma.Context) []error {
 			Location: "body.age_requirement",
 			Message:  "Age requirement must be 50 characters or fewer",
 			Value:    len(*r.AgeRequirement),
+		})
+	}
+
+	if r.TicketURL != nil && len(*r.TicketURL) > 500 {
+		errors = append(errors, &huma.ErrorDetail{
+			Location: "body.ticket_url",
+			Message:  "Ticket URL must be 500 characters or fewer",
+			Value:    len(*r.TicketURL),
 		})
 	}
 
@@ -262,6 +271,7 @@ type UpdateShowRequest struct {
 		Price          *float64   `json:"price,omitempty" doc:"Ticket price"`
 		AgeRequirement *string    `json:"age_requirement,omitempty" doc:"Age requirement"`
 		Description    *string    `json:"description,omitempty" doc:"Show description"`
+		TicketURL      *string    `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
 		Venues         []Venue    `json:"venues,omitempty" doc:"List of venues for the show"`
 		Artists        []Artist   `json:"artists,omitempty" doc:"List of artists for the show"`
 	}
@@ -382,6 +392,11 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 		ageRequirement = *req.Body.AgeRequirement
 	}
 
+	ticketURL := ""
+	if req.Body.TicketURL != nil {
+		ticketURL = *req.Body.TicketURL
+	}
+
 	// Check if show should be private
 	isPrivate := false
 	if req.Body.IsPrivate != nil && *req.Body.IsPrivate {
@@ -397,6 +412,7 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 		Price:             req.Body.Price,
 		AgeRequirement:    ageRequirement,
 		Description:       description,
+		TicketURL:         ticketURL,
 		Venues:            serviceVenues,
 		Artists:           serviceArtists,
 		SubmittedByUserID: submittedByUserID,
@@ -785,6 +801,9 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	if req.Body.Price != nil && (*req.Body.Price < 0 || *req.Body.Price > 10000) {
 		return nil, huma.Error400BadRequest("Price must be between 0 and 10000")
 	}
+	if req.Body.TicketURL != nil && len(*req.Body.TicketURL) > 500 {
+		return nil, huma.Error400BadRequest("Ticket URL must be 500 characters or fewer")
+	}
 
 	// Build updates map for basic show fields
 	updates := make(map[string]interface{})
@@ -808,6 +827,9 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	}
 	if req.Body.Description != nil {
 		updates["description"] = *req.Body.Description
+	}
+	if req.Body.TicketURL != nil {
+		updates["ticket_url"] = *req.Body.TicketURL
 	}
 
 	// Convert venues to service format (nil if not provided)

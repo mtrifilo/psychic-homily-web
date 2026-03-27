@@ -1,0 +1,1 @@
+ALTER TABLE shows DROP COLUMN IF EXISTS ticket_url;

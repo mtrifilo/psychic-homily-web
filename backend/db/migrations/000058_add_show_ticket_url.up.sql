@@ -1,0 +1,1 @@
+ALTER TABLE shows ADD COLUMN ticket_url VARCHAR(500);

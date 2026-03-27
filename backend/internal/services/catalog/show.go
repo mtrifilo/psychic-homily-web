@@ -77,6 +77,9 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 			Status:         status,
 			SubmittedBy:    req.SubmittedByUserID,
 		}
+		if req.TicketURL != "" {
+			show.TicketURL = &req.TicketURL
+		}
 
 		if err := tx.Create(show).Error; err != nil {
 			return fmt.Errorf("failed to create show: %w", err)
@@ -138,6 +141,7 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 			Price:           show.Price,
 			AgeRequirement:  show.AgeRequirement,
 			Description:     show.Description,
+			TicketURL:       show.TicketURL,
 			Status:          string(show.Status),
 			SubmittedBy:     show.SubmittedBy,
 			RejectionReason: show.RejectionReason,
@@ -589,6 +593,7 @@ func (s *ShowService) UpdateShowWithRelations(
 			Price:           show.Price,
 			AgeRequirement:  show.AgeRequirement,
 			Description:     show.Description,
+			TicketURL:       show.TicketURL,
 			Status:          string(show.Status),
 			SubmittedBy:     show.SubmittedBy,
 			RejectionReason: show.RejectionReason,
@@ -1520,6 +1525,7 @@ func (s *ShowService) buildShowResponse(show *models.Show) *contracts.ShowRespon
 		Price:           show.Price,
 		AgeRequirement:  show.AgeRequirement,
 		Description:     show.Description,
+		TicketURL:       show.TicketURL,
 		Status:          string(show.Status),
 		SubmittedBy:     show.SubmittedBy,
 		RejectionReason:   show.RejectionReason,

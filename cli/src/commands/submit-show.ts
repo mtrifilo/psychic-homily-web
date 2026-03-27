@@ -41,6 +41,7 @@ interface ShowInput {
   price?: number;
   age_requirement?: string;
   description?: string;
+  ticket_url?: string;
   artists: ShowArtistInput[];
   venues: ShowVenueInput[];
   tags?: TagInput[];
@@ -219,6 +220,7 @@ export function buildShowPayload(plan: ShowPlan): Record<string, unknown> {
   if (plan.input.price !== undefined) payload.price = plan.input.price;
   if (plan.input.age_requirement) payload.age_requirement = plan.input.age_requirement;
   if (plan.input.description) payload.description = plan.input.description;
+  if (plan.input.ticket_url) payload.ticket_url = plan.input.ticket_url;
 
   return payload;
 }
@@ -351,6 +353,9 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
     }
     if (plan.input.age_requirement) {
       display.kv("Ages", plan.input.age_requirement);
+    }
+    if (plan.input.ticket_url) {
+      display.kv("Tickets", plan.input.ticket_url);
     }
 
     // Artists

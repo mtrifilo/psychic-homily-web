@@ -83,6 +83,14 @@ export function validateShow(data: unknown): ValidationResult {
     errors.push({ field: "venues", message: "At least one venue is required" });
   }
 
+  // Optional ticket_url validation
+  if (d.ticket_url !== undefined && d.ticket_url !== null && d.ticket_url !== "") {
+    const url = String(d.ticket_url);
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      errors.push({ field: "ticket_url", message: "ticket_url must be a valid URL (http:// or https://)" });
+    }
+  }
+
   return { valid: errors.length === 0, errors };
 }
 

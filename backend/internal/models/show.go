@@ -65,6 +65,9 @@ type Show struct {
 	// Duplicate detection (for discovery imports flagged as potential duplicates)
 	DuplicateOfShowID *uint `gorm:"column:duplicate_of_show_id"`
 
+	// Ticket URL (optional)
+	TicketURL *string `json:"ticket_url,omitempty" gorm:"type:varchar(500)"`
+
 	// Status flags (admin-controlled)
 	IsSoldOut   bool `gorm:"column:is_sold_out;not null;default:false"`
 	IsCancelled bool `gorm:"column:is_cancelled;not null;default:false"`
