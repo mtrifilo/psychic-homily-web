@@ -289,7 +289,7 @@ describe("submitFestivals", () => {
     expect(putCalls[0].body).toMatchObject({ website: "https://m3ffest.com" });
   });
 
-  test("skips a festival when no new info", async () => {
+  test("skips a festival when no new info (no artists)", async () => {
     setupExistingFestivalMock();
 
     const festivals = [validFestival()] as any[];
@@ -298,8 +298,10 @@ describe("submitFestivals", () => {
     expect(results).toHaveLength(1);
     expect(results[0].action).toBe("skipped");
     expect(results[0].id).toBe(42);
+    expect(results[0].artistResults).toEqual([]);
+    expect(results[0].venueResults).toEqual([]);
 
-    // Verify no PUT or POST was called
+    // Verify no PUT or POST was called (no artists/venues to link)
     const mutationCalls = fetchCalls.filter(
       (c) => c.method === "PUT" || (c.method === "POST" && /\/festivals/.test(c.url)),
     );
@@ -429,6 +431,199 @@ describe("submitFestivals", () => {
     // Dry-run should produce no results (only skips are added in dry-run)
     // Creates/updates only happen with --confirm
     expect(results).toHaveLength(0);
+
+    // No POST or PUT calls (only GET for duplicate check)
+    const mutationCalls = fetchCalls.filter(
+      (c) => c.method === "POST" || c.method === "PUT",
+    );
+    expect(mutationCalls).toHaveLength(0);
+  });
+
+  test("skipped festival still links artists and venues", async () => {
+    setupExistingFestivalMock();
+
+    // GET /artists/search resolves artist names
+    addMockRoute("GET", /\/artists\/search/, (url) => {
+      const urlObj = new URL(url);
+      const q = urlObj.searchParams.get("q") || "";
+      if (q.toLowerCase().includes("khruangbin")) {
+        return {
+          artists: [{ id: 10, name: "Khruangbin", slug: "khruangbin" }],
+        };
+      }
+      if (q.toLowerCase().includes("japanese breakfast")) {
+        return {
+          artists: [
+            { id: 20, name: "Japanese Breakfast", slug: "japanese-breakfast" },
+          ],
+        };
+      }
+      return { artists: [] };
+    });
+
+    // GET /venues/search resolves venue names
+    addMockRoute("GET", /\/venues\/search/, (url) => {
+      const urlObj = new URL(url);
+      const q = urlObj.searchParams.get("q") || "";
+      if (q.toLowerCase().includes("hance park")) {
+        return {
+          venues: [{ id: 5, name: "Margaret T. Hance Park", slug: "hance-park" }],
+        };
+      }
+      return { venues: [] };
+    });
+
+    // POST /festivals/{id}/artists links artists
+    addMockRoute("POST", /\/festivals\/\d+\/artists$/, () => ({ id: 1 }));
+
+    // POST /festivals/{id}/venues links venues
+    addMockRoute("POST", /\/festivals\/\d+\/venues$/, () => ({ id: 1 }));
+
+    const festivals = [
+      validFestival({
+        artists: [
+          { name: "Khruangbin", billing_tier: "headliner" },
+          { name: "Japanese Breakfast", billing_tier: "sub_headliner" },
+          { name: "Unknown Band", billing_tier: "undercard" },
+        ],
+        venues: [{ name: "Hance Park", is_primary: true }],
+      }),
+    ] as any[];
+
+    const results = await submitFestivals(festivals, TEST_ENV, true);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].action).toBe("skipped");
+    expect(results[0].id).toBe(42);
+
+    // Artists should be processed
+    expect(results[0].artistResults).toHaveLength(3);
+    expect(results[0].artistResults![0]).toMatchObject({
+      name: "Khruangbin",
+      action: "linked",
+      artistId: 10,
+    });
+    expect(results[0].artistResults![1]).toMatchObject({
+      name: "Japanese Breakfast",
+      action: "linked",
+      artistId: 20,
+    });
+    expect(results[0].artistResults![2]).toMatchObject({
+      name: "Unknown Band",
+      action: "not_found",
+    });
+
+    // Venues should be processed
+    expect(results[0].venueResults).toHaveLength(1);
+    expect(results[0].venueResults![0]).toMatchObject({
+      name: "Hance Park",
+      action: "linked",
+      venueId: 5,
+    });
+
+    // Verify artist link API calls were made
+    const artistLinkCalls = fetchCalls.filter(
+      (c) => c.method === "POST" && /\/festivals\/42\/artists$/.test(c.url),
+    );
+    expect(artistLinkCalls).toHaveLength(2); // Only 2 — Unknown Band was not found
+
+    // Verify venue link API calls were made
+    const venueLinkCalls = fetchCalls.filter(
+      (c) => c.method === "POST" && /\/festivals\/42\/venues$/.test(c.url),
+    );
+    expect(venueLinkCalls).toHaveLength(1);
+  });
+
+  test("already-linked artists are handled gracefully (409)", async () => {
+    setupExistingFestivalMock();
+
+    // Artist search resolves the artist
+    addMockRoute("GET", /\/artists\/search/, () => ({
+      artists: [{ id: 10, name: "Khruangbin", slug: "khruangbin" }],
+    }));
+
+    // POST /festivals/{id}/artists returns 409 Conflict (already linked)
+    mockRoutes.push({
+      method: "POST",
+      pattern: /\/festivals\/\d+\/artists$/,
+      handler: () => {
+        // This handler won't be used because we override fetch for 409
+        return {};
+      },
+    });
+
+    // Override: we need the POST to /festivals/{id}/artists to return 409
+    // Remove the generic mock we just added and handle it in fetch directly
+    mockRoutes.pop();
+
+    const savedFetch = globalThis.fetch;
+    globalThis.fetch = (async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method || "GET";
+      const body = init?.body ? JSON.parse(init.body as string) : undefined;
+
+      fetchCalls.push({ method, url, body });
+
+      // Return 409 for artist linking
+      if (method === "POST" && /\/festivals\/\d+\/artists$/.test(url)) {
+        return new Response(
+          JSON.stringify({ message: "Artist already linked to festival" }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      // Fall through to normal mock routes
+      for (const route of mockRoutes) {
+        if (route.method === method && route.pattern.test(url)) {
+          const responseBody = route.handler(url, body);
+          return new Response(JSON.stringify(responseBody), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+      }
+
+      return new Response(
+        JSON.stringify({ message: "Not found" }),
+        { status: 404 },
+      );
+    }) as typeof fetch;
+
+    const festivals = [
+      validFestival({
+        artists: [{ name: "Khruangbin", billing_tier: "headliner" }],
+      }),
+    ] as any[];
+
+    const results = await submitFestivals(festivals, TEST_ENV, true);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].action).toBe("skipped");
+    expect(results[0].artistResults).toHaveLength(1);
+    expect(results[0].artistResults![0]).toMatchObject({
+      name: "Khruangbin",
+      action: "already_linked",
+      artistId: 10,
+    });
+
+    // Restore fetch
+    globalThis.fetch = savedFetch;
+  });
+
+  test("skipped festival without artists/venues makes no mutation calls", async () => {
+    setupExistingFestivalMock();
+
+    const festivals = [validFestival()] as any[];
+    const results = await submitFestivals(festivals, TEST_ENV, true);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].action).toBe("skipped");
+    expect(results[0].id).toBe(42);
+    expect(results[0].artistResults).toEqual([]);
+    expect(results[0].venueResults).toEqual([]);
 
     // No POST or PUT calls (only GET for duplicate check)
     const mutationCalls = fetchCalls.filter(

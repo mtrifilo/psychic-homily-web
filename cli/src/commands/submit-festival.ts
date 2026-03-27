@@ -1,4 +1,4 @@
-import { APIClient } from "../lib/api";
+import { APIClient, APIError } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
 import * as display from "../lib/display";
 import { green, yellow, gray, dim, cyan } from "../lib/ansi";
@@ -61,14 +61,14 @@ export interface FestivalResult {
 
 interface ArtistLinkResult {
   name: string;
-  action: "linked" | "not_found" | "error";
+  action: "linked" | "already_linked" | "not_found" | "error";
   artistId?: number;
   error?: string;
 }
 
 interface VenueLinkResult {
   name: string;
-  action: "linked" | "not_found" | "error";
+  action: "linked" | "already_linked" | "not_found" | "error";
   venueId?: number;
   error?: string;
 }
@@ -396,6 +396,12 @@ export async function submitFestivals(
     display.info(
       `${dim("SKIP")} ${p.input.name} → already exists as "${p.dupResult.existingName}" (ID: ${p.dupResult.existingId})`,
     );
+    if (p.input.artists?.length) {
+      display.kv("Artists", `${p.input.artists.length} to resolve & link`);
+    }
+    if (p.input.venues?.length) {
+      display.kv("Venues", `${p.input.venues.length} to resolve & link`);
+    }
     // Show tags if any
     if (resolvedTags[planIdx].length > 0) {
       display.kv("tags", formatTagsPreview(resolvedTags[planIdx]));
@@ -422,21 +428,43 @@ export async function submitFestivals(
     return results;
   }
 
-  // Add skip results and apply tags for skipped festivals
+  // Process skipped festivals — still link artists/venues and apply tags
   for (const p of skips) {
-    const parsedTags = TagResolver.parseTags(p.input.tags as TagInput[] | undefined);
-    // Still apply tags even on skip
-    if (p.dupResult.existingId && parsedTags.length > 0) {
-      const tagResult = await tagResolver.applyToEntity("festival", p.dupResult.existingId, parsedTags);
+    const f = p.input;
+    const festivalId = p.dupResult.existingId!;
+    const parsedTags = TagResolver.parseTags(f.tags as TagInput[] | undefined);
+
+    display.info(
+      `Festival already exists: "${p.dupResult.existingName}" (ID: ${festivalId}), linking artists/venues...`,
+    );
+
+    const result: FestivalResult = {
+      name: f.name,
+      action: "skipped",
+      id: festivalId,
+      artistResults: [],
+      venueResults: [],
+    };
+
+    // Link artists
+    if (f.artists?.length) {
+      result.artistResults = await linkArtists(client, festivalId, f.artists);
+    }
+
+    // Link venues
+    if (f.venues?.length) {
+      result.venueResults = await linkVenues(client, festivalId, f.venues);
+    }
+
+    // Apply tags
+    if (festivalId && parsedTags.length > 0) {
+      const tagResult = await tagResolver.applyToEntity("festival", festivalId, parsedTags);
       if (tagResult.applied > 0) {
-        display.info(`  Applied ${tagResult.applied} tag(s) to "${p.input.name}"`);
+        display.info(`  Applied ${tagResult.applied} tag(s) to "${f.name}"`);
       }
     }
-    results.push({
-      name: p.input.name,
-      action: "skipped",
-      id: p.dupResult.existingId,
-    });
+
+    results.push(result);
   }
 
   display.header("Submitting...");
@@ -624,16 +652,28 @@ async function linkArtists(
         artistId: resolved.id,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      display.error(
-        `  Failed to link artist "${resolved.name}": ${message}`,
-      );
-      linkResults.push({
-        name: artist.name,
-        action: "error",
-        artistId: resolved.id,
-        error: message,
-      });
+      // Treat 409 Conflict as "already linked" — not an error
+      if (err instanceof APIError && err.status === 409) {
+        display.info(
+          `  Already linked: "${resolved.name}" (ID: ${resolved.id})`,
+        );
+        linkResults.push({
+          name: artist.name,
+          action: "already_linked",
+          artistId: resolved.id,
+        });
+      } else {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        display.error(
+          `  Failed to link artist "${resolved.name}": ${message}`,
+        );
+        linkResults.push({
+          name: artist.name,
+          action: "error",
+          artistId: resolved.id,
+          error: message,
+        });
+      }
     }
   }
 
@@ -679,16 +719,28 @@ async function linkVenues(
         venueId: resolved.id,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      display.error(
-        `  Failed to link venue "${resolved.name}": ${message}`,
-      );
-      linkResults.push({
-        name: venue.name,
-        action: "error",
-        venueId: resolved.id,
-        error: message,
-      });
+      // Treat 409 Conflict as "already linked" — not an error
+      if (err instanceof APIError && err.status === 409) {
+        display.info(
+          `  Already linked: "${resolved.name}" (ID: ${resolved.id})`,
+        );
+        linkResults.push({
+          name: venue.name,
+          action: "already_linked",
+          venueId: resolved.id,
+        });
+      } else {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        display.error(
+          `  Failed to link venue "${resolved.name}": ${message}`,
+        );
+        linkResults.push({
+          name: venue.name,
+          action: "error",
+          venueId: resolved.id,
+          error: message,
+        });
+      }
     }
   }
 
