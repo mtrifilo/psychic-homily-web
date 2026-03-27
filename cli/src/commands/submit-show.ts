@@ -41,6 +41,7 @@ interface ShowInput {
   price?: number;
   age_requirement?: string;
   description?: string;
+  ticket_url?: string;
   artists: ShowArtistInput[];
   venues: ShowVenueInput[];
   tags?: TagInput[];
@@ -51,6 +52,7 @@ interface ResolvedArtist {
   name: string;
   is_headliner?: boolean;
   status: "existing" | "new";
+  confidence?: number;
 }
 
 interface ResolvedVenue {
@@ -60,6 +62,7 @@ interface ResolvedVenue {
   state?: string;
   address?: string;
   status: "existing" | "new";
+  confidence?: number;
 }
 
 export interface ShowPlan {
@@ -116,6 +119,7 @@ export async function resolveArtists(
           name: best.name,
           is_headliner: artist.is_headliner,
           status: "existing",
+          confidence: best.score,
         });
       } else {
         resolved.push({
@@ -161,6 +165,7 @@ export async function resolveVenues(
           state: venue.state,
           address: venue.address,
           status: "existing",
+          confidence: best.score,
         });
       } else {
         resolved.push({
@@ -215,6 +220,7 @@ export function buildShowPayload(plan: ShowPlan): Record<string, unknown> {
   if (plan.input.price !== undefined) payload.price = plan.input.price;
   if (plan.input.age_requirement) payload.age_requirement = plan.input.age_requirement;
   if (plan.input.description) payload.description = plan.input.description;
+  if (plan.input.ticket_url) payload.ticket_url = plan.input.ticket_url;
 
   return payload;
 }
@@ -348,12 +354,18 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
     if (plan.input.age_requirement) {
       display.kv("Ages", plan.input.age_requirement);
     }
+    if (plan.input.ticket_url) {
+      display.kv("Tickets", plan.input.ticket_url);
+    }
 
     // Artists
     process.stderr.write(`\n  ${gray("Artists:")}\n`);
     for (const artist of plan.artists) {
+      const confidenceStr = artist.confidence !== undefined && artist.confidence < 1.0
+        ? ` ${(artist.confidence * 100).toFixed(0)}%`
+        : "";
       const tag = artist.status === "existing"
-        ? green(`EXISTING (ID: ${artist.id})`)
+        ? green(`EXISTING (ID: ${artist.id})${confidenceStr ? yellow(` [${confidenceStr} match]`) : ""}`)
         : yellow("NEW");
       const headliner = artist.is_headliner ? dim(" [headliner]") : "";
       process.stderr.write(`    ${artist.name} ${tag}${headliner}\n`);
@@ -362,8 +374,11 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
     // Venues
     process.stderr.write(`\n  ${gray("Venues:")}\n`);
     for (const venue of plan.venues) {
+      const confidenceStr = venue.confidence !== undefined && venue.confidence < 1.0
+        ? ` ${(venue.confidence * 100).toFixed(0)}%`
+        : "";
       const tag = venue.status === "existing"
-        ? green(`EXISTING (ID: ${venue.id})`)
+        ? green(`EXISTING (ID: ${venue.id})${confidenceStr ? yellow(` [${confidenceStr} match]`) : ""}`)
         : yellow("NEW");
       process.stderr.write(`    ${venue.name} ${tag}\n`);
     }
