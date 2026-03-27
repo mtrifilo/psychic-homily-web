@@ -92,6 +92,66 @@ describe("similarityScore", () => {
     const score = similarityScore("The Shins", "The Shin");
     expect(score).toBeGreaterThan(0.6);
   });
+
+  // --- False positive prevention (PSY-174) ---
+
+  test("DRAM does NOT match DREAM (substring trap)", () => {
+    const score = similarityScore("DRAM", "DREAM");
+    expect(score).toBeLessThan(0.6);
+  });
+
+  test("SAMNX does NOT match Sasami", () => {
+    const score = similarityScore("SAMNX", "Sasami");
+    expect(score).toBeLessThan(0.6);
+  });
+
+  test("Langhorne Slim does NOT match VIVA PHX: LANGHORNE SLIM (low coverage)", () => {
+    const score = similarityScore("Langhorne Slim", "VIVA PHX: LANGHORNE SLIM");
+    expect(score).toBeLessThan(0.6);
+  });
+
+  test("short names (<=3 chars) require exact match", () => {
+    // "MIA" should not match "MIJA" or "Miami"
+    expect(similarityScore("MIA", "MIJA")).toBe(0);
+    expect(similarityScore("MIA", "Miami")).toBe(0);
+    // But exact case-insensitive match should work
+    expect(similarityScore("MIA", "mia")).toBe(1.0);
+    expect(similarityScore("DJ", "dj")).toBe(1.0);
+    // Non-exact 3-char names should score 0
+    expect(similarityScore("DJ", "DJs")).toBe(0);
+  });
+
+  test("short names (4 chars) require very close match", () => {
+    // "DRAM" should not match "DREAM" (substring trap)
+    expect(similarityScore("DRAM", "DREAM")).toBeLessThan(0.6);
+    // "DRAM" should not match "Drama" (different word)
+    expect(similarityScore("DRAM", "Drama")).toBeLessThan(0.6);
+    // But exact 4-char match works
+    expect(similarityScore("DRAM", "dram")).toBe(1.0);
+  });
+
+  test("correct matches still work", () => {
+    // Exact matches (case-insensitive)
+    expect(similarityScore("Pavement", "Pavement")).toBe(1.0);
+    expect(similarityScore("the national", "The National")).toBe(1.0);
+    // "National" in "The National" — substring with good coverage
+    const score = similarityScore("National", "The National");
+    expect(score).toBeGreaterThan(0.8);
+  });
+
+  test("word-boundary substring matches work correctly", () => {
+    // "Slim" in "Langhorne Slim" — word-boundary aligned but low coverage
+    const score1 = similarityScore("Slim", "Langhorne Slim");
+    // "Slim" is 4 chars, so short name guard applies — requires exact or substring in word boundary
+    // "slim" in "langhorne slim" — at word boundary, coverage 4/14 = 0.29 < 0.6
+    expect(score1).toBeLessThan(0.6);
+  });
+
+  test("plural/singular variations still match", () => {
+    // "The Shin" vs "The Shins" — just a trailing 's', should still score high
+    const score = similarityScore("The Shins", "The Shin");
+    expect(score).toBeGreaterThan(0.6);
+  });
 });
 
 describe("compareFields", () => {
