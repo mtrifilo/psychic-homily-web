@@ -63,10 +63,12 @@ export function CityFilters({
         label={allLabel}
         isActive={isAllSelected}
         onClick={() => onFilterChange([])}
+        data-testid="city-filter-all"
       />
       {cities.map(city => {
         const isActive = selectedSet.has(cityKey(city))
         const label = `${city.city}, ${city.state}`
+        const slug = `${city.city}-${city.state}`.toLowerCase().replace(/\s+/g, '-')
 
         return (
           <FilterChip
@@ -75,6 +77,7 @@ export function CityFilters({
             isActive={isActive}
             onClick={(e) => handleToggle(city.city, city.state, e)}
             count={city.count}
+            data-testid={`city-filter-${slug}`}
           />
         )
       })}

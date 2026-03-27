@@ -152,6 +152,7 @@ export function VenueInput({
                       type="button"
                       role="option"
                       key={venue.id}
+                      data-testid="search-result-venue"
                       className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
                       onMouseDown={e => {
                         e.preventDefault()
