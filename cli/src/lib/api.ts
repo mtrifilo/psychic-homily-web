@@ -1,4 +1,5 @@
 import type { EnvironmentConfig } from "./types";
+import { dim, gray, cyan, yellow } from "./ansi";
 
 export class APIError extends Error {
   constructor(
@@ -16,11 +17,13 @@ export class APIError extends Error {
 export class APIClient {
   private baseUrl: string;
   private token: string;
+  private verbose: boolean;
 
   constructor(env: EnvironmentConfig) {
     // Strip trailing slash
     this.baseUrl = env.url.replace(/\/+$/, "");
     this.token = env.token;
+    this.verbose = env.verbose ?? false;
   }
 
   /** Make an authenticated GET request. */
@@ -94,6 +97,61 @@ export class APIClient {
     return url.toString();
   }
 
+  private logVerbose(text: string): void {
+    process.stderr.write(text);
+  }
+
+  private logRequest(method: string, url: string, headers: Record<string, string>, body?: unknown): void {
+    if (!this.verbose) return;
+
+    this.logVerbose(`\n${dim("───── Request ─────")}\n`);
+    this.logVerbose(`${cyan(method)} ${url}\n`);
+
+    this.logVerbose(`${gray("Headers:")}\n`);
+    for (const [key, value] of Object.entries(headers)) {
+      const displayValue = key === "Authorization" ? `Bearer ${this.token.slice(0, 8)}...` : value;
+      this.logVerbose(`  ${dim(key + ":")} ${displayValue}\n`);
+    }
+
+    if (body !== undefined) {
+      this.logVerbose(`${gray("Body:")}\n`);
+      try {
+        this.logVerbose(`${JSON.stringify(body, null, 2)}\n`);
+      } catch {
+        this.logVerbose(`  ${dim("(unable to serialize body)")}\n`);
+      }
+    }
+  }
+
+  private logResponse(status: number, statusText: string, headers: Headers, body: string): void {
+    if (!this.verbose) return;
+
+    this.logVerbose(`\n${dim("───── Response ─────")}\n`);
+
+    const statusColor = status >= 400 ? yellow : cyan;
+    this.logVerbose(`${statusColor(`${status} ${statusText}`)}\n`);
+
+    this.logVerbose(`${gray("Headers:")}\n`);
+    headers.forEach((value, key) => {
+      this.logVerbose(`  ${dim(key + ":")} ${value}\n`);
+    });
+
+    if (body) {
+      this.logVerbose(`${gray("Body:")}\n`);
+      try {
+        const parsed = JSON.parse(body);
+        this.logVerbose(`${JSON.stringify(parsed, null, 2)}\n`);
+      } catch {
+        // Not JSON — print raw (truncated if very long)
+        const maxLen = 2000;
+        const truncated = body.length > maxLen ? body.slice(0, maxLen) + `\n${dim(`... (${body.length - maxLen} more bytes)`)}` : body;
+        this.logVerbose(`${truncated}\n`);
+      }
+    }
+
+    this.logVerbose(`${dim("────────────────────")}\n`);
+  }
+
   private async request<T>(
     method: string,
     url: string,
@@ -108,6 +166,8 @@ export class APIClient {
       headers["Content-Type"] = "application/json";
     }
 
+    this.logRequest(method, url, headers, body);
+
     const response = await fetch(url, {
       method,
       headers,
@@ -116,6 +176,8 @@ export class APIClient {
     });
 
     const text = await response.text();
+
+    this.logResponse(response.status, response.statusText, response.headers, text);
 
     if (!response.ok) {
       let message = `HTTP ${response.status}: ${response.statusText}`;
