@@ -48,6 +48,141 @@ VALUES
 ON CONFLICT DO NOTHING;
 SQL
 
+echo "==> Seeding labels, releases, and linking them..."
+psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
+-- Labels for the discovery loop: Show -> Artist -> Release -> Label -> label mates
+INSERT INTO labels (name, slug, status, created_at, updated_at)
+VALUES
+  ('Run For Cover Records', 'run-for-cover-records', 'active', NOW(), NOW()),
+  ('Loma Vista Recordings', 'loma-vista-recordings', 'active', NOW(), NOW()),
+  ('Topshelf Records', 'topshelf-records', 'active', NOW(), NOW())
+ON CONFLICT DO NOTHING;
+
+-- Releases linked to seeded artists
+INSERT INTO releases (title, slug, release_type, release_year, created_at, updated_at)
+VALUES
+  ('Futures', 'futures', 'lp', 2004, NOW(), NOW()),
+  ('Clarity', 'clarity', 'lp', 1999, NOW(), NOW()),
+  ('Feast of the Mau Mau', 'feast-of-the-mau-mau', 'lp', 1998, NOW(), NOW()),
+  ('Knife Man', 'knife-man', 'lp', 2011, NOW(), NOW()),
+  ('Sundressed EP', 'sundressed-ep', 'ep', 2014, NOW(), NOW())
+ON CONFLICT DO NOTHING;
+
+-- Link artists to releases (artist_releases junction)
+DO $$
+DECLARE
+  a_jimmy INTEGER;
+  a_calexico INTEGER;
+  a_ajj INTEGER;
+  a_sundressed INTEGER;
+  r_futures INTEGER;
+  r_clarity INTEGER;
+  r_feast INTEGER;
+  r_knife INTEGER;
+  r_sundressed INTEGER;
+BEGIN
+  SELECT id INTO a_jimmy FROM artists WHERE slug = 'jimmy-eat-world';
+  SELECT id INTO a_calexico FROM artists WHERE slug = 'calexico';
+  SELECT id INTO a_ajj FROM artists WHERE slug = 'ajj';
+  SELECT id INTO a_sundressed FROM artists WHERE slug = 'sundressed';
+  SELECT id INTO r_futures FROM releases WHERE slug = 'futures';
+  SELECT id INTO r_clarity FROM releases WHERE slug = 'clarity';
+  SELECT id INTO r_feast FROM releases WHERE slug = 'feast-of-the-mau-mau';
+  SELECT id INTO r_knife FROM releases WHERE slug = 'knife-man';
+  SELECT id INTO r_sundressed FROM releases WHERE slug = 'sundressed-ep';
+
+  IF a_jimmy IS NOT NULL AND r_futures IS NOT NULL THEN
+    INSERT INTO artist_releases (artist_id, release_id, role, position)
+    VALUES (a_jimmy, r_futures, 'main', 0) ON CONFLICT DO NOTHING;
+  END IF;
+  IF a_jimmy IS NOT NULL AND r_clarity IS NOT NULL THEN
+    INSERT INTO artist_releases (artist_id, release_id, role, position)
+    VALUES (a_jimmy, r_clarity, 'main', 0) ON CONFLICT DO NOTHING;
+  END IF;
+  IF a_calexico IS NOT NULL AND r_feast IS NOT NULL THEN
+    INSERT INTO artist_releases (artist_id, release_id, role, position)
+    VALUES (a_calexico, r_feast, 'main', 0) ON CONFLICT DO NOTHING;
+  END IF;
+  IF a_ajj IS NOT NULL AND r_knife IS NOT NULL THEN
+    INSERT INTO artist_releases (artist_id, release_id, role, position)
+    VALUES (a_ajj, r_knife, 'main', 0) ON CONFLICT DO NOTHING;
+  END IF;
+  IF a_sundressed IS NOT NULL AND r_sundressed IS NOT NULL THEN
+    INSERT INTO artist_releases (artist_id, release_id, role, position)
+    VALUES (a_sundressed, r_sundressed, 'main', 0) ON CONFLICT DO NOTHING;
+  END IF;
+END $$;
+
+-- Link releases to labels (release_labels junction) — completes the discovery loop
+DO $$
+DECLARE
+  l_runforcover INTEGER;
+  l_lomavista INTEGER;
+  l_topshelf INTEGER;
+  r_futures INTEGER;
+  r_clarity INTEGER;
+  r_knife INTEGER;
+  r_sundressed INTEGER;
+BEGIN
+  SELECT id INTO l_runforcover FROM labels WHERE slug = 'run-for-cover-records';
+  SELECT id INTO l_lomavista FROM labels WHERE slug = 'loma-vista-recordings';
+  SELECT id INTO l_topshelf FROM labels WHERE slug = 'topshelf-records';
+  SELECT id INTO r_futures FROM releases WHERE slug = 'futures';
+  SELECT id INTO r_clarity FROM releases WHERE slug = 'clarity';
+  SELECT id INTO r_knife FROM releases WHERE slug = 'knife-man';
+  SELECT id INTO r_sundressed FROM releases WHERE slug = 'sundressed-ep';
+
+  -- Jimmy Eat World releases on various labels
+  IF l_runforcover IS NOT NULL AND r_futures IS NOT NULL THEN
+    INSERT INTO release_labels (release_id, label_id)
+    VALUES (r_futures, l_runforcover) ON CONFLICT DO NOTHING;
+  END IF;
+  IF l_runforcover IS NOT NULL AND r_clarity IS NOT NULL THEN
+    INSERT INTO release_labels (release_id, label_id)
+    VALUES (r_clarity, l_runforcover) ON CONFLICT DO NOTHING;
+  END IF;
+  -- AJJ on topshelf
+  IF l_topshelf IS NOT NULL AND r_knife IS NOT NULL THEN
+    INSERT INTO release_labels (release_id, label_id)
+    VALUES (r_knife, l_topshelf) ON CONFLICT DO NOTHING;
+  END IF;
+  -- Sundressed on topshelf
+  IF l_topshelf IS NOT NULL AND r_sundressed IS NOT NULL THEN
+    INSERT INTO release_labels (release_id, label_id)
+    VALUES (r_sundressed, l_topshelf) ON CONFLICT DO NOTHING;
+  END IF;
+END $$;
+
+-- Link artists to labels (artist_labels junction)
+DO $$
+DECLARE
+  a_jimmy INTEGER;
+  a_ajj INTEGER;
+  a_sundressed INTEGER;
+  l_runforcover INTEGER;
+  l_topshelf INTEGER;
+BEGIN
+  SELECT id INTO a_jimmy FROM artists WHERE slug = 'jimmy-eat-world';
+  SELECT id INTO a_ajj FROM artists WHERE slug = 'ajj';
+  SELECT id INTO a_sundressed FROM artists WHERE slug = 'sundressed';
+  SELECT id INTO l_runforcover FROM labels WHERE slug = 'run-for-cover-records';
+  SELECT id INTO l_topshelf FROM labels WHERE slug = 'topshelf-records';
+
+  IF a_jimmy IS NOT NULL AND l_runforcover IS NOT NULL THEN
+    INSERT INTO artist_labels (artist_id, label_id)
+    VALUES (a_jimmy, l_runforcover) ON CONFLICT DO NOTHING;
+  END IF;
+  IF a_ajj IS NOT NULL AND l_topshelf IS NOT NULL THEN
+    INSERT INTO artist_labels (artist_id, label_id)
+    VALUES (a_ajj, l_topshelf) ON CONFLICT DO NOTHING;
+  END IF;
+  IF a_sundressed IS NOT NULL AND l_topshelf IS NOT NULL THEN
+    INSERT INTO artist_labels (artist_id, label_id)
+    VALUES (a_sundressed, l_topshelf) ON CONFLICT DO NOTHING;
+  END IF;
+END $$;
+SQL
+
 echo "==> Inserting future-dated test shows..."
 psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
 -- Insert 55 future-dated approved shows (enough to trigger pagination at limit=50).
