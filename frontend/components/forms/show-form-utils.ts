@@ -70,11 +70,24 @@ export function showToFormValues(show: ShowResponse): FormValues {
 }
 
 /**
- * Parse a cost string (e.g. "$20", "Free", "$12.50") into a number or undefined.
+ * Parse a cost string (e.g. "$20", "Free", "$12.50", "$12 adv / $18 day of")
+ * into a number or undefined.
+ *
+ * Extracts the first dollar amount from the string. For compound prices like
+ * "$12 adv / $18 day of", returns the first price (12). Recognizes "free"
+ * (case-insensitive) as 0.
  */
 export function parseCost(cost: string): number | undefined {
   if (!cost) return undefined
-  const parsed = parseFloat(cost.replace(/[^0-9.]/g, ''))
+
+  // "Free" (case-insensitive) means $0
+  if (/^\s*free\s*$/i.test(cost)) return 0
+
+  // Match the first dollar amount: optional "$", then digits with optional decimal
+  const match = cost.match(/\$?\s*(\d+(?:\.\d+)?)/)
+  if (!match) return undefined
+
+  const parsed = parseFloat(match[1])
   return isNaN(parsed) ? undefined : parsed
 }
 
