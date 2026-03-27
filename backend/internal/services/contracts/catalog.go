@@ -41,6 +41,7 @@ type CreateShowRequest struct {
 	Price          *float64           `json:"price"`
 	AgeRequirement string             `json:"age_requirement"`
 	Description    string             `json:"description"`
+	TicketURL      string             `json:"ticket_url"`
 	Venues         []CreateShowVenue  `json:"venues" validate:"required,min=1"`
 	Artists        []CreateShowArtist `json:"artists" validate:"required,min=1"`
 
@@ -61,6 +62,7 @@ type ShowResponse struct {
 	Price           *float64         `json:"price"`
 	AgeRequirement  *string          `json:"age_requirement"`
 	Description     *string          `json:"description"`
+	TicketURL       *string          `json:"ticket_url,omitempty"`
 	Status          string           `json:"status"`
 	SubmittedBy     *uint            `json:"submitted_by,omitempty"`
 	RejectionReason   *string          `json:"rejection_reason,omitempty"`

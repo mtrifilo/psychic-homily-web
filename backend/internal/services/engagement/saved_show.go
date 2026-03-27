@@ -225,6 +225,7 @@ func (s *SavedShowService) buildShowResponse(show *models.Show, artistsByShow ma
 		Price:             show.Price,
 		AgeRequirement:    show.AgeRequirement,
 		Description:       show.Description,
+		TicketURL:         show.TicketURL,
 		Status:            string(show.Status),
 		SubmittedBy:       show.SubmittedBy,
 		RejectionReason:   show.RejectionReason,

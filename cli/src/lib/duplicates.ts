@@ -38,6 +38,46 @@ export function normalizeForComparison(s: string): string {
     .replace(/\s+/g, " ");
 }
 
+/**
+ * Check if the shorter string is embedded inside a longer word in the other string,
+ * creating a false positive risk.
+ *
+ * E.g., "dram" inside "dream" — "dram" is a substring of the word "dream", which is
+ * a completely different word. Returns true (trap).
+ *
+ * But "the shin" inside "the shins" — the only difference is a trailing 's' (plural).
+ * We allow this because it's a minor suffix variation. Returns false (not a trap).
+ *
+ * Heuristic: if the non-matching portion on either side is just 1 character, it's likely
+ * a typo, plural, or minor variant — not a trap. If 2+ extra characters, it's a trap.
+ */
+function isSubstringTrap(shorter: string, longer: string): boolean {
+  const idx = longer.indexOf(shorter);
+  if (idx === -1) return false;
+
+  // Check character boundaries
+  const charsBefore = idx;
+  const charsAfter = longer.length - (idx + shorter.length);
+
+  const startsAtWordBoundary = idx === 0 || /\W/.test(longer[idx - 1]);
+  const endsAtWordBoundary = (idx + shorter.length === longer.length) || /\W/.test(longer[idx + shorter.length]);
+
+  // If both ends are at word boundaries, not a trap (e.g., "national" in "the national")
+  if (startsAtWordBoundary && endsAtWordBoundary) {
+    return false;
+  }
+
+  // If the non-matching part is just 1 trailing character (like plural 's'), allow it
+  // "the shin" in "the shins" — only 1 char after, not a trap
+  // But only when the start is aligned to a word boundary (avoid "dram" in "drama")
+  if (!endsAtWordBoundary && charsAfter === 1 && startsAtWordBoundary) {
+    return false;
+  }
+
+  // More than 1 extra character on a non-word-boundary side, or both sides misaligned
+  return true;
+}
+
 /** Simple similarity score between two strings (0-1). Uses normalized comparison. */
 export function similarityScore(a: string, b: string): number {
   const na = normalizeForComparison(a);
@@ -46,10 +86,39 @@ export function similarityScore(a: string, b: string): number {
   if (na === nb) return 1.0;
   if (na.length === 0 || nb.length === 0) return 0;
 
-  // One contains the other
   const longer = na.length >= nb.length ? na : nb;
   const shorter = na.length < nb.length ? na : nb;
 
+  // Short name guard: names with 3 or fewer chars require exact match
+  if (shorter.length <= 3) {
+    return 0;
+  }
+
+  // Short name guard: names with 4 chars get heavily penalized for non-exact matches
+  // Only a very close match (like a single accent difference already handled above) should pass
+  if (shorter.length <= 4) {
+    // Only allow if the shorter appears as a complete word (both boundaries aligned)
+    if (longer.includes(shorter)) {
+      const idx = longer.indexOf(shorter);
+      const startOk = idx === 0 || /\W/.test(longer[idx - 1]);
+      const endOk = (idx + shorter.length === longer.length) || /\W/.test(longer[idx + shorter.length]);
+      if (startOk && endOk) {
+        const coverage = shorter.length / longer.length;
+        if (coverage >= 0.6) {
+          return 0.8 + 0.2 * coverage;
+        }
+      }
+    }
+    // For 4-char names, prefix/suffix overlap rarely indicates a real match
+    return 0;
+  }
+
+  // Substring trap: if shorter is embedded inside a longer word, reject
+  if (longer.includes(shorter) && isSubstringTrap(shorter, longer)) {
+    return 0.3; // Low score — not a match
+  }
+
+  // One contains the other (word-boundary aligned)
   if (longer.includes(shorter)) {
     const coverage = shorter.length / longer.length;
     // Require at least 60% coverage for substring match to count
@@ -58,7 +127,8 @@ export function similarityScore(a: string, b: string): number {
     if (coverage >= 0.6) {
       return 0.8 + 0.2 * coverage;
     }
-    // Low coverage substring: treat as weak signal, not a match
+    // Low coverage substring: penalize heavily to prevent false matches
+    // "langhorne slim" in "viva phx: langhorne slim" = 58% → not a match
     return 0.4 + 0.3 * coverage;
   }
 

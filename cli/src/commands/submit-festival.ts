@@ -5,6 +5,7 @@ import { green, yellow, gray, dim, cyan } from "../lib/ansi";
 import { validateFestival } from "../lib/schemas";
 import {
   checkDuplicate,
+  similarityScore,
   type DuplicateCheckResult,
   type FieldComparison,
 } from "../lib/duplicates";
@@ -90,12 +91,13 @@ const VALID_BILLING_TIERS = [
 
 /**
  * Resolve an artist name to an ID via GET /artists/search.
- * Returns the best match's ID, or null if not found.
+ * Returns the best match's ID and confidence score, or null if not found.
+ * Uses similarityScore to prevent false positives on short/ambiguous names.
  */
 async function resolveArtistId(
   client: APIClient,
   name: string,
-): Promise<{ id: number; name: string } | null> {
+): Promise<{ id: number; name: string; confidence: number } | null> {
   try {
     const result = await client.get<{
       artists: Array<{ id: number; name: string; slug: string }>;
@@ -107,10 +109,19 @@ async function resolveArtistId(
     const exact = result.artists.find(
       (a) => a.name.toLowerCase() === name.toLowerCase(),
     );
-    if (exact) return { id: exact.id, name: exact.name };
+    if (exact) return { id: exact.id, name: exact.name, confidence: 1.0 };
 
-    // Fall back to first result if it's a close enough match
-    return { id: result.artists[0].id, name: result.artists[0].name };
+    // Find best match by similarity score, require >= 0.7
+    const scored = result.artists
+      .map((a) => ({ ...a, score: similarityScore(name, a.name) }))
+      .filter((a) => a.score >= 0.7)
+      .sort((a, b) => b.score - a.score);
+
+    if (scored.length > 0) {
+      return { id: scored[0].id, name: scored[0].name, confidence: scored[0].score };
+    }
+
+    return null;
   } catch {
     return null;
   }
@@ -118,12 +129,13 @@ async function resolveArtistId(
 
 /**
  * Resolve a venue name to an ID via GET /venues/search.
- * Returns the best match's ID, or null if not found.
+ * Returns the best match's ID and confidence score, or null if not found.
+ * Uses similarityScore to prevent false positives.
  */
 async function resolveVenueId(
   client: APIClient,
   name: string,
-): Promise<{ id: number; name: string } | null> {
+): Promise<{ id: number; name: string; confidence: number } | null> {
   try {
     const result = await client.get<{
       venues: Array<{ id: number; name: string; slug: string }>;
@@ -134,9 +146,20 @@ async function resolveVenueId(
     const exact = result.venues.find(
       (v) => v.name.toLowerCase() === name.toLowerCase(),
     );
-    if (exact) return { id: exact.id, name: exact.name };
+    if (exact) return { id: exact.id, name: exact.name, confidence: 1.0 };
 
-    return { id: result.venues[0].id, name: result.venues[0].name };
+    // Find best match by similarity score, require >= 0.5
+    // (lower threshold for venues since formal names often include prefixes like "Margaret T.")
+    const scored = result.venues
+      .map((v) => ({ ...v, score: similarityScore(name, v.name) }))
+      .filter((v) => v.score >= 0.5)
+      .sort((a, b) => b.score - a.score);
+
+    if (scored.length > 0) {
+      return { id: scored[0].id, name: scored[0].name, confidence: scored[0].score };
+    }
+
+    return null;
   } catch {
     return null;
   }
@@ -268,6 +291,20 @@ export async function submitFestivals(
     }
   }
 
+  // --- Phase 2c: Pre-resolve artists for preview ---
+  const preResolvedArtists: Map<number, Array<{ input: string; resolved: { id: number; name: string; confidence: number } | null }>> = new Map();
+  for (let i = 0; i < planned.length; i++) {
+    const p = planned[i];
+    if (p.input.artists?.length) {
+      const resolved: Array<{ input: string; resolved: { id: number; name: string; confidence: number } | null }> = [];
+      for (const artist of p.input.artists) {
+        const match = await resolveArtistId(client, artist.name);
+        resolved.push({ input: artist.name, resolved: match });
+      }
+      preResolvedArtists.set(i, resolved);
+    }
+  }
+
   // --- Phase 3: Preview ---
   display.header("Preview");
 
@@ -283,8 +320,21 @@ export async function submitFestivals(
     );
     display.kv("Dates", `${f.start_date} to ${f.end_date}`);
     if (f.city) display.kv("Location", `${f.city}${f.state ? `, ${f.state}` : ""}`);
-    if (f.artists?.length) {
-      display.kv("Artists", `${f.artists.length} to resolve`);
+    // Show resolved artists with confidence
+    const artistResolutions = preResolvedArtists.get(planIdx);
+    if (artistResolutions?.length) {
+      display.kv("Artists", "");
+      for (const a of artistResolutions) {
+        if (a.resolved) {
+          const conf = `${(a.resolved.confidence * 100).toFixed(0)}%`;
+          const matchLabel = a.resolved.confidence >= 1.0
+            ? green(`EXACT → "${a.resolved.name}" (ID: ${a.resolved.id})`)
+            : yellow(`FUZZY ${conf} → "${a.resolved.name}" (ID: ${a.resolved.id})`);
+          display.info(`    ${a.input} ${matchLabel}`);
+        } else {
+          display.warn(`    ${a.input} — not found`);
+        }
+      }
     }
     if (f.venues?.length) {
       display.kv("Venues", `${f.venues.length} to resolve`);
@@ -312,8 +362,21 @@ export async function submitFestivals(
     for (const field of newFields) {
       display.fieldDiff(field.field, field.existing, field.proposed);
     }
-    if (f.artists?.length) {
-      display.kv("Artists", `${f.artists.length} to resolve & link`);
+    // Show resolved artists with confidence
+    const artistResolutions = preResolvedArtists.get(planIdx);
+    if (artistResolutions?.length) {
+      display.kv("Artists", "");
+      for (const a of artistResolutions) {
+        if (a.resolved) {
+          const conf = `${(a.resolved.confidence * 100).toFixed(0)}%`;
+          const matchLabel = a.resolved.confidence >= 1.0
+            ? green(`EXACT → "${a.resolved.name}" (ID: ${a.resolved.id})`)
+            : yellow(`FUZZY ${conf} → "${a.resolved.name}" (ID: ${a.resolved.id})`);
+          display.info(`    ${a.input} ${matchLabel}`);
+        } else {
+          display.warn(`    ${a.input} — not found`);
+        }
+      }
     }
     if (f.venues?.length) {
       display.kv("Venues", `${f.venues.length} to resolve & link`);
@@ -577,8 +640,11 @@ async function linkArtists(
       if (artist.set_time) body.set_time = artist.set_time;
 
       await client.post(`/festivals/${festivalId}/artists`, body);
+      const confidenceStr = resolved.confidence < 1.0
+        ? ` (${(resolved.confidence * 100).toFixed(0)}% match)`
+        : "";
       display.success(
-        `  Linked artist "${resolved.name}" (ID: ${resolved.id})${artist.billing_tier ? ` as ${artist.billing_tier}` : ""}`,
+        `  Linked artist "${resolved.name}" (ID: ${resolved.id})${confidenceStr}${artist.billing_tier ? ` as ${artist.billing_tier}` : ""}`,
       );
       linkResults.push({
         name: artist.name,

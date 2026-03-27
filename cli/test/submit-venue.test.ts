@@ -71,7 +71,12 @@ describe("submitVenues", () => {
     expect(result.creates).toBe(1);
     expect(result.errors).toBe(0);
     expect(postMock).toHaveBeenCalledTimes(1);
-    expect(postMock).toHaveBeenCalledWith("/admin/venues", venues[0]);
+    // Payload should contain only API-accepted fields (tags, entity_type, etc. stripped)
+    expect(postMock).toHaveBeenCalledWith("/admin/venues", {
+      name: "Crescent Ballroom",
+      city: "Phoenix",
+      state: "AZ",
+    });
     expect(result.results[0].action).toBe("create");
     expect(result.results[0].message).toBe("Created successfully");
   });

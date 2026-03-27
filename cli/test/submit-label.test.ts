@@ -59,6 +59,7 @@ describe("submitLabels", () => {
     // Verify the POST payload
     const postCall = (client.post as ReturnType<typeof mock>).mock.calls[0];
     expect(postCall[0]).toBe("/labels");
+    // Payload should contain only API-accepted fields (tags, entity_type, etc. stripped)
     expect(postCall[1]).toEqual({ name: "Numero", city: "Chicago", state: "IL" });
   });
 

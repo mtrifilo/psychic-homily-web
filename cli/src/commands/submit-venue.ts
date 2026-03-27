@@ -217,10 +217,24 @@ export async function submitVenues(
 
     try {
       if (dupResult.action === "create") {
+        // Build POST payload with only API-accepted fields.
+        // Strip tags (applied separately), entity_type (batch routing only),
+        // label/label_name (not part of venue API).
+        const venueApiFields = [
+          "name", "city", "state", "country", "address", "zip_code",
+          "website", "capacity", "description",
+        ];
+        const venuePayload: Record<string, unknown> = {};
+        for (const field of venueApiFields) {
+          if (venue[field] !== undefined) {
+            venuePayload[field] = venue[field];
+          }
+        }
+
         const response = await client.post<{
           venue?: { id: number };
           id?: number;
-        }>("/admin/venues", venue);
+        }>("/admin/venues", venuePayload);
         const venueId = response.venue?.id ?? response.id;
         display.success(`Created venue: ${venueName}`);
         // Apply tags if any
