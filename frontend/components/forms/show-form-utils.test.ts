@@ -179,8 +179,20 @@ describe('parseCost', () => {
     expect(parseCost('15')).toBe(15)
   })
 
-  it('returns undefined for "Free"', () => {
-    expect(parseCost('Free')).toBeUndefined()
+  it('returns 0 for "Free"', () => {
+    expect(parseCost('Free')).toBe(0)
+  })
+
+  it('returns 0 for "free" (case-insensitive)', () => {
+    expect(parseCost('free')).toBe(0)
+  })
+
+  it('returns 0 for "FREE"', () => {
+    expect(parseCost('FREE')).toBe(0)
+  })
+
+  it('returns 0 for " Free " (with whitespace)', () => {
+    expect(parseCost(' Free ')).toBe(0)
   })
 
   it('returns undefined for empty string', () => {
@@ -193,6 +205,26 @@ describe('parseCost', () => {
 
   it('parses "$5 suggested donation" to 5', () => {
     expect(parseCost('$5 suggested donation')).toBe(5)
+  })
+
+  it('parses "$12 adv / $18 day of" to 12 (first price)', () => {
+    expect(parseCost('$12 adv / $18 day of')).toBe(12)
+  })
+
+  it('parses "$15/$20" to 15 (first price)', () => {
+    expect(parseCost('$15/$20')).toBe(15)
+  })
+
+  it('parses "$10 - $15" to 10 (first price)', () => {
+    expect(parseCost('$10 - $15')).toBe(10)
+  })
+
+  it('parses "$ 25" with space after dollar sign', () => {
+    expect(parseCost('$ 25')).toBe(25)
+  })
+
+  it('returns undefined for text with no numbers', () => {
+    expect(parseCost('donation')).toBeUndefined()
   })
 })
 

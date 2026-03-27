@@ -102,8 +102,8 @@ describe('formatPrice', () => {
     expect(formatPrice(15.5)).toBe('$15.50')
   })
 
-  it('formats zero', () => {
-    expect(formatPrice(0)).toBe('$0.00')
+  it('formats zero as Free', () => {
+    expect(formatPrice(0)).toBe('Free')
   })
 
   it('formats large price', () => {

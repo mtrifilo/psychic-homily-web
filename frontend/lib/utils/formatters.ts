@@ -31,9 +31,10 @@ export function formatShowTime(
 }
 
 /**
- * Format price as "$XX.XX"
+ * Format price for display. Shows "Free" for $0, otherwise "$XX.XX".
  */
 export function formatPrice(price: number): string {
+  if (price === 0) return 'Free'
   return `$${price.toFixed(2)}`
 }
 
