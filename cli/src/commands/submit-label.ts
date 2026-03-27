@@ -202,10 +202,24 @@ export async function submitLabels(
     try {
       switch (dupResult.action) {
         case "create": {
+          // Build POST payload with only API-accepted fields.
+          // Strip tags (applied separately), entity_type (batch routing only),
+          // label_name (not part of label API).
+          const labelApiFields = [
+            "name", "city", "state", "country", "website",
+            "description", "bandcamp_url",
+          ];
+          const labelPayload: Record<string, unknown> = {};
+          for (const field of labelApiFields) {
+            if (label[field] !== undefined) {
+              labelPayload[field] = label[field];
+            }
+          }
+
           const response = await client.post<{
             label?: { id: number };
             id?: number;
-          }>("/labels", label);
+          }>("/labels", labelPayload);
           const labelId = response.label?.id ?? response.id;
           display.success(`Created: ${label.name}`);
           // Apply tags if any
