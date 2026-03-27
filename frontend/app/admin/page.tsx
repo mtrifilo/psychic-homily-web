@@ -340,71 +340,71 @@ function AdminPageContent() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="dashboard" className="space-y-4">
+          <TabsContent value="dashboard" className="space-y-4" data-testid="admin-tab-dashboard">
             <DashboardPage onNavigate={setActiveTab} />
           </TabsContent>
 
-          <TabsContent value="pending-shows" className="space-y-4">
+          <TabsContent value="pending-shows" className="space-y-4" data-testid="admin-tab-pending-shows">
             <PendingShowsPage />
           </TabsContent>
 
-          <TabsContent value="pending-venue-edits" className="space-y-4">
+          <TabsContent value="pending-venue-edits" className="space-y-4" data-testid="admin-tab-pending-venue-edits">
             <VenueEditsPage />
           </TabsContent>
 
-          <TabsContent value="unverified-venues" className="space-y-4">
+          <TabsContent value="unverified-venues" className="space-y-4" data-testid="admin-tab-unverified-venues">
             <UnverifiedVenuesPage />
           </TabsContent>
 
-          <TabsContent value="reports" className="space-y-4">
+          <TabsContent value="reports" className="space-y-4" data-testid="admin-tab-reports">
             <ReportsPage />
           </TabsContent>
 
-          <TabsContent value="import-show" className="space-y-4">
+          <TabsContent value="import-show" className="space-y-4" data-testid="admin-tab-import-show">
             <ShowImportPanel />
           </TabsContent>
 
-          <TabsContent value="releases" className="space-y-4">
+          <TabsContent value="releases" className="space-y-4" data-testid="admin-tab-releases">
             <ReleasesPage />
           </TabsContent>
 
-          <TabsContent value="labels" className="space-y-4">
+          <TabsContent value="labels" className="space-y-4" data-testid="admin-tab-labels">
             <LabelsPage />
           </TabsContent>
 
-          <TabsContent value="festivals" className="space-y-4">
+          <TabsContent value="festivals" className="space-y-4" data-testid="admin-tab-festivals">
             <FestivalsPage />
           </TabsContent>
 
-          <TabsContent value="pipeline" className="space-y-4">
+          <TabsContent value="pipeline" className="space-y-4" data-testid="admin-tab-pipeline">
             <PipelineVenuesComponent />
           </TabsContent>
 
-          <TabsContent value="crates" className="space-y-4">
+          <TabsContent value="crates" className="space-y-4" data-testid="admin-tab-crates">
             <CrateManagementComponent />
           </TabsContent>
 
-          <TabsContent value="tags" className="space-y-4">
+          <TabsContent value="tags" className="space-y-4" data-testid="admin-tab-tags">
             <TagsPage />
           </TabsContent>
 
-          <TabsContent value="data-quality" className="space-y-4">
+          <TabsContent value="data-quality" className="space-y-4" data-testid="admin-tab-data-quality">
             <DataQualityPage />
           </TabsContent>
 
-          <TabsContent value="analytics" className="space-y-4">
+          <TabsContent value="analytics" className="space-y-4" data-testid="admin-tab-analytics">
             <AnalyticsPage />
           </TabsContent>
 
-          <TabsContent value="artists-admin" className="space-y-4">
+          <TabsContent value="artists-admin" className="space-y-4" data-testid="admin-tab-artists-admin">
             <ArtistsPage />
           </TabsContent>
 
-          <TabsContent value="users" className="space-y-4">
+          <TabsContent value="users" className="space-y-4" data-testid="admin-tab-users">
             <UsersPage />
           </TabsContent>
 
-          <TabsContent value="audit-log" className="space-y-4">
+          <TabsContent value="audit-log" className="space-y-4" data-testid="admin-tab-audit-log">
             <AuditLogPage />
           </TabsContent>
         </Tabs>

@@ -41,6 +41,7 @@ export function DensityToggle({ density, onDensityChange, className }: DensityTo
           role="radio"
           aria-checked={density === option.value}
           onClick={() => onDensityChange(option.value)}
+          data-testid={`density-${option.value}`}
           className={cn(
             'px-2.5 py-1 text-xs font-medium rounded-md transition-colors duration-100',
             density === option.value

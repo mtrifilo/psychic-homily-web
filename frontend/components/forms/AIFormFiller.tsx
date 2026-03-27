@@ -282,6 +282,7 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
           }
         }}
         aria-expanded={isExpanded}
+        data-testid="ai-form-filler-trigger"
       >
         <CardTitle className="flex items-center gap-2 text-base">
           <Sparkles className="h-4 w-4 text-primary" />
