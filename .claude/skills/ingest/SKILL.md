@@ -41,14 +41,55 @@ cd /Users/mtrifilo/dev/psychic-homily-web/cli && bun run src/entry.ts init --url
 
 ## Workflow
 
-### Step 1: Extract Data from Screenshot
+### Step 1: Extract Data from Screenshot/Post
 
-When the user provides a screenshot (show flyer, WFMU playlist, tour poster, festival lineup, etc.), extract ALL entities visible:
+When the user provides a screenshot or post (show flyer, WFMU playlist, tour poster, festival lineup, Instagram post, etc.), analyze ALL available sources of information:
+
+- **Image/flyer**: Extract visible text, artist names, dates, venues, prices
+- **Caption/text**: Parse any accompanying text (Instagram captions, tweet text, post body) for additional show data, dates, venues, @handles, and ticket links
+- **Both together**: Cross-reference image and caption — captions often contain details not on the flyer (tour dates, @handles, ticket links)
 
 **For WFMU playlists** — extract: artists, tracks, albums (→ releases), labels, years
 **For show flyers** — extract: artists (with headliner/opener), venue, date, city/state, price
-**For tour announcements** — extract: artist, multiple dates/venues/cities
+**For tour announcements / multi-show posts** — extract: ALL shows listed. Create one show entry per date, each with its own venue, city, state, and full artist lineup. A single Instagram post may contain 5-20 shows.
 **For festival lineups** — extract: festival name, dates, artists with billing tiers, venue(s)
+
+#### Multi-show extraction
+
+Instagram posts, tour announcements, and promotional posts frequently list multiple shows. Always look for:
+- Tour date lists in captions (e.g., "4/15 Phoenix, AZ @ Valley Bar / 4/16 Tucson, AZ @ 191 Toole")
+- Multiple dates on a flyer image
+- Separate flyers in a carousel (user may provide multiple screenshots)
+
+Each date becomes its own show entry in the batch JSON. The artist lineup is typically the same across all dates unless specified otherwise. Example of a tour post producing multiple shows:
+
+```json
+[
+  {"entity_type": "artist", "name": "La Witch", "city": "Los Angeles", "state": "CA", "instagram": "https://instagram.com/la_witch"},
+  {"entity_type": "venue", "name": "Valley Bar", "city": "Phoenix", "state": "AZ"},
+  {"entity_type": "venue", "name": "191 Toole", "city": "Tucson", "state": "AZ"},
+  {"entity_type": "show", "event_date": "2026-04-15", "city": "Phoenix", "state": "AZ", "artists": [{"name": "La Witch", "is_headliner": true}], "venues": [{"name": "Valley Bar", "city": "Phoenix", "state": "AZ"}]},
+  {"entity_type": "show", "event_date": "2026-04-16", "city": "Tucson", "state": "AZ", "artists": [{"name": "La Witch", "is_headliner": true}], "venues": [{"name": "191 Toole", "city": "Tucson", "state": "AZ"}]}
+]
+```
+
+#### @handle extraction (Instagram / social)
+
+Instagram posts contain @handles for artists and venues in captions, tags, and image text. Extract these and map them to Instagram URLs:
+
+- `@la_witch` → `"instagram": "https://instagram.com/la_witch"`
+- `@sidthecatauditorium` → `"instagram": "https://instagram.com/sidthecatauditorium"`
+
+Set the `instagram` field on artist and venue batch items when a handle is identified. Only include handles that clearly correspond to an artist or venue entity being created. Example:
+
+```json
+[
+  {"entity_type": "artist", "name": "La Witch", "city": "Los Angeles", "state": "CA", "instagram": "https://instagram.com/la_witch"},
+  {"entity_type": "venue", "name": "Sid the Cat Auditorium", "city": "Phoenix", "state": "AZ", "instagram": "https://instagram.com/sidthecatauditorium"}
+]
+```
+
+**Matching handles to entities**: Use context clues — handle text usually resembles the artist/venue name (underscores for spaces, abbreviations). When a handle clearly maps to an entity in the post, include it. When ambiguous, skip it.
 
 ### Step 2: Build Batch JSON
 
@@ -68,7 +109,7 @@ Create a JSON file at `/tmp/ph-ingest.json` with the extracted data. Use this fo
 #### Entity schemas
 
 **artist**: `name` (required), `city`, `state`, `instagram`, `bandcamp`, `spotify`, `website`, `tags`
-**venue**: `name` (required), `city` (required), `state` (required), `address`, `website`, `tags`
+**venue**: `name` (required), `city` (required), `state` (required), `address`, `instagram`, `website`, `tags`
 **show**: `event_date` (required, YYYY-MM-DD), `city` (required), `state` (required), `title`, `price`, `ticket_url` (URL for ticket purchase -- extract from flyers when visible), `artists` (required, array of `{name, is_headliner?}`), `venues` (required, array of `{name, city, state}`)
 **release**: `title` (required), `release_type` (lp/ep/single/compilation/live/remix/demo), `release_year`, `artists` (required), `external_links` ([{platform, url}]), `tags`
 **label**: `name` (required), `city`, `state`, `country`, `website`, `bandcamp`, `tags`
@@ -95,6 +136,7 @@ The batch command processes in dependency order: labels → artists → releases
 - **Tags**: Add genre and locale tags where you can confidently identify them. Common genres: punk, post-punk, noise rock, psychedelic, electronic, industrial, experimental, ambient, folk, gospel, funk, disco, synth pop, avant-garde, hip-hop, jazz, metal. Locale tags use `category: "locale"`: Japanese, German, Spanish, Russian, Thai, Brazilian, etc.
 - **Billing tiers** (festivals): headliner, sub_headliner, mid_card, undercard, local, dj, host.
 - **Skip non-music entries**: DJ interludes, radio commercials, compilation album titles without a distinct artist, trivia nights.
+- **@handles**: When processing Instagram or social media posts, extract @handles from captions and map them to Instagram URLs on the corresponding artist or venue entities.
 
 ### Step 3: Dry Run
 
