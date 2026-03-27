@@ -579,12 +579,38 @@ type seedReleaseData struct {
 	LabelName   string // matched by LOWER(name); must be seeded first
 }
 
+// findOrCreateArtist looks up an artist by name (case-insensitive). If not found,
+// it creates a minimal artist record so the seed is self-contained.
+func findOrCreateArtist(database *gorm.DB, name string) (*models.Artist, error) {
+	var artist models.Artist
+	if err := database.Where("LOWER(name) = LOWER(?)", name).First(&artist).Error; err == nil {
+		return &artist, nil
+	}
+
+	// Artist not in seed data — create a minimal record as fallback
+	slug := utils.GenerateArtistSlug(name)
+	slug = utils.GenerateUniqueSlug(slug, func(candidate string) bool {
+		var count int64
+		database.Model(&models.Artist{}).Where("slug = ?", candidate).Count(&count)
+		return count > 0
+	})
+	artist = models.Artist{
+		Name: name,
+		Slug: &slug,
+	}
+	if err := database.Create(&artist).Error; err != nil {
+		return nil, fmt.Errorf("failed to create fallback artist %s: %w", name, err)
+	}
+	log.Printf("  Created fallback artist: %s", name)
+	return &artist, nil
+}
+
 // seedLabelsAndReleases creates labels, releases, and the junction table entries
 // that complete the discovery loop: Show -> Artist -> Release -> Label -> label mates.
 func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 	fmt.Println("Seeding labels...")
 
-	// Labels to seed (name -> optional metadata)
+	// Labels to seed — chosen to pair realistically with artists in data/bands.yaml
 	labelNames := []struct {
 		Name        string
 		City        string
@@ -592,11 +618,13 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 		Country     string
 		FoundedYear int
 	}{
-		{"Run For Cover Records", "Boston", "MA", "US", 2004},
-		{"Topshelf Records", "Portland", "OR", "US", 2006},
 		{"Loma Vista Recordings", "Los Angeles", "CA", "US", 2012},
-		{"Quarterstick Records", "Chicago", "IL", "US", 1990},
-		{"Asian Man Records", "Monte Sereno", "CA", "US", 1996},
+		{"4AD", "London", "", "GB", 1980},
+		{"Sub Pop Records", "Seattle", "WA", "US", 1988},
+		{"Drag City", "Chicago", "IL", "US", 1990},
+		{"Rock Action Records", "Glasgow", "", "GB", 1996},
+		{"Sacred Bones Records", "Brooklyn", "NY", "US", 2007},
+		{"DFA Records", "New York", "NY", "US", 2001},
 	}
 
 	var labelsCreated int
@@ -604,9 +632,6 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 		// Check if label already exists
 		var existing models.Label
 		if database.Where("LOWER(name) = LOWER(?)", l.Name).First(&existing).Error == nil {
-			if verbose := false; verbose {
-				fmt.Printf("  Label already exists: %s\n", l.Name)
-			}
 			continue
 		}
 
@@ -633,18 +658,39 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 
 	fmt.Println("Seeding releases with label links...")
 
-	// Releases to seed with artist and label associations
+	// Releases to seed — all artists exist in data/bands.yaml.
+	// Each label has at least 2 releases so the Catalog tab has content.
 	releases := []seedReleaseData{
-		{"Futures", models.ReleaseTypeLP, 2004, "Jimmy Eat World", "Run For Cover Records"},
-		{"Clarity", models.ReleaseTypeLP, 1999, "Jimmy Eat World", "Run For Cover Records"},
-		{"Bleed American", models.ReleaseTypeLP, 2001, "Jimmy Eat World", "Run For Cover Records"},
-		{"Feast of Wire", models.ReleaseTypeLP, 2003, "Calexico", "Quarterstick Records"},
-		{"Hot Rail", models.ReleaseTypeLP, 2000, "Calexico", "Quarterstick Records"},
-		{"Knife Man", models.ReleaseTypeLP, 2011, "AJJ", "Asian Man Records"},
-		{"People Who Can Eat People Are the Luckiest People in the World", models.ReleaseTypeLP, 2007, "AJJ", "Asian Man Records"},
-		{"Can't Stay", models.ReleaseTypeLP, 2007, "The Maine", "Run For Cover Records"},
-		{"The Way We Talk", models.ReleaseTypeEP, 2007, "The Maine", "Run For Cover Records"},
-		{"Noises", models.ReleaseTypeLP, 2016, "Sundressed", "Topshelf Records"},
+		// Loma Vista Recordings — HEALTH, Carpenter Brut
+		{"DEATH MAGIC", models.ReleaseTypeLP, 2015, "HEALTH", "Loma Vista Recordings"},
+		{"VOL. 4 :: SLAVES OF FEAR", models.ReleaseTypeLP, 2019, "HEALTH", "Loma Vista Recordings"},
+		{"Leather Teeth", models.ReleaseTypeLP, 2018, "Carpenter Brut", "Loma Vista Recordings"},
+
+		// 4AD — Pixies, Alvvays
+		{"Doolittle", models.ReleaseTypeLP, 1989, "Pixies", "4AD"},
+		{"Surfer Rosa", models.ReleaseTypeLP, 1988, "Pixies", "4AD"},
+		{"Blue Rev", models.ReleaseTypeLP, 2022, "Alvvays", "4AD"},
+		{"Antisocialites", models.ReleaseTypeLP, 2017, "Alvvays", "4AD"},
+
+		// Sub Pop Records — Cat Power, Soccer Mommy
+		{"Covers", models.ReleaseTypeLP, 2022, "Cat Power", "Sub Pop Records"},
+		{"color theory", models.ReleaseTypeLP, 2020, "Soccer Mommy", "Sub Pop Records"},
+
+		// Drag City — Jeff Tweedy, Bill Orcutt
+		{"Warm", models.ReleaseTypeLP, 2018, "Jeff Tweedy", "Drag City"},
+		{"Music for Four Guitars", models.ReleaseTypeLP, 2022, "Bill Orcutt", "Drag City"},
+
+		// Rock Action Records — Mogwai
+		{"As the Love Continues", models.ReleaseTypeLP, 2021, "Mogwai", "Rock Action Records"},
+		{"Every Country's Sun", models.ReleaseTypeLP, 2017, "Mogwai", "Rock Action Records"},
+
+		// Sacred Bones Records — Marissa Nadler, Chat Pile
+		{"The Path of the Clouds", models.ReleaseTypeLP, 2021, "Marissa Nadler", "Sacred Bones Records"},
+		{"God's Country", models.ReleaseTypeLP, 2022, "Chat Pile", "Sacred Bones Records"},
+
+		// DFA Records — LCD Soundsystem
+		{"Sound of Silver", models.ReleaseTypeLP, 2007, "LCD Soundsystem", "DFA Records"},
+		{"American Dream", models.ReleaseTypeLP, 2017, "LCD Soundsystem", "DFA Records"},
 	}
 
 	var releasesCreated int
@@ -655,10 +701,10 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 			continue
 		}
 
-		// Find the artist
-		var artist models.Artist
-		if database.Where("LOWER(name) = LOWER(?)", r.ArtistName).First(&artist).Error != nil {
-			log.Printf("Warning: Artist not found for release %s: %s", r.Title, r.ArtistName)
+		// Find or create the artist (fallback ensures seed is self-contained)
+		artist, err := findOrCreateArtist(database, r.ArtistName)
+		if err != nil {
+			log.Printf("Warning: %v", err)
 			continue
 		}
 
@@ -685,7 +731,7 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 			ReleaseYear: &year,
 		}
 
-		err := database.Transaction(func(tx *gorm.DB) error {
+		err = database.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Create(release).Error; err != nil {
 				return fmt.Errorf("failed to create release: %w", err)
 			}
