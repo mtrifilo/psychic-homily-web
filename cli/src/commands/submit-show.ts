@@ -1,7 +1,8 @@
 import { APIClient } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
 import { validateShow } from "../lib/schemas";
-import { searchArtistsByName, searchVenuesByName, similarityScore } from "../lib/duplicates";
+import { searchArtistsByName, searchVenuesByName, similarityScore, checkShowDuplicate } from "../lib/duplicates";
+import type { ShowDuplicateResult } from "../lib/duplicates";
 import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
 import type { TagInput, ResolvedTag } from "../lib/tags";
 import * as display from "../lib/display";
@@ -71,6 +72,7 @@ export interface ShowPlan {
   venues: ResolvedVenue[];
   valid: boolean;
   errors: string[];
+  duplicate?: ShowDuplicateResult;
 }
 
 export interface SubmitShowsResult {
@@ -254,12 +256,26 @@ export async function submitShows(
     const artists = await resolveArtists(client, show.artists);
     const venues = await resolveVenues(client, show.venues);
 
+    // Check for duplicate shows (same date + venue + overlapping artist)
+    const resolvedVenueIds = venues.filter((v) => v.id !== undefined).map((v) => v.id!);
+    const resolvedArtistIds = artists.filter((a) => a.id !== undefined).map((a) => a.id!);
+    const resolvedArtistNames = artists.map((a) => a.name);
+
+    const duplicate = await checkShowDuplicate(
+      client,
+      show.event_date,
+      resolvedVenueIds,
+      resolvedArtistIds,
+      resolvedArtistNames,
+    );
+
     plans.push({
       input: show,
       artists,
       venues,
       valid: true,
       errors: [],
+      duplicate,
     });
   }
 
@@ -280,27 +296,42 @@ export async function submitShows(
 
   // 4. Summary
   const validPlans = plans.filter((p) => p.valid);
+  const duplicatePlans = validPlans.filter((p) => p.duplicate?.isDuplicate);
+  const creatablePlans = validPlans.filter((p) => !p.duplicate?.isDuplicate);
   const invalidCount = plans.length - validPlans.length;
+  const duplicateCount = duplicatePlans.length;
 
   if (invalidCount > 0) {
     display.warn(`${invalidCount} show${invalidCount !== 1 ? "s" : ""} failed validation and will be skipped.`);
   }
 
-  if (validPlans.length === 0) {
+  if (duplicateCount > 0) {
+    for (const plan of duplicatePlans) {
+      const label = plan.input.title || `${plan.input.event_date} show`;
+      display.info(`EXISTING: ${label} (ID: ${plan.duplicate!.existingShowId}) — skipping`);
+    }
+  }
+
+  if (creatablePlans.length === 0 && duplicateCount === 0) {
     display.error("No valid shows to submit.");
     return { plans, created: 0, failed: 0, skipped: plans.length };
   }
 
+  if (creatablePlans.length === 0) {
+    display.info(`All ${duplicateCount} valid show${duplicateCount !== 1 ? "s" : ""} already exist. Nothing to create.`);
+    return { plans, created: 0, failed: 0, skipped: invalidCount + duplicateCount };
+  }
+
   // 5. Submit if confirmed
   if (!confirm) {
-    display.info(`Dry run: ${validPlans.length} show${validPlans.length !== 1 ? "s" : ""} would be created. Use --confirm to submit.`);
-    return { plans, created: 0, failed: 0, skipped: validPlans.length };
+    display.info(`Dry run: ${creatablePlans.length} show${creatablePlans.length !== 1 ? "s" : ""} would be created. Use --confirm to submit.`);
+    return { plans, created: 0, failed: 0, skipped: creatablePlans.length + duplicateCount };
   }
 
   let created = 0;
   let failed = 0;
 
-  for (const plan of validPlans) {
+  for (const plan of creatablePlans) {
     const payload = buildShowPayload(plan);
     try {
       const result = await client.post<{ id: number; slug?: string }>("/shows", payload);
@@ -323,9 +354,9 @@ export async function submitShows(
     }
   }
 
-  display.summary(created, 0, failed + invalidCount);
+  display.summary(created, 0, failed + invalidCount + duplicateCount);
 
-  return { plans, created, failed, skipped: invalidCount };
+  return { plans, created, failed, skipped: invalidCount + duplicateCount };
 }
 
 // -- Display helpers ---------------------------------------------------------
@@ -344,7 +375,10 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
     }
 
     const label = plan.input.title || `${plan.input.event_date} in ${plan.input.city}, ${plan.input.state}`;
-    display.header(`Show${idx}: ${label}`);
+    const dupTag = plan.duplicate?.isDuplicate
+      ? ` ${green(`DUPLICATE (ID: ${plan.duplicate.existingShowId})`)}`
+      : "";
+    display.header(`Show${idx}: ${label}${dupTag}`);
     display.kv("Date", plan.input.event_date);
     display.kv("Location", `${plan.input.city}, ${plan.input.state}`);
 
@@ -417,7 +451,8 @@ export async function runSubmitShow(
   const client = new APIClient(env);
   const result = await submitShows(client, jsonStr, confirm);
 
-  if (result.failed > 0 || (result.created === 0 && confirm)) {
+  const hasDuplicates = result.plans.some((p) => p.duplicate?.isDuplicate);
+  if (result.failed > 0 || (result.created === 0 && confirm && !hasDuplicates)) {
     process.exit(1);
   }
 }
