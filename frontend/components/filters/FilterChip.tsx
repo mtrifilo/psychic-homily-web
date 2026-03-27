@@ -3,12 +3,14 @@ interface FilterChipProps {
   isActive: boolean
   onClick: (e: React.MouseEvent) => void
   count?: number
+  'data-testid'?: string
 }
 
-export function FilterChip({ label, isActive, onClick, count }: FilterChipProps) {
+export function FilterChip({ label, isActive, onClick, count, 'data-testid': testId }: FilterChipProps) {
   return (
     <button
       onClick={onClick}
+      data-testid={testId}
       className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors duration-[50ms] ${
         isActive
           ? 'bg-primary text-primary-foreground'
