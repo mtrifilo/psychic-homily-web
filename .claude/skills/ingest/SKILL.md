@@ -69,7 +69,7 @@ Create a JSON file at `/tmp/ph-ingest.json` with the extracted data. Use this fo
 
 **artist**: `name` (required), `city`, `state`, `instagram`, `bandcamp`, `spotify`, `website`, `tags`
 **venue**: `name` (required), `city` (required), `state` (required), `address`, `website`, `tags`
-**show**: `event_date` (required, YYYY-MM-DD), `city` (required), `state` (required), `title`, `price`, `artists` (required, array of `{name, is_headliner?}`), `venues` (required, array of `{name, city, state}`)
+**show**: `event_date` (required, YYYY-MM-DD), `city` (required), `state` (required), `title`, `price`, `ticket_url` (URL for ticket purchase -- extract from flyers when visible), `artists` (required, array of `{name, is_headliner?}`), `venues` (required, array of `{name, city, state}`)
 **release**: `title` (required), `release_type` (lp/ep/single/compilation/live/remix/demo), `release_year`, `artists` (required), `external_links` ([{platform, url}]), `tags`
 **label**: `name` (required), `city`, `state`, `country`, `website`, `bandcamp`, `tags`
 **festival**: `name` (required), `series_slug` (required), `edition_year` (required), `start_date` (required), `end_date` (required), `city`, `state`, `artists` ([{name, billing_tier}]), `tags`
