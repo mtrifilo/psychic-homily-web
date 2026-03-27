@@ -7,7 +7,7 @@ import { green, red, dim, gray } from "../lib/ansi";
  * CLI entry point for `ph status`.
  * Shows current configuration, API reachability, and auth status.
  */
-export async function runStatus(envOverride?: string): Promise<void> {
+export async function runStatus(envOverride?: string, verbose?: boolean): Promise<void> {
   const config = await readConfig();
   const resolved = resolveEnvironment(config, envOverride);
 
@@ -30,7 +30,7 @@ export async function runStatus(envOverride?: string): Promise<void> {
   display.kv("Token", maskToken(resolved.env.token));
 
   // Check API reachability
-  const client = new APIClient(resolved.env);
+  const client = new APIClient({ ...resolved.env, verbose });
 
   const healthy = await client.healthCheck();
   if (!healthy) {

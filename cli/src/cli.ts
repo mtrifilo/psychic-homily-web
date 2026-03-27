@@ -22,6 +22,7 @@ program
   .description("CLI for rapid knowledge graph data entry into Psychic Homily")
   .version(version, "-V, --version")
   .option("--env <environment>", "Target environment (default: from config)")
+  .option("-v, --verbose", "Log full HTTP request/response details to stderr")
   .showHelpAfterError();
 
 // ─── ph init ───────────────────────────────────────────────────────────────────
@@ -132,14 +133,14 @@ program
   .command("status")
   .description("Show CLI configuration, API connectivity, and auth status")
   .action(async () => {
-    await runStatus(program.opts().env);
+    await runStatus(program.opts().env, program.opts().verbose);
   });
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 async function resolveEnvOrExit(
   envOverride?: string,
-): Promise<{ url: string; token: string }> {
+): Promise<{ url: string; token: string; verbose?: boolean }> {
   const config = await readConfig();
   const resolved = resolveEnvironment(config, envOverride);
 
@@ -151,7 +152,8 @@ async function resolveEnvOrExit(
     process.exit(1);
   }
 
-  return resolved.env;
+  const verbose = program.opts().verbose ?? false;
+  return { ...resolved.env, verbose };
 }
 
 // ─── Run ───────────────────────────────────────────────────────────────────────

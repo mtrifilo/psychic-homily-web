@@ -2,6 +2,8 @@
 export interface EnvironmentConfig {
   url: string;
   token: string;
+  /** Runtime-only flag for verbose request/response logging. Not persisted. */
+  verbose?: boolean;
 }
 
 /** Top-level configuration stored at ~/.psychic-homily/config.json */
