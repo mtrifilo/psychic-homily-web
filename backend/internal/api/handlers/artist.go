@@ -312,17 +312,19 @@ func (h *ArtistHandler) GetArtistLabelsHandler(ctx context.Context, req *GetArti
 // AdminCreateArtistRequest represents the request for creating a new artist (admin only)
 type AdminCreateArtistRequest struct {
 	Body struct {
-		Name       string  `json:"name" required:"true" doc:"Artist name" maxLength:"255"`
-		City       *string `json:"city" required:"false" doc:"Artist city" maxLength:"100"`
-		State      *string `json:"state" required:"false" doc:"Artist state" maxLength:"100"`
-		Instagram  *string `json:"instagram" required:"false" doc:"Instagram handle" maxLength:"255"`
-		Facebook   *string `json:"facebook" required:"false" doc:"Facebook URL" maxLength:"500"`
-		Twitter    *string `json:"twitter" required:"false" doc:"Twitter handle" maxLength:"255"`
-		YouTube    *string `json:"youtube" required:"false" doc:"YouTube URL" maxLength:"500"`
-		Spotify    *string `json:"spotify" required:"false" doc:"Spotify URL" maxLength:"500"`
-		SoundCloud *string `json:"soundcloud" required:"false" doc:"SoundCloud URL" maxLength:"500"`
-		Bandcamp   *string `json:"bandcamp" required:"false" doc:"Bandcamp URL" maxLength:"500"`
-		Website    *string `json:"website" required:"false" doc:"Website URL" maxLength:"500"`
+		Name        string  `json:"name" required:"true" doc:"Artist name" maxLength:"255"`
+		City        *string `json:"city" required:"false" doc:"Artist city" maxLength:"100"`
+		State       *string `json:"state" required:"false" doc:"Artist state" maxLength:"100"`
+		Country     *string `json:"country" required:"false" doc:"Artist country" maxLength:"100"`
+		Instagram   *string `json:"instagram" required:"false" doc:"Instagram handle" maxLength:"255"`
+		Facebook    *string `json:"facebook" required:"false" doc:"Facebook URL" maxLength:"500"`
+		Twitter     *string `json:"twitter" required:"false" doc:"Twitter handle" maxLength:"255"`
+		YouTube     *string `json:"youtube" required:"false" doc:"YouTube URL" maxLength:"500"`
+		Spotify     *string `json:"spotify" required:"false" doc:"Spotify URL" maxLength:"500"`
+		SoundCloud  *string `json:"soundcloud" required:"false" doc:"SoundCloud URL" maxLength:"500"`
+		Bandcamp    *string `json:"bandcamp" required:"false" doc:"Bandcamp URL" maxLength:"500"`
+		Website     *string `json:"website" required:"false" doc:"Website URL" maxLength:"500"`
+		Description *string `json:"description" required:"false" doc:"Markdown description (max 5000 chars)" maxLength:"5000"`
 	}
 }
 
@@ -347,19 +349,26 @@ func (h *ArtistHandler) AdminCreateArtistHandler(ctx context.Context, req *Admin
 		return nil, huma.Error400BadRequest("Artist name cannot be empty")
 	}
 
+	// Validate description length if provided
+	if req.Body.Description != nil && len(*req.Body.Description) > 5000 {
+		return nil, huma.Error400BadRequest("Description must be 5000 characters or fewer")
+	}
+
 	// Build the create request
 	createReq := &contracts.CreateArtistRequest{
-		Name:       name,
-		City:       req.Body.City,
-		State:      req.Body.State,
-		Instagram:  req.Body.Instagram,
-		Facebook:   req.Body.Facebook,
-		Twitter:    req.Body.Twitter,
-		YouTube:    req.Body.YouTube,
-		Spotify:    req.Body.Spotify,
-		SoundCloud: req.Body.SoundCloud,
-		Bandcamp:   req.Body.Bandcamp,
-		Website:    req.Body.Website,
+		Name:        name,
+		City:        req.Body.City,
+		State:       req.Body.State,
+		Country:     req.Body.Country,
+		Instagram:   req.Body.Instagram,
+		Facebook:    req.Body.Facebook,
+		Twitter:     req.Body.Twitter,
+		YouTube:     req.Body.YouTube,
+		Spotify:     req.Body.Spotify,
+		SoundCloud:  req.Body.SoundCloud,
+		Bandcamp:    req.Body.Bandcamp,
+		Website:     req.Body.Website,
+		Description: req.Body.Description,
 	}
 
 	artist, err := h.artistService.CreateArtist(createReq)

@@ -421,17 +421,19 @@ type UnverifiedVenueResponse struct {
 
 // CreateArtistRequest represents the data needed to create a new artist
 type CreateArtistRequest struct {
-	Name       string  `json:"name" validate:"required"`
-	State      *string `json:"state"`
-	City       *string `json:"city"`
-	Instagram  *string `json:"instagram"`
-	Facebook   *string `json:"facebook"`
-	Twitter    *string `json:"twitter"`
-	YouTube    *string `json:"youtube"`
-	Spotify    *string `json:"spotify"`
-	SoundCloud *string `json:"soundcloud"`
-	Bandcamp   *string `json:"bandcamp"`
-	Website    *string `json:"website"`
+	Name        string  `json:"name" validate:"required"`
+	State       *string `json:"state"`
+	City        *string `json:"city"`
+	Country     *string `json:"country"`
+	Instagram   *string `json:"instagram"`
+	Facebook    *string `json:"facebook"`
+	Twitter     *string `json:"twitter"`
+	YouTube     *string `json:"youtube"`
+	Spotify     *string `json:"spotify"`
+	SoundCloud  *string `json:"soundcloud"`
+	Bandcamp    *string `json:"bandcamp"`
+	Website     *string `json:"website"`
+	Description *string `json:"description"`
 }
 
 // ArtistDetailResponse represents the artist data returned to clients

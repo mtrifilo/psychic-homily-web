@@ -245,8 +245,22 @@ export async function submitArtists(
     try {
       switch (dup.action) {
         case "create": {
-          // Strip label from the payload before sending to the API
-          const { label: _label, ...artistPayload } = artist;
+          // Build POST payload with only API-accepted fields.
+          // Strip tags (applied separately), label (linked separately),
+          // entity_type (batch routing only), and any other non-API fields.
+          const artistApiFields = [
+            "name", "city", "state", "country",
+            "instagram", "facebook", "twitter", "youtube",
+            "spotify", "soundcloud", "bandcamp", "website",
+            "description",
+          ];
+          const artistPayload: Record<string, unknown> = {};
+          for (const field of artistApiFields) {
+            if (artist[field] !== undefined) {
+              artistPayload[field] = artist[field];
+            }
+          }
+
           const response = await client.post<{
             artist?: { id: number; name: string };
             id?: number;
