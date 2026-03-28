@@ -15,6 +15,7 @@ import { runSubmitFestival } from "./commands/submit-festival";
 import { runBatch } from "./commands/batch";
 import { runStatus } from "./commands/status";
 import { runFestivalLinkArtists, runFestivalUnlinkArtist } from "./commands/festival";
+import { runShowAddArtist, runShowRemoveArtist } from "./commands/show";
 
 const program = new Command();
 
@@ -152,6 +153,31 @@ festivalCmd
   .action(async (festival: string, artist: string, opts: { confirm?: boolean }) => {
     const env = await resolveEnvOrExit(program.opts().env);
     await runFestivalUnlinkArtist(festival, artist, env, !!opts.confirm);
+  });
+
+// ─── ph show ─────────────────────────────────────────────────────────────────
+
+const showCmd = program
+  .command("show")
+  .description("Manage show artist links");
+
+showCmd
+  .command("add-artist <show-id> [json]")
+  .description("Add artists to an existing show by ID")
+  .option("--file <path>", "Read artist JSON from file")
+  .option("--confirm", "Execute changes (default is dry-run)")
+  .action(async (showId: string, json: string | undefined, opts: { file?: string; confirm?: boolean }) => {
+    const env = await resolveEnvOrExit(program.opts().env);
+    await runShowAddArtist(showId, json, env, opts);
+  });
+
+showCmd
+  .command("remove-artist <show-id> <artist>")
+  .description("Remove an artist from a show")
+  .option("--confirm", "Execute changes (default is dry-run)")
+  .action(async (showId: string, artist: string, opts: { confirm?: boolean }) => {
+    const env = await resolveEnvOrExit(program.opts().env);
+    await runShowRemoveArtist(showId, artist, env, !!opts.confirm);
   });
 
 // ─── ph status ───────────────────────────────────────────────────────────────
