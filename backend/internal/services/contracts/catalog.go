@@ -284,6 +284,7 @@ type CreateVenueRequest struct {
 	Address     *string `json:"address"`
 	City        string  `json:"city" validate:"required"`
 	State       string  `json:"state" validate:"required"`
+	Country     *string `json:"country"`
 	Zipcode     *string `json:"zipcode"`
 	Instagram   *string `json:"instagram"`
 	Facebook    *string `json:"facebook"`
@@ -304,6 +305,7 @@ type VenueDetailResponse struct {
 	Address     *string        `json:"address"`
 	City        string         `json:"city"`
 	State       string         `json:"state"`
+	Country     *string        `json:"country,omitempty"`
 	Zipcode     *string        `json:"zipcode"`
 	Description *string        `json:"description,omitempty"`
 	Verified    bool           `json:"verified"`    // Admin-verified as legitimate venue
