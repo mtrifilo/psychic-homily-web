@@ -8,6 +8,7 @@ import {
   type ShowPlan,
 } from "../src/commands/submit-show";
 import { APIClient } from "../src/lib/api";
+import { checkShowDuplicate } from "../src/lib/duplicates";
 
 // -- Mock helpers ------------------------------------------------------------
 
@@ -506,5 +507,347 @@ describe("submitShows", () => {
     expect(result.created).toBe(1);
     expect(result.plans[0].valid).toBe(true);
     expect(result.plans[1].valid).toBe(false);
+  });
+});
+
+// -- checkShowDuplicate ------------------------------------------------------
+
+describe("checkShowDuplicate", () => {
+  test("returns no match when no venue IDs provided", async () => {
+    const client = createMockClient();
+    const result = await checkShowDuplicate(client, "2026-04-15", [], [42], ["Nina Hagen"]);
+    expect(result.isDuplicate).toBe(false);
+  });
+
+  test("returns no match when no artist IDs or names provided", async () => {
+    const client = createMockClient();
+    const result = await checkShowDuplicate(client, "2026-04-15", [10], [], []);
+    expect(result.isDuplicate).toBe(false);
+  });
+
+  test("detects duplicate by matching venue ID and artist ID", async () => {
+    const client = createMockClient({
+      get: async (path: string) => {
+        if (path.includes("/shows")) {
+          return [
+            {
+              id: 500,
+              slug: "2026-04-15-crescent-ballroom",
+              event_date: "2026-04-15T20:00:00Z",
+              venues: [{ id: 10, name: "Crescent Ballroom" }],
+              artists: [{ id: 42, name: "Nina Hagen" }],
+            },
+          ];
+        }
+        return {};
+      },
+    });
+
+    const result = await checkShowDuplicate(client, "2026-04-15", [10], [42], ["Nina Hagen"]);
+    expect(result.isDuplicate).toBe(true);
+    expect(result.existingShowId).toBe(500);
+    expect(result.existingShowSlug).toBe("2026-04-15-crescent-ballroom");
+  });
+
+  test("detects duplicate by matching venue ID and artist name (fuzzy)", async () => {
+    const client = createMockClient({
+      get: async (path: string) => {
+        if (path.includes("/shows")) {
+          return [
+            {
+              id: 501,
+              slug: "2026-04-15-crescent-ballroom",
+              event_date: "2026-04-15T20:00:00Z",
+              venues: [{ id: 10, name: "Crescent Ballroom" }],
+              artists: [{ id: 99, name: "Nina Hagen" }],
+            },
+          ];
+        }
+        return {};
+      },
+    });
+
+    // Artist IDs don't match (different ID), but names match
+    const result = await checkShowDuplicate(client, "2026-04-15", [10], [200], ["Nina Hagen"]);
+    expect(result.isDuplicate).toBe(true);
+    expect(result.existingShowId).toBe(501);
+  });
+
+  test("returns no match when venue does not match", async () => {
+    const client = createMockClient({
+      get: async (path: string) => {
+        if (path.includes("/shows")) {
+          return [
+            {
+              id: 502,
+              event_date: "2026-04-15T20:00:00Z",
+              venues: [{ id: 99, name: "Different Venue" }],
+              artists: [{ id: 42, name: "Nina Hagen" }],
+            },
+          ];
+        }
+        return {};
+      },
+    });
+
+    const result = await checkShowDuplicate(client, "2026-04-15", [10], [42], ["Nina Hagen"]);
+    expect(result.isDuplicate).toBe(false);
+  });
+
+  test("returns no match when artist does not match", async () => {
+    const client = createMockClient({
+      get: async (path: string) => {
+        if (path.includes("/shows")) {
+          return [
+            {
+              id: 503,
+              event_date: "2026-04-15T20:00:00Z",
+              venues: [{ id: 10, name: "Crescent Ballroom" }],
+              artists: [{ id: 99, name: "Totally Different Band" }],
+            },
+          ];
+        }
+        return {};
+      },
+    });
+
+    const result = await checkShowDuplicate(client, "2026-04-15", [10], [42], ["Nina Hagen"]);
+    expect(result.isDuplicate).toBe(false);
+  });
+
+  test("returns no match when no shows exist on that date", async () => {
+    const client = createMockClient({
+      get: async (path: string) => {
+        if (path.includes("/shows")) {
+          return [];
+        }
+        return {};
+      },
+    });
+
+    const result = await checkShowDuplicate(client, "2026-04-15", [10], [42], ["Nina Hagen"]);
+    expect(result.isDuplicate).toBe(false);
+  });
+
+  test("returns no match when API call fails", async () => {
+    const client = createMockClient({
+      get: async () => { throw new Error("Network error"); },
+    });
+
+    const result = await checkShowDuplicate(client, "2026-04-15", [10], [42], ["Nina Hagen"]);
+    expect(result.isDuplicate).toBe(false);
+  });
+
+  test("handles full ISO date strings", async () => {
+    const client = createMockClient({
+      get: async (path: string) => {
+        if (path.includes("/shows")) {
+          return [
+            {
+              id: 504,
+              event_date: "2026-04-15T20:00:00Z",
+              venues: [{ id: 10, name: "Crescent Ballroom" }],
+              artists: [{ id: 42, name: "Nina Hagen" }],
+            },
+          ];
+        }
+        return {};
+      },
+    });
+
+    const result = await checkShowDuplicate(client, "2026-04-15T20:00:00Z", [10], [42], ["Nina Hagen"]);
+    expect(result.isDuplicate).toBe(true);
+    expect(result.existingShowId).toBe(504);
+  });
+});
+
+// -- submitShows with deduplication ------------------------------------------
+
+describe("submitShows deduplication", () => {
+  test("skips duplicate show in confirm mode", async () => {
+    let postCalled = false;
+    const getMock = async (path: string) => {
+      if (path.includes("/artists/search")) {
+        return { artists: [{ id: 42, name: "Nina Hagen", slug: "nina-hagen" }] };
+      }
+      if (path.includes("/venues/search")) {
+        return {
+          venues: [
+            { id: 10, name: "Crescent Ballroom", slug: "crescent-ballroom", city: "Phoenix", state: "AZ" },
+          ],
+        };
+      }
+      if (path.includes("/shows")) {
+        return [
+          {
+            id: 500,
+            slug: "2026-04-15-crescent-ballroom",
+            event_date: "2026-04-15T20:00:00Z",
+            venues: [{ id: 10, name: "Crescent Ballroom" }],
+            artists: [{ id: 42, name: "Nina Hagen" }],
+          },
+        ];
+      }
+      return {};
+    };
+
+    const client = createMockClient({
+      get: getMock,
+      post: async () => {
+        postCalled = true;
+        return { id: 999 };
+      },
+    });
+
+    const json = JSON.stringify({
+      event_date: "2026-04-15",
+      city: "Phoenix",
+      state: "AZ",
+      artists: [{ name: "Nina Hagen" }],
+      venues: [{ name: "Crescent Ballroom", city: "Phoenix", state: "AZ" }],
+    });
+
+    const result = await submitShows(client, json, true);
+    expect(result.created).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.plans[0].duplicate?.isDuplicate).toBe(true);
+    expect(result.plans[0].duplicate?.existingShowId).toBe(500);
+    expect(postCalled).toBe(false);
+  });
+
+  test("skips duplicate show in dry-run mode", async () => {
+    const getMock = async (path: string) => {
+      if (path.includes("/artists/search")) {
+        return { artists: [{ id: 42, name: "Nina Hagen", slug: "nina-hagen" }] };
+      }
+      if (path.includes("/venues/search")) {
+        return {
+          venues: [
+            { id: 10, name: "Crescent Ballroom", slug: "crescent-ballroom", city: "Phoenix", state: "AZ" },
+          ],
+        };
+      }
+      if (path.includes("/shows")) {
+        return [
+          {
+            id: 500,
+            slug: "2026-04-15-crescent-ballroom",
+            event_date: "2026-04-15T20:00:00Z",
+            venues: [{ id: 10, name: "Crescent Ballroom" }],
+            artists: [{ id: 42, name: "Nina Hagen" }],
+          },
+        ];
+      }
+      return {};
+    };
+
+    const client = createMockClient({ get: getMock });
+
+    const json = JSON.stringify({
+      event_date: "2026-04-15",
+      city: "Phoenix",
+      state: "AZ",
+      artists: [{ name: "Nina Hagen" }],
+      venues: [{ name: "Crescent Ballroom", city: "Phoenix", state: "AZ" }],
+    });
+
+    const result = await submitShows(client, json, false);
+    expect(result.created).toBe(0);
+    expect(result.plans[0].duplicate?.isDuplicate).toBe(true);
+  });
+
+  test("creates new show when no duplicate found", async () => {
+    const getMock = async (path: string) => {
+      if (path.includes("/artists/search")) {
+        return { artists: [{ id: 42, name: "Nina Hagen", slug: "nina-hagen" }] };
+      }
+      if (path.includes("/venues/search")) {
+        return {
+          venues: [
+            { id: 10, name: "Crescent Ballroom", slug: "crescent-ballroom", city: "Phoenix", state: "AZ" },
+          ],
+        };
+      }
+      if (path.includes("/shows")) {
+        return []; // No existing shows on this date
+      }
+      return {};
+    };
+
+    const client = createMockClient({
+      get: getMock,
+      post: async () => ({ id: 100 }),
+    });
+
+    const json = JSON.stringify({
+      event_date: "2026-04-15",
+      city: "Phoenix",
+      state: "AZ",
+      artists: [{ name: "Nina Hagen" }],
+      venues: [{ name: "Crescent Ballroom", city: "Phoenix", state: "AZ" }],
+    });
+
+    const result = await submitShows(client, json, true);
+    expect(result.created).toBe(1);
+    expect(result.plans[0].duplicate?.isDuplicate).toBe(false);
+  });
+
+  test("mixed batch: one duplicate, one new", async () => {
+    const getMock = async (path: string, params?: Record<string, string>) => {
+      if (path.includes("/artists/search")) {
+        return { artists: [{ id: 42, name: "Nina Hagen", slug: "nina-hagen" }] };
+      }
+      if (path.includes("/venues/search")) {
+        return {
+          venues: [
+            { id: 10, name: "Crescent Ballroom", slug: "crescent-ballroom", city: "Phoenix", state: "AZ" },
+          ],
+        };
+      }
+      if (path.includes("/shows")) {
+        // Only return existing show for April 15
+        if (params?.from_date?.includes("2026-04-15")) {
+          return [
+            {
+              id: 500,
+              event_date: "2026-04-15T20:00:00Z",
+              venues: [{ id: 10, name: "Crescent Ballroom" }],
+              artists: [{ id: 42, name: "Nina Hagen" }],
+            },
+          ];
+        }
+        return []; // No shows on April 16
+      }
+      return {};
+    };
+
+    let postCount = 0;
+    const client = createMockClient({
+      get: getMock,
+      post: async () => ({ id: 200 + ++postCount }),
+    });
+
+    const json = JSON.stringify([
+      {
+        event_date: "2026-04-15",
+        city: "Phoenix",
+        state: "AZ",
+        artists: [{ name: "Nina Hagen" }],
+        venues: [{ name: "Crescent Ballroom", city: "Phoenix", state: "AZ" }],
+      },
+      {
+        event_date: "2026-04-16",
+        city: "Phoenix",
+        state: "AZ",
+        artists: [{ name: "Nina Hagen" }],
+        venues: [{ name: "Crescent Ballroom", city: "Phoenix", state: "AZ" }],
+      },
+    ]);
+
+    const result = await submitShows(client, json, true);
+    expect(result.created).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.plans[0].duplicate?.isDuplicate).toBe(true);
+    expect(result.plans[1].duplicate?.isDuplicate).toBe(false);
   });
 });
