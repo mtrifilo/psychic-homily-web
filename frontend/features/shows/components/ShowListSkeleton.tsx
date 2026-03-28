@@ -2,10 +2,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 function CityFiltersSkeleton() {
   return (
-    <div className="flex flex-wrap gap-2 mb-6">
-      <Skeleton className="h-8 w-20 rounded-full" />
-      <Skeleton className="h-8 w-28 rounded-full" />
-      <Skeleton className="h-8 w-24 rounded-full" />
+    <div className="flex flex-col gap-2 mb-6">
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-8 w-36 rounded-md" />
+      </div>
+      <Skeleton className="h-4 w-64" />
     </div>
   )
 }
