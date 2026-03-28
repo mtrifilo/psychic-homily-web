@@ -2,7 +2,7 @@ import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
 
 test.describe('City filter on shows list', () => {
-  test('city filter chips are visible', async ({ page }) => {
+  test('city filter combobox and popular cities are visible', async ({ page }) => {
     await page.goto('/shows')
 
     // Wait for shows to load first
@@ -10,18 +10,21 @@ test.describe('City filter on shows list', () => {
       timeout: 10_000,
     })
 
-    // "All Cities" button should be visible
+    // Combobox trigger should be visible
     await expect(
-      page.getByRole('button', { name: /all cities/i })
+      page.getByTestId('city-filter-combobox')
     ).toBeVisible({ timeout: 5_000 })
 
-    // At least one city chip should be visible (shows count in parens)
+    // Popular cities row should be visible with Phoenix
+    await expect(
+      page.getByTestId('popular-cities')
+    ).toBeVisible()
     await expect(
       page.getByRole('button', { name: /Phoenix/i })
     ).toBeVisible()
   })
 
-  test('clicking a city filter updates URL and filters shows', async ({
+  test('clicking a city in combobox updates URL and filters shows', async ({
     page,
   }) => {
     await page.goto('/shows')
@@ -34,8 +37,9 @@ test.describe('City filter on shows list', () => {
     const initialCount = await page.locator('article').count()
     expect(initialCount).toBe(50)
 
-    // Click "Tucson" city filter (18 shows — fewer than the 50 page limit)
-    await page.getByRole('button', { name: /Tucson/i }).click()
+    // Open the combobox and click Tucson
+    await page.getByTestId('city-filter-combobox').click()
+    await page.getByRole('option', { name: /Tucson/i }).click()
 
     // URL should update with cities param
     await expect(page).toHaveURL(/cities=Tucson/)
@@ -74,7 +78,7 @@ test.describe('City filter on shows list', () => {
           !resp.url().includes('cities='),
         { timeout: 10_000 }
       ),
-      page.getByRole('button', { name: /all cities/i }).click(),
+      page.getByTestId('city-filter-all').click(),
     ])
     expect(response.status()).toBeLessThan(400)
 
@@ -96,8 +100,9 @@ test.describe('City filter on shows list', () => {
       timeout: 10_000,
     })
 
-    // Apply Tucson filter
-    await page.getByRole('button', { name: /Tucson/i }).click()
+    // Open combobox and select Tucson
+    await page.getByTestId('city-filter-combobox').click()
+    await page.getByRole('option', { name: /Tucson/i }).click()
     await expect(page).toHaveURL(/cities=Tucson/)
 
     // Navigate to a show detail and back
