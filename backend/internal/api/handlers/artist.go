@@ -720,6 +720,7 @@ type AdminUpdateArtistRequest struct {
 		Name       *string `json:"name,omitempty" required:"false" doc:"Artist name"`
 		City       *string `json:"city,omitempty" required:"false" doc:"City"`
 		State      *string `json:"state,omitempty" required:"false" doc:"State"`
+		Country    *string `json:"country,omitempty" required:"false" doc:"Country"`
 		Instagram  *string `json:"instagram,omitempty" required:"false" doc:"Instagram URL"`
 		Facebook   *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
 		Twitter    *string `json:"twitter,omitempty" required:"false" doc:"Twitter/X URL"`
@@ -781,6 +782,9 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 	}
 	if req.Body.State != nil {
 		updates["state"] = nilIfEmpty(*req.Body.State)
+	}
+	if req.Body.Country != nil {
+		updates["country"] = nilIfEmpty(*req.Body.Country)
 	}
 	if req.Body.Instagram != nil {
 		updates["instagram"] = nilIfEmpty(*req.Body.Instagram)
