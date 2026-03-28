@@ -81,6 +81,53 @@ describe("submitVenues", () => {
     expect(result.results[0].message).toBe("Created successfully");
   });
 
+  test("create with --confirm includes social fields and strips non-API fields", async () => {
+    const postMock = mock(() =>
+      Promise.resolve({ id: 6, name: "Test Venue", slug: "test-venue" }),
+    );
+    const client = createMockClient({
+      get: mock(() => Promise.resolve({ venues: [] })),
+      post: postMock,
+    });
+
+    const venues = [
+      {
+        name: "Test Venue",
+        city: "Phoenix",
+        state: "AZ",
+        instagram: "@testvenue",
+        facebook: "https://facebook.com/testvenue",
+        twitter: "@testvenue",
+        youtube: "https://youtube.com/testvenue",
+        spotify: "https://open.spotify.com/testvenue",
+        soundcloud: "https://soundcloud.com/testvenue",
+        bandcamp: "https://testvenue.bandcamp.com",
+        entity_type: "venue",
+        label_name: "Some Label",
+      },
+    ];
+
+    const result = await submitVenues(client, venues, true);
+    restoreStderr();
+
+    expect(result.creates).toBe(1);
+    expect(result.errors).toBe(0);
+    expect(postMock).toHaveBeenCalledTimes(1);
+    // Social fields should be included, non-API fields (entity_type, tags, label_name) stripped
+    expect(postMock).toHaveBeenCalledWith("/admin/venues", {
+      name: "Test Venue",
+      city: "Phoenix",
+      state: "AZ",
+      instagram: "@testvenue",
+      facebook: "https://facebook.com/testvenue",
+      twitter: "@testvenue",
+      youtube: "https://youtube.com/testvenue",
+      spotify: "https://open.spotify.com/testvenue",
+      soundcloud: "https://soundcloud.com/testvenue",
+      bandcamp: "https://testvenue.bandcamp.com",
+    });
+  });
+
   test("single venue update — existing match with new address info", async () => {
     const client = createMockClient({
       get: mock(() =>
