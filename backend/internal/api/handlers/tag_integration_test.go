@@ -216,7 +216,7 @@ func (s *TagHandlerIntegrationSuite) TestListTags_Success() {
 	admin := createAdminUser(s.deps.db)
 	s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
 	s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
-	s.createTagViaHandler(admin, "melancholy", models.TagCategoryMood)
+	s.createTagViaHandler(admin, "melancholy", models.TagCategoryOther)
 
 	req := &ListTagsRequest{}
 	resp, err := s.handler.ListTagsHandler(s.deps.ctx, req)
@@ -230,7 +230,7 @@ func (s *TagHandlerIntegrationSuite) TestListTags_FilterByCategory() {
 	admin := createAdminUser(s.deps.db)
 	s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
 	s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
-	s.createTagViaHandler(admin, "melancholy", models.TagCategoryMood)
+	s.createTagViaHandler(admin, "melancholy", models.TagCategoryOther)
 
 	req := &ListTagsRequest{Category: models.TagCategoryGenre}
 	resp, err := s.handler.ListTagsHandler(s.deps.ctx, req)
@@ -352,17 +352,17 @@ func (s *TagHandlerIntegrationSuite) TestUpdateTag_Success() {
 
 func (s *TagHandlerIntegrationSuite) TestUpdateTag_ChangeCategory() {
 	admin := createAdminUser(s.deps.db)
-	created := s.createTagViaHandler(admin, "dark", models.TagCategoryMood)
+	created := s.createTagViaHandler(admin, "dark", models.TagCategoryOther)
 
 	ctx := ctxWithUser(admin)
-	newCat := models.TagCategoryStyle
+	newCat := models.TagCategoryLocale
 	req := &UpdateTagRequest{TagID: fmt.Sprintf("%d", created.Body.ID)}
 	req.Body.Category = &newCat
 
 	resp, err := s.handler.UpdateTagHandler(ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
-	s.Equal("style", resp.Body.Category)
+	s.Equal("locale", resp.Body.Category)
 }
 
 func (s *TagHandlerIntegrationSuite) TestUpdateTag_NonAdmin() {
@@ -607,8 +607,8 @@ func (s *TagHandlerIntegrationSuite) TestListEntityTags_Empty() {
 func (s *TagHandlerIntegrationSuite) TestListEntityTags_MultipleTags() {
 	admin := createAdminUser(s.deps.db)
 	tag1 := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
-	tag2 := s.createTagViaHandler(admin, "dark", models.TagCategoryMood)
-	tag3 := s.createTagViaHandler(admin, "80s", models.TagCategoryEra)
+	tag2 := s.createTagViaHandler(admin, "dark", models.TagCategoryOther)
+	tag3 := s.createTagViaHandler(admin, "80s", models.TagCategoryLocale)
 	artist := createArtist(s.deps.db, "Bauhaus")
 
 	user := createTestUser(s.deps.db)

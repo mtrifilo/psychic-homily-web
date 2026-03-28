@@ -306,7 +306,7 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagBySlug_NotFound() {
 func (suite *TagServiceIntegrationTestSuite) TestListTags_All() {
 	suite.createTag("rock", "genre")
 	suite.createTag("jazz", "genre")
-	suite.createTag("1990s", "era")
+	suite.createTag("1990s", "other")
 
 	tags, total, err := suite.tagService.ListTags("", "", nil, "name", 50, 0)
 	suite.Require().NoError(err)
@@ -317,7 +317,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_All() {
 func (suite *TagServiceIntegrationTestSuite) TestListTags_FilterByCategory() {
 	suite.createTag("rock", "genre")
 	suite.createTag("jazz", "genre")
-	suite.createTag("1990s", "era")
+	suite.createTag("1990s", "other")
 
 	tags, total, err := suite.tagService.ListTags("genre", "", nil, "name", 50, 0)
 	suite.Require().NoError(err)
@@ -353,11 +353,11 @@ func (suite *TagServiceIntegrationTestSuite) TestUpdateTag_Success() {
 	tag := suite.createTag("typo-tag", "genre")
 
 	newName := "corrected-tag"
-	newCategory := "style"
+	newCategory := "locale"
 	updated, err := suite.tagService.UpdateTag(tag.ID, &newName, nil, nil, &newCategory, nil)
 	suite.Require().NoError(err)
 	suite.Assert().Equal("corrected-tag", updated.Name)
-	suite.Assert().Equal("style", updated.Category)
+	suite.Assert().Equal("locale", updated.Category)
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestUpdateTag_NotFound() {
@@ -482,7 +482,7 @@ func (suite *TagServiceIntegrationTestSuite) TestRemoveTagFromEntity_NotFound() 
 func (suite *TagServiceIntegrationTestSuite) TestListEntityTags() {
 	user := suite.createTestUser("tagger")
 	tag1 := suite.createTag("indie", "genre")
-	tag2 := suite.createTag("lo-fi", "style")
+	tag2 := suite.createTag("lo-fi", "other")
 	artistID := suite.createArtist("Indie Lo-Fi Band")
 
 	suite.tagService.AddTagToEntity(tag1.ID, "", "artist", artistID, user.ID)
@@ -693,14 +693,14 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTrendingTags() {
 func (suite *TagServiceIntegrationTestSuite) TestGetTrendingTags_FilterByCategory() {
 	user := suite.createTestUser("tagger")
 	tag1 := suite.createTag("rock", "genre")
-	tag2 := suite.createTag("1990s", "era")
+	tag2 := suite.createTag("1990s", "other")
 	artistID := suite.createArtist("Band")
 
 	suite.tagService.AddTagToEntity(tag1.ID, "", "artist", artistID, user.ID)
 	artist2 := suite.createArtist("Band2")
 	suite.tagService.AddTagToEntity(tag2.ID, "", "artist", artist2, user.ID)
 
-	tags, err := suite.tagService.GetTrendingTags(10, "era")
+	tags, err := suite.tagService.GetTrendingTags(10, "other")
 	suite.Require().NoError(err)
 	suite.Assert().Len(tags, 1)
 	suite.Assert().Equal("1990s", tags[0].Name)
