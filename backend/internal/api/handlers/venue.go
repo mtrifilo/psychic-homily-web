@@ -347,6 +347,7 @@ type UpdateVenueRequest struct {
 		Address    *string `json:"address,omitempty" required:"false" doc:"Venue address"`
 		City       *string `json:"city,omitempty" required:"false" doc:"Venue city"`
 		State      *string `json:"state,omitempty" required:"false" doc:"Venue state"`
+		Country    *string `json:"country,omitempty" required:"false" doc:"Venue country"`
 		Zipcode    *string `json:"zipcode,omitempty" required:"false" doc:"Venue zipcode"`
 		Instagram  *string `json:"instagram,omitempty" required:"false" doc:"Instagram handle or URL"`
 		Facebook   *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
@@ -408,6 +409,7 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		Address:     req.Body.Address,
 		City:        req.Body.City,
 		State:       req.Body.State,
+		Country:     req.Body.Country,
 		Zipcode:     req.Body.Zipcode,
 		Instagram:   req.Body.Instagram,
 		Facebook:    req.Body.Facebook,
@@ -462,6 +464,9 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		}
 		if editReq.State != nil {
 			updates["state"] = *editReq.State
+		}
+		if editReq.Country != nil {
+			updates["country"] = *editReq.Country
 		}
 		if editReq.Zipcode != nil {
 			updates["zipcode"] = *editReq.Zipcode

@@ -352,6 +352,7 @@ type VenueEditRequest struct {
 	Address     *string `json:"address"`
 	City        *string `json:"city"`
 	State       *string `json:"state"`
+	Country     *string `json:"country"`
 	Zipcode     *string `json:"zipcode"`
 	Instagram   *string `json:"instagram"`
 	Facebook    *string `json:"facebook"`
