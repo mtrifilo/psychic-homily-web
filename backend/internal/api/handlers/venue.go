@@ -266,6 +266,7 @@ type AdminCreateVenueRequest struct {
 		SoundCloud *string `json:"soundcloud" required:"false" doc:"SoundCloud URL" maxLength:"500"`
 		Bandcamp   *string `json:"bandcamp" required:"false" doc:"Bandcamp URL" maxLength:"500"`
 		Website    *string `json:"website" required:"false" doc:"Website URL" maxLength:"500"`
+		Country    *string `json:"country,omitempty" required:"false" doc:"Venue country" maxLength:"100"`
 	}
 }
 
@@ -288,6 +289,7 @@ func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCr
 		Name:        req.Body.Name,
 		City:        req.Body.City,
 		State:       req.Body.State,
+		Country:     req.Body.Country,
 		Address:     req.Body.Address,
 		Zipcode:     req.Body.Zipcode,
 		Instagram:   req.Body.Instagram,
