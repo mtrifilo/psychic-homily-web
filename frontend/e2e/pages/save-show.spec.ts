@@ -13,7 +13,8 @@ test.describe('Save/unsave a show', () => {
     await page
       .locator('article')
       .first()
-      .getByRole('link', { name: 'Details' })
+      .locator('a[href^="/shows/"]')
+      .first()
       .click()
     await page.waitForURL(/\/shows\//, { timeout: 10_000 })
 
@@ -39,7 +40,8 @@ test.describe('Save/unsave a show', () => {
     await authenticatedPage
       .locator('article')
       .first()
-      .getByRole('link', { name: 'Details' })
+      .locator('a[href^="/shows/"]')
+      .first()
       .click()
     await authenticatedPage.waitForURL(/\/shows\//, { timeout: 10_000 })
 
@@ -95,7 +97,8 @@ test.describe('Save/unsave a show', () => {
     await authenticatedPage
       .locator('article')
       .first()
-      .getByRole('link', { name: 'Details' })
+      .locator('a[href^="/shows/"]')
+      .first()
       .click()
     await authenticatedPage.waitForURL(/\/shows\//, { timeout: 10_000 })
 
@@ -125,8 +128,11 @@ test.describe('Save/unsave a show', () => {
     // Remember the URL so we can come back
     const showUrl = authenticatedPage.url()
 
-    // Navigate away
-    await authenticatedPage.getByRole('link', { name: /back to shows/i }).click()
+    // Navigate away via the breadcrumb link
+    await authenticatedPage
+      .locator('nav[aria-label="Breadcrumb"]')
+      .getByRole('link', { name: 'Shows' })
+      .click()
     await authenticatedPage.waitForURL(/\/shows$/, { timeout: 10_000 })
 
     // Navigate back to the same show

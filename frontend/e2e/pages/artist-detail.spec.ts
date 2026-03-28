@@ -12,7 +12,8 @@ test.describe('Artist detail', () => {
     await page
       .locator('article')
       .first()
-      .getByRole('link', { name: 'Details' })
+      .locator('a[href^="/shows/"]')
+      .first()
       .click()
     await page.waitForURL(/\/shows\//, { timeout: 10_000 })
 
@@ -29,12 +30,11 @@ test.describe('Artist detail', () => {
     await expect(heading).toBeVisible({ timeout: 10_000 })
     await expect(heading).toContainText(artistName!)
 
-    // Back to Artists link
-    await expect(
-      page.getByRole('link', { name: /back to artists/i })
-    ).toBeVisible()
+    // Breadcrumb link to Artists list
+    const breadcrumbNav = page.locator('nav[aria-label="Breadcrumb"]')
+    await expect(breadcrumbNav.getByRole('link', { name: 'Artists' })).toBeVisible()
 
-    // Upcoming and Past Shows tabs
+    // Upcoming and Past Shows tabs (nested inside the Overview tab content)
     await expect(page.getByRole('tab', { name: /upcoming/i })).toBeVisible()
     await expect(
       page.getByRole('tab', { name: /past shows/i })
@@ -50,7 +50,8 @@ test.describe('Artist detail', () => {
     await page
       .locator('article')
       .first()
-      .getByRole('link', { name: 'Details' })
+      .locator('a[href^="/shows/"]')
+      .first()
       .click()
     await page.waitForURL(/\/shows\//, { timeout: 10_000 })
 
@@ -59,7 +60,16 @@ test.describe('Artist detail', () => {
     await artistLink.click()
     await page.waitForURL(/\/artists\//, { timeout: 10_000 })
 
-    await page.getByRole('link', { name: /back to artists/i }).click()
+    // Wait for artist detail to load
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({
+      timeout: 10_000,
+    })
+
+    // Click the breadcrumb link to Artists
+    await page
+      .locator('nav[aria-label="Breadcrumb"]')
+      .getByRole('link', { name: 'Artists' })
+      .click()
     await page.waitForURL(/\/artists$/, { timeout: 10_000 })
 
     await expect(
@@ -76,7 +86,8 @@ test.describe('Artist detail', () => {
     await page
       .locator('article')
       .first()
-      .getByRole('link', { name: 'Details' })
+      .locator('a[href^="/shows/"]')
+      .first()
       .click()
     await page.waitForURL(/\/shows\//, { timeout: 10_000 })
 

@@ -12,7 +12,8 @@ test.describe('Venue detail', () => {
     await page
       .locator('article')
       .first()
-      .getByRole('link', { name: 'Details' })
+      .locator('a[href^="/shows/"]')
+      .first()
       .click()
     await page.waitForURL(/\/shows\//, { timeout: 10_000 })
 
@@ -29,10 +30,9 @@ test.describe('Venue detail', () => {
     await expect(heading).toBeVisible({ timeout: 10_000 })
     await expect(heading).toContainText(venueName!)
 
-    // Back to Venues link
-    await expect(
-      page.getByRole('link', { name: /back to venues/i })
-    ).toBeVisible()
+    // Breadcrumb link to Venues list
+    const breadcrumbNav = page.locator('nav[aria-label="Breadcrumb"]')
+    await expect(breadcrumbNav.getByRole('link', { name: 'Venues' })).toBeVisible()
 
     // Upcoming and Past Shows tabs
     await expect(page.getByRole('tab', { name: /upcoming/i })).toBeVisible()
@@ -50,7 +50,8 @@ test.describe('Venue detail', () => {
     await page
       .locator('article')
       .first()
-      .getByRole('link', { name: 'Details' })
+      .locator('a[href^="/shows/"]')
+      .first()
       .click()
     await page.waitForURL(/\/shows\//, { timeout: 10_000 })
 
@@ -59,7 +60,16 @@ test.describe('Venue detail', () => {
     await venueLink.click()
     await page.waitForURL(/\/venues\//, { timeout: 10_000 })
 
-    await page.getByRole('link', { name: /back to venues/i }).click()
+    // Wait for venue detail to load
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({
+      timeout: 10_000,
+    })
+
+    // Click the breadcrumb link to Venues
+    await page
+      .locator('nav[aria-label="Breadcrumb"]')
+      .getByRole('link', { name: 'Venues' })
+      .click()
     await page.waitForURL(/\/venues$/, { timeout: 10_000 })
   })
 
@@ -72,7 +82,8 @@ test.describe('Venue detail', () => {
     await page
       .locator('article')
       .first()
-      .getByRole('link', { name: 'Details' })
+      .locator('a[href^="/shows/"]')
+      .first()
       .click()
     await page.waitForURL(/\/shows\//, { timeout: 10_000 })
 
