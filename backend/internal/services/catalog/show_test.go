@@ -1082,12 +1082,11 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 	suite.NotNil(resp)
 }
 
-func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NoHeadliner_NoDuplicateCheck() {
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NoHeadliner_DifferentFirstArtist_OK() {
 	user := suite.createTestUser()
 	eventDate := time.Date(2026, 11, 6, 20, 0, 0, 0, time.UTC)
 
-	// First show with no explicit headliner (first artist defaults to headliner)
-	// We need both artists to be explicitly non-headliner for this test
+	// First show with no explicit headliner — first artist used for dedup
 	req := &contracts.CreateShowRequest{
 		Title:     "No Headliner 1",
 		EventDate: eventDate,
@@ -1103,7 +1102,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NoHeadliner_NoDupli
 	_, err := suite.showService.CreateShow(req)
 	suite.Require().NoError(err)
 
-	// Same details, should succeed (no headliner means no dup check)
+	// Different first artist, same venue and date — should succeed
 	req2 := &contracts.CreateShowRequest{
 		Title:     "No Headliner 2",
 		EventDate: eventDate,
@@ -1120,6 +1119,45 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NoHeadliner_NoDupli
 
 	suite.Require().NoError(err)
 	suite.NotNil(resp)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NoHeadliner_SameFirstArtist_SameVenue_Fails() {
+	user := suite.createTestUser()
+	eventDate := time.Date(2026, 11, 7, 20, 0, 0, 0, time.UTC)
+
+	// First show — no headliner flag, first artist is "The Growlers"
+	req := &contracts.CreateShowRequest{
+		Title:     "Growlers Show 1",
+		EventDate: eventDate,
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    []contracts.CreateShowVenue{{Name: "Fallback Dedup Venue", City: "Phoenix", State: "AZ"}},
+		Artists: []contracts.CreateShowArtist{
+			{Name: "The Growlers"},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	_, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+
+	// Duplicate — same first artist, same venue, same day, no headliner
+	req2 := &contracts.CreateShowRequest{
+		Title:     "Growlers Show 2 (duplicate)",
+		EventDate: eventDate,
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    []contracts.CreateShowVenue{{Name: "Fallback Dedup Venue", City: "Phoenix", State: "AZ"}},
+		Artists: []contracts.CreateShowArtist{
+			{Name: "The Growlers"},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	_, err = suite.showService.CreateShow(req2)
+
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "already performing")
 }
 
 // =============================================================================
