@@ -57,6 +57,32 @@ bun run src/entry.ts batch --confirm /tmp/data.json
 
 Batch files are JSON arrays with an `entity_type` field on each item. The CLI processes them in dependency order: labels → artists → releases → venues → festivals → shows.
 
+### Festival artist management
+
+```bash
+# Link artists to an existing festival
+bun run src/entry.ts festival link-artists viva-phx-2026 '[{"name": "Pavement", "billing_tier": "headliner"}, {"name": "Devo"}]'
+
+# Link from file
+bun run src/entry.ts festival link-artists viva-phx-2026 --file /tmp/artists.json --confirm
+
+# Replace all artists (clear existing, then link new)
+bun run src/entry.ts festival link-artists viva-phx-2026 --replace --confirm '[...]'
+
+# Remove a single artist
+bun run src/entry.ts festival unlink-artist viva-phx-2026 "Wrong Artist" --confirm
+```
+
+### Verbose debugging
+
+```bash
+# Show full HTTP request/response for debugging
+bun run src/entry.ts --verbose batch /tmp/data.json
+bun run src/entry.ts -v submit artist '[...]'
+```
+
+Verbose mode logs method, URL, headers (auth token masked), request body, response status, and full response body. Useful for diagnosing Huma 422 validation errors.
+
 ### Environment targeting
 
 ```bash
@@ -82,7 +108,7 @@ bun run src/entry.ts config set default_environment local
 
 ### Show
 ```json
-{"event_date": "2026-04-15", "city": "Required", "state": "Required", "title": "Optional", "price": 25.00, "artists": [{"name": "Artist", "is_headliner": true}], "venues": [{"name": "Venue", "city": "City", "state": "ST"}]}
+{"event_date": "2026-04-15", "city": "Required", "state": "Required", "title": "Optional", "price": 25.00, "ticket_url": "https://dice.fm/...", "artists": [{"name": "Artist", "is_headliner": true}], "venues": [{"name": "Venue", "city": "City", "state": "ST"}]}
 ```
 - `event_date` accepts `YYYY-MM-DD` (auto-normalized to `YYYY-MM-DDT20:00:00Z`)
 - Artists and venues are resolved by name search — existing entities use their ID, new ones are created automatically
@@ -127,6 +153,17 @@ The CLI searches for existing entities before creating. For each entity it class
 - **UPDATE** — match found, proposed data has new fields to add (never overwrites existing values)
 - **SKIP** — match found, no new information to add
 
+### Show deduplication
+
+Before creating a show, the CLI checks if one already exists with the same date + venue + at least one overlapping artist. Duplicates show as `EXISTING (ID: N)` in preview and are skipped during creation. This prevents double-imports when ingesting the same flyer twice.
+
+### Fuzzy matching rules
+
+- Short names (≤3 chars) require exact case-insensitive match
+- Short names (4 chars) require word-boundary alignment
+- Substring traps are detected (e.g., "DRAM" won't match "DREAM")
+- Match confidence is shown in dry-run output for artist and venue resolution
+
 ## Agent Usage Guide
 
 ### Using the `/ingest` skill
@@ -168,7 +205,7 @@ The `/ingest` skill automates the full screenshot-to-knowledge-graph flow. When 
 
 ```bash
 bun install          # Install dependencies
-bun test             # Run tests (232 tests)
+bun test             # Run tests (280 tests)
 bunx tsc --noEmit    # Type check
 bun run src/entry.ts --help  # CLI help
 ```
@@ -191,7 +228,8 @@ cli/
 │   │   ├── submit-show.ts    # ph submit show
 │   │   ├── submit-release.ts # ph submit release
 │   │   ├── submit-label.ts   # ph submit label
-│   │   └── submit-festival.ts # ph submit festival
+│   │   ├── submit-festival.ts # ph submit festival
+│   │   └── festival.ts       # ph festival link-artists / unlink-artist
 │   └── lib/
 │       ├── api.ts            # API client (fetch + auth)
 │       ├── config.ts         # Config file management
@@ -201,5 +239,5 @@ cli/
 │       ├── duplicates.ts     # Duplicate detection engine
 │       ├── schemas.ts        # Entity validation
 │       └── tags.ts           # Tag resolution (search, create, apply)
-└── test/                     # 232 tests across 15 files
+└── test/                     # 280 tests across 16 files
 ```
