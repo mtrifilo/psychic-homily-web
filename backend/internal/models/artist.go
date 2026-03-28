@@ -8,6 +8,7 @@ type Artist struct {
 	Slug             *string   `gorm:"column:slug;uniqueIndex"`
 	State            *string   `gorm:"column:state"`
 	City             *string   `gorm:"column:city"`
+	Country          *string   `gorm:"column:country;size:100"`
 	BandcampEmbedURL *string   `gorm:"column:bandcamp_embed_url"`
 	Description      *string   `json:"description,omitempty" gorm:"column:description;type:text"`
 	Social           Social    `gorm:"embedded"`

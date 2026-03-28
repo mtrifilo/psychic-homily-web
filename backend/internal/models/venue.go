@@ -9,8 +9,9 @@ type Venue struct {
 	Name        string  `gorm:"not null"` // Unique with city via composite index
 	Slug        *string `gorm:"column:slug;uniqueIndex"`
 	Address     *string
-	City        string `gorm:"not null"` // Required
-	State       string `gorm:"not null"` // Required
+	City        string  `gorm:"not null"` // Required
+	State       string  `gorm:"not null"` // Required
+	Country     *string `gorm:"column:country;size:100"`
 	Zipcode     *string
 	Description *string `json:"description,omitempty" gorm:"column:description;type:text"`
 	Social      Social  `gorm:"embedded"`

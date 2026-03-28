@@ -62,6 +62,7 @@ func (s *VenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bo
 		Address:     req.Address,
 		City:        req.City,
 		State:       req.State,
+		Country:     req.Country,
 		Zipcode:     req.Zipcode,
 		Verified:    isAdmin, // Admins create verified venues, non-admins require approval
 		SubmittedBy: req.SubmittedBy,
@@ -429,6 +430,7 @@ func (s *VenueService) buildVenueResponse(venue *models.Venue) *contracts.VenueD
 		Address:     address,
 		City:        venue.City,
 		State:       venue.State,
+		Country:     venue.Country,
 		Zipcode:     zipcode,
 		Description: venue.Description,
 		Verified:    venue.Verified,
