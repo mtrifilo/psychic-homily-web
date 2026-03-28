@@ -51,6 +51,25 @@ export function normalizeForComparison(s: string): string {
  * Heuristic: if the non-matching portion on either side is just 1 character, it's likely
  * a typo, plural, or minor variant — not a trap. If 2+ extra characters, it's a trap.
  */
+/**
+ * Check if two individual words are similar enough to be variants of each other
+ * (e.g., plural "shins"/"shin", minor suffix like "mannequin"/"mannequins").
+ * Returns false for clearly different words like "keys"/"lips" or "pussy"/"s".
+ */
+function areSimilarWords(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  // Allow singular/plural: "shin"/"shins", "key"/"keys", "box"/"boxes"
+  if (longer === shorter + "s" || longer === shorter + "es") return true;
+  // Check character prefix overlap — 75%+ means likely a variant
+  let prefix = 0;
+  for (let i = 0; i < shorter.length; i++) {
+    if (shorter[i] === longer[i]) prefix++;
+    else break;
+  }
+  return prefix / longer.length >= 0.75;
+}
+
 function isSubstringTrap(shorter: string, longer: string): boolean {
   const idx = longer.indexOf(shorter);
   if (idx === -1) return false;
@@ -155,8 +174,46 @@ export function similarityScore(a: string, b: string): number {
 
   const totalOverlap = commonPrefix + commonSuffix;
   const maxLen = Math.max(na.length, nb.length);
+  const rawScore = totalOverlap / maxLen;
 
-  return totalOverlap / maxLen;
+  // Word-divergence guard: when names share prefix characters but diverge into
+  // different words, cap the score to prevent false positives.
+  // "Black Keys" vs "Black Lips", "Mannequin Pussy" vs "Mannequins"
+  if (commonPrefix >= 4 && rawScore >= 0.5) {
+    const wordsA = na.split(" ");
+    const wordsB = nb.split(" ");
+
+    // Count shared complete words from start
+    let sharedWords = 0;
+    for (let i = 0; i < Math.min(wordsA.length, wordsB.length); i++) {
+      if (wordsA[i] === wordsB[i]) sharedWords++;
+      else break;
+    }
+
+    // Case 1: Names share complete words but diverge after
+    // "black keys" vs "black lips" → shared ["black"], diverge at "keys" vs "lips"
+    if (sharedWords > 0 && sharedWords < Math.min(wordsA.length, wordsB.length)) {
+      const nextA = wordsA[sharedWords];
+      const nextB = wordsB[sharedWords];
+      if (!areSimilarWords(nextA, nextB)) {
+        return Math.min(rawScore, 0.5);
+      }
+    }
+
+    // Case 2: First words are similar (e.g., "mannequin"/"mannequins") but one name
+    // has additional words — clearly different entities.
+    // "mannequin pussy" vs "mannequins" → first words similar, extra word "pussy"
+    if (sharedWords === 0) {
+      const firstA = wordsA[0];
+      const firstB = wordsB[0];
+      const maxWords = Math.max(wordsA.length, wordsB.length);
+      if (areSimilarWords(firstA, firstB) && maxWords > 1) {
+        return Math.min(rawScore, 0.5);
+      }
+    }
+  }
+
+  return rawScore;
 }
 
 /** Compare fields between an existing entity and a proposed entity. */
