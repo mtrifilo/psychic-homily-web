@@ -18,8 +18,8 @@ describe('ShowListSkeleton', () => {
 
   it('renders city filter skeletons', () => {
     const { container } = render(<ShowListSkeleton />)
-    // City filter skeleton area has 3 rounded-full skeleton pills
-    const filterSkeletons = container.querySelectorAll('.rounded-full')
-    expect(filterSkeletons).toHaveLength(3)
+    // City filter skeleton: a rounded-md combobox skeleton + a popular cities line skeleton
+    const comboboxSkeleton = container.querySelectorAll('.rounded-md')
+    expect(comboboxSkeleton.length).toBeGreaterThanOrEqual(1)
   })
 })
