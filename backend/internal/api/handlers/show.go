@@ -87,7 +87,7 @@ type CreateShowRequestBody struct {
 	State          string    `json:"state" doc:"State where the show takes place"`
 	Price          *float64  `json:"price,omitempty" doc:"Ticket price"`
 	AgeRequirement *string   `json:"age_requirement,omitempty" doc:"Age requirement (e.g., '21+', 'All Ages')"`
-	Description    *string   `json:"description,omitempty" doc:"Show description"`
+	Description    *string   `json:"description,omitempty" doc:"Show description" required:"false"`
 	TicketURL      *string   `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
 	Venues         []Venue   `json:"venues" validate:"required,min=1" doc:"List of venues for the show"`
 	Artists        []Artist  `json:"artists" validate:"required,min=1" doc:"List of artists in the show"`
@@ -270,7 +270,7 @@ type UpdateShowRequest struct {
 		State          *string    `json:"state,omitempty" doc:"State where the show takes place"`
 		Price          *float64   `json:"price,omitempty" doc:"Ticket price"`
 		AgeRequirement *string    `json:"age_requirement,omitempty" doc:"Age requirement"`
-		Description    *string    `json:"description,omitempty" doc:"Show description"`
+		Description    *string    `json:"description,omitempty" doc:"Show description" required:"false"`
 		TicketURL      *string    `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
 		Venues         []Venue    `json:"venues,omitempty" doc:"List of venues for the show"`
 		Artists        []Artist   `json:"artists,omitempty" doc:"List of artists for the show"`

@@ -11,27 +11,27 @@ test.describe('Profile page', () => {
       authenticatedPage.getByRole('heading', { name: /my profile/i })
     ).toBeVisible({ timeout: 10_000 })
 
-    // Two tabs
+    // Profile tab is visible and active by default
     await expect(
       authenticatedPage.getByRole('tab', { name: /profile/i })
     ).toBeVisible()
-    await expect(
-      authenticatedPage.getByRole('tab', { name: /settings/i })
-    ).toBeVisible()
-
-    // Profile tab is active by default
     await expect(
       authenticatedPage.getByRole('tab', { name: /profile/i })
     ).toHaveAttribute('data-state', 'active')
+
+    // Settings tab is visible
+    await expect(
+      authenticatedPage.getByRole('tab', { name: /settings/i })
+    ).toBeVisible()
 
     // User email displayed (use first() — also appears in nav link)
     await expect(
       authenticatedPage.getByText('e2e-user@test.local').first()
     ).toBeVisible()
 
-    // First name displayed
+    // First name displayed in Account Details section (use first() — also appears in contributor profile)
     await expect(
-      authenticatedPage.getByText('Test', { exact: true })
+      authenticatedPage.getByText('Test', { exact: true }).first()
     ).toBeVisible()
   })
 

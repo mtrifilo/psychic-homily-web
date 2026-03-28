@@ -8,23 +8,23 @@ test.describe('Show detail', () => {
       timeout: 10_000,
     })
 
-    // Navigate to first show detail
+    // Navigate to first show detail via the show link in the card
     await page
       .locator('article')
       .first()
-      .getByRole('link', { name: 'Details' })
+      .locator('a[href^="/shows/"]')
+      .first()
       .click()
     await page.waitForURL(/\/shows\//, { timeout: 10_000 })
-
-    // Back navigation link
-    await expect(
-      page.getByRole('link', { name: /back to shows/i })
-    ).toBeVisible()
 
     // H1 heading with artist name(s)
     const heading = page.getByRole('heading', { level: 1 })
     await expect(heading).toBeVisible({ timeout: 10_000 })
     await expect(heading).not.toBeEmpty()
+
+    // Breadcrumb navigation link to Shows list
+    const breadcrumbNav = page.locator('nav[aria-label="Breadcrumb"]')
+    await expect(breadcrumbNav.getByRole('link', { name: 'Shows' })).toBeVisible()
 
     // Venue link (points to /venues/...)
     await expect(page.locator('a[href^="/venues/"]').first()).toBeVisible()
@@ -45,7 +45,8 @@ test.describe('Show detail', () => {
     await page
       .locator('article')
       .first()
-      .getByRole('link', { name: 'Details' })
+      .locator('a[href^="/shows/"]')
+      .first()
       .click()
     await page.waitForURL(/\/shows\//, { timeout: 10_000 })
 
@@ -67,11 +68,21 @@ test.describe('Show detail', () => {
     await page
       .locator('article')
       .first()
-      .getByRole('link', { name: 'Details' })
+      .locator('a[href^="/shows/"]')
+      .first()
       .click()
     await page.waitForURL(/\/shows\//, { timeout: 10_000 })
 
-    await page.getByRole('link', { name: /back to shows/i }).click()
+    // Wait for show data to load
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({
+      timeout: 10_000,
+    })
+
+    // Click the breadcrumb link to Shows
+    await page
+      .locator('nav[aria-label="Breadcrumb"]')
+      .getByRole('link', { name: 'Shows' })
+      .click()
     await page.waitForURL(/\/shows$/, { timeout: 10_000 })
 
     await expect(
