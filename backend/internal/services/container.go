@@ -25,6 +25,7 @@ type ServiceContainer struct {
 	APIToken           *adminsvc.APITokenService
 	DataQuality        *adminsvc.DataQualityService
 	Revision           *adminsvc.RevisionService
+	PendingEdit        *adminsvc.PendingEditService
 	Charts             *catalog.ChartsService
 	Artist             *catalog.ArtistService
 	ContributorProfile *usersvc.ContributorProfileService
@@ -120,13 +121,16 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// Wire enrichment queuing into discovery service (fire-and-forget after imports)
 	discovery.SetEnrichmentService(enrichmentSvc)
 
+	revisionSvc := adminsvc.NewRevisionService(database)
+
 	return &ServiceContainer{
 		// DB-only leaf services
 		AdminStats:         adminsvc.NewAdminStatsService(database),
 		Analytics:          adminsvc.NewAnalyticsService(database),
 		APIToken:           adminsvc.NewAPITokenService(database),
 		DataQuality:        adminsvc.NewDataQualityService(database),
-		Revision:           adminsvc.NewRevisionService(database),
+		Revision:           revisionSvc,
+		PendingEdit:        adminsvc.NewPendingEditService(database, revisionSvc),
 		Charts:             catalog.NewChartsService(database),
 		Artist:             artist,
 		ContributorProfile: usersvc.NewContributorProfileService(database),
