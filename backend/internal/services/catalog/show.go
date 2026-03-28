@@ -187,9 +187,13 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 		}
 	}
 
-	// If no headliners, no conflicts possible
+	// If no headliners marked, fall back to first-billed artist
 	if len(headlinerNames) == 0 {
-		return nil
+		if len(req.Artists) > 0 {
+			headlinerNames = []string{req.Artists[0].Name}
+		} else {
+			return nil
+		}
 	}
 
 	// Get all venue names from the request
