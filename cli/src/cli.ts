@@ -14,6 +14,7 @@ import { runSubmitLabel } from "./commands/submit-label";
 import { runSubmitFestival } from "./commands/submit-festival";
 import { runBatch } from "./commands/batch";
 import { runStatus } from "./commands/status";
+import { runFestivalLinkArtists, runFestivalUnlinkArtist } from "./commands/festival";
 
 const program = new Command();
 
@@ -125,6 +126,32 @@ program
   .action(async (file: string, opts: { confirm?: boolean }) => {
     const env = await resolveEnvOrExit(program.opts().env);
     await runBatch(file, env, !!opts.confirm);
+  });
+
+// ─── ph festival ─────────────────────────────────────────────────────────────
+
+const festivalCmd = program
+  .command("festival")
+  .description("Manage festival artist links");
+
+festivalCmd
+  .command("link-artists <festival> [json]")
+  .description("Link artists to an existing festival by slug or ID")
+  .option("--file <path>", "Read artist JSON from file")
+  .option("--replace", "Remove existing artist links first")
+  .option("--confirm", "Execute changes (default is dry-run)")
+  .action(async (festival: string, json: string | undefined, opts: { file?: string; replace?: boolean; confirm?: boolean }) => {
+    const env = await resolveEnvOrExit(program.opts().env);
+    await runFestivalLinkArtists(festival, json, env, opts);
+  });
+
+festivalCmd
+  .command("unlink-artist <festival> <artist>")
+  .description("Remove an artist link from a festival")
+  .option("--confirm", "Execute changes (default is dry-run)")
+  .action(async (festival: string, artist: string, opts: { confirm?: boolean }) => {
+    const env = await resolveEnvOrExit(program.opts().env);
+    await runFestivalUnlinkArtist(festival, artist, env, !!opts.confirm);
   });
 
 // ─── ph status ───────────────────────────────────────────────────────────────
