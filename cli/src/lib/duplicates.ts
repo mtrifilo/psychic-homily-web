@@ -227,7 +227,9 @@ const ARTIST_FIELDS = [
 
 const VENUE_FIELDS = [
   "name", "city", "state", "country", "address", "zip_code",
-  "website", "capacity", "description",
+  "zipcode", "website", "capacity", "description",
+  "instagram", "facebook", "twitter", "youtube",
+  "spotify", "soundcloud", "bandcamp",
 ];
 
 const RELEASE_FIELDS = [
@@ -237,7 +239,9 @@ const RELEASE_FIELDS = [
 
 const LABEL_FIELDS = [
   "name", "city", "state", "country", "website", "description",
-  "bandcamp_url",
+  "bandcamp_url", "bandcamp", "founded_year", "status",
+  "instagram", "facebook", "twitter", "youtube",
+  "spotify", "soundcloud",
 ];
 
 const FESTIVAL_FIELDS = [

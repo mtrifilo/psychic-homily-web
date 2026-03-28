@@ -207,7 +207,10 @@ export async function submitLabels(
           // label_name (not part of label API).
           const labelApiFields = [
             "name", "city", "state", "country", "website",
-            "description", "bandcamp_url",
+            "description", "bandcamp_url", "bandcamp",
+            "founded_year", "status",
+            "instagram", "facebook", "twitter", "youtube",
+            "spotify", "soundcloud",
           ];
           const labelPayload: Record<string, unknown> = {};
           for (const field of labelApiFields) {
