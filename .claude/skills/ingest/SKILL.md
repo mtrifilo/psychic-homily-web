@@ -129,7 +129,7 @@ Tags can be strings (defaults to genre) or objects with category:
 "tags": ["punk", "noise rock", {"name": "Japanese", "category": "locale"}]
 ```
 
-Categories: `genre`, `locale`, `mood`, `era`, `style`, `instrument`, `other`
+Categories: `genre`, `locale`, `other`. String tags default to genre. Use `locale` for nationality/origin tags (e.g., Japanese, Irish). Use `other` for non-genre descriptors.
 
 #### Processing order
 
