@@ -55,10 +55,11 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 
 	// Create the artist
 	artist := &models.Artist{
-		Name:  req.Name,
-		Slug:  &slug,
-		State: req.State,
-		City:  req.City,
+		Name:        req.Name,
+		Slug:        &slug,
+		State:       req.State,
+		City:        req.City,
+		Description: req.Description,
 		Social: models.Social{
 			Instagram:  req.Instagram,
 			Facebook:   req.Facebook,
