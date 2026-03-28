@@ -125,6 +125,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupFollowRoutes(rc)
 	setupNotificationFilterRoutes(rc)
 	setupChartsRoutes(rc)
+	setupPendingEditRoutes(rc)
 
 	return api
 }
@@ -909,4 +910,27 @@ func rateLimitHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Retry-After", "60")
 	w.WriteHeader(http.StatusTooManyRequests)
 	w.Write([]byte(`{"success":false,"error":"too_many_requests","message":"Rate limit exceeded. Please try again in 60 seconds."}`))
+}
+
+// setupPendingEditRoutes configures pending entity edit endpoints.
+// Protected endpoints for suggesting edits and managing own edits.
+// Admin endpoints for reviewing, approving, and rejecting edits.
+func setupPendingEditRoutes(rc RouteContext) {
+	pendingEditHandler := handlers.NewPendingEditHandler(rc.SC.PendingEdit, rc.SC.AuditLog)
+
+	// Protected: suggest edits (creates pending or auto-applies for trusted users)
+	huma.Put(rc.Protected, "/artists/{entity_id}/suggest-edit", pendingEditHandler.SuggestArtistEditHandler)
+	huma.Put(rc.Protected, "/venues/{entity_id}/suggest-edit", pendingEditHandler.SuggestVenueEditHandler)
+	huma.Put(rc.Protected, "/festivals/{entity_id}/suggest-edit", pendingEditHandler.SuggestFestivalEditHandler)
+
+	// Protected: user's own pending edits
+	huma.Get(rc.Protected, "/my/pending-edits", pendingEditHandler.GetMyPendingEditsHandler)
+	huma.Delete(rc.Protected, "/my/pending-edits/{edit_id}", pendingEditHandler.CancelMyPendingEditHandler)
+
+	// Admin: review queue
+	huma.Get(rc.Protected, "/admin/pending-edits", pendingEditHandler.AdminListPendingEditsHandler)
+	huma.Get(rc.Protected, "/admin/pending-edits/{edit_id}", pendingEditHandler.AdminGetPendingEditHandler)
+	huma.Post(rc.Protected, "/admin/pending-edits/{edit_id}/approve", pendingEditHandler.AdminApprovePendingEditHandler)
+	huma.Post(rc.Protected, "/admin/pending-edits/{edit_id}/reject", pendingEditHandler.AdminRejectPendingEditHandler)
+	huma.Get(rc.Protected, "/admin/pending-edits/entity/{entity_type}/{entity_id}", pendingEditHandler.AdminGetEntityPendingEditsHandler)
 }
