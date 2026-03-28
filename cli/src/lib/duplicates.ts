@@ -593,3 +593,94 @@ export async function searchVenuesByName(
 ): Promise<EntitySearchResult[]> {
   return searchVenues(client, name);
 }
+
+// -- Show deduplication -------------------------------------------------------
+
+export interface ShowDuplicateResult {
+  isDuplicate: boolean;
+  existingShowId?: number;
+  existingShowSlug?: string;
+}
+
+interface ShowResponseForDedup {
+  id: number;
+  slug?: string;
+  event_date: string;
+  venues?: Array<{ id: number; name: string }>;
+  artists?: Array<{ id: number; name: string }>;
+}
+
+/**
+ * Extract the calendar date (YYYY-MM-DD) from a date string.
+ * Handles full ISO timestamps, date-only strings, etc.
+ */
+function extractCalendarDate(dateStr: string): string {
+  return dateStr.slice(0, 10);
+}
+
+/**
+ * Check if a show is a duplicate by searching for existing shows on the same
+ * date with the same venue and at least one overlapping artist.
+ *
+ * Requires at least one resolved venue ID and one resolved artist ID/name to check.
+ */
+export async function checkShowDuplicate(
+  client: APIClient,
+  eventDate: string,
+  resolvedVenueIds: number[],
+  resolvedArtistIds: number[],
+  resolvedArtistNames: string[],
+): Promise<ShowDuplicateResult> {
+  const noMatch: ShowDuplicateResult = { isDuplicate: false };
+
+  // Need at least one venue ID to check
+  if (resolvedVenueIds.length === 0) return noMatch;
+
+  // Need at least one artist identifier to compare
+  if (resolvedArtistIds.length === 0 && resolvedArtistNames.length === 0) return noMatch;
+
+  const calendarDate = extractCalendarDate(eventDate);
+
+  try {
+    // Query shows on the same day using from_date and to_date
+    // Set to_date to the next day to get all shows on calendarDate
+    const fromDate = `${calendarDate}T00:00:00Z`;
+    const toDate = `${calendarDate}T23:59:59Z`;
+
+    const result = await client.get<ShowResponseForDedup[]>("/shows", {
+      from_date: fromDate,
+      to_date: toDate,
+    });
+
+    const shows = Array.isArray(result) ? result : [];
+
+    for (const show of shows) {
+      // Check if any venue matches
+      const showVenueIds = (show.venues || []).map((v) => v.id);
+      const venueOverlap = resolvedVenueIds.some((vid) => showVenueIds.includes(vid));
+      if (!venueOverlap) continue;
+
+      // Check if any artist matches (by ID or fuzzy name)
+      const showArtistIds = (show.artists || []).map((a) => a.id);
+      const showArtistNames = (show.artists || []).map((a) => a.name);
+
+      const artistIdOverlap = resolvedArtistIds.some((aid) => showArtistIds.includes(aid));
+      const artistNameOverlap = resolvedArtistNames.some((name) =>
+        showArtistNames.some((existingName) => similarityScore(name, existingName) >= 0.7),
+      );
+
+      if (artistIdOverlap || artistNameOverlap) {
+        return {
+          isDuplicate: true,
+          existingShowId: show.id,
+          existingShowSlug: show.slug,
+        };
+      }
+    }
+  } catch {
+    // If the search fails, don't block creation
+    return noMatch;
+  }
+
+  return noMatch;
+}
