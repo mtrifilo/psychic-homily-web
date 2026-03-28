@@ -1,7 +1,7 @@
 // Tag types — aligned with backend contracts/tag.go response types.
 
 export const TAG_CATEGORIES = [
-  'genre', 'mood', 'era', 'style', 'instrument', 'locale', 'other'
+  'genre', 'locale', 'other'
 ] as const
 export type TagCategory = typeof TAG_CATEGORIES[number]
 
@@ -67,10 +67,6 @@ export interface TagAliasesResponse {
 export function getCategoryColor(category: string): string {
   const colors: Record<string, string> = {
     genre: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    mood: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-    era: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-    style: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-    instrument: 'bg-red-500/10 text-red-400 border-red-500/20',
     locale: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
     other: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
   }

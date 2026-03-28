@@ -139,7 +139,7 @@ describe('TagBrowse', () => {
   it('renders tag cards as links', () => {
     const tags = [
       makeTag({ id: 1, name: 'rock', slug: 'rock' }),
-      makeTag({ id: 2, name: 'punk', slug: 'punk', category: 'style' }),
+      makeTag({ id: 2, name: 'punk', slug: 'punk', category: 'other' }),
     ]
     mockUseTags.mockReturnValue({
       data: { tags, total: 2 },
@@ -229,10 +229,6 @@ describe('TagBrowse', () => {
 
     expect(screen.getByText('All')).toBeInTheDocument()
     expect(screen.getByText('Genre')).toBeInTheDocument()
-    expect(screen.getByText('Mood')).toBeInTheDocument()
-    expect(screen.getByText('Era')).toBeInTheDocument()
-    expect(screen.getByText('Style')).toBeInTheDocument()
-    expect(screen.getByText('Instrument')).toBeInTheDocument()
     expect(screen.getByText('Locale')).toBeInTheDocument()
     expect(screen.getByText('Other')).toBeInTheDocument()
   })

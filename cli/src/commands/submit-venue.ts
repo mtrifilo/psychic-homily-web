@@ -13,9 +13,17 @@ interface VenueInput {
   country?: string;
   address?: string;
   zip_code?: string;
+  zipcode?: string;
   website?: string;
   capacity?: number;
   description?: string;
+  instagram?: string;
+  facebook?: string;
+  twitter?: string;
+  youtube?: string;
+  spotify?: string;
+  soundcloud?: string;
+  bandcamp?: string;
 }
 
 export interface SubmitVenuesResult {
@@ -222,7 +230,9 @@ export async function submitVenues(
         // label/label_name (not part of venue API).
         const venueApiFields = [
           "name", "city", "state", "country", "address", "zip_code",
-          "website", "capacity", "description",
+          "zipcode", "website", "capacity", "description",
+          "instagram", "facebook", "twitter", "youtube",
+          "spotify", "soundcloud", "bandcamp",
         ];
         const venuePayload: Record<string, unknown> = {};
         for (const field of venueApiFields) {
