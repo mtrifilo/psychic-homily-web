@@ -1,7 +1,7 @@
 ---
 name: ingest
 description: Extract entities from screenshots (show flyers, WFMU playlists, tour announcements, festival lineups) and import them into the Psychic Homily knowledge graph via the ph CLI.
-argument-hint: "[description or screenshot] [--env production|local]"
+argument-hint: "[dev|stage|prod] [description or screenshot]"
 ---
 
 # Ingest: Screenshot to Knowledge Graph
@@ -12,11 +12,18 @@ Extract structured entity data from screenshots and import into Psychic Homily u
 
 By default, commands use whichever environment is set as default in `~/.psychic-homily/config.json`.
 
-- `/ingest` — uses default environment
-- `/ingest --env production` — targets production regardless of default
-- `/ingest --env local` — targets local dev regardless of default
+**Shorthand:**
+- `/ingest dev ...` — targets local dev (`--env local`)
+- `/ingest stage ...` — targets staging (`--env staging`)
+- `/ingest prod ...` — targets production (`--env production`)
+- `/ingest ...` — uses default environment
 
-When `--env` is specified in the skill argument, append `--env <name>` to ALL `ph` commands in this workflow.
+**Full form also works:**
+- `/ingest --env production ...`
+- `/ingest --env local ...`
+- `/ingest --env staging ...`
+
+**Parsing rule:** If the first word of the argument is `dev`, `local`, `stage`, `staging`, `prod`, or `production`, treat it as the environment and strip it from the rest of the input. When an environment is specified (by shorthand or `--env`), append `--env <name>` to ALL `ph` commands in this workflow. Map `dev` → `local`, `stage` → `staging`, `prod` → `production`.
 
 Check current default with:
 ```bash
