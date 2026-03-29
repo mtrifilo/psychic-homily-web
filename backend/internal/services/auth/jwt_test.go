@@ -142,8 +142,9 @@ func TestJWTService_ValidateToken(t *testing.T) {
 
 	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
-	t.Run("ValidateToken_Success", func(t *testing.T) {
-		// Create a valid token first
+	t.Run("ValidateToken_NilDB_FailsOnUserLookup", func(t *testing.T) {
+		// Create a valid token, then attempt to validate with nil DB.
+		// Token parsing succeeds but user lookup fails because there's no database.
 		user := &models.User{
 			ID:    123,
 			Email: stringPtr("valid@example.com"),
@@ -152,15 +153,14 @@ func TestJWTService_ValidateToken(t *testing.T) {
 		token, err := jwtService.CreateToken(user)
 		require.NoError(t, err)
 
-		// Validate the token — in test environment without DB, this will
-		// parse the token successfully but fail on user lookup
 		_, err = jwtService.ValidateToken(token)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get user")
 	})
 
-	t.Run("ValidateToken_WithNilEmail", func(t *testing.T) {
-		// Create a token with nil email
+	t.Run("ValidateToken_NilDB_NilEmail_FailsOnUserLookup", func(t *testing.T) {
+		// Create a token with nil email, then attempt to validate with nil DB.
+		// Token parsing succeeds but user lookup fails because there's no database.
 		user := &models.User{
 			ID:    456,
 			Email: nil,
@@ -169,8 +169,6 @@ func TestJWTService_ValidateToken(t *testing.T) {
 		token, err := jwtService.CreateToken(user)
 		require.NoError(t, err)
 
-		// Validate the token — in test environment without DB, this will
-		// parse the token successfully but fail on user lookup
 		_, err = jwtService.ValidateToken(token)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get user")
@@ -288,8 +286,9 @@ func TestJWTService_RefreshToken(t *testing.T) {
 
 	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
-	t.Run("RefreshToken_Success", func(t *testing.T) {
-		// Create an original token
+	t.Run("RefreshToken_NilDB_FailsOnUserLookup", func(t *testing.T) {
+		// Create a valid token, then attempt to refresh with nil DB.
+		// Token parsing succeeds but user lookup fails because there's no database.
 		user := &models.User{
 			ID:    123,
 			Email: stringPtr("refresh@example.com"),
@@ -301,7 +300,6 @@ func TestJWTService_RefreshToken(t *testing.T) {
 		// Wait a moment to ensure different timestamps
 		time.Sleep(100 * time.Millisecond)
 
-		// Refresh the token — fails at DB lookup since no DB
 		_, err = jwtService.RefreshToken(originalToken)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get user")
@@ -366,24 +364,23 @@ func TestJWTService_EdgeCases(t *testing.T) {
 
 	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
-	t.Run("CreateToken_ZeroUserID", func(t *testing.T) {
+	t.Run("ZeroUserID_CreatesToken_NilDB_ValidationFailsOnUserLookup", func(t *testing.T) {
 		user := &models.User{
 			ID:    0,
 			Email: stringPtr("zero@example.com"),
 		}
 
 		token, err := jwtService.CreateToken(user)
-
 		assert.NoError(t, err)
 		assert.NotEmpty(t, token)
 
-		// Token creation succeeds; validation fails at DB lookup
+		// Token creation succeeds with zero ID, but validation fails at DB lookup
 		_, err = jwtService.ValidateToken(token)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get user")
 	})
 
-	t.Run("CreateToken_VeryLongEmail", func(t *testing.T) {
+	t.Run("VeryLongEmail_CreatesToken_NilDB_ValidationFailsOnUserLookup", func(t *testing.T) {
 		longEmail := "very.long.email.address.that.is.quite.lengthy.and.might.test.boundaries@example.com"
 		user := &models.User{
 			ID:    123,
@@ -391,17 +388,16 @@ func TestJWTService_EdgeCases(t *testing.T) {
 		}
 
 		token, err := jwtService.CreateToken(user)
-
 		assert.NoError(t, err)
 		assert.NotEmpty(t, token)
 
-		// Token creation succeeds; validation fails at DB lookup
+		// Token creation succeeds with long email, but validation fails at DB lookup
 		_, err = jwtService.ValidateToken(token)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get user")
 	})
 
-	t.Run("CreateToken_SpecialCharactersInEmail", func(t *testing.T) {
+	t.Run("SpecialCharsInEmail_CreatesToken_NilDB_ValidationFailsOnUserLookup", func(t *testing.T) {
 		specialEmail := "test+tag@example.com"
 		user := &models.User{
 			ID:    123,
@@ -409,19 +405,20 @@ func TestJWTService_EdgeCases(t *testing.T) {
 		}
 
 		token, err := jwtService.CreateToken(user)
-
 		assert.NoError(t, err)
 		assert.NotEmpty(t, token)
 
-		// Token creation succeeds; validation fails at DB lookup
+		// Token creation succeeds with special chars, but validation fails at DB lookup
 		_, err = jwtService.ValidateToken(token)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get user")
 	})
 }
 
-// TestJWTService_Integration tests integration scenarios
-func TestJWTService_Integration(t *testing.T) {
+// TestJWTService_NilDB_TokenLifecycle tests create/validate/refresh with nil DB.
+// These verify token creation works but validate and refresh both fail on user lookup.
+// Real integration tests with a database are covered in PSY-250.
+func TestJWTService_NilDB_TokenLifecycle(t *testing.T) {
 	cfg := &config.Config{
 		JWT: config.JWTConfig{
 			SecretKey: "test-secret-key-integration",
@@ -431,31 +428,30 @@ func TestJWTService_Integration(t *testing.T) {
 
 	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
-	t.Run("Complete_Token_Lifecycle", func(t *testing.T) {
-		// 1. Create a user
+	t.Run("CreateValidateRefresh_AllFailOnUserLookup", func(t *testing.T) {
 		user := &models.User{
 			ID:    999,
 			Email: stringPtr("lifecycle@example.com"),
 		}
 
-		// 2. Create initial token
+		// Token creation succeeds (no DB needed)
 		token1, err := jwtService.CreateToken(user)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, token1)
 
-		// 3. Validate the token — hits DB lookup (no DB in tests)
+		// Validate fails at DB lookup (nil DB)
 		_, err = jwtService.ValidateToken(token1)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get user")
 
-		// 4. Refresh the token — also hits DB lookup
+		// Refresh also fails at DB lookup (nil DB)
 		time.Sleep(100 * time.Millisecond)
 		_, err = jwtService.RefreshToken(token1)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get user")
 	})
 
-	t.Run("Multiple_Users_Same_Service", func(t *testing.T) {
+	t.Run("MultipleUsers_UniqueTokens_AllFailOnUserLookup", func(t *testing.T) {
 		users := []*models.User{
 			{ID: 1, Email: stringPtr("user1@example.com")},
 			{ID: 2, Email: stringPtr("user2@example.com")},
@@ -464,21 +460,21 @@ func TestJWTService_Integration(t *testing.T) {
 
 		tokens := make([]string, len(users))
 
-		// Create tokens for all users
+		// Token creation succeeds for all users (no DB needed)
 		for i, user := range users {
 			token, err := jwtService.CreateToken(user)
 			assert.NoError(t, err)
 			tokens[i] = token
 		}
 
-		// Validate all tokens — fails at DB lookup (no DB in tests)
+		// All validations fail at DB lookup (nil DB)
 		for _, token := range tokens {
 			_, err := jwtService.ValidateToken(token)
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), "failed to get user")
 		}
 
-		// Verify tokens are unique
+		// Tokens are unique despite all failing on validation
 		tokenSet := make(map[string]bool)
 		for _, token := range tokens {
 			assert.False(t, tokenSet[token], "Duplicate token found")
