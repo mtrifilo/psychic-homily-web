@@ -10,6 +10,7 @@ import {
   Globe,
   Ticket,
   Building2,
+  Edit2,
 } from 'lucide-react'
 import {
   useFestival,
@@ -31,6 +32,9 @@ import {
   formatFestivalLocation,
   formatFestivalDateRange,
 } from '../types'
+import { useIsAuthenticated } from '@/features/auth'
+import { EntityEditDrawer } from '@/features/contributions'
+import { useQueryClient } from '@tanstack/react-query'
 
 interface FestivalDetailProps {
   idOrSlug: string | number
@@ -38,6 +42,14 @@ interface FestivalDetailProps {
 
 export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   const { data: festival, isLoading, error } = useFestival({ idOrSlug })
+  const { user, isAuthenticated } = useIsAuthenticated()
+  const queryClient = useQueryClient()
+  const canEditDirectly = isAuthenticated && (
+    user?.is_admin ||
+    user?.user_tier === 'trusted_contributor' ||
+    user?.user_tier === 'local_ambassador'
+  )
+  const [isEditing, setIsEditing] = useState(false)
   const { data: artistsData, isLoading: artistsLoading } = useFestivalArtists({
     festivalIdOrSlug: idOrSlug,
     enabled: !!festival,
@@ -249,6 +261,7 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   )
 
   return (
+  <>
     <EntityDetailLayout
       fallback={{ href: '/festivals', label: 'Festivals' }}
       entityName={festival.name}
@@ -272,7 +285,22 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
               )}
             </>
           }
-          actions={<FollowButton entityType="festivals" entityId={festival.id} />}
+          actions={
+            <div className="flex items-center gap-2">
+              {isAuthenticated && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsEditing(true)}
+                  className="text-muted-foreground hover:text-foreground"
+                  title={canEditDirectly ? 'Edit' : 'Suggest Edit'}
+                >
+                  <Edit2 className="h-4 w-4" />
+                </Button>
+              )}
+              <FollowButton entityType="festivals" entityId={festival.id} />
+            </div>
+          }
         />
       }
       tabs={tabs}
@@ -421,5 +449,24 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
         </div>
       </TabsContent>
     </EntityDetailLayout>
+
+    {/* Edit Drawer */}
+    {festival && isAuthenticated && (
+      <EntityEditDrawer
+        open={isEditing}
+        onOpenChange={setIsEditing}
+        entityType="festival"
+        entityId={festival.id}
+        entityName={festival.name}
+        entity={festival as unknown as Record<string, unknown>}
+        canEditDirectly={!!canEditDirectly}
+        onSuccess={() => {
+          queryClient.invalidateQueries({
+            queryKey: ['festivals', 'detail'],
+          })
+        }}
+      />
+    )}
+  </>
   )
 }

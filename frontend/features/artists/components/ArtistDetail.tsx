@@ -35,6 +35,7 @@ import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader, RevisionHist
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList } from '@/features/tags'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
+import { EntityEditDrawer } from '@/features/contributions'
 import { NotifyMeButton } from '@/features/notifications'
 import { ArtistShowsList } from './ArtistShowsList'
 import { RelatedArtists } from './RelatedArtists'
@@ -829,6 +830,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   const { data: artist, isLoading, error } = useArtist({ artistId })
   const { user, isAuthenticated } = useIsAuthenticated()
   const isAdmin = isAuthenticated && user?.is_admin
+  const canEditDirectly = isAdmin || user?.user_tier === 'trusted_contributor' || user?.user_tier === 'local_ambassador'
   const updateArtist = useArtistUpdate()
 
   const [activeTab, setActiveTab] = useState('overview')
@@ -915,12 +917,13 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
     <div className="flex items-center gap-2">
       <NotifyMeButton entityType="artist" entityId={artist.id} entityName={artist.name} />
       <FollowButton entityType="artists" entityId={artist.id} />
-      {isAdmin && (
+      {isAuthenticated && (
         <Button
           variant="ghost"
           size="sm"
           onClick={() => setIsEditing(true)}
           className="text-muted-foreground hover:text-foreground"
+          title={canEditDirectly ? 'Edit' : 'Suggest Edit'}
         >
           <Edit2 className="h-4 w-4" />
         </Button>
@@ -1017,12 +1020,16 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
         />
       </div>
 
-      {/* Admin Edit Dialog */}
-      {isAdmin && (
-        <ArtistEditForm
-          artist={artist}
+      {/* Edit Drawer (all authenticated users) */}
+      {isAuthenticated && (
+        <EntityEditDrawer
           open={isEditing}
           onOpenChange={setIsEditing}
+          entityType="artist"
+          entityId={artist.id}
+          entityName={artist.name}
+          entity={artist as unknown as Record<string, unknown>}
+          canEditDirectly={!!canEditDirectly}
           onSuccess={() => {
             queryClient.invalidateQueries({
               queryKey: queryKeys.artists.detail(artistId),

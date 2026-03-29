@@ -15,6 +15,7 @@ import { NotifyMeButton } from '@/features/notifications'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
+import { EntityEditDrawer } from '@/features/contributions'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
 import { FavoriteVenueButton } from './FavoriteVenueButton'
 import { Button } from '@/components/ui/button'
@@ -79,12 +80,15 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
 
   const { data: venue, isLoading, error } = useVenue({ venueId })
 
-  // User can edit if they're an admin OR if they submitted the venue
-  const canEdit =
-    isAuthenticated &&
-    venue &&
-    (user?.is_admin ||
-      (venue.submitted_by != null && venue.submitted_by === Number(user?.id)))
+  // Any authenticated user can suggest edits; admins/trusted can edit directly
+  const canEdit = isAuthenticated && venue
+  const userTier = (user as unknown as Record<string, unknown> | undefined)?.user_tier
+  const canEditDirectly = isAuthenticated && (
+    user?.is_admin ||
+    userTier === 'trusted_contributor' ||
+    userTier === 'local_ambassador' ||
+    (venue?.submitted_by != null && venue.submitted_by === Number(user?.id))
+  )
 
   const handleVenueUpdated = () => {
     // Invalidate venue detail query
@@ -198,7 +202,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
                 )}
               </div>
 
-              {canEdit && (
+              {isAuthenticated && (
                 <div className="flex items-center gap-2 shrink-0">
                   <Button
                     variant="outline"
@@ -208,15 +212,17 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
                     <Pencil className="h-4 w-4 mr-2" />
                     Edit
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setIsDeleteVenueOpen(true)}
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
-                  </Button>
+                  {user?.is_admin && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsDeleteVenueOpen(true)}
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
@@ -285,12 +291,16 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
         isAdmin={!!user?.is_admin}
       />
 
-      {/* Venue Edit Form Dialog */}
-      {venue && (
-        <VenueEditForm
-          venue={venue}
+      {/* Edit Drawer (all authenticated users) */}
+      {venue && isAuthenticated && (
+        <EntityEditDrawer
           open={isEditingVenue}
           onOpenChange={setIsEditingVenue}
+          entityType="venue"
+          entityId={venue.id}
+          entityName={venue.name}
+          entity={venue as unknown as Record<string, unknown>}
+          canEditDirectly={!!canEditDirectly}
           onSuccess={handleVenueUpdated}
         />
       )}
