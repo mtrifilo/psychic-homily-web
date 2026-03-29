@@ -79,17 +79,18 @@ describe('formatShowTime', () => {
   const utcDate = '2026-03-15T02:30:00Z'
 
   it('defaults to AZ timezone', () => {
+    // 02:30 UTC = 7:30 PM in America/Phoenix (UTC-7, no DST)
     const result = formatShowTime(utcDate)
-    expect(result).toMatch(/PM|AM/)
+    expect(result).toBe('7:30 PM')
   })
 
   it('respects explicit state timezone', () => {
     const resultAZ = formatShowTime(utcDate, 'AZ')
     const resultNY = formatShowTime(utcDate, 'NY')
-    // Different timezones should produce different times
-    // AZ = 7:30 PM, NY = 10:30 PM (or 9:30 PM depending on DST)
-    expect(resultAZ).toMatch(/PM|AM/)
-    expect(resultNY).toMatch(/PM|AM/)
+    // 02:30 UTC on Mar 15 = 7:30 PM in Phoenix (UTC-7), 10:30 PM in New York (UTC-4 DST)
+    expect(resultAZ).toBe('7:30 PM')
+    expect(resultNY).toBe('10:30 PM')
+    expect(resultAZ).not.toBe(resultNY)
   })
 })
 
@@ -142,9 +143,18 @@ describe('formatAdminDate', () => {
 })
 
 describe('formatAdminTime', () => {
-  it('formats time with AM/PM', () => {
-    const result = formatAdminTime('2026-01-15T19:30:00Z')
-    expect(result).toMatch(/\d{1,2}:\d{2}\s*(AM|PM)/)
+  it('formats time with AM/PM matching local timezone', () => {
+    const input = '2026-01-15T19:30:00Z'
+    const result = formatAdminTime(input)
+    // Verify minutes are preserved (invariant across timezones)
+    expect(result).toContain(':30')
+    // Verify it matches the expected local-timezone conversion
+    const expected = new Date(input).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    })
+    expect(result).toBe(expected)
   })
 })
 
