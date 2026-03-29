@@ -834,13 +834,26 @@ func TestGetAdminStatsHandler_Success(t *testing.T) {
 	h := adminStatsHandler(func(ah *AdminStatsHandler) {
 		ah.adminStatsService = &mockAdminStatsService{
 			getDashboardStatsFn: func() (*contracts.AdminDashboardStats, error) {
-				return &contracts.AdminDashboardStats{}, nil
+				return &contracts.AdminDashboardStats{
+					PendingShows: 5,
+					TotalShows:   42,
+					TotalArtists: 100,
+				}, nil
 			},
 		}
 	})
-	_, err := h.GetAdminStatsHandler(adminCtx(), &GetAdminStatsRequest{})
+	resp, err := h.GetAdminStatsHandler(adminCtx(), &GetAdminStatsRequest{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.PendingShows != 5 {
+		t.Errorf("expected PendingShows=5, got %d", resp.Body.PendingShows)
+	}
+	if resp.Body.TotalShows != 42 {
+		t.Errorf("expected TotalShows=42, got %d", resp.Body.TotalShows)
+	}
+	if resp.Body.TotalArtists != 100 {
+		t.Errorf("expected TotalArtists=100, got %d", resp.Body.TotalArtists)
 	}
 }
 
@@ -1184,7 +1197,10 @@ func TestDataImportHandler_Success(t *testing.T) {
 	h := adminDataHandler(func(ah *AdminDataHandler) {
 		ah.dataSyncService = &mockDataSyncService{
 			importDataFn: func(req contracts.DataImportRequest) (*contracts.DataImportResult, error) {
-				return &contracts.DataImportResult{}, nil
+				result := &contracts.DataImportResult{}
+				result.Shows.Total = 1
+				result.Shows.Imported = 1
+				return result, nil
 			},
 		}
 	})
@@ -1194,7 +1210,12 @@ func TestDataImportHandler_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	_ = resp // success
+	if resp.Body.Shows.Total != 1 {
+		t.Errorf("expected Shows.Total=1, got %d", resp.Body.Shows.Total)
+	}
+	if resp.Body.Shows.Imported != 1 {
+		t.Errorf("expected Shows.Imported=1, got %d", resp.Body.Shows.Imported)
+	}
 }
 
 func TestDataImportHandler_ServiceError(t *testing.T) {

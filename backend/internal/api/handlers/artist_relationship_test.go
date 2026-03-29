@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 func testArtistRelationshipHandler() *ArtistRelationshipHandler {
@@ -22,12 +23,25 @@ func TestGetArtistGraph_InvalidID(t *testing.T) {
 }
 
 func TestGetArtistGraph_TypesParsing(t *testing.T) {
-	h := testArtistRelationshipHandler()
-	req := &GetArtistGraphRequest{ArtistID: "abc", Types: "similar,shared_bills"}
+	var capturedTypes []string
+	h := NewArtistRelationshipHandler(
+		&mockArtistRelationshipService{
+			getArtistGraphFn: func(artistID uint, types []string, userID uint) (*contracts.ArtistGraph, error) {
+				capturedTypes = types
+				return &contracts.ArtistGraph{}, nil
+			},
+		},
+		nil,
+	)
+	req := &GetArtistGraphRequest{ArtistID: "1", Types: "similar,shared_bills"}
 
 	_, err := h.GetArtistGraphHandler(context.Background(), req)
-	// Still fails with 400 because of invalid ID, but types parsing doesn't crash
-	assertHumaError(t, err, 400)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(capturedTypes) != 2 || capturedTypes[0] != "similar" || capturedTypes[1] != "shared_bills" {
+		t.Errorf("expected types [similar shared_bills], got %v", capturedTypes)
+	}
 }
 
 // --- GetRelatedArtistsHandler ---
