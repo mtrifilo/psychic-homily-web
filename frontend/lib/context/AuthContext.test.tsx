@@ -371,8 +371,9 @@ describe('AuthContext', () => {
         result.current.logout()
       })
 
-      // User override should be cleared (null)
-      // Profile data would determine the final user state
+      // User override should be cleared — with no profile data, user is null
+      expect(result.current.user).toBeNull()
+      expect(result.current.isAuthenticated).toBe(false)
     })
 
     it('clears error override on logout', async () => {
