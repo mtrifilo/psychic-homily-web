@@ -1662,6 +1662,70 @@ func (m *mockPasswordValidator) IsCommonPassword(password string) (bool) {
 }
 
 // ============================================================================
+// Mock: PendingEditServiceInterface
+// ============================================================================
+
+type mockPendingEditService struct {
+	createPendingEditFn func(*contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error)
+	getPendingEditFn func(uint) (*contracts.PendingEditResponse, error)
+	getPendingEditsForEntityFn func(string, uint) ([]contracts.PendingEditResponse, error)
+	getUserPendingEditsFn func(uint, int, int) ([]contracts.PendingEditResponse, int64, error)
+	listPendingEditsFn func(*contracts.PendingEditFilters) ([]contracts.PendingEditResponse, int64, error)
+	approvePendingEditFn func(uint, uint) (*contracts.PendingEditResponse, error)
+	rejectPendingEditFn func(uint, uint, string) (*contracts.PendingEditResponse, error)
+	cancelPendingEditFn func(uint, uint) (error)
+}
+
+func (m *mockPendingEditService) CreatePendingEdit(req *contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
+	if m.createPendingEditFn != nil {
+		return m.createPendingEditFn(req)
+	}
+	return nil, nil
+}
+func (m *mockPendingEditService) GetPendingEdit(editID uint) (*contracts.PendingEditResponse, error) {
+	if m.getPendingEditFn != nil {
+		return m.getPendingEditFn(editID)
+	}
+	return nil, nil
+}
+func (m *mockPendingEditService) GetPendingEditsForEntity(entityType string, entityID uint) ([]contracts.PendingEditResponse, error) {
+	if m.getPendingEditsForEntityFn != nil {
+		return m.getPendingEditsForEntityFn(entityType, entityID)
+	}
+	return nil, nil
+}
+func (m *mockPendingEditService) GetUserPendingEdits(userID uint, limit int, offset int) ([]contracts.PendingEditResponse, int64, error) {
+	if m.getUserPendingEditsFn != nil {
+		return m.getUserPendingEditsFn(userID, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *mockPendingEditService) ListPendingEdits(filters *contracts.PendingEditFilters) ([]contracts.PendingEditResponse, int64, error) {
+	if m.listPendingEditsFn != nil {
+		return m.listPendingEditsFn(filters)
+	}
+	return nil, 0, nil
+}
+func (m *mockPendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*contracts.PendingEditResponse, error) {
+	if m.approvePendingEditFn != nil {
+		return m.approvePendingEditFn(editID, reviewerID)
+	}
+	return nil, nil
+}
+func (m *mockPendingEditService) RejectPendingEdit(editID uint, reviewerID uint, reason string) (*contracts.PendingEditResponse, error) {
+	if m.rejectPendingEditFn != nil {
+		return m.rejectPendingEditFn(editID, reviewerID, reason)
+	}
+	return nil, nil
+}
+func (m *mockPendingEditService) CancelPendingEdit(editID uint, userID uint) (error) {
+	if m.cancelPendingEditFn != nil {
+		return m.cancelPendingEditFn(editID, userID)
+	}
+	return nil
+}
+
+// ============================================================================
 // Mock: PipelineServiceInterface
 // ============================================================================
 
@@ -3079,6 +3143,7 @@ var _ contracts.LabelServiceInterface = (*mockLabelService)(nil)
 var _ contracts.MusicDiscoveryServiceInterface = (*mockMusicDiscoveryService)(nil)
 var _ contracts.NotificationFilterServiceInterface = (*mockNotificationFilterService)(nil)
 var _ contracts.PasswordValidatorInterface = (*mockPasswordValidator)(nil)
+var _ contracts.PendingEditServiceInterface = (*mockPendingEditService)(nil)
 var _ contracts.PipelineServiceInterface = (*mockPipelineService)(nil)
 var _ contracts.ReleaseServiceInterface = (*mockReleaseService)(nil)
 var _ contracts.RequestServiceInterface = (*mockRequestService)(nil)
