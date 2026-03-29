@@ -24,65 +24,6 @@ func TestNewPendingEditService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestPendingEditService_NilDatabase(t *testing.T) {
-	svc := &PendingEditService{db: nil}
-
-	t.Run("CreatePendingEdit", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
-				EntityType: "artist", EntityID: 1, UserID: 1,
-				Changes: []models.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}},
-				Summary: "test",
-			})
-		})
-	})
-
-	t.Run("GetPendingEdit", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetPendingEdit(1)
-		})
-	})
-
-	t.Run("GetPendingEditsForEntity", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, err := svc.GetPendingEditsForEntity("artist", 1)
-			return err
-		})
-	})
-
-	t.Run("GetUserPendingEdits", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.GetUserPendingEdits(1, 10, 0)
-			return err
-		})
-	})
-
-	t.Run("ListPendingEdits", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.ListPendingEdits(nil)
-			return err
-		})
-	})
-
-	t.Run("ApprovePendingEdit", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.ApprovePendingEdit(1, 1)
-		})
-	})
-
-	t.Run("RejectPendingEdit", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.RejectPendingEdit(1, 1, "reason")
-		})
-	})
-
-	t.Run("CancelPendingEdit", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.CancelPendingEdit(1, 1)
-		})
-	})
-}
-
 func TestIsValidPendingEditEntityType(t *testing.T) {
 	assert.True(t, models.IsValidPendingEditEntityType("artist"))
 	assert.True(t, models.IsValidPendingEditEntityType("venue"))

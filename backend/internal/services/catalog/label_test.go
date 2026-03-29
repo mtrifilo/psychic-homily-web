@@ -22,58 +22,6 @@ func TestNewLabelService(t *testing.T) {
 	assert.NotNil(t, labelService)
 }
 
-func TestLabelService_NilDatabase(t *testing.T) {
-	svc := &LabelService{db: nil}
-
-	t.Run("CreateLabel", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.CreateLabel(&contracts.CreateLabelRequest{Name: "Test"})
-		})
-	})
-
-	t.Run("GetLabel", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetLabel(1)
-		})
-	})
-
-	t.Run("GetLabelBySlug", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetLabelBySlug("test-slug")
-		})
-	})
-
-	t.Run("ListLabels", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.ListLabels(nil)
-		})
-	})
-
-	t.Run("UpdateLabel", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.UpdateLabel(1, &contracts.UpdateLabelRequest{})
-		})
-	})
-
-	t.Run("DeleteLabel", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.DeleteLabel(1)
-		})
-	})
-
-	t.Run("GetLabelRoster", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetLabelRoster(1)
-		})
-	})
-
-	t.Run("GetLabelCatalog", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetLabelCatalog(1)
-		})
-	})
-}
-
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================

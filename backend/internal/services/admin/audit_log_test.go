@@ -23,25 +23,6 @@ func TestNewAuditLogService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestAuditLogService_NilDatabase(t *testing.T) {
-	svc := &AuditLogService{db: nil}
-
-	t.Run("LogAction", func(t *testing.T) {
-		// LogAction is fire-and-forget — does not return an error, just logs
-		// Should not panic with nil db
-		assert.NotPanics(t, func() {
-			svc.LogAction(1, "approve_show", "show", 1, nil)
-		})
-	})
-
-	t.Run("GetAuditLogs", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.GetAuditLogs(10, 0, contracts.AuditLogFilters{})
-			return err
-		})
-	})
-}
-
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================

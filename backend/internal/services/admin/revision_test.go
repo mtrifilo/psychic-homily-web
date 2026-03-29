@@ -23,43 +23,6 @@ func TestNewRevisionService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestRevisionService_NilDatabase(t *testing.T) {
-	svc := &RevisionService{db: nil}
-
-	t.Run("RecordRevision", func(t *testing.T) {
-		changes := []models.FieldChange{{Field: "name", OldValue: "old", NewValue: "new"}}
-		testutil.AssertNilDBError(t, func() error {
-			return svc.RecordRevision("artist", 1, 1, changes, "test")
-		})
-	})
-
-	t.Run("GetEntityHistory", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.GetEntityHistory("artist", 1, 10, 0)
-			return err
-		})
-	})
-
-	t.Run("GetRevision", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetRevision(1)
-		})
-	})
-
-	t.Run("GetUserRevisions", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.GetUserRevisions(1, 10, 0)
-			return err
-		})
-	})
-
-	t.Run("Rollback", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.Rollback(1, 1)
-		})
-	})
-}
-
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================

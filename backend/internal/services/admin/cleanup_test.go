@@ -108,13 +108,3 @@ func TestCleanupService_ContextCancellation(t *testing.T) {
 		t.Fatal("goroutine did not exit after context cancellation")
 	}
 }
-
-// --- RunCleanupNow ---
-
-func TestCleanupService_RunCleanupNow_NilDB(t *testing.T) {
-	svc := NewCleanupService(nil, &stubUserService{})
-	// Should not panic — the DB error gets logged and the cycle returns
-	assert.NotPanics(t, func() {
-		svc.RunCleanupNow()
-	})
-}

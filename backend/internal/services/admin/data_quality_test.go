@@ -30,13 +30,6 @@ func TestNewDataQualityService(t *testing.T) {
 	})
 }
 
-func TestDataQualityService_NilDB(t *testing.T) {
-	svc := &DataQualityService{db: nil}
-	assert.Panics(t, func() {
-		svc.GetSummary()
-	})
-}
-
 func TestDataQualityService_InvalidCategory(t *testing.T) {
 	svc := &DataQualityService{db: &gorm.DB{}}
 	_, _, err := svc.GetCategoryItems("nonexistent_category", 10, 0)

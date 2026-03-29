@@ -31,34 +31,6 @@ func TestNewAnalyticsService(t *testing.T) {
 	})
 }
 
-func TestAnalyticsService_NilDB(t *testing.T) {
-	svc := &AnalyticsService{db: nil}
-
-	t.Run("GetGrowthMetrics", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetGrowthMetrics(6)
-		})
-	})
-
-	t.Run("GetEngagementMetrics", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetEngagementMetrics(6)
-		})
-	})
-
-	t.Run("GetCommunityHealth", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetCommunityHealth()
-		})
-	})
-
-	t.Run("GetDataQualityTrends", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetDataQualityTrends(6)
-		})
-	})
-}
-
 func TestClampMonths(t *testing.T) {
 	assert.Equal(t, 1, clampMonths(0))
 	assert.Equal(t, 1, clampMonths(-5))

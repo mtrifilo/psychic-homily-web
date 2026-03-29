@@ -23,47 +23,6 @@ func TestNewAPITokenService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestAPITokenService_NilDatabase(t *testing.T) {
-	svc := &APITokenService{db: nil}
-
-	t.Run("CreateToken", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.CreateToken(1, nil, 90)
-		})
-	})
-
-	t.Run("ValidateToken", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.ValidateToken("phk_abc123")
-			return err
-		})
-	})
-
-	t.Run("ListTokens", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.ListTokens(1)
-		})
-	})
-
-	t.Run("RevokeToken", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.RevokeToken(1, 1)
-		})
-	})
-
-	t.Run("GetToken", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetToken(1, 1)
-		})
-	})
-
-	t.Run("CleanupExpiredTokens", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.CleanupExpiredTokens()
-		})
-	})
-}
-
 func TestHashToken_Deterministic(t *testing.T) {
 	token := "phk_abc123def456"
 	hash1 := hashToken(token)

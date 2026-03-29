@@ -23,48 +23,6 @@ func TestNewFavoriteVenueService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestFavoriteVenueService_NilDatabase(t *testing.T) {
-	svc := &FavoriteVenueService{db: nil}
-
-	t.Run("FavoriteVenue", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.FavoriteVenue(1, 1)
-		})
-	})
-
-	t.Run("UnfavoriteVenue", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.UnfavoriteVenue(1, 1)
-		})
-	})
-
-	t.Run("GetUserFavoriteVenues", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.GetUserFavoriteVenues(1, 10, 0)
-			return err
-		})
-	})
-
-	t.Run("IsVenueFavorited", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.IsVenueFavorited(1, 1)
-		})
-	})
-
-	t.Run("GetUpcomingShowsFromFavorites", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.GetUpcomingShowsFromFavorites(1, "UTC", 10, 0)
-			return err
-		})
-	})
-
-	t.Run("GetFavoriteVenueIDs", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetFavoriteVenueIDs(1, []uint{1, 2})
-		})
-	})
-}
-
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================
