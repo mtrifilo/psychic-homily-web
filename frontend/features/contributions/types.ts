@@ -45,6 +45,45 @@ export interface EditableField {
   group?: 'info' | 'social' | 'details'
 }
 
+export type ReportableEntityType = 'artist' | 'venue' | 'festival' | 'show'
+
+export interface ReportTypeOption {
+  value: string
+  label: string
+  description: string
+}
+
+/** Report type options per entity type — matches backend entity_reports report_type values. */
+export const REPORT_TYPES: Record<ReportableEntityType, ReportTypeOption[]> = {
+  artist: [
+    { value: 'inaccurate', label: 'Inaccurate Information', description: 'Name, bio, social links, or other info is wrong' },
+    { value: 'duplicate', label: 'Duplicate Artist', description: 'This artist already exists under a different name' },
+    { value: 'wrong_image', label: 'Wrong Image', description: 'The artist image is incorrect' },
+    { value: 'removal_request', label: 'Removal Request', description: 'This artist page should be removed' },
+    { value: 'missing_info', label: 'Missing Information', description: 'Important information is missing' },
+  ],
+  venue: [
+    { value: 'closed_permanently', label: 'Permanently Closed', description: 'This venue has permanently closed' },
+    { value: 'wrong_address', label: 'Wrong Address', description: 'The address or location is incorrect' },
+    { value: 'duplicate', label: 'Duplicate Venue', description: 'This venue already exists under a different name' },
+    { value: 'inaccurate', label: 'Inaccurate Information', description: 'Name, details, or other info is wrong' },
+    { value: 'missing_info', label: 'Missing Information', description: 'Important information is missing' },
+  ],
+  festival: [
+    { value: 'cancelled', label: 'Cancelled', description: 'This festival has been cancelled' },
+    { value: 'wrong_dates', label: 'Wrong Dates', description: 'The festival dates are incorrect' },
+    { value: 'duplicate', label: 'Duplicate Festival', description: 'This festival already exists' },
+    { value: 'inaccurate', label: 'Inaccurate Information', description: 'Information is wrong or outdated' },
+  ],
+  show: [
+    { value: 'cancelled', label: 'Cancelled', description: 'This show has been cancelled' },
+    { value: 'sold_out', label: 'Sold Out', description: 'This show is sold out' },
+    { value: 'inaccurate', label: 'Inaccurate Information', description: 'Date, time, venue, or other info is wrong' },
+    { value: 'wrong_venue', label: 'Wrong Venue', description: 'This show is listed at the wrong venue' },
+    { value: 'wrong_date', label: 'Wrong Date', description: 'The show date or time is incorrect' },
+  ],
+}
+
 /** Editable fields per entity type — matches backend allowedEditFields. */
 export const EDITABLE_FIELDS: Record<EditableEntityType, EditableField[]> = {
   artist: [

@@ -11,6 +11,7 @@ import {
   Ticket,
   Building2,
   Edit2,
+  Flag,
 } from 'lucide-react'
 import {
   useFestival,
@@ -33,7 +34,7 @@ import {
   formatFestivalDateRange,
 } from '../types'
 import { useIsAuthenticated } from '@/features/auth'
-import { EntityEditDrawer, AttributionLine } from '@/features/contributions'
+import { EntityEditDrawer, AttributionLine, ReportEntityDialog } from '@/features/contributions'
 import { useQueryClient } from '@tanstack/react-query'
 
 interface FestivalDetailProps {
@@ -50,6 +51,7 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
     user?.user_tier === 'local_ambassador'
   )
   const [isEditing, setIsEditing] = useState(false)
+  const [isReportOpen, setIsReportOpen] = useState(false)
   const { data: artistsData, isLoading: artistsLoading } = useFestivalArtists({
     festivalIdOrSlug: idOrSlug,
     enabled: !!festival,
@@ -299,6 +301,17 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
                     <Edit2 className="h-4 w-4" />
                   </Button>
                 )}
+                {isAuthenticated && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsReportOpen(true)}
+                    className="text-muted-foreground hover:text-foreground"
+                    title="Report an issue"
+                  >
+                    <Flag className="h-4 w-4" />
+                  </Button>
+                )}
                 <FollowButton entityType="festivals" entityId={festival.id} />
               </div>
             }
@@ -468,6 +481,17 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
             queryKey: ['festivals', 'detail'],
           })
         }}
+      />
+    )}
+
+    {/* Report Dialog (authenticated users) */}
+    {festival && isAuthenticated && (
+      <ReportEntityDialog
+        open={isReportOpen}
+        onOpenChange={setIsReportOpen}
+        entityType="festival"
+        entityId={festival.id}
+        entityName={festival.name}
       />
     )}
   </>
