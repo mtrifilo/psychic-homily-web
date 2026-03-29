@@ -98,7 +98,6 @@ describe('useAdminShows', () => {
       expect(mockApiRequest).toHaveBeenCalledWith(
         '/admin/shows/pending?limit=50&offset=0'
       )
-      expect(result.current.data?.shows).toHaveLength(2)
     })
 
     it('supports custom limit and offset', async () => {

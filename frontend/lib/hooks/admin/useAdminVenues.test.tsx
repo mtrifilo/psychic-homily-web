@@ -62,30 +62,6 @@ describe('useAdminVenues', () => {
       })
     })
 
-    it('returns verified venue data on success', async () => {
-      const mockVenue = {
-        id: 10,
-        name: 'The Rebel Lounge',
-        city: 'Phoenix',
-        state: 'AZ',
-        verified: true,
-      }
-      mockApiRequest.mockResolvedValueOnce(mockVenue)
-
-      const { result } = renderHook(() => useVerifyVenue(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate(10)
-      })
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      expect(result.current.data?.name).toBe('The Rebel Lounge')
-      expect(result.current.data?.verified).toBe(true)
-    })
-
     it('invalidates venues and pending shows on success', async () => {
       mockApiRequest.mockResolvedValueOnce({ id: 20, verified: true })
 

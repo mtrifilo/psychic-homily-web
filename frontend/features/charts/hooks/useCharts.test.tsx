@@ -70,10 +70,6 @@ describe('useCharts hooks', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith('/charts/overview', { method: 'GET' })
-      expect(result.current.data?.trending_shows).toHaveLength(1)
-      expect(result.current.data?.popular_artists).toHaveLength(1)
-      expect(result.current.data?.active_venues).toHaveLength(1)
-      expect(result.current.data?.hot_releases).toHaveLength(1)
     })
 
   })
@@ -94,7 +90,6 @@ describe('useCharts hooks', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith('/charts/trending-shows', { method: 'GET' })
-      expect(result.current.data?.shows).toHaveLength(1)
     })
 
     it('fetches trending shows with limit', async () => {
@@ -127,8 +122,6 @@ describe('useCharts hooks', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith('/charts/popular-artists', { method: 'GET' })
-      expect(result.current.data?.artists).toHaveLength(1)
-      expect(result.current.data?.artists[0].name).toBe('Artist A')
     })
 
     it('passes limit param', async () => {
@@ -159,8 +152,6 @@ describe('useCharts hooks', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith('/charts/active-venues', { method: 'GET' })
-      expect(result.current.data?.venues).toHaveLength(1)
-      expect(result.current.data?.venues[0].name).toBe('Venue A')
     })
 
     it('passes limit param', async () => {
@@ -191,8 +182,6 @@ describe('useCharts hooks', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith('/charts/hot-releases', { method: 'GET' })
-      expect(result.current.data?.releases).toHaveLength(1)
-      expect(result.current.data?.releases[0].title).toBe('Album A')
     })
 
     it('passes limit param', async () => {

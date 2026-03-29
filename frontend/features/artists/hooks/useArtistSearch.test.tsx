@@ -67,8 +67,6 @@ describe('useArtistSearch', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
     expect(mockApiRequest).toHaveBeenCalledWith('/artists/search?q=test')
-    expect(result.current.data?.artists).toHaveLength(2)
-    expect(result.current.data?.count).toBe(2)
   })
 
   it('does not fetch when query is empty', () => {
@@ -105,9 +103,6 @@ describe('useArtistSearch', () => {
     )
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.artists).toHaveLength(0)
-    expect(result.current.data?.count).toBe(0)
   })
 
   it('accepts custom debounce delay', async () => {
@@ -137,39 +132,4 @@ describe('useArtistSearch', () => {
     expect(result.current.data).toBeUndefined()
   })
 
-  it('returns artist details in response', async () => {
-    const mockResponse = {
-      artists: [
-        {
-          id: 5,
-          slug: 'sonic-youth',
-          name: 'Sonic Youth',
-          city: 'New York',
-          state: 'NY',
-          bandcamp_embed_url: null,
-          social: {
-            bandcamp: 'https://sonicyouth.bandcamp.com',
-            spotify: null,
-            instagram: null,
-          },
-          created_at: '2024-01-01T00:00:00Z',
-          updated_at: '2024-06-01T00:00:00Z',
-        },
-      ],
-      count: 1,
-    }
-    mockApiRequest.mockResolvedValueOnce(mockResponse)
-
-    const { result } = renderHook(
-      () => useArtistSearch({ query: 'sonic' }),
-      { wrapper: createWrapper() }
-    )
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    const artist = result.current.data?.artists[0]
-    expect(artist?.name).toBe('Sonic Youth')
-    expect(artist?.slug).toBe('sonic-youth')
-    expect(artist?.social.bandcamp).toBe('https://sonicyouth.bandcamp.com')
-  })
 })

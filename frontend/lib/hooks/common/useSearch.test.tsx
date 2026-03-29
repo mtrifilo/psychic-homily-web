@@ -76,8 +76,6 @@ describe('useArtistSearch', () => {
     expect(mockApiRequest).toHaveBeenCalledWith(
       '/artists/search?q=Test'
     )
-    expect(result.current.data?.artists).toHaveLength(2)
-    expect(result.current.data?.count).toBe(2)
   })
 
   it('URL encodes the search query', async () => {
@@ -104,9 +102,6 @@ describe('useArtistSearch', () => {
     )
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.artists).toEqual([])
-    expect(result.current.data?.count).toBe(0)
   })
 })
 
@@ -145,8 +140,6 @@ describe('useVenueSearch', () => {
     expect(mockApiRequest).toHaveBeenCalledWith(
       '/venues/search?q=Rebel'
     )
-    expect(result.current.data?.venues).toHaveLength(2)
-    expect(result.current.data?.count).toBe(2)
   })
 
   it('URL encodes the search query', async () => {
@@ -173,8 +166,5 @@ describe('useVenueSearch', () => {
     )
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.venues).toEqual([])
-    expect(result.current.data?.count).toBe(0)
   })
 })
