@@ -152,6 +152,33 @@ describe("similarityScore", () => {
     const score = similarityScore("The Shins", "The Shin");
     expect(score).toBeGreaterThan(0.6);
   });
+
+  // --- Shared-prefix false positive prevention (PSY-235) ---
+
+  test("Mannequin Pussy does NOT match Mannequins (shared prefix, different entity)", () => {
+    const score = similarityScore("Mannequin Pussy", "Mannequins");
+    expect(score).toBeLessThan(0.6);
+  });
+
+  test("Black Keys does NOT match Black Lips (shared first word, different second word)", () => {
+    const score = similarityScore("Black Keys", "Black Lips");
+    expect(score).toBeLessThan(0.6);
+  });
+
+  test("Black Flag does NOT match Black Sabbath", () => {
+    const score = similarityScore("Black Flag", "Black Sabbath");
+    expect(score).toBeLessThan(0.6);
+  });
+
+  test("Dead Can Dance does NOT match Dead Kennedys", () => {
+    const score = similarityScore("Dead Can Dance", "Dead Kennedys");
+    expect(score).toBeLessThan(0.6);
+  });
+
+  test("Iron Maiden does NOT match Iron and Wine", () => {
+    const score = similarityScore("Iron Maiden", "Iron and Wine");
+    expect(score).toBeLessThan(0.6);
+  });
 });
 
 describe("compareFields", () => {
