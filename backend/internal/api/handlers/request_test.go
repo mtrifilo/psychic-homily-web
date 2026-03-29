@@ -89,7 +89,34 @@ func TestRequestHandler_RequiresAuth(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_Create_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{}, nil)
+	h := NewRequestHandler(&mockRequestService{
+		createRequestFn: func(userID uint, title, description, entityType string, requestedEntityID *uint) (*models.Request, error) {
+			if userID != 1 {
+				t.Errorf("expected userID=1, got %d", userID)
+			}
+			if title != "Add Band XYZ" {
+				t.Errorf("expected title='Add Band XYZ', got %q", title)
+			}
+			if description != "They play shows" {
+				t.Errorf("expected description='They play shows', got %q", description)
+			}
+			if entityType != "artist" {
+				t.Errorf("expected entityType='artist', got %q", entityType)
+			}
+			if requestedEntityID != nil {
+				t.Errorf("expected requestedEntityID=nil, got %v", requestedEntityID)
+			}
+			desc := description
+			return &models.Request{
+				ID:          1,
+				Title:       title,
+				Description: &desc,
+				EntityType:  entityType,
+				Status:      models.RequestStatusPending,
+				RequesterID: userID,
+			}, nil
+		},
+	}, nil)
 
 	req := &CreateRequestHandlerRequest{}
 	desc := "They play shows"
@@ -148,14 +175,27 @@ func TestRequestHandler_Create_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_Get_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{}, nil)
+	h := NewRequestHandler(&mockRequestService{
+		getRequestFn: func(requestID uint) (*models.Request, error) {
+			if requestID != 42 {
+				t.Errorf("expected requestID=42, got %d", requestID)
+			}
+			return &models.Request{
+				ID:          requestID,
+				Title:       "Test Request",
+				EntityType:  "artist",
+				Status:      models.RequestStatusPending,
+				RequesterID: 1,
+			}, nil
+		},
+	}, nil)
 
-	resp, err := h.GetRequestHandler(requestUserCtx(), &GetRequestHandlerRequest{RequestID: "1"})
+	resp, err := h.GetRequestHandler(requestUserCtx(), &GetRequestHandlerRequest{RequestID: "42"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.ID != 1 {
-		t.Errorf("expected id=1, got %d", resp.Body.ID)
+	if resp.Body.ID != 42 {
+		t.Errorf("expected id=42, got %d", resp.Body.ID)
 	}
 }
 
@@ -193,9 +233,36 @@ func TestRequestHandler_Get_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_List_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{}, nil)
+	h := NewRequestHandler(&mockRequestService{
+		listRequestsFn: func(status string, entityType string, sortBy string, limit, offset int) ([]models.Request, int64, error) {
+			if limit != 20 {
+				t.Errorf("expected limit=20, got %d", limit)
+			}
+			if offset != 10 {
+				t.Errorf("expected offset=10, got %d", offset)
+			}
+			if status != "pending" {
+				t.Errorf("expected status='pending', got %q", status)
+			}
+			if entityType != "artist" {
+				t.Errorf("expected entityType='artist', got %q", entityType)
+			}
+			if sortBy != "votes" {
+				t.Errorf("expected sortBy='votes', got %q", sortBy)
+			}
+			return []models.Request{
+				{ID: 1, Title: "Request 1", EntityType: "artist", Status: models.RequestStatusPending, RequesterID: 1},
+			}, 1, nil
+		},
+	}, nil)
 
-	resp, err := h.ListRequestsHandler(requestUserCtx(), &ListRequestsHandlerRequest{Limit: 20})
+	resp, err := h.ListRequestsHandler(requestUserCtx(), &ListRequestsHandlerRequest{
+		Limit:      20,
+		Offset:     10,
+		Status:     "pending",
+		EntityType: "artist",
+		Sort:       "votes",
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -254,9 +321,25 @@ func TestRequestHandler_List_NoAuth_Succeeds(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_Update_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{}, nil)
+	h := NewRequestHandler(&mockRequestService{
+		updateRequestFn: func(requestID, userID uint, title, description *string) (*models.Request, error) {
+			if requestID != 7 {
+				t.Errorf("expected requestID=7, got %d", requestID)
+			}
+			if userID != 1 {
+				t.Errorf("expected userID=1, got %d", userID)
+			}
+			if title == nil || *title != "Updated" {
+				t.Errorf("expected title='Updated', got %v", title)
+			}
+			if description != nil {
+				t.Errorf("expected description=nil, got %v", description)
+			}
+			return &models.Request{ID: requestID, Title: *title, EntityType: "artist", Status: models.RequestStatusPending, RequesterID: userID}, nil
+		},
+	}, nil)
 
-	req := &UpdateRequestHandlerRequest{RequestID: "1"}
+	req := &UpdateRequestHandlerRequest{RequestID: "7"}
 	title := "Updated"
 	req.Body.Title = &title
 
@@ -264,8 +347,8 @@ func TestRequestHandler_Update_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.ID != 1 {
-		t.Errorf("expected id=1, got %d", resp.Body.ID)
+	if resp.Body.ID != 7 {
+		t.Errorf("expected id=7, got %d", resp.Body.ID)
 	}
 }
 
@@ -295,9 +378,22 @@ func TestRequestHandler_Update_ServiceError_NotFound(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_Delete_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{}, nil)
+	h := NewRequestHandler(&mockRequestService{
+		deleteRequestFn: func(requestID, userID uint, isAdmin bool) error {
+			if requestID != 3 {
+				t.Errorf("expected requestID=3, got %d", requestID)
+			}
+			if userID != 1 {
+				t.Errorf("expected userID=1, got %d", userID)
+			}
+			if isAdmin {
+				t.Errorf("expected isAdmin=false, got true")
+			}
+			return nil
+		},
+	}, nil)
 
-	_, err := h.DeleteRequestHandler(requestUserCtx(), &DeleteRequestHandlerRequest{RequestID: "1"})
+	_, err := h.DeleteRequestHandler(requestUserCtx(), &DeleteRequestHandlerRequest{RequestID: "3"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -326,9 +422,22 @@ func TestRequestHandler_Delete_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_Vote_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{}, nil)
+	h := NewRequestHandler(&mockRequestService{
+		voteFn: func(requestID, userID uint, isUpvote bool) error {
+			if requestID != 5 {
+				t.Errorf("expected requestID=5, got %d", requestID)
+			}
+			if userID != 1 {
+				t.Errorf("expected userID=1, got %d", userID)
+			}
+			if !isUpvote {
+				t.Errorf("expected isUpvote=true, got false")
+			}
+			return nil
+		},
+	}, nil)
 
-	req := &VoteRequestHandlerRequest{RequestID: "1"}
+	req := &VoteRequestHandlerRequest{RequestID: "5"}
 	req.Body.IsUpvote = true
 
 	_, err := h.VoteRequestHandler(requestUserCtx(), req)
@@ -363,9 +472,19 @@ func TestRequestHandler_Vote_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_RemoveVote_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{}, nil)
+	h := NewRequestHandler(&mockRequestService{
+		removeVoteFn: func(requestID, userID uint) error {
+			if requestID != 8 {
+				t.Errorf("expected requestID=8, got %d", requestID)
+			}
+			if userID != 1 {
+				t.Errorf("expected userID=1, got %d", userID)
+			}
+			return nil
+		},
+	}, nil)
 
-	_, err := h.RemoveVoteRequestHandler(requestUserCtx(), &RemoveVoteRequestHandlerRequest{RequestID: "1"})
+	_, err := h.RemoveVoteRequestHandler(requestUserCtx(), &RemoveVoteRequestHandlerRequest{RequestID: "8"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -383,9 +502,19 @@ func TestRequestHandler_RemoveVote_InvalidID(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_Fulfill_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{}, nil)
+	h := NewRequestHandler(&mockRequestService{
+		fulfillRequestFn: func(requestID, fulfillerID uint, fulfilledEntityID *uint) error {
+			if requestID != 15 {
+				t.Errorf("expected requestID=15, got %d", requestID)
+			}
+			if fulfillerID != 1 {
+				t.Errorf("expected fulfillerID=1, got %d", fulfillerID)
+			}
+			return nil
+		},
+	}, nil)
 
-	_, err := h.FulfillRequestHandler(requestUserCtx(), &FulfillRequestHandlerRequest{RequestID: "1"})
+	_, err := h.FulfillRequestHandler(requestUserCtx(), &FulfillRequestHandlerRequest{RequestID: "15"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -414,9 +543,22 @@ func TestRequestHandler_Fulfill_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_Close_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{}, nil)
+	h := NewRequestHandler(&mockRequestService{
+		closeRequestFn: func(requestID, userID uint, isAdmin bool) error {
+			if requestID != 20 {
+				t.Errorf("expected requestID=20, got %d", requestID)
+			}
+			if userID != 1 {
+				t.Errorf("expected userID=1, got %d", userID)
+			}
+			if isAdmin {
+				t.Errorf("expected isAdmin=false, got true")
+			}
+			return nil
+		},
+	}, nil)
 
-	_, err := h.CloseRequestHandler(requestUserCtx(), &CloseRequestHandlerRequest{RequestID: "1"})
+	_, err := h.CloseRequestHandler(requestUserCtx(), &CloseRequestHandlerRequest{RequestID: "20"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
