@@ -61,9 +61,21 @@ describe('useEntityRevisions', () => {
     const url = mockApiRequest.mock.calls[0][0] as string
     expect(url).toContain('/revisions/artist/42')
     expect(url).toContain('limit=20')
-    // Note: offset=0 is falsy, so the hook's `if (offset)` check skips it.
-    // This is a minor bug -- offset 0 is valid but gets omitted.
-    // The backend defaults to 0 anyway, so it's functionally correct.
+    expect(url).toContain('offset=0')
+  })
+
+  it('includes offset=0 in query params (regression: falsy check skipped offset 0)', async () => {
+    mockApiRequest.mockResolvedValueOnce({ revisions: [], total: 0 })
+
+    const { result } = renderHook(
+      () => useEntityRevisions('artist', 42, { offset: 0 }),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const url = mockApiRequest.mock.calls[0][0] as string
+    expect(url).toContain('offset=0')
+    expect(url).toContain('limit=20')
   })
 
   it('includes custom limit and offset', async () => {
