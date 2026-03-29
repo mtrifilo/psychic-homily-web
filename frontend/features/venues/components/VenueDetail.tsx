@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, BadgeCheck, Pencil, Trash2, Loader2, ExternalLink } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Pencil, Trash2, Loader2, ExternalLink, Flag } from 'lucide-react'
 import { useVenue, useVenueGenres } from '../hooks/useVenues'
 import { useVenueUpdate } from '../hooks/useVenueEdit'
 import type { ApiError } from '@/lib/api'
@@ -15,7 +15,7 @@ import { NotifyMeButton } from '@/features/notifications'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
-import { EntityEditDrawer, AttributionLine } from '@/features/contributions'
+import { EntityEditDrawer, AttributionLine, ReportEntityDialog } from '@/features/contributions'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
 import { FavoriteVenueButton } from './FavoriteVenueButton'
 import { Button } from '@/components/ui/button'
@@ -73,6 +73,7 @@ function VenueGenreProfile({ venueId }: { venueId: number }) {
 export function VenueDetail({ venueId }: VenueDetailProps) {
   const [isEditingVenue, setIsEditingVenue] = useState(false)
   const [isDeleteVenueOpen, setIsDeleteVenueOpen] = useState(false)
+  const [isReportOpen, setIsReportOpen] = useState(false)
   const { isAuthenticated, user } = useAuthContext()
   const queryClient = useQueryClient()
   const router = useRouter()
@@ -215,6 +216,15 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
                     <Pencil className="h-4 w-4 mr-2" />
                     Edit
                   </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsReportOpen(true)}
+                    className="text-muted-foreground hover:text-foreground"
+                    title="Report an issue"
+                  >
+                    <Flag className="h-4 w-4" />
+                  </Button>
                   {user?.is_admin && (
                     <Button
                       variant="outline"
@@ -315,6 +325,17 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
           open={isDeleteVenueOpen}
           onOpenChange={setIsDeleteVenueOpen}
           onSuccess={() => router.push('/venues')}
+        />
+      )}
+
+      {/* Report Dialog (authenticated users) */}
+      {venue && isAuthenticated && (
+        <ReportEntityDialog
+          open={isReportOpen}
+          onOpenChange={setIsReportOpen}
+          entityType="venue"
+          entityId={venue.id}
+          entityName={venue.name}
         />
       )}
     </div>

@@ -14,6 +14,7 @@ import {
   Edit2,
   Disc3,
   Tag,
+  Flag,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useArtist } from '../hooks/useArtists'
@@ -35,11 +36,10 @@ import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader, RevisionHist
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList } from '@/features/tags'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
-import { EntityEditDrawer, AttributionLine } from '@/features/contributions'
+import { EntityEditDrawer, AttributionLine, ReportEntityDialog } from '@/features/contributions'
 import { NotifyMeButton } from '@/features/notifications'
 import { ArtistShowsList } from './ArtistShowsList'
 import { RelatedArtists } from './RelatedArtists'
-import { ReportArtistButton } from './ReportArtistButton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -835,6 +835,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
   const [activeTab, setActiveTab] = useState('overview')
   const [isEditing, setIsEditing] = useState(false)
+  const [isReportOpen, setIsReportOpen] = useState(false)
 
   // Fetch labels for sidebar
   const { data: labelsData, isLoading: labelsLoading } = useArtistLabels({
@@ -928,7 +929,17 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           <Edit2 className="h-4 w-4" />
         </Button>
       )}
-      <ReportArtistButton artistId={artist.id} artistName={artist.name} />
+      {isAuthenticated && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setIsReportOpen(true)}
+          className="text-muted-foreground hover:text-foreground"
+          title="Report an issue"
+        >
+          <Flag className="h-4 w-4" />
+        </Button>
+      )}
     </div>
   )
 
@@ -1038,6 +1049,17 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
               queryKey: queryKeys.artists.detail(artistId),
             })
           }}
+        />
+      )}
+
+      {/* Report Dialog (authenticated users) */}
+      {isAuthenticated && (
+        <ReportEntityDialog
+          open={isReportOpen}
+          onOpenChange={setIsReportOpen}
+          entityType="artist"
+          entityId={artist.id}
+          entityName={artist.name}
         />
       )}
     </>

@@ -116,6 +116,8 @@ vi.mock('@/features/contributions', () => ({
   EntityEditDrawer: ({ open }: { open: boolean }) =>
     open ? <div data-testid="edit-drawer">Edit Drawer</div> : null,
   AttributionLine: () => null,
+  ReportEntityDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="report-dialog">Report Dialog</div> : null,
 }))
 
 vi.mock('./DeleteVenueDialog', () => ({

@@ -75,13 +75,12 @@ vi.mock('./ArtistShowsList', () => ({
   ),
 }))
 
-vi.mock('./ReportArtistButton', () => ({
-  ReportArtistButton: ({
-    artistName,
-  }: {
-    artistId: number
-    artistName: string
-  }) => <button data-testid="report-button">Report {artistName}</button>,
+vi.mock('@/features/contributions', () => ({
+  EntityEditDrawer: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="edit-drawer">Edit Drawer</div> : null,
+  AttributionLine: () => null,
+  ReportEntityDialog: ({ open, entityName }: { open: boolean; entityName: string }) =>
+    open ? <div data-testid="report-dialog">Report {entityName}</div> : null,
 }))
 
 vi.mock('@/components/forms/ArtistEditForm', () => ({
@@ -312,10 +311,19 @@ describe('ArtistDetail', () => {
       expect(screen.getByTestId('tab-labels')).toBeInTheDocument()
     })
 
-    it('renders report button in header actions', () => {
+    it('shows report button in header actions for authenticated users', () => {
+      mockUseIsAuthenticated.mockReturnValue({
+        user: { is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+      })
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
-      expect(screen.getByTestId('report-button')).toBeInTheDocument()
-      expect(screen.getByText('Report Test Artist')).toBeInTheDocument()
+      expect(screen.getByTitle('Report an issue')).toBeInTheDocument()
+    })
+
+    it('does not show report button for unauthenticated users', () => {
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.queryByTitle('Report an issue')).not.toBeInTheDocument()
     })
 
     it('renders artist shows list', () => {
