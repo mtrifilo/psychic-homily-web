@@ -15,7 +15,7 @@ import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
   Library, LayoutList, MessageSquarePlus, Settings, Search, Clock, X, Globe,
   TrendingUp, LayoutDashboard, Upload, BadgeCheck, Flag, ScrollText, Users, Workflow,
-  ClipboardCheck, BarChart3, Music, Bell,
+  ClipboardCheck, BarChart3, Music, Bell, HeartHandshake,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -90,6 +90,12 @@ const routes: RouteItem[] = [
     href: '/charts',
     icon: TrendingUp,
     keywords: ['charts', 'trending', 'popular', 'top', 'hot', 'rankings', 'leaderboard'],
+  },
+  {
+    label: 'Contribute',
+    href: '/contribute',
+    icon: HeartHandshake,
+    keywords: ['contribute', 'help', 'data quality', 'missing', 'opportunities', 'improve'],
   },
   {
     label: 'Requests',

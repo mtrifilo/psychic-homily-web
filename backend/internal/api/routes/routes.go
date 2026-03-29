@@ -127,6 +127,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupChartsRoutes(rc)
 	setupPendingEditRoutes(rc)
 	setupEntityReportRoutes(rc)
+	setupContributeRoutes(rc)
 
 	return api
 }
@@ -967,4 +968,11 @@ func setupEntityReportRoutes(rc RouteContext) {
 	huma.Get(rc.Protected, "/admin/entity-reports/{report_id}", entityReportHandler.AdminGetEntityReportHandler)
 	huma.Post(rc.Protected, "/admin/entity-reports/{report_id}/resolve", entityReportHandler.AdminResolveEntityReportHandler)
 	huma.Post(rc.Protected, "/admin/entity-reports/{report_id}/dismiss", entityReportHandler.AdminDismissEntityReportHandler)
+}
+
+// setupContributeRoutes configures public contribution opportunity endpoints.
+func setupContributeRoutes(rc RouteContext) {
+	contributeHandler := handlers.NewContributeHandler(rc.SC.DataQuality)
+	huma.Get(rc.API, "/contribute/opportunities", contributeHandler.GetOpportunitiesHandler)
+	huma.Get(rc.API, "/contribute/opportunities/{category}", contributeHandler.GetOpportunityCategoryHandler)
 }
