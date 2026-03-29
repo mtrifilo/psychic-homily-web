@@ -112,6 +112,11 @@ vi.mock('@/components/forms/VenueEditForm', () => ({
     open ? <div data-testid="edit-form">Edit Form</div> : null,
 }))
 
+vi.mock('@/features/contributions', () => ({
+  EntityEditDrawer: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="edit-drawer">Edit Drawer</div> : null,
+}))
+
 vi.mock('./DeleteVenueDialog', () => ({
   DeleteVenueDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="delete-dialog">Delete Dialog</div> : null,
@@ -393,13 +398,13 @@ describe('VenueDetail', () => {
       expect(screen.getByRole('button', { name: /Delete/ })).toBeInTheDocument()
     })
 
-    it('opens edit form on click', async () => {
+    it('opens edit drawer on click', async () => {
       const user = userEvent.setup()
       render(<VenueDetail venueId="1" />)
 
-      expect(screen.queryByTestId('edit-form')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('edit-drawer')).not.toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Edit/ }))
-      expect(screen.getByTestId('edit-form')).toBeInTheDocument()
+      expect(screen.getByTestId('edit-drawer')).toBeInTheDocument()
     })
 
     it('opens delete dialog on click', async () => {
@@ -413,7 +418,7 @@ describe('VenueDetail', () => {
   })
 
   describe('venue owner controls', () => {
-    it('shows edit/delete for venue owner', () => {
+    it('shows edit for venue owner, no delete (non-admin)', () => {
       mockAuthContext.mockReturnValue({
         user: { id: '42', is_admin: false },
         isAuthenticated: true,
@@ -427,10 +432,10 @@ describe('VenueDetail', () => {
       })
       render(<VenueDetail venueId="1" />)
       expect(screen.getByRole('button', { name: /Edit/ })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /Delete/ })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Delete/ })).not.toBeInTheDocument()
     })
 
-    it('does not show edit/delete for non-admin non-owner', () => {
+    it('shows edit for non-admin non-owner, no delete', () => {
       mockAuthContext.mockReturnValue({
         user: { id: '99', is_admin: false },
         isAuthenticated: true,
@@ -443,7 +448,9 @@ describe('VenueDetail', () => {
         error: null,
       })
       render(<VenueDetail venueId="1" />)
-      expect(screen.queryByRole('button', { name: /Edit/ })).not.toBeInTheDocument()
+      // All authenticated users can suggest edits
+      expect(screen.getByRole('button', { name: /Edit/ })).toBeInTheDocument()
+      // Only admins see delete
       expect(screen.queryByRole('button', { name: /Delete/ })).not.toBeInTheDocument()
     })
   })
