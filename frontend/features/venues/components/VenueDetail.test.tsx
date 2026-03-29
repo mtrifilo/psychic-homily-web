@@ -115,6 +115,7 @@ vi.mock('@/components/forms/VenueEditForm', () => ({
 vi.mock('@/features/contributions', () => ({
   EntityEditDrawer: ({ open }: { open: boolean }) =>
     open ? <div data-testid="edit-drawer">Edit Drawer</div> : null,
+  AttributionLine: () => null,
 }))
 
 vi.mock('./DeleteVenueDialog', () => ({

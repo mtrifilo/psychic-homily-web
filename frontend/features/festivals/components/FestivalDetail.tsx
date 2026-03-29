@@ -33,7 +33,7 @@ import {
   formatFestivalDateRange,
 } from '../types'
 import { useIsAuthenticated } from '@/features/auth'
-import { EntityEditDrawer } from '@/features/contributions'
+import { EntityEditDrawer, AttributionLine } from '@/features/contributions'
 import { useQueryClient } from '@tanstack/react-query'
 
 interface FestivalDetailProps {
@@ -266,42 +266,45 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
       fallback={{ href: '/festivals', label: 'Festivals' }}
       entityName={festival.name}
       header={
-        <EntityHeader
-          title={festival.name}
-          subtitle={
-            <>
-              <Badge variant={getFestivalStatusVariant(festival.status)}>
-                {getFestivalStatusLabel(festival.status)}
-              </Badge>
-              <span className="flex items-center gap-1">
-                <Calendar className="h-3.5 w-3.5" />
-                {dateRange}
-              </span>
-              {location && (
+        <>
+          <EntityHeader
+            title={festival.name}
+            subtitle={
+              <>
+                <Badge variant={getFestivalStatusVariant(festival.status)}>
+                  {getFestivalStatusLabel(festival.status)}
+                </Badge>
                 <span className="flex items-center gap-1">
-                  <MapPin className="h-3.5 w-3.5" />
-                  {location}
+                  <Calendar className="h-3.5 w-3.5" />
+                  {dateRange}
                 </span>
-              )}
-            </>
-          }
-          actions={
-            <div className="flex items-center gap-2">
-              {isAuthenticated && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsEditing(true)}
-                  className="text-muted-foreground hover:text-foreground"
-                  title={canEditDirectly ? 'Edit' : 'Suggest Edit'}
-                >
-                  <Edit2 className="h-4 w-4" />
-                </Button>
-              )}
-              <FollowButton entityType="festivals" entityId={festival.id} />
-            </div>
-          }
-        />
+                {location && (
+                  <span className="flex items-center gap-1">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {location}
+                  </span>
+                )}
+              </>
+            }
+            actions={
+              <div className="flex items-center gap-2">
+                {isAuthenticated && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsEditing(true)}
+                    className="text-muted-foreground hover:text-foreground"
+                    title={canEditDirectly ? 'Edit' : 'Suggest Edit'}
+                  >
+                    <Edit2 className="h-4 w-4" />
+                  </Button>
+                )}
+                <FollowButton entityType="festivals" entityId={festival.id} />
+              </div>
+            }
+          />
+          <AttributionLine entityType="festival" entityId={festival.id} />
+        </>
       }
       tabs={tabs}
       activeTab={activeTab}

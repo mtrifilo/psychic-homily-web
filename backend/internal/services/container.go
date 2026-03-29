@@ -48,6 +48,7 @@ type ServiceContainer struct {
 	SavedShow     *engagement.SavedShowService
 	Show          *catalog.ShowService
 	ShowReport    *adminsvc.ShowReportService
+	EntityReport  *adminsvc.EntityReportService
 	User              *usersvc.UserService
 	Venue             *catalog.VenueService
 	VenueSourceConfig *pipeline.VenueSourceConfigService
@@ -153,6 +154,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		SavedShow:     savedShow,
 		Show:          catalog.NewShowService(database),
 		ShowReport:    adminsvc.NewShowReportService(database),
+		EntityReport:  adminsvc.NewEntityReportService(database),
 		User:          userService,
 		Venue:             venue,
 		VenueSourceConfig: venueSourceConfig,
