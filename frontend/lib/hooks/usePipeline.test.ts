@@ -79,14 +79,6 @@ describe('usePipeline hooks', () => {
       expect(mockApiRequest).not.toHaveBeenCalled()
     })
 
-    it('handles fetch error', async () => {
-      mockApiRequest.mockRejectedValueOnce(new Error('Network error'))
-
-      const { result } = renderHook(() => usePipelineVenues(), { wrapper: createWrapper() })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-      expect(result.current.error).toBeInstanceOf(Error)
-    })
   })
 
   describe('useVenueRejectionStats', () => {

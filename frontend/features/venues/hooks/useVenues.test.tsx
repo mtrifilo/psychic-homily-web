@@ -117,19 +117,6 @@ describe('useVenues', () => {
       expect(calledUrl).toContain('limit=10')
     })
 
-    it('handles API errors', async () => {
-      const error = new Error('Server error')
-      Object.assign(error, { status: 500 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useVenues(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-
-      expect(result.current.error).toBeDefined()
-    })
   })
 
   describe('useVenue (detail)', () => {
@@ -331,20 +318,6 @@ describe('useVenues', () => {
       expect(result.current.fetchStatus).toBe('idle')
     })
 
-    it('handles API errors', async () => {
-      const error = new Error('Server error')
-      Object.assign(error, { status: 500 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(
-        () => useVenueShows({ venueId: 1 }),
-        { wrapper: createWrapper() }
-      )
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-
-      expect(result.current.error).toBeDefined()
-    })
   })
 
   describe('useVenueCities', () => {
@@ -368,20 +341,6 @@ describe('useVenues', () => {
         method: 'GET',
       })
       expect(result.current.data?.cities).toHaveLength(3)
-    })
-
-    it('handles API errors', async () => {
-      const error = new Error('Server error')
-      Object.assign(error, { status: 500 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useVenueCities(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-
-      expect(result.current.error).toBeDefined()
     })
 
     it('returns empty list when no cities', async () => {

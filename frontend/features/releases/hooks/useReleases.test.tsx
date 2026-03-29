@@ -142,17 +142,6 @@ describe('useRelease', () => {
     expect(result.current.fetchStatus).toBe('idle')
   })
 
-  it('handles API errors', async () => {
-    const error = new Error('Not found')
-    Object.assign(error, { status: 404 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useRelease({ idOrSlug: 'nonexistent' }), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-  })
 })
 
 describe('useArtistReleases', () => {

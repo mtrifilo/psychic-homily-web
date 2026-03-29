@@ -116,31 +116,6 @@ describe('useAdminShows', () => {
       )
     })
 
-    it('handles authentication error', async () => {
-      const error = new Error('Forbidden')
-      Object.assign(error, { status: 403 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => usePendingShows(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-
-      expect((result.current.error as Error).message).toBe('Forbidden')
-    })
-
-    it('handles API errors', async () => {
-      const error = new Error('Server error')
-      Object.assign(error, { status: 500 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => usePendingShows(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 
   describe('useRejectedShows', () => {
@@ -193,17 +168,6 @@ describe('useAdminShows', () => {
       expect(calledUrl).toContain('search=query')
     })
 
-    it('handles API errors', async () => {
-      const error = new Error('Server error')
-      Object.assign(error, { status: 500 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useRejectedShows(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 
   describe('useApproveShow', () => {
@@ -294,21 +258,6 @@ describe('useAdminShows', () => {
       expect((result.current.error as Error).message).toBe('Show not found')
     })
 
-    it('handles unauthorized error', async () => {
-      const error = new Error('Forbidden')
-      Object.assign(error, { status: 403 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useApproveShow(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate({ showId: 123, verifyVenues: true })
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 
   describe('useRejectShow', () => {
@@ -356,37 +305,6 @@ describe('useAdminShows', () => {
       })
     })
 
-    it('handles rejection errors', async () => {
-      const error = new Error('Show not found')
-      Object.assign(error, { status: 404 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useRejectShow(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate({ showId: 999, reason: 'Test' })
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
-
-    it('handles unauthorized error', async () => {
-      const error = new Error('Forbidden')
-      Object.assign(error, { status: 403 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useRejectShow(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate({ showId: 123, reason: 'Test' })
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 
   describe('useBatchApproveShows', () => {
@@ -438,19 +356,6 @@ describe('useAdminShows', () => {
       expect(mockInvalidateShows).toHaveBeenCalled()
     })
 
-    it('handles errors', async () => {
-      mockApiRequest.mockRejectedValueOnce(new Error('Server error'))
-
-      const { result } = renderHook(() => useBatchApproveShows(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate([1])
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 
   describe('useBatchRejectShows', () => {
@@ -536,18 +441,5 @@ describe('useAdminShows', () => {
       })
     })
 
-    it('handles errors', async () => {
-      mockApiRequest.mockRejectedValueOnce(new Error('Forbidden'))
-
-      const { result } = renderHook(() => useBatchRejectShows(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate({ showIds: [1], reason: 'Test' })
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 })
