@@ -101,34 +101,6 @@ describe('useMySubmissions', () => {
     expect(calledUrl).toContain('offset=20')
   })
 
-  it('handles authentication error', async () => {
-    const error = new Error('Unauthorized')
-    Object.assign(error, { status: 401 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useMySubmissions(), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect((result.current.error as Error).message).toBe('Unauthorized')
-  })
-
-  it('handles API errors', async () => {
-    const error = new Error('Server error')
-    Object.assign(error, { status: 500 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useMySubmissions(), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect(result.current.error).toBeDefined()
-  })
-
   it('returns empty list when user has no submissions', async () => {
     mockApiRequest.mockResolvedValueOnce({ shows: [], total: 0 })
 

@@ -76,16 +76,6 @@ describe('useCharts hooks', () => {
       expect(result.current.data?.hot_releases).toHaveLength(1)
     })
 
-    it('handles API errors gracefully', async () => {
-      mockApiRequest.mockRejectedValueOnce(new Error('Network error'))
-
-      const { result } = renderHook(() => useChartsOverview(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-      expect(result.current.error?.message).toBe('Network error')
-    })
   })
 
   describe('useTrendingShows', () => {

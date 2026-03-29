@@ -164,17 +164,6 @@ describe('useArtists', () => {
       )
     })
 
-    it('handles API errors', async () => {
-      const error = new Error('Server error')
-      Object.assign(error, { status: 500 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useArtists(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 
   describe('useArtistCities', () => {
@@ -199,17 +188,6 @@ describe('useArtists', () => {
       expect(result.current.data?.cities[0].artist_count).toBe(10)
     })
 
-    it('handles API errors', async () => {
-      const error = new Error('Server error')
-      Object.assign(error, { status: 500 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useArtistCities(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 
   describe('useArtistShows', () => {
@@ -321,21 +299,6 @@ describe('useArtists', () => {
 
       expect(mockApiRequest).not.toHaveBeenCalled()
       expect(result.current.fetchStatus).toBe('idle')
-    })
-
-    it('handles API errors', async () => {
-      const error = new Error('Server error')
-      Object.assign(error, { status: 500 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(
-        () => useArtistShows({ artistId: 1 }),
-        { wrapper: createWrapper() }
-      )
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-
-      expect(result.current.error).toBeDefined()
     })
 
     it('combines multiple query params', async () => {

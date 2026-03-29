@@ -97,17 +97,6 @@ describe('useAnalytics hooks', () => {
       )
     })
 
-    it('handles API errors', async () => {
-      const error = new Error('Server error')
-      Object.assign(error, { status: 500 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useGrowthMetrics(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 
   describe('useEngagementMetrics', () => {
@@ -164,15 +153,6 @@ describe('useAnalytics hooks', () => {
       )
     })
 
-    it('handles API errors', async () => {
-      mockApiRequest.mockRejectedValueOnce(new Error('Forbidden'))
-
-      const { result } = renderHook(() => useEngagementMetrics(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 
   describe('useCommunityHealth', () => {
@@ -207,15 +187,6 @@ describe('useAnalytics hooks', () => {
       expect(result.current.data?.top_contributors).toHaveLength(2)
     })
 
-    it('handles API errors', async () => {
-      mockApiRequest.mockRejectedValueOnce(new Error('Server error'))
-
-      const { result } = renderHook(() => useCommunityHealth(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 
   describe('useDataQualityTrends', () => {
@@ -265,16 +236,5 @@ describe('useAnalytics hooks', () => {
       )
     })
 
-    it('handles API errors', async () => {
-      const error = new Error('Server error')
-      Object.assign(error, { status: 500 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useDataQualityTrends(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 })

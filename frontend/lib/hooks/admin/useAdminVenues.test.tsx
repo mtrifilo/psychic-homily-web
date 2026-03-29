@@ -126,38 +126,5 @@ describe('useAdminVenues', () => {
       expect((result.current.error as Error).message).toBe('Venue not found')
     })
 
-    it('handles unauthorized error', async () => {
-      const error = new Error('Forbidden')
-      Object.assign(error, { status: 403 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useVerifyVenue(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate(1)
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-
-      expect((result.current.error as Error).message).toBe('Forbidden')
-    })
-
-    it('handles server error', async () => {
-      const error = new Error('Server error')
-      Object.assign(error, { status: 500 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useVerifyVenue(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate(1)
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 })

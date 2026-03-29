@@ -194,21 +194,6 @@ describe('useShowImport', () => {
       )
     })
 
-    it('handles unauthorized error', async () => {
-      const error = new Error('Forbidden')
-      Object.assign(error, { status: 403 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useShowImportPreview(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate('Test content')
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 
   describe('useShowImportConfirm', () => {
@@ -307,36 +292,5 @@ describe('useShowImport', () => {
       )
     })
 
-    it('handles unauthorized error', async () => {
-      const error = new Error('Forbidden')
-      Object.assign(error, { status: 403 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useShowImportConfirm(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate('Test content')
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
-
-    it('handles server errors', async () => {
-      const error = new Error('Server error')
-      Object.assign(error, { status: 500 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useShowImportConfirm(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate('Test content')
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 })

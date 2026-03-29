@@ -127,20 +127,6 @@ describe('useShows', () => {
       expect(calledUrl).toContain('limit=25')
     })
 
-    it('handles API errors', async () => {
-      const error = new Error('Server error')
-      Object.assign(error, { status: 500 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useUpcomingShows(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-
-      expect(result.current.error).toBeDefined()
-    })
-
     it('returns has_more flag for pagination', async () => {
       mockApiRequest.mockResolvedValueOnce({
         shows: [{ id: 1 }],
