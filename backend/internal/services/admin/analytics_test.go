@@ -356,8 +356,11 @@ func (suite *AnalyticsServiceIntegrationTestSuite) TestGetGrowthMetrics_WithData
 }
 
 func (suite *AnalyticsServiceIntegrationTestSuite) TestGetGrowthMetrics_FillsMissingMonths() {
-	// Create data only in the current month
-	suite.createShow("Show 1", models.ShowStatusApproved)
+	// Pin created_at to mid-month to avoid timezone boundary issues.
+	now := time.Now().UTC()
+	midMonth := time.Date(now.Year(), now.Month(), 15, 12, 0, 0, 0, time.UTC)
+	show := suite.createShow("Show 1", models.ShowStatusApproved)
+	suite.db.Model(show).Update("created_at", midMonth)
 
 	resp, err := suite.service.GetGrowthMetrics(3)
 	suite.Require().NoError(err)
