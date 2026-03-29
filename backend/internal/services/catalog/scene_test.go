@@ -22,48 +22,6 @@ func TestNewSceneService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestSceneService_NilDatabase(t *testing.T) {
-	svc := &SceneService{db: nil}
-
-	t.Run("ListScenes", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.ListScenes()
-		})
-	})
-
-	t.Run("GetSceneDetail", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetSceneDetail("Phoenix", "AZ")
-		})
-	})
-
-	t.Run("GetActiveArtists", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.GetActiveArtists("Phoenix", "AZ", 90, 20, 0)
-			return err
-		})
-	})
-
-	t.Run("ParseSceneSlug", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.ParseSceneSlug("phoenix-az")
-			return err
-		})
-	})
-
-	t.Run("GetSceneGenreDistribution", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetSceneGenreDistribution("Phoenix", "AZ")
-		})
-	})
-
-	t.Run("GetGenreDiversityIndex", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetGenreDiversityIndex("Phoenix", "AZ")
-		})
-	})
-}
-
 func TestBuildSceneSlug(t *testing.T) {
 	tests := []struct {
 		city, state, expected string

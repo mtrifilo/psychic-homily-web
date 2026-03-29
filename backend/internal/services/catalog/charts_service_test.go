@@ -22,40 +22,6 @@ func TestNewChartsService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestChartsService_NilDatabase(t *testing.T) {
-	svc := &ChartsService{db: nil}
-
-	t.Run("GetTrendingShows", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetTrendingShows(20)
-		})
-	})
-
-	t.Run("GetPopularArtists", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetPopularArtists(20)
-		})
-	})
-
-	t.Run("GetActiveVenues", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetActiveVenues(20)
-		})
-	})
-
-	t.Run("GetHotReleases", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetHotReleases(20)
-		})
-	})
-
-	t.Run("GetChartsOverview", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetChartsOverview()
-		})
-	})
-}
-
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================

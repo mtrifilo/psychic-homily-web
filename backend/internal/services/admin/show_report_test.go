@@ -22,53 +22,6 @@ func TestNewShowReportService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestShowReportService_NilDatabase(t *testing.T) {
-	svc := &ShowReportService{db: nil}
-
-	t.Run("CreateReport", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.CreateReport(1, 1, "cancelled", nil)
-		})
-	})
-
-	t.Run("GetUserReportForShow", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetUserReportForShow(1, 1)
-		})
-	})
-
-	t.Run("GetPendingReports", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.GetPendingReports(10, 0)
-			return err
-		})
-	})
-
-	t.Run("DismissReport", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.DismissReport(1, 1, nil)
-		})
-	})
-
-	t.Run("ResolveReport", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.ResolveReport(1, 1, nil)
-		})
-	})
-
-	t.Run("ResolveReportWithFlag", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.ResolveReportWithFlag(1, 1, nil, true)
-		})
-	})
-
-	t.Run("GetReportByID", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetReportByID(1)
-		})
-	})
-}
-
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================

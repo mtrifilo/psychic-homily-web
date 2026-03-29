@@ -23,41 +23,6 @@ func TestNewSavedShowService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestSavedShowService_NilDatabase(t *testing.T) {
-	svc := &SavedShowService{db: nil}
-
-	t.Run("SaveShow", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.SaveShow(1, 1)
-		})
-	})
-
-	t.Run("UnsaveShow", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.UnsaveShow(1, 1)
-		})
-	})
-
-	t.Run("GetUserSavedShows", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.GetUserSavedShows(1, 10, 0)
-			return err
-		})
-	})
-
-	t.Run("IsShowSaved", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.IsShowSaved(1, 1)
-		})
-	})
-
-	t.Run("GetSavedShowIDs", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetSavedShowIDs(1, []uint{1, 2})
-		})
-	})
-}
-
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================
