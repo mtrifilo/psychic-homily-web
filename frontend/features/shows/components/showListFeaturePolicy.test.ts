@@ -10,87 +10,49 @@ describe('SHOW_LIST_FEATURE_POLICY', () => {
     ])
   })
 
-  describe('discovery context', () => {
-    const policy = SHOW_LIST_FEATURE_POLICY.discovery
-
-    it('enables details link', () => {
-      expect(policy.showDetailsLink).toBe(true)
-    })
-
-    it('enables save button', () => {
-      expect(policy.showSaveButton).toBe(true)
-    })
-
-    it('enables expand music', () => {
-      expect(policy.showExpandMusic).toBe(true)
-    })
-
-    it('enables admin actions', () => {
-      expect(policy.showAdminActions).toBe(true)
-    })
-
-    it('enables owner actions', () => {
-      expect(policy.showOwnerActions).toBe(true)
-    })
-
-    it('does not use compact layout', () => {
-      expect(policy.useCompactLayout).toBe(false)
-    })
+  it('matches the expected policy snapshot', () => {
+    expect(SHOW_LIST_FEATURE_POLICY).toMatchInlineSnapshot(`
+      {
+        "context": {
+          "showAdminActions": false,
+          "showDetailsLink": true,
+          "showExpandMusic": false,
+          "showOwnerActions": false,
+          "showSaveButton": false,
+          "useCompactLayout": true,
+        },
+        "discovery": {
+          "showAdminActions": true,
+          "showDetailsLink": true,
+          "showExpandMusic": true,
+          "showOwnerActions": true,
+          "showSaveButton": true,
+          "useCompactLayout": false,
+        },
+        "ownership": {
+          "showAdminActions": true,
+          "showDetailsLink": true,
+          "showExpandMusic": false,
+          "showOwnerActions": true,
+          "showSaveButton": true,
+          "useCompactLayout": false,
+        },
+      }
+    `)
   })
 
-  describe('ownership context', () => {
-    const policy = SHOW_LIST_FEATURE_POLICY.ownership
-
-    it('enables details link', () => {
-      expect(policy.showDetailsLink).toBe(true)
-    })
-
-    it('enables save button', () => {
-      expect(policy.showSaveButton).toBe(true)
-    })
-
-    it('disables expand music', () => {
-      expect(policy.showExpandMusic).toBe(false)
-    })
-
-    it('enables admin actions', () => {
-      expect(policy.showAdminActions).toBe(true)
-    })
-
-    it('enables owner actions', () => {
-      expect(policy.showOwnerActions).toBe(true)
-    })
-
-    it('does not use compact layout', () => {
-      expect(policy.useCompactLayout).toBe(false)
-    })
-  })
-
-  describe('context context', () => {
-    const policy = SHOW_LIST_FEATURE_POLICY.context
-
-    it('enables details link', () => {
-      expect(policy.showDetailsLink).toBe(true)
-    })
-
-    it('disables save button', () => {
-      expect(policy.showSaveButton).toBe(false)
-    })
-
-    it('disables expand music', () => {
-      expect(policy.showExpandMusic).toBe(false)
-    })
-
-    it('disables admin actions', () => {
-      expect(policy.showAdminActions).toBe(false)
-    })
-
-    it('disables owner actions', () => {
-      expect(policy.showOwnerActions).toBe(false)
-    })
-
-    it('uses compact layout', () => {
-      expect(policy.useCompactLayout).toBe(true)
-    })
+  it('every policy has the same set of feature flags', () => {
+    const expectedKeys = [
+      'showDetailsLink',
+      'showSaveButton',
+      'showExpandMusic',
+      'showAdminActions',
+      'showOwnerActions',
+      'useCompactLayout',
+    ]
+    for (const context of Object.keys(SHOW_LIST_FEATURE_POLICY)) {
+      expect(Object.keys(SHOW_LIST_FEATURE_POLICY[context as keyof typeof SHOW_LIST_FEATURE_POLICY]).sort())
+        .toEqual([...expectedKeys].sort())
+    }
   })
 })

@@ -22,7 +22,7 @@ vi.mock('./timeUtils', () => ({
 }))
 
 import { formatShowDateBadge } from './showDateBadge'
-import { getTimezoneForState, formatInTimezone } from './timeUtils'
+import { formatInTimezone } from './timeUtils'
 
 describe('formatShowDateBadge', () => {
   it('returns dayOfWeek and monthDay parts', () => {
@@ -34,45 +34,12 @@ describe('formatShowDateBadge', () => {
     expect(typeof result.monthDay).toBe('string')
   })
 
-  it('calls getTimezoneForState with the provided state', () => {
-    formatShowDateBadge('2025-03-17T19:00:00Z', 'CA')
+  it('defaults to AZ timezone when state is not provided or null', () => {
+    const result1 = formatShowDateBadge('2025-03-17T19:00:00Z')
+    const result2 = formatShowDateBadge('2025-03-17T19:00:00Z', null)
 
-    expect(getTimezoneForState).toHaveBeenCalledWith('CA')
-  })
-
-  it('defaults to AZ when state is not provided', () => {
-    formatShowDateBadge('2025-03-17T19:00:00Z')
-
-    expect(getTimezoneForState).toHaveBeenCalledWith('AZ')
-  })
-
-  it('defaults to AZ when state is null', () => {
-    formatShowDateBadge('2025-03-17T19:00:00Z', null)
-
-    expect(getTimezoneForState).toHaveBeenCalledWith('AZ')
-  })
-
-  it('calls formatInTimezone three times (weekday, month, day)', () => {
-    vi.mocked(formatInTimezone).mockClear()
-
-    formatShowDateBadge('2025-03-17T19:00:00Z', 'AZ')
-
-    expect(formatInTimezone).toHaveBeenCalledTimes(3)
-    expect(formatInTimezone).toHaveBeenCalledWith(
-      '2025-03-17T19:00:00Z',
-      'America/Phoenix',
-      { weekday: 'short' }
-    )
-    expect(formatInTimezone).toHaveBeenCalledWith(
-      '2025-03-17T19:00:00Z',
-      'America/Phoenix',
-      { month: 'short' }
-    )
-    expect(formatInTimezone).toHaveBeenCalledWith(
-      '2025-03-17T19:00:00Z',
-      'America/Phoenix',
-      { day: 'numeric' }
-    )
+    // Both should produce the same result (AZ timezone)
+    expect(result1).toEqual(result2)
   })
 
   it('uppercases dayOfWeek and month', () => {

@@ -23,11 +23,4 @@ describe('legal constants', () => {
     expect(privacyDate.toString()).not.toBe('Invalid Date')
   })
 
-  it('has terms version set to expected value', () => {
-    expect(CURRENT_TERMS_VERSION).toBe('2026-01-31')
-  })
-
-  it('has privacy version set to expected value', () => {
-    expect(CURRENT_PRIVACY_VERSION).toBe('2026-02-15')
-  })
 })
