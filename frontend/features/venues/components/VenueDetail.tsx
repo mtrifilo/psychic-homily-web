@@ -15,7 +15,7 @@ import { NotifyMeButton } from '@/features/notifications'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
-import { EntityEditDrawer } from '@/features/contributions'
+import { EntityEditDrawer, AttributionLine } from '@/features/contributions'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
 import { FavoriteVenueButton } from './FavoriteVenueButton'
 import { Button } from '@/components/ui/button'
@@ -200,6 +200,9 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
                     <ExternalLink className="h-3 w-3" />
                   </a>
                 )}
+                <div className="mt-1">
+                  <AttributionLine entityType="venue" entityId={venue.id} />
+                </div>
               </div>
 
               {isAuthenticated && (
