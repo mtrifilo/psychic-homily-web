@@ -13,6 +13,7 @@ var (
 	_ contracts.RevisionServiceInterface      = (*RevisionService)(nil)
 	_ contracts.DataQualityServiceInterface  = (*DataQualityService)(nil)
 	_ contracts.AnalyticsServiceInterface   = (*AnalyticsService)(nil)
-	_ contracts.PendingEditServiceInterface = (*PendingEditService)(nil)
+	_ contracts.PendingEditServiceInterface    = (*PendingEditService)(nil)
+	_ contracts.EntityReportServiceInterface  = (*EntityReportService)(nil)
 	// CleanupService has no interface in contracts — it's a lifecycle service.
 )

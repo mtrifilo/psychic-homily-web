@@ -1068,6 +1068,56 @@ func (m *mockEnrichmentService) GetQueueStats() (*contracts.EnrichmentQueueStats
 }
 
 // ============================================================================
+// Mock: EntityReportServiceInterface
+// ============================================================================
+
+type mockEntityReportService struct {
+	createEntityReportFn func(*contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error)
+	getEntityReportFn func(uint) (*contracts.EntityReportResponse, error)
+	getEntityReportsFn func(string, uint) ([]contracts.EntityReportResponse, error)
+	listEntityReportsFn func(*contracts.EntityReportFilters) ([]contracts.EntityReportResponse, int64, error)
+	resolveEntityReportFn func(uint, uint, string) (*contracts.EntityReportResponse, error)
+	dismissEntityReportFn func(uint, uint, string) (*contracts.EntityReportResponse, error)
+}
+
+func (m *mockEntityReportService) CreateEntityReport(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
+	if m.createEntityReportFn != nil {
+		return m.createEntityReportFn(req)
+	}
+	return nil, nil
+}
+func (m *mockEntityReportService) GetEntityReport(reportID uint) (*contracts.EntityReportResponse, error) {
+	if m.getEntityReportFn != nil {
+		return m.getEntityReportFn(reportID)
+	}
+	return nil, nil
+}
+func (m *mockEntityReportService) GetEntityReports(entityType string, entityID uint) ([]contracts.EntityReportResponse, error) {
+	if m.getEntityReportsFn != nil {
+		return m.getEntityReportsFn(entityType, entityID)
+	}
+	return nil, nil
+}
+func (m *mockEntityReportService) ListEntityReports(filters *contracts.EntityReportFilters) ([]contracts.EntityReportResponse, int64, error) {
+	if m.listEntityReportsFn != nil {
+		return m.listEntityReportsFn(filters)
+	}
+	return nil, 0, nil
+}
+func (m *mockEntityReportService) ResolveEntityReport(reportID uint, reviewerID uint, notes string) (*contracts.EntityReportResponse, error) {
+	if m.resolveEntityReportFn != nil {
+		return m.resolveEntityReportFn(reportID, reviewerID, notes)
+	}
+	return nil, nil
+}
+func (m *mockEntityReportService) DismissEntityReport(reportID uint, reviewerID uint, notes string) (*contracts.EntityReportResponse, error) {
+	if m.dismissEntityReportFn != nil {
+		return m.dismissEntityReportFn(reportID, reviewerID, notes)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: ExtractionServiceInterface
 // ============================================================================
 
@@ -3133,6 +3183,7 @@ var _ contracts.DiscordServiceInterface = (*mockDiscordService)(nil)
 var _ contracts.DiscoveryServiceInterface = (*mockDiscoveryService)(nil)
 var _ contracts.EmailServiceInterface = (*mockEmailService)(nil)
 var _ contracts.EnrichmentServiceInterface = (*mockEnrichmentService)(nil)
+var _ contracts.EntityReportServiceInterface = (*mockEntityReportService)(nil)
 var _ contracts.ExtractionServiceInterface = (*mockExtractionService)(nil)
 var _ contracts.FavoriteVenueServiceInterface = (*mockFavoriteVenueService)(nil)
 var _ contracts.FestivalIntelligenceServiceInterface = (*mockFestivalIntelligenceService)(nil)
