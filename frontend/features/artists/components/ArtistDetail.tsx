@@ -35,7 +35,7 @@ import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader, RevisionHist
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList } from '@/features/tags'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
-import { EntityEditDrawer } from '@/features/contributions'
+import { EntityEditDrawer, AttributionLine } from '@/features/contributions'
 import { NotifyMeButton } from '@/features/notifications'
 import { ArtistShowsList } from './ArtistShowsList'
 import { RelatedArtists } from './RelatedArtists'
@@ -938,11 +938,14 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
         fallback={{ href: '/artists', label: 'Artists' }}
         entityName={artist.name}
         header={
-          <EntityHeader
-            title={artist.name}
-            subtitle={headerSubtitle}
-            actions={headerActions}
-          />
+          <>
+            <EntityHeader
+              title={artist.name}
+              subtitle={headerSubtitle}
+              actions={headerActions}
+            />
+            <AttributionLine entityType="artist" entityId={artist.id} />
+          </>
         }
         tabs={tabs}
         activeTab={activeTab}
