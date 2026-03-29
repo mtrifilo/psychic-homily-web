@@ -1,3 +1,33 @@
+// ──────────────────────────────────────────────
+// Data Quality / Contribution Opportunities
+// ──────────────────────────────────────────────
+
+export interface DataQualityCategory {
+  key: string
+  label: string
+  entity_type: string
+  count: number
+  description: string
+}
+
+export interface DataQualitySummary {
+  categories: DataQualityCategory[]
+  total_items: number
+}
+
+export interface DataQualityItem {
+  entity_type: string
+  entity_id: number
+  name: string
+  slug: string
+  reason: string
+  show_count: number
+}
+
+// ──────────────────────────────────────────────
+// Pending Edits
+// ──────────────────────────────────────────────
+
 export type PendingEditStatus = 'pending' | 'approved' | 'rejected'
 
 export type EditableEntityType = 'artist' | 'venue' | 'festival'
