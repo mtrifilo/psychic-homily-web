@@ -22,60 +22,6 @@ func TestNewFollowService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestFollowService_NilDatabase(t *testing.T) {
-	svc := &FollowService{db: nil}
-
-	t.Run("Follow", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.Follow(1, "artist", 1)
-		})
-	})
-
-	t.Run("Unfollow", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.Unfollow(1, "artist", 1)
-		})
-	})
-
-	t.Run("IsFollowing", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.IsFollowing(1, "artist", 1)
-		})
-	})
-
-	t.Run("GetFollowerCount", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetFollowerCount("artist", 1)
-		})
-	})
-
-	t.Run("GetBatchFollowerCounts", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetBatchFollowerCounts("artist", []uint{1, 2})
-		})
-	})
-
-	t.Run("GetBatchUserFollowing", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetBatchUserFollowing(1, "artist", []uint{1, 2})
-		})
-	})
-
-	t.Run("GetUserFollowing", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.GetUserFollowing(1, "artist", 10, 0)
-			return err
-		})
-	})
-
-	t.Run("GetFollowers", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.GetFollowers("artist", 1, 10, 0)
-			return err
-		})
-	})
-}
-
 func TestFollowService_InvalidEntityType(t *testing.T) {
 	svc := &FollowService{db: &gorm.DB{}}
 

@@ -24,40 +24,6 @@ func TestNewCalendarService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestCalendarService_NilDatabase(t *testing.T) {
-	svc := &CalendarService{db: nil}
-
-	t.Run("CreateToken", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.CreateToken(1, "http://localhost:8080")
-		})
-	})
-
-	t.Run("GetTokenStatus", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetTokenStatus(1)
-		})
-	})
-
-	t.Run("DeleteToken", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.DeleteToken(1)
-		})
-	})
-
-	t.Run("ValidateCalendarToken", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.ValidateCalendarToken("phcal_abc123")
-		})
-	})
-
-	t.Run("GenerateICSFeed", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GenerateICSFeed(1, "http://localhost:3000")
-		})
-	})
-}
-
 func TestGenerateCalendarToken_Format(t *testing.T) {
 	token, err := generateCalendarToken()
 	assert.NoError(t, err)

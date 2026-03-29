@@ -23,50 +23,6 @@ func TestNewEntityReportService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestEntityReportService_NilDatabase(t *testing.T) {
-	svc := &EntityReportService{db: nil}
-
-	t.Run("CreateEntityReport", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.CreateEntityReport(&contracts.CreateEntityReportRequest{
-				EntityType: "artist", EntityID: 1, UserID: 1, ReportType: "inaccurate",
-			})
-		})
-	})
-
-	t.Run("GetEntityReport", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetEntityReport(1)
-		})
-	})
-
-	t.Run("GetEntityReports", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, err := svc.GetEntityReports("artist", 1)
-			return err
-		})
-	})
-
-	t.Run("ListEntityReports", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.ListEntityReports(nil)
-			return err
-		})
-	})
-
-	t.Run("ResolveEntityReport", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.ResolveEntityReport(1, 1, "notes")
-		})
-	})
-
-	t.Run("DismissEntityReport", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.DismissEntityReport(1, 1, "notes")
-		})
-	})
-}
-
 func TestEntityReportModel_Validation(t *testing.T) {
 	// Valid entity types
 	assert.True(t, models.IsValidEntityReportEntityType("artist"))

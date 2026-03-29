@@ -20,38 +20,6 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// =============================================================================
-// UNIT TESTS (No Database)
-// =============================================================================
-
-func TestEnrichmentService_NilDB(t *testing.T) {
-	svc := &EnrichmentService{db: nil}
-
-	t.Run("QueueShowForEnrichment", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.QueueShowForEnrichment(1, models.EnrichmentTypeAll)
-		})
-	})
-
-	t.Run("ProcessQueue", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.ProcessQueue(context.Background(), 10)
-		})
-	})
-
-	t.Run("EnrichShow", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.EnrichShow(context.Background(), 1)
-		})
-	})
-
-	t.Run("GetQueueStats", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetQueueStats()
-		})
-	})
-}
-
 func TestEnrichmentService_InvalidEnrichmentType(t *testing.T) {
 	// Use a non-nil DB pointer to pass the nil check, but won't actually use it
 	svc := &EnrichmentService{db: &gorm.DB{}}

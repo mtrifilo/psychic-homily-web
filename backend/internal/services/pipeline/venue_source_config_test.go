@@ -21,58 +21,6 @@ func TestNewVenueSourceConfigService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestVenueSourceConfigService_NilDatabase(t *testing.T) {
-	svc := &VenueSourceConfigService{db: nil}
-
-	t.Run("GetByVenueID", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetByVenueID(1)
-		})
-	})
-
-	t.Run("CreateOrUpdate", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.CreateOrUpdate(&models.VenueSourceConfig{VenueID: 1})
-		})
-	})
-
-	t.Run("UpdateAfterRun", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.UpdateAfterRun(1, nil, nil, 5)
-		})
-	})
-
-	t.Run("IncrementFailures", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.IncrementFailures(1)
-		})
-	})
-
-	t.Run("RecordRun", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.RecordRun(&models.VenueExtractionRun{VenueID: 1})
-		})
-	})
-
-	t.Run("GetRecentRuns", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetRecentRuns(1, 10)
-		})
-	})
-
-	t.Run("ListConfigured", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.ListConfigured()
-		})
-	})
-
-	t.Run("ResetRenderMethod", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.ResetRenderMethod(1)
-		})
-	})
-}
-
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================

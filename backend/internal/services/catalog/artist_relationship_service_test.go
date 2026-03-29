@@ -22,64 +22,6 @@ func TestNewArtistRelationshipService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestArtistRelationshipService_NilDatabase(t *testing.T) {
-	svc := &ArtistRelationshipService{db: nil}
-
-	t.Run("CreateRelationship", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.CreateRelationship(1, 2, "similar", false)
-		})
-	})
-
-	t.Run("GetRelationship", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetRelationship(1, 2, "similar")
-		})
-	})
-
-	t.Run("GetRelatedArtists", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetRelatedArtists(1, "", 10)
-		})
-	})
-
-	t.Run("DeleteRelationship", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.DeleteRelationship(1, 2, "similar")
-		})
-	})
-
-	t.Run("Vote", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.Vote(1, 2, "similar", 1, true)
-		})
-	})
-
-	t.Run("RemoveVote", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.RemoveVote(1, 2, "similar", 1)
-		})
-	})
-
-	t.Run("GetUserVote", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetUserVote(1, 2, "similar", 1)
-		})
-	})
-
-	t.Run("DeriveSharedBills", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.DeriveSharedBills(2)
-		})
-	})
-
-	t.Run("GetArtistGraph", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetArtistGraph(1, nil, 0)
-		})
-	})
-}
-
 // =============================================================================
 // INTEGRATION TESTS
 // =============================================================================

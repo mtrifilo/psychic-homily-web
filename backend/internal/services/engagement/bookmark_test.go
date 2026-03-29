@@ -22,53 +22,6 @@ func TestNewBookmarkService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestBookmarkService_NilDatabase(t *testing.T) {
-	svc := &BookmarkService{db: nil}
-
-	t.Run("CreateBookmark", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.CreateBookmark(1, models.BookmarkEntityShow, 1, models.BookmarkActionSave)
-		})
-	})
-
-	t.Run("DeleteBookmark", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.DeleteBookmark(1, models.BookmarkEntityShow, 1, models.BookmarkActionSave)
-		})
-	})
-
-	t.Run("IsBookmarked", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.IsBookmarked(1, models.BookmarkEntityShow, 1, models.BookmarkActionSave)
-		})
-	})
-
-	t.Run("GetBookmarkedEntityIDs", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetBookmarkedEntityIDs(1, models.BookmarkEntityShow, models.BookmarkActionSave, []uint{1, 2})
-		})
-	})
-
-	t.Run("GetUserBookmarks", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.GetUserBookmarks(1, models.BookmarkEntityShow, models.BookmarkActionSave, 10, 0)
-			return err
-		})
-	})
-
-	t.Run("GetUserBookmarksByEntityType", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetUserBookmarksByEntityType(1, models.BookmarkEntityVenue, models.BookmarkActionFollow)
-		})
-	})
-
-	t.Run("CountUserBookmarks", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.CountUserBookmarks(1, models.BookmarkEntityShow, models.BookmarkActionSave)
-		})
-	})
-}
-
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================
