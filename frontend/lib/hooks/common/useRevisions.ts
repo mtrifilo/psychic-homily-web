@@ -52,8 +52,8 @@ export function useEntityRevisions(
     queryKey: [...queryKeys.revisions.entity(entityType, entityId), { limit, offset }],
     queryFn: () => {
       const params = new URLSearchParams()
-      if (limit) params.set('limit', String(limit))
-      if (offset) params.set('offset', String(offset))
+      if (limit != null) params.set('limit', String(limit))
+      if (offset != null) params.set('offset', String(offset))
       const qs = params.toString()
       const url = `${API_ENDPOINTS.REVISIONS.ENTITY_HISTORY(entityType, entityId)}${qs ? `?${qs}` : ''}`
       return apiRequest<EntityHistoryResponse>(url)
@@ -91,8 +91,8 @@ export function useUserRevisions(
     queryKey: [...queryKeys.revisions.user(userId), { limit, offset }],
     queryFn: () => {
       const params = new URLSearchParams()
-      if (limit) params.set('limit', String(limit))
-      if (offset) params.set('offset', String(offset))
+      if (limit != null) params.set('limit', String(limit))
+      if (offset != null) params.set('offset', String(offset))
       const qs = params.toString()
       const url = `${API_ENDPOINTS.REVISIONS.USER_REVISIONS(userId)}${qs ? `?${qs}` : ''}`
       return apiRequest<UserRevisionsResponse>(url)
