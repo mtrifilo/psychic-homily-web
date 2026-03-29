@@ -3,9 +3,14 @@ import { render, screen } from '@testing-library/react'
 import { LoadingSpinner } from './LoadingSpinner'
 
 describe('LoadingSpinner', () => {
-  it('renders a div element', () => {
+  it('renders a div element with spinner styling', () => {
     const { container } = render(<LoadingSpinner />)
-    expect(container.firstChild).toBeInTheDocument()
+    const spinner = container.firstChild as HTMLElement
+    expect(spinner).toBeInTheDocument()
+    expect(spinner.tagName).toBe('DIV')
+    expect(spinner.className).toContain('animate-spin')
+    expect(spinner.className).toContain('rounded-full')
+    expect(spinner.className).toContain('border-b-2')
   })
 
   it('defaults to medium size', () => {
