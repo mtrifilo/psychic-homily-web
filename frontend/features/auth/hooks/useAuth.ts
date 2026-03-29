@@ -73,6 +73,7 @@ interface UserProfile {
     last_name?: string
     is_admin?: boolean
     email_verified?: boolean
+    user_tier?: string
     created_at: string
     updated_at: string
     preferences?: UserPreferencesData
