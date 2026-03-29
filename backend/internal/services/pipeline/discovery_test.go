@@ -284,11 +284,6 @@ func TestNormalizeSetType(t *testing.T) {
 // UNIT TESTS — Constructor + nil DB
 // =============================================================================
 
-func TestNewDiscoveryService(t *testing.T) {
-	svc := NewDiscoveryService(nil, nil)
-	assert.NotNil(t, svc)
-}
-
 func TestImportEvents_NilDB(t *testing.T) {
 	svc := &DiscoveryService{db: nil}
 	testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {

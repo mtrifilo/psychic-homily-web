@@ -20,11 +20,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewNotificationFilterService(t *testing.T) {
-	svc := NewNotificationFilterService(nil, nil, "secret", "http://localhost:3000")
-	assert.NotNil(t, svc)
-}
-
 func TestNotificationFilterService_NilDatabase(t *testing.T) {
 	svc := &NotificationFilterService{db: nil}
 

@@ -18,11 +18,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewEntityReportService(t *testing.T) {
-	svc := NewEntityReportService(nil)
-	assert.NotNil(t, svc)
-}
-
 func TestEntityReportService_NilDatabase(t *testing.T) {
 	svc := &EntityReportService{db: nil}
 

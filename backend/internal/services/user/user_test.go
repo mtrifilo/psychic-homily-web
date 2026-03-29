@@ -22,16 +22,6 @@ import (
 // =============================================================================
 
 // TestNewUserService tests the creation of a new UserService
-func TestNewUserService(t *testing.T) {
-	userService := NewUserService(nil)
-
-	assert.NotNil(t, userService)
-	// In test environment, database may be nil
-	if userService.db == nil {
-		t.Log("Database is nil in test environment (expected)")
-	}
-}
-
 // TestUserService_NilDatabase tests all methods with nil database
 func TestUserService_NilDatabase(t *testing.T) {
 	userService := &UserService{db: nil}

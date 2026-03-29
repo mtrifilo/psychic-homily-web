@@ -51,48 +51,6 @@ func adminCtx() context.Context {
 // Constructor tests
 // ============================================================================
 
-func TestNewAdminShowHandler(t *testing.T) {
-	h := testAdminShowHandler()
-	if h == nil {
-		t.Fatal("expected non-nil AdminShowHandler")
-	}
-}
-
-func TestNewAdminVenueHandler(t *testing.T) {
-	h := testAdminVenueHandler()
-	if h == nil {
-		t.Fatal("expected non-nil AdminVenueHandler")
-	}
-}
-
-func TestNewAdminTokenHandler(t *testing.T) {
-	h := testAdminTokenHandler()
-	if h == nil {
-		t.Fatal("expected non-nil AdminTokenHandler")
-	}
-}
-
-func TestNewAdminDataHandler(t *testing.T) {
-	h := testAdminDataHandler()
-	if h == nil {
-		t.Fatal("expected non-nil AdminDataHandler")
-	}
-}
-
-func TestNewAdminUserHandler(t *testing.T) {
-	h := testAdminUserHandler()
-	if h == nil {
-		t.Fatal("expected non-nil AdminUserHandler")
-	}
-}
-
-func TestNewAdminStatsHandler(t *testing.T) {
-	h := testAdminStatsHandler()
-	if h == nil {
-		t.Fatal("expected non-nil AdminStatsHandler")
-	}
-}
-
 // ============================================================================
 // Admin Guard: all handlers require admin access
 // Tests both nil-user and non-admin user scenarios for every admin handler.

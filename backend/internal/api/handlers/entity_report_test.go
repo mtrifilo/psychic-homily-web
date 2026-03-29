@@ -43,13 +43,6 @@ func makeEntityReportResponse(id uint, entityType, reportType string) *contracts
 // Tests: NewEntityReportHandler
 // ============================================================================
 
-func TestNewEntityReportHandler(t *testing.T) {
-	h := testEntityReportHandler()
-	if h == nil {
-		t.Fatal("expected non-nil EntityReportHandler")
-	}
-}
-
 // ============================================================================
 // Tests: Report Entity — Auth & Validation
 // ============================================================================

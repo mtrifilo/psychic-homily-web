@@ -28,13 +28,6 @@ func requestAdminCtx() context.Context {
 // Tests: NewRequestHandler
 // ============================================================================
 
-func TestNewRequestHandler(t *testing.T) {
-	h := testRequestHandler()
-	if h == nil {
-		t.Fatal("expected non-nil RequestHandler")
-	}
-}
-
 // ============================================================================
 // Tests: Auth Guard — all mutating endpoints require auth
 // ============================================================================

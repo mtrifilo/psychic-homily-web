@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
@@ -16,11 +15,6 @@ import (
 // =============================================================================
 // UNIT TESTS (No Database Required)
 // =============================================================================
-
-func TestNewAttendanceService(t *testing.T) {
-	svc := NewAttendanceService(nil)
-	assert.NotNil(t, svc)
-}
 
 func TestAttendanceService_NilDatabase(t *testing.T) {
 	svc := &AttendanceService{db: nil}

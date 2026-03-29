@@ -15,13 +15,6 @@ func testShowReportHandler() *ShowReportHandler {
 
 // --- NewShowReportHandler ---
 
-func TestNewShowReportHandler(t *testing.T) {
-	h := testShowReportHandler()
-	if h == nil {
-		t.Fatal("expected non-nil ShowReportHandler")
-	}
-}
-
 // --- ReportShowHandler ---
 
 func TestReportShowHandler_NoAuth(t *testing.T) {

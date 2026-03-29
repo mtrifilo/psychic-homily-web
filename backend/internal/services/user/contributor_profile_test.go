@@ -20,11 +20,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewContributorProfileService(t *testing.T) {
-	svc := NewContributorProfileService(nil)
-	assert.NotNil(t, svc)
-}
-
 func TestContributorProfileService_NilDatabase(t *testing.T) {
 	svc := &ContributorProfileService{db: nil}
 

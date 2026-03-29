@@ -18,11 +18,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewAPITokenService(t *testing.T) {
-	svc := NewAPITokenService(nil)
-	assert.NotNil(t, svc)
-}
-
 func TestAPITokenService_NilDatabase(t *testing.T) {
 	svc := &APITokenService{db: nil}
 

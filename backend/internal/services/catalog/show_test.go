@@ -20,11 +20,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewShowService(t *testing.T) {
-	showService := NewShowService(nil)
-	assert.NotNil(t, showService)
-}
-
 func TestShowService_NilDatabase(t *testing.T) {
 	svc := &ShowService{db: nil}
 

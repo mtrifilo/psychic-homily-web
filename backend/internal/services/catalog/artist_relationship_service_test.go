@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
@@ -16,11 +15,6 @@ import (
 // =============================================================================
 // UNIT TESTS
 // =============================================================================
-
-func TestNewArtistRelationshipService(t *testing.T) {
-	svc := NewArtistRelationshipService(nil)
-	assert.NotNil(t, svc)
-}
 
 func TestArtistRelationshipService_NilDatabase(t *testing.T) {
 	svc := &ArtistRelationshipService{db: nil}

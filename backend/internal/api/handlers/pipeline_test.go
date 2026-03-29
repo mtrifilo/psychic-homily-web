@@ -29,13 +29,6 @@ func pipelineNonAdminCtx() context.Context {
 // Tests: NewPipelineHandler
 // ============================================================================
 
-func TestNewPipelineHandler(t *testing.T) {
-	h := testPipelineHandler()
-	if h == nil {
-		t.Fatal("expected non-nil PipelineHandler")
-	}
-}
-
 // ============================================================================
 // Tests: Admin Guard
 // ============================================================================

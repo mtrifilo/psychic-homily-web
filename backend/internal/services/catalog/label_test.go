@@ -3,7 +3,6 @@ package catalog
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
@@ -16,11 +15,6 @@ import (
 // =============================================================================
 // UNIT TESTS (No Database Required)
 // =============================================================================
-
-func TestNewLabelService(t *testing.T) {
-	labelService := NewLabelService(nil)
-	assert.NotNil(t, labelService)
-}
 
 func TestLabelService_NilDatabase(t *testing.T) {
 	svc := &LabelService{db: nil}

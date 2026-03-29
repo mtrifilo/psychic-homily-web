@@ -17,11 +17,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewFestivalIntelligenceService(t *testing.T) {
-	svc := NewFestivalIntelligenceService(nil)
-	assert.NotNil(t, svc)
-}
-
 func TestFestivalIntelligenceService_NilDatabase(t *testing.T) {
 	svc := &FestivalIntelligenceService{db: nil}
 

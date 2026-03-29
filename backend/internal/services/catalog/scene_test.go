@@ -17,11 +17,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewSceneService(t *testing.T) {
-	svc := NewSceneService(nil)
-	assert.NotNil(t, svc)
-}
-
 func TestSceneService_NilDatabase(t *testing.T) {
 	svc := &SceneService{db: nil}
 

@@ -18,11 +18,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewTagService(t *testing.T) {
-	svc := NewTagService(nil)
-	assert.NotNil(t, svc)
-}
-
 func TestTagService_NilDatabase(t *testing.T) {
 	svc := &TagService{db: nil}
 

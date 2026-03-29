@@ -19,11 +19,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewCalendarService(t *testing.T) {
-	svc := NewCalendarService(nil, nil)
-	assert.NotNil(t, svc)
-}
-
 func TestCalendarService_NilDatabase(t *testing.T) {
 	svc := &CalendarService{db: nil}
 

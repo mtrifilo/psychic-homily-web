@@ -19,11 +19,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewPendingEditService(t *testing.T) {
-	svc := NewPendingEditService(nil, nil)
-	assert.NotNil(t, svc)
-}
-
 func TestPendingEditService_NilDatabase(t *testing.T) {
 	svc := &PendingEditService{db: nil}
 

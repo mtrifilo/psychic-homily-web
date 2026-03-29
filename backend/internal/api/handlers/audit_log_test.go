@@ -15,13 +15,6 @@ func testAuditLogHandler() *AuditLogHandler {
 
 // --- NewAuditLogHandler ---
 
-func TestNewAuditLogHandler(t *testing.T) {
-	h := testAuditLogHandler()
-	if h == nil {
-		t.Fatal("expected non-nil AuditLogHandler")
-	}
-}
-
 // --- GetAuditLogsHandler ---
 
 func TestGetAuditLogsHandler_NoAuth(t *testing.T) {

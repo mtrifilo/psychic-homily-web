@@ -15,13 +15,6 @@ func testFavoriteVenueHandler() *FavoriteVenueHandler {
 
 // --- NewFavoriteVenueHandler ---
 
-func TestNewFavoriteVenueHandler(t *testing.T) {
-	h := testFavoriteVenueHandler()
-	if h == nil {
-		t.Fatal("expected non-nil FavoriteVenueHandler")
-	}
-}
-
 // --- FavoriteVenueHandler (method) ---
 
 func TestFavoriteVenueHandler_FavoriteVenue_NoAuth(t *testing.T) {

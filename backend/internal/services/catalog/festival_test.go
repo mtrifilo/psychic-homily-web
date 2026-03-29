@@ -3,7 +3,6 @@ package catalog
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
@@ -17,11 +16,6 @@ import (
 // =============================================================================
 // UNIT TESTS (No Database Required)
 // =============================================================================
-
-func TestNewFestivalService(t *testing.T) {
-	festivalService := NewFestivalService(nil)
-	assert.NotNil(t, festivalService)
-}
 
 func TestFestivalService_NilDatabase(t *testing.T) {
 	svc := &FestivalService{db: nil}

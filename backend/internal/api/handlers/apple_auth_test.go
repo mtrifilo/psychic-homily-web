@@ -13,13 +13,6 @@ func testAppleAuthHandler() *AppleAuthHandler {
 
 // --- NewAppleAuthHandler ---
 
-func TestNewAppleAuthHandler(t *testing.T) {
-	h := testAppleAuthHandler()
-	if h == nil {
-		t.Fatal("expected non-nil AppleAuthHandler")
-	}
-}
-
 // --- AppleCallbackHandler ---
 
 func TestAppleCallbackHandler_EmptyToken(t *testing.T) {

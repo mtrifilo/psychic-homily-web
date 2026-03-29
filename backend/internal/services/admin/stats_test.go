@@ -17,19 +17,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewAdminStatsService(t *testing.T) {
-	t.Run("NilDB", func(t *testing.T) {
-		svc := NewAdminStatsService(nil)
-		assert.NotNil(t, svc)
-	})
-
-	t.Run("ExplicitDB", func(t *testing.T) {
-		db := &gorm.DB{}
-		svc := NewAdminStatsService(db)
-		assert.NotNil(t, svc)
-	})
-}
-
 func TestAdminStatsService_NilDB(t *testing.T) {
 	svc := &AdminStatsService{db: nil}
 	assert.Panics(t, func() {

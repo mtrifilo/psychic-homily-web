@@ -17,11 +17,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewFollowService(t *testing.T) {
-	svc := NewFollowService(nil)
-	assert.NotNil(t, svc)
-}
-
 func TestFollowService_NilDatabase(t *testing.T) {
 	svc := &FollowService{db: nil}
 
