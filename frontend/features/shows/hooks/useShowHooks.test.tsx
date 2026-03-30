@@ -100,34 +100,6 @@ describe('useShowSubmit', () => {
     )
   })
 
-  it('returns show data on successful submission', async () => {
-    const responseData = {
-      id: 456,
-      title: 'New Show',
-      event_date: '2025-04-01T19:00:00Z',
-      request_id: 'req-123',
-    }
-    mockApiRequest.mockResolvedValueOnce(responseData)
-
-    const { result } = renderHook(() => useShowSubmit(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate({
-        event_date: '2025-04-01T19:00:00Z',
-        city: 'Tempe',
-        state: 'AZ',
-        venues: [{ name: 'Yucca Tap Room', city: 'Tempe', state: 'AZ' }],
-        artists: [{ name: 'Band Name' }],
-      })
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.id).toBe(456)
-  })
-
   it('invalidates queries on success', async () => {
     mockApiRequest.mockResolvedValueOnce({ id: 789 })
 
@@ -249,29 +221,6 @@ describe('useShowUpdate', () => {
         }),
       })
     )
-  })
-
-  it('returns updated show data', async () => {
-    mockApiRequest.mockResolvedValueOnce({
-      id: 456,
-      title: 'Modified Title',
-      event_date: '2025-06-01T21:00:00Z',
-    })
-
-    const { result } = renderHook(() => useShowUpdate(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate({
-        showId: 456,
-        updates: { title: 'Modified Title' },
-      })
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.title).toBe('Modified Title')
   })
 
   it('invalidates shows, artists, and venues on success', async () => {

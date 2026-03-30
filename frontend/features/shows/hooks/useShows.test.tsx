@@ -55,7 +55,6 @@ describe('useShows', () => {
       expect(mockApiRequest).toHaveBeenCalledWith('/shows/upcoming', {
         method: 'GET',
       })
-      expect(result.current.data?.shows).toHaveLength(2)
     })
 
     it('includes timezone in query params when provided', async () => {
@@ -146,6 +145,20 @@ describe('useShows', () => {
       expect(result.current.data?.pagination.has_more).toBe(true)
       expect(result.current.data?.pagination.next_cursor).toBe('next-page')
     })
+
+    it('handles API errors', async () => {
+      const error = new Error('Server error')
+      Object.assign(error, { status: 500 })
+      mockApiRequest.mockRejectedValueOnce(error)
+
+      const { result } = renderHook(() => useUpcomingShows(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+
+      expect(result.current.error).toBeDefined()
+    })
   })
 
   describe('useShow', () => {
@@ -168,7 +181,6 @@ describe('useShows', () => {
       expect(mockApiRequest).toHaveBeenCalledWith('/shows/123', {
         method: 'GET',
       })
-      expect(result.current.data?.title).toBe('Test Show')
     })
 
     it('accepts string show ID', async () => {

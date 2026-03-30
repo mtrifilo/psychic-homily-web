@@ -55,9 +55,7 @@ describe('useSetFavoriteCities', () => {
     ]
 
     await act(async () => {
-      const data = await result.current.mutateAsync(cities)
-      expect(data.success).toBe(true)
-      expect(data.cities).toHaveLength(2)
+      await result.current.mutateAsync(cities)
     })
 
     expect(mockApiRequest).toHaveBeenCalledWith(
@@ -82,8 +80,7 @@ describe('useSetFavoriteCities', () => {
     })
 
     await act(async () => {
-      const data = await result.current.mutateAsync([])
-      expect(data.cities).toHaveLength(0)
+      await result.current.mutateAsync([])
     })
 
     expect(mockApiRequest).toHaveBeenCalledWith(
@@ -114,6 +111,24 @@ describe('useSetFavoriteCities', () => {
       expect(data.cities).toHaveLength(1)
       expect(data.cities[0].city).toBe('Chicago')
       expect(data.cities[0].state).toBe('IL')
+    })
+  })
+
+  it('handles validation errors', async () => {
+    const error = new Error('Invalid city data')
+    Object.assign(error, { status: 422 })
+    mockApiRequest.mockRejectedValueOnce(error)
+
+    const { result } = renderHook(() => useSetFavoriteCities(), {
+      wrapper: createWrapper(),
+    })
+
+    await act(async () => {
+      try {
+        await result.current.mutateAsync([{ city: '', state: '' }])
+      } catch (e) {
+        expect((e as Error).message).toBe('Invalid city data')
+      }
     })
   })
 

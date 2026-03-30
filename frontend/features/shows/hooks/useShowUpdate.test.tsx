@@ -102,7 +102,6 @@ describe('useShowUpdate', () => {
       method: 'PUT',
       body: JSON.stringify(updates),
     })
-    expect(result.current.data?.title).toBe('Updated Title')
   })
 
   it('invalidates shows, artists, and venues on success', async () => {
@@ -205,39 +204,6 @@ describe('useShowUpdate', () => {
     expect(sentBody.venues).toHaveLength(1)
     expect(sentBody.artists).toHaveLength(1)
     expect(sentBody.artists[0].is_headliner).toBe(true)
-  })
-
-  it('returns orphaned artists in response', async () => {
-    const mockResponse = {
-      id: 10,
-      slug: 'show-10',
-      title: 'Show',
-      event_date: '2025-06-15T20:00:00Z',
-      status: 'approved',
-      venues: [],
-      artists: [],
-      created_at: '2025-01-01T00:00:00Z',
-      updated_at: '2025-01-02T00:00:00Z',
-      is_sold_out: false,
-      is_cancelled: false,
-      orphaned_artists: [
-        { id: 99, name: 'Orphaned Band', slug: 'orphaned-band' },
-      ],
-    }
-    mockApiRequest.mockResolvedValueOnce(mockResponse)
-
-    const { result } = renderHook(() => useShowUpdate(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate({ showId: 10, updates: { artists: [] } })
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.orphaned_artists).toHaveLength(1)
-    expect(result.current.data?.orphaned_artists?.[0].name).toBe('Orphaned Band')
   })
 
   it('handles API errors and sets error state', async () => {

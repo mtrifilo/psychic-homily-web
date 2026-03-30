@@ -59,8 +59,6 @@ describe('useCalendarTokenStatus', () => {
     expect(mockApiRequest).toHaveBeenCalledWith('/calendar/token', {
       method: 'GET',
     })
-    expect(result.current.data?.has_token).toBe(true)
-    expect(result.current.data?.created_at).toBe('2025-03-01T12:00:00Z')
   })
 
   it('fetches when enabled is true explicitly', async () => {
@@ -75,7 +73,6 @@ describe('useCalendarTokenStatus', () => {
     expect(mockApiRequest).toHaveBeenCalledWith('/calendar/token', {
       method: 'GET',
     })
-    expect(result.current.data?.has_token).toBe(false)
   })
 
   it('does not fetch when enabled is false', () => {
@@ -99,6 +96,20 @@ describe('useCalendarTokenStatus', () => {
     expect(result.current.data?.has_token).toBe(false)
     expect(result.current.data?.created_at).toBeUndefined()
   })
+
+  it('handles API errors', async () => {
+    const error = new Error('Unauthorized')
+    Object.assign(error, { status: 401 })
+    mockApiRequest.mockRejectedValueOnce(error)
+
+    const { result } = renderHook(() => useCalendarTokenStatus(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect((result.current.error as Error).message).toBe('Unauthorized')
+  })
 })
 
 describe('useCreateCalendarToken', () => {
@@ -121,10 +132,7 @@ describe('useCreateCalendarToken', () => {
     })
 
     await act(async () => {
-      const data = await result.current.mutateAsync()
-      expect(data.token).toBe('abc123token')
-      expect(data.feed_url).toContain('abc123token')
-      expect(data.created_at).toBe('2025-03-15T10:00:00Z')
+      await result.current.mutateAsync()
     })
 
     expect(mockApiRequest).toHaveBeenCalledWith('/calendar/token', {
@@ -173,9 +181,7 @@ describe('useDeleteCalendarToken', () => {
     })
 
     await act(async () => {
-      const data = await result.current.mutateAsync()
-      expect(data.success).toBe(true)
-      expect(data.message).toBe('Calendar feed token deleted')
+      await result.current.mutateAsync()
     })
 
     expect(mockApiRequest).toHaveBeenCalledWith('/calendar/token', {

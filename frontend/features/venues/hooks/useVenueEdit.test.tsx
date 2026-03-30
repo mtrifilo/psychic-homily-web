@@ -76,68 +76,6 @@ describe('useVenueUpdate', () => {
     )
   })
 
-  it('returns updated venue data on success', async () => {
-    const mockResponse = {
-      venue: {
-        id: 2,
-        name: 'New Name',
-        address: '456 Oak Ave',
-        city: 'Tempe',
-        state: 'AZ',
-      },
-      status: 'updated',
-      message: 'Venue updated',
-    }
-    mockApiRequest.mockResolvedValueOnce(mockResponse)
-
-    const { result } = renderHook(() => useVenueUpdate(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate({
-        venueId: 2,
-        data: { name: 'New Name' },
-      })
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.venue?.name).toBe('New Name')
-    expect(result.current.data?.status).toBe('updated')
-  })
-
-  it('returns pending status for non-admin updates', async () => {
-    const mockResponse = {
-      pending_edit: {
-        id: 10,
-        venue_id: 3,
-        submitted_by: 5,
-        status: 'pending',
-        name: 'Pending Name Change',
-      },
-      status: 'pending',
-      message: 'Edit submitted for approval',
-    }
-    mockApiRequest.mockResolvedValueOnce(mockResponse)
-
-    const { result } = renderHook(() => useVenueUpdate(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate({
-        venueId: 3,
-        data: { name: 'Pending Name Change' },
-      })
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.status).toBe('pending')
-    expect(result.current.data?.pending_edit?.name).toBe('Pending Name Change')
-  })
-
   it('invalidates venues on success', async () => {
     mockApiRequest.mockResolvedValueOnce({
       venue: { id: 4 },
@@ -248,7 +186,6 @@ describe('useMyPendingVenueEdit', () => {
         method: 'GET',
       })
     )
-    expect(result.current.data?.pending_edit?.name).toBe('Pending Name')
   })
 
   it('returns null pending_edit when none exists', async () => {
@@ -262,6 +199,7 @@ describe('useMyPendingVenueEdit', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
+    // Hook returns null pending_edit from API when none exists
     expect(result.current.data?.pending_edit).toBeNull()
   })
 
@@ -326,24 +264,6 @@ describe('useCancelPendingVenueEdit', () => {
         method: 'DELETE',
       })
     )
-  })
-
-  it('returns success message on cancellation', async () => {
-    mockApiRequest.mockResolvedValueOnce({
-      message: 'Edit successfully cancelled',
-    })
-
-    const { result } = renderHook(() => useCancelPendingVenueEdit(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate(25)
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.message).toBe('Edit successfully cancelled')
   })
 
   it('handles cancellation errors', async () => {

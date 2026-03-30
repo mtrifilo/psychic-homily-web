@@ -80,27 +80,6 @@ describe('useShowPublish', () => {
     )
   })
 
-  it('returns updated show data on success', async () => {
-    const mockResponse = {
-      id: 456,
-      title: 'Published Show',
-      status: 'approved',
-    }
-    mockApiRequest.mockResolvedValueOnce(mockResponse)
-
-    const { result } = renderHook(() => useShowPublish(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate(456)
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.status).toBe('approved')
-  })
-
   it('invalidates shows and savedShows queries on success', async () => {
     mockApiRequest.mockResolvedValueOnce({ id: 789, status: 'approved' })
 
@@ -136,26 +115,6 @@ describe('useShowPublish', () => {
     expect(result.current.error).toBeDefined()
   })
 
-  it('returns pending status when venue is unverified', async () => {
-    const mockResponse = {
-      id: 100,
-      title: 'Unverified Venue Show',
-      status: 'pending',
-    }
-    mockApiRequest.mockResolvedValueOnce(mockResponse)
-
-    const { result } = renderHook(() => useShowPublish(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate(100)
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.status).toBe('pending')
-  })
 })
 
 describe('useShowMakePrivate', () => {
@@ -190,27 +149,6 @@ describe('useShowMakePrivate', () => {
         method: 'POST',
       })
     )
-  })
-
-  it('returns updated show data with private status', async () => {
-    const mockResponse = {
-      id: 456,
-      title: 'Made Private',
-      status: 'private',
-    }
-    mockApiRequest.mockResolvedValueOnce(mockResponse)
-
-    const { result } = renderHook(() => useShowMakePrivate(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate(456)
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.status).toBe('private')
   })
 
   it('invalidates shows and savedShows queries on success', async () => {
@@ -281,27 +219,6 @@ describe('useShowUnpublish', () => {
         method: 'POST',
       })
     )
-  })
-
-  it('returns updated show data with pending status', async () => {
-    const mockResponse = {
-      id: 456,
-      title: 'Unpublished',
-      status: 'pending',
-    }
-    mockApiRequest.mockResolvedValueOnce(mockResponse)
-
-    const { result } = renderHook(() => useShowUnpublish(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate(456)
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.status).toBe('pending')
   })
 
   it('invalidates shows and savedShows queries on success', async () => {

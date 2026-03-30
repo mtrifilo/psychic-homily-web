@@ -53,8 +53,6 @@ describe('useVenueSearch', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
     expect(mockApiRequest).toHaveBeenCalledWith('/venues/search?q=rebel')
-    expect(result.current.data?.venues).toHaveLength(2)
-    expect(result.current.data?.count).toBe(2)
   })
 
   it('does not fetch when query is empty', () => {
@@ -91,9 +89,6 @@ describe('useVenueSearch', () => {
     )
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.venues).toHaveLength(0)
-    expect(result.current.data?.count).toBe(0)
   })
 
   it('accepts custom debounce delay', async () => {

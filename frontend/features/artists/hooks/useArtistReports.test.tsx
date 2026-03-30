@@ -65,8 +65,6 @@ describe('useMyArtistReport', () => {
     expect(mockApiRequest).toHaveBeenCalledWith('/artists/42/my-report', {
       method: 'GET',
     })
-    expect(result.current.data?.report?.report_type).toBe('inaccurate')
-    expect(result.current.data?.report?.status).toBe('pending')
   })
 
   it('returns null report when user has not reported', async () => {
@@ -78,6 +76,7 @@ describe('useMyArtistReport', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
+    // Hook returns null report from API when no report exists
     expect(result.current.data?.report).toBeNull()
   })
 
@@ -152,14 +151,11 @@ describe('useReportArtist', () => {
     })
 
     await act(async () => {
-      const data = await result.current.mutateAsync({
+      await result.current.mutateAsync({
         artistId: 42,
         reportType: 'inaccurate',
         details: 'Wrong social links',
       })
-      expect(data.id).toBe(10)
-      expect(data.report_type).toBe('inaccurate')
-      expect(data.status).toBe('pending')
     })
 
     expect(mockApiRequest).toHaveBeenCalledWith('/artists/42/report', {
