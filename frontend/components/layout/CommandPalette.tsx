@@ -15,7 +15,7 @@ import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
   Library, LayoutList, MessageSquarePlus, Settings, Search, Clock, X, Globe,
   TrendingUp, LayoutDashboard, Upload, BadgeCheck, Flag, ScrollText, Users, Workflow,
-  ClipboardCheck, BarChart3, Music, Bell, HeartHandshake,
+  ClipboardCheck, BarChart3, Music, Bell, HeartHandshake, ShieldCheck,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -157,6 +157,13 @@ const adminRoutes: RouteItem[] = [
     href: '/admin',
     icon: LayoutDashboard,
     keywords: ['admin', 'dashboard', 'overview', 'stats'],
+    requireAdmin: true,
+  },
+  {
+    label: 'Admin: Moderation Queue',
+    href: '/admin?tab=moderation',
+    icon: ShieldCheck,
+    keywords: ['admin', 'moderation', 'queue', 'review', 'pending', 'edits', 'reports', 'moderate'],
     requireAdmin: true,
   },
   {
