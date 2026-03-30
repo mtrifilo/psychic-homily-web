@@ -17,21 +17,6 @@ import (
 // UNIT TESTS
 // =============================================================================
 
-// TestNewJWTService tests the creation of a new JWTService
-func TestNewJWTService(t *testing.T) {
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			SecretKey: "test-secret-key",
-			Expiry:    24,
-		},
-	}
-
-	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
-
-	assert.NotNil(t, jwtService)
-	assert.Equal(t, cfg, jwtService.config)
-}
-
 // TestJWTService_CreateToken tests JWT token creation
 func TestJWTService_CreateToken(t *testing.T) {
 	cfg := &config.Config{

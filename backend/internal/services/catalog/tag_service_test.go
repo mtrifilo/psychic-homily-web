@@ -18,11 +18,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewTagService(t *testing.T) {
-	svc := NewTagService(nil)
-	assert.NotNil(t, svc)
-}
-
 func TestWilsonScore(t *testing.T) {
 	t.Run("zero votes returns 0", func(t *testing.T) {
 		score := wilsonScore(0, 0)

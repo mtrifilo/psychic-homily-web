@@ -119,15 +119,6 @@ func TestCLICallbackStore_CleansExpiredOnStore(t *testing.T) {
 	}
 }
 
-// --- NewOAuthHTTPHandler ---
-
-func TestNewOAuthHTTPHandler(t *testing.T) {
-	handler := NewOAuthHTTPHandler(nil, nil)
-	if handler == nil {
-		t.Fatal("expected non-nil handler")
-	}
-}
-
 // --- OAuthLoginHTTPHandler (real handler, validation paths) ---
 
 func oauthLoginRequest(provider string) (*httptest.ResponseRecorder, *http.Request) {

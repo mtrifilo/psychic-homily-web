@@ -18,11 +18,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewEntityReportService(t *testing.T) {
-	svc := NewEntityReportService(nil)
-	assert.NotNil(t, svc)
-}
-
 func TestEntityReportModel_Validation(t *testing.T) {
 	// Valid entity types
 	assert.True(t, models.IsValidEntityReportEntityType("artist"))

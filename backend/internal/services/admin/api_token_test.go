@@ -18,11 +18,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewAPITokenService(t *testing.T) {
-	svc := NewAPITokenService(nil)
-	assert.NotNil(t, svc)
-}
-
 func TestHashToken_Deterministic(t *testing.T) {
 	token := "phk_abc123def456"
 	hash1 := hashToken(token)

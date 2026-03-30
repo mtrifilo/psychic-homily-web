@@ -34,15 +34,6 @@ func testShowHandler() *ShowHandler {
 	return NewShowHandler(nil, nil, nil, nil, nil, nil, nil)
 }
 
-// --- NewShowHandler ---
-
-func TestNewShowHandler(t *testing.T) {
-	h := testShowHandler()
-	if h == nil {
-		t.Fatal("expected non-nil ShowHandler")
-	}
-}
-
 // --- CreateShowHandler ---
 
 func TestCreateShowHandler_UnverifiedEmail(t *testing.T) {

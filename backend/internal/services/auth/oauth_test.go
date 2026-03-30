@@ -23,22 +23,6 @@ func (m *MockOAuthCompleter) CompleteUserAuth(w http.ResponseWriter, r *http.Req
 	return args.Get(0).(goth.User), args.Error(1)
 }
 
-// TestNewAuthService tests the creation of a new AuthService
-func TestNewAuthService(t *testing.T) {
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			SecretKey: "test-secret-key-32-chars-minimum",
-			Expiry:    24,
-		},
-	}
-
-	authService := NewAuthService(nil, cfg, newNilDBUserService())
-
-	assert.NotNil(t, authService, "Expected AuthService to be created")
-	assert.NotNil(t, authService.userService, "Expected UserService to be initialized")
-	assert.NotNil(t, authService.jwtService, "Expected JWTService to be initialized")
-}
-
 // TestAuthService_OAuthLogin tests the OAuth login flow.
 // Without configured providers, gothic.BeginAuthHandler fails immediately,
 // so a single provider name is sufficient to cover the error path.

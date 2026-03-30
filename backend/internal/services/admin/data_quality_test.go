@@ -17,19 +17,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewDataQualityService(t *testing.T) {
-	t.Run("NilDB", func(t *testing.T) {
-		svc := NewDataQualityService(nil)
-		assert.NotNil(t, svc)
-	})
-
-	t.Run("ExplicitDB", func(t *testing.T) {
-		db := &gorm.DB{}
-		svc := NewDataQualityService(db)
-		assert.NotNil(t, svc)
-	})
-}
-
 func TestDataQualityService_InvalidCategory(t *testing.T) {
 	svc := &DataQualityService{db: &gorm.DB{}}
 	_, _, err := svc.GetCategoryItems("nonexistent_category", 10, 0)

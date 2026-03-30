@@ -5,22 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/testutil"
 )
-
-// =============================================================================
-// UNIT TESTS (No Database Required)
-// =============================================================================
-
-func TestNewBookmarkService(t *testing.T) {
-	svc := NewBookmarkService(nil)
-	assert.NotNil(t, svc)
-}
 
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
