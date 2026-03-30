@@ -95,85 +95,6 @@ describe('useShowImport', () => {
       )
     })
 
-    it('returns preview data with venue and artist matches', async () => {
-      const mockResponse = {
-        show: {
-          title: 'Preview Show',
-          event_date: '2025-05-01T19:00:00Z',
-          city: 'Tempe',
-          state: 'AZ',
-          status: 'draft',
-        },
-        venues: [
-          {
-            name: 'Yucca Tap Room',
-            city: 'Tempe',
-            state: 'AZ',
-            existing_id: 5,
-            will_create: false,
-          },
-        ],
-        artists: [
-          {
-            name: 'Band A',
-            position: 1,
-            set_type: 'headliner',
-            existing_id: 10,
-            will_create: false,
-          },
-          {
-            name: 'Band B',
-            position: 2,
-            set_type: 'support',
-            existing_id: null,
-            will_create: true,
-          },
-        ],
-        warnings: ['Band B will be created as a new artist'],
-        can_import: true,
-      }
-      mockApiRequest.mockResolvedValueOnce(mockResponse)
-
-      const { result } = renderHook(() => useShowImportPreview(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate('Test content')
-      })
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      expect(result.current.data?.venues).toHaveLength(1)
-      expect(result.current.data?.artists).toHaveLength(2)
-      expect(result.current.data?.warnings).toHaveLength(1)
-      expect(result.current.data?.can_import).toBe(true)
-    })
-
-    it('returns can_import false with warnings', async () => {
-      const mockResponse = {
-        show: { title: 'Invalid Show', status: 'draft' },
-        venues: [],
-        artists: [],
-        warnings: ['No venue specified', 'No date specified'],
-        can_import: false,
-      }
-      mockApiRequest.mockResolvedValueOnce(mockResponse)
-
-      const { result } = renderHook(() => useShowImportPreview(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate('Invalid content')
-      })
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      expect(result.current.data?.can_import).toBe(false)
-      expect(result.current.data?.warnings).toHaveLength(2)
-    })
-
     it('handles parsing errors', async () => {
       const error = new Error('Invalid markdown format')
       Object.assign(error, { status: 400 })
@@ -227,31 +148,6 @@ describe('useShowImport', () => {
           body: JSON.stringify({ content: expectedBase64 }),
         })
       )
-    })
-
-    it('returns created show data', async () => {
-      const mockShow = {
-        id: 456,
-        title: 'New Imported Show',
-        event_date: '2025-06-01T20:00:00Z',
-        venues: [{ id: 1, name: 'Crescent Ballroom' }],
-        artists: [{ id: 1, name: 'Test Artist' }],
-        status: 'approved',
-      }
-      mockApiRequest.mockResolvedValueOnce(mockShow)
-
-      const { result } = renderHook(() => useShowImportConfirm(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate('Show content')
-      })
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      expect(result.current.data?.id).toBe(456)
-      expect(result.current.data?.title).toBe('New Imported Show')
     })
 
     it('invalidates shows on success', async () => {

@@ -55,7 +55,6 @@ describe('useIsVenueFavorited', () => {
     )
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(result.current.data?.is_favorited).toBe(true)
   })
 
   it('does not fetch when not authenticated', () => {

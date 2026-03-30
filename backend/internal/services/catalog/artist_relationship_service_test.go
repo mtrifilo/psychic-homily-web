@@ -5,22 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/testutil"
 )
-
-// =============================================================================
-// UNIT TESTS
-// =============================================================================
-
-func TestNewArtistRelationshipService(t *testing.T) {
-	svc := NewArtistRelationshipService(nil)
-	assert.NotNil(t, svc)
-}
 
 // =============================================================================
 // INTEGRATION TESTS

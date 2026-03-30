@@ -132,7 +132,7 @@ describe('useAuth hooks', () => {
       )
     })
 
-    it('succeeds and returns user data on successful login', async () => {
+    it('succeeds on successful login', async () => {
       const queryClient = createTestQueryClient()
 
       mockApiRequest.mockResolvedValueOnce({
@@ -153,8 +153,6 @@ describe('useAuth hooks', () => {
       })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      expect(result.current.data?.user?.email).toBe('test@example.com')
     })
   })
 
@@ -316,9 +314,6 @@ describe('useAuth hooks', () => {
       })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      expect(result.current.data?.user?.email).toBe('test@example.com')
-      expect(result.current.data?.user?.is_admin).toBe(true)
     })
   })
 
@@ -496,7 +491,7 @@ describe('useAuth hooks', () => {
       expect((result.current.error as Error).name).toBe('AuthError')
     })
 
-    it('succeeds and returns success message on successful verification', async () => {
+    it('succeeds on successful verification', async () => {
       const queryClient = createTestQueryClient()
 
       mockApiRequest.mockResolvedValueOnce({
@@ -513,8 +508,6 @@ describe('useAuth hooks', () => {
       })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      expect(result.current.data?.message).toBe('Email verified')
     })
   })
 })

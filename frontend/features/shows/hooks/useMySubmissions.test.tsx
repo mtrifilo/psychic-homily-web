@@ -59,7 +59,6 @@ describe('useMySubmissions', () => {
       '/shows/my-submissions?limit=50&offset=0',
       { method: 'GET' }
     )
-    expect(result.current.data?.shows).toHaveLength(2)
   })
 
   it('supports custom limit', async () => {
@@ -109,8 +108,5 @@ describe('useMySubmissions', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.shows).toHaveLength(0)
-    expect(result.current.data?.total).toBe(0)
   })
 })

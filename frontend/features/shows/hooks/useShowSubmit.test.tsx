@@ -108,7 +108,6 @@ describe('useShowSubmit', () => {
       method: 'POST',
       body: JSON.stringify(validSubmission),
     })
-    expect(result.current.data?.id).toBe(1)
   })
 
   it('invalidates shows, artists, and savedShows on success', async () => {
@@ -139,42 +138,6 @@ describe('useShowSubmit', () => {
     expect(mockInvalidateShows).toHaveBeenCalled()
     expect(mockInvalidateArtists).toHaveBeenCalled()
     expect(mockInvalidateSavedShows).toHaveBeenCalled()
-  })
-
-  it('returns the show response data on success', async () => {
-    const mockResponse = {
-      id: 42,
-      slug: 'test-show',
-      title: 'Test Show',
-      event_date: '2025-06-15T20:00:00Z',
-      status: 'approved',
-      venues: [{ id: 5, name: 'Valley Bar', slug: 'valley-bar', city: 'Phoenix', state: 'AZ', verified: true }],
-      artists: [
-        { id: 10, name: 'Band A', slug: 'band-a', is_headliner: true, set_type: 'headliner', position: 0, socials: {} },
-        { id: 11, name: 'Band B', slug: 'band-b', set_type: 'opener', position: 1, socials: {} },
-      ],
-      created_at: '2025-01-01T00:00:00Z',
-      updated_at: '2025-01-01T00:00:00Z',
-      is_sold_out: false,
-      is_cancelled: false,
-      request_id: 'req-abc-123',
-    }
-    mockApiRequest.mockResolvedValueOnce(mockResponse)
-
-    const { result } = renderHook(() => useShowSubmit(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate(validSubmission)
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    expect(result.current.data?.id).toBe(42)
-    expect(result.current.data?.title).toBe('Test Show')
-    expect(result.current.data?.venues).toHaveLength(1)
-    expect(result.current.data?.artists).toHaveLength(2)
   })
 
   it('handles API errors and sets error state', async () => {

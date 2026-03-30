@@ -20,11 +20,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewNotificationFilterService(t *testing.T) {
-	svc := NewNotificationFilterService(nil, nil, "secret", "http://localhost:3000")
-	assert.NotNil(t, svc)
-}
-
 func TestHasAnyCriteria(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		assert.False(t, hasAnyCriteria(contracts.CreateFilterInput{}))

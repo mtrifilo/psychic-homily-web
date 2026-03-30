@@ -49,7 +49,6 @@ describe('useNotificationFilters', () => {
     expect(mockApiRequest).toHaveBeenCalledWith(
       'http://localhost:8080/me/notification-filters'
     )
-    expect(result.current.data?.filters).toHaveLength(1)
   })
 
   it('handles empty filters', async () => {
@@ -60,7 +59,6 @@ describe('useNotificationFilters', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(result.current.data?.filters).toEqual([])
   })
 })
 

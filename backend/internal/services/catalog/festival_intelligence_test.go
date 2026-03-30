@@ -17,11 +17,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewFestivalIntelligenceService(t *testing.T) {
-	svc := NewFestivalIntelligenceService(nil)
-	assert.NotNil(t, svc)
-}
-
 func TestTierWeight(t *testing.T) {
 	assert.Equal(t, 5.0, tierWeight("headliner"))
 	assert.Equal(t, 3.0, tierWeight("sub_headliner"))

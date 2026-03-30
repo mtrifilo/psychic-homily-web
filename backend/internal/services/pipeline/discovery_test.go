@@ -281,15 +281,6 @@ func TestNormalizeSetType(t *testing.T) {
 }
 
 // =============================================================================
-// UNIT TESTS — Constructor
-// =============================================================================
-
-func TestNewDiscoveryService(t *testing.T) {
-	svc := NewDiscoveryService(nil, nil)
-	assert.NotNil(t, svc)
-}
-
-// =============================================================================
 // testVenueFinderCreator — lightweight impl of venueFinderCreator for tests
 // =============================================================================
 

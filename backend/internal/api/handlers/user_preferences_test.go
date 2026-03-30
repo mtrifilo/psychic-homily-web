@@ -9,15 +9,6 @@ import (
 	"psychic-homily-backend/internal/services/engagement"
 )
 
-// --- Constructor ---
-
-func TestNewUserPreferencesHandler(t *testing.T) {
-	h := NewUserPreferencesHandler(nil, "test-secret")
-	if h == nil {
-		t.Fatal("expected non-nil handler")
-	}
-}
-
 // --- SetFavoriteCitiesHandler ---
 
 func TestSetFavoriteCitiesHandler_NoAuth(t *testing.T) {

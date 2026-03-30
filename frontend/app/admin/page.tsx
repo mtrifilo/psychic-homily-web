@@ -3,12 +3,14 @@
 import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { Shield, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tags, Tent, Workflow, Library, Music, ClipboardCheck, BarChart3 } from 'lucide-react'
+import { Shield, ShieldCheck, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tags, Tent, Workflow, Library, Music, ClipboardCheck, BarChart3 } from 'lucide-react'
 import { usePendingVenueEdits } from '@/lib/hooks/admin/useAdminVenueEdits'
 import { useUnverifiedVenues } from '@/lib/hooks/admin/useAdminVenues'
 import { usePendingReports } from '@/lib/hooks/admin/useAdminReports'
 import { usePendingArtistReports } from '@/lib/hooks/admin/useAdminArtistReports'
 import { usePendingShows } from '@/lib/hooks/admin/useAdminShows'
+import { useAdminPendingEdits } from '@/lib/hooks/admin/useAdminPendingEdits'
+import { useAdminEntityReports } from '@/lib/hooks/admin/useAdminEntityReports'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
@@ -147,6 +149,14 @@ const ArtistsPage = dynamic(() => import('./artists/page'), {
   ),
 })
 
+const ModerationPage = dynamic(() => import('./moderation/page'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
 const CrateManagementComponent = dynamic(
   () => import('@/components/admin/CrateManagement').then(m => ({ default: m.CrateManagement })),
   {
@@ -159,7 +169,7 @@ const CrateManagementComponent = dynamic(
 )
 
 const VALID_TABS = [
-  'dashboard', 'pending-shows', 'pending-venue-edits', 'unverified-venues',
+  'dashboard', 'moderation', 'pending-shows', 'pending-venue-edits', 'unverified-venues',
   'reports', 'import-show', 'releases', 'labels', 'festivals', 'pipeline',
   'crates', 'tags', 'data-quality', 'analytics', 'artists-admin',
   'users', 'audit-log',
@@ -219,6 +229,14 @@ function AdminPageContent() {
   const {
     data: artistReportsData,
   } = usePendingArtistReports()
+  const {
+    data: pendingEditsData,
+  } = useAdminPendingEdits({ status: 'pending' })
+  const {
+    data: entityReportsData,
+  } = useAdminEntityReports({ status: 'pending' })
+
+  const moderationCount = (pendingEditsData?.total || 0) + (entityReportsData?.total || 0)
 
   if (isLoading || !isAuthenticated || !isAdmin) {
     return (
@@ -250,6 +268,15 @@ function AdminPageContent() {
             <TabsTrigger value="dashboard" className="gap-2">
               <LayoutDashboard className="h-4 w-4" />
               Dashboard
+            </TabsTrigger>
+            <TabsTrigger value="moderation" className="gap-2">
+              <ShieldCheck className="h-4 w-4" />
+              Moderation
+              {moderationCount > 0 && (
+                  <span className="ml-1 rounded-full bg-purple-500 px-2 py-0.5 text-xs font-medium text-white">
+                    {moderationCount}
+                  </span>
+                )}
             </TabsTrigger>
             <TabsTrigger value="pending-shows" className="gap-2">
               <Clock className="h-4 w-4" />
@@ -342,6 +369,10 @@ function AdminPageContent() {
 
           <TabsContent value="dashboard" className="space-y-4" data-testid="admin-tab-dashboard">
             <DashboardPage onNavigate={setActiveTab} />
+          </TabsContent>
+
+          <TabsContent value="moderation" className="space-y-4" data-testid="admin-tab-moderation">
+            <ModerationPage />
           </TabsContent>
 
           <TabsContent value="pending-shows" className="space-y-4" data-testid="admin-tab-pending-shows">
