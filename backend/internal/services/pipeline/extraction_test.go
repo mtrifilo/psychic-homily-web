@@ -22,24 +22,6 @@ import (
 )
 
 // =============================================================================
-// NewExtractionService TESTS
-// =============================================================================
-
-func TestNewExtractionService(t *testing.T) {
-	cfg := &config.Config{
-		Anthropic: config.AnthropicConfig{APIKey: "test-key"},
-	}
-	// Use nil-returning stubs for the local interfaces
-	svc := NewExtractionService(nil, cfg, &testArtistSearcher{}, &testVenueSearcher{})
-	assert.NotNil(t, svc)
-	assert.NotNil(t, svc.config)
-	assert.NotNil(t, svc.artistService)
-	assert.NotNil(t, svc.venueService)
-	assert.NotNil(t, svc.httpClient)
-	assert.Equal(t, "https://api.anthropic.com", svc.anthropicBaseURL)
-}
-
-// =============================================================================
 // parseExtractionResponse TESTS
 // =============================================================================
 

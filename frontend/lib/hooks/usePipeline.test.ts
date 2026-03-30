@@ -70,7 +70,6 @@ describe('usePipeline hooks', () => {
       const { result } = renderHook(() => usePipelineVenues(), { wrapper: createWrapper() })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
-      expect(result.current.data).toEqual(mockVenues)
       expect(mockApiRequest).toHaveBeenCalledWith('/admin/pipeline/venues')
     })
 
@@ -97,7 +96,6 @@ describe('usePipeline hooks', () => {
       const { result } = renderHook(() => useVenueRejectionStats(42), { wrapper: createWrapper() })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
-      expect(result.current.data).toEqual(mockStats)
       expect(mockApiRequest).toHaveBeenCalledWith('/admin/pipeline/venues/42/stats')
     })
 

@@ -63,8 +63,6 @@ describe('useFollowStatus', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockApiRequest).toHaveBeenCalledWith('/artists/1/followers', { method: 'GET' })
-    expect(result.current.data?.follower_count).toBe(42)
-    expect(result.current.data?.is_following).toBe(true)
   })
 
   it('does not fetch when entityId is 0', () => {

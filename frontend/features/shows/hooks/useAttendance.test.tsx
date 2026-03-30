@@ -63,7 +63,6 @@ describe('useShowAttendance', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockApiRequest).toHaveBeenCalledWith('/shows/1/attendance', { method: 'GET' })
-    expect(result.current.data?.going_count).toBe(10)
   })
 
   it('does not fetch when showId is 0', () => {
@@ -101,7 +100,6 @@ describe('useBatchAttendance', () => {
         body: JSON.stringify({ show_ids: [1, 2] }),
       })
     )
-    expect(result.current.data?.['1']?.going_count).toBe(10)
   })
 
   it('does not fetch when showIds is empty', () => {

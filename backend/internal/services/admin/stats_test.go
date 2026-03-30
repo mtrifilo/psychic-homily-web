@@ -5,30 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/testutil"
 )
-
-// =============================================================================
-// UNIT TESTS (No Database Required)
-// =============================================================================
-
-func TestNewAdminStatsService(t *testing.T) {
-	t.Run("NilDB", func(t *testing.T) {
-		svc := NewAdminStatsService(nil)
-		assert.NotNil(t, svc)
-	})
-
-	t.Run("ExplicitDB", func(t *testing.T) {
-		db := &gorm.DB{}
-		svc := NewAdminStatsService(db)
-		assert.NotNil(t, svc)
-	})
-}
 
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)

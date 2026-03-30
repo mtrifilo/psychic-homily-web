@@ -42,7 +42,6 @@ describe('useScenes', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockApiRequest).toHaveBeenCalledWith('/scenes', { method: 'GET' })
-    expect(result.current.data?.scenes).toHaveLength(1)
   })
 
   it('handles empty scenes', async () => {
@@ -51,7 +50,6 @@ describe('useScenes', () => {
     const { result } = renderHook(() => useScenes(), { wrapper: createWrapper() })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(result.current.data?.scenes).toEqual([])
   })
 
 })

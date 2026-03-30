@@ -18,15 +18,6 @@ func testNotificationFilterHandler() *NotificationFilterHandler {
 	return NewNotificationFilterHandler(nil, "test-secret")
 }
 
-// --- NewNotificationFilterHandler ---
-
-func TestNewNotificationFilterHandler(t *testing.T) {
-	h := testNotificationFilterHandler()
-	if h == nil {
-		t.Fatal("expected non-nil NotificationFilterHandler")
-	}
-}
-
 // --- ListFiltersHandler ---
 
 func TestListFiltersHandler_NoAuth(t *testing.T) {

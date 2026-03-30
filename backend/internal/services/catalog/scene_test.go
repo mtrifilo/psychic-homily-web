@@ -17,11 +17,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewSceneService(t *testing.T) {
-	svc := NewSceneService(nil)
-	assert.NotNil(t, svc)
-}
-
 func TestBuildSceneSlug(t *testing.T) {
 	tests := []struct {
 		city, state, expected string

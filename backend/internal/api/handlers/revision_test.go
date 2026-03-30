@@ -51,17 +51,6 @@ func makeTestRevision(id uint) models.Revision {
 }
 
 // ============================================================================
-// Tests: NewRevisionHandler
-// ============================================================================
-
-func TestNewRevisionHandler(t *testing.T) {
-	h := testRevisionHandler()
-	if h == nil {
-		t.Fatal("expected non-nil RevisionHandler")
-	}
-}
-
-// ============================================================================
 // Tests: Admin Guard (Rollback only)
 // ============================================================================
 

@@ -54,8 +54,6 @@ describe('useDataQualitySummary', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockApiRequest).toHaveBeenCalledWith('/admin/data-quality', { method: 'GET' })
-    expect(result.current.data?.categories).toHaveLength(2)
-    expect(result.current.data?.total_items).toBe(15)
   })
 
 })

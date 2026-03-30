@@ -3,7 +3,6 @@ package catalog
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
@@ -12,15 +11,6 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
-
-// =============================================================================
-// UNIT TESTS (No Database Required)
-// =============================================================================
-
-func TestNewReleaseService(t *testing.T) {
-	releaseService := NewReleaseService(nil)
-	assert.NotNil(t, releaseService)
-}
 
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)

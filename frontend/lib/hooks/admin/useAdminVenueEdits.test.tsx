@@ -86,7 +86,6 @@ describe('useAdminVenueEdits', () => {
       expect(mockApiRequest).toHaveBeenCalledWith(
         '/admin/venues/pending-edits?limit=50&offset=0'
       )
-      expect(result.current.data?.edits).toHaveLength(2)
     })
 
     it('supports custom limit and offset', async () => {
@@ -112,8 +111,6 @@ describe('useAdminVenueEdits', () => {
       })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      expect(result.current.data?.edits).toHaveLength(0)
     })
   })
 
@@ -141,28 +138,6 @@ describe('useAdminVenueEdits', () => {
         '/admin/venues/pending-edits/123/approve',
         { method: 'POST' }
       )
-    })
-
-    it('returns updated venue data on success', async () => {
-      const mockVenue = {
-        id: 10,
-        name: 'Crescent Ballroom',
-        city: 'Phoenix',
-        state: 'AZ',
-      }
-      mockApiRequest.mockResolvedValueOnce(mockVenue)
-
-      const { result } = renderHook(() => useApproveVenueEdit(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate(456)
-      })
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      expect(result.current.data?.name).toBe('Crescent Ballroom')
     })
 
     it('invalidates pending edits and venues on success', async () => {

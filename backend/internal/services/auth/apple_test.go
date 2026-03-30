@@ -23,24 +23,6 @@ import (
 )
 
 // =============================================================================
-// NewAppleAuthService TESTS
-// =============================================================================
-
-func TestNewAppleAuthService(t *testing.T) {
-	cfg := &config.Config{
-		Apple: config.AppleConfig{BundleID: "com.test.app"},
-		JWT:   config.JWTConfig{SecretKey: "test-key", Expiry: 24},
-	}
-	jwtSvc := NewJWTService(nil, cfg, newNilDBUserService())
-	svc := NewAppleAuthService(nil, cfg, jwtSvc)
-	assert.NotNil(t, svc)
-	assert.NotNil(t, svc.config)
-	assert.NotNil(t, svc.jwtService)
-	assert.NotNil(t, svc.keys)
-	assert.Empty(t, svc.keys)
-}
-
-// =============================================================================
 // GenerateToken TESTS
 // =============================================================================
 

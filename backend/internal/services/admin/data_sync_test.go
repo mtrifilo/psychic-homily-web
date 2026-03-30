@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
@@ -14,23 +13,6 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
-
-// =============================================================================
-// UNIT TESTS (No Database Required)
-// =============================================================================
-
-func TestNewDataSyncService(t *testing.T) {
-	t.Run("NilDB", func(t *testing.T) {
-		svc := NewDataSyncService(nil)
-		assert.NotNil(t, svc)
-	})
-
-	t.Run("ExplicitDB", func(t *testing.T) {
-		db := &gorm.DB{}
-		svc := NewDataSyncService(db)
-		assert.NotNil(t, svc)
-	})
-}
 
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)

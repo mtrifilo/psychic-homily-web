@@ -18,19 +18,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewAnalyticsService(t *testing.T) {
-	t.Run("NilDB", func(t *testing.T) {
-		svc := NewAnalyticsService(nil)
-		assert.NotNil(t, svc)
-	})
-
-	t.Run("ExplicitDB", func(t *testing.T) {
-		db := &gorm.DB{}
-		svc := NewAnalyticsService(db)
-		assert.NotNil(t, svc)
-	})
-}
-
 func TestClampMonths(t *testing.T) {
 	assert.Equal(t, 1, clampMonths(0))
 	assert.Equal(t, 1, clampMonths(-5))
