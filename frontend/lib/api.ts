@@ -184,6 +184,24 @@ export const API_ENDPOINTS = {
       COMMUNITY: `${API_BASE_URL}/admin/analytics/community`,
       DATA_QUALITY: `${API_BASE_URL}/admin/analytics/data-quality`,
     },
+    PENDING_EDITS: {
+      LIST: `${API_BASE_URL}/admin/pending-edits`,
+      GET: (editId: string | number) =>
+        `${API_BASE_URL}/admin/pending-edits/${editId}`,
+      APPROVE: (editId: string | number) =>
+        `${API_BASE_URL}/admin/pending-edits/${editId}/approve`,
+      REJECT: (editId: string | number) =>
+        `${API_BASE_URL}/admin/pending-edits/${editId}/reject`,
+    },
+    ENTITY_REPORTS: {
+      LIST: `${API_BASE_URL}/admin/entity-reports`,
+      GET: (reportId: string | number) =>
+        `${API_BASE_URL}/admin/entity-reports/${reportId}`,
+      RESOLVE: (reportId: string | number) =>
+        `${API_BASE_URL}/admin/entity-reports/${reportId}/resolve`,
+      DISMISS: (reportId: string | number) =>
+        `${API_BASE_URL}/admin/entity-reports/${reportId}/dismiss`,
+    },
     PIPELINE: {
       VENUES: `${API_BASE_URL}/admin/pipeline/venues`,
       IMPORTS: `${API_BASE_URL}/admin/pipeline/imports`,

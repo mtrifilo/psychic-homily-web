@@ -57,6 +57,25 @@ export {
 } from './useAdminVenueEdits'
 
 export {
+  type FieldChange,
+  type PendingEditResponse,
+  type PendingEditsListResponse,
+  type PendingEditsFilters,
+  useAdminPendingEdits,
+  useApprovePendingEdit,
+  useRejectPendingEdit,
+} from './useAdminPendingEdits'
+
+export {
+  type EntityReportResponse,
+  type EntityReportsListResponse,
+  type EntityReportFilters,
+  useAdminEntityReports,
+  useResolveEntityReport,
+  useDismissEntityReport,
+} from './useAdminEntityReports'
+
+export {
   useUnverifiedVenues,
   useVerifyVenue,
 } from './useAdminVenues'
