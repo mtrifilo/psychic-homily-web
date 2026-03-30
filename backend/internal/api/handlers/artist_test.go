@@ -16,13 +16,6 @@ func testArtistHandler() *ArtistHandler {
 
 // --- NewArtistHandler ---
 
-func TestNewArtistHandler(t *testing.T) {
-	h := testArtistHandler()
-	if h == nil {
-		t.Fatal("expected non-nil ArtistHandler")
-	}
-}
-
 // --- DeleteArtistHandler ---
 
 func TestDeleteArtist_NoAuth(t *testing.T) {

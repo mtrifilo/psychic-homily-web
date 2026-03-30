@@ -52,13 +52,6 @@ func testJWTService() *auth.JWTService {
 
 // --- TestNewAuthHandler ---
 
-func TestNewAuthHandler(t *testing.T) {
-	h := NewAuthHandler(nil, nil, nil, nil, nil, nil, testConfig())
-	if h == nil {
-		t.Fatal("expected non-nil AuthHandler")
-	}
-}
-
 // --- LoginHandler ---
 
 func TestLoginHandler_EmptyCredentials(t *testing.T) {

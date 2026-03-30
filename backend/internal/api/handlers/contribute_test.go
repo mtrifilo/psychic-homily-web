@@ -20,13 +20,6 @@ func testContributeHandler() *ContributeHandler {
 // Tests: NewContributeHandler
 // ============================================================================
 
-func TestNewContributeHandler(t *testing.T) {
-	h := testContributeHandler()
-	if h == nil {
-		t.Fatal("expected non-nil ContributeHandler")
-	}
-}
-
 // ============================================================================
 // Tests: GetOpportunitiesHandler (public — no auth check)
 // ============================================================================

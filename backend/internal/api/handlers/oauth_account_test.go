@@ -13,13 +13,6 @@ func testOAuthAccountHandler() *OAuthAccountHandler {
 
 // --- NewOAuthAccountHandler ---
 
-func TestNewOAuthAccountHandler(t *testing.T) {
-	h := testOAuthAccountHandler()
-	if h == nil {
-		t.Fatal("expected non-nil OAuthAccountHandler")
-	}
-}
-
 // --- GetOAuthAccountsHandler ---
 
 func TestGetOAuthAccountsHandler_NoAuth(t *testing.T) {

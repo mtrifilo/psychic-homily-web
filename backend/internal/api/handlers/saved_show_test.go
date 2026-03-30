@@ -15,13 +15,6 @@ func testSavedShowHandler() *SavedShowHandler {
 
 // --- NewSavedShowHandler ---
 
-func TestNewSavedShowHandler(t *testing.T) {
-	h := testSavedShowHandler()
-	if h == nil {
-		t.Fatal("expected non-nil SavedShowHandler")
-	}
-}
-
 // --- SaveShowHandler ---
 
 func TestSaveShowHandler_NoAuth(t *testing.T) {

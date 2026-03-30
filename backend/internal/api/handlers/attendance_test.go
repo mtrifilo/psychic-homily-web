@@ -16,13 +16,6 @@ func testAttendanceHandler() *AttendanceHandler {
 
 // --- NewAttendanceHandler ---
 
-func TestNewAttendanceHandler(t *testing.T) {
-	h := testAttendanceHandler()
-	if h == nil {
-		t.Fatal("expected non-nil AttendanceHandler")
-	}
-}
-
 // --- SetAttendanceHandler ---
 
 func TestSetAttendanceHandler_NoAuth(t *testing.T) {

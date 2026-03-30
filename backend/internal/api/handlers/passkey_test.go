@@ -26,13 +26,6 @@ func testPasskeyHandlerWithMocks(wa *mockWebAuthnService, jwt *mockJWTService, u
 
 // --- NewPasskeyHandler ---
 
-func TestNewPasskeyHandler(t *testing.T) {
-	h := testPasskeyHandler()
-	if h == nil {
-		t.Fatal("expected non-nil PasskeyHandler")
-	}
-}
-
 // ============================================================================
 // BeginRegisterHandler
 // ============================================================================

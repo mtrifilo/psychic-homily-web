@@ -29,13 +29,6 @@ func dataQualityNonAdminCtx() context.Context {
 // Tests: NewDataQualityHandler
 // ============================================================================
 
-func TestNewDataQualityHandler(t *testing.T) {
-	h := testDataQualityHandler()
-	if h == nil {
-		t.Fatal("expected non-nil DataQualityHandler")
-	}
-}
-
 // ============================================================================
 // Tests: Admin Guard
 // ============================================================================

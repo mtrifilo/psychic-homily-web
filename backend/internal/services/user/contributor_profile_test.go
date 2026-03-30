@@ -20,11 +20,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewContributorProfileService(t *testing.T) {
-	svc := NewContributorProfileService(nil)
-	assert.NotNil(t, svc)
-}
-
 func TestValidatePrivacySettings(t *testing.T) {
 	t.Run("Valid_Defaults", func(t *testing.T) {
 		err := ValidatePrivacySettings(contracts.DefaultPrivacySettings())

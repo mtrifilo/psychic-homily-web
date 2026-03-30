@@ -19,11 +19,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewCalendarService(t *testing.T) {
-	svc := NewCalendarService(nil, nil)
-	assert.NotNil(t, svc)
-}
-
 func TestGenerateCalendarToken_Format(t *testing.T) {
 	token, err := generateCalendarToken()
 	assert.NoError(t, err)

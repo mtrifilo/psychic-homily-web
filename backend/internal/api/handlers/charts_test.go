@@ -21,13 +21,6 @@ func testChartsHandler() *ChartsHandler {
 // Tests: NewChartsHandler
 // ============================================================================
 
-func TestNewChartsHandler(t *testing.T) {
-	h := testChartsHandler()
-	if h == nil {
-		t.Fatal("expected non-nil ChartsHandler")
-	}
-}
-
 // ============================================================================
 // Tests: normalizeChartsLimit
 // ============================================================================

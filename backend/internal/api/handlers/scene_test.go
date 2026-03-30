@@ -12,13 +12,6 @@ import (
 // Constructor
 // ============================================================================
 
-func TestNewSceneHandler(t *testing.T) {
-	h := NewSceneHandler(nil)
-	if h == nil {
-		t.Fatal("expected non-nil SceneHandler")
-	}
-}
-
 // ============================================================================
 // ListScenesHandler Tests
 // ============================================================================

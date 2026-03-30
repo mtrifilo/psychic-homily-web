@@ -3,7 +3,6 @@ package catalog
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
@@ -13,15 +12,6 @@ import (
 	"psychic-homily-backend/internal/testutil"
 	"psychic-homily-backend/internal/utils"
 )
-
-// =============================================================================
-// UNIT TESTS (No Database Required)
-// =============================================================================
-
-func TestNewFestivalService(t *testing.T) {
-	festivalService := NewFestivalService(nil)
-	assert.NotNil(t, festivalService)
-}
 
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)

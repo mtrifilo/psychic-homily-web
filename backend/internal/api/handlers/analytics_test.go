@@ -29,13 +29,6 @@ func analyticsNonAdminCtx() context.Context {
 // Tests: NewAnalyticsHandler
 // ============================================================================
 
-func TestNewAnalyticsHandler(t *testing.T) {
-	h := testAnalyticsHandler()
-	if h == nil {
-		t.Fatal("expected non-nil AnalyticsHandler")
-	}
-}
-
 // ============================================================================
 // Tests: Admin Guard - Growth
 // ============================================================================
