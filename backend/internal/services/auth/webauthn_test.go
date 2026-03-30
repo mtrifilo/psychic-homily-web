@@ -543,3 +543,5 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginRegistrationForEmail_
 	suite.NotNil(session)
 	suite.NotEmpty(session.Challenge)
 }
+
+// =============================================================================

@@ -214,6 +214,9 @@ func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData,
 
 // GetUserCredentials returns all passkey credentials for a user
 func (s *WebAuthnService) GetUserCredentials(userID uint) ([]models.WebAuthnCredential, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
 	var credentials []models.WebAuthnCredential
 	if err := s.db.Where("user_id = ?", userID).Order("created_at DESC").Find(&credentials).Error; err != nil {
 		return nil, fmt.Errorf("failed to get credentials: %w", err)
@@ -223,6 +226,9 @@ func (s *WebAuthnService) GetUserCredentials(userID uint) ([]models.WebAuthnCred
 
 // DeleteCredential removes a passkey credential
 func (s *WebAuthnService) DeleteCredential(userID uint, credentialID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
 	result := s.db.Where("id = ? AND user_id = ?", credentialID, userID).Delete(&models.WebAuthnCredential{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete credential: %w", result.Error)
@@ -251,6 +257,9 @@ func (s *WebAuthnService) UpdateCredentialName(userID uint, credentialID uint, d
 
 // StoreChallenge saves a WebAuthn challenge to the database
 func (s *WebAuthnService) StoreChallenge(userID uint, session *webauthn.SessionData, operation string) (string, error) {
+	if s.db == nil {
+		return "", fmt.Errorf("database not initialized")
+	}
 	sessionData, err := json.Marshal(session)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal session: %w", err)

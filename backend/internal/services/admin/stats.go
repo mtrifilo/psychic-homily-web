@@ -29,6 +29,9 @@ func NewAdminStatsService(database *gorm.DB) *AdminStatsService {
 
 // GetDashboardStats returns all dashboard statistics
 func (s *AdminStatsService) GetDashboardStats() (*contracts.AdminDashboardStats, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
 	stats := &contracts.AdminDashboardStats{}
 	sevenDaysAgo := time.Now().AddDate(0, 0, -7)
 
@@ -118,6 +121,9 @@ func (s *AdminStatsService) GetDashboardStats() (*contracts.AdminDashboardStats,
 
 // GetRecentActivity returns the 20 most recent admin-relevant events from the audit log.
 func (s *AdminStatsService) GetRecentActivity() (*contracts.ActivityFeedResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
 	var logs []models.AuditLog
 	if err := s.db.Preload("Actor").Order("created_at DESC").Limit(20).Find(&logs).Error; err != nil {
 		return nil, err
