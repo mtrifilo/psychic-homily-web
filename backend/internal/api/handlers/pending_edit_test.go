@@ -57,17 +57,6 @@ func makePendingEditResponse(id uint) *contracts.PendingEditResponse {
 }
 
 // ============================================================================
-// Tests: NewPendingEditHandler
-// ============================================================================
-
-func TestNewPendingEditHandler(t *testing.T) {
-	h := testPendingEditHandler()
-	if h == nil {
-		t.Fatal("expected non-nil PendingEditHandler")
-	}
-}
-
-// ============================================================================
 // Tests: SuggestEdit — Auth & Validation
 // ============================================================================
 

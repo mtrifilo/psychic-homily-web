@@ -11,15 +11,6 @@ func testVenueHandler() *VenueHandler {
 	return NewVenueHandler(nil, nil, nil, nil)
 }
 
-// --- NewVenueHandler ---
-
-func TestNewVenueHandler(t *testing.T) {
-	h := testVenueHandler()
-	if h == nil {
-		t.Fatal("expected non-nil VenueHandler")
-	}
-}
-
 // --- AdminCreateVenueHandler ---
 
 func TestAdminCreateVenueHandler_NoAuth(t *testing.T) {

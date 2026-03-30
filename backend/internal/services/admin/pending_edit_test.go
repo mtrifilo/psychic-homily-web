@@ -19,11 +19,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-func TestNewPendingEditService(t *testing.T) {
-	svc := NewPendingEditService(nil, nil)
-	assert.NotNil(t, svc)
-}
-
 func TestIsValidPendingEditEntityType(t *testing.T) {
 	assert.True(t, models.IsValidPendingEditEntityType("artist"))
 	assert.True(t, models.IsValidPendingEditEntityType("venue"))

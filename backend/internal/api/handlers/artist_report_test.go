@@ -13,15 +13,6 @@ func testArtistReportHandler() *ArtistReportHandler {
 	return NewArtistReportHandler(nil, nil, nil, nil)
 }
 
-// --- NewArtistReportHandler ---
-
-func TestNewArtistReportHandler(t *testing.T) {
-	h := testArtistReportHandler()
-	if h == nil {
-		t.Fatal("expected non-nil ArtistReportHandler")
-	}
-}
-
 // --- ReportArtistHandler ---
 
 func TestReportArtistHandler_NoAuth(t *testing.T) {

@@ -21,17 +21,6 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
-// TestNewUserService tests the creation of a new UserService
-func TestNewUserService(t *testing.T) {
-	userService := NewUserService(nil)
-
-	assert.NotNil(t, userService)
-	// In test environment, database may be nil
-	if userService.db == nil {
-		t.Log("Database is nil in test environment (expected)")
-	}
-}
-
 // =============================================================================
 // PURE LOGIC UNIT TESTS (No Database Required)
 // =============================================================================

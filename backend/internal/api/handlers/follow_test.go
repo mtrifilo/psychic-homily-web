@@ -14,15 +14,6 @@ func testFollowHandler() *FollowHandler {
 	return NewFollowHandler(nil)
 }
 
-// --- NewFollowHandler ---
-
-func TestNewFollowHandler(t *testing.T) {
-	h := testFollowHandler()
-	if h == nil {
-		t.Fatal("expected non-nil FollowHandler")
-	}
-}
-
 // --- FollowEntityHandler ---
 
 func TestFollowEntityHandler_NoAuth(t *testing.T) {

@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
@@ -14,15 +13,6 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
-
-// =============================================================================
-// UNIT TESTS (No Database Required)
-// =============================================================================
-
-func TestNewArtistService(t *testing.T) {
-	artistService := NewArtistService(nil)
-	assert.NotNil(t, artistService)
-}
 
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
