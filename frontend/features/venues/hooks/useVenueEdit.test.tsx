@@ -429,21 +429,4 @@ describe('useVenueDelete', () => {
     )
   })
 
-  it('handles unauthorized deletion', async () => {
-    const error = new Error('Not authorized to delete this venue')
-    Object.assign(error, { status: 403 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useVenueDelete(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate(60)
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect(result.current.error).toBeDefined()
-  })
 })

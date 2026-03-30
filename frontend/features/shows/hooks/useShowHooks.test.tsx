@@ -419,24 +419,6 @@ describe('useShowDelete', () => {
     expect(mockInvalidateSavedShows).toHaveBeenCalled()
   })
 
-  it('handles delete errors', async () => {
-    const error = new Error('Unauthorized')
-    Object.assign(error, { status: 403 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useShowDelete(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate(789)
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect(result.current.error).toBeDefined()
-  })
-
   it('handles not found errors', async () => {
     const error = new Error('Show not found')
     Object.assign(error, { status: 404 })

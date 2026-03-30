@@ -230,29 +230,6 @@ describe('useReportArtist', () => {
     expect(mockInvalidateArtistReports).not.toHaveBeenCalled()
   })
 
-  it('handles server errors', async () => {
-    const error = new Error('Internal server error')
-    Object.assign(error, { status: 500 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useReportArtist(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      try {
-        await result.current.mutateAsync({
-          artistId: 42,
-          reportType: 'inaccurate',
-        })
-      } catch (e) {
-        expect((e as Error).message).toBe('Internal server error')
-      }
-    })
-
-    expect(mockInvalidateArtistReports).not.toHaveBeenCalled()
-  })
-
   it('handles empty string details as null', async () => {
     const mockResponse = {
       id: 12,

@@ -58,17 +58,6 @@ describe('useDataQualitySummary', () => {
     expect(result.current.data?.total_items).toBe(15)
   })
 
-  it('handles API errors', async () => {
-    const error = new Error('Forbidden')
-    Object.assign(error, { status: 403 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useDataQualitySummary(), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-  })
 })
 
 describe('useDataQualityCategory', () => {

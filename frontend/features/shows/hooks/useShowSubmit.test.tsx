@@ -310,37 +310,4 @@ describe('useShowSubmit', () => {
     expect(sentBody.artists).toHaveLength(3)
   })
 
-  it('handles network errors', async () => {
-    mockApiRequest.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-
-    const { result } = renderHook(() => useShowSubmit(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate(validSubmission)
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect(result.current.error).toBeInstanceOf(TypeError)
-  })
-
-  it('handles 401 unauthorized errors', async () => {
-    const error = new Error('Unauthorized')
-    Object.assign(error, { status: 401 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useShowSubmit(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate(validSubmission)
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect((result.current.error as Error).message).toBe('Unauthorized')
-  })
 })

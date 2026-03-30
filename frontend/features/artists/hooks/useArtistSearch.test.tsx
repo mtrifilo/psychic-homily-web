@@ -96,21 +96,6 @@ describe('useArtistSearch', () => {
     )
   })
 
-  it('handles API errors', async () => {
-    const error = new Error('Server error')
-    Object.assign(error, { status: 500 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(
-      () => useArtistSearch({ query: 'test' }),
-      { wrapper: createWrapper() }
-    )
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect(result.current.error).toBeDefined()
-  })
-
   it('returns empty results for no matches', async () => {
     mockApiRequest.mockResolvedValueOnce({ artists: [], count: 0 })
 

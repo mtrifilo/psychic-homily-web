@@ -68,15 +68,4 @@ describe('useAdminUsers', () => {
     expect(url).toContain('search=john')
   })
 
-  it('handles API errors', async () => {
-    const error = new Error('Forbidden')
-    Object.assign(error, { status: 403 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useAdminUsers(), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-  })
 })

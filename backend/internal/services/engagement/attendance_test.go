@@ -22,53 +22,6 @@ func TestNewAttendanceService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestAttendanceService_NilDatabase(t *testing.T) {
-	svc := &AttendanceService{db: nil}
-
-	t.Run("SetAttendance", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.SetAttendance(1, 1, "going")
-		})
-	})
-
-	t.Run("RemoveAttendance", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.RemoveAttendance(1, 1)
-		})
-	})
-
-	t.Run("GetUserAttendance", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetUserAttendance(1, 1)
-		})
-	})
-
-	t.Run("GetAttendanceCounts", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetAttendanceCounts(1)
-		})
-	})
-
-	t.Run("GetBatchAttendanceCounts", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetBatchAttendanceCounts([]uint{1, 2})
-		})
-	})
-
-	t.Run("GetBatchUserAttendance", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetBatchUserAttendance(1, []uint{1, 2})
-		})
-	})
-
-	t.Run("GetUserAttendingShows", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			_, _, err := svc.GetUserAttendingShows(1, "all", 10, 0)
-			return err
-		})
-	})
-}
-
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================

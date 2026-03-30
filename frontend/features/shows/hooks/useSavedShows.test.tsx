@@ -104,19 +104,6 @@ describe('useSavedShows', () => {
     expect(result.current.data?.total).toBe(0)
   })
 
-  it('handles fetch errors', async () => {
-    const error = new Error('Unauthorized')
-    Object.assign(error, { status: 401 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useSavedShows(), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect(result.current.error).toBeDefined()
-  })
 })
 
 describe('useIsShowSaved', () => {

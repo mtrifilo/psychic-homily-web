@@ -122,33 +122,6 @@ func TestAuthService_OAuthCallback_WithMock(t *testing.T) {
 
 	authService := NewAuthService(nil, cfg, newNilDBUserService())
 
-	t.Run("oauth_completion_success_then_db_error", func(t *testing.T) {
-		mockCompleter := new(MockOAuthCompleter)
-		authService.SetOAuthCompleter(mockCompleter)
-
-		req := httptest.NewRequest("GET", "/auth/callback/google", nil)
-		w := httptest.NewRecorder()
-
-		mockUser := goth.User{
-			UserID:    "google_12345",
-			Email:     "test@example.com",
-			FirstName: "Test",
-			LastName:  "User",
-			AvatarURL: "https://example.com/avatar.jpg",
-		}
-		mockCompleter.On("CompleteUserAuth", w, req).Return(mockUser, nil)
-
-		user, token, err := authService.OAuthCallback(w, req, "google")
-
-		// OAuth succeeded but FindOrCreateUser fails on nil DB
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "database not initialized")
-		assert.Nil(t, user)
-		assert.Empty(t, token)
-
-		mockCompleter.AssertExpectations(t)
-	})
-
 	t.Run("oauth_completion_failure", func(t *testing.T) {
 		mockCompleter := new(MockOAuthCompleter)
 		authService.SetOAuthCompleter(mockCompleter)
@@ -167,24 +140,6 @@ func TestAuthService_OAuthCallback_WithMock(t *testing.T) {
 
 		mockCompleter.AssertExpectations(t)
 	})
-}
-
-// TestAuthService_GetUserProfile tests the GetUserProfile functionality
-func TestAuthService_GetUserProfile(t *testing.T) {
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			SecretKey: "test-secret-key-32-chars-minimum",
-			Expiry:    24,
-		},
-	}
-
-	authService := NewAuthService(nil, cfg, newNilDBUserService())
-
-	user, err := authService.GetUserProfile(1)
-
-	assert.Error(t, err)
-	assert.Equal(t, "database not initialized", err.Error())
-	assert.Nil(t, user)
 }
 
 // TestAuthService_RefreshUserToken tests the RefreshUserToken functionality

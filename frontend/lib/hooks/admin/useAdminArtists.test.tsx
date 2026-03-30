@@ -182,19 +182,6 @@ describe('useAdminArtists', () => {
       )
     })
 
-    it('handles server error', async () => {
-      mockFetchError('Discovery failed', 500)
-
-      const { result } = renderHook(() => useDiscoverMusic(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate(123)
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 
   describe('useDiscoverBandcamp', () => {

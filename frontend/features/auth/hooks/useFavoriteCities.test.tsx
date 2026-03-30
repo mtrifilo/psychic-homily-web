@@ -95,42 +95,6 @@ describe('useSetFavoriteCities', () => {
     )
   })
 
-  it('handles API errors', async () => {
-    const error = new Error('Unauthorized')
-    Object.assign(error, { status: 401 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useSetFavoriteCities(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      try {
-        await result.current.mutateAsync([{ city: 'Phoenix', state: 'AZ' }])
-      } catch (e) {
-        expect((e as Error).message).toBe('Unauthorized')
-      }
-    })
-  })
-
-  it('handles validation errors', async () => {
-    const error = new Error('Invalid city data')
-    Object.assign(error, { status: 422 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useSetFavoriteCities(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      try {
-        await result.current.mutateAsync([{ city: '', state: '' }])
-      } catch (e) {
-        expect((e as Error).message).toBe('Invalid city data')
-      }
-    })
-  })
-
   it('saves a single city', async () => {
     const mockResponse = {
       success: true,

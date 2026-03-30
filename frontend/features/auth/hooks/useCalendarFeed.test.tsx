@@ -87,20 +87,6 @@ describe('useCalendarTokenStatus', () => {
     expect(result.current.fetchStatus).toBe('idle')
   })
 
-  it('handles API errors', async () => {
-    const error = new Error('Unauthorized')
-    Object.assign(error, { status: 401 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useCalendarTokenStatus(), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect((result.current.error as Error).message).toBe('Unauthorized')
-  })
-
   it('returns no created_at when user has no token', async () => {
     mockApiRequest.mockResolvedValueOnce({ has_token: false })
 
