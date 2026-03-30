@@ -128,7 +128,6 @@ describe('useSetFavoriteCities', () => {
       } catch (e) {
         expect((e as Error).message).toBe('Invalid city data')
       }
->>>>>>> a52a9d1 (Remove tautological hook return-value assertions from frontend tests)
     })
   })
 
