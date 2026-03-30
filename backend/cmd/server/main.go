@@ -168,6 +168,10 @@ func main() {
 	enrichmentCtx, enrichmentCancel := context.WithCancel(context.Background())
 	sc.EnrichmentWorker.Start(enrichmentCtx)
 
+	// Start auto-promotion scheduler (background job for daily user tier evaluation)
+	autoPromotionCtx, autoPromotionCancel := context.WithCancel(context.Background())
+	sc.AutoPromotion.Start(autoPromotionCtx)
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -207,6 +211,10 @@ func main() {
 	// Stop enrichment worker
 	enrichmentCancel()
 	sc.EnrichmentWorker.Stop()
+
+	// Stop auto-promotion scheduler
+	autoPromotionCancel()
+	sc.AutoPromotion.Stop()
 
 	// Shut down chromedp browser pool
 	sc.Fetcher.ShutdownChromedp()

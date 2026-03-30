@@ -77,6 +77,7 @@ type ServiceContainer struct {
 	Scheduler        *pipeline.SchedulerService
 	Enrichment       *pipeline.EnrichmentService
 	EnrichmentWorker *pipeline.EnrichmentWorker
+	AutoPromotion    *adminsvc.AutoPromotionService
 }
 
 // newFetcherWithChromedp creates a FetcherService with chromedp initialized at 3 workers.
@@ -183,5 +184,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Scheduler:        pipeline.NewSchedulerService(database, pipelineSvc, venueSourceConfig, discord),
 		Enrichment:       enrichmentSvc,
 		EnrichmentWorker: enrichmentWorker,
+		AutoPromotion:    adminsvc.NewAutoPromotionService(database),
 	}
 }
