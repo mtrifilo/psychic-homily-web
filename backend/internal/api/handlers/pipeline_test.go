@@ -99,17 +99,35 @@ func TestPipelineHandler_RequiresAdmin(t *testing.T) {
 
 func TestPipelineHandler_ExtractVenue_Success(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
+		&mockPipelineService{
+			extractVenueFn: func(venueID uint, dryRun bool) (*contracts.PipelineResult, error) {
+				if venueID != 25 {
+					t.Errorf("expected venueID=25, got %d", venueID)
+				}
+				if dryRun {
+					t.Errorf("expected dryRun=false, got true")
+				}
+				return &contracts.PipelineResult{
+					VenueID:         venueID,
+					VenueName:       "Test Venue",
+					RenderMethod:    "static",
+					EventsExtracted: 5,
+					EventsImported:  3,
+					DurationMs:      1234,
+					DryRun:          dryRun,
+				}, nil
+			},
+		},
 		&mockVenueSourceConfigService{},
 		&mockEnrichmentService{},
 	)
 
-	resp, err := h.ExtractVenueHandler(pipelineAdminCtx(), &ExtractVenueRequest{VenueID: "1"})
+	resp, err := h.ExtractVenueHandler(pipelineAdminCtx(), &ExtractVenueRequest{VenueID: "25"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.VenueID != 1 {
-		t.Errorf("expected venue_id=1, got %d", resp.Body.VenueID)
+	if resp.Body.VenueID != 25 {
+		t.Errorf("expected venue_id=25, got %d", resp.Body.VenueID)
 	}
 	if resp.Body.EventsExtracted != 5 {
 		t.Errorf("expected events_extracted=5, got %d", resp.Body.EventsExtracted)

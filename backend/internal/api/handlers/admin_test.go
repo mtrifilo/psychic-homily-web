@@ -545,6 +545,15 @@ func TestGetPendingShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
 		ah.showAdminService = &mockShowAdminService{
 			getPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
+				if limit != 50 {
+					t.Errorf("expected limit=50, got %d", limit)
+				}
+				if offset != 0 {
+					t.Errorf("expected offset=0, got %d", offset)
+				}
+				if filters != nil {
+					t.Errorf("expected nil filters, got %v", filters)
+				}
 				return []*contracts.ShowResponse{{ID: 1}}, 1, nil
 			},
 		}
@@ -574,6 +583,12 @@ func TestGetRejectedShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
 		ah.showAdminService = &mockShowAdminService{
 			getRejectedShowsFn: func(limit, offset int, search string) ([]*contracts.ShowResponse, int64, error) {
+				if limit != 50 {
+					t.Errorf("expected limit=50, got %d", limit)
+				}
+				if offset != 0 {
+					t.Errorf("expected offset=0, got %d", offset)
+				}
 				return []*contracts.ShowResponse{{ID: 1}}, 1, nil
 			},
 		}
@@ -603,6 +618,12 @@ func TestGetUnverifiedVenuesHandler_Success(t *testing.T) {
 	h := adminVenueHandler(func(ah *AdminVenueHandler) {
 		ah.venueService = &mockVenueService{
 			getUnverifiedVenuesFn: func(limit, offset int) ([]*contracts.UnverifiedVenueResponse, int64, error) {
+				if limit != 50 {
+					t.Errorf("expected limit=50, got %d", limit)
+				}
+				if offset != 0 {
+					t.Errorf("expected offset=0, got %d", offset)
+				}
 				return []*contracts.UnverifiedVenueResponse{{}}, 1, nil
 			},
 		}
@@ -632,6 +653,12 @@ func TestGetPendingVenueEditsHandler_Success(t *testing.T) {
 	h := adminVenueHandler(func(ah *AdminVenueHandler) {
 		ah.venueService = &mockVenueService{
 			getPendingVenueEditsFn: func(limit, offset int) ([]*contracts.PendingVenueEditResponse, int64, error) {
+				if limit != 50 {
+					t.Errorf("expected limit=50, got %d", limit)
+				}
+				if offset != 0 {
+					t.Errorf("expected offset=0, got %d", offset)
+				}
 				return []*contracts.PendingVenueEditResponse{{}}, 1, nil
 			},
 		}
@@ -661,6 +688,12 @@ func TestGetAdminShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
 		ah.showAdminService = &mockShowAdminService{
 			getAdminShowsFn: func(limit, offset int, filters contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error) {
+				if limit != 50 {
+					t.Errorf("expected limit=50, got %d", limit)
+				}
+				if offset != 0 {
+					t.Errorf("expected offset=0, got %d", offset)
+				}
 				return []*contracts.ShowResponse{{ID: 1}}, 1, nil
 			},
 		}
@@ -690,6 +723,9 @@ func TestListAPITokensHandler_Success(t *testing.T) {
 	h := adminTokenHandler(func(ah *AdminTokenHandler) {
 		ah.apiTokenService = &mockAPITokenService{
 			listTokensFn: func(userID uint) ([]contracts.APITokenResponse, error) {
+				if userID != 1 {
+					t.Errorf("expected userID=1, got %d", userID)
+				}
 				return []contracts.APITokenResponse{{ID: 1}}, nil
 			},
 		}
@@ -719,6 +755,9 @@ func TestExportShowsHandler_Success(t *testing.T) {
 	h := adminDataHandler(func(ah *AdminDataHandler) {
 		ah.dataSyncService = &mockDataSyncService{
 			exportShowsFn: func(params contracts.ExportShowsParams) (*contracts.ExportShowsResult, error) {
+				if params.Limit != 50 {
+					t.Errorf("expected params.Limit=50, got %d", params.Limit)
+				}
 				return &contracts.ExportShowsResult{Total: 5}, nil
 			},
 		}
@@ -806,6 +845,12 @@ func TestGetAdminUsersHandler_Success(t *testing.T) {
 	h := adminUserHandler(func(ah *AdminUserHandler) {
 		ah.userService = &mockUserService{
 			listUsersFn: func(limit, offset int, filters contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
+				if limit != 50 {
+					t.Errorf("expected limit=50, got %d", limit)
+				}
+				if offset != 0 {
+					t.Errorf("expected offset=0, got %d", offset)
+				}
 				return []*contracts.AdminUserResponse{{}}, 1, nil
 			},
 		}
@@ -866,14 +911,20 @@ func TestApproveShowHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
 		ah.showAdminService = &mockShowAdminService{
 			approveShowFn: func(showID uint, verifyVenues bool) (*contracts.ShowResponse, error) {
+				if showID != 42 {
+					t.Errorf("expected showID=42, got %d", showID)
+				}
 				return &contracts.ShowResponse{ID: showID, Status: "approved"}, nil
 			},
 		}
 		ah.auditLogService = &mockAuditLogService{
-			logActionFn: func(actorID uint, action string, _ string, _ uint, _ map[string]interface{}) {
+			logActionFn: func(actorID uint, action string, _ string, entityID uint, _ map[string]interface{}) {
 				auditCalled = true
 				if action != "approve_show" {
 					t.Errorf("expected action='approve_show', got %q", action)
+				}
+				if entityID != 42 {
+					t.Errorf("expected audit entityID=42, got %d", entityID)
 				}
 			},
 		}
@@ -907,6 +958,9 @@ func TestRejectShowHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
 		ah.showAdminService = &mockShowAdminService{
 			rejectShowFn: func(showID uint, reason string) (*contracts.ShowResponse, error) {
+				if showID != 42 {
+					t.Errorf("expected showID=42, got %d", showID)
+				}
 				if reason != "duplicate" {
 					t.Errorf("expected reason='duplicate', got %q", reason)
 				}
@@ -914,10 +968,13 @@ func TestRejectShowHandler_Success(t *testing.T) {
 			},
 		}
 		ah.auditLogService = &mockAuditLogService{
-			logActionFn: func(_ uint, action string, _ string, _ uint, _ map[string]interface{}) {
+			logActionFn: func(_ uint, action string, _ string, entityID uint, _ map[string]interface{}) {
 				auditCalled = true
 				if action != "reject_show" {
 					t.Errorf("expected action='reject_show', got %q", action)
+				}
+				if entityID != 42 {
+					t.Errorf("expected audit entityID=42, got %d", entityID)
 				}
 			},
 		}
@@ -955,14 +1012,20 @@ func TestVerifyVenueHandler_Success(t *testing.T) {
 	h := adminVenueHandler(func(ah *AdminVenueHandler) {
 		ah.venueService = &mockVenueService{
 			verifyVenueFn: func(venueID uint) (*contracts.VenueDetailResponse, error) {
+				if venueID != 10 {
+					t.Errorf("expected venueID=10, got %d", venueID)
+				}
 				return &contracts.VenueDetailResponse{ID: venueID, Verified: true}, nil
 			},
 		}
 		ah.auditLogService = &mockAuditLogService{
-			logActionFn: func(_ uint, action string, _ string, _ uint, _ map[string]interface{}) {
+			logActionFn: func(_ uint, action string, _ string, entityID uint, _ map[string]interface{}) {
 				auditCalled = true
 				if action != "verify_venue" {
 					t.Errorf("expected action='verify_venue', got %q", action)
+				}
+				if entityID != 10 {
+					t.Errorf("expected audit entityID=10, got %d", entityID)
 				}
 			},
 		}
@@ -996,6 +1059,12 @@ func TestApproveVenueEditHandler_Success(t *testing.T) {
 	h := adminVenueHandler(func(ah *AdminVenueHandler) {
 		ah.venueService = &mockVenueService{
 			approveVenueEditFn: func(editID, adminID uint) (*contracts.VenueDetailResponse, error) {
+				if editID != 1 {
+					t.Errorf("expected editID=1, got %d", editID)
+				}
+				if adminID != 1 {
+					t.Errorf("expected adminID=1, got %d", adminID)
+				}
 				return &contracts.VenueDetailResponse{ID: 5}, nil
 			},
 		}
@@ -1037,6 +1106,15 @@ func TestRejectVenueEditHandler_Success(t *testing.T) {
 	h := adminVenueHandler(func(ah *AdminVenueHandler) {
 		ah.venueService = &mockVenueService{
 			rejectVenueEditFn: func(editID, adminID uint, reason string) (*contracts.PendingVenueEditResponse, error) {
+				if editID != 1 {
+					t.Errorf("expected editID=1, got %d", editID)
+				}
+				if adminID != 1 {
+					t.Errorf("expected adminID=1, got %d", adminID)
+				}
+				if reason != "wrong info" {
+					t.Errorf("expected reason='wrong info', got %q", reason)
+				}
 				return &contracts.PendingVenueEditResponse{}, nil
 			},
 		}
@@ -1078,6 +1156,12 @@ func TestCreateAPITokenHandler_Success(t *testing.T) {
 	h := adminTokenHandler(func(ah *AdminTokenHandler) {
 		ah.apiTokenService = &mockAPITokenService{
 			createTokenFn: func(userID uint, description *string, expirationDays int) (*contracts.APITokenCreateResponse, error) {
+				if userID != 1 {
+					t.Errorf("expected userID=1, got %d", userID)
+				}
+				if expirationDays != 90 {
+					t.Errorf("expected expirationDays=90, got %d", expirationDays)
+				}
 				return &contracts.APITokenCreateResponse{ID: 1, ExpiresAt: time.Now().Add(24 * time.Hour)}, nil
 			},
 		}
@@ -1111,6 +1195,12 @@ func TestRevokeAPITokenHandler_Success(t *testing.T) {
 	h := adminTokenHandler(func(ah *AdminTokenHandler) {
 		ah.apiTokenService = &mockAPITokenService{
 			revokeTokenFn: func(userID, tokenID uint) error {
+				if tokenID != 42 {
+					t.Errorf("expected tokenID=42, got %d", tokenID)
+				}
+				if userID != 1 {
+					t.Errorf("expected userID=1, got %d", userID)
+				}
 				return nil
 			},
 		}
@@ -1418,6 +1508,12 @@ func TestBatchApproveShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
 		ah.showAdminService = &mockShowAdminService{
 			batchApproveShowsFn: func(showIDs []uint) (*contracts.BatchShowResult, error) {
+				if len(showIDs) != 3 {
+					t.Errorf("expected 3 show IDs, got %d", len(showIDs))
+				}
+				if showIDs[0] != 1 || showIDs[1] != 2 || showIDs[2] != 3 {
+					t.Errorf("expected showIDs=[1,2,3], got %v", showIDs)
+				}
 				return &contracts.BatchShowResult{
 					Succeeded: showIDs,
 					Errors:    []contracts.BatchShowError{},
@@ -1459,6 +1555,18 @@ func TestBatchRejectShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
 		ah.showAdminService = &mockShowAdminService{
 			batchRejectShowsFn: func(showIDs []uint, reason string, category string) (*contracts.BatchShowResult, error) {
+				if len(showIDs) != 2 {
+					t.Errorf("expected 2 show IDs, got %d", len(showIDs))
+				}
+				if showIDs[0] != 1 || showIDs[1] != 2 {
+					t.Errorf("expected showIDs=[1,2], got %v", showIDs)
+				}
+				if reason != "Not a music event" {
+					t.Errorf("expected reason='Not a music event', got %q", reason)
+				}
+				if category != "non_music" {
+					t.Errorf("expected category='non_music', got %q", category)
+				}
 				return &contracts.BatchShowResult{
 					Succeeded: showIDs,
 					Errors:    []contracts.BatchShowError{},
