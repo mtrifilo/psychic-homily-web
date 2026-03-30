@@ -152,6 +152,10 @@ export const queryKeys = {
       community: ['admin', 'analytics', 'community'] as const,
       dataQualityTrends: (months: number) => ['admin', 'analytics', 'data-quality', months] as const,
     },
+    pendingEdits: (params?: Record<string, unknown>) =>
+      ['admin', 'pendingEdits', params] as const,
+    entityReports: (params?: Record<string, unknown>) =>
+      ['admin', 'entityReports', params] as const,
   },
 
   // Artist queries (defined in features/artists/api.ts)
@@ -384,6 +388,14 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate admin users queries
   adminUsers: () =>
     queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+
+  // Invalidate admin pending edits queries
+  adminPendingEdits: () =>
+    queryClient.invalidateQueries({ queryKey: ['admin', 'pendingEdits'] }),
+
+  // Invalidate admin entity reports queries
+  adminEntityReports: () =>
+    queryClient.invalidateQueries({ queryKey: ['admin', 'entityReports'] }),
 
   // Invalidate contributor profile queries
   contributor: () =>
