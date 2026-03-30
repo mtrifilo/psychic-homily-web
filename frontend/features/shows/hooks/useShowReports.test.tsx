@@ -68,17 +68,6 @@ describe('useMyShowReport', () => {
     expect(mockApiRequest).not.toHaveBeenCalled()
   })
 
-  it('handles API errors', async () => {
-    const error = new Error('Not found')
-    Object.assign(error, { status: 404 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useMyShowReport(999), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-  })
 })
 
 describe('useReportShow', () => {

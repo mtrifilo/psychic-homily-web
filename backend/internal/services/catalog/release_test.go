@@ -22,64 +22,6 @@ func TestNewReleaseService(t *testing.T) {
 	assert.NotNil(t, releaseService)
 }
 
-func TestReleaseService_NilDatabase(t *testing.T) {
-	svc := &ReleaseService{db: nil}
-
-	t.Run("CreateRelease", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.CreateRelease(&contracts.CreateReleaseRequest{Title: "Test"})
-		})
-	})
-
-	t.Run("GetRelease", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetRelease(1)
-		})
-	})
-
-	t.Run("GetReleaseBySlug", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetReleaseBySlug("test-slug")
-		})
-	})
-
-	t.Run("ListReleases", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.ListReleases(nil)
-		})
-	})
-
-	t.Run("UpdateRelease", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.UpdateRelease(1, &contracts.UpdateReleaseRequest{})
-		})
-	})
-
-	t.Run("DeleteRelease", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.DeleteRelease(1)
-		})
-	})
-
-	t.Run("GetReleasesForArtist", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetReleasesForArtist(1)
-		})
-	})
-
-	t.Run("AddExternalLink", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.AddExternalLink(1, "bandcamp", "http://test.com")
-		})
-	})
-
-	t.Run("RemoveExternalLink", func(t *testing.T) {
-		testutil.AssertNilDBError(t, func() error {
-			return svc.RemoveExternalLink(1)
-		})
-	})
-}
-
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================

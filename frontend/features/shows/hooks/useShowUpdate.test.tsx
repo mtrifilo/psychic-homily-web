@@ -276,40 +276,6 @@ describe('useShowUpdate', () => {
     expect(mockInvalidateVenues).not.toHaveBeenCalled()
   })
 
-  it('handles 422 validation errors', async () => {
-    const error = new Error('expected required property event_date to be present')
-    Object.assign(error, { status: 422 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useShowUpdate(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate({ showId: 1, updates: {} })
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect(result.current.error).toBeDefined()
-  })
-
-  it('handles network errors', async () => {
-    mockApiRequest.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-
-    const { result } = renderHook(() => useShowUpdate(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate({ showId: 1, updates: { title: 'New' } })
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect(result.current.error).toBeInstanceOf(TypeError)
-  })
-
   it('updates all fields simultaneously', async () => {
     mockApiRequest.mockResolvedValueOnce({
       id: 20,

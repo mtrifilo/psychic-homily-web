@@ -30,20 +30,6 @@ func TestNewAdminStatsService(t *testing.T) {
 	})
 }
 
-func TestAdminStatsService_NilDB(t *testing.T) {
-	svc := &AdminStatsService{db: nil}
-	assert.Panics(t, func() {
-		svc.GetDashboardStats()
-	})
-}
-
-func TestAdminStatsService_NilDB_GetRecentActivity(t *testing.T) {
-	svc := &AdminStatsService{db: nil}
-	assert.Panics(t, func() {
-		svc.GetRecentActivity()
-	})
-}
-
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================

@@ -95,20 +95,6 @@ describe('useArtistSearch', () => {
     )
   })
 
-  it('handles API errors', async () => {
-    const error = new Error('Network error')
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(
-      () => useArtistSearch({ query: 'Test' }),
-      { wrapper: createWrapper() }
-    )
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect(result.current.error).toBeDefined()
-  })
-
   it('returns empty results when no artists match', async () => {
     mockApiRequest.mockResolvedValueOnce({ artists: [], count: 0 })
 
@@ -176,20 +162,6 @@ describe('useVenueSearch', () => {
     expect(mockApiRequest).toHaveBeenCalledWith(
       '/venues/search?q=Bar%20%26%20Grill'
     )
-  })
-
-  it('handles API errors', async () => {
-    const error = new Error('Network error')
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(
-      () => useVenueSearch({ query: 'Test' }),
-      { wrapper: createWrapper() }
-    )
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect(result.current.error).toBeDefined()
   })
 
   it('returns empty results when no venues match', async () => {

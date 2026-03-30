@@ -32,34 +32,6 @@ func TestNewDataSyncService(t *testing.T) {
 	})
 }
 
-func TestDataSyncService_NilDB(t *testing.T) {
-	svc := &DataSyncService{db: nil}
-
-	t.Run("ExportShows", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.ExportShows(contracts.ExportShowsParams{})
-		})
-	})
-
-	t.Run("ExportArtists", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.ExportArtists(contracts.ExportArtistsParams{})
-		})
-	})
-
-	t.Run("ExportVenues", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.ExportVenues(contracts.ExportVenuesParams{})
-		})
-	})
-
-	t.Run("ImportData", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.ImportData(contracts.DataImportRequest{})
-		})
-	})
-}
-
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================

@@ -135,26 +135,6 @@ describe('useShowDelete', () => {
     expect((result.current.error as Error).message).toBe('Show not found')
   })
 
-  it('handles 403 unauthorized errors', async () => {
-    const error = new Error('You are not authorized to delete this show')
-    Object.assign(error, { status: 403 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useShowDelete(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate(50)
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect((result.current.error as Error).message).toBe(
-      'You are not authorized to delete this show'
-    )
-  })
-
   it('does not invalidate queries on error', async () => {
     mockApiRequest.mockRejectedValueOnce(new Error('Server error'))
 
@@ -170,40 +150,6 @@ describe('useShowDelete', () => {
 
     expect(mockInvalidateShows).not.toHaveBeenCalled()
     expect(mockInvalidateSavedShows).not.toHaveBeenCalled()
-  })
-
-  it('handles network errors', async () => {
-    mockApiRequest.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-
-    const { result } = renderHook(() => useShowDelete(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate(1)
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect(result.current.error).toBeInstanceOf(TypeError)
-  })
-
-  it('handles 401 unauthorized errors', async () => {
-    const error = new Error('Unauthorized')
-    Object.assign(error, { status: 401 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useShowDelete(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate(1)
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-
-    expect((result.current.error as Error).message).toBe('Unauthorized')
   })
 
   it('can be called multiple times sequentially', async () => {

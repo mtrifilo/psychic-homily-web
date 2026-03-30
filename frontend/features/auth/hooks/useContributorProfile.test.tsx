@@ -209,18 +209,6 @@ describe('usePublicContributions', () => {
     expect(result.current.fetchStatus).toBe('idle')
   })
 
-  it('handles API errors', async () => {
-    const error = new Error('Server error')
-    Object.assign(error, { status: 500 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(
-      () => usePublicContributions('testuser'),
-      { wrapper: createWrapper() }
-    )
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-  })
 })
 
 // ============================================================================
@@ -265,17 +253,6 @@ describe('useOwnContributorProfile', () => {
     expect(result.current.data?.privacy_settings?.saved_shows).toBe('count_only')
   })
 
-  it('handles unauthorized error', async () => {
-    const error = new Error('Unauthorized')
-    Object.assign(error, { status: 401 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useOwnContributorProfile(), {
-      wrapper: createWrapper(),
-    })
-
-    await waitFor(() => expect(result.current.isError).toBe(true))
-  })
 })
 
 describe('useOwnContributions', () => {

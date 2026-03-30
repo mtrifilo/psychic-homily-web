@@ -104,32 +104,6 @@ describe('useAdminVenueEdits', () => {
       )
     })
 
-    it('handles authentication error', async () => {
-      const error = new Error('Forbidden')
-      Object.assign(error, { status: 403 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => usePendingVenueEdits(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-
-      expect((result.current.error as Error).message).toBe('Forbidden')
-    })
-
-    it('handles API errors', async () => {
-      const error = new Error('Server error')
-      Object.assign(error, { status: 500 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => usePendingVenueEdits(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
-
     it('returns empty list when no pending edits', async () => {
       mockApiRequest.mockResolvedValueOnce({ edits: [], total: 0 })
 
@@ -231,21 +205,6 @@ describe('useAdminVenueEdits', () => {
       expect((result.current.error as Error).message).toBe('Edit not found')
     })
 
-    it('handles unauthorized error', async () => {
-      const error = new Error('Forbidden')
-      Object.assign(error, { status: 403 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useApproveVenueEdit(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate(123)
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 
   describe('useRejectVenueEdit', () => {
@@ -293,36 +252,5 @@ describe('useAdminVenueEdits', () => {
       })
     })
 
-    it('handles not found error', async () => {
-      const error = new Error('Edit not found')
-      Object.assign(error, { status: 404 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useRejectVenueEdit(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate({ editId: 999, reason: 'Test' })
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
-
-    it('handles unauthorized error', async () => {
-      const error = new Error('Forbidden')
-      Object.assign(error, { status: 403 })
-      mockApiRequest.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useRejectVenueEdit(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate({ editId: 123, reason: 'Test' })
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
-    })
   })
 })

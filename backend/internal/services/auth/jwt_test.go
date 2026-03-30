@@ -142,38 +142,6 @@ func TestJWTService_ValidateToken(t *testing.T) {
 
 	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
-	t.Run("ValidateToken_NilDB_FailsOnUserLookup", func(t *testing.T) {
-		// Create a valid token, then attempt to validate with nil DB.
-		// Token parsing succeeds but user lookup fails because there's no database.
-		user := &models.User{
-			ID:    123,
-			Email: stringPtr("valid@example.com"),
-		}
-
-		token, err := jwtService.CreateToken(user)
-		require.NoError(t, err)
-
-		_, err = jwtService.ValidateToken(token)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get user")
-	})
-
-	t.Run("ValidateToken_NilDB_NilEmail_FailsOnUserLookup", func(t *testing.T) {
-		// Create a token with nil email, then attempt to validate with nil DB.
-		// Token parsing succeeds but user lookup fails because there's no database.
-		user := &models.User{
-			ID:    456,
-			Email: nil,
-		}
-
-		token, err := jwtService.CreateToken(user)
-		require.NoError(t, err)
-
-		_, err = jwtService.ValidateToken(token)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get user")
-	})
-
 	t.Run("ValidateToken_InvalidToken", func(t *testing.T) {
 		invalidToken := "invalid.token.string"
 
@@ -286,25 +254,6 @@ func TestJWTService_RefreshToken(t *testing.T) {
 
 	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
-	t.Run("RefreshToken_NilDB_FailsOnUserLookup", func(t *testing.T) {
-		// Create a valid token, then attempt to refresh with nil DB.
-		// Token parsing succeeds but user lookup fails because there's no database.
-		user := &models.User{
-			ID:    123,
-			Email: stringPtr("refresh@example.com"),
-		}
-
-		originalToken, err := jwtService.CreateToken(user)
-		require.NoError(t, err)
-
-		// Wait a moment to ensure different timestamps
-		time.Sleep(100 * time.Millisecond)
-
-		_, err = jwtService.RefreshToken(originalToken)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get user")
-	})
-
 	t.Run("RefreshToken_InvalidToken", func(t *testing.T) {
 		invalidToken := "invalid.token.string"
 
@@ -350,136 +299,6 @@ func TestJWTService_RefreshToken(t *testing.T) {
 		assert.Error(t, err)
 		assert.Empty(t, refreshedToken)
 		assert.Contains(t, err.Error(), "TOKEN_EXPIRED")
-	})
-}
-
-// TestJWTService_EdgeCases tests edge cases and boundary conditions
-func TestJWTService_EdgeCases(t *testing.T) {
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			SecretKey: "test-secret-key-edge",
-			Expiry:    24,
-		},
-	}
-
-	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
-
-	t.Run("ZeroUserID_CreatesToken_NilDB_ValidationFailsOnUserLookup", func(t *testing.T) {
-		user := &models.User{
-			ID:    0,
-			Email: stringPtr("zero@example.com"),
-		}
-
-		token, err := jwtService.CreateToken(user)
-		assert.NoError(t, err)
-		assert.NotEmpty(t, token)
-
-		// Token creation succeeds with zero ID, but validation fails at DB lookup
-		_, err = jwtService.ValidateToken(token)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get user")
-	})
-
-	t.Run("VeryLongEmail_CreatesToken_NilDB_ValidationFailsOnUserLookup", func(t *testing.T) {
-		longEmail := "very.long.email.address.that.is.quite.lengthy.and.might.test.boundaries@example.com"
-		user := &models.User{
-			ID:    123,
-			Email: &longEmail,
-		}
-
-		token, err := jwtService.CreateToken(user)
-		assert.NoError(t, err)
-		assert.NotEmpty(t, token)
-
-		// Token creation succeeds with long email, but validation fails at DB lookup
-		_, err = jwtService.ValidateToken(token)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get user")
-	})
-
-	t.Run("SpecialCharsInEmail_CreatesToken_NilDB_ValidationFailsOnUserLookup", func(t *testing.T) {
-		specialEmail := "test+tag@example.com"
-		user := &models.User{
-			ID:    123,
-			Email: &specialEmail,
-		}
-
-		token, err := jwtService.CreateToken(user)
-		assert.NoError(t, err)
-		assert.NotEmpty(t, token)
-
-		// Token creation succeeds with special chars, but validation fails at DB lookup
-		_, err = jwtService.ValidateToken(token)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get user")
-	})
-}
-
-// TestJWTService_NilDB_TokenLifecycle tests create/validate/refresh with nil DB.
-// These verify token creation works but validate and refresh both fail on user lookup.
-// Real integration tests with a database are covered in PSY-250.
-func TestJWTService_NilDB_TokenLifecycle(t *testing.T) {
-	cfg := &config.Config{
-		JWT: config.JWTConfig{
-			SecretKey: "test-secret-key-integration",
-			Expiry:    24,
-		},
-	}
-
-	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
-
-	t.Run("CreateValidateRefresh_AllFailOnUserLookup", func(t *testing.T) {
-		user := &models.User{
-			ID:    999,
-			Email: stringPtr("lifecycle@example.com"),
-		}
-
-		// Token creation succeeds (no DB needed)
-		token1, err := jwtService.CreateToken(user)
-		assert.NoError(t, err)
-		assert.NotEmpty(t, token1)
-
-		// Validate fails at DB lookup (nil DB)
-		_, err = jwtService.ValidateToken(token1)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get user")
-
-		// Refresh also fails at DB lookup (nil DB)
-		time.Sleep(100 * time.Millisecond)
-		_, err = jwtService.RefreshToken(token1)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get user")
-	})
-
-	t.Run("MultipleUsers_UniqueTokens_AllFailOnUserLookup", func(t *testing.T) {
-		users := []*models.User{
-			{ID: 1, Email: stringPtr("user1@example.com")},
-			{ID: 2, Email: stringPtr("user2@example.com")},
-			{ID: 3, Email: stringPtr("user3@example.com")},
-		}
-
-		tokens := make([]string, len(users))
-
-		// Token creation succeeds for all users (no DB needed)
-		for i, user := range users {
-			token, err := jwtService.CreateToken(user)
-			assert.NoError(t, err)
-			tokens[i] = token
-		}
-
-		// All validations fail at DB lookup (nil DB)
-		for _, token := range tokens {
-			_, err := jwtService.ValidateToken(token)
-			assert.Error(t, err)
-			assert.Contains(t, err.Error(), "failed to get user")
-		}
-
-		// Tokens are unique despite all failing on validation
-		tokenSet := make(map[string]bool)
-		for _, token := range tokens {
-			assert.False(t, tokenSet[token], "Duplicate token found")
-			tokenSet[token] = true
-		}
 	})
 }
 

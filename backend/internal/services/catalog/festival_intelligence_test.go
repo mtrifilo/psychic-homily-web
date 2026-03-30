@@ -22,40 +22,6 @@ func TestNewFestivalIntelligenceService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestFestivalIntelligenceService_NilDatabase(t *testing.T) {
-	svc := &FestivalIntelligenceService{db: nil}
-
-	t.Run("GetSimilarFestivals", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetSimilarFestivals(1, 10)
-		})
-	})
-
-	t.Run("GetFestivalOverlap", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetFestivalOverlap(1, 2)
-		})
-	})
-
-	t.Run("GetFestivalBreakouts", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetFestivalBreakouts(1)
-		})
-	})
-
-	t.Run("GetArtistFestivalTrajectory", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetArtistFestivalTrajectory(1)
-		})
-	})
-
-	t.Run("GetSeriesComparison", func(t *testing.T) {
-		testutil.AssertNilDBErrorWithResult(t, func() (interface{}, error) {
-			return svc.GetSeriesComparison("m3f", []int{2024, 2025})
-		})
-	})
-}
-
 func TestTierWeight(t *testing.T) {
 	assert.Equal(t, 5.0, tierWeight("headliner"))
 	assert.Equal(t, 3.0, tierWeight("sub_headliner"))

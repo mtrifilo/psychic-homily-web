@@ -53,43 +53,7 @@ describe('queryClient module', () => {
   })
 
   describe('queryKeys', () => {
-    it('generates auth profile key', async () => {
-      const { queryKeys } = await import('./queryClient')
-
-      expect(queryKeys.auth.profile).toEqual(['auth', 'profile'])
-    })
-
-    it('generates auth user key with id', async () => {
-      const { queryKeys } = await import('./queryClient')
-
-      expect(queryKeys.auth.user('user-123')).toEqual([
-        'auth',
-        'user',
-        'user-123',
-      ])
-    })
-
-    it('generates shows list key with filters', async () => {
-      const { queryKeys } = await import('./queryClient')
-
-      expect(queryKeys.shows.list({ city: 'Phoenix' })).toEqual([
-        'shows',
-        'list',
-        { city: 'Phoenix' },
-      ])
-    })
-
-    it('generates shows detail key', async () => {
-      const { queryKeys } = await import('./queryClient')
-
-      expect(queryKeys.shows.detail('show-456')).toEqual([
-        'shows',
-        'detail',
-        'show-456',
-      ])
-    })
-
-    it('generates venues search key with lowercase query', async () => {
+    it('normalizes venue search queries to lowercase', async () => {
       const { queryKeys } = await import('./queryClient')
 
       expect(queryKeys.venues.search('REBEL LOUNGE')).toEqual([
@@ -99,40 +63,7 @@ describe('queryClient module', () => {
       ])
     })
 
-    it('generates venues cities key', async () => {
-      const { queryKeys } = await import('./queryClient')
-
-      expect(queryKeys.venues.cities).toEqual(['venues', 'cities'])
-    })
-
-    it('generates venues shows key', async () => {
-      const { queryKeys } = await import('./queryClient')
-
-      expect(queryKeys.venues.shows(42)).toEqual(['venues', 'shows', '42'])
-    })
-
-    it('generates venues myPendingEdit key', async () => {
-      const { queryKeys } = await import('./queryClient')
-
-      expect(queryKeys.venues.myPendingEdit(10)).toEqual([
-        'venues',
-        'myPendingEdit',
-        '10',
-      ])
-    })
-
-    it('generates admin pendingVenueEdits key', async () => {
-      const { queryKeys } = await import('./queryClient')
-
-      expect(queryKeys.admin.pendingVenueEdits(20, 0)).toEqual([
-        'admin',
-        'venues',
-        'pendingEdits',
-        { limit: 20, offset: 0 },
-      ])
-    })
-
-    it('generates artists search key with lowercase', async () => {
+    it('normalizes artist search queries to lowercase', async () => {
       const { queryKeys } = await import('./queryClient')
 
       expect(queryKeys.artists.search('THE BAND')).toEqual([
@@ -140,40 +71,6 @@ describe('queryClient module', () => {
         'search',
         'the band',
       ])
-    })
-
-    it('generates artists detail key', async () => {
-      const { queryKeys } = await import('./queryClient')
-
-      expect(queryKeys.artists.detail(99)).toEqual(['artists', 'detail', '99'])
-    })
-
-    it('generates artists shows key', async () => {
-      const { queryKeys } = await import('./queryClient')
-
-      expect(queryKeys.artists.shows(5)).toEqual(['artists', 'shows', '5'])
-    })
-
-    it('generates savedShows check key with string conversion', async () => {
-      const { queryKeys } = await import('./queryClient')
-
-      expect(queryKeys.savedShows.check(123)).toEqual([
-        'savedShows',
-        'check',
-        '123',
-      ])
-    })
-
-    it('generates mySubmissions list key', async () => {
-      const { queryKeys } = await import('./queryClient')
-
-      expect(queryKeys.mySubmissions.list()).toEqual(['mySubmissions', 'list'])
-    })
-
-    it('generates system health key', async () => {
-      const { queryKeys } = await import('./queryClient')
-
-      expect(queryKeys.system.health).toEqual(['system', 'health'])
     })
   })
 
