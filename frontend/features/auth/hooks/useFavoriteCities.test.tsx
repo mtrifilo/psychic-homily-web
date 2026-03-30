@@ -111,6 +111,7 @@ describe('useSetFavoriteCities', () => {
       expect(data.cities).toHaveLength(1)
       expect(data.cities[0].city).toBe('Chicago')
       expect(data.cities[0].state).toBe('IL')
+    })
   })
 
   it('handles validation errors', async () => {
