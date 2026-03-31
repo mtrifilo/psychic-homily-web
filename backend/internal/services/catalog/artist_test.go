@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -1155,6 +1156,163 @@ func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_CollectionItemC
 	var count int64
 	suite.db.Raw("SELECT COUNT(*) FROM collection_items WHERE entity_type = 'artist' AND collection_id = ?", collectionID).Scan(&count)
 	suite.Equal(int64(1), count)
+}
+
+// =============================================================================
+// Group 10: Boundary Conditions — Pagination
+// =============================================================================
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_LimitZero() {
+	artist := suite.createTestArtist("LZ Artist")
+	venue := suite.createTestVenue("LZ Venue", "Phoenix", "AZ")
+	user := suite.createTestUser()
+	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 0, "upcoming")
+	suite.Require().NoError(err)
+	suite.GreaterOrEqual(total, int64(1), "total should reflect show count")
+	suite.Empty(shows, "limit=0 should return no shows")
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_LimitOne() {
+	artist := suite.createTestArtist("L1 Artist")
+	venue := suite.createTestVenue("L1 Venue", "Phoenix", "AZ")
+	user := suite.createTestUser()
+	for i := 0; i < 3; i++ {
+		suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, i+1))
+	}
+	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 1, "upcoming")
+	suite.Require().NoError(err)
+	suite.GreaterOrEqual(total, int64(3))
+	suite.Len(shows, 1, "limit=1 should return exactly 1 show")
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_LargeLimit() {
+	artist := suite.createTestArtist("LargeLimit Artist")
+	venue := suite.createTestVenue("LargeLimit Venue", "Phoenix", "AZ")
+	user := suite.createTestUser()
+	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
+	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 1000, "upcoming")
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Len(shows, 1, "large limit should return all available results")
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_EmptyResult() {
+	artist := suite.createTestArtist("EmptyResult Artist")
+	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), total)
+	suite.Empty(shows)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_ShowAtExactMidnight() {
+	artist := suite.createTestArtist("Midnight Artist")
+	venue := suite.createTestVenue("Midnight Venue", "Phoenix", "AZ")
+	user := suite.createTestUser()
+	now := time.Now().UTC()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, midnight)
+	shows, _, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 50, "upcoming")
+	suite.Require().NoError(err)
+	suite.NotEmpty(shows, "show at exact midnight today should appear in upcoming")
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_PastShowExcluded() {
+	artist := suite.createTestArtist("PastExcl Artist")
+	venue := suite.createTestVenue("PastExcl Venue", "Phoenix", "AZ")
+	user := suite.createTestUser()
+	yesterday := time.Now().UTC().AddDate(0, 0, -1)
+	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, yesterday)
+	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 50, "upcoming")
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), total, "past show should not appear in upcoming filter")
+	suite.Empty(shows)
+}
+
+// =============================================================================
+// Group 11: Boundary Conditions — IDs
+// =============================================================================
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtist_ZeroID() {
+	resp, err := suite.artistService.GetArtist(0)
+	suite.Require().Error(err)
+	suite.Nil(resp)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtist_VeryLargeID() {
+	resp, err := suite.artistService.GetArtist(4294967295)
+	suite.Require().Error(err)
+	suite.Nil(resp)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestDeleteArtist_ZeroID() {
+	err := suite.artistService.DeleteArtist(0)
+	suite.Require().Error(err)
+}
+
+// =============================================================================
+// Group 12: Boundary Conditions — Strings
+// =============================================================================
+
+func (suite *ArtistServiceIntegrationTestSuite) TestCreateArtist_VeryLongName() {
+	longName := strings.Repeat("A", 500)
+	req := &contracts.CreateArtistRequest{Name: longName}
+	resp, err := suite.artistService.CreateArtist(req)
+	if err == nil {
+		suite.Equal(longName, resp.Name)
+	}
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestCreateArtist_EmptyName() {
+	req := &contracts.CreateArtistRequest{Name: ""}
+	resp, err := suite.artistService.CreateArtist(req)
+	if err != nil {
+		suite.Contains(err.Error(), "name", "error should mention name validation")
+	} else {
+		suite.NotNil(resp)
+	}
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestCreateArtist_WhitespaceOnlyName() {
+	req := &contracts.CreateArtistRequest{Name: "   "}
+	resp, err := suite.artistService.CreateArtist(req)
+	if err != nil {
+		suite.NotNil(err)
+	} else {
+		suite.NotNil(resp)
+	}
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistBySlug_EmptySlug() {
+	resp, err := suite.artistService.GetArtistBySlug("")
+	suite.Require().Error(err, "empty slug should return an error")
+	suite.Nil(resp)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistByName_EmptyName() {
+	resp, err := suite.artistService.GetArtistByName("")
+	suite.Require().Error(err, "empty name should return not found")
+	suite.Nil(resp)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestSearchArtists_EmptyString() {
+	results, err := suite.artistService.SearchArtists("")
+	suite.Require().NoError(err)
+	suite.NotNil(results)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_EmptyFilters() {
+	suite.createTestArtist("EF Artist")
+	resp, err := suite.artistService.GetArtists(map[string]interface{}{})
+	suite.Require().NoError(err)
+	suite.NotEmpty(resp, "empty filters should return all artists")
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtists_NilFilters() {
+	suite.createTestArtist("NF Artist")
+	resp, err := suite.artistService.GetArtists(nil)
+	suite.Require().NoError(err)
+	suite.NotEmpty(resp, "nil filters should return all artists")
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_UpdatesNotificationFilters() {
