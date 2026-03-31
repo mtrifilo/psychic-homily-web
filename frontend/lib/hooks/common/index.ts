@@ -27,3 +27,9 @@ export {
   useUnfollow,
   useMyFollowing,
 } from './useFollow'
+
+export {
+  useEntitySearch,
+  type EntitySearchResult,
+  type EntitySearchResults,
+} from './useEntitySearch'

@@ -1,7 +1,8 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { renderWithProviders } from '@/test/utils'
 import { CommandPalette } from './CommandPalette'
 
 // jsdom does not implement scrollIntoView
@@ -34,6 +35,22 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext,
 }))
 
+// Mock the entity search hook to avoid real API calls in basic tests
+vi.mock('@/lib/hooks/common/useEntitySearch', () => ({
+  useEntitySearch: () => ({
+    data: {
+      artists: [],
+      venues: [],
+      releases: [],
+      labels: [],
+      festivals: [],
+    },
+    isSearching: false,
+    totalResults: 0,
+    isFetching: false,
+  }),
+}))
+
 describe('CommandPalette', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -43,10 +60,10 @@ describe('CommandPalette', () => {
   })
 
   it('should open on Cmd+K', async () => {
-    render(<CommandPalette />)
+    renderWithProviders(<CommandPalette />)
 
     // Dialog should not be visible initially
-    expect(screen.queryByPlaceholderText('Go to page...')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Search entities or go to page...')).not.toBeInTheDocument()
 
     // Press Cmd+K
     act(() => {
@@ -56,11 +73,11 @@ describe('CommandPalette', () => {
     })
 
     // Dialog should be visible
-    expect(screen.getByPlaceholderText('Go to page...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Search entities or go to page...')).toBeInTheDocument()
   })
 
   it('should show public pages for unauthenticated users', async () => {
-    render(<CommandPalette />)
+    renderWithProviders(<CommandPalette />)
 
     act(() => {
       document.dispatchEvent(
@@ -86,7 +103,7 @@ describe('CommandPalette', () => {
     mockAuthContext.user = { id: '1', email: 'test@test.com' }
     mockAuthContext.isAuthenticated = true
 
-    render(<CommandPalette />)
+    renderWithProviders(<CommandPalette />)
 
     act(() => {
       document.dispatchEvent(
@@ -104,7 +121,7 @@ describe('CommandPalette', () => {
     mockAuthContext.user = { id: '1', email: 'admin@test.com', is_admin: true }
     mockAuthContext.isAuthenticated = true
 
-    render(<CommandPalette />)
+    renderWithProviders(<CommandPalette />)
 
     act(() => {
       document.dispatchEvent(
@@ -117,7 +134,7 @@ describe('CommandPalette', () => {
 
   it('should navigate on item selection', async () => {
     const user = userEvent.setup()
-    render(<CommandPalette />)
+    renderWithProviders(<CommandPalette />)
 
     act(() => {
       document.dispatchEvent(
@@ -133,7 +150,7 @@ describe('CommandPalette', () => {
 
   it('should show recent searches after selection', async () => {
     const user = userEvent.setup()
-    render(<CommandPalette />)
+    renderWithProviders(<CommandPalette />)
 
     // Open and select Shows
     act(() => {
@@ -156,7 +173,7 @@ describe('CommandPalette', () => {
 
   it('should close on Escape', async () => {
     const user = userEvent.setup()
-    render(<CommandPalette />)
+    renderWithProviders(<CommandPalette />)
 
     act(() => {
       document.dispatchEvent(
@@ -164,15 +181,15 @@ describe('CommandPalette', () => {
       )
     })
 
-    expect(screen.getByPlaceholderText('Go to page...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Search entities or go to page...')).toBeInTheDocument()
 
     await user.keyboard('{Escape}')
 
-    expect(screen.queryByPlaceholderText('Go to page...')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Search entities or go to page...')).not.toBeInTheDocument()
   })
 
   it('should show keyboard navigation hints', async () => {
-    render(<CommandPalette />)
+    renderWithProviders(<CommandPalette />)
 
     act(() => {
       document.dispatchEvent(
@@ -186,12 +203,12 @@ describe('CommandPalette', () => {
   })
 
   it('should open via custom event (openCommandPalette)', async () => {
-    render(<CommandPalette />)
+    renderWithProviders(<CommandPalette />)
 
     act(() => {
       window.dispatchEvent(new Event('open-command-palette'))
     })
 
-    expect(screen.getByPlaceholderText('Go to page...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Search entities or go to page...')).toBeInTheDocument()
   })
 })

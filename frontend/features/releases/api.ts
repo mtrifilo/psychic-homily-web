@@ -14,6 +14,7 @@ import { API_BASE_URL } from '@/lib/api-base'
 
 export const releaseEndpoints = {
   LIST: `${API_BASE_URL}/releases`,
+  SEARCH: `${API_BASE_URL}/releases/search`,
   GET: (idOrSlug: string | number) => `${API_BASE_URL}/releases/${idOrSlug}`,
   CREATE: `${API_BASE_URL}/releases`,
   UPDATE: (releaseId: string | number) => `${API_BASE_URL}/releases/${releaseId}`,
@@ -34,6 +35,8 @@ export const releaseQueryKeys = {
   all: ['releases'] as const,
   list: (filters?: Record<string, unknown>) =>
     ['releases', 'list', filters] as const,
+  search: (query: string) =>
+    ['releases', 'search', query.toLowerCase()] as const,
   detail: (idOrSlug: string | number) => ['releases', 'detail', String(idOrSlug)] as const,
   artistReleases: (artistIdOrSlug: string | number) =>
     ['releases', 'artist', String(artistIdOrSlug)] as const,
