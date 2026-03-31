@@ -62,6 +62,12 @@ vi.mock('./ActivityHeatmap', () => ({
   ),
 }))
 
+vi.mock('./PercentileRankings', () => ({
+  PercentileRankings: () => (
+    <div data-testid="percentile-rankings">Rankings</div>
+  ),
+}))
+
 function makeProfile(
   overrides: Partial<PublicProfileResponse> = {}
 ): PublicProfileResponse {
