@@ -18,6 +18,7 @@ import {
   useOwnContributorProfile,
   useOwnContributions,
 } from '@/features/auth'
+import type { ContributionStats } from '@/features/auth'
 
 function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('en-US', {
@@ -180,17 +181,11 @@ export function ContributorProfilePreview() {
 }
 
 /**
- * Build a human-readable impact summary from contribution stats
+ * Build a human-readable impact summary from contribution stats.
+ * Highlights the most significant content-creation stats (up to 4),
+ * then falls back to total_contributions.
  */
-function buildImpactSummary(stats: {
-  shows_submitted: number
-  venues_submitted: number
-  releases_created: number
-  labels_created: number
-  festivals_created: number
-  artists_edited: number
-  total_contributions: number
-}): string {
+function buildImpactSummary(stats: ContributionStats): string {
   const parts: string[] = []
 
   if (stats.shows_submitted > 0) {
@@ -210,6 +205,9 @@ function buildImpactSummary(stats: {
   }
   if (stats.artists_edited > 0) {
     parts.push(`${stats.artists_edited} artist edit${stats.artists_edited !== 1 ? 's' : ''}`)
+  }
+  if (stats.revisions_made > 0) {
+    parts.push(`${stats.revisions_made} revision${stats.revisions_made !== 1 ? 's' : ''}`)
   }
 
   if (parts.length === 0) {

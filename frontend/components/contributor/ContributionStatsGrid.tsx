@@ -10,6 +10,18 @@ import {
   Mic2,
   Shield,
   PenLine,
+  History,
+  FilePen,
+  ThumbsUp,
+  GitFork,
+  Vote,
+  Library,
+  Bell,
+  Ticket,
+  Flag,
+  CheckCircle,
+  UserPlus,
+  Heart,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { ContributionStats } from '@/features/auth'
@@ -17,7 +29,7 @@ import type { ContributionStats } from '@/features/auth'
 interface StatCardProps {
   icon: LucideIcon
   label: string
-  value: number
+  value: number | string
 }
 
 function StatCard({ icon: Icon, label, value }: StatCardProps) {
@@ -42,8 +54,13 @@ interface ContributionStatsGridProps {
   stats: ContributionStats
 }
 
+function formatPercentage(rate: number): string {
+  return `${Math.round(rate * 100)}%`
+}
+
 export function ContributionStatsGrid({ stats }: ContributionStatsGridProps) {
   const statItems: StatCardProps[] = [
+    // Content creation
     { icon: Calendar, label: 'Shows Submitted', value: stats.shows_submitted },
     { icon: MapPin, label: 'Venues Submitted', value: stats.venues_submitted },
     { icon: PenLine, label: 'Venue Edits', value: stats.venue_edits_submitted },
@@ -51,10 +68,39 @@ export function ContributionStatsGrid({ stats }: ContributionStatsGridProps) {
     { icon: Tag, label: 'Labels Created', value: stats.labels_created },
     { icon: Tent, label: 'Festivals Created', value: stats.festivals_created },
     { icon: Mic2, label: 'Artists Edited', value: stats.artists_edited },
+    { icon: History, label: 'Revisions Made', value: stats.revisions_made },
+    { icon: FilePen, label: 'Pending Edits', value: stats.pending_edits_submitted },
+
+    // Community participation
+    { icon: ThumbsUp, label: 'Tag Votes', value: stats.tag_votes_cast },
+    { icon: GitFork, label: 'Relationship Votes', value: stats.relationship_votes_cast },
+    { icon: Vote, label: 'Request Votes', value: stats.request_votes_cast },
+    { icon: Library, label: 'Collection Items', value: stats.collection_items_added },
+    { icon: Bell, label: 'Subscriptions', value: stats.collection_subscriptions },
+    { icon: Ticket, label: 'Shows Attended', value: stats.shows_attended },
+
+    // Reports
+    { icon: Flag, label: 'Reports Filed', value: stats.reports_filed },
+    { icon: CheckCircle, label: 'Reports Resolved', value: stats.reports_resolved },
+
+    // Social
+    { icon: UserPlus, label: 'Followers', value: stats.followers_count },
+    { icon: Heart, label: 'Following', value: stats.following_count },
+
+    // Moderation
     { icon: Shield, label: 'Moderation Actions', value: stats.moderation_actions },
   ]
 
-  const visibleStats = statItems.filter(s => s.value > 0)
+  // Add approval rate as a special stat if present
+  if (stats.approval_rate != null) {
+    statItems.push({
+      icon: CheckCircle,
+      label: 'Approval Rate',
+      value: formatPercentage(stats.approval_rate),
+    })
+  }
+
+  const visibleStats = statItems.filter(s => s.value !== 0 && s.value !== '0%')
 
   if (visibleStats.length === 0) {
     return (

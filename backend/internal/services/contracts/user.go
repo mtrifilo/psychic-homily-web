@@ -156,6 +156,7 @@ func DefaultPrivacySettings() PrivacySettings {
 
 // ContributionStats represents aggregated contribution counts.
 type ContributionStats struct {
+	// Content creation
 	ShowsSubmitted      int64 `json:"shows_submitted"`
 	VenuesSubmitted     int64 `json:"venues_submitted"`
 	VenueEditsSubmitted int64 `json:"venue_edits_submitted"`
@@ -163,8 +164,31 @@ type ContributionStats struct {
 	LabelsCreated       int64 `json:"labels_created"`
 	FestivalsCreated    int64 `json:"festivals_created"`
 	ArtistsEdited       int64 `json:"artists_edited"`
-	ModerationActions   int64 `json:"moderation_actions"`
-	TotalContributions  int64 `json:"total_contributions"`
+	RevisionsMade       int64 `json:"revisions_made"`
+	PendingEditsSubmitted int64 `json:"pending_edits_submitted"`
+
+	// Community participation
+	TagVotesCast              int64 `json:"tag_votes_cast"`
+	RelationshipVotesCast     int64 `json:"relationship_votes_cast"`
+	RequestVotesCast          int64 `json:"request_votes_cast"`
+	CollectionItemsAdded      int64 `json:"collection_items_added"`
+	CollectionSubscriptions   int64 `json:"collection_subscriptions"`
+	ShowsAttended             int64 `json:"shows_attended"`
+
+	// Reports
+	ReportsFiled    int64 `json:"reports_filed"`
+	ReportsResolved int64 `json:"reports_resolved"`
+
+	// Social
+	FollowersCount int64 `json:"followers_count"`
+	FollowingCount int64 `json:"following_count"`
+
+	// Moderation
+	ModerationActions int64 `json:"moderation_actions"`
+
+	// Computed
+	ApprovalRate       *float64 `json:"approval_rate,omitempty"`
+	TotalContributions int64    `json:"total_contributions"`
 }
 
 // PublicProfileResponse is the response for the public profile endpoint.

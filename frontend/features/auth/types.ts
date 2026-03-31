@@ -27,6 +27,7 @@ export interface PrivacySettings {
 }
 
 export interface ContributionStats {
+  // Content creation
   shows_submitted: number
   venues_submitted: number
   venue_edits_submitted: number
@@ -34,7 +35,30 @@ export interface ContributionStats {
   labels_created: number
   festivals_created: number
   artists_edited: number
+  revisions_made: number
+  pending_edits_submitted: number
+
+  // Community participation
+  tag_votes_cast: number
+  relationship_votes_cast: number
+  request_votes_cast: number
+  collection_items_added: number
+  collection_subscriptions: number
+  shows_attended: number
+
+  // Reports
+  reports_filed: number
+  reports_resolved: number
+
+  // Social
+  followers_count: number
+  following_count: number
+
+  // Moderation
   moderation_actions: number
+
+  // Computed
+  approval_rate?: number
   total_contributions: number
 }
 
