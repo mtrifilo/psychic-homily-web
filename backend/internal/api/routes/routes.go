@@ -61,6 +61,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	// Add protected auth routes
 	authHandler := handlers.NewAuthHandler(sc.Auth, sc.JWT, sc.User, sc.Email, sc.Discord, sc.PasswordValidator, cfg)
 	huma.Get(protectedGroup, "/auth/profile", authHandler.GetProfileHandler)
+	huma.Patch(protectedGroup, "/auth/profile", authHandler.UpdateProfileHandler)
 	huma.Post(protectedGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
 	huma.Post(protectedGroup, "/auth/change-password", authHandler.ChangePasswordHandler)
 

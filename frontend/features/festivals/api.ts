@@ -14,6 +14,7 @@ import { API_BASE_URL } from '@/lib/api-base'
 
 export const festivalEndpoints = {
   LIST: `${API_BASE_URL}/festivals`,
+  SEARCH: `${API_BASE_URL}/festivals/search`,
   GET: (idOrSlug: string | number) => `${API_BASE_URL}/festivals/${idOrSlug}`,
   CREATE: `${API_BASE_URL}/festivals`,
   UPDATE: (festivalId: string | number) =>
@@ -57,6 +58,8 @@ export const festivalQueryKeys = {
   all: ['festivals'] as const,
   list: (filters?: Record<string, unknown>) =>
     ['festivals', 'list', filters] as const,
+  search: (query: string) =>
+    ['festivals', 'search', query.toLowerCase()] as const,
   detail: (idOrSlug: string | number) => ['festivals', 'detail', String(idOrSlug)] as const,
   artists: (idOrSlug: string | number, dayDate?: string) =>
     ['festivals', 'artists', String(idOrSlug), dayDate] as const,

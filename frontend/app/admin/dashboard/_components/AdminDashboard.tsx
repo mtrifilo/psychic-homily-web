@@ -31,6 +31,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { useAdminStats, useAdminActivity } from '@/lib/hooks/admin/useAdminStats'
 import { Loader2 } from 'lucide-react'
 import type { ActivityEvent } from '@/lib/types/adminStats'
+import { formatRelativeTime } from '@/lib/formatRelativeTime'
 
 interface StatCardProps {
   label: string
@@ -152,22 +153,6 @@ function getEntityUrl(entityType: string | undefined, entitySlug: string | undef
   }
 }
 
-function formatRelativeTime(timestamp: string): string {
-  const date = new Date(timestamp)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffSec = Math.floor(diffMs / 1000)
-  const diffMin = Math.floor(diffSec / 60)
-  const diffHr = Math.floor(diffMin / 60)
-  const diffDays = Math.floor(diffHr / 24)
-
-  if (diffSec < 60) return 'just now'
-  if (diffMin < 60) return `${diffMin}m ago`
-  if (diffHr < 24) return `${diffHr}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
-  return date.toLocaleDateString()
-}
-
 function ActivityFeedItem({ event }: { event: ActivityEvent }) {
   const Icon = getEventIcon(event.event_type)
   const iconColor = getEventIconColor(event.event_type)
@@ -190,7 +175,7 @@ function ActivityFeedItem({ event }: { event: ActivityEvent }) {
         </p>
         <p className="text-xs text-muted-foreground mt-0.5">
           {event.actor_name && <span>{event.actor_name} &middot; </span>}
-          {formatRelativeTime(event.timestamp)}
+          {formatRelativeTime(event.timestamp, { short: true })}
         </p>
       </div>
     </div>

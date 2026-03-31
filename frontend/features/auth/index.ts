@@ -25,6 +25,7 @@ export {
   useRegister,
   useLogout,
   useProfile,
+  useUpdateProfile,
   useRefreshToken,
   useIsAuthenticated,
   useSendVerificationEmail,

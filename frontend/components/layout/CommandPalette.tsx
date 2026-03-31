@@ -15,11 +15,13 @@ import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
   Library, LayoutList, MessageSquarePlus, Settings, Search, Clock, X, Globe,
   TrendingUp, LayoutDashboard, Upload, BadgeCheck, Flag, ScrollText, Users, Workflow,
-  ClipboardCheck, BarChart3, Music, Bell, HeartHandshake, ShieldCheck,
+  ClipboardCheck, BarChart3, Music, Bell, HeartHandshake, ShieldCheck, Loader2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useCommandPalette } from '@/lib/hooks/common/useCommandPalette'
+import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
+import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
 
 interface RouteItem {
   label: string
@@ -282,6 +284,24 @@ const adminRoutes: RouteItem[] = [
 
 const allRoutes = [...routes, ...adminRoutes]
 
+/** Map entity type to an icon */
+const entityTypeIcons: Record<EntitySearchResult['entityType'], LucideIcon> = {
+  artist: Mic2,
+  venue: MapPin,
+  release: Disc3,
+  label: Tag,
+  festival: Tent,
+}
+
+/** Map entity type to display label for grouping */
+const entityTypeLabels: Record<EntitySearchResult['entityType'], string> = {
+  artist: 'Artists',
+  venue: 'Venues',
+  release: 'Releases',
+  label: 'Labels',
+  festival: 'Festivals',
+}
+
 export function CommandPalette() {
   const router = useRouter()
   const { user, isAuthenticated } = useAuthContext()
@@ -295,6 +315,12 @@ export function CommandPalette() {
 
   const [recentSearches, setRecentSearches] = useState<string[]>([])
   const [search, setSearch] = useState('')
+
+  // Entity search — only active when palette is open and query is 2+ chars
+  const { data: entityResults, isSearching, totalResults } = useEntitySearch({
+    query: search,
+    enabled: open,
+  })
 
   useEffect(() => {
     if (open) {
@@ -324,6 +350,15 @@ export function CommandPalette() {
     [router, setOpen, addRecentSearch]
   )
 
+  const handleEntitySelect = useCallback(
+    (result: EntitySearchResult) => {
+      addRecentSearch(result.name)
+      setOpen(false)
+      router.push(result.href)
+    },
+    [router, setOpen, addRecentSearch]
+  )
+
   const handleRecentSelect = useCallback(
     (label: string) => {
       const route = allRoutes.find(
@@ -342,18 +377,38 @@ export function CommandPalette() {
   }, [clearRecentSearches])
 
   const showRecent = !search && recentSearches.length > 0
+  const hasEntityResults = totalResults > 0
+  const showEntityResults = search.trim().length >= 2
+
+  // Collect entity result groups that have results, in display order
+  const entityGroups = useMemo(() => {
+    if (!entityResults) return []
+    const types = ['artist', 'venue', 'release', 'label', 'festival'] as const
+    const groups: { type: EntitySearchResult['entityType']; results: EntitySearchResult[] }[] = []
+    for (const type of types) {
+      const key = `${type}s` as keyof typeof entityResults
+      const results = entityResults[key]
+      if (results && results.length > 0) {
+        groups.push({ type, results })
+      }
+    }
+    return groups
+  }, [entityResults])
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
       <div className="flex items-center border-b border-border/50 px-3">
         <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
         <CommandPrimitive.Input
-          placeholder="Go to page..."
+          placeholder="Search entities or go to page..."
           className="flex h-11 w-full bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
           value={search}
           onValueChange={setSearch}
         />
-        {search && (
+        {isSearching && (
+          <Loader2 className="ml-2 h-3.5 w-3.5 animate-spin text-muted-foreground" />
+        )}
+        {search && !isSearching && (
           <button
             onClick={() => setSearch('')}
             className="ml-2 rounded-sm p-1 text-muted-foreground hover:text-foreground"
@@ -364,8 +419,12 @@ export function CommandPalette() {
         )}
       </div>
 
-      <CommandList className="max-h-[320px] p-2">
-        <CommandEmpty>No matching pages.</CommandEmpty>
+      <CommandList className="max-h-[400px] p-2">
+        <CommandEmpty>
+          {showEntityResults && !hasEntityResults && !isSearching
+            ? 'No matching entities or pages.'
+            : 'No matching pages.'}
+        </CommandEmpty>
 
         {showRecent && (
           <CommandGroup
@@ -407,6 +466,42 @@ export function CommandPalette() {
         )}
 
         {showRecent && <CommandSeparator className="mx-2 my-1" />}
+
+        {/* Entity search results — shown when user types 2+ characters */}
+        {showEntityResults && entityGroups.map(({ type, results }) => {
+          const Icon = entityTypeIcons[type]
+          const groupLabel = entityTypeLabels[type]
+          return (
+            <CommandGroup key={type} heading={groupLabel}>
+              {results.map(result => (
+                <CommandItem
+                  key={`entity-${type}-${result.id}`}
+                  value={`entity-${type}-${result.id}-${result.name}`}
+                  onSelect={() => handleEntitySelect(result)}
+                  className="cursor-pointer gap-3 rounded-lg px-2 py-2.5"
+                  keywords={[result.name]}
+                >
+                  <Icon className="h-4 w-4 text-muted-foreground" />
+                  <div className="flex flex-col gap-0.5 min-w-0">
+                    <span className="truncate">{result.name}</span>
+                    {result.subtitle && (
+                      <span className="text-xs text-muted-foreground truncate">
+                        {result.subtitle}
+                      </span>
+                    )}
+                  </div>
+                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                    {result.href}
+                  </span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )
+        })}
+
+        {showEntityResults && hasEntityResults && (
+          <CommandSeparator className="mx-2 my-1" />
+        )}
 
         <CommandGroup heading="Pages">
           {availableRoutes.map(route => {

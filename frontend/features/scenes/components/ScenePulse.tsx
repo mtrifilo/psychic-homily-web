@@ -9,10 +9,13 @@ interface ScenePulseProps {
 }
 
 /**
- * Get abbreviated month label for N months ago from today
+ * Get abbreviated month label for N months ago from today.
+ * Sets day to 1 before subtracting to avoid month overflow
+ * (e.g., March 31 minus 1 month would overflow Feb 28 back to March).
  */
 function getMonthLabel(monthsAgo: number): string {
   const date = new Date()
+  date.setDate(1)
   date.setMonth(date.getMonth() - monthsAgo)
   return date.toLocaleString('default', { month: 'short' })
 }
