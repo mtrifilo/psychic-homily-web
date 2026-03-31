@@ -306,3 +306,253 @@ func (s *EmailService) SendFilterNotificationEmail(toEmail, subject, htmlBody, u
 
 	return nil
 }
+
+// TierDisplayName maps tier constants to human-readable display names.
+func TierDisplayName(tier string) string {
+	switch tier {
+	case "new_user":
+		return "New User"
+	case "contributor":
+		return "Contributor"
+	case "trusted_contributor":
+		return "Trusted Contributor"
+	case "local_ambassador":
+		return "Local Ambassador"
+	default:
+		return tier
+	}
+}
+
+// TierPermissions returns the list of permissions unlocked at a given tier.
+func TierPermissions(tier string) []string {
+	switch tier {
+	case "contributor":
+		return []string{
+			"Submit edits for review",
+			"Vote on tags and relationships",
+			"Create collections",
+		}
+	case "trusted_contributor":
+		return []string{
+			"Edit entities directly (no review needed)",
+			"Higher daily edit limit",
+		}
+	case "local_ambassador":
+		return []string{
+			"All Trusted Contributor permissions",
+			"Featured on city pages",
+		}
+	default:
+		return nil
+	}
+}
+
+// SendTierPromotionEmail sends a congratulatory email when a user is promoted to a higher tier.
+func (s *EmailService) SendTierPromotionEmail(toEmail, username, oldTier, newTier, reason string, newPermissions []string) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service is not configured")
+	}
+
+	displayName := TierDisplayName(newTier)
+	oldDisplayName := TierDisplayName(oldTier)
+
+	permissionsHTML := ""
+	if len(newPermissions) > 0 {
+		permissionsHTML = `<h3 style="color: #1a1a1a; margin-bottom: 8px;">New permissions unlocked:</h3><ul style="padding-left: 20px; color: #444;">`
+		for _, perm := range newPermissions {
+			permissionsHTML += fmt.Sprintf(`<li style="margin-bottom: 4px;">%s</li>`, perm)
+		}
+		permissionsHTML += `</ul>`
+	}
+
+	nextTierHTML := ""
+	switch newTier {
+	case "contributor":
+		nextTierHTML = `<p style="font-size: 14px; color: #666; margin-top: 20px;">Keep contributing quality edits to reach <strong>Trusted Contributor</strong> status (25 approved edits with 95%+ approval rate).</p>`
+	case "trusted_contributor":
+		nextTierHTML = `<p style="font-size: 14px; color: #666; margin-top: 20px;">Keep contributing to your local scene to reach <strong>Local Ambassador</strong> status (50 approved edits with 10+ city edits).</p>`
+	case "local_ambassador":
+		nextTierHTML = `<p style="font-size: 14px; color: #666; margin-top: 20px;">You've reached the highest contributor tier. Thank you for your dedication to the community!</p>`
+	}
+
+	greeting := "there"
+	if username != "" {
+		greeting = username
+	}
+
+	html := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
+    </div>
+
+    <div style="background: #f0fdf4; border-radius: 8px; padding: 30px; margin-bottom: 20px; border: 1px solid #bbf7d0;">
+        <h2 style="margin-top: 0; color: #166534;">Congratulations, %s!</h2>
+        <p style="font-size: 16px;">You've been promoted from <strong>%s</strong> to <strong>%s</strong>.</p>
+        <p style="color: #444;">%s</p>
+        %s
+        %s
+    </div>
+
+    <div style="text-align: center; font-size: 12px; color: #999;">
+        <p>Thank you for contributing to the Psychic Homily community.</p>
+    </div>
+</body>
+</html>
+`, greeting, oldDisplayName, displayName, reason, permissionsHTML, nextTierHTML)
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: fmt.Sprintf("You've been promoted to %s!", displayName),
+		Html:    html,
+	}
+
+	_, err := s.client.Emails.Send(params)
+	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "email")
+			scope.SetTag("email_type", "tier_promotion")
+			sentry.CaptureException(err)
+		})
+		return fmt.Errorf("failed to send tier promotion email: %w", err)
+	}
+
+	return nil
+}
+
+// SendTierDemotionEmail sends a notification when a user is demoted to a lower tier.
+func (s *EmailService) SendTierDemotionEmail(toEmail, username, oldTier, newTier, reason string) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service is not configured")
+	}
+
+	oldDisplayName := TierDisplayName(oldTier)
+	newDisplayName := TierDisplayName(newTier)
+
+	greeting := "there"
+	if username != "" {
+		greeting = username
+	}
+
+	html := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
+    </div>
+
+    <div style="background: #fef9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px; border: 1px solid #fecaca;">
+        <h2 style="margin-top: 0; color: #991b1b;">Your contributor tier has changed</h2>
+        <p>Hi %s,</p>
+        <p>Your tier has changed from <strong>%s</strong> to <strong>%s</strong>.</p>
+        <p style="color: #444;"><strong>Reason:</strong> %s</p>
+        <h3 style="color: #1a1a1a; margin-bottom: 8px;">How to recover your tier:</h3>
+        <ul style="padding-left: 20px; color: #444;">
+            <li style="margin-bottom: 4px;">Focus on submitting accurate, high-quality edits</li>
+            <li style="margin-bottom: 4px;">Double-check your information before submitting</li>
+            <li style="margin-bottom: 4px;">Review the contribution guidelines for best practices</li>
+        </ul>
+    </div>
+
+    <div style="text-align: center; font-size: 12px; color: #999;">
+        <p>Your contributions are valued. Keep at it and you'll regain your tier.</p>
+    </div>
+</body>
+</html>
+`, greeting, oldDisplayName, newDisplayName, reason)
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: "Your contributor tier has changed",
+		Html:    html,
+	}
+
+	_, err := s.client.Emails.Send(params)
+	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "email")
+			scope.SetTag("email_type", "tier_demotion")
+			sentry.CaptureException(err)
+		})
+		return fmt.Errorf("failed to send tier demotion email: %w", err)
+	}
+
+	return nil
+}
+
+// SendTierDemotionWarningEmail sends a warning when a user's approval rate is approaching the demotion threshold.
+func (s *EmailService) SendTierDemotionWarningEmail(toEmail, username, currentTier string, currentRate float64, threshold float64) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service is not configured")
+	}
+
+	displayName := TierDisplayName(currentTier)
+
+	greeting := "there"
+	if username != "" {
+		greeting = username
+	}
+
+	html := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
+    </div>
+
+    <div style="background: #fffbeb; border-radius: 8px; padding: 30px; margin-bottom: 20px; border: 1px solid #fde68a;">
+        <h2 style="margin-top: 0; color: #92400e;">Your contributor status is at risk</h2>
+        <p>Hi %s,</p>
+        <p>Your current approval rate of <strong>%.0f%%</strong> is approaching the <strong>%.0f%%</strong> threshold required to maintain your <strong>%s</strong> status.</p>
+        <h3 style="color: #1a1a1a; margin-bottom: 8px;">Tips to improve your approval rate:</h3>
+        <ul style="padding-left: 20px; color: #444;">
+            <li style="margin-bottom: 4px;">Verify information from multiple sources before submitting</li>
+            <li style="margin-bottom: 4px;">Pay attention to formatting and data accuracy</li>
+            <li style="margin-bottom: 4px;">Review feedback on previously rejected edits</li>
+        </ul>
+    </div>
+
+    <div style="text-align: center; font-size: 12px; color: #999;">
+        <p>This is a friendly heads-up to help you maintain your contributor status.</p>
+    </div>
+</body>
+</html>
+`, greeting, currentRate*100, threshold*100, displayName)
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: "Your contributor status is at risk",
+		Html:    html,
+	}
+
+	_, err := s.client.Emails.Send(params)
+	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "email")
+			scope.SetTag("email_type", "tier_demotion_warning")
+			sentry.CaptureException(err)
+		})
+		return fmt.Errorf("failed to send tier demotion warning email: %w", err)
+	}
+
+	return nil
+}

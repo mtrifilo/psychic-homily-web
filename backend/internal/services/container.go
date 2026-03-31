@@ -184,6 +184,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Scheduler:        pipeline.NewSchedulerService(database, pipelineSvc, venueSourceConfig, discord),
 		Enrichment:       enrichmentSvc,
 		EnrichmentWorker: enrichmentWorker,
-		AutoPromotion:    adminsvc.NewAutoPromotionService(database),
+		AutoPromotion:    adminsvc.NewAutoPromotionService(database, email),
 	}
 }

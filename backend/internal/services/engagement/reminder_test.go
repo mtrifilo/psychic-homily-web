@@ -182,6 +182,13 @@ func (m *mockReminderEmailService) SendShowReminderEmail(toEmail, showTitle, sho
 func (m *mockReminderEmailService) SendFilterNotificationEmail(_, _, _, _ string) error {
 	return nil
 }
+func (m *mockReminderEmailService) SendTierPromotionEmail(_, _, _, _, _ string, _ []string) error {
+	return nil
+}
+func (m *mockReminderEmailService) SendTierDemotionEmail(_, _, _, _, _ string) error { return nil }
+func (m *mockReminderEmailService) SendTierDemotionWarningEmail(_, _, _ string, _, _ float64) error {
+	return nil
+}
 
 // ReminderServiceIntegrationTestSuite tests the reminder service with a real database
 type ReminderServiceIntegrationTestSuite struct {

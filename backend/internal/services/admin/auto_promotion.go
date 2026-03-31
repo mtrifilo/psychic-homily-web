@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/notification"
 )
 
 // User tier constants.
@@ -59,15 +61,16 @@ var tierByOrder = map[int]string{
 
 // AutoPromotionService evaluates users for tier promotion and demotion.
 type AutoPromotionService struct {
-	db       *gorm.DB
-	interval time.Duration
-	stopCh   chan struct{}
-	wg       sync.WaitGroup
-	logger   *slog.Logger
+	db           *gorm.DB
+	emailService contracts.EmailServiceInterface
+	interval     time.Duration
+	stopCh       chan struct{}
+	wg           sync.WaitGroup
+	logger       *slog.Logger
 }
 
 // NewAutoPromotionService creates a new auto-promotion service.
-func NewAutoPromotionService(database *gorm.DB) *AutoPromotionService {
+func NewAutoPromotionService(database *gorm.DB, emailService contracts.EmailServiceInterface) *AutoPromotionService {
 	if database == nil {
 		database = db.GetDB()
 	}
@@ -80,10 +83,11 @@ func NewAutoPromotionService(database *gorm.DB) *AutoPromotionService {
 	}
 
 	return &AutoPromotionService{
-		db:       database,
-		interval: interval,
-		stopCh:   make(chan struct{}),
-		logger:   slog.Default(),
+		db:           database,
+		emailService: emailService,
+		interval:     interval,
+		stopCh:       make(chan struct{}),
+		logger:       slog.Default(),
 	}
 }
 
@@ -227,14 +231,98 @@ func (s *AutoPromotionService) EvaluateAllUsers() (*contracts.AutoPromotionResul
 			continue
 		}
 
-		if tierOrder[evalResult.NewTier] > tierOrder[evalResult.CurrentTier] {
+		isPromotion := tierOrder[evalResult.NewTier] > tierOrder[evalResult.CurrentTier]
+		if isPromotion {
 			result.Promoted = append(result.Promoted, change)
 		} else {
 			result.Demoted = append(result.Demoted, change)
 		}
+
+		// Fire-and-forget: send email notification
+		s.sendTierChangeEmail(&user, change, isPromotion)
+
+		// Fire-and-forget: write audit log
+		s.writeTierChangeAuditLog(&user, change, isPromotion)
 	}
 
 	return result, nil
+}
+
+// sendTierChangeEmail sends a promotion or demotion email for a tier change.
+// Errors are logged but never fail the parent operation.
+func (s *AutoPromotionService) sendTierChangeEmail(user *models.User, change contracts.UserTierChange, isPromotion bool) {
+	if s.emailService == nil || !s.emailService.IsConfigured() {
+		return
+	}
+
+	if user.Email == nil || *user.Email == "" {
+		return
+	}
+
+	email := *user.Email
+	username := change.Username
+
+	if isPromotion {
+		newPermissions := notification.TierPermissions(change.NewTier)
+		if err := s.emailService.SendTierPromotionEmail(email, username, change.OldTier, change.NewTier, change.Reason, newPermissions); err != nil {
+			s.logger.Error("failed to send tier promotion email",
+				"user_id", user.ID,
+				"error", err,
+			)
+		}
+	} else {
+		if err := s.emailService.SendTierDemotionEmail(email, username, change.OldTier, change.NewTier, change.Reason); err != nil {
+			s.logger.Error("failed to send tier demotion email",
+				"user_id", user.ID,
+				"error", err,
+			)
+		}
+	}
+}
+
+// writeTierChangeAuditLog records a tier change in the audit log.
+// Errors are logged but never fail the parent operation.
+func (s *AutoPromotionService) writeTierChangeAuditLog(user *models.User, change contracts.UserTierChange, isPromotion bool) {
+	if s.db == nil {
+		return
+	}
+
+	action := "tier_promotion"
+	if !isPromotion {
+		action = "tier_demotion"
+	}
+
+	metadata := map[string]interface{}{
+		"old_tier": change.OldTier,
+		"new_tier": change.NewTier,
+		"reason":   change.Reason,
+		"username": change.Username,
+	}
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		s.logger.Error("failed to marshal audit log metadata",
+			"user_id", user.ID,
+			"error", err,
+		)
+		return
+	}
+
+	raw := json.RawMessage(metadataJSON)
+	auditLog := models.AuditLog{
+		ActorID:    nil, // system action, no actor
+		Action:     action,
+		EntityType: "user",
+		EntityID:   user.ID,
+		Metadata:   &raw,
+		CreatedAt:  time.Now().UTC(),
+	}
+
+	if err := s.db.Create(&auditLog).Error; err != nil {
+		s.logger.Error("failed to write tier change audit log",
+			"user_id", user.ID,
+			"error", err,
+		)
+	}
 }
 
 // EvaluateUser checks a single user for promotion/demotion eligibility.

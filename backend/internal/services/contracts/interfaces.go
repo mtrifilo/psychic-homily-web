@@ -243,6 +243,9 @@ type EmailServiceInterface interface {
 	SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error
 	SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventDate time.Time, venues []string) error
 	SendFilterNotificationEmail(toEmail, subject, htmlBody, unsubscribeURL string) error
+	SendTierPromotionEmail(toEmail, username, oldTier, newTier, reason string, newPermissions []string) error
+	SendTierDemotionEmail(toEmail, username, oldTier, newTier, reason string) error
+	SendTierDemotionWarningEmail(toEmail, username, currentTier string, currentRate float64, threshold float64) error
 }
 
 // ReminderServiceInterface defines the contract for the show reminder background service.
