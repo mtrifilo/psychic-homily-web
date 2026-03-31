@@ -256,12 +256,18 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
 
                   <p className="text-sm text-muted-foreground mt-2">
                     Requested by{' '}
-                    <Link
-                      href={`/users/${request.requester_name}`}
-                      className="text-foreground hover:text-primary transition-colors"
-                    >
-                      {request.requester_name}
-                    </Link>{' '}
+                    {request.requester_name && request.requester_name !== 'Unknown' ? (
+                      <Link
+                        href={`/users/${request.requester_name}`}
+                        className="text-foreground hover:text-primary transition-colors"
+                      >
+                        {request.requester_name}
+                      </Link>
+                    ) : (
+                      <span className="text-foreground">
+                        User #{request.requester_id}
+                      </span>
+                    )}{' '}
                     {formatTimeAgo(request.created_at)}
                   </p>
 

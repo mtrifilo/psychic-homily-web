@@ -1806,3 +1806,119 @@ func (h *AuthHandler) GenerateCLITokenHandler(ctx context.Context, input *struct
 
 	return resp, nil
 }
+
+// --- Update Profile Identity ---
+
+// UpdateProfileRequest represents the request for updating profile identity fields.
+type UpdateProfileRequest struct {
+	Body struct {
+		Username  *string `json:"username,omitempty" required:"false" doc:"Username (3-30 chars, alphanumeric, underscores, hyphens)"`
+		FirstName *string `json:"first_name,omitempty" required:"false" doc:"First name"`
+		LastName  *string `json:"last_name,omitempty" required:"false" doc:"Last name"`
+		Bio       *string `json:"bio,omitempty" required:"false" doc:"Short bio (max 500 chars)"`
+	}
+}
+
+// UpdateProfileResponse represents the response for updating profile identity fields.
+type UpdateProfileResponse struct {
+	Body struct {
+		Success   bool         `json:"success"`
+		User      *models.User `json:"user,omitempty"`
+		Message   string       `json:"message"`
+		ErrorCode string       `json:"error_code,omitempty"`
+		RequestID string       `json:"request_id,omitempty"`
+	}
+}
+
+// UpdateProfileHandler handles PATCH /auth/profile — updates identity fields (username, name, bio).
+func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfileRequest) (*UpdateProfileResponse, error) {
+	resp := &UpdateProfileResponse{}
+	requestID := logger.GetRequestID(ctx)
+	resp.Body.RequestID = requestID
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		resp.Body.Success = false
+		resp.Body.Message = "Authentication required"
+		resp.Body.ErrorCode = autherrors.CodeUnauthorized
+		return resp, nil
+	}
+
+	updates := map[string]any{}
+
+	if req.Body.Username != nil {
+		username := strings.TrimSpace(*req.Body.Username)
+		if len(username) < 3 || len(username) > 30 {
+			resp.Body.Success = false
+			resp.Body.Message = "Username must be between 3 and 30 characters"
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
+		// Only allow alphanumeric, underscores, and hyphens
+		for _, c := range username {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+				resp.Body.Success = false
+				resp.Body.Message = "Username may only contain letters, numbers, underscores, and hyphens"
+				resp.Body.ErrorCode = autherrors.CodeValidationFailed
+				return resp, nil
+			}
+		}
+		updates["username"] = username
+	}
+
+	if req.Body.FirstName != nil {
+		updates["first_name"] = strings.TrimSpace(*req.Body.FirstName)
+	}
+
+	if req.Body.LastName != nil {
+		updates["last_name"] = strings.TrimSpace(*req.Body.LastName)
+	}
+
+	if req.Body.Bio != nil {
+		bio := strings.TrimSpace(*req.Body.Bio)
+		if len(bio) > 500 {
+			resp.Body.Success = false
+			resp.Body.Message = "Bio must be 500 characters or fewer"
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
+		updates["bio"] = bio
+	}
+
+	if len(updates) == 0 {
+		resp.Body.Success = false
+		resp.Body.Message = "No fields to update"
+		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+
+	updatedUser, err := h.userService.UpdateUser(user.ID, updates)
+	if err != nil {
+		logger.FromContext(ctx).Error("update_profile_failed",
+			"user_id", user.ID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		// Check for unique constraint violation (username taken)
+		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique") {
+			resp.Body.Success = false
+			resp.Body.Message = "Username is already taken"
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
+		resp.Body.Success = false
+		resp.Body.Message = "Failed to update profile"
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, nil
+	}
+
+	logger.FromContext(ctx).Info("profile_updated",
+		"user_id", user.ID,
+		"request_id", requestID,
+	)
+
+	resp.Body.Success = true
+	resp.Body.User = updatedUser
+	resp.Body.Message = "Profile updated"
+	return resp, nil
+}

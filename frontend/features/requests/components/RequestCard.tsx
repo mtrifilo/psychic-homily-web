@@ -132,7 +132,12 @@ export function RequestCard({ request }: RequestCardProps) {
           )}
 
           <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
-            <span>by {request.requester_name}</span>
+            <span>
+              by{' '}
+              {request.requester_name && request.requester_name !== 'Unknown'
+                ? request.requester_name
+                : `User #${request.requester_id}`}
+            </span>
             <span>{formatTimeAgo(request.created_at)}</span>
           </div>
         </div>

@@ -7,6 +7,7 @@ import { useEntityRevisions, useRollbackRevision } from '@/lib/hooks/common/useR
 import type { RevisionItem, FieldChange } from '@/lib/hooks/common/useRevisions'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { formatRelativeTime } from '@/lib/formatRelativeTime'
 
 interface RevisionHistoryProps {
   entityType: string
@@ -23,30 +24,6 @@ function formatValue(value: unknown): string {
   if (typeof value === 'boolean') return value ? 'true' : 'false'
   if (typeof value === 'number') return String(value)
   return JSON.stringify(value)
-}
-
-/**
- * Format a timestamp into a relative time string.
- */
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffSec = Math.floor(diffMs / 1000)
-  const diffMin = Math.floor(diffSec / 60)
-  const diffHr = Math.floor(diffMin / 60)
-  const diffDays = Math.floor(diffHr / 24)
-
-  if (diffSec < 60) return 'just now'
-  if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? '' : 's'} ago`
-  if (diffHr < 24) return `${diffHr} hour${diffHr === 1 ? '' : 's'} ago`
-  if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`
-
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
 }
 
 /**
