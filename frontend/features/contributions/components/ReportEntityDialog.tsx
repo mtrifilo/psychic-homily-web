@@ -39,6 +39,12 @@ export function ReportEntityDialog({
 
   const reportOptions = REPORT_TYPES[entityType] ?? []
 
+  const isDuplicateError =
+    reportMutation.isError &&
+    /already.*(pending|report)/i.test(
+      (reportMutation.error as Error)?.message ?? ''
+    )
+
   const handleSubmit = () => {
     if (!selectedType) return
 
@@ -95,8 +101,22 @@ export function ReportEntityDialog({
           </div>
         )}
 
-        {/* Error state */}
-        {reportMutation.isError && (
+        {/* Duplicate report error — show message only, no form */}
+        {isDuplicateError && (
+          <div className="rounded-md border border-orange-800 bg-orange-950/50 p-4">
+            <div className="flex items-center gap-2 text-orange-400">
+              <Flag className="h-4 w-4" />
+              <span className="font-medium">Already reported</span>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              You&apos;ve already reported this entity. An admin will review your
+              existing report.
+            </p>
+          </div>
+        )}
+
+        {/* Other error state */}
+        {reportMutation.isError && !isDuplicateError && (
           <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
             {(reportMutation.error as Error)?.message ||
               'Failed to submit report. Please try again.'}
@@ -104,7 +124,7 @@ export function ReportEntityDialog({
         )}
 
         {/* Form */}
-        {!submitted && (
+        {!submitted && !isDuplicateError && (
           <div className="space-y-4">
             {/* Report Type Selection */}
             <div className="space-y-2">
@@ -161,7 +181,7 @@ export function ReportEntityDialog({
           </div>
         )}
 
-        {!submitted && (
+        {!submitted && !isDuplicateError && (
           <DialogFooter>
             <Button
               variant="outline"
@@ -189,7 +209,7 @@ export function ReportEntityDialog({
           </DialogFooter>
         )}
 
-        {submitted && (
+        {(submitted || isDuplicateError) && (
           <DialogFooter>
             <Button onClick={() => handleClose(false)}>
               Close
