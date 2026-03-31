@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { ContributionEntry } from '@/features/auth'
+import { formatRelativeTime } from '@/lib/formatRelativeTime'
 
 const entityTypeIcons: Record<string, LucideIcon> = {
   show: Calendar,
@@ -48,27 +49,6 @@ function formatAction(action: string): string {
   return action
     .replace(/_/g, ' ')
     .replace(/\b\w/g, c => c.toUpperCase())
-}
-
-function formatRelativeTime(dateString: string): string {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / (1000 * 60))
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-
-  if (diffMins < 1) return 'just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`
-
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
-  })
 }
 
 interface ContributionTimelineProps {
@@ -119,7 +99,7 @@ export function ContributionTimeline({ contributions }: ContributionTimelineProp
                 )}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {formatRelativeTime(entry.created_at)}
+                {formatRelativeTime(entry.created_at, { short: true })}
                 {entry.source && entry.source !== 'web' && (
                   <span> &middot; via {entry.source}</span>
                 )}
