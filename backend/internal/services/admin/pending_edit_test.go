@@ -32,19 +32,82 @@ func TestIsValidPendingEditEntityType(t *testing.T) {
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================
 
+// mockEmailServiceForPendingEdit implements contracts.EmailServiceInterface for testing.
+type mockEmailServiceForPendingEdit struct {
+	configured             bool
+	editApprovedCalls      []editApprovedCall
+	editRejectedCalls      []editRejectedCall
+	editApprovedErr        error
+	editRejectedErr        error
+}
+
+type editApprovedCall struct {
+	ToEmail    string
+	Username   string
+	EntityType string
+	EntityName string
+	EntityURL  string
+}
+
+type editRejectedCall struct {
+	ToEmail         string
+	Username        string
+	EntityType      string
+	EntityName      string
+	RejectionReason string
+}
+
+func (m *mockEmailServiceForPendingEdit) IsConfigured() bool { return m.configured }
+func (m *mockEmailServiceForPendingEdit) SendVerificationEmail(_, _ string) error { return nil }
+func (m *mockEmailServiceForPendingEdit) SendMagicLinkEmail(_, _ string) error { return nil }
+func (m *mockEmailServiceForPendingEdit) SendAccountRecoveryEmail(_, _ string, _ int) error {
+	return nil
+}
+func (m *mockEmailServiceForPendingEdit) SendShowReminderEmail(_, _, _, _ string, _ time.Time, _ []string) error {
+	return nil
+}
+func (m *mockEmailServiceForPendingEdit) SendFilterNotificationEmail(_, _, _, _ string) error {
+	return nil
+}
+func (m *mockEmailServiceForPendingEdit) SendTierPromotionEmail(_, _, _, _, _ string, _ []string) error {
+	return nil
+}
+func (m *mockEmailServiceForPendingEdit) SendTierDemotionEmail(_, _, _, _, _ string) error {
+	return nil
+}
+func (m *mockEmailServiceForPendingEdit) SendTierDemotionWarningEmail(_, _, _ string, _, _ float64) error {
+	return nil
+}
+func (m *mockEmailServiceForPendingEdit) SendEditApprovedEmail(toEmail, username, entityType, entityName, entityURL string) error {
+	m.editApprovedCalls = append(m.editApprovedCalls, editApprovedCall{
+		ToEmail: toEmail, Username: username, EntityType: entityType,
+		EntityName: entityName, EntityURL: entityURL,
+	})
+	return m.editApprovedErr
+}
+func (m *mockEmailServiceForPendingEdit) SendEditRejectedEmail(toEmail, username, entityType, entityName, rejectionReason string) error {
+	m.editRejectedCalls = append(m.editRejectedCalls, editRejectedCall{
+		ToEmail: toEmail, Username: username, EntityType: entityType,
+		EntityName: entityName, RejectionReason: rejectionReason,
+	})
+	return m.editRejectedErr
+}
+
 type PendingEditServiceIntegrationTestSuite struct {
 	suite.Suite
-	testDB     *testutil.TestDatabase
-	db         *gorm.DB
-	svc        *PendingEditService
-	revisionSvc *RevisionService
+	testDB       *testutil.TestDatabase
+	db           *gorm.DB
+	svc          *PendingEditService
+	revisionSvc  *RevisionService
+	mockEmail    *mockEmailServiceForPendingEdit
 }
 
 func (s *PendingEditServiceIntegrationTestSuite) SetupSuite() {
 	s.testDB = testutil.SetupTestPostgres(s.T())
 	s.db = s.testDB.DB
 	s.revisionSvc = NewRevisionService(s.db)
-	s.svc = NewPendingEditService(s.db, s.revisionSvc)
+	s.mockEmail = &mockEmailServiceForPendingEdit{configured: true}
+	s.svc = NewPendingEditService(s.db, s.revisionSvc, s.mockEmail, "http://localhost:3000")
 }
 
 func (s *PendingEditServiceIntegrationTestSuite) TearDownSuite() {
@@ -60,6 +123,11 @@ func (s *PendingEditServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM festivals")
 	_, _ = sqlDB.Exec("DELETE FROM users")
+	// Reset mock email state between tests
+	s.mockEmail.editApprovedCalls = nil
+	s.mockEmail.editRejectedCalls = nil
+	s.mockEmail.editApprovedErr = nil
+	s.mockEmail.editRejectedErr = nil
 }
 
 func TestPendingEditServiceIntegrationSuite(t *testing.T) {
@@ -827,4 +895,163 @@ func TestDisplayName(t *testing.T) {
 		u := &models.User{}
 		assert.Equal(t, "", displayName(u))
 	})
+}
+
+// =============================================================================
+// Email notification tests
+// =============================================================================
+
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_SendsApprovalEmail() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	artist := s.createTestArtist("Cool Band")
+
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "artist", EntityID: artist.ID, UserID: user.ID,
+		Changes: makeChanges("name", "Cool Band", "The Cool Band"), Summary: "Add 'The'",
+	})
+	s.Require().NoError(err)
+
+	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	s.NoError(err)
+
+	// Verify approval email was sent
+	s.Require().Len(s.mockEmail.editApprovedCalls, 1)
+	call := s.mockEmail.editApprovedCalls[0]
+	s.Equal(*user.Email, call.ToEmail)
+	s.Equal("artist", call.EntityType)
+	s.Equal("The Cool Band", call.EntityName) // Entity was updated, so name should reflect the update
+	s.Contains(call.EntityURL, "/artists/")
+	s.Contains(call.EntityURL, "http://localhost:3000")
+}
+
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_EmailErrorDoesNotFail() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	artist := s.createTestArtist("Test Band")
+
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "artist", EntityID: artist.ID, UserID: user.ID,
+		Changes: makeChanges("name", "Test Band", "Better Name"), Summary: "improve name",
+	})
+	s.Require().NoError(err)
+
+	// Make email service return an error
+	s.mockEmail.editApprovedErr = fmt.Errorf("email API is down")
+
+	// Approval should still succeed despite email error
+	resp, err := s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal(models.PendingEditStatusApproved, resp.Status)
+	s.Len(s.mockEmail.editApprovedCalls, 1) // Email was attempted
+}
+
+func (s *PendingEditServiceIntegrationTestSuite) TestRejectPendingEdit_SendsRejectionEmail() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	venue := s.createTestVenue("Great Venue")
+
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
+		Changes: makeChanges("name", "Great Venue", "Bad Name"), Summary: "rename",
+	})
+	s.Require().NoError(err)
+
+	_, err = s.svc.RejectPendingEdit(created.ID, reviewer.ID, "Name does not match official venue name")
+	s.NoError(err)
+
+	// Verify rejection email was sent
+	s.Require().Len(s.mockEmail.editRejectedCalls, 1)
+	call := s.mockEmail.editRejectedCalls[0]
+	s.Equal(*user.Email, call.ToEmail)
+	s.Equal("venue", call.EntityType)
+	s.Equal("Great Venue", call.EntityName) // Entity was NOT updated on rejection
+	s.Equal("Name does not match official venue name", call.RejectionReason)
+}
+
+func (s *PendingEditServiceIntegrationTestSuite) TestRejectPendingEdit_EmailErrorDoesNotFail() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	artist := s.createTestArtist("Test Artist")
+
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "artist", EntityID: artist.ID, UserID: user.ID,
+		Changes: makeChanges("name", "Test Artist", "Wrong"), Summary: "bad edit",
+	})
+	s.Require().NoError(err)
+
+	// Make email service return an error
+	s.mockEmail.editRejectedErr = fmt.Errorf("email API is down")
+
+	// Rejection should still succeed despite email error
+	resp, err := s.svc.RejectPendingEdit(created.ID, reviewer.ID, "incorrect info")
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal(models.PendingEditStatusRejected, resp.Status)
+	s.Len(s.mockEmail.editRejectedCalls, 1) // Email was attempted
+}
+
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueEmailHasCorrectURL() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	venue := s.createTestVenue("The Rebel Lounge")
+
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
+		Changes: makeChanges("city", "Phoenix", "Tempe"), Summary: "fix city",
+	})
+	s.Require().NoError(err)
+
+	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	s.NoError(err)
+
+	s.Require().Len(s.mockEmail.editApprovedCalls, 1)
+	call := s.mockEmail.editApprovedCalls[0]
+	s.Contains(call.EntityURL, "/venues/")
+}
+
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_FestivalEmailHasCorrectURL() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	festival := s.createTestFestival("Fest 2026")
+
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "festival", EntityID: festival.ID, UserID: user.ID,
+		Changes: makeChanges("description", "", "Great festival"), Summary: "add desc",
+	})
+	s.Require().NoError(err)
+
+	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	s.NoError(err)
+
+	s.Require().Len(s.mockEmail.editApprovedCalls, 1)
+	call := s.mockEmail.editApprovedCalls[0]
+	s.Contains(call.EntityURL, "/festivals/")
+}
+
+// =============================================================================
+// Nil email service tests (unit tests, no DB)
+// =============================================================================
+
+func TestPendingEditService_NilEmailServiceDoesNotPanic(t *testing.T) {
+	// Constructor with nil email service should work fine
+	svc := NewPendingEditService(nil, nil, nil, "")
+	assert.NotNil(t, svc)
+
+	// sendApprovalEmail and sendRejectionEmail should not panic with nil email service
+	svc.sendApprovalEmail(&models.PendingEntityEdit{SubmittedBy: 1, EntityType: "artist", EntityID: 1})
+	svc.sendRejectionEmail(&models.PendingEntityEdit{SubmittedBy: 1, EntityType: "artist", EntityID: 1}, "reason")
+}
+
+func TestPendingEditService_UnconfiguredEmailServiceDoesNotPanic(t *testing.T) {
+	mockEmail := &mockEmailServiceForPendingEdit{configured: false}
+	svc := NewPendingEditService(nil, nil, mockEmail, "http://localhost:3000")
+
+	// Should return early without attempting to send
+	svc.sendApprovalEmail(&models.PendingEntityEdit{SubmittedBy: 1, EntityType: "artist", EntityID: 1})
+	svc.sendRejectionEmail(&models.PendingEntityEdit{SubmittedBy: 1, EntityType: "artist", EntityID: 1}, "reason")
+
+	assert.Len(t, mockEmail.editApprovedCalls, 0)
+	assert.Len(t, mockEmail.editRejectedCalls, 0)
 }

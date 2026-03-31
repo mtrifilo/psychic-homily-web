@@ -246,6 +246,8 @@ type EmailServiceInterface interface {
 	SendTierPromotionEmail(toEmail, username, oldTier, newTier, reason string, newPermissions []string) error
 	SendTierDemotionEmail(toEmail, username, oldTier, newTier, reason string) error
 	SendTierDemotionWarningEmail(toEmail, username, currentTier string, currentRate float64, threshold float64) error
+	SendEditApprovedEmail(toEmail, username, entityType, entityName, entityURL string) error
+	SendEditRejectedEmail(toEmail, username, entityType, entityName, rejectionReason string) error
 }
 
 // ReminderServiceInterface defines the contract for the show reminder background service.

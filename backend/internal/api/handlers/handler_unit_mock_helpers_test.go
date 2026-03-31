@@ -1017,6 +1017,8 @@ type mockEmailService struct {
 	sendTierPromotionEmailFn func(string, string, string, string, string, []string) (error)
 	sendTierDemotionEmailFn func(string, string, string, string, string) (error)
 	sendTierDemotionWarningEmailFn func(string, string, string, float64, float64) (error)
+	sendEditApprovedEmailFn func(string, string, string, string, string) (error)
+	sendEditRejectedEmailFn func(string, string, string, string, string) (error)
 }
 
 func (m *mockEmailService) IsConfigured() (bool) {
@@ -1070,6 +1072,18 @@ func (m *mockEmailService) SendTierDemotionEmail(toEmail string, username string
 func (m *mockEmailService) SendTierDemotionWarningEmail(toEmail string, username string, currentTier string, currentRate float64, threshold float64) (error) {
 	if m.sendTierDemotionWarningEmailFn != nil {
 		return m.sendTierDemotionWarningEmailFn(toEmail, username, currentTier, currentRate, threshold)
+	}
+	return nil
+}
+func (m *mockEmailService) SendEditApprovedEmail(toEmail string, username string, entityType string, entityName string, entityURL string) (error) {
+	if m.sendEditApprovedEmailFn != nil {
+		return m.sendEditApprovedEmailFn(toEmail, username, entityType, entityName, entityURL)
+	}
+	return nil
+}
+func (m *mockEmailService) SendEditRejectedEmail(toEmail string, username string, entityType string, entityName string, rejectionReason string) (error) {
+	if m.sendEditRejectedEmailFn != nil {
+		return m.sendEditRejectedEmailFn(toEmail, username, entityType, entityName, rejectionReason)
 	}
 	return nil
 }
