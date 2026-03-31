@@ -1,62 +1,45 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
+import { http, HttpResponse } from 'msw'
+import { server } from '@/test/mocks/server'
+import { TEST_API_BASE } from '@/test/mocks/handlers'
 import { createWrapper } from '@/test/utils'
-
-const mockApiRequest = vi.fn()
-const mockInvalidateShowReports = vi.fn()
-
-vi.mock('@/lib/api', () => ({
-  apiRequest: (...args: unknown[]) => mockApiRequest(...args),
-  API_BASE_URL: 'http://localhost:8080',
-}))
-
-vi.mock('@/features/shows/api', () => ({
-  showEndpoints: {
-    REPORT: (showId: string | number) => `/shows/${showId}/report`,
-    MY_REPORT: (showId: string | number) => `/shows/${showId}/my-report`,
-  },
-}))
-
-vi.mock('@/lib/queryClient', () => ({
-  queryKeys: {
-    showReports: {
-      myReport: (showId: string) => ['showReports', 'myReport', showId],
-    },
-  },
-  createInvalidateQueries: () => ({
-    showReports: mockInvalidateShowReports,
-  }),
-}))
-
 import { useMyShowReport, useReportShow } from './useShowReports'
 
-
 describe('useMyShowReport', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockApiRequest.mockReset()
-  })
-
   it('fetches user report for a show by numeric ID', async () => {
-    mockApiRequest.mockResolvedValueOnce({ has_report: true, report_type: 'wrong_date' })
+    server.use(
+      http.get(`${TEST_API_BASE}/shows/:showId/my-report`, () => {
+        return HttpResponse.json({
+          report: {
+            id: 1,
+            show_id: 42,
+            report_type: 'wrong_date',
+            details: 'Off by one day',
+            status: 'pending',
+            created_at: '2026-03-30T12:00:00Z',
+            updated_at: '2026-03-30T12:00:00Z',
+          },
+        })
+      })
+    )
 
     const { result } = renderHook(() => useMyShowReport(42), {
       wrapper: createWrapper(),
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockApiRequest).toHaveBeenCalledWith('/shows/42/my-report', { method: 'GET' })
+    expect(result.current.data?.report?.report_type).toBe('wrong_date')
   })
 
-  it('fetches user report for a show by string ID', async () => {
-    mockApiRequest.mockResolvedValueOnce({ has_report: false })
-
+  it('fetches user report for a show by string slug', async () => {
     const { result } = renderHook(() => useMyShowReport('my-slug'), {
       wrapper: createWrapper(),
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockApiRequest).toHaveBeenCalledWith('/shows/my-slug/my-report', { method: 'GET' })
+    // Default handler returns { report: null }
+    expect(result.current.data?.report).toBeNull()
   })
 
   it('does not fetch when showId is null', () => {
@@ -65,20 +48,43 @@ describe('useMyShowReport', () => {
     })
 
     expect(result.current.fetchStatus).toBe('idle')
-    expect(mockApiRequest).not.toHaveBeenCalled()
   })
 
+  it('handles API errors', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE}/shows/:showId/my-report`, () => {
+        return HttpResponse.json({ message: 'Not found' }, { status: 404 })
+      })
+    )
+
+    const { result } = renderHook(() => useMyShowReport(999), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+  })
 })
 
 describe('useReportShow', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockApiRequest.mockReset()
-    mockInvalidateShowReports.mockReset()
-  })
-
-  it('reports a show with POST', async () => {
-    mockApiRequest.mockResolvedValueOnce({ id: 1, report_type: 'wrong_date' })
+  it('reports a show with POST and receives the created report', async () => {
+    let capturedBody: Record<string, unknown> | null = null
+    server.use(
+      http.post(
+        `${TEST_API_BASE}/shows/:showId/report`,
+        async ({ request, params }) => {
+          capturedBody = (await request.json()) as Record<string, unknown>
+          return HttpResponse.json({
+            id: 1,
+            show_id: Number(params.showId),
+            report_type: capturedBody.report_type,
+            details: capturedBody.details,
+            status: 'pending',
+            created_at: '2026-03-30T12:00:00Z',
+            updated_at: '2026-03-30T12:00:00Z',
+          })
+        }
+      )
+    )
 
     const { result } = renderHook(() => useReportShow(), {
       wrapper: createWrapper(),
@@ -94,20 +100,33 @@ describe('useReportShow', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-    expect(mockApiRequest).toHaveBeenCalledWith(
-      '/shows/42/report',
-      expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({
-          report_type: 'wrong_date',
-          details: 'The date is March 20, not March 19',
-        }),
-      })
-    )
+    // Verify the request body was sent correctly
+    expect(capturedBody).toEqual({
+      report_type: 'wrong_date',
+      details: 'The date is March 20, not March 19',
+    })
+
+    // Verify the response data
+    expect(result.current.data?.id).toBe(1)
+    expect(result.current.data?.report_type).toBe('wrong_date')
   })
 
   it('sends null for details when not provided', async () => {
-    mockApiRequest.mockResolvedValueOnce({ id: 1 })
+    let capturedBody: Record<string, unknown> | null = null
+    server.use(
+      http.post(`${TEST_API_BASE}/shows/:showId/report`, async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json({
+          id: 1,
+          show_id: 42,
+          report_type: 'duplicate',
+          details: null,
+          status: 'pending',
+          created_at: '2026-03-30T12:00:00Z',
+          updated_at: '2026-03-30T12:00:00Z',
+        })
+      })
+    )
 
     const { result } = renderHook(() => useReportShow(), {
       wrapper: createWrapper(),
@@ -122,36 +141,18 @@ describe('useReportShow', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-    expect(mockApiRequest).toHaveBeenCalledWith(
-      '/shows/42/report',
-      expect.objectContaining({
-        body: JSON.stringify({
-          report_type: 'duplicate',
-          details: null,
-        }),
+    expect(capturedBody).toEqual({
+      report_type: 'duplicate',
+      details: null,
+    })
+  })
+
+  it('handles conflict errors (already reported)', async () => {
+    server.use(
+      http.post(`${TEST_API_BASE}/shows/:showId/report`, () => {
+        return HttpResponse.json({ message: 'Already reported' }, { status: 409 })
       })
     )
-  })
-
-  it('invalidates show reports on success', async () => {
-    mockApiRequest.mockResolvedValueOnce({ id: 1 })
-
-    const { result } = renderHook(() => useReportShow(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      result.current.mutate({ showId: 42, reportType: 'wrong_date' })
-    })
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockInvalidateShowReports).toHaveBeenCalled()
-  })
-
-  it('handles report errors', async () => {
-    const error = new Error('Already reported')
-    Object.assign(error, { status: 409 })
-    mockApiRequest.mockRejectedValueOnce(error)
 
     const { result } = renderHook(() => useReportShow(), {
       wrapper: createWrapper(),

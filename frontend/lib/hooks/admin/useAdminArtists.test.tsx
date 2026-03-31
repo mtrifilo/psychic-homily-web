@@ -1,11 +1,23 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient } from '@tanstack/react-query'
 import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@/test/utils'
+import { server } from '@/test/mocks/server'
 
-// Create mock for fetch
+// This test file mocks global.fetch directly (these hooks use raw fetch,
+// not apiRequest). We must close the MSW server for this file to prevent
+// MSW's fetch interceptor from interfering with the mock.
 const mockFetch = vi.fn()
-global.fetch = mockFetch
+let originalFetch: typeof globalThis.fetch
+beforeAll(() => {
+  server.close()
+  originalFetch = globalThis.fetch
+  globalThis.fetch = mockFetch
+})
+afterAll(() => {
+  globalThis.fetch = originalFetch
+  server.listen({ onUnhandledRequest: 'bypass' })
+})
 
 // Mock queryClient module
 vi.mock('../../queryClient', () => ({

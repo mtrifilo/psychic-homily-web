@@ -1,9 +1,19 @@
 import '@testing-library/jest-dom/vitest'
-import { afterEach, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
+import { server } from './mocks/server'
+
+// Start MSW server before all tests, reset handlers after each test,
+// and shut down the server when all tests complete.
+// 'bypass' lets unhandled requests pass through — only routes with
+// explicit handlers are intercepted, so existing vi.mock-based tests
+// continue to work unchanged.
+beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }))
+afterAll(() => server.close())
 
 // Cleanup after each test
 afterEach(() => {
+  server.resetHandlers()
   cleanup()
   vi.clearAllMocks()
 })
