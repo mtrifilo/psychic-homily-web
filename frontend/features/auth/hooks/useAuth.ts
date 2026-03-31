@@ -68,9 +68,11 @@ interface UserProfile {
   user?: {
     id: string
     email: string
+    username?: string
     name?: string
     first_name?: string
     last_name?: string
+    bio?: string
     is_admin?: boolean
     email_verified?: boolean
     user_tier?: string
@@ -273,6 +275,61 @@ export const useProfile = () => {
       }
 
       return failureCount < 2
+    },
+  })
+}
+
+// Update profile identity fields (username, name, bio)
+interface UpdateProfileInput {
+  username?: string
+  first_name?: string
+  last_name?: string
+  bio?: string
+}
+
+interface UpdateProfileResponse {
+  success: boolean
+  message: string
+  error_code?: AuthErrorCodeType
+  request_id?: string
+  user?: UserProfile['user']
+}
+
+export const useUpdateProfile = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (
+      input: UpdateProfileInput
+    ): Promise<UpdateProfileResponse> => {
+      authLogger.debug('Updating profile')
+
+      const response = await apiRequest<UpdateProfileResponse>(
+        API_ENDPOINTS.AUTH.PROFILE,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(input),
+          credentials: 'include',
+        }
+      )
+
+      if (!response.success) {
+        throw new AuthError(
+          response.message || 'Failed to update profile',
+          response.error_code || AuthErrorCode.UNKNOWN,
+          {
+            requestId: response.request_id,
+            status: 400,
+          }
+        )
+      }
+
+      return response
+    },
+    onSuccess: async () => {
+      authLogger.info('Profile updated successfully')
+      // Refetch profile to get updated user data
+      await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
     },
   })
 }
