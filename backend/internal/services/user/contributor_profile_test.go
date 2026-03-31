@@ -113,6 +113,22 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM user_profile_sections")
 	_, _ = sqlDB.Exec("DELETE FROM audit_logs")
 	_, _ = sqlDB.Exec("DELETE FROM pending_venue_edits")
+	_, _ = sqlDB.Exec("DELETE FROM pending_entity_edits")
+	_, _ = sqlDB.Exec("DELETE FROM tag_votes")
+	_, _ = sqlDB.Exec("DELETE FROM entity_tags")
+	_, _ = sqlDB.Exec("DELETE FROM tags")
+	_, _ = sqlDB.Exec("DELETE FROM artist_relationship_votes")
+	_, _ = sqlDB.Exec("DELETE FROM artist_relationships")
+	_, _ = sqlDB.Exec("DELETE FROM request_votes")
+	_, _ = sqlDB.Exec("DELETE FROM requests")
+	_, _ = sqlDB.Exec("DELETE FROM collection_subscribers")
+	_, _ = sqlDB.Exec("DELETE FROM collection_items")
+	_, _ = sqlDB.Exec("DELETE FROM collections")
+	_, _ = sqlDB.Exec("DELETE FROM user_bookmarks")
+	_, _ = sqlDB.Exec("DELETE FROM revisions")
+	_, _ = sqlDB.Exec("DELETE FROM entity_reports")
+	_, _ = sqlDB.Exec("DELETE FROM show_reports")
+	_, _ = sqlDB.Exec("DELETE FROM artist_reports")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
@@ -388,6 +404,333 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	suite.Equal(int64(1), stats.ShowsSubmitted)
 	suite.Equal(int64(0), stats.ReleasesCreated)
 	suite.Equal(int64(1), stats.TotalContributions)
+}
+
+// =============================================================================
+// Group 3b: GetContributionStats — Expanded Stat Types
+// =============================================================================
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_TagVotes() {
+	user := suite.createTestUser("tagvoter")
+
+	// Create a tag
+	tag := &models.Tag{Name: "punk", Slug: "punk", Category: "genre"}
+	suite.Require().NoError(suite.db.Create(tag).Error)
+
+	// Create an artist to tag-vote on
+	artist := &models.Artist{Name: "Bad Brains"}
+	suite.Require().NoError(suite.db.Create(artist).Error)
+
+	// Cast tag votes
+	suite.Require().NoError(suite.db.Create(&models.TagVote{
+		TagID: tag.ID, EntityType: "artist", EntityID: artist.ID, UserID: user.ID, Vote: 1,
+	}).Error)
+
+	stats, err := suite.profileService.GetContributionStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), stats.TagVotesCast)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_RelationshipVotes() {
+	user := suite.createTestUser("relvoter")
+
+	// Create two artists for relationship
+	artist1 := &models.Artist{Name: "Artist A"}
+	artist2 := &models.Artist{Name: "Artist B"}
+	suite.Require().NoError(suite.db.Create(artist1).Error)
+	suite.Require().NoError(suite.db.Create(artist2).Error)
+
+	source, target := models.CanonicalOrder(artist1.ID, artist2.ID)
+
+	// Create relationship
+	suite.Require().NoError(suite.db.Create(&models.ArtistRelationship{
+		SourceArtistID: source, TargetArtistID: target,
+		RelationshipType: models.RelationshipTypeSimilar,
+	}).Error)
+
+	// Cast vote
+	suite.Require().NoError(suite.db.Create(&models.ArtistRelationshipVote{
+		SourceArtistID: source, TargetArtistID: target,
+		RelationshipType: models.RelationshipTypeSimilar,
+		UserID: user.ID, Direction: 1,
+	}).Error)
+
+	stats, err := suite.profileService.GetContributionStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), stats.RelationshipVotesCast)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_RequestVotes() {
+	user := suite.createTestUser("reqvoter")
+	requester := suite.createTestUser("requester")
+
+	// Create a request
+	request := &models.Request{
+		Title: "Add new band", EntityType: "artist",
+		RequesterID: requester.ID, Status: models.RequestStatusPending,
+	}
+	suite.Require().NoError(suite.db.Create(request).Error)
+
+	// Cast votes
+	suite.Require().NoError(suite.db.Create(&models.RequestVote{
+		RequestID: request.ID, UserID: user.ID, Vote: 1,
+	}).Error)
+
+	stats, err := suite.profileService.GetContributionStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), stats.RequestVotesCast)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_CollectionItems() {
+	user := suite.createTestUser("collector")
+
+	// Create a collection
+	collection := &models.Collection{
+		Title: "My Favorites", Slug: fmt.Sprintf("my-favorites-%d", time.Now().UnixNano()),
+		CreatorID: user.ID,
+	}
+	suite.Require().NoError(suite.db.Create(collection).Error)
+
+	// Add items
+	suite.Require().NoError(suite.db.Create(&models.CollectionItem{
+		CollectionID: collection.ID, EntityType: "artist", EntityID: 1,
+		AddedByUserID: user.ID,
+	}).Error)
+	suite.Require().NoError(suite.db.Create(&models.CollectionItem{
+		CollectionID: collection.ID, EntityType: "release", EntityID: 2,
+		AddedByUserID: user.ID,
+	}).Error)
+
+	stats, err := suite.profileService.GetContributionStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), stats.CollectionItemsAdded)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_CollectionSubscriptions() {
+	user := suite.createTestUser("subscriber")
+	creator := suite.createTestUser("creator")
+
+	// Create collections
+	col1 := &models.Collection{
+		Title: "Coll 1", Slug: fmt.Sprintf("coll-1-%d", time.Now().UnixNano()),
+		CreatorID: creator.ID,
+	}
+	col2 := &models.Collection{
+		Title: "Coll 2", Slug: fmt.Sprintf("coll-2-%d", time.Now().UnixNano()),
+		CreatorID: creator.ID,
+	}
+	suite.Require().NoError(suite.db.Create(col1).Error)
+	suite.Require().NoError(suite.db.Create(col2).Error)
+
+	// Subscribe
+	suite.Require().NoError(suite.db.Create(&models.CollectionSubscriber{
+		CollectionID: col1.ID, UserID: user.ID,
+	}).Error)
+	suite.Require().NoError(suite.db.Create(&models.CollectionSubscriber{
+		CollectionID: col2.ID, UserID: user.ID,
+	}).Error)
+
+	stats, err := suite.profileService.GetContributionStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), stats.CollectionSubscriptions)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_ShowsAttended() {
+	user := suite.createTestUser("attendee")
+
+	// Mark shows as "going" via bookmarks
+	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
+		UserID: user.ID, EntityType: models.BookmarkEntityShow,
+		EntityID: 1, Action: models.BookmarkActionGoing,
+	}).Error)
+	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
+		UserID: user.ID, EntityType: models.BookmarkEntityShow,
+		EntityID: 2, Action: models.BookmarkActionGoing,
+	}).Error)
+	// "interested" should not count as attended
+	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
+		UserID: user.ID, EntityType: models.BookmarkEntityShow,
+		EntityID: 3, Action: models.BookmarkActionInterested,
+	}).Error)
+
+	stats, err := suite.profileService.GetContributionStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), stats.ShowsAttended)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_Revisions() {
+	user := suite.createTestUser("reviser")
+
+	fieldChanges := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
+	suite.Require().NoError(suite.db.Create(&models.Revision{
+		EntityType: "artist", EntityID: 1, UserID: user.ID,
+		FieldChanges: &fieldChanges,
+	}).Error)
+	suite.Require().NoError(suite.db.Create(&models.Revision{
+		EntityType: "venue", EntityID: 2, UserID: user.ID,
+		FieldChanges: &fieldChanges,
+	}).Error)
+
+	stats, err := suite.profileService.GetContributionStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), stats.RevisionsMade)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_PendingEdits() {
+	user := suite.createTestUser("pendinguser")
+
+	fieldChanges := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
+	suite.Require().NoError(suite.db.Create(&models.PendingEntityEdit{
+		EntityType: "artist", EntityID: 1, SubmittedBy: user.ID,
+		FieldChanges: &fieldChanges, Summary: "Fix name",
+		Status: models.PendingEditStatusPending,
+	}).Error)
+
+	stats, err := suite.profileService.GetContributionStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), stats.PendingEditsSubmitted)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_ApprovalRate() {
+	user := suite.createTestUser("approvaluser")
+
+	fieldChanges := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
+	// 3 approved, 1 rejected = 75% approval rate
+	for i := 0; i < 3; i++ {
+		suite.Require().NoError(suite.db.Create(&models.PendingEntityEdit{
+			EntityType: "artist", EntityID: uint(i + 1), SubmittedBy: user.ID,
+			FieldChanges: &fieldChanges, Summary: "Edit",
+			Status: models.PendingEditStatusApproved,
+		}).Error)
+	}
+	suite.Require().NoError(suite.db.Create(&models.PendingEntityEdit{
+		EntityType: "venue", EntityID: 1, SubmittedBy: user.ID,
+		FieldChanges: &fieldChanges, Summary: "Edit",
+		Status: models.PendingEditStatusRejected,
+	}).Error)
+	// Pending edits should not affect rate
+	suite.Require().NoError(suite.db.Create(&models.PendingEntityEdit{
+		EntityType: "venue", EntityID: 2, SubmittedBy: user.ID,
+		FieldChanges: &fieldChanges, Summary: "Edit",
+		Status: models.PendingEditStatusPending,
+	}).Error)
+
+	stats, err := suite.profileService.GetContributionStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(stats.ApprovalRate)
+	suite.InDelta(0.75, *stats.ApprovalRate, 0.001)
+	suite.Equal(int64(5), stats.PendingEditsSubmitted)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_ApprovalRate_NilWhenNone() {
+	user := suite.createTestUser("noapproval")
+
+	stats, err := suite.profileService.GetContributionStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Nil(stats.ApprovalRate, "ApprovalRate should be nil when no approved/rejected edits exist")
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_ReportsFiled() {
+	user := suite.createTestUser("reporter")
+
+	// Entity report
+	suite.Require().NoError(suite.db.Create(&models.EntityReport{
+		EntityType: "artist", EntityID: 1, ReportedBy: user.ID,
+		ReportType: "inaccurate", Status: models.EntityReportStatusPending,
+	}).Error)
+
+	// Show report
+	show := suite.createShow(user.ID, "Test Show")
+	suite.Require().NoError(suite.db.Create(&models.ShowReport{
+		ShowID: show.ID, ReportedBy: user.ID,
+		ReportType: models.ShowReportTypeCancelled, Status: models.ShowReportStatusPending,
+	}).Error)
+
+	stats, err := suite.profileService.GetContributionStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), stats.ReportsFiled)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_ReportsResolved() {
+	user := suite.createTestUser("resolver")
+	reporter := suite.createTestUser("filereporter")
+
+	// Resolved entity report
+	now := time.Now()
+	suite.Require().NoError(suite.db.Create(&models.EntityReport{
+		EntityType: "venue", EntityID: 1, ReportedBy: reporter.ID,
+		ReportType: "inaccurate", Status: models.EntityReportStatusResolved,
+		ReviewedBy: &user.ID, ReviewedAt: &now,
+	}).Error)
+
+	// Dismissed show report
+	show := suite.createShow(reporter.ID, "Reported Show")
+	suite.Require().NoError(suite.db.Create(&models.ShowReport{
+		ShowID: show.ID, ReportedBy: reporter.ID,
+		ReportType: models.ShowReportTypeInaccurate, Status: models.ShowReportStatusDismissed,
+		ReviewedBy: &user.ID, ReviewedAt: &now,
+	}).Error)
+
+	stats, err := suite.profileService.GetContributionStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), stats.ReportsResolved)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_FollowingCount() {
+	user := suite.createTestUser("follower")
+
+	// Follow some entities
+	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
+		UserID: user.ID, EntityType: models.BookmarkEntityArtist,
+		EntityID: 1, Action: models.BookmarkActionFollow,
+	}).Error)
+	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
+		UserID: user.ID, EntityType: models.BookmarkEntityVenue,
+		EntityID: 1, Action: models.BookmarkActionFollow,
+	}).Error)
+	// "save" action should not count
+	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
+		UserID: user.ID, EntityType: models.BookmarkEntityShow,
+		EntityID: 1, Action: models.BookmarkActionSave,
+	}).Error)
+
+	stats, err := suite.profileService.GetContributionStats(user.ID)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), stats.FollowingCount)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_TotalIncludesNewStats() {
+	user := suite.createTestUser("totaluser")
+
+	// Create a show (1 contribution)
+	suite.createShow(user.ID, "My Show")
+
+	// Create a revision (1 contribution)
+	fieldChanges := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
+	suite.Require().NoError(suite.db.Create(&models.Revision{
+		EntityType: "artist", EntityID: 1, UserID: user.ID,
+		FieldChanges: &fieldChanges,
+	}).Error)
+
+	// Create a tag vote (1 contribution)
+	tag := &models.Tag{Name: "rock", Slug: fmt.Sprintf("rock-%d", time.Now().UnixNano()), Category: "genre"}
+	suite.Require().NoError(suite.db.Create(tag).Error)
+	artist := &models.Artist{Name: "Test Artist"}
+	suite.Require().NoError(suite.db.Create(artist).Error)
+	suite.Require().NoError(suite.db.Create(&models.TagVote{
+		TagID: tag.ID, EntityType: "artist", EntityID: artist.ID, UserID: user.ID, Vote: 1,
+	}).Error)
+
+	// Create a report (1 contribution)
+	suite.Require().NoError(suite.db.Create(&models.EntityReport{
+		EntityType: "artist", EntityID: 1, ReportedBy: user.ID,
+		ReportType: "inaccurate", Status: models.EntityReportStatusPending,
+	}).Error)
+
+	stats, err := suite.profileService.GetContributionStats(user.ID)
+	suite.Require().NoError(err)
+	// 1 show + 1 revision + 1 tag vote + 1 report = 4
+	suite.Equal(int64(4), stats.TotalContributions)
 }
 
 // =============================================================================
