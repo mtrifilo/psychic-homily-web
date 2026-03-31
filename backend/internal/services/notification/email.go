@@ -556,3 +556,129 @@ func (s *EmailService) SendTierDemotionWarningEmail(toEmail, username, currentTi
 
 	return nil
 }
+
+// SendEditApprovedEmail sends a notification when a user's pending edit is approved.
+func (s *EmailService) SendEditApprovedEmail(toEmail, username, entityType, entityName, entityURL string) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service is not configured")
+	}
+
+	greeting := "there"
+	if username != "" {
+		greeting = username
+	}
+
+	// Capitalize first letter for CTA button text (e.g. "artist" -> "Artist")
+	entityTypeTitle := strings.ToUpper(entityType[:1]) + entityType[1:]
+
+	html := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
+    </div>
+
+    <div style="background: #f0fdf4; border-radius: 8px; padding: 30px; margin-bottom: 20px; border: 1px solid #bbf7d0;">
+        <h2 style="margin-top: 0; color: #166534;">Your edit was approved!</h2>
+        <p>Hi %s,</p>
+        <p>Your edit to the %s <strong>%s</strong> has been reviewed and approved. Your changes are now live!</p>
+        <p style="text-align: center; margin: 30px 0;">
+            <a href="%s" style="display: inline-block; background: #16a34a; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600;">View %s</a>
+        </p>
+        <p style="font-size: 14px; color: #444;">Thank you for improving the Psychic Homily database. Every contribution helps the community discover great music.</p>
+    </div>
+
+    <div style="text-align: center; font-size: 12px; color: #999;">
+        <p>Keep contributing to build your reputation and unlock new permissions.</p>
+    </div>
+</body>
+</html>
+`, greeting, entityType, entityName, entityURL, entityTypeTitle)
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: fmt.Sprintf("Your edit to %s was approved!", entityName),
+		Html:    html,
+	}
+
+	_, err := s.client.Emails.Send(params)
+	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "email")
+			scope.SetTag("email_type", "edit_approved")
+			sentry.CaptureException(err)
+		})
+		return fmt.Errorf("failed to send edit approved email: %w", err)
+	}
+
+	return nil
+}
+
+// SendEditRejectedEmail sends a notification when a user's pending edit is rejected.
+func (s *EmailService) SendEditRejectedEmail(toEmail, username, entityType, entityName, rejectionReason string) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service is not configured")
+	}
+
+	greeting := "there"
+	if username != "" {
+		greeting = username
+	}
+
+	html := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
+    </div>
+
+    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px; border: 1px solid #e5e7eb;">
+        <h2 style="margin-top: 0; color: #1a1a1a;">Update on your edit to %s</h2>
+        <p>Hi %s,</p>
+        <p>Your edit to the %s <strong>%s</strong> was not accepted this time.</p>
+        <p style="background: #fef3c7; border-radius: 6px; padding: 12px 16px; color: #92400e;"><strong>Reason:</strong> %s</p>
+        <h3 style="color: #1a1a1a; margin-bottom: 8px;">Tips for future edits:</h3>
+        <ul style="padding-left: 20px; color: #444;">
+            <li style="margin-bottom: 4px;">Double-check facts against official sources (venue websites, artist pages)</li>
+            <li style="margin-bottom: 4px;">Include a clear summary explaining why you are making the change</li>
+            <li style="margin-bottom: 4px;">Ensure spelling and formatting are accurate</li>
+        </ul>
+    </div>
+
+    <div style="text-align: center; font-size: 12px; color: #999;">
+        <p>Don't be discouraged — your contributions are valued. Feel free to submit a revised edit.</p>
+    </div>
+</body>
+</html>
+`, entityName, greeting, entityType, entityName, rejectionReason)
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: fmt.Sprintf("Update on your edit to %s", entityName),
+		Html:    html,
+	}
+
+	_, err := s.client.Emails.Send(params)
+	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "email")
+			scope.SetTag("email_type", "edit_rejected")
+			sentry.CaptureException(err)
+		})
+		return fmt.Errorf("failed to send edit rejected email: %w", err)
+	}
+
+	return nil
+}

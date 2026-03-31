@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"gorm.io/gorm"
@@ -16,14 +17,21 @@ import (
 type PendingEditService struct {
 	db              *gorm.DB
 	revisionService contracts.RevisionServiceInterface
+	emailService    contracts.EmailServiceInterface
+	frontendURL     string
 }
 
 // NewPendingEditService creates a new PendingEditService.
-func NewPendingEditService(database *gorm.DB, revisionService contracts.RevisionServiceInterface) *PendingEditService {
+func NewPendingEditService(database *gorm.DB, revisionService contracts.RevisionServiceInterface, emailService contracts.EmailServiceInterface, frontendURL string) *PendingEditService {
 	if database == nil {
 		database = db.GetDB()
 	}
-	return &PendingEditService{db: database, revisionService: revisionService}
+	return &PendingEditService{
+		db:              database,
+		revisionService: revisionService,
+		emailService:    emailService,
+		frontendURL:     frontendURL,
+	}
 }
 
 // CreatePendingEdit submits a new pending edit for an entity.
@@ -253,6 +261,9 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 		_ = s.revisionService.RecordRevision(edit.EntityType, edit.EntityID, edit.SubmittedBy, changes, edit.Summary)
 	}
 
+	// Send approval notification email (fire-and-forget)
+	s.sendApprovalEmail(&edit)
+
 	return s.GetPendingEdit(editID)
 }
 
@@ -288,6 +299,9 @@ func (s *PendingEditService) RejectPendingEdit(editID uint, reviewerID uint, rea
 	}).Error; err != nil {
 		return nil, fmt.Errorf("failed to reject pending edit: %w", err)
 	}
+
+	// Send rejection notification email (fire-and-forget)
+	s.sendRejectionEmail(&edit, reason)
 
 	return s.GetPendingEdit(editID)
 }
@@ -379,4 +393,98 @@ func displayName(u *models.User) string {
 		return *u.Email
 	}
 	return ""
+}
+
+// sendApprovalEmail looks up the submitter and entity, then sends an approval notification.
+// Fire-and-forget: errors are logged but never fail the parent operation.
+func (s *PendingEditService) sendApprovalEmail(edit *models.PendingEntityEdit) {
+	if s.emailService == nil || !s.emailService.IsConfigured() {
+		return
+	}
+
+	// Look up submitter
+	var user models.User
+	if err := s.db.First(&user, edit.SubmittedBy).Error; err != nil {
+		log.Printf("sendApprovalEmail: failed to look up submitter %d: %v", edit.SubmittedBy, err)
+		return
+	}
+	if user.Email == nil || *user.Email == "" {
+		return
+	}
+
+	entityName, entityURL := s.resolveEntityInfo(edit.EntityType, edit.EntityID)
+	username := displayName(&user)
+
+	if err := s.emailService.SendEditApprovedEmail(*user.Email, username, edit.EntityType, entityName, entityURL); err != nil {
+		log.Printf("sendApprovalEmail: failed to send email to %s: %v", *user.Email, err)
+	}
+}
+
+// sendRejectionEmail looks up the submitter and entity, then sends a rejection notification.
+// Fire-and-forget: errors are logged but never fail the parent operation.
+func (s *PendingEditService) sendRejectionEmail(edit *models.PendingEntityEdit, reason string) {
+	if s.emailService == nil || !s.emailService.IsConfigured() {
+		return
+	}
+
+	// Look up submitter
+	var user models.User
+	if err := s.db.First(&user, edit.SubmittedBy).Error; err != nil {
+		log.Printf("sendRejectionEmail: failed to look up submitter %d: %v", edit.SubmittedBy, err)
+		return
+	}
+	if user.Email == nil || *user.Email == "" {
+		return
+	}
+
+	entityName, _ := s.resolveEntityInfo(edit.EntityType, edit.EntityID)
+	username := displayName(&user)
+
+	if err := s.emailService.SendEditRejectedEmail(*user.Email, username, edit.EntityType, entityName, reason); err != nil {
+		log.Printf("sendRejectionEmail: failed to send email to %s: %v", *user.Email, err)
+	}
+}
+
+// resolveEntityInfo looks up an entity's name and builds its frontend URL.
+func (s *PendingEditService) resolveEntityInfo(entityType string, entityID uint) (name string, url string) {
+	name = fmt.Sprintf("%s #%d", entityType, entityID)
+	url = s.frontendURL
+
+	switch entityType {
+	case "artist":
+		var artist struct {
+			Name string
+			Slug *string
+		}
+		if err := s.db.Table("artists").Select("name, slug").Where("id = ?", entityID).Scan(&artist).Error; err == nil {
+			name = artist.Name
+			if artist.Slug != nil && *artist.Slug != "" {
+				url = fmt.Sprintf("%s/artists/%s", s.frontendURL, *artist.Slug)
+			}
+		}
+	case "venue":
+		var venue struct {
+			Name string
+			Slug *string
+		}
+		if err := s.db.Table("venues").Select("name, slug").Where("id = ?", entityID).Scan(&venue).Error; err == nil {
+			name = venue.Name
+			if venue.Slug != nil && *venue.Slug != "" {
+				url = fmt.Sprintf("%s/venues/%s", s.frontendURL, *venue.Slug)
+			}
+		}
+	case "festival":
+		var festival struct {
+			Name string
+			Slug string
+		}
+		if err := s.db.Table("festivals").Select("name, slug").Where("id = ?", entityID).Scan(&festival).Error; err == nil {
+			name = festival.Name
+			if festival.Slug != "" {
+				url = fmt.Sprintf("%s/festivals/%s", s.frontendURL, festival.Slug)
+			}
+		}
+	}
+
+	return name, url
 }

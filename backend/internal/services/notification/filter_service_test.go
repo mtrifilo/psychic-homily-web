@@ -769,3 +769,5 @@ func (m *mockEmailService) SendTierDemotionEmail(_, _, _, _, _ string) error { r
 func (m *mockEmailService) SendTierDemotionWarningEmail(_, _, _ string, _, _ float64) error {
 	return nil
 }
+func (m *mockEmailService) SendEditApprovedEmail(_, _, _, _, _ string) error { return nil }
+func (m *mockEmailService) SendEditRejectedEmail(_, _, _, _, _ string) error { return nil }

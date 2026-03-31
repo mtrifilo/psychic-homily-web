@@ -72,6 +72,9 @@ func (m *mockEmailService) SendTierDemotionWarningEmail(toEmail, username, curre
 	return m.demotionWarningError
 }
 
+func (m *mockEmailService) SendEditApprovedEmail(_, _, _, _, _ string) error { return nil }
+func (m *mockEmailService) SendEditRejectedEmail(_, _, _, _, _ string) error { return nil }
+
 // =============================================================================
 // INTEGRATION TESTS — EMAIL NOTIFICATIONS
 // =============================================================================

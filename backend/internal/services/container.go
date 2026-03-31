@@ -132,7 +132,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		APIToken:           adminsvc.NewAPITokenService(database),
 		DataQuality:        adminsvc.NewDataQualityService(database),
 		Revision:           revisionSvc,
-		PendingEdit:        adminsvc.NewPendingEditService(database, revisionSvc),
+		PendingEdit:        adminsvc.NewPendingEditService(database, revisionSvc, email, cfg.Email.FrontendURL),
 		Charts:             catalog.NewChartsService(database),
 		Artist:             artist,
 		ContributorProfile: usersvc.NewContributorProfileService(database),
