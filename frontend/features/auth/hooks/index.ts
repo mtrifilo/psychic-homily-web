@@ -47,6 +47,7 @@ export {
   usePublicProfile,
   usePublicContributions,
   useActivityHeatmap,
+  usePercentileRankings,
   useOwnContributorProfile,
   useOwnContributions,
   useOwnSections,

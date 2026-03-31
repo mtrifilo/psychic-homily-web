@@ -1492,3 +1492,315 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 	_, err = time.Parse("2006-01-02", resp.Days[0].Date)
 	suite.NoError(err, "Date should be in YYYY-MM-DD format")
 }
+
+// =============================================================================
+// Group: Percentile Rankings
+// =============================================================================
+
+// createManyUsers creates n users with sequential usernames.
+func (suite *ContributorProfileServiceIntegrationTestSuite) createManyUsers(prefix string, n int) []*models.User {
+	users := make([]*models.User, n)
+	for i := 0; i < n; i++ {
+		users[i] = suite.createTestUser(fmt.Sprintf("%s%d", prefix, i))
+	}
+	return users
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankings_NilDB() {
+	svc := &ContributorProfileService{db: nil}
+	result, err := svc.GetPercentileRankings(1)
+	suite.Error(err)
+	suite.Contains(err.Error(), "database not initialized")
+	suite.Nil(result)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankings_TooFewUsers() {
+	// Only 3 users — should return nil
+	for i := 0; i < 3; i++ {
+		suite.createTestUser(fmt.Sprintf("fewuser%d", i))
+	}
+
+	result, err := suite.profileService.GetPercentileRankings(1)
+	suite.NoError(err)
+	suite.Nil(result, "Should return nil when fewer than 10 active users")
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankings_NoContributions() {
+	users := suite.createManyUsers("nocontrib", 10)
+
+	result, err := suite.profileService.GetPercentileRankings(users[0].ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+
+	// With no contributions, user should be at 0th percentile for all dimensions
+	for _, r := range result.Rankings {
+		suite.Equal(int64(0), r.Value, "Dimension %s should have 0 value", r.Dimension)
+		suite.Equal(0, r.Percentile, "Dimension %s should have 0 percentile", r.Dimension)
+	}
+	suite.Equal(0, result.OverallScore)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankings_WithShowContributions() {
+	users := suite.createManyUsers("showperc", 10)
+
+	// Give the first user 5 shows, second user 2 shows, rest 0
+	for i := 0; i < 5; i++ {
+		suite.createShow(users[0].ID, fmt.Sprintf("Show %d", i))
+	}
+	for i := 0; i < 2; i++ {
+		suite.createShow(users[1].ID, fmt.Sprintf("Other Show %d", i))
+	}
+
+	result, err := suite.profileService.GetPercentileRankings(users[0].ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+
+	// Find shows_submitted dimension
+	var showsRanking *contracts.PercentileRanking
+	for i := range result.Rankings {
+		if result.Rankings[i].Dimension == "shows_submitted" {
+			showsRanking = &result.Rankings[i]
+			break
+		}
+	}
+	suite.Require().NotNil(showsRanking, "Should have shows_submitted dimension")
+	suite.Equal(int64(5), showsRanking.Value)
+	// User 0 has 5 shows; 9 users have less (8 with 0, 1 with 2) → 9/10 = 90%
+	suite.Equal(90, showsRanking.Percentile)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankings_MultipleUsers_RelativeRanking() {
+	users := suite.createManyUsers("relrank", 10)
+
+	// User 0: 3 shows, user 1: 1 show, users 2-9: 0 shows
+	for i := 0; i < 3; i++ {
+		suite.createShow(users[0].ID, fmt.Sprintf("Show %d", i))
+	}
+	suite.createShow(users[1].ID, "Single Show")
+
+	// Check user 0 (highest)
+	result0, err := suite.profileService.GetPercentileRankings(users[0].ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result0)
+
+	// Check user 1 (middle)
+	result1, err := suite.profileService.GetPercentileRankings(users[1].ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result1)
+
+	// Check user 2 (no contributions)
+	result2, err := suite.profileService.GetPercentileRankings(users[2].ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result2)
+
+	var p0, p1, p2 int
+	for _, r := range result0.Rankings {
+		if r.Dimension == "shows_submitted" {
+			p0 = r.Percentile
+		}
+	}
+	for _, r := range result1.Rankings {
+		if r.Dimension == "shows_submitted" {
+			p1 = r.Percentile
+		}
+	}
+	for _, r := range result2.Rankings {
+		if r.Dimension == "shows_submitted" {
+			p2 = r.Percentile
+		}
+	}
+
+	// User 0 > user 1 > user 2
+	suite.Greater(p0, p1, "User with 3 shows should rank higher than user with 1")
+	suite.Greater(p1, p2, "User with 1 show should rank higher than user with 0")
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankings_VenuesDimension() {
+	users := suite.createManyUsers("venueperc", 10)
+
+	suite.createVenue(users[0].ID, "Venue A")
+	suite.createVenue(users[0].ID, "Venue B")
+	suite.createVenue(users[0].ID, "Venue C")
+
+	result, err := suite.profileService.GetPercentileRankings(users[0].ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+
+	var venuesRanking *contracts.PercentileRanking
+	for i := range result.Rankings {
+		if result.Rankings[i].Dimension == "venues_submitted" {
+			venuesRanking = &result.Rankings[i]
+			break
+		}
+	}
+	suite.Require().NotNil(venuesRanking)
+	suite.Equal(int64(3), venuesRanking.Value)
+	// 9 users with less → 9/10 = 90%
+	suite.Equal(90, venuesRanking.Percentile)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankings_TagsDimension() {
+	users := suite.createManyUsers("tagperc", 10)
+
+	// Create a tag
+	tag := &models.Tag{
+		Name:     "indie-rock",
+		Slug:     "indie-rock",
+		Category: models.TagCategoryGenre,
+	}
+	suite.Require().NoError(suite.db.Create(tag).Error)
+
+	// Create an artist to tag
+	artist := &models.Artist{Name: "Test Band"}
+	suite.Require().NoError(suite.db.Create(artist).Error)
+
+	// Apply tags by user 0
+	for i := 0; i < 3; i++ {
+		et := &models.EntityTag{
+			TagID:         tag.ID,
+			EntityType:    "artist",
+			EntityID:      artist.ID + uint(i), // different entity IDs to avoid unique constraint
+			AddedByUserID: users[0].ID,
+		}
+		suite.Require().NoError(suite.db.Create(et).Error)
+	}
+
+	result, err := suite.profileService.GetPercentileRankings(users[0].ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+
+	var tagsRanking *contracts.PercentileRanking
+	for i := range result.Rankings {
+		if result.Rankings[i].Dimension == "tags_applied" {
+			tagsRanking = &result.Rankings[i]
+			break
+		}
+	}
+	suite.Require().NotNil(tagsRanking)
+	suite.Equal(int64(3), tagsRanking.Value)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankings_EditsDimension() {
+	users := suite.createManyUsers("editperc", 10)
+
+	// Create a revision for user 0
+	rev := &models.Revision{
+		EntityType:   "artist",
+		EntityID:     1,
+		UserID:       users[0].ID,
+		FieldChanges: nil,
+	}
+	// field_changes must be non-nil JSONB
+	emptyChanges := json.RawMessage(`[]`)
+	rev.FieldChanges = &emptyChanges
+	suite.Require().NoError(suite.db.Create(rev).Error)
+
+	// Create an approved pending edit for user 0
+	changes := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
+	pe := &models.PendingEntityEdit{
+		EntityType:   "artist",
+		EntityID:     1,
+		SubmittedBy:  users[0].ID,
+		FieldChanges: &changes,
+		Summary:      "Test edit",
+		Status:       models.PendingEditStatusApproved,
+	}
+	suite.Require().NoError(suite.db.Create(pe).Error)
+
+	result, err := suite.profileService.GetPercentileRankings(users[0].ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+
+	var editsRanking *contracts.PercentileRanking
+	for i := range result.Rankings {
+		if result.Rankings[i].Dimension == "edits_approved" {
+			editsRanking = &result.Rankings[i]
+			break
+		}
+	}
+	suite.Require().NotNil(editsRanking)
+	suite.Equal(int64(2), editsRanking.Value, "Should count 1 revision + 1 approved edit")
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankings_RequestsFulfilledDimension() {
+	users := suite.createManyUsers("reqperc", 10)
+
+	// Create a fulfilled request by user 0
+	req := &models.Request{
+		Title:       "Find artist info",
+		EntityType:  "artist",
+		RequesterID: users[1].ID,
+		FulfillerID: &users[0].ID,
+		Status:      models.RequestStatusFulfilled,
+	}
+	suite.Require().NoError(suite.db.Create(req).Error)
+
+	result, err := suite.profileService.GetPercentileRankings(users[0].ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+
+	var reqRanking *contracts.PercentileRanking
+	for i := range result.Rankings {
+		if result.Rankings[i].Dimension == "requests_fulfilled" {
+			reqRanking = &result.Rankings[i]
+			break
+		}
+	}
+	suite.Require().NotNil(reqRanking)
+	suite.Equal(int64(1), reqRanking.Value)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankings_WeightedOverallScore() {
+	users := suite.createManyUsers("overall", 10)
+
+	// Give user 0 shows (weight 25) and venues (weight 15)
+	for i := 0; i < 5; i++ {
+		suite.createShow(users[0].ID, fmt.Sprintf("Show %d", i))
+	}
+	suite.createVenue(users[0].ID, "Venue 1")
+	suite.createVenue(users[0].ID, "Venue 2")
+
+	result, err := suite.profileService.GetPercentileRankings(users[0].ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+
+	// Shows: 90th percentile (weight 25), Venues: 90th (weight 15), others: 0 (weight 10+25+10=45)
+	// Expected: (90*25 + 90*15 + 0*10 + 0*25 + 0*10) / (25+15+10+25+10) = 3600 / 85 = 42
+	suite.Equal(42, result.OverallScore)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankings_AllDimensionsPresent() {
+	users := suite.createManyUsers("alldims", 10)
+
+	result, err := suite.profileService.GetPercentileRankings(users[0].ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result)
+
+	suite.Require().Len(result.Rankings, 5, "Should have 5 ranking dimensions")
+
+	expectedDimensions := map[string]bool{
+		"shows_submitted":    false,
+		"venues_submitted":   false,
+		"tags_applied":       false,
+		"edits_approved":     false,
+		"requests_fulfilled": false,
+	}
+	for _, r := range result.Rankings {
+		_, exists := expectedDimensions[r.Dimension]
+		suite.True(exists, "Unexpected dimension: %s", r.Dimension)
+		expectedDimensions[r.Dimension] = true
+		suite.NotEmpty(r.Label, "Dimension %s should have a label", r.Dimension)
+	}
+	for dim, found := range expectedDimensions {
+		suite.True(found, "Missing dimension: %s", dim)
+	}
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankings_ExactlyTenUsers() {
+	// Exactly 10 users should work (threshold is < 10 returns nil)
+	suite.createManyUsers("exact", 10)
+
+	result, err := suite.profileService.GetPercentileRankings(1) // any valid user
+	suite.Require().NoError(err)
+	suite.Require().NotNil(result, "Exactly 10 users should be enough for rankings")
+}

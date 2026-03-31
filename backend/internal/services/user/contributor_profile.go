@@ -681,6 +681,165 @@ func buildSectionResponse(section *models.UserProfileSection) *contracts.Profile
 }
 
 // =============================================================================
+// Percentile Rankings
+// =============================================================================
+
+// percentileDimension describes a single contribution dimension for ranking.
+type percentileDimension struct {
+	key    string // e.g. "shows_submitted"
+	label  string // human-readable label
+	weight int    // weight for overall score
+}
+
+var percentileDimensions = []percentileDimension{
+	{key: "shows_submitted", label: "Shows Submitted", weight: 25},
+	{key: "venues_submitted", label: "Venues Submitted", weight: 15},
+	{key: "tags_applied", label: "Tags Applied", weight: 10},
+	{key: "edits_approved", label: "Edits Approved", weight: 25},
+	{key: "requests_fulfilled", label: "Requests Fulfilled", weight: 10},
+}
+
+// GetPercentileRankings computes percentile rankings for a user across 5 contribution dimensions.
+// Returns nil if fewer than 10 active users exist (rankings not meaningful).
+func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contracts.PercentileRankings, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Check total active users
+	var totalUsers int64
+	if err := s.db.Model(&models.User{}).Where("is_active = ?", true).Count(&totalUsers).Error; err != nil {
+		return nil, fmt.Errorf("failed to count active users: %w", err)
+	}
+	if totalUsers < 10 {
+		return nil, nil
+	}
+
+	// Get user's counts for each dimension
+	userCounts := make(map[string]int64)
+
+	// shows_submitted
+	var showCount int64
+	s.db.Model(&models.Show{}).Where("submitted_by = ?", userID).Count(&showCount)
+	userCounts["shows_submitted"] = showCount
+
+	// venues_submitted
+	var venueCount int64
+	s.db.Model(&models.Venue{}).Where("submitted_by = ?", userID).Count(&venueCount)
+	userCounts["venues_submitted"] = venueCount
+
+	// tags_applied
+	var tagCount int64
+	s.db.Model(&models.EntityTag{}).Where("added_by_user_id = ?", userID).Count(&tagCount)
+	userCounts["tags_applied"] = tagCount
+
+	// edits_approved: pending_entity_edits approved + revisions
+	var pendingEditsApproved int64
+	s.db.Model(&models.PendingEntityEdit{}).
+		Where("submitted_by = ? AND status = ?", userID, models.PendingEditStatusApproved).
+		Count(&pendingEditsApproved)
+	var revisionCount int64
+	s.db.Model(&models.Revision{}).Where("user_id = ?", userID).Count(&revisionCount)
+	userCounts["edits_approved"] = pendingEditsApproved + revisionCount
+
+	// requests_fulfilled
+	var requestsFulfilledCount int64
+	s.db.Model(&models.Request{}).Where("fulfiller_id = ?", userID).Count(&requestsFulfilledCount)
+	userCounts["requests_fulfilled"] = requestsFulfilledCount
+
+	// For each dimension, compute the percentile.
+	// Use subquery pattern: count users whose contribution count for this dimension
+	// is strictly less than the target user's count. Users with 0 contributions are
+	// included via LEFT JOIN + COALESCE in a wrapping subquery.
+	rankings := make([]contracts.PercentileRanking, 0, len(percentileDimensions))
+	weightedSum := 0
+	totalWeight := 0
+
+	for _, dim := range percentileDimensions {
+		userVal := userCounts[dim.key]
+		var usersWithLess int64
+
+		switch dim.key {
+		case "shows_submitted":
+			s.db.Raw(`
+				SELECT COUNT(*) FROM (
+					SELECT u.id, COUNT(s.id) AS cnt
+					FROM users u
+					LEFT JOIN shows s ON s.submitted_by = u.id
+					WHERE u.is_active = true
+					GROUP BY u.id
+				) sub WHERE sub.cnt < ?
+			`, userVal).Scan(&usersWithLess)
+		case "venues_submitted":
+			s.db.Raw(`
+				SELECT COUNT(*) FROM (
+					SELECT u.id, COUNT(v.id) AS cnt
+					FROM users u
+					LEFT JOIN venues v ON v.submitted_by = u.id
+					WHERE u.is_active = true
+					GROUP BY u.id
+				) sub WHERE sub.cnt < ?
+			`, userVal).Scan(&usersWithLess)
+		case "tags_applied":
+			s.db.Raw(`
+				SELECT COUNT(*) FROM (
+					SELECT u.id, COUNT(et.id) AS cnt
+					FROM users u
+					LEFT JOIN entity_tags et ON et.added_by_user_id = u.id
+					WHERE u.is_active = true
+					GROUP BY u.id
+				) sub WHERE sub.cnt < ?
+			`, userVal).Scan(&usersWithLess)
+		case "edits_approved":
+			s.db.Raw(`
+				SELECT COUNT(*) FROM (
+					SELECT u.id,
+						COALESCE((SELECT COUNT(*) FROM pending_entity_edits pe WHERE pe.submitted_by = u.id AND pe.status = 'approved'), 0) +
+						COALESCE((SELECT COUNT(*) FROM revisions r WHERE r.user_id = u.id), 0) AS cnt
+					FROM users u
+					WHERE u.is_active = true
+				) sub WHERE sub.cnt < ?
+			`, userVal).Scan(&usersWithLess)
+		case "requests_fulfilled":
+			s.db.Raw(`
+				SELECT COUNT(*) FROM (
+					SELECT u.id, COUNT(req.id) AS cnt
+					FROM users u
+					LEFT JOIN requests req ON req.fulfiller_id = u.id
+					WHERE u.is_active = true
+					GROUP BY u.id
+				) sub WHERE sub.cnt < ?
+			`, userVal).Scan(&usersWithLess)
+		}
+
+		percentile := int(float64(usersWithLess) / float64(totalUsers) * 100)
+		if percentile > 100 {
+			percentile = 100
+		}
+
+		rankings = append(rankings, contracts.PercentileRanking{
+			Dimension:  dim.key,
+			Label:      dim.label,
+			Percentile: percentile,
+			Value:      userVal,
+		})
+
+		weightedSum += percentile * dim.weight
+		totalWeight += dim.weight
+	}
+
+	overallScore := 0
+	if totalWeight > 0 {
+		overallScore = weightedSum / totalWeight
+	}
+
+	return &contracts.PercentileRankings{
+		Rankings:     rankings,
+		OverallScore: overallScore,
+	}, nil
+}
+
+// =============================================================================
 // Entity Name Enrichment
 // =============================================================================
 
