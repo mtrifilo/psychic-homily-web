@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -1240,6 +1241,131 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueGenreProfile_Insuffic
 	genres, err := suite.venueService.GetVenueGenreProfile(venue.ID)
 	suite.Require().NoError(err)
 	suite.Empty(genres) // Below 10-show threshold
+}
+
+// =============================================================================
+// Group 15: Pagination Boundary Conditions
+// =============================================================================
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_ZeroLimitZeroOffset() {
+	suite.createTestVenue("ZeroLimit Venue", "Phoenix", "AZ", true)
+	resp, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 0, 0)
+	suite.Require().NoError(err)
+	suite.GreaterOrEqual(total, int64(1), "total should reflect venue count")
+	suite.Empty(resp, "limit=0 should return no results")
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_LargeLimit() {
+	suite.createTestVenue("LargeLimit Venue", "Phoenix", "AZ", true)
+	resp, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 1000, 0)
+	suite.Require().NoError(err)
+	suite.GreaterOrEqual(total, int64(1))
+	suite.NotEmpty(resp, "should return all venues with a large limit")
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_OffsetBeyondResults() {
+	suite.createTestVenue("OffBeyond Venue", "Phoenix", "AZ", true)
+	resp, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 10000)
+	suite.Require().NoError(err)
+	suite.GreaterOrEqual(total, int64(1), "total should still reflect venue count")
+	suite.Empty(resp, "offset beyond results should return empty slice")
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_EmptyResultSet() {
+	resp, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), total)
+	suite.Empty(resp)
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_LimitOne() {
+	suite.createTestVenue("L1 Venue A", "Phoenix", "AZ", true)
+	suite.createTestVenue("L1 Venue B", "Phoenix", "AZ", true)
+	suite.createTestVenue("L1 Venue C", "Phoenix", "AZ", true)
+	resp, total, err := suite.venueService.GetVenuesWithShowCounts(contracts.VenueListFilters{}, 1, 0)
+	suite.Require().NoError(err)
+	suite.GreaterOrEqual(total, int64(3))
+	suite.Len(resp, 1, "limit=1 should return exactly 1 result")
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_LimitZero() {
+	venue := suite.createTestVenue("ZeroLimit ShowVenue", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	futureShow := &models.Show{Title: "ZL Future Show", EventDate: time.Now().UTC().AddDate(0, 0, 7), City: stringPtr("Phoenix"), State: stringPtr("AZ"), Status: models.ShowStatusApproved, SubmittedBy: &user.ID}
+	suite.db.Create(futureShow)
+	suite.db.Create(&models.ShowVenue{ShowID: futureShow.ID, VenueID: venue.ID})
+	shows, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 0, "upcoming")
+	suite.Require().NoError(err)
+	suite.GreaterOrEqual(total, int64(1), "total should reflect shows")
+	suite.Empty(shows, "limit=0 should return no results")
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_ShowAtExactMidnight() {
+	venue := suite.createTestVenue("Midnight ShowVenue", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	now := time.Now().UTC()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	midnightShow := &models.Show{Title: "Venue Midnight Show", EventDate: midnight, City: stringPtr("Phoenix"), State: stringPtr("AZ"), Status: models.ShowStatusApproved, SubmittedBy: &user.ID}
+	suite.db.Create(midnightShow)
+	suite.db.Create(&models.ShowVenue{ShowID: midnightShow.ID, VenueID: venue.ID})
+	shows, _, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 50, "upcoming")
+	suite.Require().NoError(err)
+	found := false
+	for _, s := range shows {
+		if s.Title == "Venue Midnight Show" {
+			found = true
+			break
+		}
+	}
+	suite.True(found, "show at exact midnight today should appear in upcoming")
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_EmptyVenue() {
+	venue := suite.createTestVenue("Empty ShowVenue", "Phoenix", "AZ", true)
+	shows, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "upcoming")
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), total)
+	suite.Empty(shows)
+}
+
+// =============================================================================
+// Group 16: ID Boundary Conditions
+// =============================================================================
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_ZeroID() {
+	resp, err := suite.venueService.GetVenue(0)
+	suite.Require().Error(err)
+	suite.Nil(resp)
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_VeryLargeID() {
+	resp, err := suite.venueService.GetVenue(4294967295)
+	suite.Require().Error(err)
+	suite.Nil(resp)
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestDeleteVenue_ZeroID() {
+	err := suite.venueService.DeleteVenue(0)
+	suite.Require().Error(err)
+}
+
+// =============================================================================
+// Group 17: String Boundary Conditions
+// =============================================================================
+
+func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_VeryLongName() {
+	longName := strings.Repeat("V", 500)
+	req := &contracts.CreateVenueRequest{Name: longName, City: "Phoenix", State: "AZ"}
+	resp, err := suite.venueService.CreateVenue(req, true)
+	if err == nil {
+		suite.Equal(longName, resp.Name)
+	}
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueBySlug_EmptySlug() {
+	resp, err := suite.venueService.GetVenueBySlug("")
+	suite.Require().Error(err, "empty slug should return an error")
+	suite.Nil(resp)
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenueGenreProfile_NoTags() {

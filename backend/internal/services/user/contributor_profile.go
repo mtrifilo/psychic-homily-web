@@ -310,9 +310,61 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 		}
 	}
 
+	// Revisions made
+	s.db.Model(&models.Revision{}).Where("user_id = ?", userID).Count(&stats.RevisionsMade)
+
+	// Pending entity edits submitted
+	s.db.Model(&models.PendingEntityEdit{}).Where("submitted_by = ?", userID).Count(&stats.PendingEditsSubmitted)
+
+	// Community participation: votes
+	s.db.Model(&models.TagVote{}).Where("user_id = ?", userID).Count(&stats.TagVotesCast)
+	s.db.Model(&models.ArtistRelationshipVote{}).Where("user_id = ?", userID).Count(&stats.RelationshipVotesCast)
+	s.db.Model(&models.RequestVote{}).Where("user_id = ?", userID).Count(&stats.RequestVotesCast)
+
+	// Community participation: collections
+	s.db.Model(&models.CollectionItem{}).Where("added_by_user_id = ?", userID).Count(&stats.CollectionItemsAdded)
+	s.db.Model(&models.CollectionSubscriber{}).Where("user_id = ?", userID).Count(&stats.CollectionSubscriptions)
+
+	// Shows attended (user_bookmarks with action = 'going')
+	s.db.Model(&models.UserBookmark{}).Where("user_id = ? AND action = ?", userID, models.BookmarkActionGoing).Count(&stats.ShowsAttended)
+
+	// Reports filed (entity_reports + show_reports + artist_reports)
+	var entityReportsFiled, showReportsFiled, artistReportsFiled int64
+	s.db.Model(&models.EntityReport{}).Where("reported_by = ?", userID).Count(&entityReportsFiled)
+	s.db.Model(&models.ShowReport{}).Where("reported_by = ?", userID).Count(&showReportsFiled)
+	s.db.Model(&models.ArtistReport{}).Where("reported_by = ?", userID).Count(&artistReportsFiled)
+	stats.ReportsFiled = entityReportsFiled + showReportsFiled + artistReportsFiled
+
+	// Reports resolved (entity_reports reviewed by this user with resolved/dismissed status)
+	var entityReportsResolved, showReportsResolved, artistReportsResolved int64
+	s.db.Model(&models.EntityReport{}).Where("reviewed_by = ? AND status IN ?", userID, []string{"resolved", "dismissed"}).Count(&entityReportsResolved)
+	s.db.Model(&models.ShowReport{}).Where("reviewed_by = ? AND status IN ?", userID, []string{"resolved", "dismissed"}).Count(&showReportsResolved)
+	s.db.Model(&models.ArtistReport{}).Where("reviewed_by = ? AND status IN ?", userID, []string{"resolved", "dismissed"}).Count(&artistReportsResolved)
+	stats.ReportsResolved = entityReportsResolved + showReportsResolved + artistReportsResolved
+
+	// Social: followers and following via user_bookmarks with action = 'follow'
+	// Followers = other users who follow entities that *are* this user (not applicable with current schema)
+	// Following = entities this user follows
+	s.db.Model(&models.UserBookmark{}).Where("user_id = ? AND action = ?", userID, models.BookmarkActionFollow).Count(&stats.FollowingCount)
+	// FollowersCount is not directly queryable in the current schema (bookmarks are entity-based, not user-to-user)
+	// Leave at 0 until a user-to-user follow system exists
+
+	// Approval rate from pending_entity_edits
+	var approved, rejected int64
+	s.db.Model(&models.PendingEntityEdit{}).Where("submitted_by = ? AND status = ?", userID, models.PendingEditStatusApproved).Count(&approved)
+	s.db.Model(&models.PendingEntityEdit{}).Where("submitted_by = ? AND status = ?", userID, models.PendingEditStatusRejected).Count(&rejected)
+	if total := approved + rejected; total > 0 {
+		rate := float64(approved) / float64(total)
+		stats.ApprovalRate = &rate
+	}
+
+	// Total contributions: content creation + moderation + community participation
 	stats.TotalContributions = stats.ShowsSubmitted + stats.VenuesSubmitted +
 		stats.VenueEditsSubmitted + stats.ReleasesCreated + stats.LabelsCreated +
-		stats.FestivalsCreated + stats.ArtistsEdited + stats.ModerationActions
+		stats.FestivalsCreated + stats.ArtistsEdited + stats.ModerationActions +
+		stats.RevisionsMade + stats.PendingEditsSubmitted +
+		stats.TagVotesCast + stats.RelationshipVotesCast + stats.RequestVotesCast +
+		stats.CollectionItemsAdded + stats.ReportsFiled + stats.ReportsResolved
 
 	return stats, nil
 }
