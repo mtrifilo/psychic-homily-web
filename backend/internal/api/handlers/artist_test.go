@@ -1296,6 +1296,69 @@ func TestAdminCreateArtist_AuditLogCalled(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// ID Parsing Boundary Tests
+// ============================================================================
+
+func TestDeleteArtist_ZeroID(t *testing.T) {
+	mock := &mockArtistService{
+		deleteArtistFn: func(id uint) error {
+			return apperrors.ErrArtistNotFound(id)
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	_, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "0"})
+	assertHumaError(t, err, 404)
+}
+
+func TestDeleteArtist_OverflowID(t *testing.T) {
+	h := testArtistHandler()
+	ctx := ctxWithUser(&models.User{ID: 1})
+	_, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "99999999999"})
+	assertHumaError(t, err, 400)
+}
+
+func TestAdminUpdateArtist_ZeroID(t *testing.T) {
+	mock := &mockArtistService{
+		updateArtistFn: func(id uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+			return nil, apperrors.ErrArtistNotFound(id)
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &AdminUpdateArtistRequest{ArtistID: "0"}
+	name := "Test Name"
+	req.Body.Name = &name
+	_, err := h.AdminUpdateArtistHandler(ctx, req)
+	assertHumaError(t, err, 404)
+}
+
+func TestAdminUpdateArtist_VeryLargeID(t *testing.T) {
+	mock := &mockArtistService{
+		updateArtistFn: func(id uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+			return nil, apperrors.ErrArtistNotFound(id)
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil)
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &AdminUpdateArtistRequest{ArtistID: "4294967295"}
+	name := "Test Name"
+	req.Body.Name = &name
+	_, err := h.AdminUpdateArtistHandler(ctx, req)
+	assertHumaError(t, err, 404)
+}
+
+func TestAdminUpdateArtist_OverflowID(t *testing.T) {
+	h := testArtistHandler()
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	req := &AdminUpdateArtistRequest{ArtistID: "99999999999"}
+	name := "Test"
+	req.Body.Name = &name
+	_, err := h.AdminUpdateArtistHandler(ctx, req)
+	assertHumaError(t, err, 400)
+}
+
 func TestAdminCreateArtist_NameTrimmed(t *testing.T) {
 	mock := &mockArtistService{
 		createArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {

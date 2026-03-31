@@ -1028,6 +1028,77 @@ func TestAIProcessShowHandler_Success(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// ID Parsing Boundary Tests
+// ============================================================================
+
+func TestGetShowHandler_ZeroID(t *testing.T) {
+	mock := &mockShowService{
+		getShowFn: func(showID uint) (*contracts.ShowResponse, error) {
+			if showID != 0 {
+				t.Errorf("expected showID=0, got %d", showID)
+			}
+			return nil, fmt.Errorf("not found")
+		},
+	}
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	_, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "0"})
+	assertHumaError(t, err, 404)
+}
+
+func TestGetShowHandler_VeryLargeID(t *testing.T) {
+	mock := &mockShowService{
+		getShowFn: func(showID uint) (*contracts.ShowResponse, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	_, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "4294967295"})
+	assertHumaError(t, err, 404)
+}
+
+func TestGetShowHandler_OverflowID(t *testing.T) {
+	mock := &mockShowService{
+		getShowBySlugFn: func(slug string) (*contracts.ShowResponse, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	_, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "99999999999"})
+	assertHumaError(t, err, 404)
+}
+
+func TestUpdateShowHandler_ZeroID(t *testing.T) {
+	mock := &mockShowService{
+		getShowFn: func(showID uint) (*contracts.ShowResponse, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	ctx := ctxWithUser(&models.User{ID: 1})
+	_, err := h.UpdateShowHandler(ctx, &UpdateShowRequest{ShowID: "0"})
+	assertHumaError(t, err, 404)
+}
+
+func TestDeleteShowHandler_ZeroID(t *testing.T) {
+	mock := &mockShowService{
+		getShowFn: func(showID uint) (*contracts.ShowResponse, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	ctx := ctxWithUser(&models.User{ID: 1})
+	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "0"})
+	assertHumaError(t, err, 404)
+}
+
+func TestDeleteShowHandler_OverflowID(t *testing.T) {
+	h := testShowHandler()
+	ctx := ctxWithUser(&models.User{ID: 1})
+	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "99999999999"})
+	assertHumaError(t, err, 400)
+}
+
 func TestAIProcessShowHandler_ServiceError(t *testing.T) {
 	extractMock := &mockExtractionService{
 		extractShowFn: func(_ *contracts.ExtractShowRequest) (*contracts.ExtractShowResponse, error) {
