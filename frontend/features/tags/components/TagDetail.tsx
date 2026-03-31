@@ -1,14 +1,16 @@
 'use client'
 
+import { useMemo } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Hash, Loader2 } from 'lucide-react'
+import { ArrowLeft, Hash, Loader2, Music, MapPin, Calendar, Disc3, Tag, Tent } from 'lucide-react'
 import { NotifyMeButton } from '@/features/notifications'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Breadcrumb } from '@/components/shared'
-import { useTag } from '../hooks'
-import { getCategoryColor, getCategoryLabel } from '../types'
+import { useTag, useTagEntities } from '../hooks'
+import { getCategoryColor, getCategoryLabel, getEntityUrl, getEntityTypePluralLabel } from '../types'
+import type { TaggedEntityItem } from '../types'
 
 interface TagDetailProps {
   slug: string
@@ -164,6 +166,94 @@ export function TagDetail({ slug }: TagDetailProps) {
           </div>
         </section>
       )}
+
+      {/* Tagged Entities */}
+      {tag.usage_count > 0 && (
+        <TaggedEntitiesSection slug={slug} />
+      )}
     </div>
+  )
+}
+
+// ──────────────────────────────────────────────
+// Tagged entities section
+// ──────────────────────────────────────────────
+
+const ENTITY_TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  artist: Music,
+  venue: MapPin,
+  show: Calendar,
+  release: Disc3,
+  label: Tag,
+  festival: Tent,
+}
+
+/** Display order for entity type groups */
+const ENTITY_TYPE_ORDER = ['artist', 'venue', 'show', 'release', 'label', 'festival']
+
+function TaggedEntitiesSection({ slug }: { slug: string }) {
+  const { data, isLoading } = useTagEntities(slug, { limit: 200 })
+
+  const grouped = useMemo(() => {
+    if (!data?.entities) return {}
+    const groups: Record<string, TaggedEntityItem[]> = {}
+    for (const entity of data.entities) {
+      if (!groups[entity.entity_type]) {
+        groups[entity.entity_type] = []
+      }
+      groups[entity.entity_type].push(entity)
+    }
+    return groups
+  }, [data?.entities])
+
+  const sortedTypes = useMemo(() => {
+    return ENTITY_TYPE_ORDER.filter((t) => grouped[t]?.length)
+  }, [grouped])
+
+  if (isLoading) {
+    return (
+      <section className="mt-8 border-t border-border/50 pt-6">
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      </section>
+    )
+  }
+
+  if (sortedTypes.length === 0) {
+    return null
+  }
+
+  return (
+    <section className="mt-8 border-t border-border/50 pt-6">
+      <h2 className="text-lg font-semibold mb-4">Tagged Entities</h2>
+      <div className="space-y-6">
+        {sortedTypes.map((entityType) => {
+          const entities = grouped[entityType]
+          const Icon = ENTITY_TYPE_ICONS[entityType] || Hash
+          return (
+            <div key={entityType}>
+              <h3 className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
+                <Icon className="h-4 w-4" />
+                {getEntityTypePluralLabel(entityType)}
+                <span className="text-xs">({entities.length})</span>
+              </h3>
+              <ul className="grid gap-1">
+                {entities.map((entity) => (
+                  <li key={`${entity.entity_type}-${entity.entity_id}`}>
+                    <Link
+                      href={getEntityUrl(entity.entity_type, entity.slug)}
+                      className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors"
+                    >
+                      {entity.name}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        })}
+      </div>
+    </section>
   )
 }

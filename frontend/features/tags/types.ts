@@ -60,6 +60,18 @@ export interface EntityTagsResponse {
   tags: EntityTag[]
 }
 
+export interface TaggedEntityItem {
+  entity_type: string
+  entity_id: number
+  name: string
+  slug: string
+}
+
+export interface TagEntitiesResponse {
+  entities: TaggedEntityItem[]
+  total: number
+}
+
 export interface TagAliasesResponse {
   aliases: TagAlias[]
 }
@@ -75,4 +87,44 @@ export function getCategoryColor(category: string): string {
 
 export function getCategoryLabel(category: string): string {
   return category.charAt(0).toUpperCase() + category.slice(1)
+}
+
+/** Build entity URL from entity type and slug */
+export function getEntityUrl(entityType: string, entitySlug: string): string {
+  switch (entityType) {
+    case 'artist':
+      return `/artists/${entitySlug}`
+    case 'venue':
+      return `/venues/${entitySlug}`
+    case 'show':
+      return `/shows/${entitySlug}`
+    case 'release':
+      return `/releases/${entitySlug}`
+    case 'label':
+      return `/labels/${entitySlug}`
+    case 'festival':
+      return `/festivals/${entitySlug}`
+    default:
+      return '#'
+  }
+}
+
+/** Get a plural display label for an entity type */
+export function getEntityTypePluralLabel(entityType: string): string {
+  switch (entityType) {
+    case 'artist':
+      return 'Artists'
+    case 'venue':
+      return 'Venues'
+    case 'show':
+      return 'Shows'
+    case 'release':
+      return 'Releases'
+    case 'label':
+      return 'Labels'
+    case 'festival':
+      return 'Festivals'
+    default:
+      return entityType
+  }
 }

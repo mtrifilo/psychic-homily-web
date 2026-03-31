@@ -102,6 +102,41 @@ func (h *TagHandler) GetTagHandler(ctx context.Context, req *GetTagRequest) (*Ge
 }
 
 // ============================================================================
+// List Tagged Entities (public)
+// ============================================================================
+
+type ListTagEntitiesRequest struct {
+	TagID      string `path:"tag_id" doc:"Tag ID or slug" example:"post-punk"`
+	EntityType string `query:"entity_type" required:"false" doc:"Filter by entity type (artist, release, label, show, venue, festival)"`
+	Limit      int    `query:"limit" required:"false" doc:"Max results (default 50)" example:"50"`
+	Offset     int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+}
+
+type ListTagEntitiesResponse struct {
+	Body struct {
+		Entities []contracts.TaggedEntityItem `json:"entities"`
+		Total    int64                        `json:"total"`
+	}
+}
+
+func (h *TagHandler) ListTagEntitiesHandler(ctx context.Context, req *ListTagEntitiesRequest) (*ListTagEntitiesResponse, error) {
+	tag := h.resolveTag(req.TagID)
+	if tag == nil {
+		return nil, huma.Error404NotFound("Tag not found")
+	}
+
+	entities, total, err := h.tagService.GetTagEntities(tag.ID, req.EntityType, req.Limit, req.Offset)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to list tagged entities")
+	}
+
+	resp := &ListTagEntitiesResponse{}
+	resp.Body.Entities = entities
+	resp.Body.Total = total
+	return resp, nil
+}
+
+// ============================================================================
 // Search Tags (public, autocomplete)
 // ============================================================================
 

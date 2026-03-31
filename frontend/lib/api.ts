@@ -274,6 +274,7 @@ export const API_ENDPOINTS = {
     GET: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}`,
     ALIASES: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}/aliases`,
     DELETE_ALIAS: (tagId: number, aliasId: number) => `${API_BASE_URL}/tags/${tagId}/aliases/${aliasId}`,
+    ENTITIES: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}/entities`,
   },
 
   // Entity tag endpoints

@@ -653,6 +653,112 @@ func (s *TagService) PruneDownvotedTags() (int64, error) {
 	return totalPruned, nil
 }
 
+// ──────────────────────────────────────────────
+// Tag entities
+// ──────────────────────────────────────────────
+
+// entityTableMap maps entity type strings to their DB table name and name column.
+var entityTableMap = map[string]struct {
+	table     string
+	nameCol   string
+}{
+	"artist":   {table: "artists", nameCol: "name"},
+	"venue":    {table: "venues", nameCol: "name"},
+	"label":    {table: "labels", nameCol: "name"},
+	"show":     {table: "shows", nameCol: "title"},
+	"release":  {table: "releases", nameCol: "title"},
+	"festival": {table: "festivals", nameCol: "name"},
+}
+
+// GetTagEntities returns entities tagged with a given tag, optionally filtered by entity type.
+func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset int) ([]contracts.TaggedEntityItem, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	query := s.db.Model(&models.EntityTag{}).Where("tag_id = ?", tagID)
+	if entityType != "" {
+		if !models.IsValidTagEntityType(entityType) {
+			return nil, 0, fmt.Errorf("invalid entity type: %s", entityType)
+		}
+		query = query.Where("entity_type = ?", entityType)
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count tagged entities: %w", err)
+	}
+
+	if total == 0 {
+		return []contracts.TaggedEntityItem{}, 0, nil
+	}
+
+	// Fetch entity_tag rows
+	if limit <= 0 {
+		limit = 50
+	}
+
+	var entityTags []models.EntityTag
+	if err := query.Order("created_at DESC").Limit(limit).Offset(offset).Find(&entityTags).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to list tagged entities: %w", err)
+	}
+
+	// Group entity IDs by type for batch resolution
+	byType := make(map[string][]uint)
+	for _, et := range entityTags {
+		byType[et.EntityType] = append(byType[et.EntityType], et.EntityID)
+	}
+
+	// Resolve names and slugs per entity type
+	type entityInfo struct {
+		ID   uint
+		Name string
+		Slug string
+	}
+	infoMap := make(map[string]map[uint]entityInfo) // entityType -> entityID -> info
+
+	for eType, ids := range byType {
+		meta, ok := entityTableMap[eType]
+		if !ok {
+			continue
+		}
+
+		var results []entityInfo
+		err := s.db.Raw(
+			fmt.Sprintf("SELECT id, %s AS name, COALESCE(slug, '') AS slug FROM %s WHERE id IN ?", meta.nameCol, meta.table),
+			ids,
+		).Scan(&results).Error
+		if err != nil {
+			continue // skip if table doesn't exist or query fails
+		}
+
+		m := make(map[uint]entityInfo, len(results))
+		for _, r := range results {
+			m[r.ID] = r
+		}
+		infoMap[eType] = m
+	}
+
+	// Build response
+	items := make([]contracts.TaggedEntityItem, 0, len(entityTags))
+	for _, et := range entityTags {
+		info := entityInfo{}
+		if m, ok := infoMap[et.EntityType]; ok {
+			if i, ok := m[et.EntityID]; ok {
+				info = i
+			}
+		}
+		items = append(items, contracts.TaggedEntityItem{
+			EntityType: et.EntityType,
+			EntityID:   et.EntityID,
+			Name:       info.Name,
+			Slug:       info.Slug,
+		})
+	}
+
+	return items, total, nil
+}
+
 // wilsonScore computes the Wilson score lower bound for a binomial proportion.
 // This is the same algorithm used for request voting.
 func wilsonScore(upvotes, downvotes int) float64 {
