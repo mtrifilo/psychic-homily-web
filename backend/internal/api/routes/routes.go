@@ -589,6 +589,11 @@ func setupAdminRoutes(rc RouteContext) {
 	huma.Get(rc.Protected, "/admin/data-quality", dataQualityHandler.GetDataQualitySummaryHandler)
 	huma.Get(rc.Protected, "/admin/data-quality/{category}", dataQualityHandler.GetDataQualityCategoryHandler)
 
+	// Admin auto-promotion endpoints (manual trigger for tier evaluation)
+	autoPromotionHandler := handlers.NewAutoPromotionHandler(rc.SC.AutoPromotion)
+	huma.Post(rc.Protected, "/admin/auto-promotion/evaluate", autoPromotionHandler.EvaluateAllUsersHandler)
+	huma.Get(rc.Protected, "/admin/auto-promotion/evaluate/{user_id}", autoPromotionHandler.EvaluateUserHandler)
+
 	// Admin analytics endpoints
 	analyticsHandler := handlers.NewAnalyticsHandler(rc.SC.Analytics)
 	huma.Get(rc.Protected, "/admin/analytics/growth", analyticsHandler.GetGrowthMetricsHandler)
