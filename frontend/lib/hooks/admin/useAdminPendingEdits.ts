@@ -12,11 +12,9 @@ import { queryKeys, createInvalidateQueries } from '../../queryClient'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export interface FieldChange {
-  field: string
-  old_value: unknown
-  new_value: unknown
-}
+import type { FieldChange } from '../common/useRevisions'
+
+export type { FieldChange }
 
 export interface PendingEditResponse {
   id: number
