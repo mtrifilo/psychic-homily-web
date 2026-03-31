@@ -17,6 +17,8 @@ export type {
   UpdateVisibilityInput,
   UpdatePrivacyInput,
   APIToken,
+  ActivityDay,
+  ActivityHeatmapResponse,
 } from './types'
 
 // Hooks — Auth
@@ -71,6 +73,7 @@ export {
 export {
   usePublicProfile,
   usePublicContributions,
+  useActivityHeatmap,
   useOwnContributorProfile,
   useOwnContributions,
   useOwnSections,

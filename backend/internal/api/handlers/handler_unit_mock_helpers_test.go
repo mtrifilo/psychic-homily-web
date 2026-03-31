@@ -777,6 +777,7 @@ type mockContributorProfileService struct {
 	createSectionFn func(uint, string, string, int) (*contracts.ProfileSectionResponse, error)
 	updateSectionFn func(uint, uint, map[string]interface{}) (*contracts.ProfileSectionResponse, error)
 	deleteSectionFn func(uint, uint) (error)
+	getActivityHeatmapFn func(uint) (*contracts.ActivityHeatmapResponse, error)
 }
 
 func (m *mockContributorProfileService) GetPublicProfile(username string, viewerID *uint) (*contracts.PublicProfileResponse, error) {
@@ -838,6 +839,12 @@ func (m *mockContributorProfileService) DeleteSection(userID uint, sectionID uin
 		return m.deleteSectionFn(userID, sectionID)
 	}
 	return nil
+}
+func (m *mockContributorProfileService) GetActivityHeatmap(userID uint) (*contracts.ActivityHeatmapResponse, error) {
+	if m.getActivityHeatmapFn != nil {
+		return m.getActivityHeatmapFn(userID)
+	}
+	return nil, nil
 }
 
 // ============================================================================

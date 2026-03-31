@@ -95,6 +95,15 @@ export interface ContributionsResponse {
   offset: number
 }
 
+export interface ActivityDay {
+  date: string  // "2026-03-31"
+  count: number
+}
+
+export interface ActivityHeatmapResponse {
+  days: ActivityDay[]
+}
+
 export interface ProfileSectionResponse {
   id: number
   title: string

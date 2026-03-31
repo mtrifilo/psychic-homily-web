@@ -447,6 +447,80 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 }
 
 // =============================================================================
+// Activity Heatmap
+// =============================================================================
+
+// GetActivityHeatmap returns daily contribution counts for the last 365 days.
+// It aggregates activity across audit_logs, shows, venues, pending_entity_edits, and revisions.
+// Only days with count > 0 are returned; the frontend fills in gaps.
+func (s *ContributorProfileService) GetActivityHeatmap(userID uint) (*contracts.ActivityHeatmapResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	query := `
+		SELECT activity_date, SUM(cnt) AS total_count
+		FROM (
+			SELECT DATE(created_at) AS activity_date, COUNT(*) AS cnt
+			FROM audit_logs
+			WHERE actor_id = ? AND created_at >= NOW() - INTERVAL '365 days'
+			GROUP BY DATE(created_at)
+
+			UNION ALL
+
+			SELECT DATE(created_at) AS activity_date, COUNT(*) AS cnt
+			FROM shows
+			WHERE submitted_by = ? AND created_at >= NOW() - INTERVAL '365 days'
+			GROUP BY DATE(created_at)
+
+			UNION ALL
+
+			SELECT DATE(created_at) AS activity_date, COUNT(*) AS cnt
+			FROM venues
+			WHERE submitted_by = ? AND created_at >= NOW() - INTERVAL '365 days'
+			GROUP BY DATE(created_at)
+
+			UNION ALL
+
+			SELECT DATE(created_at) AS activity_date, COUNT(*) AS cnt
+			FROM pending_entity_edits
+			WHERE submitted_by = ? AND created_at >= NOW() - INTERVAL '365 days'
+			GROUP BY DATE(created_at)
+
+			UNION ALL
+
+			SELECT DATE(created_at) AS activity_date, COUNT(*) AS cnt
+			FROM revisions
+			WHERE user_id = ? AND created_at >= NOW() - INTERVAL '365 days'
+			GROUP BY DATE(created_at)
+		) AS combined
+		GROUP BY activity_date
+		ORDER BY activity_date ASC
+	`
+
+	type dayRow struct {
+		ActivityDate time.Time `gorm:"column:activity_date"`
+		TotalCount   int       `gorm:"column:total_count"`
+	}
+
+	var rows []dayRow
+	err := s.db.Raw(query, userID, userID, userID, userID, userID).Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get activity heatmap: %w", err)
+	}
+
+	days := make([]contracts.ActivityDay, len(rows))
+	for i, row := range rows {
+		days[i] = contracts.ActivityDay{
+			Date:  row.ActivityDate.Format("2006-01-02"),
+			Count: row.TotalCount,
+		}
+	}
+
+	return &contracts.ActivityHeatmapResponse{Days: days}, nil
+}
+
+// =============================================================================
 // Profile Sections
 // =============================================================================
 

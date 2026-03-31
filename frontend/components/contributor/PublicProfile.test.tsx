@@ -56,6 +56,12 @@ vi.mock('./ProfileSections', () => ({
   ),
 }))
 
+vi.mock('./ActivityHeatmap', () => ({
+  ActivityHeatmap: ({ username }: { username: string }) => (
+    <div data-testid="activity-heatmap">Heatmap for {username}</div>
+  ),
+}))
+
 function makeProfile(
   overrides: Partial<PublicProfileResponse> = {}
 ): PublicProfileResponse {

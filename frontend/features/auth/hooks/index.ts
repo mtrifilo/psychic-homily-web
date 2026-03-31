@@ -46,6 +46,7 @@ export {
 export {
   usePublicProfile,
   usePublicContributions,
+  useActivityHeatmap,
   useOwnContributorProfile,
   useOwnContributions,
   useOwnSections,

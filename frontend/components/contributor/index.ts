@@ -1,3 +1,4 @@
+export { ActivityHeatmap } from './ActivityHeatmap'
 export { UserTierBadge } from './UserTierBadge'
 export { ContributionStatsGrid } from './ContributionStatsGrid'
 export { ContributionTimeline } from './ContributionTimeline'

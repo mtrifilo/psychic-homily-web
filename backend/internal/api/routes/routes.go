@@ -613,6 +613,7 @@ func setupContributorProfileRoutes(rc RouteContext) {
 	huma.Get(optionalAuthGroup, "/users/{username}", profileHandler.GetPublicProfileHandler)
 	huma.Get(optionalAuthGroup, "/users/{username}/contributions", profileHandler.GetContributionHistoryHandler)
 	huma.Get(optionalAuthGroup, "/users/{username}/sections", profileHandler.GetUserSectionsHandler)
+	huma.Get(optionalAuthGroup, "/users/{username}/activity-heatmap", profileHandler.GetActivityHeatmapHandler)
 
 	// Protected endpoints for authenticated user's own profile
 	huma.Get(rc.Protected, "/auth/profile/contributor", profileHandler.GetOwnProfileHandler)

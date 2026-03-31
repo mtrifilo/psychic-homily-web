@@ -20,6 +20,7 @@ import type {
   UpdateSectionInput,
   UpdateVisibilityInput,
   UpdatePrivacyInput,
+  ActivityHeatmapResponse,
 } from '../types'
 
 // ============================================================================
@@ -72,6 +73,23 @@ export function usePublicContributions(
     },
     enabled: Boolean(username),
     staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * Hook to fetch a user's activity heatmap (daily contribution counts for last 365 days)
+ */
+export function useActivityHeatmap(username: string) {
+  return useQuery({
+    queryKey: queryKeys.contributor.activityHeatmap(username),
+    queryFn: async (): Promise<ActivityHeatmapResponse> => {
+      return apiRequest<ActivityHeatmapResponse>(
+        API_ENDPOINTS.USERS.ACTIVITY_HEATMAP(username),
+        { method: 'GET' }
+      )
+    },
+    enabled: Boolean(username),
+    staleTime: 10 * 60 * 1000, // 10 minutes — heatmap data doesn't change often
   })
 }
 
