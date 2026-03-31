@@ -853,3 +853,98 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserSections_PrivacyS
 	s.NotNil(resp)
 	s.Empty(resp.Body.Sections, "sections should be empty when privacy is hidden")
 }
+
+// =============================================================================
+// GetActivityHeatmapHandler
+// =============================================================================
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_Success() {
+	user := s.createUserWithUsername("heatmapuser")
+	createApprovedShow(s.deps.db, user.ID, "Heatmap Show")
+
+	req := &GetActivityHeatmapRequest{Username: "heatmapuser"}
+	resp, err := s.handler.GetActivityHeatmapHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.NotEmpty(resp.Body.Days)
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_UserNotFound() {
+	req := &GetActivityHeatmapRequest{Username: "ghostheatmap"}
+	_, err := s.handler.GetActivityHeatmapHandler(s.deps.ctx, req)
+	assertHumaError(s.T(), err, 404)
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_PrivateProfile_NotOwner() {
+	s.createPrivateUser("privateheatmap")
+
+	req := &GetActivityHeatmapRequest{Username: "privateheatmap"}
+	_, err := s.handler.GetActivityHeatmapHandler(s.deps.ctx, req)
+	assertHumaError(s.T(), err, 404)
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_PrivateProfile_AsOwner() {
+	user := s.createPrivateUser("privateheatmapowner")
+	ctx := ctxWithUser(user)
+
+	req := &GetActivityHeatmapRequest{Username: "privateheatmapowner"}
+	resp, err := s.handler.GetActivityHeatmapHandler(ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_PrivacyHidden_ReturnsEmpty() {
+	user := s.createUserWithUsername("hiddenheatmap")
+	createApprovedShow(s.deps.db, user.ID, "Hidden Heatmap Show")
+	s.setPrivacySettings(user, contracts.PrivacySettings{
+		Contributions:   contracts.PrivacyHidden,
+		SavedShows:      contracts.PrivacyHidden,
+		Attendance:      contracts.PrivacyHidden,
+		Following:       contracts.PrivacyHidden,
+		Collections:     contracts.PrivacyHidden,
+		LastActive:      contracts.PrivacyHidden,
+		ProfileSections: contracts.PrivacyHidden,
+	})
+
+	viewer := s.createUserWithUsername("heatmapviewer")
+	ctx := ctxWithUser(viewer)
+
+	req := &GetActivityHeatmapRequest{Username: "hiddenheatmap"}
+	resp, err := s.handler.GetActivityHeatmapHandler(ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Empty(resp.Body.Days, "hidden privacy should return empty days")
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_PrivacyCountOnly_StillReturnsData() {
+	user := s.createUserWithUsername("countheatmap")
+	createApprovedShow(s.deps.db, user.ID, "Count Heatmap Show")
+	s.setPrivacySettings(user, contracts.PrivacySettings{
+		Contributions:   contracts.PrivacyCountOnly,
+		SavedShows:      contracts.PrivacyHidden,
+		Attendance:      contracts.PrivacyHidden,
+		Following:       contracts.PrivacyHidden,
+		Collections:     contracts.PrivacyHidden,
+		LastActive:      contracts.PrivacyHidden,
+		ProfileSections: contracts.PrivacyHidden,
+	})
+
+	viewer := s.createUserWithUsername("countheatmapviewer")
+	ctx := ctxWithUser(viewer)
+
+	req := &GetActivityHeatmapRequest{Username: "countheatmap"}
+	resp, err := s.handler.GetActivityHeatmapHandler(ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.NotEmpty(resp.Body.Days, "count_only should still return heatmap data")
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_NoActivity() {
+	s.createUserWithUsername("noactheatmap")
+
+	req := &GetActivityHeatmapRequest{Username: "noactheatmap"}
+	resp, err := s.handler.GetActivityHeatmapHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Empty(resp.Body.Days)
+}

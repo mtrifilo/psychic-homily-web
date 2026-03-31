@@ -218,6 +218,17 @@ type ProfileSectionResponse struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// ActivityDay represents a single day's contribution count for the activity heatmap.
+type ActivityDay struct {
+	Date  string `json:"date"`  // "2026-03-31"
+	Count int    `json:"count"`
+}
+
+// ActivityHeatmapResponse contains daily contribution counts for the activity heatmap.
+type ActivityHeatmapResponse struct {
+	Days []ActivityDay `json:"days"`
+}
+
 // ContributionEntry represents a single contribution in the history.
 type ContributionEntry struct {
 	ID         uint                   `json:"id"`

@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Lock, CalendarDays, Clock } from 'lucide-react'
+import { ActivityHeatmap } from './ActivityHeatmap'
 import { UserTierBadge } from './UserTierBadge'
 import { ContributionStatsGrid } from './ContributionStatsGrid'
 import { ContributionTimeline } from './ContributionTimeline'
@@ -191,6 +192,14 @@ export function PublicProfile({ username }: PublicProfileProps) {
         <section className="mb-8">
           <h2 className="text-lg font-semibold mb-4">Contributions</h2>
           <ContributionStatsGrid stats={profile.stats} />
+        </section>
+      )}
+
+      {/* Activity Heatmap */}
+      {(showStats || (profile.stats_count !== undefined && profile.stats_count > 0)) && (
+        <section className="mb-8">
+          <h2 className="text-lg font-semibold mb-4">Activity</h2>
+          <ActivityHeatmap username={username} />
         </section>
       )}
 

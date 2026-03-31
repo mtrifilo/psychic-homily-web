@@ -141,6 +141,14 @@ type UpdateSectionResponse struct {
 	Body *contracts.ProfileSectionResponse
 }
 
+type GetActivityHeatmapRequest struct {
+	Username string `path:"username" doc:"Username of the contributor"`
+}
+
+type GetActivityHeatmapResponse struct {
+	Body *contracts.ActivityHeatmapResponse
+}
+
 type DeleteSectionRequest struct {
 	SectionID string `path:"section_id" doc:"Section ID to delete"`
 }
@@ -588,6 +596,62 @@ func (h *ContributorProfileHandler) UpdateSectionHandler(ctx context.Context, re
 	)
 
 	return &UpdateSectionResponse{Body: section}, nil
+}
+
+// GetActivityHeatmapHandler handles GET /users/{username}/activity-heatmap.
+func (h *ContributorProfileHandler) GetActivityHeatmapHandler(ctx context.Context, req *GetActivityHeatmapRequest) (*GetActivityHeatmapResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	targetUser, err := h.userService.GetUserByUsername(req.Username)
+	if err != nil {
+		logger.FromContext(ctx).Error("get_activity_heatmap_user_lookup_failed",
+			"username", req.Username,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to look up user (request_id: %s)", requestID),
+		)
+	}
+	if targetUser == nil {
+		return nil, huma.Error404NotFound("User not found")
+	}
+
+	viewer := middleware.GetUserFromContext(ctx)
+	isOwner := viewer != nil && viewer.ID == targetUser.ID
+
+	// Master privacy check
+	if targetUser.ProfileVisibility == "private" && !isOwner {
+		return nil, huma.Error404NotFound("User not found")
+	}
+
+	// Granular privacy check for contributions
+	if !isOwner {
+		privacy := contracts.DefaultPrivacySettings()
+		if targetUser.PrivacySettings != nil {
+			_ = json.Unmarshal(*targetUser.PrivacySettings, &privacy)
+		}
+
+		if privacy.Contributions == contracts.PrivacyHidden {
+			return &GetActivityHeatmapResponse{
+				Body: &contracts.ActivityHeatmapResponse{Days: []contracts.ActivityDay{}},
+			}, nil
+		}
+	}
+
+	heatmap, err := h.profileService.GetActivityHeatmap(targetUser.ID)
+	if err != nil {
+		logger.FromContext(ctx).Error("get_activity_heatmap_failed",
+			"user_id", targetUser.ID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get activity heatmap (request_id: %s)", requestID),
+		)
+	}
+
+	return &GetActivityHeatmapResponse{Body: heatmap}, nil
 }
 
 // DeleteSectionHandler handles DELETE /auth/profile/sections/{section_id}.

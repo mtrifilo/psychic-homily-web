@@ -1313,3 +1313,182 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetSections_Orde
 	suite.Equal("Second", sections[1].Title)
 	suite.Equal("Third", sections[2].Title)
 }
+
+// =============================================================================
+// Group 8: GetActivityHeatmap
+// =============================================================================
+
+func TestGetActivityHeatmap_NilDB(t *testing.T) {
+	svc := &ContributorProfileService{db: nil}
+	result, err := svc.GetActivityHeatmap(1)
+	assert.Nil(t, result)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "database not initialized")
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_NoActivity() {
+	user := suite.createTestUser("heatmap_empty")
+
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Empty(resp.Days)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_ShowSubmissions() {
+	user := suite.createTestUser("heatmap_shows")
+	suite.createShow(user.ID, "Show 1")
+	suite.createShow(user.ID, "Show 2")
+
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Require().Len(resp.Days, 1)
+	suite.Equal(2, resp.Days[0].Count)
+	// Date should be today
+	suite.Equal(time.Now().UTC().Format("2006-01-02"), resp.Days[0].Date)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_VenueSubmissions() {
+	user := suite.createTestUser("heatmap_venues")
+	suite.createVenue(user.ID, "Venue 1")
+
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Require().Len(resp.Days, 1)
+	suite.Equal(1, resp.Days[0].Count)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_AuditLogEntries() {
+	user := suite.createTestUser("heatmap_audit")
+	helper := &testAuditLogHelper{db: suite.db}
+	helper.LogAction(user.ID, "create_release", "release", 1, nil)
+	helper.LogAction(user.ID, "edit_artist", "artist", 1, nil)
+
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Require().Len(resp.Days, 1)
+	suite.Equal(2, resp.Days[0].Count)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_Revisions() {
+	user := suite.createTestUser("heatmap_revisions")
+	fieldChanges := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
+	suite.Require().NoError(suite.db.Create(&models.Revision{
+		EntityType: "artist", EntityID: 1, UserID: user.ID,
+		FieldChanges: &fieldChanges,
+	}).Error)
+
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Require().Len(resp.Days, 1)
+	suite.Equal(1, resp.Days[0].Count)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_PendingEdits() {
+	user := suite.createTestUser("heatmap_edits")
+	fieldChanges := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
+	suite.Require().NoError(suite.db.Create(&models.PendingEntityEdit{
+		EntityType:   "venue",
+		EntityID:     1,
+		SubmittedBy:  user.ID,
+		Status:       models.PendingEditStatusPending,
+		FieldChanges: &fieldChanges,
+	}).Error)
+
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Require().Len(resp.Days, 1)
+	suite.Equal(1, resp.Days[0].Count)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_MultipleTablesAggregated() {
+	user := suite.createTestUser("heatmap_multi")
+
+	// Create entries across multiple tables (all today)
+	suite.createShow(user.ID, "Heatmap Show")
+	suite.createVenue(user.ID, "Heatmap Venue")
+	helper := &testAuditLogHelper{db: suite.db}
+	helper.LogAction(user.ID, "edit_artist", "artist", 1, nil)
+	fieldChanges := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
+	suite.Require().NoError(suite.db.Create(&models.Revision{
+		EntityType: "artist", EntityID: 1, UserID: user.ID,
+		FieldChanges: &fieldChanges,
+	}).Error)
+	suite.Require().NoError(suite.db.Create(&models.PendingEntityEdit{
+		EntityType:   "venue",
+		EntityID:     1,
+		SubmittedBy:  user.ID,
+		Status:       models.PendingEditStatusPending,
+		FieldChanges: &fieldChanges,
+	}).Error)
+
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Require().Len(resp.Days, 1)
+	// 1 show + 1 venue + 1 audit + 1 revision + 1 pending edit = 5
+	suite.Equal(5, resp.Days[0].Count)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_DoesNotCountOtherUsers() {
+	user1 := suite.createTestUser("heatmap_user1")
+	user2 := suite.createTestUser("heatmap_user2")
+
+	suite.createShow(user1.ID, "User 1 Show")
+	suite.createShow(user2.ID, "User 2 Show")
+
+	resp, err := suite.profileService.GetActivityHeatmap(user1.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Require().Len(resp.Days, 1)
+	suite.Equal(1, resp.Days[0].Count, "Should only count user1's activity")
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_OldDataExcluded() {
+	user := suite.createTestUser("heatmap_old")
+
+	// Create a show dated today (should be included)
+	suite.createShow(user.ID, "Recent Show")
+
+	// Directly insert a show with an old created_at (>365 days ago)
+	oldDate := time.Now().UTC().AddDate(0, 0, -400)
+	suite.Require().NoError(suite.db.Exec(
+		"INSERT INTO shows (title, submitted_by, status, event_date, created_at, updated_at) VALUES (?, ?, 'approved', ?, ?, ?)",
+		"Old Show", user.ID, oldDate, oldDate, oldDate,
+	).Error)
+
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	// Should only have 1 day (today's show), not the old one
+	suite.Require().Len(resp.Days, 1)
+	suite.Equal(1, resp.Days[0].Count)
+}
+
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_DateFormat() {
+	user := suite.createTestUser("heatmap_format")
+	suite.createShow(user.ID, "Date Format Show")
+
+	resp, err := suite.profileService.GetActivityHeatmap(user.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Require().Len(resp.Days, 1)
+	// Verify date format is YYYY-MM-DD
+	_, err = time.Parse("2006-01-02", resp.Days[0].Date)
+	suite.NoError(err, "Date should be in YYYY-MM-DD format")
+}
