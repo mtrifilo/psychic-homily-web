@@ -13,8 +13,10 @@ import { useProfile, useLogout } from '@/features/auth'
 interface User {
   id: string
   email: string
+  username?: string
   first_name?: string
   last_name?: string
+  bio?: string
   email_verified: boolean
   is_admin?: boolean
 }
@@ -63,8 +65,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return {
         id: profileData.user.id,
         email: profileData.user.email,
+        username: profileData.user.username,
         first_name: profileData.user.first_name,
         last_name: profileData.user.last_name,
+        bio: profileData.user.bio,
         email_verified: profileData.user.email_verified ?? false,
         is_admin: profileData.user.is_admin,
       }
