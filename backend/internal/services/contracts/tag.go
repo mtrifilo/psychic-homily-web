@@ -51,6 +51,14 @@ type EntityTagResponse struct {
 	AddedByUsername string  `json:"added_by_username,omitempty"`
 }
 
+// TaggedEntityItem represents a single entity tagged with a given tag.
+type TaggedEntityItem struct {
+	EntityType string `json:"entity_type"`
+	EntityID   uint   `json:"entity_id"`
+	Name       string `json:"name"`
+	Slug       string `json:"slug"`
+}
+
 // TagAliasResponse represents a tag alias returned to clients.
 type TagAliasResponse struct {
 	ID        uint      `json:"id"`
@@ -82,6 +90,9 @@ type TagServiceInterface interface {
 	DeleteAlias(aliasID uint) error
 	ListAliases(tagID uint) ([]models.TagAlias, error)
 	ResolveAlias(alias string) (*models.Tag, error)
+
+	// Tag entities
+	GetTagEntities(tagID uint, entityType string, limit, offset int) ([]TaggedEntityItem, int64, error)
 
 	// Utility
 	SearchTags(query string, limit int) ([]models.Tag, error)

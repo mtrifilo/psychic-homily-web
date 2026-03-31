@@ -266,6 +266,7 @@ export const queryKeys = {
     detail: (idOrSlug: string | number) => ['tags', 'detail', String(idOrSlug)] as const,
     aliases: (tagId: number) => ['tags', 'aliases', tagId] as const,
     entityTags: (entityType: string, entityId: number) => ['tags', 'entityTags', entityType, entityId] as const,
+    tagEntities: (idOrSlug: string | number, params?: Record<string, unknown>) => ['tags', 'tagEntities', String(idOrSlug), params] as const,
   },
 
   // Attendance (going/interested) queries

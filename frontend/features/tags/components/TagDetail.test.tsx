@@ -7,8 +7,10 @@ import type { TagDetailResponse } from '../types'
 // ── Mocks ──────────────────────────────────────────
 
 const mockUseTag = vi.fn()
+const mockUseTagEntities = vi.fn()
 vi.mock('../hooks', () => ({
   useTag: (...args: unknown[]) => mockUseTag(...args),
+  useTagEntities: (...args: unknown[]) => mockUseTagEntities(...args),
 }))
 
 vi.mock('next/link', () => ({
@@ -90,6 +92,11 @@ function makeTagDetail(overrides: Partial<TagDetailResponse> = {}): TagDetailRes
 describe('TagDetail', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Default: no entities loaded
+    mockUseTagEntities.mockReturnValue({
+      data: { entities: [], total: 0 },
+      isLoading: false,
+    })
   })
 
   // ── Loading state ──
@@ -377,5 +384,65 @@ describe('TagDetail', () => {
     // "Jazz" appears in both the heading and breadcrumb
     const jazzElements = screen.getAllByText('Jazz')
     expect(jazzElements.length).toBeGreaterThanOrEqual(2)
+  })
+
+  // ── Tagged Entities ──
+
+  it('renders tagged entities grouped by type', () => {
+    mockUseTag.mockReturnValue({
+      data: makeTagDetail({ usage_count: 3 }),
+      isLoading: false,
+      error: null,
+    })
+    mockUseTagEntities.mockReturnValue({
+      data: {
+        entities: [
+          { entity_type: 'artist', entity_id: 1, name: 'Radiohead', slug: 'radiohead' },
+          { entity_type: 'artist', entity_id: 2, name: 'Portishead', slug: 'portishead' },
+          { entity_type: 'venue', entity_id: 10, name: 'The Rebel Lounge', slug: 'the-rebel-lounge' },
+        ],
+        total: 3,
+      },
+      isLoading: false,
+    })
+
+    renderWithProviders(<TagDetail slug="rock" />)
+
+    expect(screen.getByText('Tagged Entities')).toBeInTheDocument()
+    expect(screen.getByText('Artists')).toBeInTheDocument()
+    expect(screen.getByText('Venues')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Radiohead' })).toHaveAttribute('href', '/artists/radiohead')
+    expect(screen.getByRole('link', { name: 'Portishead' })).toHaveAttribute('href', '/artists/portishead')
+    expect(screen.getByRole('link', { name: 'The Rebel Lounge' })).toHaveAttribute('href', '/venues/the-rebel-lounge')
+  })
+
+  it('does not render tagged entities section when usage_count is 0', () => {
+    mockUseTag.mockReturnValue({
+      data: makeTagDetail({ usage_count: 0 }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<TagDetail slug="rock" />)
+
+    expect(screen.queryByText('Tagged Entities')).not.toBeInTheDocument()
+  })
+
+  it('shows loading spinner while entities are loading', () => {
+    mockUseTag.mockReturnValue({
+      data: makeTagDetail({ usage_count: 5 }),
+      isLoading: false,
+      error: null,
+    })
+    mockUseTagEntities.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+    })
+
+    renderWithProviders(<TagDetail slug="rock" />)
+
+    // There should be a spinner in the entities section (separate from the main loading state)
+    const spinners = document.querySelectorAll('.animate-spin')
+    expect(spinners.length).toBeGreaterThanOrEqual(1)
   })
 })

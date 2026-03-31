@@ -15,6 +15,7 @@ import type {
   TagSearchResponse,
   EntityTagsResponse,
   EntityTag,
+  TagEntitiesResponse,
 } from '../types'
 
 // ──────────────────────────────────────────────
@@ -92,6 +93,31 @@ export function useEntityTags(
       apiRequest<EntityTagsResponse>(API_ENDPOINTS.ENTITY_TAGS.LIST(entityType, entityId)),
     enabled: (options?.enabled ?? true) && entityId > 0,
     staleTime: 5 * 60 * 1000,
+  })
+}
+
+/** Fetch entities tagged with a given tag */
+export function useTagEntities(
+  idOrSlug: string | number,
+  params?: { entity_type?: string; limit?: number; offset?: number },
+  options?: { enabled?: boolean }
+) {
+  const searchParams = new URLSearchParams()
+  if (params?.entity_type) searchParams.set('entity_type', params.entity_type)
+  if (params?.limit) searchParams.set('limit', String(params.limit))
+  if (params?.offset) searchParams.set('offset', String(params.offset))
+
+  const queryString = searchParams.toString()
+  const url = queryString
+    ? `${API_ENDPOINTS.TAGS.ENTITIES(idOrSlug)}?${queryString}`
+    : API_ENDPOINTS.TAGS.ENTITIES(idOrSlug)
+
+  return useQuery({
+    queryKey: queryKeys.tags.tagEntities(idOrSlug, params as Record<string, unknown> | undefined),
+    queryFn: () => apiRequest<TagEntitiesResponse>(url),
+    enabled: options?.enabled ?? true,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
   })
 }
 

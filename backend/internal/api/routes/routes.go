@@ -750,6 +750,7 @@ func setupTagRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/tags/search", tagHandler.SearchTagsHandler)
 	huma.Get(rc.API, "/tags/{tag_id}", tagHandler.GetTagHandler)
 	huma.Get(rc.API, "/tags/{tag_id}/aliases", tagHandler.ListAliasesHandler)
+	huma.Get(rc.API, "/tags/{tag_id}/entities", tagHandler.ListTagEntitiesHandler)
 
 	// Entity tags with optional auth (includes user's vote if authenticated)
 	optionalAuthGroup := huma.NewGroup(rc.API, "")

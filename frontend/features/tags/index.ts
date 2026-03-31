@@ -12,6 +12,8 @@ export type {
   TagSearchResponse,
   EntityTagsResponse,
   TagAliasesResponse,
+  TaggedEntityItem,
+  TagEntitiesResponse,
 } from './types'
 
 export {
@@ -26,6 +28,7 @@ export {
   useSearchTags,
   useTag,
   useEntityTags,
+  useTagEntities,
   useAddTagToEntity,
   useRemoveTagFromEntity,
   useVoteOnTag,
