@@ -544,6 +544,28 @@ func (m *mockAuthService) SetOAuthCompleter(completer contracts.OAuthCompleter) 
 }
 
 // ============================================================================
+// Mock: AutoPromotionServiceInterface
+// ============================================================================
+
+type mockAutoPromotionService struct {
+	evaluateAllUsersFn func() (*contracts.AutoPromotionResult, error)
+	evaluateUserFn func(uint) (*contracts.UserEvaluationResult, error)
+}
+
+func (m *mockAutoPromotionService) EvaluateAllUsers() (*contracts.AutoPromotionResult, error) {
+	if m.evaluateAllUsersFn != nil {
+		return m.evaluateAllUsersFn()
+	}
+	return nil, nil
+}
+func (m *mockAutoPromotionService) EvaluateUser(userID uint) (*contracts.UserEvaluationResult, error) {
+	if m.evaluateUserFn != nil {
+		return m.evaluateUserFn(userID)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: CalendarServiceInterface
 // ============================================================================
 
@@ -992,6 +1014,9 @@ type mockEmailService struct {
 	sendAccountRecoveryEmailFn func(string, string, int) (error)
 	sendShowReminderEmailFn func(string, string, string, string, time.Time, []string) (error)
 	sendFilterNotificationEmailFn func(string, string, string, string) (error)
+	sendTierPromotionEmailFn func(string, string, string, string, string, []string) (error)
+	sendTierDemotionEmailFn func(string, string, string, string, string) (error)
+	sendTierDemotionWarningEmailFn func(string, string, string, float64, float64) (error)
 }
 
 func (m *mockEmailService) IsConfigured() (bool) {
@@ -1027,6 +1052,24 @@ func (m *mockEmailService) SendShowReminderEmail(toEmail string, showTitle strin
 func (m *mockEmailService) SendFilterNotificationEmail(toEmail string, subject string, htmlBody string, unsubscribeURL string) (error) {
 	if m.sendFilterNotificationEmailFn != nil {
 		return m.sendFilterNotificationEmailFn(toEmail, subject, htmlBody, unsubscribeURL)
+	}
+	return nil
+}
+func (m *mockEmailService) SendTierPromotionEmail(toEmail string, username string, oldTier string, newTier string, reason string, newPermissions []string) (error) {
+	if m.sendTierPromotionEmailFn != nil {
+		return m.sendTierPromotionEmailFn(toEmail, username, oldTier, newTier, reason, newPermissions)
+	}
+	return nil
+}
+func (m *mockEmailService) SendTierDemotionEmail(toEmail string, username string, oldTier string, newTier string, reason string) (error) {
+	if m.sendTierDemotionEmailFn != nil {
+		return m.sendTierDemotionEmailFn(toEmail, username, oldTier, newTier, reason)
+	}
+	return nil
+}
+func (m *mockEmailService) SendTierDemotionWarningEmail(toEmail string, username string, currentTier string, currentRate float64, threshold float64) (error) {
+	if m.sendTierDemotionWarningEmailFn != nil {
+		return m.sendTierDemotionWarningEmailFn(toEmail, username, currentTier, currentRate, threshold)
 	}
 	return nil
 }
@@ -3173,6 +3216,7 @@ var _ contracts.ArtistServiceInterface = (*mockArtistService)(nil)
 var _ contracts.AttendanceServiceInterface = (*mockAttendanceService)(nil)
 var _ contracts.AuditLogServiceInterface = (*mockAuditLogService)(nil)
 var _ contracts.AuthServiceInterface = (*mockAuthService)(nil)
+var _ contracts.AutoPromotionServiceInterface = (*mockAutoPromotionService)(nil)
 var _ contracts.CalendarServiceInterface = (*mockCalendarService)(nil)
 var _ contracts.ChartsServiceInterface = (*mockChartsService)(nil)
 var _ contracts.CollectionServiceInterface = (*mockCollectionService)(nil)

@@ -762,3 +762,10 @@ func (m *mockEmailService) SendFilterNotificationEmail(_, _, _, _ string) error 
 	m.sendCalls++
 	return nil
 }
+func (m *mockEmailService) SendTierPromotionEmail(_, _, _, _, _ string, _ []string) error {
+	return nil
+}
+func (m *mockEmailService) SendTierDemotionEmail(_, _, _, _, _ string) error { return nil }
+func (m *mockEmailService) SendTierDemotionWarningEmail(_, _, _ string, _, _ float64) error {
+	return nil
+}
