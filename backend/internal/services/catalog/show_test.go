@@ -2390,6 +2390,389 @@ func (suite *ShowServiceIntegrationTestSuite) TestConfirmShowImport_InvalidMarkd
 	suite.Nil(resp)
 }
 
+// =============================================================================
+// Group 12: Pagination Boundary Conditions
+// =============================================================================
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_ZeroLimitZeroOffset() {
+	user := suite.createTestUser()
+	req := &contracts.CreateShowRequest{
+		Title:             "Pending Boundary",
+		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "PB Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "PB Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	show, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+	suite.db.Model(&models.Show{}).Where("id = ?", show.ID).Update("status", models.ShowStatusPending)
+
+	shows, total, err := suite.showService.GetPendingShows(0, 0, nil)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total, "total count should reflect all pending shows regardless of limit")
+	suite.Empty(shows)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_LargeLimit() {
+	user := suite.createTestUser()
+	req := &contracts.CreateShowRequest{
+		Title:             "Large Limit Pending",
+		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "LLP Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "LLP Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	show, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+	suite.db.Model(&models.Show{}).Where("id = ?", show.ID).Update("status", models.ShowStatusPending)
+
+	shows, total, err := suite.showService.GetPendingShows(1000, 0, nil)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Len(shows, 1)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_OffsetBeyondResults() {
+	user := suite.createTestUser()
+	req := &contracts.CreateShowRequest{
+		Title:             "Offset Beyond Pending",
+		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "OBP Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "OBP Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	show, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+	suite.db.Model(&models.Show{}).Where("id = ?", show.ID).Update("status", models.ShowStatusPending)
+
+	shows, total, err := suite.showService.GetPendingShows(10, 100, nil)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total, "total should still be 1")
+	suite.Empty(shows, "should return no shows when offset exceeds total")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_EmptyResultSet() {
+	shows, total, err := suite.showService.GetPendingShows(10, 0, nil)
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), total)
+	suite.Empty(shows)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_LimitOne() {
+	user := suite.createTestUser()
+	for i := 0; i < 3; i++ {
+		req := &contracts.CreateShowRequest{
+			Title:             fmt.Sprintf("Limit1 Pending %d", i),
+			EventDate:         time.Date(2026, 12, 1+i, 20, 0, 0, 0, time.UTC),
+			City:              "Phoenix",
+			State:             "AZ",
+			Venues:            []contracts.CreateShowVenue{{Name: fmt.Sprintf("L1P Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []contracts.CreateShowArtist{{Name: fmt.Sprintf("L1P Artist %d", i), IsHeadliner: boolPtr(true)}},
+			SubmittedByUserID: &user.ID,
+			SubmitterIsAdmin:  true,
+		}
+		show, err := suite.showService.CreateShow(req)
+		suite.Require().NoError(err)
+		suite.db.Model(&models.Show{}).Where("id = ?", show.ID).Update("status", models.ShowStatusPending)
+	}
+
+	shows, total, err := suite.showService.GetPendingShows(1, 0, nil)
+	suite.Require().NoError(err)
+	suite.Equal(int64(3), total)
+	suite.Len(shows, 1, "limit=1 should return exactly 1 result")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetUserSubmissions_ZeroLimitZeroOffset() {
+	user := suite.createTestUser()
+	req := &contracts.CreateShowRequest{
+		Title:             "UserSub Boundary",
+		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "USB Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "USB Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	_, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+
+	shows, total, err := suite.showService.GetUserSubmissions(user.ID, 0, 0)
+	suite.Require().NoError(err)
+	suite.Equal(1, total, "total should reflect all submissions")
+	suite.Empty(shows, "limit=0 should return no results")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetUserSubmissions_OffsetBeyondResults() {
+	user := suite.createTestUser()
+	req := &contracts.CreateShowRequest{
+		Title:             "UserSub Offset",
+		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "USO Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "USO Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	_, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+
+	shows, total, err := suite.showService.GetUserSubmissions(user.ID, 10, 500)
+	suite.Require().NoError(err)
+	suite.Equal(1, total)
+	suite.Empty(shows, "offset beyond results should return empty slice")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetUserSubmissions_NonExistentUser() {
+	shows, total, err := suite.showService.GetUserSubmissions(999999, 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(0, total)
+	suite.Empty(shows)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_ZeroLimitZeroOffset() {
+	user := suite.createTestUser()
+	req := &contracts.CreateShowRequest{
+		Title:             "AdminBoundary Show",
+		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "AB Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "AB Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	_, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+
+	shows, total, err := suite.showService.GetAdminShows(0, 0, contracts.AdminShowFilters{})
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total, "total should reflect all shows")
+	suite.Empty(shows, "limit=0 should return no results")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_OffsetBeyondResults() {
+	user := suite.createTestUser()
+	req := &contracts.CreateShowRequest{
+		Title:             "AdminOffset Show",
+		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "AO Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "AO Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	_, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+
+	shows, total, err := suite.showService.GetAdminShows(10, 1000, contracts.AdminShowFilters{})
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Empty(shows, "offset beyond results should return empty slice")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_LargeLimit() {
+	user := suite.createTestUser()
+	req := &contracts.CreateShowRequest{
+		Title:             "AdminLargeLimit Show",
+		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "ALL Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "ALL Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	_, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+
+	shows, total, err := suite.showService.GetAdminShows(1000, 0, contracts.AdminShowFilters{})
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Len(shows, 1, "large limit should return all available without error")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_LimitOne() {
+	user := suite.createTestUser()
+	baseDate := time.Date(2027, 7, 1, 20, 0, 0, 0, time.UTC)
+	for i := 0; i < 3; i++ {
+		req := &contracts.CreateShowRequest{
+			Title:             fmt.Sprintf("UpLim1 %d", i),
+			EventDate:         baseDate.AddDate(0, 0, i),
+			City:              "Phoenix",
+			State:             "AZ",
+			Venues:            []contracts.CreateShowVenue{{Name: fmt.Sprintf("UL1 Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []contracts.CreateShowArtist{{Name: fmt.Sprintf("UL1 Artist %d", i), IsHeadliner: boolPtr(true)}},
+			SubmittedByUserID: &user.ID,
+			SubmitterIsAdmin:  true,
+		}
+		_, err := suite.showService.CreateShow(req)
+		suite.Require().NoError(err)
+	}
+
+	shows, cursor, err := suite.showService.GetUpcomingShows("UTC", "", 1, false, nil)
+	suite.Require().NoError(err)
+	suite.Len(shows, 1, "limit=1 should return exactly 1 show")
+	suite.NotNil(cursor, "should have cursor when more results exist")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_EmptyResult() {
+	shows, cursor, err := suite.showService.GetUpcomingShows("UTC", "", 10, false, nil)
+	suite.Require().NoError(err)
+	suite.Empty(shows)
+	suite.Nil(cursor, "no cursor when no results")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_ShowAtExactMidnight() {
+	user := suite.createTestUser()
+	now := time.Now().UTC()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+
+	req := &contracts.CreateShowRequest{
+		Title:             "Midnight Show",
+		EventDate:         midnight,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "Midnight Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Midnight Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	_, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+
+	shows, _, err := suite.showService.GetUpcomingShows("UTC", "", 50, false, nil)
+	suite.Require().NoError(err)
+
+	found := false
+	for _, s := range shows {
+		if s.Title == "Midnight Show" {
+			found = true
+			break
+		}
+	}
+	suite.True(found, "show at exact midnight today should be included in upcoming shows")
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_ShowAtExactBoundary_Yesterday() {
+	user := suite.createTestUser()
+	now := time.Now().UTC()
+	yesterdayEnd := time.Date(now.Year(), now.Month(), now.Day()-1, 23, 59, 59, 0, time.UTC)
+
+	req := &contracts.CreateShowRequest{
+		Title:             "Yesterday Late Show",
+		EventDate:         yesterdayEnd,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "YLS Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "YLS Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	_, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+
+	shows, _, err := suite.showService.GetUpcomingShows("UTC", "", 50, false, nil)
+	suite.Require().NoError(err)
+
+	for _, s := range shows {
+		suite.NotEqual("Yesterday Late Show", s.Title, "show from yesterday should not appear in upcoming")
+	}
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetRejectedShows_EmptyResult() {
+	shows, total, err := suite.showService.GetRejectedShows(10, 0, "")
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), total)
+	suite.Empty(shows)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetRejectedShows_ZeroLimit() {
+	user := suite.createTestUser()
+	req := &contracts.CreateShowRequest{
+		Title:             "RejZeroLimit",
+		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "RZL Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "RZL Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	show, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+	suite.db.Model(&models.Show{}).Where("id = ?", show.ID).Update("status", models.ShowStatusPending)
+	_, err = suite.showService.RejectShow(show.ID, "test reason")
+	suite.Require().NoError(err)
+
+	shows, total, err := suite.showService.GetRejectedShows(0, 0, "")
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total, "total should be 1")
+	suite.Empty(shows, "limit=0 should return no results")
+}
+
+// =============================================================================
+// Group 13: ID Boundary Conditions
+// =============================================================================
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_ZeroID() {
+	resp, err := suite.showService.GetShow(0)
+	suite.Require().Error(err)
+	suite.Nil(resp)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_VeryLargeID() {
+	resp, err := suite.showService.GetShow(4294967295)
+	suite.Require().Error(err)
+	suite.Nil(resp)
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestDeleteShow_ZeroID() {
+	err := suite.showService.DeleteShow(0)
+	// GORM Delete with ID=0 silently affects zero rows — no error returned.
+	suite.NoError(err)
+}
+
+// =============================================================================
+// Group 14: String Boundary Conditions
+// =============================================================================
+
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_VeryLongTitle() {
+	user := suite.createTestUser()
+	longTitle := strings.Repeat("A", 500)
+	req := &contracts.CreateShowRequest{
+		Title:             longTitle,
+		EventDate:         time.Date(2026, 12, 1, 20, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "Long Title Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Long Title Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	resp, err := suite.showService.CreateShow(req)
+	if err == nil {
+		suite.Equal(longTitle, resp.Title)
+	}
+}
+
+func (suite *ShowServiceIntegrationTestSuite) TestGetShowBySlug_EmptySlug() {
+	resp, err := suite.showService.GetShowBySlug("")
+	suite.Require().Error(err, "empty slug should return an error")
+	suite.Nil(resp)
+}
+
 func (suite *ShowServiceIntegrationTestSuite) TestConfirmShowImport_CreatesVenueAndArtist() {
 	content := []byte(`---
 show:
