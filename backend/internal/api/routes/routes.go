@@ -129,6 +129,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupPendingEditRoutes(rc)
 	setupEntityReportRoutes(rc)
 	setupContributeRoutes(rc)
+	setupLeaderboardRoutes(rc)
 
 	return api
 }
@@ -984,4 +985,15 @@ func setupContributeRoutes(rc RouteContext) {
 	contributeHandler := handlers.NewContributeHandler(rc.SC.DataQuality)
 	huma.Get(rc.API, "/contribute/opportunities", contributeHandler.GetOpportunitiesHandler)
 	huma.Get(rc.API, "/contribute/opportunities/{category}", contributeHandler.GetOpportunityCategoryHandler)
+}
+
+// setupLeaderboardRoutes configures public contributor leaderboard endpoints.
+// Uses optional auth to include the requesting user's rank when authenticated.
+func setupLeaderboardRoutes(rc RouteContext) {
+	leaderboardHandler := handlers.NewLeaderboardHandler(rc.SC.Leaderboard)
+
+	optionalAuthGroup := huma.NewGroup(rc.API, "")
+	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))
+
+	huma.Get(optionalAuthGroup, "/community/leaderboard", leaderboardHandler.GetLeaderboardHandler)
 }

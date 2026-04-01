@@ -424,6 +424,12 @@ type ContributorProfileServiceInterface interface {
 	GetPercentileRankings(userID uint) (*PercentileRankings, error)
 }
 
+// LeaderboardServiceInterface defines the contract for contributor leaderboard operations.
+type LeaderboardServiceInterface interface {
+	GetLeaderboard(dimension string, period string, limit int) ([]LeaderboardEntry, error)
+	GetUserRank(userID uint, dimension string, period string) (*int, error)
+}
+
 // CalendarServiceInterface defines the contract for calendar feed operations.
 type CalendarServiceInterface interface {
 	CreateToken(userID uint, apiBaseURL string) (*CalendarTokenCreateResponse, error)

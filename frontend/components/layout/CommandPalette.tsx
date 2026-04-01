@@ -15,7 +15,7 @@ import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
   Library, LayoutList, MessageSquarePlus, Settings, Search, Clock, X, Globe,
   TrendingUp, LayoutDashboard, Upload, BadgeCheck, Flag, ScrollText, Users, Workflow,
-  ClipboardCheck, BarChart3, Music, Bell, HeartHandshake, ShieldCheck, Loader2,
+  ClipboardCheck, BarChart3, Music, Bell, HeartHandshake, ShieldCheck, Loader2, Trophy,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -98,6 +98,12 @@ const routes: RouteItem[] = [
     href: '/contribute',
     icon: HeartHandshake,
     keywords: ['contribute', 'help', 'data quality', 'missing', 'opportunities', 'improve'],
+  },
+  {
+    label: 'Leaderboard',
+    href: '/community/leaderboard',
+    icon: Trophy,
+    keywords: ['leaderboard', 'top', 'contributors', 'rankings', 'community', 'competition'],
   },
   {
     label: 'Requests',

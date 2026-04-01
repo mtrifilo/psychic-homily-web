@@ -243,6 +243,28 @@ type PercentileRankings struct {
 	OverallScore int                 `json:"overall_score"`
 }
 
+// ──────────────────────────────────────────────
+// Leaderboard types
+// ──────────────────────────────────────────────
+
+// LeaderboardEntry represents a single ranked user in the leaderboard.
+type LeaderboardEntry struct {
+	Rank      int     `json:"rank"`
+	UserID    uint    `json:"user_id"`
+	Username  string  `json:"username"`
+	AvatarURL *string `json:"avatar_url,omitempty"`
+	UserTier  string  `json:"user_tier"`
+	Count     int64   `json:"count"`
+}
+
+// LeaderboardResponse is the full leaderboard response including optional user rank.
+type LeaderboardResponse struct {
+	Entries   []LeaderboardEntry `json:"entries"`
+	Dimension string             `json:"dimension"`
+	Period    string             `json:"period"`
+	UserRank  *int               `json:"user_rank,omitempty"`
+}
+
 // ContributionEntry represents a single contribution in the history.
 type ContributionEntry struct {
 	ID         uint                   `json:"id"`

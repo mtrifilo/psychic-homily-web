@@ -301,6 +301,12 @@ export const queryKeys = {
     genres: (slug: string) => ['scenes', 'genres', slug] as const,
   },
 
+  // Community queries (public)
+  community: {
+    leaderboard: (dimension: string, period: string, limit?: number) =>
+      ['community', 'leaderboard', dimension, period, limit] as const,
+  },
+
   // Charts queries (public)
   charts: {
     all: ['charts'] as const,

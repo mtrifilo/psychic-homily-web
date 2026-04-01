@@ -6,4 +6,5 @@ import "psychic-homily-backend/internal/services/contracts"
 var (
 	_ contracts.UserServiceInterface               = (*UserService)(nil)
 	_ contracts.ContributorProfileServiceInterface = (*ContributorProfileService)(nil)
+	_ contracts.LeaderboardServiceInterface        = (*LeaderboardService)(nil)
 )
