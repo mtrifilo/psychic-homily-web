@@ -34,7 +34,7 @@ import {
   formatFestivalDateRange,
 } from '../types'
 import { useIsAuthenticated } from '@/features/auth'
-import { EntityEditDrawer, AttributionLine, ReportEntityDialog } from '@/features/contributions'
+import { EntityEditDrawer, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
 import { useQueryClient } from '@tanstack/react-query'
 
 interface FestivalDetailProps {
@@ -317,6 +317,13 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
             }
           />
           <AttributionLine entityType="festival" entityId={festival.id} />
+          <ContributionPrompt
+            entityType="festival"
+            entityId={festival.id}
+            entitySlug={festival.slug}
+            isAuthenticated={!!isAuthenticated}
+            onEditClick={() => setIsEditing(true)}
+          />
         </>
       }
       tabs={tabs}

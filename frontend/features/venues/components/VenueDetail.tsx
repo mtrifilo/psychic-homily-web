@@ -15,7 +15,7 @@ import { NotifyMeButton } from '@/features/notifications'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
-import { EntityEditDrawer, AttributionLine, ReportEntityDialog } from '@/features/contributions'
+import { EntityEditDrawer, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
 import { FavoriteVenueButton } from './FavoriteVenueButton'
 import { Button } from '@/components/ui/button'
@@ -245,6 +245,17 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
               <SocialLinks social={venue.social} className="mt-4" />
             )}
           </header>
+
+          {/* Contribution Prompt */}
+          <div className="mb-4">
+            <ContributionPrompt
+              entityType="venue"
+              entityId={venue.id}
+              entitySlug={venue.slug}
+              isAuthenticated={!!isAuthenticated}
+              onEditClick={() => setIsEditingVenue(true)}
+            />
+          </div>
 
           {/* Description */}
           <div className="mb-6">

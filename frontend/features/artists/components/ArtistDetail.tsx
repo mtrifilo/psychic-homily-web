@@ -36,7 +36,7 @@ import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader, RevisionHist
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList } from '@/features/tags'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
-import { EntityEditDrawer, AttributionLine, ReportEntityDialog } from '@/features/contributions'
+import { EntityEditDrawer, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
 import { NotifyMeButton } from '@/features/notifications'
 import { ArtistShowsList } from './ArtistShowsList'
 import { RelatedArtists } from './RelatedArtists'
@@ -956,6 +956,13 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
               actions={headerActions}
             />
             <AttributionLine entityType="artist" entityId={artist.id} />
+            <ContributionPrompt
+              entityType="artist"
+              entityId={artist.id}
+              entitySlug={artist.slug}
+              isAuthenticated={!!isAuthenticated}
+              onEditClick={() => setIsEditing(true)}
+            />
           </>
         }
         tabs={tabs}

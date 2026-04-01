@@ -24,11 +24,13 @@ export {
   useReportEntity,
   useContributeOpportunities,
   useContributeCategory,
+  useDataGaps,
 } from './hooks'
-export type { EntityAttribution } from './hooks'
+export type { EntityAttribution, DataGap } from './hooks'
 
 // Components
 export { EntityEditDrawer } from './components/EntityEditDrawer'
 export { AttributionLine } from './components/AttributionLine'
 export { ReportEntityDialog } from './components/ReportEntityDialog'
 export { ContributeDashboard } from './components/ContributeDashboard'
+export { ContributionPrompt } from './components/ContributionPrompt'
