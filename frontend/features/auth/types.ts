@@ -149,6 +149,22 @@ export interface UpdatePrivacyInput {
 // API Token Types (exported from useAuth)
 // ============================================================================
 
+// ============================================================================
+// Percentile Rankings Types
+// ============================================================================
+
+export interface PercentileRanking {
+  dimension: string
+  label: string
+  percentile: number
+  value: number
+}
+
+export interface PercentileRankings {
+  rankings: PercentileRanking[]
+  overall_score: number
+}
+
 export interface APIToken {
   id: number
   description: string | null

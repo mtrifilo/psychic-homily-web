@@ -229,6 +229,20 @@ type ActivityHeatmapResponse struct {
 	Days []ActivityDay `json:"days"`
 }
 
+// PercentileRanking represents a user's ranking in a single contribution dimension.
+type PercentileRanking struct {
+	Dimension  string `json:"dimension"`
+	Label      string `json:"label"`
+	Percentile int    `json:"percentile"`
+	Value      int64  `json:"value"`
+}
+
+// PercentileRankings contains all dimension rankings and a weighted overall score.
+type PercentileRankings struct {
+	Rankings     []PercentileRanking `json:"rankings"`
+	OverallScore int                 `json:"overall_score"`
+}
+
 // ContributionEntry represents a single contribution in the history.
 type ContributionEntry struct {
 	ID         uint                   `json:"id"`

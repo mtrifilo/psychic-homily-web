@@ -240,6 +240,7 @@ export const queryKeys = {
     sections: (username: string) => ['contributor', 'sections', username] as const,
     ownSections: ['contributor', 'ownSections'] as const,
     activityHeatmap: (username: string) => ['contributor', 'activityHeatmap', username] as const,
+    rankings: (username: string) => ['contributor', 'rankings', username] as const,
   },
 
   // Crate queries

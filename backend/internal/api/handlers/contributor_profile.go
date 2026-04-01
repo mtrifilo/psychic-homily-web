@@ -160,6 +160,14 @@ type DeleteSectionResponse struct {
 	}
 }
 
+type GetPercentileRankingsRequest struct {
+	Username string `path:"username" doc:"Username of the contributor"`
+}
+
+type GetPercentileRankingsResponse struct {
+	Body *contracts.PercentileRankings
+}
+
 // --- Handlers ---
 
 // GetPublicProfileHandler handles GET /users/{username}.
@@ -698,4 +706,85 @@ func (h *ContributorProfileHandler) DeleteSectionHandler(ctx context.Context, re
 			Message: "Section deleted",
 		},
 	}, nil
+}
+
+// GetPercentileRankingsHandler handles GET /users/{username}/rankings.
+func (h *ContributorProfileHandler) GetPercentileRankingsHandler(ctx context.Context, req *GetPercentileRankingsRequest) (*GetPercentileRankingsResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	targetUser, err := h.userService.GetUserByUsername(req.Username)
+	if err != nil {
+		logger.FromContext(ctx).Error("get_rankings_user_lookup_failed",
+			"username", req.Username,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to look up user (request_id: %s)", requestID),
+		)
+	}
+	if targetUser == nil {
+		return nil, huma.Error404NotFound("User not found")
+	}
+
+	viewer := middleware.GetUserFromContext(ctx)
+	isOwner := viewer != nil && viewer.ID == targetUser.ID
+
+	// Master privacy check
+	if targetUser.ProfileVisibility == "private" && !isOwner {
+		return nil, huma.Error404NotFound("User not found")
+	}
+
+	// Granular privacy check for contributions (rankings are part of contribution data)
+	if !isOwner {
+		privacy := contracts.DefaultPrivacySettings()
+		if targetUser.PrivacySettings != nil {
+			_ = json.Unmarshal(*targetUser.PrivacySettings, &privacy)
+		}
+
+		switch privacy.Contributions {
+		case contracts.PrivacyHidden:
+			return nil, huma.Error404NotFound("User not found")
+		case contracts.PrivacyCountOnly:
+			// For count_only, return just the overall score without individual rankings
+			rankings, err := h.profileService.GetPercentileRankings(targetUser.ID)
+			if err != nil {
+				logger.FromContext(ctx).Error("get_rankings_failed",
+					"user_id", targetUser.ID,
+					"error", err.Error(),
+					"request_id", requestID,
+				)
+				return nil, huma.Error500InternalServerError(
+					fmt.Sprintf("Failed to get rankings (request_id: %s)", requestID),
+				)
+			}
+			if rankings == nil {
+				return nil, huma.Error404NotFound("Rankings not available")
+			}
+			return &GetPercentileRankingsResponse{
+				Body: &contracts.PercentileRankings{
+					Rankings:     []contracts.PercentileRanking{},
+					OverallScore: rankings.OverallScore,
+				},
+			}, nil
+		}
+	}
+
+	rankings, err := h.profileService.GetPercentileRankings(targetUser.ID)
+	if err != nil {
+		logger.FromContext(ctx).Error("get_rankings_failed",
+			"user_id", targetUser.ID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get rankings (request_id: %s)", requestID),
+		)
+	}
+
+	if rankings == nil {
+		return nil, huma.Error404NotFound("Rankings not available")
+	}
+
+	return &GetPercentileRankingsResponse{Body: rankings}, nil
 }

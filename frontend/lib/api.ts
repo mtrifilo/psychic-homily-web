@@ -229,6 +229,8 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/users/${username}/sections`,
     ACTIVITY_HEATMAP: (username: string) =>
       `${API_BASE_URL}/users/${username}/activity-heatmap`,
+    RANKINGS: (username: string) =>
+      `${API_BASE_URL}/users/${username}/rankings`,
   },
 
   // Contributor profile endpoints (authenticated)

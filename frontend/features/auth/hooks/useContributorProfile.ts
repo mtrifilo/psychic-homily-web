@@ -21,6 +21,7 @@ import type {
   UpdateVisibilityInput,
   UpdatePrivacyInput,
   ActivityHeatmapResponse,
+  PercentileRankings,
 } from '../types'
 
 // ============================================================================
@@ -90,6 +91,24 @@ export function useActivityHeatmap(username: string) {
     },
     enabled: Boolean(username),
     staleTime: 10 * 60 * 1000, // 10 minutes — heatmap data doesn't change often
+  })
+}
+
+/**
+ * Hook to fetch a user's percentile rankings by username
+ */
+export function usePercentileRankings(username: string) {
+  return useQuery({
+    queryKey: queryKeys.contributor.rankings(username),
+    queryFn: async (): Promise<PercentileRankings> => {
+      return apiRequest<PercentileRankings>(
+        API_ENDPOINTS.USERS.RANKINGS(username),
+        { method: 'GET' }
+      )
+    },
+    enabled: Boolean(username),
+    staleTime: 5 * 60 * 1000,
+    retry: false, // Don't retry on 404 (rankings not available)
   })
 }
 

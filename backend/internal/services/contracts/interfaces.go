@@ -421,6 +421,7 @@ type ContributorProfileServiceInterface interface {
 	UpdateSection(userID uint, sectionID uint, updates map[string]interface{}) (*ProfileSectionResponse, error)
 	DeleteSection(userID uint, sectionID uint) error
 	GetActivityHeatmap(userID uint) (*ActivityHeatmapResponse, error)
+	GetPercentileRankings(userID uint) (*PercentileRankings, error)
 }
 
 // CalendarServiceInterface defines the contract for calendar feed operations.

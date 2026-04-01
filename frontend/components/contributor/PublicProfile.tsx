@@ -7,6 +7,7 @@ import { ActivityHeatmap } from './ActivityHeatmap'
 import { UserTierBadge } from './UserTierBadge'
 import { ContributionStatsGrid } from './ContributionStatsGrid'
 import { ContributionTimeline } from './ContributionTimeline'
+import { PercentileRankings } from './PercentileRankings'
 import { ProfileSections } from './ProfileSections'
 import {
   usePublicProfile,
@@ -202,6 +203,11 @@ export function PublicProfile({ username }: PublicProfileProps) {
           <ActivityHeatmap username={username} />
         </section>
       )}
+
+      {/* Percentile Rankings */}
+      <section className="mb-8">
+        <PercentileRankings username={username} />
+      </section>
 
       {/* Recent Activity */}
       {showContributions && (
