@@ -37,6 +37,7 @@ import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTra
 import { EntityTagList } from '@/features/tags'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
 import { EntityEditDrawer, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
+import { AsHeardOn } from '@/features/radio'
 import { NotifyMeButton } from '@/features/notifications'
 import { ArtistShowsList } from './ArtistShowsList'
 import { RelatedArtists } from './RelatedArtists'
@@ -300,6 +301,7 @@ function ArtistSidebar({
   artist: {
     id: number
     name: string
+    slug: string
     city: string | null
     state: string | null
     bandcamp_embed_url: string | null
@@ -397,6 +399,9 @@ function ArtistSidebar({
       {!labelsLoading && labels.length > 0 && (
         <AlsoOnThisLabel labels={labels} currentArtistId={artist.id} />
       )}
+
+      {/* As Heard On (radio) */}
+      <AsHeardOn entityType="artist" entitySlug={artist.slug} />
     </div>
   )
 }
