@@ -332,6 +332,11 @@ export const API_ENDPOINTS = {
     GENRES: (slug: string) => `${API_BASE_URL}/scenes/${slug}/genres`,
   },
 
+  // Community endpoints (public)
+  COMMUNITY: {
+    LEADERBOARD: `${API_BASE_URL}/community/leaderboard`,
+  },
+
   // Charts endpoints (public)
   CHARTS: {
     OVERVIEW: `${API_BASE_URL}/charts/overview`,

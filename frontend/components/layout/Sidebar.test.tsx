@@ -30,7 +30,7 @@ describe('sidebarGroups', () => {
 
   it('Community contains Contribute, Requests, Blog, DJ Sets, Substack, Submissions', () => {
     const community = sidebarGroups.find(g => g.label === 'Community')!
-    expect(community.items.map(i => i.label)).toEqual(['Contribute', 'Requests', 'Blog', 'DJ Sets', 'Substack', 'Submissions'])
+    expect(community.items.map(i => i.label)).toEqual(['Contribute', 'Leaderboard', 'Requests', 'Blog', 'DJ Sets', 'Substack', 'Submissions'])
   })
 
   it('only Substack is marked external', () => {

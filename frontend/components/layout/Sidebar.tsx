@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Newspaper,
   Send, Library, LayoutList, MessageSquarePlus, Settings, Shield, PanelLeftClose, PanelLeft,
-  ExternalLink, Globe, TrendingUp, Bell, HeartHandshake,
+  ExternalLink, Globe, TrendingUp, Bell, HeartHandshake, Trophy,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -46,6 +46,7 @@ export const sidebarGroups: SidebarGroup[] = [
     label: 'Community',
     items: [
       { href: '/contribute', label: 'Contribute', icon: HeartHandshake },
+      { href: '/community/leaderboard', label: 'Leaderboard', icon: Trophy },
       { href: '/requests', label: 'Requests', icon: MessageSquarePlus },
       { href: '/blog', label: 'Blog', icon: BookOpen },
       { href: '/dj-sets', label: 'DJ Sets', icon: Headphones },
