@@ -118,6 +118,7 @@ vi.mock('@/features/contributions', () => ({
   AttributionLine: () => null,
   ReportEntityDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="report-dialog">Report Dialog</div> : null,
+  ContributionPrompt: () => null,
 }))
 
 vi.mock('./DeleteVenueDialog', () => ({

@@ -130,6 +130,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupEntityReportRoutes(rc)
 	setupContributeRoutes(rc)
 	setupLeaderboardRoutes(rc)
+	setupDataGapsRoutes(rc)
 
 	return api
 }
@@ -996,4 +997,10 @@ func setupLeaderboardRoutes(rc RouteContext) {
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))
 
 	huma.Get(optionalAuthGroup, "/community/leaderboard", leaderboardHandler.GetLeaderboardHandler)
+}
+
+// setupDataGapsRoutes configures entity data-gap detection endpoints (protected).
+func setupDataGapsRoutes(rc RouteContext) {
+	dataGapsHandler := handlers.NewDataGapsHandler(rc.SC.Artist, rc.SC.Venue, rc.SC.Festival)
+	huma.Get(rc.Protected, "/entities/{entity_type}/{id_or_slug}/data-gaps", dataGapsHandler.GetDataGapsHandler)
 }
