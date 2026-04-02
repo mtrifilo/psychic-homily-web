@@ -51,6 +51,7 @@ type ServiceContainer struct {
 	EntityReport  *adminsvc.EntityReportService
 	User              *usersvc.UserService
 	Leaderboard       *usersvc.LeaderboardService
+	Radio             *catalog.RadioService
 	Venue             *catalog.VenueService
 	VenueSourceConfig *pipeline.VenueSourceConfigService
 
@@ -159,6 +160,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		EntityReport:  adminsvc.NewEntityReportService(database),
 		User:          userService,
 		Leaderboard:   usersvc.NewLeaderboardService(database),
+		Radio:             catalog.NewRadioService(database),
 		Venue:             venue,
 		VenueSourceConfig: venueSourceConfig,
 

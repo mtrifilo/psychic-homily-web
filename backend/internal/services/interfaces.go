@@ -32,4 +32,5 @@ var (
 	_ contracts.SceneServiceInterface               = (*catalog.SceneService)(nil)
 	_ contracts.FestivalIntelligenceServiceInterface = (*catalog.FestivalIntelligenceService)(nil)
 	_ contracts.ChartsServiceInterface              = (*catalog.ChartsService)(nil)
+	_ contracts.RadioServiceInterface               = (*catalog.RadioService)(nil)
 )
