@@ -543,3 +543,37 @@ type FollowServiceInterface interface {
 	GetUserFollowing(userID uint, entityType string, limit, offset int) ([]*FollowingEntityResponse, int64, error)
 	GetFollowers(entityType string, entityID uint, limit, offset int) ([]*FollowerResponse, int64, error)
 }
+
+// RadioServiceInterface defines the contract for radio station, show, episode, and play operations.
+type RadioServiceInterface interface {
+	// Station CRUD
+	CreateStation(req *CreateRadioStationRequest) (*RadioStationDetailResponse, error)
+	GetStation(stationID uint) (*RadioStationDetailResponse, error)
+	GetStationBySlug(slug string) (*RadioStationDetailResponse, error)
+	ListStations(filters map[string]interface{}) ([]*RadioStationListResponse, error)
+	UpdateStation(stationID uint, req *UpdateRadioStationRequest) (*RadioStationDetailResponse, error)
+	DeleteStation(stationID uint) error
+
+	// Show CRUD
+	CreateShow(stationID uint, req *CreateRadioShowRequest) (*RadioShowDetailResponse, error)
+	GetShow(showID uint) (*RadioShowDetailResponse, error)
+	GetShowBySlug(slug string) (*RadioShowDetailResponse, error)
+	ListShows(stationID uint) ([]*RadioShowListResponse, error)
+	UpdateShow(showID uint, req *UpdateRadioShowRequest) (*RadioShowDetailResponse, error)
+	DeleteShow(showID uint) error
+
+	// Episodes
+	GetEpisodes(showID uint, limit, offset int) ([]*RadioEpisodeResponse, int64, error)
+	GetEpisodeByShowAndDate(showID uint, airDate string) (*RadioEpisodeDetailResponse, error)
+	GetEpisodeDetail(episodeID uint) (*RadioEpisodeDetailResponse, error)
+
+	// Aggregation queries
+	GetTopArtistsForShow(showID uint, periodDays, limit int) ([]*RadioTopArtistResponse, error)
+	GetTopLabelsForShow(showID uint, periodDays, limit int) ([]*RadioTopLabelResponse, error)
+	GetAsHeardOnForArtist(artistID uint) ([]*RadioAsHeardOnResponse, error)
+	GetAsHeardOnForRelease(releaseID uint) ([]*RadioAsHeardOnResponse, error)
+	GetNewReleaseRadar(stationID uint, limit int) ([]*RadioNewReleaseRadarEntry, error)
+
+	// Stats
+	GetRadioStats() (*RadioStatsResponse, error)
+}
