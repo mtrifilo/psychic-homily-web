@@ -1648,6 +1648,28 @@ func (m *mockLabelService) AddReleaseToLabel(labelID uint, releaseID uint, catal
 }
 
 // ============================================================================
+// Mock: LeaderboardServiceInterface
+// ============================================================================
+
+type mockLeaderboardService struct {
+	getLeaderboardFn func(string, string, int) ([]contracts.LeaderboardEntry, error)
+	getUserRankFn func(uint, string, string) (*int, error)
+}
+
+func (m *mockLeaderboardService) GetLeaderboard(dimension string, period string, limit int) ([]contracts.LeaderboardEntry, error) {
+	if m.getLeaderboardFn != nil {
+		return m.getLeaderboardFn(dimension, period, limit)
+	}
+	return nil, nil
+}
+func (m *mockLeaderboardService) GetUserRank(userID uint, dimension string, period string) (*int, error) {
+	if m.getUserRankFn != nil {
+		return m.getUserRankFn(userID, dimension, period)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: MusicDiscoveryServiceInterface
 // ============================================================================
 
@@ -1867,6 +1889,161 @@ func (m *mockPipelineService) ExtractVenue(venueID uint, dryRun bool) (*contract
 		DurationMs:      1234,
 		DryRun:          dryRun,
 	}, nil
+}
+
+// ============================================================================
+// Mock: RadioServiceInterface
+// ============================================================================
+
+type mockRadioService struct {
+	createStationFn func(*contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error)
+	getStationFn func(uint) (*contracts.RadioStationDetailResponse, error)
+	getStationBySlugFn func(string) (*contracts.RadioStationDetailResponse, error)
+	listStationsFn func(map[string]interface{}) ([]*contracts.RadioStationListResponse, error)
+	updateStationFn func(uint, *contracts.UpdateRadioStationRequest) (*contracts.RadioStationDetailResponse, error)
+	deleteStationFn func(uint) (error)
+	createShowFn func(uint, *contracts.CreateRadioShowRequest) (*contracts.RadioShowDetailResponse, error)
+	getShowFn func(uint) (*contracts.RadioShowDetailResponse, error)
+	getShowBySlugFn func(string) (*contracts.RadioShowDetailResponse, error)
+	listShowsFn func(uint) ([]*contracts.RadioShowListResponse, error)
+	updateShowFn func(uint, *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error)
+	deleteShowFn func(uint) (error)
+	getEpisodesFn func(uint, int, int) ([]*contracts.RadioEpisodeResponse, int64, error)
+	getEpisodeByShowAndDateFn func(uint, string) (*contracts.RadioEpisodeDetailResponse, error)
+	getEpisodeDetailFn func(uint) (*contracts.RadioEpisodeDetailResponse, error)
+	getTopArtistsForShowFn func(uint, int, int) ([]*contracts.RadioTopArtistResponse, error)
+	getTopLabelsForShowFn func(uint, int, int) ([]*contracts.RadioTopLabelResponse, error)
+	getAsHeardOnForArtistFn func(uint) ([]*contracts.RadioAsHeardOnResponse, error)
+	getAsHeardOnForReleaseFn func(uint) ([]*contracts.RadioAsHeardOnResponse, error)
+	getNewReleaseRadarFn func(uint, int) ([]*contracts.RadioNewReleaseRadarEntry, error)
+	getRadioStatsFn func() (*contracts.RadioStatsResponse, error)
+}
+
+func (m *mockRadioService) CreateStation(req *contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
+	if m.createStationFn != nil {
+		return m.createStationFn(req)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) GetStation(stationID uint) (*contracts.RadioStationDetailResponse, error) {
+	if m.getStationFn != nil {
+		return m.getStationFn(stationID)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) GetStationBySlug(slug string) (*contracts.RadioStationDetailResponse, error) {
+	if m.getStationBySlugFn != nil {
+		return m.getStationBySlugFn(slug)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) ListStations(filters map[string]interface{}) ([]*contracts.RadioStationListResponse, error) {
+	if m.listStationsFn != nil {
+		return m.listStationsFn(filters)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) UpdateStation(stationID uint, req *contracts.UpdateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
+	if m.updateStationFn != nil {
+		return m.updateStationFn(stationID, req)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) DeleteStation(stationID uint) (error) {
+	if m.deleteStationFn != nil {
+		return m.deleteStationFn(stationID)
+	}
+	return nil
+}
+func (m *mockRadioService) CreateShow(stationID uint, req *contracts.CreateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
+	if m.createShowFn != nil {
+		return m.createShowFn(stationID, req)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) GetShow(showID uint) (*contracts.RadioShowDetailResponse, error) {
+	if m.getShowFn != nil {
+		return m.getShowFn(showID)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) GetShowBySlug(slug string) (*contracts.RadioShowDetailResponse, error) {
+	if m.getShowBySlugFn != nil {
+		return m.getShowBySlugFn(slug)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) ListShows(stationID uint) ([]*contracts.RadioShowListResponse, error) {
+	if m.listShowsFn != nil {
+		return m.listShowsFn(stationID)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) UpdateShow(showID uint, req *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
+	if m.updateShowFn != nil {
+		return m.updateShowFn(showID, req)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) DeleteShow(showID uint) (error) {
+	if m.deleteShowFn != nil {
+		return m.deleteShowFn(showID)
+	}
+	return nil
+}
+func (m *mockRadioService) GetEpisodes(showID uint, limit int, offset int) ([]*contracts.RadioEpisodeResponse, int64, error) {
+	if m.getEpisodesFn != nil {
+		return m.getEpisodesFn(showID, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *mockRadioService) GetEpisodeByShowAndDate(showID uint, airDate string) (*contracts.RadioEpisodeDetailResponse, error) {
+	if m.getEpisodeByShowAndDateFn != nil {
+		return m.getEpisodeByShowAndDateFn(showID, airDate)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) GetEpisodeDetail(episodeID uint) (*contracts.RadioEpisodeDetailResponse, error) {
+	if m.getEpisodeDetailFn != nil {
+		return m.getEpisodeDetailFn(episodeID)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) GetTopArtistsForShow(showID uint, periodDays int, limit int) ([]*contracts.RadioTopArtistResponse, error) {
+	if m.getTopArtistsForShowFn != nil {
+		return m.getTopArtistsForShowFn(showID, periodDays, limit)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) GetTopLabelsForShow(showID uint, periodDays int, limit int) ([]*contracts.RadioTopLabelResponse, error) {
+	if m.getTopLabelsForShowFn != nil {
+		return m.getTopLabelsForShowFn(showID, periodDays, limit)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) GetAsHeardOnForArtist(artistID uint) ([]*contracts.RadioAsHeardOnResponse, error) {
+	if m.getAsHeardOnForArtistFn != nil {
+		return m.getAsHeardOnForArtistFn(artistID)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) GetAsHeardOnForRelease(releaseID uint) ([]*contracts.RadioAsHeardOnResponse, error) {
+	if m.getAsHeardOnForReleaseFn != nil {
+		return m.getAsHeardOnForReleaseFn(releaseID)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) GetNewReleaseRadar(stationID uint, limit int) ([]*contracts.RadioNewReleaseRadarEntry, error) {
+	if m.getNewReleaseRadarFn != nil {
+		return m.getNewReleaseRadarFn(stationID, limit)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) GetRadioStats() (*contracts.RadioStatsResponse, error) {
+	if m.getRadioStatsFn != nil {
+		return m.getRadioStatsFn()
+	}
+	return nil, nil
 }
 
 // ============================================================================
@@ -3270,11 +3447,13 @@ var _ contracts.FestivalServiceInterface = (*mockFestivalService)(nil)
 var _ contracts.FollowServiceInterface = (*mockFollowService)(nil)
 var _ contracts.JWTServiceInterface = (*mockJWTService)(nil)
 var _ contracts.LabelServiceInterface = (*mockLabelService)(nil)
+var _ contracts.LeaderboardServiceInterface = (*mockLeaderboardService)(nil)
 var _ contracts.MusicDiscoveryServiceInterface = (*mockMusicDiscoveryService)(nil)
 var _ contracts.NotificationFilterServiceInterface = (*mockNotificationFilterService)(nil)
 var _ contracts.PasswordValidatorInterface = (*mockPasswordValidator)(nil)
 var _ contracts.PendingEditServiceInterface = (*mockPendingEditService)(nil)
 var _ contracts.PipelineServiceInterface = (*mockPipelineService)(nil)
+var _ contracts.RadioServiceInterface = (*mockRadioService)(nil)
 var _ contracts.ReleaseServiceInterface = (*mockReleaseService)(nil)
 var _ contracts.RequestServiceInterface = (*mockRequestService)(nil)
 var _ contracts.RevisionServiceInterface = (*mockRevisionService)(nil)

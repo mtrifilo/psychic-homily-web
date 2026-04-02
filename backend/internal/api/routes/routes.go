@@ -131,6 +131,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupContributeRoutes(rc)
 	setupLeaderboardRoutes(rc)
 	setupDataGapsRoutes(rc)
+	setupRadioRoutes(rc)
 
 	return api
 }
@@ -1003,4 +1004,40 @@ func setupLeaderboardRoutes(rc RouteContext) {
 func setupDataGapsRoutes(rc RouteContext) {
 	dataGapsHandler := handlers.NewDataGapsHandler(rc.SC.Artist, rc.SC.Venue, rc.SC.Festival)
 	huma.Get(rc.Protected, "/entities/{entity_type}/{id_or_slug}/data-gaps", dataGapsHandler.GetDataGapsHandler)
+}
+
+// setupRadioRoutes configures radio entity endpoints (stations, shows, episodes, plays).
+func setupRadioRoutes(rc RouteContext) {
+	radioHandler := handlers.NewRadioHandler(rc.SC.Radio, rc.SC.Artist, rc.SC.Release, rc.SC.AuditLog)
+
+	// Public radio station endpoints
+	huma.Get(rc.API, "/radio-stations", radioHandler.ListRadioStationsHandler)
+	huma.Get(rc.API, "/radio-stations/{slug}", radioHandler.GetRadioStationHandler)
+
+	// Public radio show endpoints
+	huma.Get(rc.API, "/radio-shows", radioHandler.ListRadioShowsHandler)
+	huma.Get(rc.API, "/radio-shows/{slug}", radioHandler.GetRadioShowHandler)
+	huma.Get(rc.API, "/radio-shows/{slug}/episodes", radioHandler.GetRadioShowEpisodesHandler)
+	huma.Get(rc.API, "/radio-shows/{slug}/episodes/{date}", radioHandler.GetRadioEpisodeByDateHandler)
+	huma.Get(rc.API, "/radio-shows/{slug}/top-artists", radioHandler.GetRadioShowTopArtistsHandler)
+	huma.Get(rc.API, "/radio-shows/{slug}/top-labels", radioHandler.GetRadioShowTopLabelsHandler)
+
+	// Public "as heard on" endpoints (nested under existing entities)
+	huma.Get(rc.API, "/artists/{slug}/radio-plays", radioHandler.GetArtistRadioPlaysHandler)
+	huma.Get(rc.API, "/releases/{slug}/radio-plays", radioHandler.GetReleaseRadioPlaysHandler)
+
+	// Public radio aggregation endpoints
+	huma.Get(rc.API, "/radio/new-releases", radioHandler.GetRadioNewReleaseRadarHandler)
+	huma.Get(rc.API, "/radio/stats", radioHandler.GetRadioStatsHandler)
+
+	// Admin radio station endpoints (admin-only checks inside handlers)
+	huma.Post(rc.Protected, "/admin/radio-stations", radioHandler.AdminCreateRadioStationHandler)
+	huma.Put(rc.Protected, "/admin/radio-stations/{id}", radioHandler.AdminUpdateRadioStationHandler)
+	huma.Delete(rc.Protected, "/admin/radio-stations/{id}", radioHandler.AdminDeleteRadioStationHandler)
+	huma.Post(rc.Protected, "/admin/radio-stations/{id}/shows", radioHandler.AdminCreateRadioShowHandler)
+	huma.Post(rc.Protected, "/admin/radio-stations/{id}/fetch", radioHandler.AdminTriggerFetchHandler)
+
+	// Admin radio show endpoints (admin-only checks inside handlers)
+	huma.Put(rc.Protected, "/admin/radio-shows/{id}", radioHandler.AdminUpdateRadioShowHandler)
+	huma.Delete(rc.Protected, "/admin/radio-shows/{id}", radioHandler.AdminDeleteRadioShowHandler)
 }
