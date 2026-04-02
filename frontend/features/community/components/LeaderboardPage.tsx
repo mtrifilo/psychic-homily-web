@@ -176,7 +176,7 @@ export function LeaderboardPage() {
             <LeaderboardRow
               key={entry.user_id}
               entry={entry}
-              isCurrentUser={user?.id === entry.user_id}
+              isCurrentUser={Number(user?.id) === entry.user_id}
             />
           ))}
         </div>
