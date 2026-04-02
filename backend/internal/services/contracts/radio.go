@@ -289,3 +289,29 @@ type RadioStatsResponse struct {
 	MatchedPlays  int64 `json:"matched_plays"`
 	UniqueArtists int   `json:"unique_artists"`
 }
+
+// ──────────────────────────────────────────────
+// Import pipeline types
+// ──────────────────────────────────────────────
+
+// RadioImportResult summarizes the result of a station or incremental import operation.
+type RadioImportResult struct {
+	ShowsDiscovered  int      `json:"shows_discovered"`
+	EpisodesImported int      `json:"episodes_imported"`
+	PlaysImported    int      `json:"plays_imported"`
+	PlaysMatched     int      `json:"plays_matched"`
+	Errors           []string `json:"errors,omitempty"`
+}
+
+// EpisodeImportResult summarizes the result of importing a single episode's playlist.
+type EpisodeImportResult struct {
+	PlaysImported int `json:"plays_imported"`
+	PlaysMatched  int `json:"plays_matched"`
+}
+
+// MatchResult summarizes the result of running the matching engine.
+type MatchResult struct {
+	Total     int `json:"total"`
+	Matched   int `json:"matched"`
+	Unmatched int `json:"unmatched"`
+}

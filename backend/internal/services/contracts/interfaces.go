@@ -576,4 +576,12 @@ type RadioServiceInterface interface {
 
 	// Stats
 	GetRadioStats() (*RadioStatsResponse, error)
+
+	// Import pipeline
+	ImportStation(stationID uint, backfillDays int) (*RadioImportResult, error)
+	FetchNewEpisodes(stationID uint) (*RadioImportResult, error)
+	ImportEpisodePlaylist(showID uint, episodeExternalID string) (*EpisodeImportResult, error)
+
+	// Matching
+	MatchPlays(episodeID uint) (*MatchResult, error)
 }
