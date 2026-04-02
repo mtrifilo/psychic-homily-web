@@ -1,11 +1,13 @@
 'use client'
 
-import { useMemo, useTransition } from 'react'
+import { useMemo, useTransition, useRef, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useArtists, useArtistCities } from '../hooks/useArtists'
+import { useProfile, useIsAuthenticated } from '@/features/auth'
 import { ArtistCard } from './ArtistCard'
 import { ArtistSearch } from './ArtistSearch'
 import { CityFilters, type CityWithCount, type CityState } from '@/components/filters'
+import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
 import { LoadingSpinner, DensityToggle } from '@/components/shared'
 import { useDensity } from '@/lib/hooks/common/useDensity'
 import { Button } from '@/components/ui/button'
@@ -27,10 +29,20 @@ function buildCitiesParam(cities: CityState[]): string {
   return cities.map(c => `${c.city},${c.state}`).join('|')
 }
 
+/** Compare two city arrays for equality (order-insensitive) */
+function citiesEqual(a: CityState[], b: CityState[]): boolean {
+  if (a.length !== b.length) return false
+  const setA = new Set(a.map(c => `${c.city}|${c.state}`))
+  return b.every(c => setA.has(`${c.city}|${c.state}`))
+}
+
 export function ArtistList() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { isAuthenticated } = useIsAuthenticated()
   const [isPending, startTransition] = useTransition()
+  const { data: profileData } = useProfile()
+  const hasAppliedDefaults = useRef(false)
   const { density, setDensity } = useDensity('artists')
 
   // Parse multi-city from URL
@@ -38,6 +50,29 @@ export function ArtistList() {
   const selectedCities: CityState[] = useMemo(() => {
     return parseCitiesParam(citiesParam)
   }, [citiesParam])
+
+  // Read favorites from profile
+  const favoriteCities: CityState[] = useMemo(() => {
+    const prefs = profileData?.user?.preferences
+    if (!prefs?.favorite_cities) return []
+    return prefs.favorite_cities
+  }, [profileData?.user?.preferences])
+
+  // Apply favorites as default URL params on initial load (no URL params + not yet applied)
+  useEffect(() => {
+    if (
+      !hasAppliedDefaults.current &&
+      favoriteCities.length > 0 &&
+      !citiesParam
+    ) {
+      hasAppliedDefaults.current = true
+      const params = new URLSearchParams()
+      params.set('cities', buildCitiesParam(favoriteCities))
+      startTransition(() => {
+        router.replace(`/artists?${params.toString()}`, { scroll: false })
+      })
+    }
+  }, [favoriteCities, citiesParam, router])
 
   const { data: citiesData, isLoading: citiesLoading, isFetching: citiesFetching } = useArtistCities()
   const { data, isLoading, isFetching, error, refetch } = useArtists({
@@ -78,6 +113,9 @@ export function ArtistList() {
     )
   }
 
+  // Determine if "Save as default" / "Clear defaults" should show
+  const selectionDiffersFromFavorites = !citiesEqual(selectedCities, favoriteCities)
+
   // Map ArtistCity to CityWithCount
   const cities: CityWithCount[] = citiesData?.cities?.map(c => ({
     city: c.city,
@@ -96,7 +134,14 @@ export function ArtistList() {
             cities={cities}
             selectedCities={selectedCities}
             onFilterChange={handleFilterChange}
-          />
+          >
+            {isAuthenticated && selectionDiffersFromFavorites && (
+              <SaveDefaultsButton
+                selectedCities={selectedCities}
+                favoriteCities={favoriteCities}
+              />
+            )}
+          </CityFilters>
         )}
       </div>
 

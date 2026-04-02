@@ -6,9 +6,10 @@ import type { ArtistListItem } from '../types'
 
 // Mock next/navigation
 const mockPush = vi.fn()
+const mockReplace = vi.fn()
 const mockGet = vi.fn()
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
   useSearchParams: () => ({
     get: mockGet,
   }),
@@ -27,6 +28,19 @@ vi.mock('@/lib/hooks/common/useDensity', () => ({
   useDensity: (key: string) => mockUseDensity(key),
 }))
 
+// Mock auth hooks
+const mockUseProfile = vi.fn()
+const mockUseIsAuthenticated = vi.fn()
+vi.mock('@/features/auth', () => ({
+  useProfile: () => mockUseProfile(),
+  useIsAuthenticated: () => mockUseIsAuthenticated(),
+}))
+
+// Mock SaveDefaultsButton
+vi.mock('@/components/filters/SaveDefaultsButton', () => ({
+  SaveDefaultsButton: () => <div data-testid="save-defaults-button">SaveDefaultsButton</div>,
+}))
+
 // Mock child components that are complex
 vi.mock('./ArtistSearch', () => ({
   ArtistSearch: () => <div data-testid="artist-search">ArtistSearch</div>,
@@ -36,10 +50,12 @@ vi.mock('@/components/filters', () => ({
   CityFilters: ({
     onFilterChange,
     selectedCities,
+    children,
   }: {
     onFilterChange: (cities: { city: string; state: string }[]) => void
     selectedCities: { city: string; state: string }[]
     cities: unknown[]
+    children?: React.ReactNode
   }) => (
     <div data-testid="city-filters">
       <span data-testid="selected-count">{selectedCities.length}</span>
@@ -49,6 +65,7 @@ vi.mock('@/components/filters', () => ({
       >
         Clear
       </button>
+      {children}
     </div>
   ),
 }))
@@ -92,6 +109,8 @@ describe('ArtistList', () => {
     vi.clearAllMocks()
     mockGet.mockReturnValue(null)
     mockUseDensity.mockReturnValue({ density: 'comfortable', setDensity: vi.fn() })
+    mockUseProfile.mockReturnValue({ data: null })
+    mockUseIsAuthenticated.mockReturnValue({ isAuthenticated: false })
     mockUseArtistCities.mockReturnValue({
       data: { cities: [] },
       isLoading: false,
