@@ -183,7 +183,7 @@ export function LeaderboardPage() {
       )}
 
       {/* Current user's rank */}
-      {data?.user_rank && !data.entries.some((e) => e.user_id === user?.id) && (
+      {data?.user_rank && !data.entries.some((e) => e.user_id === Number(user?.id)) && (
         <div className="border-t border-border pt-4">
           <p className="text-sm text-muted-foreground mb-2">Your rank</p>
           <div className="flex items-center gap-4 rounded-lg border border-primary/50 bg-primary/5 p-3">
