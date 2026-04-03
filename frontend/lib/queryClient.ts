@@ -15,6 +15,7 @@ import { showQueryKeys } from '@/features/shows/api'
 import { releaseQueryKeys } from '@/features/releases/api'
 import { labelQueryKeys } from '@/features/labels/api'
 import { festivalQueryKeys } from '@/features/festivals/api'
+import { radioQueryKeys } from '@/features/radio/api'
 
 // Default query options for all queries
 const defaultQueryOptions: DefaultOptions = {
@@ -169,6 +170,9 @@ export const queryKeys = {
 
   // Festival queries (defined in features/festivals/api.ts)
   festivals: festivalQueryKeys,
+
+  // Radio queries (defined in features/radio/api.ts)
+  radio: radioQueryKeys,
 
   // Calendar feed queries
   calendar: {

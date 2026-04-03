@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { useRelease } from '../hooks/useReleases'
 import { EntityDetailLayout, EntityHeader } from '@/components/shared'
+import { AsHeardOn } from '@/features/radio'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -173,6 +174,9 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
           )}
         </div>
       </div>
+
+      {/* As Heard On (radio) */}
+      <AsHeardOn entityType="release" entitySlug={release.slug} />
     </div>
   )
 
