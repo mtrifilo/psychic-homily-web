@@ -48,6 +48,13 @@ type RadioAggregationReader interface {
 	GetRadioStats() (*contracts.RadioStatsResponse, error)
 }
 
+// RadioUnmatchedManager manages unmatched radio plays (admin endpoints).
+type RadioUnmatchedManager interface {
+	GetUnmatchedPlays(stationID uint, limit, offset int) ([]*contracts.UnmatchedPlayGroup, int64, error)
+	LinkPlay(playID uint, req *contracts.LinkPlayRequest) error
+	BulkLinkPlays(req *contracts.BulkLinkRequest) (*contracts.BulkLinkResult, error)
+}
+
 // RadioStationWriter writes radio stations (admin endpoints).
 type RadioStationWriter interface {
 	CreateStation(req *contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error)
@@ -78,15 +85,16 @@ type ReleaseSlugResolver interface {
 
 // RadioHandler handles all radio entity HTTP endpoints.
 type RadioHandler struct {
-	stationReader     RadioStationReader
-	showReader        RadioShowReader
-	episodeReader     RadioEpisodeReader
-	aggregationReader RadioAggregationReader
-	stationWriter     RadioStationWriter
-	showWriter        RadioShowWriter
-	artistResolver    ArtistSlugResolver
-	releaseResolver   ReleaseSlugResolver
-	auditLogService   contracts.AuditLogServiceInterface
+	stationReader      RadioStationReader
+	showReader         RadioShowReader
+	episodeReader      RadioEpisodeReader
+	aggregationReader  RadioAggregationReader
+	stationWriter      RadioStationWriter
+	showWriter         RadioShowWriter
+	unmatchedManager   RadioUnmatchedManager
+	artistResolver     ArtistSlugResolver
+	releaseResolver    ReleaseSlugResolver
+	auditLogService    contracts.AuditLogServiceInterface
 }
 
 // NewRadioHandler creates a new RadioHandler.
@@ -97,15 +105,16 @@ func NewRadioHandler(
 	auditLogService contracts.AuditLogServiceInterface,
 ) *RadioHandler {
 	return &RadioHandler{
-		stationReader:     radioService,
-		showReader:        radioService,
-		episodeReader:     radioService,
-		aggregationReader: radioService,
-		stationWriter:     radioService,
-		showWriter:        radioService,
-		artistResolver:    artistResolver,
-		releaseResolver:   releaseResolver,
-		auditLogService:   auditLogService,
+		stationReader:      radioService,
+		showReader:         radioService,
+		episodeReader:      radioService,
+		aggregationReader:  radioService,
+		stationWriter:      radioService,
+		showWriter:         radioService,
+		unmatchedManager:   radioService,
+		artistResolver:     artistResolver,
+		releaseResolver:    releaseResolver,
+		auditLogService:    auditLogService,
 	}
 }
 
@@ -1020,6 +1029,188 @@ func (h *RadioHandler) AdminTriggerFetchHandler(ctx context.Context, req *AdminT
 	}
 
 	return nil, huma.Error501NotImplemented("Playlist fetch not yet implemented")
+}
+
+// ============================================================================
+// Admin: List Unmatched Plays
+// ============================================================================
+
+// AdminGetUnmatchedPlaysRequest represents the request for listing unmatched plays.
+type AdminGetUnmatchedPlaysRequest struct {
+	StationID uint `query:"station_id" required:"false" doc:"Filter by station ID (0 for all)" example:"0"`
+	Limit     int  `query:"limit" required:"false" doc:"Max results (default 50)" example:"50"`
+	Offset    int  `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+}
+
+// AdminGetUnmatchedPlaysResponse represents the response for listing unmatched plays.
+type AdminGetUnmatchedPlaysResponse struct {
+	Body struct {
+		Groups []*contracts.UnmatchedPlayGroup `json:"groups" doc:"Unmatched play groups"`
+		Total  int64                           `json:"total" doc:"Total distinct artist names"`
+	}
+}
+
+// AdminGetUnmatchedPlaysHandler handles GET /admin/radio/unmatched
+func (h *RadioHandler) AdminGetUnmatchedPlaysHandler(ctx context.Context, req *AdminGetUnmatchedPlaysRequest) (*AdminGetUnmatchedPlaysResponse, error) {
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	groups, total, err := h.unmatchedManager.GetUnmatchedPlays(req.StationID, limit, offset)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to fetch unmatched plays", err)
+	}
+
+	resp := &AdminGetUnmatchedPlaysResponse{}
+	resp.Body.Groups = groups
+	resp.Body.Total = total
+	return resp, nil
+}
+
+// ============================================================================
+// Admin: Link Single Play
+// ============================================================================
+
+// AdminLinkPlayRequest represents the request for linking a single play to an artist.
+type AdminLinkPlayRequest struct {
+	PlayID uint `path:"id" doc:"Radio play ID" example:"1"`
+	Body   struct {
+		ArtistID  *uint `json:"artist_id,omitempty" required:"false" doc:"Artist ID to link"`
+		ReleaseID *uint `json:"release_id,omitempty" required:"false" doc:"Release ID to link"`
+		LabelID   *uint `json:"label_id,omitempty" required:"false" doc:"Label ID to link"`
+	}
+}
+
+// AdminLinkPlayResponse represents the response for linking a single play.
+type AdminLinkPlayResponse struct {
+	Body struct {
+		Success bool `json:"success"`
+	}
+}
+
+// AdminLinkPlayHandler handles POST /admin/radio/plays/{id}/link
+func (h *RadioHandler) AdminLinkPlayHandler(ctx context.Context, req *AdminLinkPlayRequest) (*AdminLinkPlayResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	linkReq := &contracts.LinkPlayRequest{
+		ArtistID:  req.Body.ArtistID,
+		ReleaseID: req.Body.ReleaseID,
+		LabelID:   req.Body.LabelID,
+	}
+
+	if err := h.unmatchedManager.LinkPlay(req.PlayID, linkReq); err != nil {
+		logger.FromContext(ctx).Error("link_play_failed",
+			"play_id", req.PlayID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to link play (request_id: %s)", requestID),
+		)
+	}
+
+	// Audit log (fire and forget)
+	if h.auditLogService != nil {
+		go func() {
+			h.auditLogService.LogAction(user.ID, "link_radio_play", "radio_play", req.PlayID, map[string]interface{}{
+				"artist_id":  req.Body.ArtistID,
+				"release_id": req.Body.ReleaseID,
+				"label_id":   req.Body.LabelID,
+			})
+		}()
+	}
+
+	resp := &AdminLinkPlayResponse{}
+	resp.Body.Success = true
+	return resp, nil
+}
+
+// ============================================================================
+// Admin: Bulk Link Plays
+// ============================================================================
+
+// AdminBulkLinkPlaysRequest represents the request for bulk-linking plays.
+type AdminBulkLinkPlaysRequest struct {
+	Body struct {
+		ArtistName string `json:"artist_name" doc:"Artist name to match" example:"Radiohead"`
+		ArtistID   uint   `json:"artist_id" doc:"Artist ID to link to" example:"123"`
+	}
+}
+
+// AdminBulkLinkPlaysResponse represents the response for bulk-linking plays.
+type AdminBulkLinkPlaysResponse struct {
+	Body *contracts.BulkLinkResult
+}
+
+// AdminBulkLinkPlaysHandler handles POST /admin/radio/plays/bulk-link
+func (h *RadioHandler) AdminBulkLinkPlaysHandler(ctx context.Context, req *AdminBulkLinkPlaysRequest) (*AdminBulkLinkPlaysResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.Body.ArtistName == "" {
+		return nil, huma.Error400BadRequest("artist_name is required")
+	}
+	if req.Body.ArtistID == 0 {
+		return nil, huma.Error400BadRequest("artist_id is required")
+	}
+
+	bulkReq := &contracts.BulkLinkRequest{
+		ArtistName: req.Body.ArtistName,
+		ArtistID:   req.Body.ArtistID,
+	}
+
+	result, err := h.unmatchedManager.BulkLinkPlays(bulkReq)
+	if err != nil {
+		logger.FromContext(ctx).Error("bulk_link_plays_failed",
+			"artist_name", req.Body.ArtistName,
+			"artist_id", req.Body.ArtistID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to bulk link plays (request_id: %s)", requestID),
+		)
+	}
+
+	// Audit log (fire and forget)
+	if h.auditLogService != nil {
+		go func() {
+			h.auditLogService.LogAction(user.ID, "bulk_link_radio_plays", "radio_play", 0, map[string]interface{}{
+				"artist_name": req.Body.ArtistName,
+				"artist_id":   req.Body.ArtistID,
+				"updated":     result.Updated,
+			})
+		}()
+	}
+
+	logger.FromContext(ctx).Info("bulk_link_plays_complete",
+		"artist_name", req.Body.ArtistName,
+		"artist_id", req.Body.ArtistID,
+		"updated", result.Updated,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &AdminBulkLinkPlaysResponse{Body: result}, nil
 }
 
 // ============================================================================

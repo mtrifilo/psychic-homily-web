@@ -584,4 +584,15 @@ type RadioServiceInterface interface {
 
 	// Matching
 	MatchPlays(episodeID uint) (*MatchResult, error)
+
+	// Unmatched play management
+	GetUnmatchedPlays(stationID uint, limit, offset int) ([]*UnmatchedPlayGroup, int64, error)
+	LinkPlay(playID uint, req *LinkPlayRequest) error
+	BulkLinkPlays(req *BulkLinkRequest) (*BulkLinkResult, error)
+
+	// Affinity
+	ComputeAffinity() error
+
+	// Re-matching
+	ReMatchUnmatched() (*MatchResult, error)
 }
