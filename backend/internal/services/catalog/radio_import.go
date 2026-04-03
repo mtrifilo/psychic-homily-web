@@ -18,6 +18,8 @@ func (s *RadioService) getProvider(source string) (RadioPlaylistProvider, error)
 		return NewKEXPProvider(), nil
 	case models.PlaylistSourceWFMU:
 		return NewWFMUProvider(), nil
+	case models.PlaylistSourceNTS:
+		return NewNTSProvider(), nil
 	default:
 		return nil, fmt.Errorf("unsupported playlist source: %s", source)
 	}
