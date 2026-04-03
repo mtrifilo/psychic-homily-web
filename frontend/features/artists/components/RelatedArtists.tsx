@@ -24,9 +24,10 @@ const RELATIONSHIP_BADGES: Record<string, { label: string; className: string }> 
   shared_label: { label: 'Shared Label', className: 'bg-purple-900/30 text-purple-300 border-purple-700/50' },
   side_project: { label: 'Side Project', className: 'bg-green-900/30 text-green-300 border-green-700/50' },
   member_of: { label: 'Member Of', className: 'bg-amber-900/30 text-amber-300 border-amber-700/50' },
+  radio_cooccurrence: { label: 'Radio Co-occurrence', className: 'bg-teal-900/30 text-teal-300 border-teal-700/50' },
 }
 
-const ALL_TYPES = ['similar', 'shared_bills', 'shared_label', 'side_project', 'member_of']
+const ALL_TYPES = ['similar', 'shared_bills', 'shared_label', 'side_project', 'member_of', 'radio_cooccurrence']
 
 interface RelatedArtistsProps {
   artistId: number
@@ -222,6 +223,7 @@ function RelatedArtistRow({
   // Primary display info
   const similarLink = links.find(l => l.type === 'similar')
   const sharedBillsLink = links.find(l => l.type === 'shared_bills')
+  const radioLink = links.find(l => l.type === 'radio_cooccurrence')
 
   // Format score display
   const getScoreDisplay = () => {
@@ -234,6 +236,17 @@ function RelatedArtistRow({
       const count = (sharedBillsLink.detail as Record<string, unknown>).shared_count
       if (count) {
         parts.push(`${count} shared ${Number(count) === 1 ? 'show' : 'shows'}`)
+      }
+    }
+    if (radioLink && radioLink.detail) {
+      const detail = radioLink.detail as Record<string, unknown>
+      const coCount = detail.co_occurrence_count
+      const stationCount = detail.station_count
+      if (coCount) {
+        const stationPart = stationCount && Number(stationCount) > 1
+          ? ` across ${stationCount} stations`
+          : ''
+        parts.push(`${coCount}x on radio${stationPart}`)
       }
     }
     return parts.join(' \u00b7 ')

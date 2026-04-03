@@ -1922,9 +1922,10 @@ type mockRadioService struct {
 	importEpisodePlaylistFn func(uint, string) (*contracts.EpisodeImportResult, error)
 	matchPlaysFn func(uint) (*contracts.MatchResult, error)
 	getUnmatchedPlaysFn func(uint, int, int) ([]*contracts.UnmatchedPlayGroup, int64, error)
-	linkPlayFn func(uint, *contracts.LinkPlayRequest) error
+	linkPlayFn func(uint, *contracts.LinkPlayRequest) (error)
 	bulkLinkPlaysFn func(*contracts.BulkLinkRequest) (*contracts.BulkLinkResult, error)
-	computeAffinityFn func() error
+	computeAffinityFn func() (error)
+	syncAffinityToRelationshipsFn func() (*contracts.SyncAffinityResult, error)
 	reMatchUnmatchedFn func() (*contracts.MatchResult, error)
 }
 
@@ -2084,7 +2085,7 @@ func (m *mockRadioService) GetUnmatchedPlays(stationID uint, limit int, offset i
 	}
 	return nil, 0, nil
 }
-func (m *mockRadioService) LinkPlay(playID uint, req *contracts.LinkPlayRequest) error {
+func (m *mockRadioService) LinkPlay(playID uint, req *contracts.LinkPlayRequest) (error) {
 	if m.linkPlayFn != nil {
 		return m.linkPlayFn(playID, req)
 	}
@@ -2096,11 +2097,17 @@ func (m *mockRadioService) BulkLinkPlays(req *contracts.BulkLinkRequest) (*contr
 	}
 	return nil, nil
 }
-func (m *mockRadioService) ComputeAffinity() error {
+func (m *mockRadioService) ComputeAffinity() (error) {
 	if m.computeAffinityFn != nil {
 		return m.computeAffinityFn()
 	}
 	return nil
+}
+func (m *mockRadioService) SyncAffinityToRelationships() (*contracts.SyncAffinityResult, error) {
+	if m.syncAffinityToRelationshipsFn != nil {
+		return m.syncAffinityToRelationshipsFn()
+	}
+	return nil, nil
 }
 func (m *mockRadioService) ReMatchUnmatched() (*contracts.MatchResult, error) {
 	if m.reMatchUnmatchedFn != nil {

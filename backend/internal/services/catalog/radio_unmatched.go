@@ -1,9 +1,12 @@
 package catalog
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
@@ -290,6 +293,98 @@ func (s *RadioService) ComputeAffinity() error {
 	}
 
 	return nil
+}
+
+// SyncAffinityToRelationships syncs radio_artist_affinity rows into artist_relationships
+// as radio_cooccurrence relationships. Creates new, updates existing, and deletes stale relationships.
+func (s *RadioService) SyncAffinityToRelationships() (*contracts.SyncAffinityResult, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	result := &contracts.SyncAffinityResult{}
+
+	// 1. Query all affinity pairs with co_occurrence_count >= 2
+	//    (the ComputeAffinity query already filters >= 2, but be safe)
+	var affinities []models.RadioArtistAffinity
+	if err := s.db.Where("co_occurrence_count >= 2").Find(&affinities).Error; err != nil {
+		return nil, fmt.Errorf("querying affinity data: %w", err)
+	}
+
+	// Build a set of affinity pairs for stale detection
+	affinityPairs := make(map[[2]uint]bool, len(affinities))
+
+	for _, aff := range affinities {
+		// artist_a_id < artist_b_id is enforced by the affinity table CHECK constraint
+		pair := [2]uint{aff.ArtistAID, aff.ArtistBID}
+		affinityPairs[pair] = true
+
+		// Compute normalized score: min(1.0, co_occurrence_count / 50.0)
+		score := float32(aff.CoOccurrenceCount) / 50.0
+		if score > 1.0 {
+			score = 1.0
+		}
+
+		// Cross-station multiplier: if station_count > 1, multiply by 1.5 (cap at 1.0)
+		if aff.StationCount > 1 {
+			score *= 1.5
+			if score > 1.0 {
+				score = 1.0
+			}
+		}
+
+		// Build JSONB detail
+		detail, _ := json.Marshal(map[string]interface{}{
+			"co_occurrence_count": aff.CoOccurrenceCount,
+			"station_count":      aff.StationCount,
+			"show_count":         aff.ShowCount,
+		})
+		detailRaw := json.RawMessage(detail)
+
+		// Upsert into artist_relationships
+		var existing models.ArtistRelationship
+		err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
+			aff.ArtistAID, aff.ArtistBID, models.RelationshipTypeRadioCooccurrence).
+			First(&existing).Error
+
+		if err == gorm.ErrRecordNotFound {
+			rel := &models.ArtistRelationship{
+				SourceArtistID:   aff.ArtistAID,
+				TargetArtistID:   aff.ArtistBID,
+				RelationshipType: models.RelationshipTypeRadioCooccurrence,
+				Score:            score,
+				AutoDerived:      true,
+				Detail:           &detailRaw,
+			}
+			if err := s.db.Create(rel).Error; err == nil {
+				result.Created++
+			}
+		} else if err == nil {
+			s.db.Model(&existing).Updates(map[string]interface{}{
+				"score":  score,
+				"detail": &detailRaw,
+			})
+			result.Updated++
+		}
+	}
+
+	// 2. Delete stale radio_cooccurrence relationships that no longer exist in affinity table
+	var staleRels []models.ArtistRelationship
+	s.db.Where("relationship_type = ? AND auto_derived = TRUE", models.RelationshipTypeRadioCooccurrence).
+		Find(&staleRels)
+
+	for _, rel := range staleRels {
+		pair := [2]uint{rel.SourceArtistID, rel.TargetArtistID}
+		if !affinityPairs[pair] {
+			if err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
+				rel.SourceArtistID, rel.TargetArtistID, models.RelationshipTypeRadioCooccurrence).
+				Delete(&models.ArtistRelationship{}).Error; err == nil {
+				result.Deleted++
+			}
+		}
+	}
+
+	return result, nil
 }
 
 // ReMatchUnmatched re-runs the matching engine on all plays where artist_id IS NULL.

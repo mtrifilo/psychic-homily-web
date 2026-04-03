@@ -24,11 +24,12 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
 
 // Edge type colors
 const EDGE_COLORS: Record<string, string> = {
-  similar: '#a1a1aa',       // zinc-400 (neutral)
-  shared_bills: '#60a5fa',  // blue-400
-  shared_label: '#c084fc',  // purple-400
-  side_project: '#4ade80',  // green-400
-  member_of: '#fbbf24',     // amber-400
+  similar: '#a1a1aa',              // zinc-400 (neutral)
+  shared_bills: '#60a5fa',         // blue-400
+  shared_label: '#c084fc',         // purple-400
+  side_project: '#4ade80',         // green-400
+  member_of: '#fbbf24',            // amber-400
+  radio_cooccurrence: '#2dd4bf',   // teal-400
 }
 
 const EDGE_LABELS: Record<string, string> = {
@@ -37,6 +38,7 @@ const EDGE_LABELS: Record<string, string> = {
   shared_label: 'Shared Label',
   side_project: 'Side Project',
   member_of: 'Member Of',
+  radio_cooccurrence: 'Radio Co-occurrence',
 }
 
 // Convert API data to graph format needed by react-force-graph-2d
@@ -237,6 +239,9 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
       if (link.type === 'shared_bills') {
         return Math.max(1, link.score * 3)
       }
+      if (link.type === 'radio_cooccurrence') {
+        return Math.max(1, link.score * 3)
+      }
       return 1
     },
     []
@@ -246,6 +251,7 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
     (link: GraphLink) => {
       if (link.type === 'shared_label') return [5, 5]
       if (link.type === 'side_project' || link.type === 'member_of') return [2, 4]
+      if (link.type === 'radio_cooccurrence') return [8, 3]
       return []
     },
     []
