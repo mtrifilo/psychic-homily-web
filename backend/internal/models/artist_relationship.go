@@ -8,11 +8,12 @@ import (
 
 // Relationship type constants
 const (
-	RelationshipTypeSimilar    = "similar"
-	RelationshipTypeSharedBills = "shared_bills"
-	RelationshipTypeSharedLabel = "shared_label"
-	RelationshipTypeSideProject = "side_project"
-	RelationshipTypeMemberOf    = "member_of"
+	RelationshipTypeSimilar          = "similar"
+	RelationshipTypeSharedBills      = "shared_bills"
+	RelationshipTypeSharedLabel      = "shared_label"
+	RelationshipTypeSideProject      = "side_project"
+	RelationshipTypeMemberOf         = "member_of"
+	RelationshipTypeRadioCooccurrence = "radio_cooccurrence"
 )
 
 // ArtistRelationship represents a relationship between two artists.

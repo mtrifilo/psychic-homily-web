@@ -362,3 +362,11 @@ type RadioFetchCycleResult struct {
 	Failures          int      `json:"failures"`
 	Errors            []string `json:"errors,omitempty"`
 }
+
+// SyncAffinityResult summarizes the result of syncing radio affinity data
+// to artist relationships.
+type SyncAffinityResult struct {
+	Created int `json:"created"`
+	Updated int `json:"updated"`
+	Deleted int `json:"deleted"`
+}

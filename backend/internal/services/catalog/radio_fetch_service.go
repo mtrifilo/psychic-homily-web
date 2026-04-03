@@ -275,7 +275,7 @@ func (s *RadioFetchService) runFetchCycle() {
 	)
 }
 
-// runAffinityCycle computes the artist affinity table.
+// runAffinityCycle computes the artist affinity table and syncs to artist relationships.
 func (s *RadioFetchService) runAffinityCycle() {
 	start := time.Now()
 	s.logger.Info("starting affinity computation")
@@ -286,6 +286,23 @@ func (s *RadioFetchService) runAffinityCycle() {
 	}
 
 	s.logger.Info("affinity computation complete", "duration", time.Since(start))
+
+	// Sync affinity data to artist_relationships as radio_cooccurrence type
+	syncStart := time.Now()
+	s.logger.Info("starting affinity-to-relationship sync")
+
+	syncResult, err := s.radioService.SyncAffinityToRelationships()
+	if err != nil {
+		s.logger.Error("affinity-to-relationship sync failed", "error", err)
+		return
+	}
+
+	s.logger.Info("affinity-to-relationship sync complete",
+		"created", syncResult.Created,
+		"updated", syncResult.Updated,
+		"deleted", syncResult.Deleted,
+		"duration", time.Since(syncStart),
+	)
 }
 
 // runReMatchCycle re-matches unmatched plays against current artists.

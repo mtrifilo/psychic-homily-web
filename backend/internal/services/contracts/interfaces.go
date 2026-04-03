@@ -592,6 +592,7 @@ type RadioServiceInterface interface {
 
 	// Affinity
 	ComputeAffinity() error
+	SyncAffinityToRelationships() (*SyncAffinityResult, error)
 
 	// Re-matching
 	ReMatchUnmatched() (*MatchResult, error)
