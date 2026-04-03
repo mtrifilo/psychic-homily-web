@@ -1917,6 +1917,10 @@ type mockRadioService struct {
 	getAsHeardOnForReleaseFn func(uint) ([]*contracts.RadioAsHeardOnResponse, error)
 	getNewReleaseRadarFn func(uint, int) ([]*contracts.RadioNewReleaseRadarEntry, error)
 	getRadioStatsFn func() (*contracts.RadioStatsResponse, error)
+	importStationFn func(uint, int) (*contracts.RadioImportResult, error)
+	fetchNewEpisodesFn func(uint) (*contracts.RadioImportResult, error)
+	importEpisodePlaylistFn func(uint, string) (*contracts.EpisodeImportResult, error)
+	matchPlaysFn func(uint) (*contracts.MatchResult, error)
 }
 
 func (m *mockRadioService) CreateStation(req *contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
@@ -2042,6 +2046,30 @@ func (m *mockRadioService) GetNewReleaseRadar(stationID uint, limit int) ([]*con
 func (m *mockRadioService) GetRadioStats() (*contracts.RadioStatsResponse, error) {
 	if m.getRadioStatsFn != nil {
 		return m.getRadioStatsFn()
+	}
+	return nil, nil
+}
+func (m *mockRadioService) ImportStation(stationID uint, backfillDays int) (*contracts.RadioImportResult, error) {
+	if m.importStationFn != nil {
+		return m.importStationFn(stationID, backfillDays)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportResult, error) {
+	if m.fetchNewEpisodesFn != nil {
+		return m.fetchNewEpisodesFn(stationID)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) ImportEpisodePlaylist(showID uint, episodeExternalID string) (*contracts.EpisodeImportResult, error) {
+	if m.importEpisodePlaylistFn != nil {
+		return m.importEpisodePlaylistFn(showID, episodeExternalID)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) MatchPlays(episodeID uint) (*contracts.MatchResult, error) {
+	if m.matchPlaysFn != nil {
+		return m.matchPlaysFn(episodeID)
 	}
 	return nil, nil
 }
