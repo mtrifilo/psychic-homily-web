@@ -1040,4 +1040,9 @@ func setupRadioRoutes(rc RouteContext) {
 	// Admin radio show endpoints (admin-only checks inside handlers)
 	huma.Put(rc.Protected, "/admin/radio-shows/{id}", radioHandler.AdminUpdateRadioShowHandler)
 	huma.Delete(rc.Protected, "/admin/radio-shows/{id}", radioHandler.AdminDeleteRadioShowHandler)
+
+	// Admin unmatched play management endpoints
+	huma.Get(rc.Protected, "/admin/radio/unmatched", radioHandler.AdminGetUnmatchedPlaysHandler)
+	huma.Post(rc.Protected, "/admin/radio/plays/{id}/link", radioHandler.AdminLinkPlayHandler)
+	huma.Post(rc.Protected, "/admin/radio/plays/bulk-link", radioHandler.AdminBulkLinkPlaysHandler)
 }

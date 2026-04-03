@@ -315,3 +315,50 @@ type MatchResult struct {
 	Matched   int `json:"matched"`
 	Unmatched int `json:"unmatched"`
 }
+
+// ──────────────────────────────────────────────
+// Unmatched play management types
+// ──────────────────────────────────────────────
+
+// UnmatchedPlayGroup represents a group of unmatched plays by artist name.
+type UnmatchedPlayGroup struct {
+	ArtistName       string            `json:"artist_name"`
+	PlayCount        int               `json:"play_count"`
+	StationNames     []string          `json:"station_names"`
+	SuggestedMatches []SuggestedMatch  `json:"suggested_matches"`
+}
+
+// SuggestedMatch represents a suggested artist match for unmatched plays.
+type SuggestedMatch struct {
+	ArtistID   uint   `json:"artist_id"`
+	ArtistName string `json:"artist_name"`
+	ArtistSlug string `json:"artist_slug"`
+}
+
+// LinkPlayRequest represents a request to link a play to entities.
+type LinkPlayRequest struct {
+	ArtistID  *uint `json:"artist_id"`
+	ReleaseID *uint `json:"release_id"`
+	LabelID   *uint `json:"label_id"`
+}
+
+// BulkLinkRequest represents a request to bulk-link all plays by artist_name to an artist.
+type BulkLinkRequest struct {
+	ArtistName string `json:"artist_name"`
+	ArtistID   uint   `json:"artist_id"`
+}
+
+// BulkLinkResult summarizes the result of a bulk link operation.
+type BulkLinkResult struct {
+	Updated int `json:"updated"`
+}
+
+// RadioFetchCycleResult summarizes the result of a radio fetch cycle.
+type RadioFetchCycleResult struct {
+	StationsProcessed int      `json:"stations_processed"`
+	EpisodesImported  int      `json:"episodes_imported"`
+	PlaysImported     int      `json:"plays_imported"`
+	PlaysMatched      int      `json:"plays_matched"`
+	Failures          int      `json:"failures"`
+	Errors            []string `json:"errors,omitempty"`
+}
