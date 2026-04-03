@@ -23,9 +23,9 @@ describe('sidebarGroups', () => {
     expect(sidebarGroups.map(g => g.label)).toEqual(['Discover', 'Community'])
   })
 
-  it('Discover contains Shows, Festivals, Artists, Venues, Releases, Labels, Tags, Crates', () => {
+  it('Discover contains Shows, Festivals, Artists, Venues, Releases, Labels, Tags, Crates, Radio', () => {
     const discover = sidebarGroups.find(g => g.label === 'Discover')!
-    expect(discover.items.map(i => i.label)).toEqual(['Shows', 'Festivals', 'Artists', 'Venues', 'Releases', 'Labels', 'Tags', 'Scenes', 'Crates', 'Charts'])
+    expect(discover.items.map(i => i.label)).toEqual(['Shows', 'Festivals', 'Artists', 'Venues', 'Releases', 'Labels', 'Tags', 'Scenes', 'Crates', 'Charts', 'Radio'])
   })
 
   it('Community contains Contribute, Requests, Blog, DJ Sets, Substack, Submissions', () => {
