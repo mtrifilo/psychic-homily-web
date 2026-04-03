@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { Shield, ShieldCheck, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tags, Tent, Workflow, Library, Music, ClipboardCheck, BarChart3 } from 'lucide-react'
+import { Shield, ShieldCheck, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tags, Tent, Workflow, Library, Music, ClipboardCheck, BarChart3, Radio } from 'lucide-react'
 import { usePendingVenueEdits } from '@/lib/hooks/admin/useAdminVenueEdits'
 import { useUnverifiedVenues } from '@/lib/hooks/admin/useAdminVenues'
 import { usePendingReports } from '@/lib/hooks/admin/useAdminReports'
@@ -149,6 +149,14 @@ const ArtistsPage = dynamic(() => import('./artists/page'), {
   ),
 })
 
+const RadioPage = dynamic(() => import('./radio/page'), {
+  loading: () => (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
 const ModerationPage = dynamic(() => import('./moderation/page'), {
   loading: () => (
     <div className="flex items-center justify-center py-12">
@@ -171,7 +179,7 @@ const CrateManagementComponent = dynamic(
 const VALID_TABS = [
   'dashboard', 'moderation', 'pending-shows', 'pending-venue-edits', 'unverified-venues',
   'reports', 'import-show', 'releases', 'labels', 'festivals', 'pipeline',
-  'crates', 'tags', 'data-quality', 'analytics', 'artists-admin',
+  'crates', 'tags', 'data-quality', 'analytics', 'artists-admin', 'radio',
   'users', 'audit-log',
 ] as const
 
@@ -357,6 +365,10 @@ function AdminPageContent() {
               <Music className="h-4 w-4" />
               Artists
             </TabsTrigger>
+            <TabsTrigger value="radio" className="gap-2">
+              <Radio className="h-4 w-4" />
+              Radio
+            </TabsTrigger>
             <TabsTrigger value="users" className="gap-2">
               <Users className="h-4 w-4" />
               Users
@@ -429,6 +441,10 @@ function AdminPageContent() {
 
           <TabsContent value="artists-admin" className="space-y-4" data-testid="admin-tab-artists-admin">
             <ArtistsPage />
+          </TabsContent>
+
+          <TabsContent value="radio" className="space-y-4" data-testid="admin-tab-radio">
+            <RadioPage />
           </TabsContent>
 
           <TabsContent value="users" className="space-y-4" data-testid="admin-tab-users">
