@@ -1921,6 +1921,11 @@ type mockRadioService struct {
 	fetchNewEpisodesFn func(uint) (*contracts.RadioImportResult, error)
 	importEpisodePlaylistFn func(uint, string) (*contracts.EpisodeImportResult, error)
 	matchPlaysFn func(uint) (*contracts.MatchResult, error)
+	getUnmatchedPlaysFn func(uint, int, int) ([]*contracts.UnmatchedPlayGroup, int64, error)
+	linkPlayFn func(uint, *contracts.LinkPlayRequest) error
+	bulkLinkPlaysFn func(*contracts.BulkLinkRequest) (*contracts.BulkLinkResult, error)
+	computeAffinityFn func() error
+	reMatchUnmatchedFn func() (*contracts.MatchResult, error)
 }
 
 func (m *mockRadioService) CreateStation(req *contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
@@ -2070,6 +2075,36 @@ func (m *mockRadioService) ImportEpisodePlaylist(showID uint, episodeExternalID 
 func (m *mockRadioService) MatchPlays(episodeID uint) (*contracts.MatchResult, error) {
 	if m.matchPlaysFn != nil {
 		return m.matchPlaysFn(episodeID)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) GetUnmatchedPlays(stationID uint, limit int, offset int) ([]*contracts.UnmatchedPlayGroup, int64, error) {
+	if m.getUnmatchedPlaysFn != nil {
+		return m.getUnmatchedPlaysFn(stationID, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *mockRadioService) LinkPlay(playID uint, req *contracts.LinkPlayRequest) error {
+	if m.linkPlayFn != nil {
+		return m.linkPlayFn(playID, req)
+	}
+	return nil
+}
+func (m *mockRadioService) BulkLinkPlays(req *contracts.BulkLinkRequest) (*contracts.BulkLinkResult, error) {
+	if m.bulkLinkPlaysFn != nil {
+		return m.bulkLinkPlaysFn(req)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) ComputeAffinity() error {
+	if m.computeAffinityFn != nil {
+		return m.computeAffinityFn()
+	}
+	return nil
+}
+func (m *mockRadioService) ReMatchUnmatched() (*contracts.MatchResult, error) {
+	if m.reMatchUnmatchedFn != nil {
+		return m.reMatchUnmatchedFn()
 	}
 	return nil, nil
 }

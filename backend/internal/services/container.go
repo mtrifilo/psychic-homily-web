@@ -52,6 +52,7 @@ type ServiceContainer struct {
 	User              *usersvc.UserService
 	Leaderboard       *usersvc.LeaderboardService
 	Radio             *catalog.RadioService
+	RadioFetch        *catalog.RadioFetchService
 	Venue             *catalog.VenueService
 	VenueSourceConfig *pipeline.VenueSourceConfigService
 
@@ -126,6 +127,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	discovery.SetEnrichmentService(enrichmentSvc)
 
 	revisionSvc := adminsvc.NewRevisionService(database)
+	radioSvc := catalog.NewRadioService(database)
 
 	return &ServiceContainer{
 		// DB-only leaf services
@@ -160,7 +162,8 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		EntityReport:  adminsvc.NewEntityReportService(database),
 		User:          userService,
 		Leaderboard:   usersvc.NewLeaderboardService(database),
-		Radio:             catalog.NewRadioService(database),
+		Radio:             radioSvc,
+		RadioFetch:        catalog.NewRadioFetchService(radioSvc, discord),
 		Venue:             venue,
 		VenueSourceConfig: venueSourceConfig,
 

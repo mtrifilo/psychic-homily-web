@@ -172,6 +172,10 @@ func main() {
 	autoPromotionCtx, autoPromotionCancel := context.WithCancel(context.Background())
 	sc.AutoPromotion.Start(autoPromotionCtx)
 
+	// Start radio fetch service (background job for playlist ingestion, affinity, re-matching)
+	radioFetchCtx, radioFetchCancel := context.WithCancel(context.Background())
+	sc.RadioFetch.Start(radioFetchCtx)
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -215,6 +219,10 @@ func main() {
 	// Stop auto-promotion scheduler
 	autoPromotionCancel()
 	sc.AutoPromotion.Stop()
+
+	// Stop radio fetch service
+	radioFetchCancel()
+	sc.RadioFetch.Stop()
 
 	// Shut down chromedp browser pool
 	sc.Fetcher.ShutdownChromedp()
