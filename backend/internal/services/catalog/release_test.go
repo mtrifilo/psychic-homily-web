@@ -42,8 +42,11 @@ func (suite *ReleaseServiceIntegrationTestSuite) TearDownTest() {
 	suite.Require().NoError(err)
 	// Delete in FK-safe order
 	_, _ = sqlDB.Exec("DELETE FROM release_external_links")
+	_, _ = sqlDB.Exec("DELETE FROM release_labels")
 	_, _ = sqlDB.Exec("DELETE FROM artist_releases")
 	_, _ = sqlDB.Exec("DELETE FROM releases")
+	_, _ = sqlDB.Exec("DELETE FROM artist_labels")
+	_, _ = sqlDB.Exec("DELETE FROM labels")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
@@ -65,6 +68,26 @@ func (suite *ReleaseServiceIntegrationTestSuite) createTestArtist(name string) *
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 	return artist
+}
+
+func (suite *ReleaseServiceIntegrationTestSuite) createTestLabel(name string) *models.Label {
+	slug := name // simplified slug for tests
+	label := &models.Label{
+		Name: name,
+		Slug: &slug,
+	}
+	err := suite.db.Create(label).Error
+	suite.Require().NoError(err)
+	return label
+}
+
+func (suite *ReleaseServiceIntegrationTestSuite) linkReleaseToLabel(releaseID, labelID uint) {
+	rl := &models.ReleaseLabel{
+		ReleaseID: releaseID,
+		LabelID:   labelID,
+	}
+	err := suite.db.Create(rl).Error
+	suite.Require().NoError(err)
 }
 
 // =============================================================================
@@ -287,6 +310,91 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_ArtistCount() 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
 	suite.Equal(2, resp[0].ArtistCount)
+}
+
+func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_ArtistNames() {
+	artist1 := suite.createTestArtist("Alvvays")
+	artist2 := suite.createTestArtist("Snail Mail")
+
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+		Title: "Split EP",
+		Artists: []contracts.CreateReleaseArtistEntry{
+			{ArtistID: artist1.ID, Role: "main"},
+			{ArtistID: artist2.ID, Role: "main"},
+		},
+	})
+
+	resp, err := suite.releaseService.ListReleases(map[string]interface{}{})
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Require().Len(resp[0].Artists, 2)
+	suite.Equal("Alvvays", resp[0].Artists[0].Name)
+	suite.NotZero(resp[0].Artists[0].ID)
+	suite.Equal("Snail Mail", resp[0].Artists[1].Name)
+	suite.NotZero(resp[0].Artists[1].ID)
+}
+
+func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_ArtistsEmptySlice() {
+	// Release with no artists should have empty artists slice (not nil)
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+		Title: "No Artist Album",
+	})
+
+	resp, err := suite.releaseService.ListReleases(map[string]interface{}{})
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.NotNil(resp[0].Artists)
+	suite.Empty(resp[0].Artists)
+}
+
+func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_LabelInfo() {
+	label := suite.createTestLabel("sub-pop")
+
+	created, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+		Title: "Labeled Album",
+	})
+	suite.Require().NoError(err)
+	suite.linkReleaseToLabel(created.ID, label.ID)
+
+	resp, err := suite.releaseService.ListReleases(map[string]interface{}{})
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Require().NotNil(resp[0].LabelName)
+	suite.Equal("sub-pop", *resp[0].LabelName)
+	suite.Require().NotNil(resp[0].LabelSlug)
+	suite.Equal("sub-pop", *resp[0].LabelSlug)
+}
+
+func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_NoLabel() {
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+		Title: "Unlabeled Album",
+	})
+
+	resp, err := suite.releaseService.ListReleases(map[string]interface{}{})
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Nil(resp[0].LabelName)
+	suite.Nil(resp[0].LabelSlug)
+}
+
+func (suite *ReleaseServiceIntegrationTestSuite) TestSearchReleases_ArtistNames() {
+	artist := suite.createTestArtist("Radiohead")
+
+	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+		Title:   "OK Computer",
+		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artist.ID, Role: "main"}},
+	})
+
+	resp, err := suite.releaseService.SearchReleases("OK Computer")
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Require().Len(resp[0].Artists, 1)
+	suite.Equal("Radiohead", resp[0].Artists[0].Name)
 }
 
 // =============================================================================

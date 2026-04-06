@@ -64,6 +64,12 @@ export interface ReleaseDetail {
   updated_at: string
 }
 
+export interface ReleaseListArtist {
+  id: number
+  name: string
+  slug: string
+}
+
 export interface ReleaseListItem {
   id: number
   title: string
@@ -72,6 +78,9 @@ export interface ReleaseListItem {
   release_year: number | null
   cover_art_url: string | null
   artist_count: number
+  artists: ReleaseListArtist[]
+  label_name: string | null
+  label_slug: string | null
 }
 
 export interface ReleasesListResponse {
