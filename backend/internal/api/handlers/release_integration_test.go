@@ -60,7 +60,7 @@ func (s *ReleaseHandlerIntegrationSuite) TestListReleases_Success() {
 	resp, err := s.handler.ListReleasesHandler(s.deps.ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
-	s.GreaterOrEqual(resp.Body.Count, 3)
+	s.GreaterOrEqual(resp.Body.Total, int64(3))
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestListReleases_Empty() {
@@ -68,7 +68,7 @@ func (s *ReleaseHandlerIntegrationSuite) TestListReleases_Empty() {
 	resp, err := s.handler.ListReleasesHandler(s.deps.ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
-	s.Equal(0, resp.Body.Count)
+	s.Equal(int64(0), resp.Body.Total)
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestListReleases_FilterByType() {
@@ -79,7 +79,7 @@ func (s *ReleaseHandlerIntegrationSuite) TestListReleases_FilterByType() {
 	resp, err := s.handler.ListReleasesHandler(s.deps.ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
-	s.Equal(1, resp.Body.Count)
+	s.Equal(int64(1), resp.Body.Total)
 	s.Equal("EP Release", resp.Body.Releases[0].Title)
 }
 

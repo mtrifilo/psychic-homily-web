@@ -390,7 +390,7 @@ type ReleaseServiceInterface interface {
 	CreateRelease(req *CreateReleaseRequest) (*ReleaseDetailResponse, error)
 	GetRelease(releaseID uint) (*ReleaseDetailResponse, error)
 	GetReleaseBySlug(slug string) (*ReleaseDetailResponse, error)
-	ListReleases(filters map[string]interface{}) ([]*ReleaseListResponse, error)
+	ListReleases(filters ReleaseListFilters) ([]*ReleaseListResponse, int64, error)
 	SearchReleases(query string) ([]*ReleaseListResponse, error)
 	UpdateRelease(releaseID uint, req *UpdateReleaseRequest) (*ReleaseDetailResponse, error)
 	DeleteRelease(releaseID uint) error

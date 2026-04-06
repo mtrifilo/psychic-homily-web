@@ -138,37 +138,89 @@ func (s *ReleaseService) GetReleaseBySlug(slug string) (*contracts.ReleaseDetail
 	return s.buildDetailResponse(&release)
 }
 
-// ListReleases retrieves releases with optional filtering
-func (s *ReleaseService) ListReleases(filters map[string]interface{}) ([]*contracts.ReleaseListResponse, error) {
+// ListReleases retrieves releases with optional filtering, search, sorting, and pagination.
+// Returns the list of releases and the total count matching the filters (before pagination).
+func (s *ReleaseService) ListReleases(filters contracts.ReleaseListFilters) ([]*contracts.ReleaseListResponse, int64, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
 	query := s.db.Model(&models.Release{})
 
 	// Apply filters
-	if artistID, ok := filters["artist_id"].(uint); ok && artistID > 0 {
-		query = query.Where("id IN (?)",
-			s.db.Table("artist_releases").Select("release_id").Where("artist_id = ?", artistID),
+	if filters.ArtistID > 0 {
+		query = query.Where("releases.id IN (?)",
+			s.db.Table("artist_releases").Select("release_id").Where("artist_id = ?", filters.ArtistID),
 		)
 	}
-	if releaseType, ok := filters["release_type"].(string); ok && releaseType != "" {
-		query = query.Where("release_type = ?", releaseType)
+	if filters.ReleaseType != "" {
+		query = query.Where("releases.release_type = ?", filters.ReleaseType)
 	}
-	if year, ok := filters["year"].(int); ok && year > 0 {
-		query = query.Where("release_year = ?", year)
+	if filters.Year > 0 {
+		query = query.Where("releases.release_year = ?", filters.Year)
+	}
+	if filters.LabelID > 0 {
+		query = query.Where("releases.id IN (?)",
+			s.db.Table("release_labels").Select("release_id").Where("label_id = ?", filters.LabelID),
+		)
+	}
+	if filters.Search != "" {
+		searchPattern := "%" + filters.Search + "%"
+		// Search by release title OR by artist name (via artist_releases + artists join)
+		query = query.Where(
+			"releases.title ILIKE ? OR releases.id IN (?)",
+			searchPattern,
+			s.db.Table("artist_releases").
+				Select("artist_releases.release_id").
+				Joins("JOIN artists ON artists.id = artist_releases.artist_id").
+				Where("artists.name ILIKE ?", searchPattern),
+		)
 	}
 
-	// Order by release_year DESC, title ASC
-	query = query.Order("release_year DESC NULLS LAST, title ASC")
+	// Get total count before pagination
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count releases: %w", err)
+	}
+
+	// Apply sorting
+	switch filters.Sort {
+	case "oldest":
+		query = query.Order("releases.release_year ASC NULLS LAST, releases.title ASC")
+	case "title_asc":
+		query = query.Order("releases.title ASC")
+	case "title_desc":
+		query = query.Order("releases.title DESC")
+	case "recently_added":
+		query = query.Order("releases.created_at DESC")
+	default: // "newest" or empty
+		query = query.Order("releases.release_year DESC NULLS LAST, releases.title ASC")
+	}
+
+	// Apply pagination
+	limit := filters.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	query = query.Limit(limit)
+	if filters.Offset > 0 {
+		query = query.Offset(filters.Offset)
+	}
 
 	var releases []models.Release
 	err := query.Find(&releases).Error
 	if err != nil {
-		return nil, fmt.Errorf("failed to list releases: %w", err)
+		return nil, 0, fmt.Errorf("failed to list releases: %w", err)
 	}
 
-	return s.buildListResponses(releases)
+	responses, err := s.buildListResponses(releases)
+	if err != nil {
+		return nil, 0, err
+	}
+	return responses, total, nil
 }
 
 // SearchReleases searches for releases by title using ILIKE matching
@@ -303,7 +355,8 @@ func (s *ReleaseService) GetReleasesForArtist(artistID uint) ([]*contracts.Relea
 		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
 
-	return s.ListReleases(map[string]interface{}{"artist_id": artistID})
+	releases, _, err := s.ListReleases(contracts.ReleaseListFilters{ArtistID: artistID})
+	return releases, err
 }
 
 // GetReleasesForArtistWithRoles retrieves all releases for an artist, including their role on each release

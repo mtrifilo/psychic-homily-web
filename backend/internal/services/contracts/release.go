@@ -78,6 +78,18 @@ type ReleaseListArtist struct {
 	Slug string `json:"slug"`
 }
 
+// ReleaseListFilters contains structured filter parameters for listing releases
+type ReleaseListFilters struct {
+	ArtistID    uint
+	ReleaseType string
+	Year        int
+	Search      string
+	Sort        string
+	LabelID     uint
+	Limit       int
+	Offset      int
+}
+
 // ReleaseListResponse represents a release in list views
 type ReleaseListResponse struct {
 	ID          uint                `json:"id"`

@@ -85,8 +85,21 @@ export interface ReleaseListItem {
 
 export interface ReleasesListResponse {
   releases: ReleaseListItem[]
-  count: number
+  total: number
+  limit: number
+  offset: number
 }
+
+/** Sort options for the releases browse page */
+export type ReleaseSortOption = 'newest' | 'oldest' | 'title_asc' | 'title_desc' | 'recently_added'
+
+export const RELEASE_SORT_OPTIONS: { value: ReleaseSortOption; label: string }[] = [
+  { value: 'newest', label: 'Newest First' },
+  { value: 'oldest', label: 'Oldest First' },
+  { value: 'title_asc', label: 'Title A-Z' },
+  { value: 'title_desc', label: 'Title Z-A' },
+  { value: 'recently_added', label: 'Recently Added' },
+]
 
 /** Release with the artist's role, returned from GET /artists/:id/releases */
 export interface ArtistReleaseListItem extends ReleaseListItem {
