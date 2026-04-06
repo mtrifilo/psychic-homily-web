@@ -985,7 +985,7 @@ function RadioMatchingTab() {
             {/* TODO: A dedicated unmatched plays endpoint (grouped by artist_name with play counts)
                 will be needed for full functionality. For now, showing aggregate stats from /radio/stats. */}
             Unmatched plays will be listed here grouped by artist name once a dedicated
-            endpoint is available. Currently {unmatchedPlays.toLocaleString()} plays are unmatched.
+            endpoint is available. Currently {unmatchedPlays.toLocaleString()} {unmatchedPlays === 1 ? 'play is' : 'plays are'} unmatched.
           </p>
         </div>
       </div>

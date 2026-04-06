@@ -4,6 +4,7 @@ import {
   resolveArtists,
   resolveVenues,
   buildShowPayload,
+  normalizeDate,
   submitShows,
   type ShowPlan,
 } from "../src/commands/submit-show";
@@ -202,13 +203,14 @@ describe("buildShowPayload", () => {
         venues: [{ name: "Crescent Ballroom", city: "Phoenix", state: "AZ" }],
       },
       artists: [{ id: 42, name: "Nina Hagen", status: "existing" }],
-      venues: [{ id: 10, name: "Crescent Ballroom", status: "existing" }],
+      venues: [{ id: 10, name: "Crescent Ballroom", state: "AZ", status: "existing" }],
       valid: true,
       errors: [],
     };
 
     const payload = buildShowPayload(plan);
-    expect(payload.event_date).toBe("2026-04-15T20:00:00Z");
+    // 8pm Phoenix (UTC-7) = 3am UTC next day
+    expect(payload.event_date).toBe("2026-04-16T03:00:00Z");
     expect(payload.city).toBe("Phoenix");
 
     const artists = payload.artists as Array<Record<string, unknown>>;
@@ -849,5 +851,56 @@ describe("submitShows deduplication", () => {
     expect(result.skipped).toBe(1);
     expect(result.plans[0].duplicate?.isDuplicate).toBe(true);
     expect(result.plans[1].duplicate?.isDuplicate).toBe(false);
+  });
+});
+
+// -- normalizeDate (timezone conversion) --------------------------------------
+
+describe("normalizeDate", () => {
+  test("date-only for Arizona: 8pm MST = 3am UTC next day", () => {
+    // Arizona is UTC-7 year-round (no DST)
+    expect(normalizeDate("2026-04-15", "AZ")).toBe("2026-04-16T03:00:00Z");
+  });
+
+  test("date-only for California (PDT): 8pm PDT = 3am UTC next day", () => {
+    // California in April is UTC-7 (PDT)
+    expect(normalizeDate("2026-04-15", "CA")).toBe("2026-04-16T03:00:00Z");
+  });
+
+  test("date-only for New York (EDT): 8pm EDT = midnight UTC", () => {
+    // New York in April is UTC-4 (EDT)
+    expect(normalizeDate("2026-04-15", "NY")).toBe("2026-04-16T00:00:00Z");
+  });
+
+  test("date-only for Texas (CDT): 8pm CDT = 1am UTC next day", () => {
+    // Texas in April is UTC-5 (CDT)
+    expect(normalizeDate("2026-04-15", "TX")).toBe("2026-04-16T01:00:00Z");
+  });
+
+  test("date+time without timezone for Arizona", () => {
+    // 7:30pm Phoenix = 2:30am UTC next day
+    expect(normalizeDate("2026-04-15T19:30", "AZ")).toBe("2026-04-16T02:30:00Z");
+  });
+
+  test("date+time+seconds without timezone for Arizona", () => {
+    expect(normalizeDate("2026-04-15T19:30:00", "AZ")).toBe("2026-04-16T02:30:00Z");
+  });
+
+  test("already has timezone suffix (Z): returns as-is", () => {
+    expect(normalizeDate("2026-04-15T20:00:00Z", "AZ")).toBe("2026-04-15T20:00:00Z");
+  });
+
+  test("already has timezone offset: returns as-is", () => {
+    expect(normalizeDate("2026-04-15T20:00:00-07:00", "AZ")).toBe("2026-04-15T20:00:00-07:00");
+  });
+
+  test("defaults to Phoenix timezone when no state provided", () => {
+    // Same as AZ
+    expect(normalizeDate("2026-04-15")).toBe("2026-04-16T03:00:00Z");
+  });
+
+  test("California winter (PST, UTC-8): 8pm = 4am UTC next day", () => {
+    // January = PST = UTC-8
+    expect(normalizeDate("2026-01-15", "CA")).toBe("2026-01-16T04:00:00Z");
   });
 });
