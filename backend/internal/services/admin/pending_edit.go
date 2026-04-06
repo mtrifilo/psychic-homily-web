@@ -337,6 +337,7 @@ func (s *PendingEditService) toResponse(edit *models.PendingEntityEdit) *contrac
 		ID:              edit.ID,
 		EntityType:      edit.EntityType,
 		EntityID:        edit.EntityID,
+		EntityName:      resolveEntityName(s.db, edit.EntityType, edit.EntityID),
 		SubmittedBy:     edit.SubmittedBy,
 		Summary:         edit.Summary,
 		Status:          edit.Status,
