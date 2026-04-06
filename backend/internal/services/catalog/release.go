@@ -138,78 +138,89 @@ func (s *ReleaseService) GetReleaseBySlug(slug string) (*contracts.ReleaseDetail
 	return s.buildDetailResponse(&release)
 }
 
-// ListReleases retrieves releases with optional filtering
-func (s *ReleaseService) ListReleases(filters map[string]interface{}) ([]*contracts.ReleaseListResponse, error) {
+// ListReleases retrieves releases with optional filtering, search, sorting, and pagination.
+// Returns the list of releases and the total count matching the filters (before pagination).
+func (s *ReleaseService) ListReleases(filters contracts.ReleaseListFilters) ([]*contracts.ReleaseListResponse, int64, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
 	query := s.db.Model(&models.Release{})
 
 	// Apply filters
-	if artistID, ok := filters["artist_id"].(uint); ok && artistID > 0 {
-		query = query.Where("id IN (?)",
-			s.db.Table("artist_releases").Select("release_id").Where("artist_id = ?", artistID),
+	if filters.ArtistID > 0 {
+		query = query.Where("releases.id IN (?)",
+			s.db.Table("artist_releases").Select("release_id").Where("artist_id = ?", filters.ArtistID),
 		)
 	}
-	if releaseType, ok := filters["release_type"].(string); ok && releaseType != "" {
-		query = query.Where("release_type = ?", releaseType)
+	if filters.ReleaseType != "" {
+		query = query.Where("releases.release_type = ?", filters.ReleaseType)
 	}
-	if year, ok := filters["year"].(int); ok && year > 0 {
-		query = query.Where("release_year = ?", year)
+	if filters.Year > 0 {
+		query = query.Where("releases.release_year = ?", filters.Year)
+	}
+	if filters.LabelID > 0 {
+		query = query.Where("releases.id IN (?)",
+			s.db.Table("release_labels").Select("release_id").Where("label_id = ?", filters.LabelID),
+		)
+	}
+	if filters.Search != "" {
+		searchPattern := "%" + filters.Search + "%"
+		// Search by release title OR by artist name (via artist_releases + artists join)
+		query = query.Where(
+			"releases.title ILIKE ? OR releases.id IN (?)",
+			searchPattern,
+			s.db.Table("artist_releases").
+				Select("artist_releases.release_id").
+				Joins("JOIN artists ON artists.id = artist_releases.artist_id").
+				Where("artists.name ILIKE ?", searchPattern),
+		)
 	}
 
-	// Order by release_year DESC, title ASC
-	query = query.Order("release_year DESC NULLS LAST, title ASC")
+	// Get total count before pagination
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count releases: %w", err)
+	}
+
+	// Apply sorting
+	switch filters.Sort {
+	case "oldest":
+		query = query.Order("releases.release_year ASC NULLS LAST, releases.title ASC")
+	case "title_asc":
+		query = query.Order("releases.title ASC")
+	case "title_desc":
+		query = query.Order("releases.title DESC")
+	case "recently_added":
+		query = query.Order("releases.created_at DESC")
+	default: // "newest" or empty
+		query = query.Order("releases.release_year DESC NULLS LAST, releases.title ASC")
+	}
+
+	// Apply pagination
+	limit := filters.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	query = query.Limit(limit)
+	if filters.Offset > 0 {
+		query = query.Offset(filters.Offset)
+	}
 
 	var releases []models.Release
 	err := query.Find(&releases).Error
 	if err != nil {
-		return nil, fmt.Errorf("failed to list releases: %w", err)
+		return nil, 0, fmt.Errorf("failed to list releases: %w", err)
 	}
 
-	// Batch-load artist counts
-	releaseIDs := make([]uint, len(releases))
-	for i, r := range releases {
-		releaseIDs[i] = r.ID
+	responses, err := s.buildListResponses(releases)
+	if err != nil {
+		return nil, 0, err
 	}
-
-	artistCounts := make(map[uint]int)
-	if len(releaseIDs) > 0 {
-		type CountResult struct {
-			ReleaseID uint
-			Count     int
-		}
-		var counts []CountResult
-		s.db.Table("artist_releases").
-			Select("release_id, COUNT(DISTINCT artist_id) as count").
-			Where("release_id IN ?", releaseIDs).
-			Group("release_id").
-			Find(&counts)
-		for _, c := range counts {
-			artistCounts[c.ReleaseID] = c.Count
-		}
-	}
-
-	// Build responses
-	responses := make([]*contracts.ReleaseListResponse, len(releases))
-	for i, release := range releases {
-		slug := ""
-		if release.Slug != nil {
-			slug = *release.Slug
-		}
-		responses[i] = &contracts.ReleaseListResponse{
-			ID:          release.ID,
-			Title:       release.Title,
-			Slug:        slug,
-			ReleaseType: string(release.ReleaseType),
-			ReleaseYear: release.ReleaseYear,
-			CoverArtURL: release.CoverArtURL,
-			ArtistCount: artistCounts[release.ID],
-		}
-	}
-
-	return responses, nil
+	return responses, total, nil
 }
 
 // SearchReleases searches for releases by title using ILIKE matching
@@ -246,48 +257,7 @@ func (s *ReleaseService) SearchReleases(query string) ([]*contracts.ReleaseListR
 		return nil, fmt.Errorf("failed to search releases: %w", err)
 	}
 
-	// Batch-load artist counts
-	releaseIDs := make([]uint, len(releases))
-	for i, r := range releases {
-		releaseIDs[i] = r.ID
-	}
-
-	artistCounts := make(map[uint]int)
-	if len(releaseIDs) > 0 {
-		type CountResult struct {
-			ReleaseID uint
-			Count     int
-		}
-		var counts []CountResult
-		s.db.Table("artist_releases").
-			Select("release_id, COUNT(DISTINCT artist_id) as count").
-			Where("release_id IN ?", releaseIDs).
-			Group("release_id").
-			Find(&counts)
-		for _, c := range counts {
-			artistCounts[c.ReleaseID] = c.Count
-		}
-	}
-
-	// Build responses
-	responses := make([]*contracts.ReleaseListResponse, len(releases))
-	for i, release := range releases {
-		slug := ""
-		if release.Slug != nil {
-			slug = *release.Slug
-		}
-		responses[i] = &contracts.ReleaseListResponse{
-			ID:          release.ID,
-			Title:       release.Title,
-			Slug:        slug,
-			ReleaseType: string(release.ReleaseType),
-			ReleaseYear: release.ReleaseYear,
-			CoverArtURL: release.CoverArtURL,
-			ArtistCount: artistCounts[release.ID],
-		}
-	}
-
-	return responses, nil
+	return s.buildListResponses(releases)
 }
 
 // UpdateRelease updates an existing release
@@ -385,7 +355,8 @@ func (s *ReleaseService) GetReleasesForArtist(artistID uint) ([]*contracts.Relea
 		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
 
-	return s.ListReleases(map[string]interface{}{"artist_id": artistID})
+	releases, _, err := s.ListReleases(contracts.ReleaseListFilters{ArtistID: artistID})
+	return releases, err
 }
 
 // GetReleasesForArtistWithRoles retrieves all releases for an artist, including their role on each release
@@ -430,42 +401,18 @@ func (s *ReleaseService) GetReleasesForArtistWithRoles(artistID uint) ([]*contra
 		return nil, fmt.Errorf("failed to get releases: %w", err)
 	}
 
-	// Batch-load artist counts
-	artistCounts := make(map[uint]int)
-	if len(releaseIDs) > 0 {
-		type CountResult struct {
-			ReleaseID uint
-			Count     int
-		}
-		var counts []CountResult
-		s.db.Table("artist_releases").
-			Select("release_id, COUNT(DISTINCT artist_id) as count").
-			Where("release_id IN ?", releaseIDs).
-			Group("release_id").
-			Find(&counts)
-		for _, c := range counts {
-			artistCounts[c.ReleaseID] = c.Count
-		}
+	// Build base list responses (includes artist names, counts, labels)
+	listResponses, err := s.buildListResponses(releases)
+	if err != nil {
+		return nil, err
 	}
 
-	// Build responses
-	responses := make([]*contracts.ArtistReleaseListResponse, len(releases))
-	for i, release := range releases {
-		slug := ""
-		if release.Slug != nil {
-			slug = *release.Slug
-		}
+	// Wrap with role info
+	responses := make([]*contracts.ArtistReleaseListResponse, len(listResponses))
+	for i, lr := range listResponses {
 		responses[i] = &contracts.ArtistReleaseListResponse{
-			ReleaseListResponse: contracts.ReleaseListResponse{
-				ID:          release.ID,
-				Title:       release.Title,
-				Slug:        slug,
-				ReleaseType: string(release.ReleaseType),
-				ReleaseYear: release.ReleaseYear,
-				CoverArtURL: release.CoverArtURL,
-				ArtistCount: artistCounts[release.ID],
-			},
-			Role: roleMap[release.ID],
+			ReleaseListResponse: *lr,
+			Role:                roleMap[lr.ID],
 		}
 	}
 
@@ -519,6 +466,132 @@ func (s *ReleaseService) RemoveExternalLink(linkID uint) error {
 	}
 
 	return nil
+}
+
+// buildListResponses converts a slice of Release models to ReleaseListResponse, batch-loading
+// artist counts, artist names, and primary label info.
+func (s *ReleaseService) buildListResponses(releases []models.Release) ([]*contracts.ReleaseListResponse, error) {
+	if len(releases) == 0 {
+		return []*contracts.ReleaseListResponse{}, nil
+	}
+
+	releaseIDs := make([]uint, len(releases))
+	for i, r := range releases {
+		releaseIDs[i] = r.ID
+	}
+
+	// Batch-load artist counts
+	artistCounts := make(map[uint]int)
+	{
+		type CountResult struct {
+			ReleaseID uint
+			Count     int
+		}
+		var counts []CountResult
+		s.db.Table("artist_releases").
+			Select("release_id, COUNT(DISTINCT artist_id) as count").
+			Where("release_id IN ?", releaseIDs).
+			Group("release_id").
+			Find(&counts)
+		for _, c := range counts {
+			artistCounts[c.ReleaseID] = c.Count
+		}
+	}
+
+	// Batch-load artist details (id, name, slug) per release via artist_releases + artists join
+	releaseArtists := make(map[uint][]contracts.ReleaseListArtist)
+	{
+		type ArtistRow struct {
+			ReleaseID uint
+			ArtistID  uint
+			Name      string
+			Slug      *string
+			Position  int
+		}
+		var rows []ArtistRow
+		s.db.Table("artist_releases").
+			Select("artist_releases.release_id, artist_releases.artist_id, artists.name, artists.slug, artist_releases.position").
+			Joins("JOIN artists ON artists.id = artist_releases.artist_id").
+			Where("artist_releases.release_id IN ?", releaseIDs).
+			Order("artist_releases.position ASC").
+			Find(&rows)
+		for _, row := range rows {
+			slug := ""
+			if row.Slug != nil {
+				slug = *row.Slug
+			}
+			releaseArtists[row.ReleaseID] = append(releaseArtists[row.ReleaseID], contracts.ReleaseListArtist{
+				ID:   row.ArtistID,
+				Name: row.Name,
+				Slug: slug,
+			})
+		}
+	}
+
+	// Batch-load primary label (first label) per release via release_labels + labels join
+	type LabelInfo struct {
+		Name string
+		Slug *string
+	}
+	releaseLabels := make(map[uint]*LabelInfo)
+	{
+		type LabelRow struct {
+			ReleaseID uint
+			Name      string
+			Slug      *string
+		}
+		var rows []LabelRow
+		s.db.Table("release_labels").
+			Select("release_labels.release_id, labels.name, labels.slug").
+			Joins("JOIN labels ON labels.id = release_labels.label_id").
+			Where("release_labels.release_id IN ?", releaseIDs).
+			Find(&rows)
+		for _, row := range rows {
+			// Use the first label found for each release
+			if _, exists := releaseLabels[row.ReleaseID]; !exists {
+				releaseLabels[row.ReleaseID] = &LabelInfo{
+					Name: row.Name,
+					Slug: row.Slug,
+				}
+			}
+		}
+	}
+
+	// Build responses
+	responses := make([]*contracts.ReleaseListResponse, len(releases))
+	for i, release := range releases {
+		slug := ""
+		if release.Slug != nil {
+			slug = *release.Slug
+		}
+
+		resp := &contracts.ReleaseListResponse{
+			ID:          release.ID,
+			Title:       release.Title,
+			Slug:        slug,
+			ReleaseType: string(release.ReleaseType),
+			ReleaseYear: release.ReleaseYear,
+			CoverArtURL: release.CoverArtURL,
+			ArtistCount: artistCounts[release.ID],
+			Artists:     releaseArtists[release.ID],
+		}
+
+		// Ensure Artists is never nil (always an empty slice for JSON)
+		if resp.Artists == nil {
+			resp.Artists = []contracts.ReleaseListArtist{}
+		}
+
+		if label, ok := releaseLabels[release.ID]; ok {
+			resp.LabelName = &label.Name
+			if label.Slug != nil {
+				resp.LabelSlug = label.Slug
+			}
+		}
+
+		responses[i] = resp
+	}
+
+	return responses, nil
 }
 
 // buildDetailResponse converts a Release model to contracts.ReleaseDetailResponse

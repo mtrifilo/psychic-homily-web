@@ -1,14 +1,19 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useEffect, useRef, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useReleases } from '../hooks/useReleases'
+import { useLabels } from '@/features/labels/hooks/useLabels'
 import { ReleaseCard } from './ReleaseCard'
 import { LoadingSpinner, DensityToggle } from '@/components/shared'
 import { useDensity } from '@/lib/hooks/common/useDensity'
 import { Button } from '@/components/ui/button'
-import { RELEASE_TYPES, RELEASE_TYPE_LABELS } from '../types'
-import type { ReleaseType } from '../types'
+import { Input } from '@/components/ui/input'
+import { RELEASE_TYPES, RELEASE_TYPE_LABELS, RELEASE_SORT_OPTIONS } from '../types'
+import type { ReleaseType, ReleaseSortOption } from '../types'
+
+const PAGE_SIZE = 50
 
 export function ReleaseList() {
   const router = useRouter()
@@ -19,20 +24,57 @@ export function ReleaseList() {
   // Parse filters from URL
   const typeParam = searchParams.get('type') as ReleaseType | null
   const yearParam = searchParams.get('year')
-  const [yearInput, setYearInput] = useState(yearParam ?? '')
+  const searchParam = searchParams.get('search') ?? ''
+  const sortParam = (searchParams.get('sort') as ReleaseSortOption) ?? 'newest'
+  const labelIdParam = searchParams.get('label_id')
+  const pageParam = searchParams.get('page')
 
+  const currentPage = pageParam ? Math.max(1, parseInt(pageParam, 10)) : 1
+  const offset = (currentPage - 1) * PAGE_SIZE
+
+  // Local state for debounced search
+  const [searchInput, setSearchInput] = useState(searchParam)
+  const [yearInput, setYearInput] = useState(yearParam ?? '')
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Sync search input when URL changes externally
+  useEffect(() => {
+    setSearchInput(searchParam)
+  }, [searchParam])
+
+  // Fetch releases
   const { data, isLoading, isFetching, error, refetch } = useReleases({
     releaseType: typeParam ?? undefined,
     year: yearParam ? parseInt(yearParam, 10) : undefined,
+    search: searchParam || undefined,
+    sort: sortParam,
+    labelId: labelIdParam ? parseInt(labelIdParam, 10) : undefined,
+    limit: PAGE_SIZE,
+    offset,
   })
 
-  const updateFilters = (params: { type?: string | null; year?: string | null }) => {
-    const newParams = new URLSearchParams()
-    const newType = params.type !== undefined ? params.type : typeParam
-    const newYear = params.year !== undefined ? params.year : yearParam
+  // Fetch labels for filter dropdown
+  const { data: labelsData } = useLabels()
+  const labels = labelsData?.labels ?? []
 
-    if (newType) newParams.set('type', newType)
-    if (newYear) newParams.set('year', newYear)
+  // URL update helper — preserves existing params unless explicitly overridden
+  const updateFilters = (params: Record<string, string | null>) => {
+    const newParams = new URLSearchParams()
+
+    // Merge current and new params
+    const mergedType = params.type !== undefined ? params.type : typeParam
+    const mergedYear = params.year !== undefined ? params.year : yearParam
+    const mergedSearch = params.search !== undefined ? params.search : searchParam
+    const mergedSort = params.sort !== undefined ? params.sort : sortParam
+    const mergedLabelId = params.label_id !== undefined ? params.label_id : labelIdParam
+    const mergedPage = params.page !== undefined ? params.page : null // Reset page on filter change unless explicitly set
+
+    if (mergedType) newParams.set('type', mergedType)
+    if (mergedYear) newParams.set('year', mergedYear)
+    if (mergedSearch) newParams.set('search', mergedSearch)
+    if (mergedSort && mergedSort !== 'newest') newParams.set('sort', mergedSort)
+    if (mergedLabelId) newParams.set('label_id', mergedLabelId)
+    if (mergedPage && mergedPage !== '1') newParams.set('page', mergedPage)
 
     const queryString = newParams.toString()
     startTransition(() => {
@@ -40,21 +82,46 @@ export function ReleaseList() {
     })
   }
 
+  // Debounced search
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setSearchInput(value)
+
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      updateFilters({ search: value || null, page: null })
+    }, 300)
+  }
+
   const handleTypeChange = (type: string | null) => {
-    updateFilters({ type })
+    updateFilters({ type, page: null })
+  }
+
+  const handleSortChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    updateFilters({ sort: e.target.value || null, page: null })
+  }
+
+  const handleLabelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    updateFilters({ label_id: e.target.value || null, page: null })
   }
 
   const handleYearSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const trimmed = yearInput.trim()
     if (trimmed && /^\d{4}$/.test(trimmed)) {
-      updateFilters({ year: trimmed })
+      updateFilters({ year: trimmed, page: null })
     } else if (!trimmed) {
-      updateFilters({ year: null })
+      updateFilters({ year: null, page: null })
     }
   }
 
+  const handlePageChange = (page: number) => {
+    updateFilters({ page: page > 1 ? page.toString() : null })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   const clearFilters = () => {
+    setSearchInput('')
     setYearInput('')
     startTransition(() => {
       router.push('/releases')
@@ -83,12 +150,59 @@ export function ReleaseList() {
   }
 
   const releases = data?.releases ?? []
-  const hasFilters = !!typeParam || !!yearParam
+  const total = data?.total ?? 0
+  const totalPages = Math.ceil(total / PAGE_SIZE)
+  const hasFilters = !!typeParam || !!yearParam || !!searchParam || !!labelIdParam || sortParam !== 'newest'
 
   return (
     <section className="w-full max-w-6xl">
       {/* Filters */}
       <div className="mb-6 space-y-4">
+        {/* Search + Sort + Label row */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Search */}
+          <div className="relative w-full max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              type="text"
+              value={searchInput}
+              onChange={handleSearchChange}
+              placeholder="Search by title or artist..."
+              autoComplete="off"
+              className="pl-8"
+            />
+          </div>
+
+          {/* Sort */}
+          <select
+            value={sortParam}
+            onChange={handleSortChange}
+            className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            {RELEASE_SORT_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+
+          {/* Label filter */}
+          {labels.length > 0 && (
+            <select
+              value={labelIdParam ?? ''}
+              onChange={handleLabelChange}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring max-w-[200px]"
+            >
+              <option value="">All Labels</option>
+              {labels.map(label => (
+                <option key={label.id} value={label.id}>
+                  {label.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
         {/* Release Type Filter */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-muted-foreground mr-1">Type:</span>
@@ -146,7 +260,11 @@ export function ReleaseList() {
         </div>
       </div>
 
-      <div className="flex justify-end mb-4">
+      {/* Density toggle + result count */}
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-sm text-muted-foreground">
+          {total} {total === 1 ? 'release' : 'releases'}
+        </span>
         <DensityToggle density={density} onDensityChange={setDensity} />
       </div>
 
@@ -196,6 +314,33 @@ export function ReleaseList() {
           </div>
         )}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-8">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={currentPage <= 1}
+            onClick={() => handlePageChange(currentPage - 1)}
+          >
+            <ChevronLeft className="h-4 w-4 mr-1" />
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground px-3">
+            Page {currentPage} of {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={currentPage >= totalPages}
+            onClick={() => handlePageChange(currentPage + 1)}
+          >
+            Next
+            <ChevronRight className="h-4 w-4 ml-1" />
+          </Button>
+        </div>
+      )}
     </section>
   )
 }

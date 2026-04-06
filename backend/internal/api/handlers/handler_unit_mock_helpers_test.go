@@ -2124,7 +2124,7 @@ type mockReleaseService struct {
 	createReleaseFn func(*contracts.CreateReleaseRequest) (*contracts.ReleaseDetailResponse, error)
 	getReleaseFn func(uint) (*contracts.ReleaseDetailResponse, error)
 	getReleaseBySlugFn func(string) (*contracts.ReleaseDetailResponse, error)
-	listReleasesFn func(map[string]interface{}) ([]*contracts.ReleaseListResponse, error)
+	listReleasesFn func(contracts.ReleaseListFilters) ([]*contracts.ReleaseListResponse, int64, error)
 	searchReleasesFn func(string) ([]*contracts.ReleaseListResponse, error)
 	updateReleaseFn func(uint, *contracts.UpdateReleaseRequest) (*contracts.ReleaseDetailResponse, error)
 	deleteReleaseFn func(uint) (error)
@@ -2152,11 +2152,11 @@ func (m *mockReleaseService) GetReleaseBySlug(slug string) (*contracts.ReleaseDe
 	}
 	return nil, nil
 }
-func (m *mockReleaseService) ListReleases(filters map[string]interface{}) ([]*contracts.ReleaseListResponse, error) {
+func (m *mockReleaseService) ListReleases(filters contracts.ReleaseListFilters) ([]*contracts.ReleaseListResponse, int64, error) {
 	if m.listReleasesFn != nil {
 		return m.listReleasesFn(filters)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
 func (m *mockReleaseService) SearchReleases(query string) ([]*contracts.ReleaseListResponse, error) {
 	if m.searchReleasesFn != nil {

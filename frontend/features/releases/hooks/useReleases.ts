@@ -20,18 +20,28 @@ interface UseReleasesOptions {
   releaseType?: string
   year?: number
   artistId?: string | number
+  search?: string
+  sort?: string
+  labelId?: number
+  limit?: number
+  offset?: number
 }
 
 /**
- * Hook to fetch list of releases with optional filtering
+ * Hook to fetch list of releases with optional filtering, search, sorting, and pagination
  */
 export function useReleases(options: UseReleasesOptions = {}) {
-  const { releaseType, year, artistId } = options
+  const { releaseType, year, artistId, search, sort, labelId, limit, offset } = options
 
   const params = new URLSearchParams()
   if (releaseType) params.set('release_type', releaseType)
   if (year) params.set('year', year.toString())
   if (artistId) params.set('artist_id', artistId.toString())
+  if (search) params.set('search', search)
+  if (sort) params.set('sort', sort)
+  if (labelId) params.set('label_id', labelId.toString())
+  if (limit) params.set('limit', limit.toString())
+  if (offset) params.set('offset', offset.toString())
 
   const queryString = params.toString()
   const endpoint = queryString
@@ -40,8 +50,8 @@ export function useReleases(options: UseReleasesOptions = {}) {
 
   return useQuery({
     queryKey: releaseQueryKeys.list(
-      releaseType || year || artistId
-        ? { releaseType, year, artistId }
+      releaseType || year || artistId || search || sort || labelId || limit || offset
+        ? { releaseType, year, artistId, search, sort, labelId, limit, offset }
         : undefined
     ),
     queryFn: async (): Promise<ReleasesListResponse> => {

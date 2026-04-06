@@ -13,12 +13,57 @@ interface ReleaseCardProps {
   density?: ReleaseCardDensity
 }
 
+/**
+ * Format artist names for display.
+ * - 0 artists: returns null
+ * - 1-3 artists: comma-separated names
+ * - 4+ artists: "Various Artists"
+ */
+function formatArtistNames(release: ReleaseListItem): string | null {
+  const artists = release.artists
+  if (!artists || artists.length === 0) return null
+  if (artists.length > 3) return 'Various Artists'
+  return artists.map((a) => a.name).join(', ')
+}
+
+/**
+ * Render artist names as linked spans (for comfortable/expanded modes)
+ */
+function ArtistLinks({ release }: { release: ReleaseListItem }) {
+  const artists = release.artists
+  if (!artists || artists.length === 0) return null
+
+  if (artists.length > 3) {
+    return <span className="text-muted-foreground">Various Artists</span>
+  }
+
+  return (
+    <>
+      {artists.map((artist, i) => (
+        <span key={artist.id}>
+          <Link
+            href={`/artists/${artist.slug}`}
+            className="text-muted-foreground hover:text-primary transition-colors"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {artist.name}
+          </Link>
+          {i < artists.length - 1 && (
+            <span className="text-muted-foreground">, </span>
+          )}
+        </span>
+      ))}
+    </>
+  )
+}
+
 export function ReleaseCard({
   release,
   density = 'comfortable',
 }: ReleaseCardProps) {
   const releaseUrl = `/releases/${release.slug}`
   const typeLabel = getReleaseTypeLabel(release.release_type)
+  const artistDisplay = formatArtistNames(release)
 
   if (density === 'compact') {
     return (
@@ -36,7 +81,7 @@ export function ReleaseCard({
           href={releaseUrl}
           className="font-medium text-sm truncate flex-1 hover:text-primary transition-colors"
         >
-          {release.title}
+          {artistDisplay ? `${artistDisplay} — ${release.title}` : release.title}
         </Link>
         <Badge variant="secondary" className="text-[10px] shrink-0">
           {typeLabel}
@@ -75,6 +120,12 @@ export function ReleaseCard({
               </h3>
             </Link>
 
+            {artistDisplay && (
+              <div className="mt-1 text-sm truncate">
+                <ArtistLinks release={release} />
+              </div>
+            )}
+
             <div className="flex items-center gap-3 mt-2">
               <Badge variant="secondary" className="text-xs px-2 py-0.5">
                 {typeLabel}
@@ -86,11 +137,18 @@ export function ReleaseCard({
               )}
             </div>
 
-            {release.artist_count > 0 && (
+            {release.label_name && (
               <div className="mt-2 text-sm text-muted-foreground">
-                {release.artist_count === 1
-                  ? '1 artist'
-                  : `${release.artist_count} artists`}
+                {release.label_slug ? (
+                  <Link
+                    href={`/labels/${release.label_slug}`}
+                    className="hover:text-primary transition-colors"
+                  >
+                    {release.label_name}
+                  </Link>
+                ) : (
+                  release.label_name
+                )}
               </div>
             )}
           </div>
@@ -124,6 +182,12 @@ export function ReleaseCard({
             </h3>
           </Link>
 
+          {artistDisplay && (
+            <div className="text-sm truncate mt-0.5">
+              <ArtistLinks release={release} />
+            </div>
+          )}
+
           <div className="flex items-center gap-2 flex-wrap mt-1">
             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
               {typeLabel}
@@ -133,15 +197,25 @@ export function ReleaseCard({
                 {release.release_year}
               </span>
             )}
+            {release.label_name && (
+              <>
+                <span className="text-muted-foreground/50">·</span>
+                <span className="text-sm text-muted-foreground truncate">
+                  {release.label_slug ? (
+                    <Link
+                      href={`/labels/${release.label_slug}`}
+                      className="hover:text-primary transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {release.label_name}
+                    </Link>
+                  ) : (
+                    release.label_name
+                  )}
+                </span>
+              </>
+            )}
           </div>
-
-          {release.artist_count > 0 && (
-            <div className="mt-1 text-sm text-muted-foreground">
-              {release.artist_count === 1
-                ? '1 artist'
-                : `${release.artist_count} artists`}
-            </div>
-          )}
         </div>
       </div>
     </article>

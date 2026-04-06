@@ -67,38 +67,51 @@ type ListReleasesRequest struct {
 	ArtistID    uint   `query:"artist_id" required:"false" doc:"Filter by artist ID" example:"1"`
 	ReleaseType string `query:"release_type" required:"false" doc:"Filter by release type" example:"lp"`
 	Year        int    `query:"year" required:"false" doc:"Filter by release year" example:"2024"`
+	Search      string `query:"search" required:"false" doc:"Search by release title or artist name" example:"nevermind"`
+	Sort        string `query:"sort" required:"false" doc:"Sort order: newest, oldest, title_asc, title_desc, recently_added" example:"newest"`
+	LabelID     uint   `query:"label_id" required:"false" doc:"Filter by label ID" example:"1"`
+	Limit       int    `query:"limit" required:"false" doc:"Page size (default 50, max 200)" example:"50"`
+	Offset      int    `query:"offset" required:"false" doc:"Pagination offset" example:"0"`
 }
 
 // ListReleasesResponse represents the response for listing releases
 type ListReleasesResponse struct {
 	Body struct {
 		Releases []*contracts.ReleaseListResponse `json:"releases" doc:"List of releases"`
-		Count    int                              `json:"count" doc:"Number of releases"`
+		Total    int64                            `json:"total" doc:"Total number of matching releases"`
+		Limit    int                              `json:"limit" doc:"Limit used in query"`
+		Offset   int                              `json:"offset" doc:"Offset used in query"`
 	}
 }
 
 // ListReleasesHandler handles GET /releases
 func (h *ReleaseHandler) ListReleasesHandler(ctx context.Context, req *ListReleasesRequest) (*ListReleasesResponse, error) {
-	filters := make(map[string]interface{})
+	filters := contracts.ReleaseListFilters{
+		ArtistID:    req.ArtistID,
+		ReleaseType: req.ReleaseType,
+		Year:        req.Year,
+		Search:      req.Search,
+		Sort:        req.Sort,
+		LabelID:     req.LabelID,
+		Limit:       req.Limit,
+		Offset:      req.Offset,
+	}
 
-	if req.ArtistID > 0 {
-		filters["artist_id"] = req.ArtistID
-	}
-	if req.ReleaseType != "" {
-		filters["release_type"] = req.ReleaseType
-	}
-	if req.Year > 0 {
-		filters["year"] = req.Year
-	}
-
-	releases, err := h.releaseService.ListReleases(filters)
+	releases, total, err := h.releaseService.ListReleases(filters)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to fetch releases", err)
 	}
 
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+
 	resp := &ListReleasesResponse{}
 	resp.Body.Releases = releases
-	resp.Body.Count = len(releases)
+	resp.Body.Total = total
+	resp.Body.Limit = limit
+	resp.Body.Offset = req.Offset
 
 	return resp, nil
 }
