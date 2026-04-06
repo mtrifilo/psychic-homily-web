@@ -51,6 +51,7 @@ type ReleaseDetailResponse struct {
 	CoverArtURL   *string                      `json:"cover_art_url"`
 	Description   *string                      `json:"description"`
 	Artists       []ReleaseArtistResponse      `json:"artists"`
+	Labels        []ReleaseLabelResponse       `json:"labels"`
 	ExternalLinks []ReleaseExternalLinkResponse `json:"external_links"`
 	CreatedAt     time.Time                    `json:"created_at"`
 	UpdatedAt     time.Time                    `json:"updated_at"`
@@ -62,6 +63,14 @@ type ReleaseArtistResponse struct {
 	Slug string `json:"slug"`
 	Name string `json:"name"`
 	Role string `json:"role"`
+}
+
+// ReleaseLabelResponse represents a label associated with a release
+type ReleaseLabelResponse struct {
+	ID            uint    `json:"id"`
+	Name          string  `json:"name"`
+	Slug          string  `json:"slug"`
+	CatalogNumber *string `json:"catalog_number,omitempty"`
 }
 
 // ReleaseExternalLinkResponse represents an external link for a release

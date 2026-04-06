@@ -647,6 +647,42 @@ func (s *ReleaseService) buildDetailResponse(release *models.Release) (*contract
 		}
 	}
 
+	// Load labels via release_labels junction table
+	var releaseLabels []models.ReleaseLabel
+	s.db.Where("release_id = ?", release.ID).Find(&releaseLabels)
+
+	labelIDs := make([]uint, len(releaseLabels))
+	for i, rl := range releaseLabels {
+		labelIDs[i] = rl.LabelID
+	}
+
+	labelResponses := make([]contracts.ReleaseLabelResponse, 0, len(releaseLabels))
+	if len(labelIDs) > 0 {
+		var labels []models.Label
+		s.db.Where("id IN ?", labelIDs).Find(&labels)
+
+		labelMap := make(map[uint]*models.Label)
+		for i := range labels {
+			labelMap[labels[i].ID] = &labels[i]
+		}
+
+		// Build label responses preserving junction table order
+		for _, rl := range releaseLabels {
+			if labelModel, ok := labelMap[rl.LabelID]; ok {
+				labelSlug := ""
+				if labelModel.Slug != nil {
+					labelSlug = *labelModel.Slug
+				}
+				labelResponses = append(labelResponses, contracts.ReleaseLabelResponse{
+					ID:            labelModel.ID,
+					Name:          labelModel.Name,
+					Slug:          labelSlug,
+					CatalogNumber: rl.CatalogNumber,
+				})
+			}
+		}
+	}
+
 	return &contracts.ReleaseDetailResponse{
 		ID:            release.ID,
 		Title:         release.Title,
@@ -657,6 +693,7 @@ func (s *ReleaseService) buildDetailResponse(release *models.Release) (*contract
 		CoverArtURL:   release.CoverArtURL,
 		Description:   release.Description,
 		Artists:       artistResponses,
+		Labels:        labelResponses,
 		ExternalLinks: linkResponses,
 		CreatedAt:     release.CreatedAt,
 		UpdatedAt:     release.UpdatedAt,

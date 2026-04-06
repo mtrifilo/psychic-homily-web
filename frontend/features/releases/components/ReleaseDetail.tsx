@@ -9,9 +9,18 @@ import {
   Music,
   Calendar,
   Users,
+  Tag,
+  Lightbulb,
 } from 'lucide-react'
 import { useRelease } from '../hooks/useReleases'
-import { EntityDetailLayout, EntityHeader } from '@/components/shared'
+import { useIsAuthenticated } from '@/features/auth'
+import {
+  EntityDetailLayout,
+  EntityHeader,
+  RevisionHistory,
+} from '@/components/shared'
+import { AttributionLine } from '@/features/contributions'
+import { EntityTagList } from '@/features/tags'
 import { AsHeardOn } from '@/features/radio'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -51,6 +60,7 @@ interface ReleaseDetailProps {
 
 export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
   const { data: release, isLoading, error } = useRelease({ idOrSlug })
+  const { isAuthenticated } = useIsAuthenticated()
   const [activeTab, setActiveTab] = useState('overview')
 
   if (isLoading) {
@@ -104,6 +114,8 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
 
   const hasExternalLinks =
     release.external_links && release.external_links.length > 0
+  const hasLabels = release.labels && release.labels.length > 0
+  const hasDescription = !!release.description && release.description.trim().length > 0
 
   const tabs = [
     { value: 'overview', label: 'Overview' },
@@ -175,111 +187,169 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
         </div>
       </div>
 
+      {/* Labels */}
+      {hasLabels && (
+        <div>
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            {release.labels.length === 1 ? 'Label' : 'Labels'}
+          </h3>
+          <div className="space-y-1">
+            {release.labels.map(label => (
+              <Link
+                key={label.id}
+                href={`/labels/${label.slug}`}
+                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors py-0.5"
+              >
+                <Tag className="h-3.5 w-3.5 shrink-0" />
+                <span>{label.name}</span>
+                {label.catalog_number && (
+                  <span className="text-xs text-muted-foreground/60">
+                    ({label.catalog_number})
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* As Heard On (radio) */}
       <AsHeardOn entityType="release" entitySlug={release.slug} />
     </div>
   )
 
   return (
-    <EntityDetailLayout
-      fallback={{ href: '/releases', label: 'Releases' }}
-      entityName={release.title}
-      header={
-        <EntityHeader
-          title={release.title}
-          subtitle={
-            <>
-              <Badge variant="secondary">
-                {getReleaseTypeLabel(release.release_type)}
-              </Badge>
-              {release.release_year && <span>{release.release_year}</span>}
-            </>
-          }
-        />
-      }
-      tabs={tabs}
-      activeTab={activeTab}
-      onTabChange={setActiveTab}
-      sidebar={sidebar}
-    >
-      {/* Overview Tab */}
-      <TabsContent value="overview">
-        <div className="space-y-8">
-          {/* Description */}
-          {release.description && (
-            <div>
-              <h2 className="text-lg font-semibold mb-3">About</h2>
-              <p className="text-muted-foreground leading-relaxed whitespace-pre-line">
-                {release.description}
-              </p>
-            </div>
-          )}
+    <>
+      <EntityDetailLayout
+        fallback={{ href: '/releases', label: 'Releases' }}
+        entityName={release.title}
+        header={
+          <>
+            <EntityHeader
+              title={release.title}
+              subtitle={
+                <>
+                  <Badge variant="secondary">
+                    {getReleaseTypeLabel(release.release_type)}
+                  </Badge>
+                  {release.release_year && <span>{release.release_year}</span>}
+                </>
+              }
+            />
+            <AttributionLine entityType="release" entityId={release.id} />
+          </>
+        }
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        sidebar={sidebar}
+      >
+        {/* Overview Tab */}
+        <TabsContent value="overview">
+          <div className="space-y-8">
+            {/* Description */}
+            {hasDescription ? (
+              <div>
+                <h2 className="text-lg font-semibold mb-3">About</h2>
+                <p className="text-muted-foreground leading-relaxed whitespace-pre-line">
+                  {release.description}
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 rounded-lg border border-dashed border-muted-foreground/25 bg-muted/30 p-4 text-sm text-muted-foreground">
+                <Lightbulb className="h-4 w-4 shrink-0 text-primary" />
+                <span>
+                  Know something about this release? Help the community by adding a description.
+                </span>
+              </div>
+            )}
 
-          {/* Artists */}
-          {release.artists && release.artists.length > 0 && (
-            <div>
-              <h2 className="text-lg font-semibold mb-3">Artists</h2>
-              <div className="space-y-2">
-                {release.artists.map(artist => (
-                  <div
-                    key={artist.id}
-                    className="flex items-center justify-between rounded-lg border border-border/50 bg-card p-3"
-                  >
-                    <Link
-                      href={`/artists/${artist.slug}`}
-                      className="font-medium text-foreground hover:text-primary transition-colors"
+            {/* Artists */}
+            {release.artists && release.artists.length > 0 && (
+              <div>
+                <h2 className="text-lg font-semibold mb-3">Artists</h2>
+                <div className="space-y-2">
+                  {release.artists.map(artist => (
+                    <div
+                      key={artist.id}
+                      className="flex items-center justify-between rounded-lg border border-border/50 bg-card p-3"
                     >
-                      {artist.name}
-                    </Link>
-                    {artist.role && (
-                      <span className="text-sm text-muted-foreground capitalize">
-                        {artist.role}
-                      </span>
-                    )}
-                  </div>
+                      <Link
+                        href={`/artists/${artist.slug}`}
+                        className="font-medium text-foreground hover:text-primary transition-colors"
+                      >
+                        {artist.name}
+                      </Link>
+                      {artist.role && (
+                        <span className="text-sm text-muted-foreground capitalize">
+                          {artist.role}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* External links prompt when none exist */}
+            {!hasExternalLinks && (
+              <div className="flex items-center gap-2 rounded-lg border border-dashed border-muted-foreground/25 bg-muted/30 p-4 text-sm text-muted-foreground">
+                <Lightbulb className="h-4 w-4 shrink-0 text-primary" />
+                <span>
+                  Help others discover this release — add a Bandcamp, Spotify, or other link.
+                </span>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* Listen / Buy Tab */}
+        {hasExternalLinks && (
+          <TabsContent value="listen">
+            <div>
+              <h2 className="text-lg font-semibold mb-4">Listen / Buy</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {release.external_links.map(link => (
+                  <a
+                    key={link.id}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 rounded-lg border border-border/50 bg-card p-4 transition-colors hover:bg-muted/50"
+                  >
+                    <ExternalLink className="h-5 w-5 text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-foreground">
+                        {getPlatformLabel(link.platform)}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {link.url}
+                      </div>
+                    </div>
+                  </a>
                 ))}
               </div>
             </div>
-          )}
+          </TabsContent>
+        )}
+      </EntityDetailLayout>
 
-          {/* Show external links in overview if there's no separate tab */}
-          {!hasExternalLinks && (
-            <div className="text-sm text-muted-foreground">
-              No external links available for this release.
-            </div>
-          )}
-        </div>
-      </TabsContent>
+      {/* Tags */}
+      <div className="mt-0 px-4 md:px-0">
+        <EntityTagList
+          entityType="release"
+          entityId={release.id}
+          isAuthenticated={isAuthenticated}
+        />
+      </div>
 
-      {/* Listen / Buy Tab */}
-      {hasExternalLinks && (
-        <TabsContent value="listen">
-          <div>
-            <h2 className="text-lg font-semibold mb-4">Listen / Buy</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {release.external_links.map(link => (
-                <a
-                  key={link.id}
-                  href={link.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 rounded-lg border border-border/50 bg-card p-4 transition-colors hover:bg-muted/50"
-                >
-                  <ExternalLink className="h-5 w-5 text-muted-foreground shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-foreground">
-                      {getPlatformLabel(link.platform)}
-                    </div>
-                    <div className="text-xs text-muted-foreground truncate">
-                      {link.url}
-                    </div>
-                  </div>
-                </a>
-              ))}
-            </div>
-          </div>
-        </TabsContent>
-      )}
-    </EntityDetailLayout>
+      {/* Revision History */}
+      <div className="mt-0">
+        <RevisionHistory
+          entityType="release"
+          entityId={release.id}
+        />
+      </div>
+    </>
   )
 }
