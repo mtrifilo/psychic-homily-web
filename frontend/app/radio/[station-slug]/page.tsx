@@ -200,7 +200,21 @@ export default function StationPage({ params }: StationPageProps) {
 
             {/* Action buttons */}
             <div className="flex items-center gap-2 mt-4">
-              {station.stream_url && (
+              {station.slug === 'wfmu' ? (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    window.open(
+                      'https://www.radiorethink.com/tuner/?stationCode=wfmu&stream=hi',
+                      'wfmu-player',
+                      'width=400,height=700,scrollbars=yes,resizable=yes'
+                    )
+                  }}
+                >
+                  <Radio className="h-4 w-4 mr-2" />
+                  Listen Live
+                </Button>
+              ) : station.stream_url ? (
                 <Button asChild size="sm">
                   <a
                     href={station.stream_url}
@@ -211,7 +225,7 @@ export default function StationPage({ params }: StationPageProps) {
                     Listen Live
                   </a>
                 </Button>
-              )}
+              ) : null}
               {station.donation_url && (
                 <Button asChild variant="outline" size="sm">
                   <a
