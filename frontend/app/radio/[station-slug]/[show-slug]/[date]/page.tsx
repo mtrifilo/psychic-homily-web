@@ -33,6 +33,20 @@ function formatDate(dateStr: string): string {
   })
 }
 
+/**
+ * Format a time string like "06:00:00" or "21:30:00" into "6:00 AM" or "9:30 PM".
+ */
+function formatAirTime(timeStr: string): string {
+  const [hoursStr, minutesStr] = timeStr.split(':')
+  const hours = parseInt(hoursStr, 10)
+  const minutes = parseInt(minutesStr, 10)
+  if (isNaN(hours) || isNaN(minutes)) return timeStr
+  const period = hours >= 12 ? 'PM' : 'AM'
+  const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours
+  const displayMinutes = minutes.toString().padStart(2, '0')
+  return `${displayHours}:${displayMinutes} ${period}`
+}
+
 export default function EpisodeDatePage({ params }: EpisodeDatePageProps) {
   const {
     'station-slug': stationSlug,
@@ -127,7 +141,7 @@ export default function EpisodeDatePage({ params }: EpisodeDatePageProps) {
             {episode.air_time && (
               <span className="flex items-center gap-1 text-sm text-muted-foreground">
                 <Clock className="h-3.5 w-3.5" />
-                {episode.air_time}
+                {formatAirTime(episode.air_time)}
               </span>
             )}
             {episode.duration_minutes && (
@@ -200,7 +214,7 @@ export default function EpisodeDatePage({ params }: EpisodeDatePageProps) {
             <Music className="h-5 w-5" />
             Playlist
             <span className="text-sm font-normal text-muted-foreground">
-              ({plays.length} tracks)
+              ({plays.length} {plays.length === 1 ? 'track' : 'tracks'})
             </span>
           </h2>
 

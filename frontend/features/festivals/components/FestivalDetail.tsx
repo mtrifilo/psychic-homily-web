@@ -51,6 +51,7 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
     user?.user_tier === 'local_ambassador'
   )
   const [isEditing, setIsEditing] = useState(false)
+  const [editFocusField, setEditFocusField] = useState<string | undefined>()
   const [isReportOpen, setIsReportOpen] = useState(false)
   const { data: artistsData, isLoading: artistsLoading } = useFestivalArtists({
     festivalIdOrSlug: idOrSlug,
@@ -322,7 +323,10 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
             entityId={festival.id}
             entitySlug={festival.slug}
             isAuthenticated={!!isAuthenticated}
-            onEditClick={() => setIsEditing(true)}
+            onEditClick={(focusField) => {
+              setEditFocusField(focusField)
+              setIsEditing(true)
+            }}
           />
         </>
       }
@@ -477,12 +481,16 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
     {festival && isAuthenticated && (
       <EntityEditDrawer
         open={isEditing}
-        onOpenChange={setIsEditing}
+        onOpenChange={(open) => {
+          setIsEditing(open)
+          if (!open) setEditFocusField(undefined)
+        }}
         entityType="festival"
         entityId={festival.id}
         entityName={festival.name}
         entity={festival as unknown as Record<string, unknown>}
         canEditDirectly={!!canEditDirectly}
+        focusField={editFocusField}
         onSuccess={() => {
           queryClient.invalidateQueries({
             queryKey: ['festivals', 'detail'],

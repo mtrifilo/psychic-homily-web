@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { Pencil, Check, Loader2 } from 'lucide-react'
 import {
   Sheet,
@@ -44,6 +44,8 @@ interface EntityEditDrawerProps {
   canEditDirectly: boolean
   /** Called after a successful edit (direct or pending). */
   onSuccess?: () => void
+  /** When set, the drawer will scroll to and focus this field after opening. */
+  focusField?: string
 }
 
 export function EntityEditDrawer({
@@ -55,6 +57,7 @@ export function EntityEditDrawer({
   entity,
   canEditDirectly,
   onSuccess,
+  focusField,
 }: EntityEditDrawerProps) {
   const fields = EDITABLE_FIELDS[entityType]
   const suggestEdit = useSuggestEdit()
@@ -73,6 +76,9 @@ export function EntityEditDrawer({
     return values
   }, [entity, fields])
 
+  // Track whether we need to focus a field after drawer opens
+  const pendingFocusField = useRef<string | undefined>(undefined)
+
   // Reset form when drawer opens
   const handleOpenChange = (isOpen: boolean) => {
     if (isOpen) {
@@ -80,9 +86,30 @@ export function EntityEditDrawer({
       setSummary('')
       setSubmitted(false)
       suggestEdit.reset()
+      pendingFocusField.current = focusField
+    } else {
+      pendingFocusField.current = undefined
     }
     onOpenChange(isOpen)
   }
+
+  // Scroll to and focus the target field after the drawer opens and animates in
+  useEffect(() => {
+    if (!open || !pendingFocusField.current) return
+
+    const fieldKey = pendingFocusField.current
+    // Delay to allow the sheet open animation to complete
+    const timer = setTimeout(() => {
+      const input = document.getElementById(`edit-${fieldKey}`)
+      if (input) {
+        input.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        input.focus()
+        pendingFocusField.current = undefined
+      }
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [open])
 
   // Get current value (edited or initial)
   const getValue = (key: string) => formValues[key] ?? initialValues[key] ?? ''
