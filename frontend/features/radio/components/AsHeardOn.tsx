@@ -31,7 +31,7 @@ function AsHeardOnList({ items }: { items: RadioAsHeardOn[] }) {
             <div className="flex-1 min-w-0">
               <span className="truncate block">{item.show_name}</span>
               <span className="text-xs text-muted-foreground/60">
-                {item.station_name} - {item.play_count} plays
+                {item.station_name} - {item.play_count} {item.play_count === 1 ? 'play' : 'plays'}
               </span>
             </div>
           </Link>
