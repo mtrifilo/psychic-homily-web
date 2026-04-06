@@ -49,6 +49,13 @@ export interface ReleaseExternalLink {
   url: string
 }
 
+export interface ReleaseLabel {
+  id: number
+  name: string
+  slug: string
+  catalog_number?: string | null
+}
+
 export interface ReleaseDetail {
   id: number
   title: string
@@ -59,6 +66,7 @@ export interface ReleaseDetail {
   cover_art_url: string | null
   description: string | null
   artists: ReleaseArtist[]
+  labels: ReleaseLabel[]
   external_links: ReleaseExternalLink[]
   created_at: string
   updated_at: string
