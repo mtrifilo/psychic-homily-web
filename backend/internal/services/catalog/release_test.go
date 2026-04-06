@@ -328,7 +328,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_ArtistNames() 
 		},
 	})
 
-	resp, err := suite.releaseService.ListReleases(map[string]interface{}{})
+	resp, _, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
@@ -345,7 +345,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_ArtistsEmptySl
 		Title: "No Artist Album",
 	})
 
-	resp, err := suite.releaseService.ListReleases(map[string]interface{}{})
+	resp, _, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
@@ -362,7 +362,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_LabelInfo() {
 	suite.Require().NoError(err)
 	suite.linkReleaseToLabel(created.ID, label.ID)
 
-	resp, err := suite.releaseService.ListReleases(map[string]interface{}{})
+	resp, _, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
@@ -377,7 +377,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_NoLabel() {
 		Title: "Unlabeled Album",
 	})
 
-	resp, err := suite.releaseService.ListReleases(map[string]interface{}{})
+	resp, _, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
