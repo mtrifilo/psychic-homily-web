@@ -6,6 +6,7 @@ export { releaseEndpoints, releaseQueryKeys } from './api'
 // Types
 export type {
   ReleaseType,
+  ReleaseSortOption,
   ReleaseArtist,
   ReleaseExternalLink,
   ReleaseDetail,
@@ -19,6 +20,7 @@ export type {
 export {
   RELEASE_TYPES,
   RELEASE_TYPE_LABELS,
+  RELEASE_SORT_OPTIONS,
   getReleaseTypeLabel,
 } from './types'
 

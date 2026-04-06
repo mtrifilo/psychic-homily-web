@@ -32,7 +32,7 @@ describe('useReleases', () => {
   })
 
   it('fetches releases without filters', async () => {
-    mockApiRequest.mockResolvedValueOnce({ releases: [], count: 0 })
+    mockApiRequest.mockResolvedValueOnce({ releases: [], total: 0, limit: 50, offset: 0 })
 
     const { result } = renderHook(() => useReleases(), { wrapper: createWrapper() })
 
@@ -41,7 +41,7 @@ describe('useReleases', () => {
   })
 
   it('includes releaseType filter', async () => {
-    mockApiRequest.mockResolvedValueOnce({ releases: [], count: 0 })
+    mockApiRequest.mockResolvedValueOnce({ releases: [], total: 0, limit: 50, offset: 0 })
 
     const { result } = renderHook(() => useReleases({ releaseType: 'album' }), {
       wrapper: createWrapper(),
@@ -52,7 +52,7 @@ describe('useReleases', () => {
   })
 
   it('includes year filter', async () => {
-    mockApiRequest.mockResolvedValueOnce({ releases: [], count: 0 })
+    mockApiRequest.mockResolvedValueOnce({ releases: [], total: 0, limit: 50, offset: 0 })
 
     const { result } = renderHook(() => useReleases({ year: 2025 }), {
       wrapper: createWrapper(),
@@ -63,7 +63,7 @@ describe('useReleases', () => {
   })
 
   it('includes artistId filter', async () => {
-    mockApiRequest.mockResolvedValueOnce({ releases: [], count: 0 })
+    mockApiRequest.mockResolvedValueOnce({ releases: [], total: 0, limit: 50, offset: 0 })
 
     const { result } = renderHook(() => useReleases({ artistId: 42 }), {
       wrapper: createWrapper(),
@@ -74,7 +74,7 @@ describe('useReleases', () => {
   })
 
   it('handles multiple filters', async () => {
-    mockApiRequest.mockResolvedValueOnce({ releases: [], count: 0 })
+    mockApiRequest.mockResolvedValueOnce({ releases: [], total: 0, limit: 50, offset: 0 })
 
     const { result } = renderHook(
       () => useReleases({ releaseType: 'ep', year: 2024, artistId: 5 }),

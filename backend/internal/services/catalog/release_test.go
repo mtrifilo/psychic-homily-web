@@ -240,10 +240,11 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_All() {
 	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Album B", ReleaseYear: intPtr(2023)})
 	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Album C", ReleaseYear: intPtr(2021)})
 
-	resp, err := suite.releaseService.ListReleases(map[string]interface{}{})
+	resp, total, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 3)
+	suite.Equal(int64(3), total)
 	// Ordered by release_year DESC, title ASC
 	suite.Equal("Album B", resp[0].Title) // 2023
 	suite.Equal("Album C", resp[1].Title) // 2021
@@ -255,10 +256,11 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_FilterByType()
 	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "EP Release", ReleaseType: "ep"})
 	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Single Release", ReleaseType: "single"})
 
-	resp, err := suite.releaseService.ListReleases(map[string]interface{}{"release_type": "ep"})
+	resp, total, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{ReleaseType: "ep"})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
+	suite.Equal(int64(1), total)
 	suite.Equal("EP Release", resp[0].Title)
 }
 
@@ -266,10 +268,11 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_FilterByYear()
 	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Old Album", ReleaseYear: intPtr(2020)})
 	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "New Album", ReleaseYear: intPtr(2024)})
 
-	resp, err := suite.releaseService.ListReleases(map[string]interface{}{"year": 2024})
+	resp, total, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{Year: 2024})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
+	suite.Equal(int64(1), total)
 	suite.Equal("New Album", resp[0].Title)
 }
 
@@ -286,10 +289,11 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_FilterByArtist
 		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artist2.ID, Role: "main"}},
 	})
 
-	resp, err := suite.releaseService.ListReleases(map[string]interface{}{"artist_id": artist1.ID})
+	resp, total, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{ArtistID: artist1.ID})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
+	suite.Equal(int64(1), total)
 	suite.Equal("Artist One Album", resp[0].Title)
 }
 
@@ -305,7 +309,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_ArtistCount() 
 		},
 	})
 
-	resp, err := suite.releaseService.ListReleases(map[string]interface{}{})
+	resp, _, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
@@ -324,7 +328,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_ArtistNames() 
 		},
 	})
 
-	resp, err := suite.releaseService.ListReleases(map[string]interface{}{})
+	resp, _, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
@@ -341,7 +345,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_ArtistsEmptySl
 		Title: "No Artist Album",
 	})
 
-	resp, err := suite.releaseService.ListReleases(map[string]interface{}{})
+	resp, _, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
@@ -358,7 +362,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_LabelInfo() {
 	suite.Require().NoError(err)
 	suite.linkReleaseToLabel(created.ID, label.ID)
 
-	resp, err := suite.releaseService.ListReleases(map[string]interface{}{})
+	resp, _, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
@@ -373,7 +377,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_NoLabel() {
 		Title: "Unlabeled Album",
 	})
 
-	resp, err := suite.releaseService.ListReleases(map[string]interface{}{})
+	resp, _, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
