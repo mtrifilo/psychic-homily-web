@@ -840,6 +840,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
   const [activeTab, setActiveTab] = useState('overview')
   const [isEditing, setIsEditing] = useState(false)
+  const [editFocusField, setEditFocusField] = useState<string | undefined>()
   const [isReportOpen, setIsReportOpen] = useState(false)
 
   // Fetch labels for sidebar
@@ -966,7 +967,10 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
               entityId={artist.id}
               entitySlug={artist.slug}
               isAuthenticated={!!isAuthenticated}
-              onEditClick={() => setIsEditing(true)}
+              onEditClick={(focusField) => {
+                setEditFocusField(focusField)
+                setIsEditing(true)
+              }}
             />
           </>
         }
@@ -1050,12 +1054,16 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
       {isAuthenticated && (
         <EntityEditDrawer
           open={isEditing}
-          onOpenChange={setIsEditing}
+          onOpenChange={(open) => {
+            setIsEditing(open)
+            if (!open) setEditFocusField(undefined)
+          }}
           entityType="artist"
           entityId={artist.id}
           entityName={artist.name}
           entity={artist as unknown as Record<string, unknown>}
           canEditDirectly={!!canEditDirectly}
+          focusField={editFocusField}
           onSuccess={() => {
             queryClient.invalidateQueries({
               queryKey: queryKeys.artists.detail(artistId),

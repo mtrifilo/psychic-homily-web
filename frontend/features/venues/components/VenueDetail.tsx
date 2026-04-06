@@ -72,6 +72,7 @@ function VenueGenreProfile({ venueId }: { venueId: number }) {
 
 export function VenueDetail({ venueId }: VenueDetailProps) {
   const [isEditingVenue, setIsEditingVenue] = useState(false)
+  const [editFocusField, setEditFocusField] = useState<string | undefined>()
   const [isDeleteVenueOpen, setIsDeleteVenueOpen] = useState(false)
   const [isReportOpen, setIsReportOpen] = useState(false)
   const { isAuthenticated, user } = useAuthContext()
@@ -253,7 +254,10 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
               entityId={venue.id}
               entitySlug={venue.slug}
               isAuthenticated={!!isAuthenticated}
-              onEditClick={() => setIsEditingVenue(true)}
+              onEditClick={(focusField) => {
+                setEditFocusField(focusField)
+                setIsEditingVenue(true)
+              }}
             />
           </div>
 
@@ -319,12 +323,16 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
       {venue && isAuthenticated && (
         <EntityEditDrawer
           open={isEditingVenue}
-          onOpenChange={setIsEditingVenue}
+          onOpenChange={(open) => {
+            setIsEditingVenue(open)
+            if (!open) setEditFocusField(undefined)
+          }}
           entityType="venue"
           entityId={venue.id}
           entityName={venue.name}
           entity={venue as unknown as Record<string, unknown>}
           canEditDirectly={!!canEditDirectly}
+          focusField={editFocusField}
           onSuccess={handleVenueUpdated}
         />
       )}
