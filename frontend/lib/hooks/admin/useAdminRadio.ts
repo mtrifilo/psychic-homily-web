@@ -21,6 +21,8 @@ export const radioQueryKeys = {
   stationDetail: (id: number) => ['radio', 'stations', id] as const,
   shows: (stationId: number) => ['radio', 'shows', stationId] as const,
   stats: ['radio', 'stats'] as const,
+  importJob: (jobId: number) => ['radio', 'import-jobs', jobId] as const,
+  showImportJobs: (showId: number) => ['radio', 'show-import-jobs', showId] as const,
 }
 
 // ============================================================================
@@ -43,6 +45,10 @@ const RADIO_ENDPOINTS = {
   ADMIN_FETCH_PLAYLISTS: (stationId: number) => `${API_BASE_URL}/admin/radio-stations/${stationId}/fetch`,
   ADMIN_DISCOVER_SHOWS: (stationId: number) => `${API_BASE_URL}/admin/radio-stations/${stationId}/discover`,
   ADMIN_IMPORT_SHOW_EPISODES: (showId: number) => `${API_BASE_URL}/admin/radio-shows/${showId}/import`,
+  ADMIN_CREATE_IMPORT_JOB: (showId: number) => `${API_BASE_URL}/admin/radio-shows/${showId}/import-job`,
+  ADMIN_GET_IMPORT_JOB: (jobId: number) => `${API_BASE_URL}/admin/radio/import-jobs/${jobId}`,
+  ADMIN_CANCEL_IMPORT_JOB: (jobId: number) => `${API_BASE_URL}/admin/radio/import-jobs/${jobId}/cancel`,
+  ADMIN_LIST_IMPORT_JOBS: (showId: number) => `${API_BASE_URL}/admin/radio-shows/${showId}/import-jobs`,
 }
 
 // ============================================================================
@@ -203,6 +209,32 @@ export interface RadioImportResult {
   plays_imported: number
   plays_matched: number
   errors?: string[]
+}
+
+export interface RadioImportJob {
+  id: number
+  show_id: number
+  show_name: string
+  station_id: number
+  station_name: string
+  since: string
+  until: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  episodes_found: number
+  episodes_imported: number
+  plays_imported: number
+  plays_matched: number
+  current_episode_date: string | null
+  error_log: string | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateImportJobInput {
+  since: string
+  until: string
 }
 
 // ============================================================================
@@ -451,5 +483,87 @@ export function useImportShowEpisodes() {
       queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
       queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
     },
+  })
+}
+
+// ============================================================================
+// Import Job Hooks
+// ============================================================================
+
+/**
+ * Hook to create and start an import job for a radio show.
+ */
+export function useCreateImportJob() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ showId, ...input }: CreateImportJobInput & { showId: number }) => {
+      return apiRequest<RadioImportJob>(RADIO_ENDPOINTS.ADMIN_CREATE_IMPORT_JOB(showId), {
+        method: 'POST',
+        body: JSON.stringify(input),
+      })
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: radioQueryKeys.showImportJobs(variables.showId) })
+    },
+  })
+}
+
+/**
+ * Hook to get a single import job's status. Polls every 3 seconds while running.
+ */
+export function useImportJob(jobId: number, enabled = true) {
+  return useQuery({
+    queryKey: radioQueryKeys.importJob(jobId),
+    queryFn: async () => {
+      const data = await apiRequest<RadioImportJob>(
+        RADIO_ENDPOINTS.ADMIN_GET_IMPORT_JOB(jobId)
+      )
+      return data
+    },
+    enabled: enabled && jobId > 0,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      if (status === 'running' || status === 'pending') {
+        return 3000
+      }
+      return false
+    },
+  })
+}
+
+/**
+ * Hook to cancel a running import job.
+ */
+export function useCancelImportJob() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (jobId: number) => {
+      return apiRequest<{ success: boolean }>(RADIO_ENDPOINTS.ADMIN_CANCEL_IMPORT_JOB(jobId), {
+        method: 'POST',
+      })
+    },
+    onSuccess: (_data, jobId) => {
+      queryClient.invalidateQueries({ queryKey: radioQueryKeys.importJob(jobId) })
+      // Also invalidate show-level lists
+      queryClient.invalidateQueries({ queryKey: radioQueryKeys.all })
+    },
+  })
+}
+
+/**
+ * Hook to list import jobs for a show.
+ */
+export function useShowImportJobs(showId: number, enabled = true) {
+  return useQuery({
+    queryKey: radioQueryKeys.showImportJobs(showId),
+    queryFn: async () => {
+      const data = await apiRequest<{ jobs: RadioImportJob[]; count: number }>(
+        RADIO_ENDPOINTS.ADMIN_LIST_IMPORT_JOBS(showId)
+      )
+      return data
+    },
+    enabled: enabled && showId > 0,
   })
 }

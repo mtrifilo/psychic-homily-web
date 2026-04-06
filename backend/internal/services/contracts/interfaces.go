@@ -598,4 +598,11 @@ type RadioServiceInterface interface {
 
 	// Re-matching
 	ReMatchUnmatched() (*MatchResult, error)
+
+	// Import jobs
+	CreateImportJob(showID uint, since, until string) (*RadioImportJobResponse, error)
+	StartImportJob(jobID uint) error
+	CancelImportJob(jobID uint) error
+	GetImportJob(jobID uint) (*RadioImportJobResponse, error)
+	ListImportJobs(showID uint) ([]*RadioImportJobResponse, error)
 }
