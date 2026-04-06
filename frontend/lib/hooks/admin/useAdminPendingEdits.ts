@@ -20,6 +20,7 @@ export interface PendingEditResponse {
   id: number
   entity_type: string
   entity_id: number
+  entity_name?: string
   submitted_by: number
   submitter_name?: string
   field_changes: FieldChange[]

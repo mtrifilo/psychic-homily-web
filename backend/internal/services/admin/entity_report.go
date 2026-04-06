@@ -235,6 +235,7 @@ func (s *EntityReportService) toResponse(report *models.EntityReport) *contracts
 		ID:         report.ID,
 		EntityType: report.EntityType,
 		EntityID:   report.EntityID,
+		EntityName: resolveEntityName(s.db, report.EntityType, report.EntityID),
 		ReportedBy: report.ReportedBy,
 		ReportType: report.ReportType,
 		Details:    report.Details,

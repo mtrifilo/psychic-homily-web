@@ -16,6 +16,7 @@ export interface EntityReportResponse {
   id: number
   entity_type: string
   entity_id: number
+  entity_name?: string
   reported_by: number
   reporter_name?: string
   report_type: string
