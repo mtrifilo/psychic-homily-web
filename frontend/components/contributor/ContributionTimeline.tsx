@@ -28,10 +28,6 @@ function getEntityIcon(entityType: string): LucideIcon {
 }
 
 function getEntityLink(entry: ContributionEntry): string | null {
-  // Build a link to the entity if possible
-  const entityName = entry.entity_name
-  if (!entityName) return null
-
   switch (entry.entity_type) {
     case 'show':
     case 'venue':
@@ -40,16 +36,72 @@ function getEntityLink(entry: ContributionEntry): string | null {
     case 'label':
     case 'festival':
       return `/${entry.entity_type}s/${entry.entity_id}`
+    case 'request':
+      return `/requests/${entry.entity_id}`
+    case 'collection':
+      return `/collection/${entry.entity_id}`
+    case 'venue_edit':
+      return `/venues/${entry.entity_id}`
     default:
       return null
   }
 }
 
+/**
+ * Returns a human-readable label for the entity type, used as a fallback
+ * when the backend doesn't return an entity name.
+ */
+const entityTypeLabels: Record<string, string> = {
+  show: 'a show',
+  venue: 'a venue',
+  artist: 'an artist',
+  release: 'a release',
+  label: 'a label',
+  festival: 'a festival',
+  request: 'a request',
+  collection: 'a collection',
+  venue_edit: 'a venue',
+}
+
+function getFallbackEntityLabel(entry: ContributionEntry): string {
+  return entityTypeLabels[entry.entity_type] || entry.entity_type
+}
+
+/**
+ * Maps raw action strings from the API into user-friendly display labels.
+ * Actions come from audit_logs (e.g., "create", "report") and submission
+ * sources (e.g., "submit_show", "submit_venue_edit").
+ */
+const actionLabels: Record<string, string> = {
+  submit_show: 'Submitted show',
+  submit_venue: 'Submitted venue',
+  submit_venue_edit: 'Suggested venue edit',
+  create: 'Created',
+  update: 'Updated',
+  delete: 'Deleted',
+  report: 'Reported',
+  suggest_edit: 'Suggested edit',
+  approve: 'Approved',
+  reject: 'Rejected',
+  vote: 'Voted on',
+  create_request: 'Created request',
+  fulfill_request: 'Fulfilled request',
+  create_collection: 'Created collection',
+}
+
 function formatAction(action: string): string {
+  if (actionLabels[action]) return actionLabels[action]
+  // Fallback: title-case with underscores replaced
   return action
     .replace(/_/g, ' ')
     .replace(/\b\w/g, c => c.toUpperCase())
 }
+
+/**
+ * Sources that should not be displayed to users.
+ * "web" is the default, "audit_log" and "submission" are internal labels.
+ */
+const hiddenSources = new Set(['web', 'audit_log', 'submission'])
 
 interface ContributionTimelineProps {
   contributions: ContributionEntry[]
@@ -83,24 +135,33 @@ export function ContributionTimeline({ contributions }: ContributionTimelineProp
                 <span className="text-muted-foreground">
                   {formatAction(entry.action)}
                 </span>{' '}
-                {entry.entity_name && link ? (
+                {entry.entity_name ? (
+                  link ? (
+                    <Link
+                      href={link}
+                      className="font-medium hover:underline"
+                    >
+                      {entry.entity_name}
+                    </Link>
+                  ) : (
+                    <span className="font-medium">{entry.entity_name}</span>
+                  )
+                ) : link ? (
                   <Link
                     href={link}
-                    className="font-medium hover:underline"
+                    className="text-muted-foreground hover:underline"
                   >
-                    {entry.entity_name}
+                    {getFallbackEntityLabel(entry)}
                   </Link>
-                ) : entry.entity_name ? (
-                  <span className="font-medium">{entry.entity_name}</span>
                 ) : (
                   <span className="text-muted-foreground">
-                    {entry.entity_type} #{entry.entity_id}
+                    {getFallbackEntityLabel(entry)}
                   </span>
                 )}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {formatRelativeTime(entry.created_at, { short: true })}
-                {entry.source && entry.source !== 'web' && (
+                {entry.source && !hiddenSources.has(entry.source) && (
                   <span> &middot; via {entry.source}</span>
                 )}
               </p>

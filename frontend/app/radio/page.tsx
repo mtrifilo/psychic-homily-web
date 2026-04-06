@@ -21,10 +21,10 @@ export default function RadioPage() {
 
           {stats && (
             <div className="flex items-center justify-center gap-6 mt-4 text-sm text-muted-foreground">
-              <span>{stats.total_stations} stations</span>
-              <span>{stats.total_shows} shows</span>
-              <span>{stats.total_episodes.toLocaleString()} episodes</span>
-              <span>{stats.total_plays.toLocaleString()} plays tracked</span>
+              <span>{stats.total_stations} {stats.total_stations === 1 ? 'station' : 'stations'}</span>
+              <span>{stats.total_shows} {stats.total_shows === 1 ? 'show' : 'shows'}</span>
+              <span>{stats.total_episodes.toLocaleString()} {stats.total_episodes === 1 ? 'episode' : 'episodes'}</span>
+              <span>{stats.total_plays.toLocaleString()} {stats.total_plays === 1 ? 'play' : 'plays'} tracked</span>
             </div>
           )}
         </div>

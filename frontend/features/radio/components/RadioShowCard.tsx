@@ -53,7 +53,7 @@ export function RadioShowCard({ show, stationSlug }: RadioShowCardProps) {
             {show.episode_count > 0 && (
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <ListMusic className="h-3 w-3" />
-                {show.episode_count} episodes
+                {show.episode_count} {show.episode_count === 1 ? 'episode' : 'episodes'}
               </span>
             )}
           </div>

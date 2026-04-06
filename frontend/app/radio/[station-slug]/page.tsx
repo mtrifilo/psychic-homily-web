@@ -94,7 +94,7 @@ function NewReleaseRadarSection({ stationId }: { stationId: number }) {
               )}
             </div>
             <div className="shrink-0 text-xs text-muted-foreground tabular-nums">
-              {entry.play_count} plays
+              {entry.play_count} {entry.play_count === 1 ? 'play' : 'plays'}
               {entry.station_count > 1 && ` / ${entry.station_count} stations`}
             </div>
           </div>
@@ -187,7 +187,7 @@ export default function StationPage({ params }: StationPageProps) {
               {station.show_count > 0 && (
                 <span className="flex items-center gap-1 text-sm text-muted-foreground">
                   <Music className="h-3.5 w-3.5" />
-                  {station.show_count} shows
+                  {station.show_count} {station.show_count === 1 ? 'show' : 'shows'}
                 </span>
               )}
             </div>
