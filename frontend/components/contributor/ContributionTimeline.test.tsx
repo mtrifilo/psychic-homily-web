@@ -58,13 +58,31 @@ describe('ContributionTimeline', () => {
     expect(screen.getByText('Valley Bar')).toBeInTheDocument()
   })
 
-  it('formats action text with capitalization', () => {
+  it('formats unknown action text with capitalization', () => {
     render(
       <ContributionTimeline
         contributions={[makeEntry({ action: 'venue_edit_submitted' })]}
       />
     )
     expect(screen.getByText('Venue Edit Submitted')).toBeInTheDocument()
+  })
+
+  it('uses friendly labels for known actions', () => {
+    render(
+      <ContributionTimeline
+        contributions={[makeEntry({ action: 'submit_show' })]}
+      />
+    )
+    expect(screen.getByText('Submitted show')).toBeInTheDocument()
+  })
+
+  it('maps suggest_edit to user-friendly label', () => {
+    render(
+      <ContributionTimeline
+        contributions={[makeEntry({ action: 'suggest_edit' })]}
+      />
+    )
+    expect(screen.getByText('Suggested edit')).toBeInTheDocument()
   })
 
   it('links to entity for known entity types', () => {
@@ -104,7 +122,39 @@ describe('ContributionTimeline', () => {
     expect(entityText.tagName).toBe('SPAN')
   })
 
-  it('shows entity type and id when entity_name is missing', () => {
+  it('links requests to /requests/:id', () => {
+    render(
+      <ContributionTimeline
+        contributions={[
+          makeEntry({
+            entity_type: 'request',
+            entity_id: 5,
+            entity_name: 'Add artist Foo',
+          }),
+        ]}
+      />
+    )
+    const link = screen.getByText('Add artist Foo')
+    expect(link.closest('a')).toHaveAttribute('href', '/requests/5')
+  })
+
+  it('links collections to /collection/:id', () => {
+    render(
+      <ContributionTimeline
+        contributions={[
+          makeEntry({
+            entity_type: 'collection',
+            entity_id: 8,
+            entity_name: 'My Favorites',
+          }),
+        ]}
+      />
+    )
+    const link = screen.getByText('My Favorites')
+    expect(link.closest('a')).toHaveAttribute('href', '/collection/8')
+  })
+
+  it('shows fallback label with link when entity_name is missing for a known type', () => {
     render(
       <ContributionTimeline
         contributions={[
@@ -116,7 +166,24 @@ describe('ContributionTimeline', () => {
         ]}
       />
     )
-    expect(screen.getByText('show #55')).toBeInTheDocument()
+    const fallback = screen.getByText('a show')
+    expect(fallback).toBeInTheDocument()
+    expect(fallback.closest('a')).toHaveAttribute('href', '/shows/55')
+  })
+
+  it('shows raw entity type when entity_name is missing for an unknown type', () => {
+    render(
+      <ContributionTimeline
+        contributions={[
+          makeEntry({
+            entity_name: undefined,
+            entity_type: 'something_else',
+            entity_id: 99,
+          }),
+        ]}
+      />
+    )
+    expect(screen.getByText('something_else')).toBeInTheDocument()
   })
 
   it('formats "just now" for very recent timestamps', () => {
@@ -216,6 +283,28 @@ describe('ContributionTimeline', () => {
       />
     )
     expect(screen.queryByText(/via web/)).not.toBeInTheDocument()
+  })
+
+  it('does not show source when source is "audit_log"', () => {
+    render(
+      <ContributionTimeline
+        contributions={[
+          makeEntry({ source: 'audit_log', created_at: '2026-03-19T11:00:00Z' }),
+        ]}
+      />
+    )
+    expect(screen.queryByText(/via audit_log/)).not.toBeInTheDocument()
+  })
+
+  it('does not show source when source is "submission"', () => {
+    render(
+      <ContributionTimeline
+        contributions={[
+          makeEntry({ source: 'submission', created_at: '2026-03-19T11:00:00Z' }),
+        ]}
+      />
+    )
+    expect(screen.queryByText(/via submission/)).not.toBeInTheDocument()
   })
 
   it('renders multiple entries', () => {
