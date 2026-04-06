@@ -17,6 +17,8 @@ import {
   UserPlus,
   SkipForward,
   BarChart3,
+  Radar,
+  Upload,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,9 +47,13 @@ import {
   useUpdateRadioShow,
   useDeleteRadioShow,
   useFetchPlaylists,
+  useDiscoverShows,
+  useImportShowEpisodes,
   type RadioStationListItem,
   type RadioStationDetail,
   type RadioShowListItem,
+  type RadioDiscoverResult,
+  type RadioImportResult,
   type CreateRadioStationInput,
   type UpdateRadioStationInput,
   type CreateRadioShowInput,
@@ -685,6 +691,92 @@ function EditShowForm({
 // Station Detail Panel (with shows management)
 // ============================================================================
 
+// ============================================================================
+// Per-Show Import Controls
+// ============================================================================
+
+function ShowImportControls({ show }: { show: RadioShowListItem }) {
+  const importMutation = useImportShowEpisodes()
+  const [since, setSince] = useState('')
+  const [until, setUntil] = useState('')
+  const [importResult, setImportResult] = useState<RadioImportResult | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+
+  const handleImport = useCallback(() => {
+    if (!since || !until) return
+    setImportResult(null)
+    setImportError(null)
+    importMutation.mutate(
+      { showId: show.id, since, until },
+      {
+        onSuccess: (result) => {
+          setImportResult(result)
+        },
+        onError: (err) => {
+          setImportError(err.message)
+        },
+      }
+    )
+  }, [show.id, since, until, importMutation])
+
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="flex items-end gap-2">
+        <div>
+          <Label className="text-xs text-muted-foreground">Since</Label>
+          <Input
+            type="date"
+            value={since}
+            onChange={(e) => setSince(e.target.value)}
+            className="h-8 text-xs w-36"
+          />
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground">Until</Label>
+          <Input
+            type="date"
+            value={until}
+            onChange={(e) => setUntil(e.target.value)}
+            className="h-8 text-xs w-36"
+          />
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleImport}
+          disabled={importMutation.isPending || !since || !until}
+          className="h-8"
+        >
+          {importMutation.isPending ? (
+            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+          ) : (
+            <Upload className="mr-1 h-3 w-3" />
+          )}
+          Import Episodes
+        </Button>
+      </div>
+      {importResult && (
+        <div className="text-xs rounded-md bg-muted p-2 space-y-0.5">
+          <p>Episodes imported: <strong>{importResult.episodes_imported}</strong></p>
+          <p>Plays imported: <strong>{importResult.plays_imported}</strong></p>
+          <p>Plays matched: <strong>{importResult.plays_matched}</strong></p>
+          {importResult.errors && importResult.errors.length > 0 && (
+            <div className="mt-1 text-destructive">
+              <p className="font-medium">Errors:</p>
+              {importResult.errors.map((e, i) => (
+                <p key={i}>{e}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {importError && (
+        <p className="text-xs text-destructive">{importError}</p>
+      )}
+    </div>
+  )
+}
+
 function StationDetailPanel({
   station,
   onBack,
@@ -698,26 +790,29 @@ function StationDetailPanel({
 }) {
   const { data: stationDetail } = useRadioStationDetail(station.id)
   const { data: showsData, isLoading: showsLoading } = useRadioShows(station.id)
-  const fetchMutation = useFetchPlaylists()
+  const discoverMutation = useDiscoverShows()
   const deleteShowMutation = useDeleteRadioShow()
 
   const [dialogMode, setDialogMode] = useState<'create-show' | 'edit-show' | 'delete-show' | null>(null)
   const [selectedShow, setSelectedShow] = useState<RadioShowListItem | null>(null)
-  const [fetchResult, setFetchResult] = useState<string | null>(null)
+  const [discoverResult, setDiscoverResult] = useState<RadioDiscoverResult | null>(null)
+  const [discoverError, setDiscoverError] = useState<string | null>(null)
+  const [expandedShows, setExpandedShows] = useState<Set<number>>(new Set())
 
   const shows = showsData?.shows ?? []
 
-  const handleFetchPlaylists = useCallback(() => {
-    setFetchResult(null)
-    fetchMutation.mutate(station.id, {
-      onSuccess: () => {
-        setFetchResult('Playlist fetch triggered successfully.')
+  const handleDiscoverShows = useCallback(() => {
+    setDiscoverResult(null)
+    setDiscoverError(null)
+    discoverMutation.mutate(station.id, {
+      onSuccess: (result) => {
+        setDiscoverResult(result)
       },
       onError: (err) => {
-        setFetchResult(`Fetch failed: ${err.message}`)
+        setDiscoverError(err.message)
       },
     })
-  }, [station.id, fetchMutation])
+  }, [station.id, discoverMutation])
 
   const handleDeleteShow = useCallback(
     (show: RadioShowListItem) => {
@@ -728,6 +823,18 @@ function StationDetailPanel({
     },
     [deleteShowMutation, station.id]
   )
+
+  const toggleShowExpanded = useCallback((showId: number) => {
+    setExpandedShows((prev) => {
+      const next = new Set(prev)
+      if (next.has(showId)) {
+        next.delete(showId)
+      } else {
+        next.add(showId)
+      }
+      return next
+    })
+  }, [])
 
   const lastFetch = stationDetail?.last_playlist_fetch_at
     ? new Date(stationDetail.last_playlist_fetch_at).toLocaleString()
@@ -787,18 +894,33 @@ function StationDetailPanel({
         </div>
       )}
 
-      {/* Fetch Playlists */}
-      <div className="flex items-center gap-3">
-        <Button onClick={handleFetchPlaylists} disabled={fetchMutation.isPending} size="sm">
-          {fetchMutation.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Download className="mr-2 h-4 w-4" />
+      {/* Discover Shows */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-3">
+          <Button onClick={handleDiscoverShows} disabled={discoverMutation.isPending} size="sm">
+            {discoverMutation.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Radar className="mr-2 h-4 w-4" />
+            )}
+            Discover Shows
+          </Button>
+          {discoverResult && (
+            <span className="text-sm text-muted-foreground">
+              Discovered {discoverResult.shows_discovered} show(s)
+              {discoverResult.show_names.length > 0 && `: ${discoverResult.show_names.join(', ')}`}
+            </span>
           )}
-          Fetch Playlists
-        </Button>
-        {fetchResult && (
-          <span className="text-sm text-muted-foreground">{fetchResult}</span>
+          {discoverError && (
+            <span className="text-sm text-destructive">Discovery failed: {discoverError}</span>
+          )}
+        </div>
+        {discoverResult?.errors && discoverResult.errors.length > 0 && (
+          <div className="text-xs text-destructive space-y-0.5">
+            {discoverResult.errors.map((e, i) => (
+              <p key={i}>{e}</p>
+            ))}
+          </div>
         )}
       </div>
 
@@ -823,35 +945,48 @@ function StationDetailPanel({
         ) : (
           <div className="rounded-lg border divide-y">
             {shows.map((show) => (
-              <div key={show.id} className="flex items-center justify-between px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{show.name}</span>
-                    <Badge variant={show.is_active ? 'default' : 'secondary'} className="text-xs">
-                      {show.is_active ? 'Active' : 'Inactive'}
-                    </Badge>
+              <div key={show.id} className="px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{show.name}</span>
+                      <Badge variant={show.is_active ? 'default' : 'secondary'} className="text-xs">
+                        {show.is_active ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {show.host_name ? `Hosted by ${show.host_name}` : 'No host'} &middot; {show.episode_count} episode(s)
+                    </p>
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {show.host_name ? `Hosted by ${show.host_name}` : 'No host'} &middot; {show.episode_count} episode(s)
-                  </p>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      title="Import episodes"
+                      onClick={() => toggleShowExpanded(show.id)}
+                    >
+                      <Upload className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setSelectedShow(show); setDialogMode('edit-show') }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive"
+                      onClick={() => { setSelectedShow(show); setDialogMode('delete-show') }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => { setSelectedShow(show); setDialogMode('edit-show') }}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive"
-                    onClick={() => { setSelectedShow(show); setDialogMode('delete-show') }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
+                {expandedShows.has(show.id) && (
+                  <ShowImportControls show={show} />
+                )}
               </div>
             ))}
           </div>

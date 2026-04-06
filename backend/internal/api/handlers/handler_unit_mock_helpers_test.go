@@ -1920,6 +1920,8 @@ type mockRadioService struct {
 	importStationFn func(uint, int) (*contracts.RadioImportResult, error)
 	fetchNewEpisodesFn func(uint) (*contracts.RadioImportResult, error)
 	importEpisodePlaylistFn func(uint, string) (*contracts.EpisodeImportResult, error)
+	discoverStationShowsFn func(uint) (*contracts.RadioDiscoverResult, error)
+	importShowEpisodesFn func(uint, string, string) (*contracts.RadioImportResult, error)
 	matchPlaysFn func(uint) (*contracts.MatchResult, error)
 	getUnmatchedPlaysFn func(uint, int, int) ([]*contracts.UnmatchedPlayGroup, int64, error)
 	linkPlayFn func(uint, *contracts.LinkPlayRequest) (error)
@@ -2070,6 +2072,18 @@ func (m *mockRadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImp
 func (m *mockRadioService) ImportEpisodePlaylist(showID uint, episodeExternalID string) (*contracts.EpisodeImportResult, error) {
 	if m.importEpisodePlaylistFn != nil {
 		return m.importEpisodePlaylistFn(showID, episodeExternalID)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) DiscoverStationShows(stationID uint) (*contracts.RadioDiscoverResult, error) {
+	if m.discoverStationShowsFn != nil {
+		return m.discoverStationShowsFn(stationID)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) ImportShowEpisodes(showID uint, since string, until string) (*contracts.RadioImportResult, error) {
+	if m.importShowEpisodesFn != nil {
+		return m.importShowEpisodesFn(showID, since, until)
 	}
 	return nil, nil
 }
