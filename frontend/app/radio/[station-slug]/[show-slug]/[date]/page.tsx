@@ -214,7 +214,7 @@ export default function EpisodeDatePage({ params }: EpisodeDatePageProps) {
             <Music className="h-5 w-5" />
             Playlist
             <span className="text-sm font-normal text-muted-foreground">
-              ({plays.length} tracks)
+              ({plays.length} {plays.length === 1 ? 'track' : 'tracks'})
             </span>
           </h2>
 

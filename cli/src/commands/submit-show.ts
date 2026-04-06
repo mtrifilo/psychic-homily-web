@@ -7,16 +7,33 @@ import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags"
 import type { TagInput, ResolvedTag } from "../lib/tags";
 import * as display from "../lib/display";
 import { green, yellow, dim, gray } from "../lib/ansi";
+import { getTimezoneForState, localTimeToUTC } from "../lib/timezone";
 
-/** Normalize a date string to ISO 8601. Adds T20:00:00Z if only YYYY-MM-DD, appends Z if missing timezone. */
-function normalizeDate(date: string): string {
+/**
+ * Normalize a date string to an ISO 8601 UTC timestamp.
+ *
+ * When only a date (YYYY-MM-DD) is provided, defaults to 20:00 local time.
+ * When a date+time without timezone is provided, treats it as local time.
+ * In both cases, converts from the venue's local timezone to UTC.
+ *
+ * @param date  - Date string (YYYY-MM-DD, YYYY-MM-DDTHH:MM, or full ISO 8601)
+ * @param state - US state abbreviation for timezone lookup (e.g., "AZ", "CA")
+ */
+export function normalizeDate(date: string, state?: string): string {
+  const timezone = state ? getTimezoneForState(state) : "America/Phoenix";
+
+  // Date only: default to 20:00 local time
   if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return `${date}T20:00:00Z`;
+    return localTimeToUTC(date, "20:00", timezone);
   }
-  // If has time but no timezone suffix (Z or +/-offset), append Z
+
+  // Date+time but no timezone suffix (Z or +/-offset): treat as local time
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(date)) {
-    return `${date}Z`;
+    const [datePart, timePart] = date.split("T");
+    return localTimeToUTC(datePart, timePart, timezone);
   }
+
+  // Already has timezone info — return as-is
   return date;
 }
 
@@ -194,8 +211,13 @@ export async function resolveVenues(
 
 /** Build the API request body for creating a show. */
 export function buildShowPayload(plan: ShowPlan): Record<string, unknown> {
+  // Determine venue state for timezone conversion.
+  // Prefer the first venue's state, fall back to the show-level state.
+  const venueState =
+    plan.venues[0]?.state || plan.input.venues[0]?.state || plan.input.state;
+
   const payload: Record<string, unknown> = {
-    event_date: normalizeDate(plan.input.event_date),
+    event_date: normalizeDate(plan.input.event_date, venueState),
     city: plan.input.city,
     state: plan.input.state,
     artists: plan.artists.map((a) => {
