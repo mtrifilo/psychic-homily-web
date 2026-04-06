@@ -43,8 +43,8 @@ interface ContributionPromptProps {
   entitySlug: string
   /** Whether the user is authenticated. If false, renders nothing. */
   isAuthenticated: boolean
-  /** Called when user clicks the action button. Opens the edit drawer. */
-  onEditClick: () => void
+  /** Called when user clicks the action button. Opens the edit drawer. Receives the field key of the top data gap. */
+  onEditClick: (focusField?: string) => void
 }
 
 export function ContributionPrompt({
@@ -97,7 +97,7 @@ export function ContributionPrompt({
       <Lightbulb className="h-4 w-4 text-primary shrink-0" />
       <span className="text-muted-foreground flex-1">{promptText}</span>
       <button
-        onClick={onEditClick}
+        onClick={() => onEditClick(topGap.field)}
         className="inline-flex items-center gap-1 text-primary hover:text-primary/80 font-medium whitespace-nowrap transition-colors"
       >
         Add it
