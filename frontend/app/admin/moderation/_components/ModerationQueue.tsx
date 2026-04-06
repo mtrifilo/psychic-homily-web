@@ -131,7 +131,7 @@ function PendingEditCard({ edit }: { edit: PendingEditResponse }) {
               target="_blank"
               rel="noopener noreferrer"
             >
-              {entityTypeLabel(edit.entity_type)} #{edit.entity_id}
+              {edit.entity_name || `${entityTypeLabel(edit.entity_type)} #${edit.entity_id}`}
               <ExternalLink className="h-3 w-3 inline ml-1 opacity-50" />
             </a>
           </div>
@@ -303,7 +303,7 @@ function EntityReportCard({ report }: { report: EntityReportResponse }) {
               target="_blank"
               rel="noopener noreferrer"
             >
-              {entityTypeLabel(report.entity_type)} #{report.entity_id}
+              {report.entity_name || `${entityTypeLabel(report.entity_type)} #${report.entity_id}`}
               <ExternalLink className="h-3 w-3 inline ml-1 opacity-50" />
             </a>
           </div>

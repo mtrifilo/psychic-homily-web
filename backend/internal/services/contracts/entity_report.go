@@ -55,6 +55,7 @@ type EntityReportResponse struct {
 	ID           uint       `json:"id"`
 	EntityType   string     `json:"entity_type"`
 	EntityID     uint       `json:"entity_id"`
+	EntityName   string     `json:"entity_name,omitempty"`
 	ReportedBy   uint       `json:"reported_by"`
 	ReporterName string     `json:"reporter_name,omitempty"`
 	ReportType   string     `json:"report_type"`

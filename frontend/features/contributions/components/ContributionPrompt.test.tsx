@@ -148,7 +148,7 @@ describe('ContributionPrompt', () => {
     expect(screen.queryByText('Can you write a description?')).not.toBeInTheDocument()
   })
 
-  it('calls onEditClick when action button is clicked', () => {
+  it('calls onEditClick with the gap field when action button is clicked', () => {
     mockUseDataGaps.mockReturnValue({
       data: {
         gaps: [{ field: 'website', label: 'Website', priority: 1 }],
@@ -160,6 +160,7 @@ describe('ContributionPrompt', () => {
 
     fireEvent.click(screen.getByText('Add it'))
     expect(defaultProps.onEditClick).toHaveBeenCalledTimes(1)
+    expect(defaultProps.onEditClick).toHaveBeenCalledWith('website')
   })
 
   it('renders nothing while loading', () => {

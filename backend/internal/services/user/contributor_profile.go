@@ -911,6 +911,24 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 			for _, r := range results {
 				names[r.ID] = r.Name
 			}
+		case "request":
+			var results []struct {
+				ID    uint
+				Title string
+			}
+			s.db.Table("requests").Select("id, title").Where("id IN ?", ids).Scan(&results)
+			for _, r := range results {
+				names[r.ID] = r.Title
+			}
+		case "collection":
+			var results []struct {
+				ID    uint
+				Title string
+			}
+			s.db.Table("collections").Select("id, title").Where("id IN ?", ids).Scan(&results)
+			for _, r := range results {
+				names[r.ID] = r.Title
+			}
 		}
 		nameMap[entityType] = names
 	}

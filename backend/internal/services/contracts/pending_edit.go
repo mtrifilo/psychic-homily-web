@@ -63,6 +63,7 @@ type PendingEditResponse struct {
 	ID              uint                   `json:"id"`
 	EntityType      string                 `json:"entity_type"`
 	EntityID        uint                   `json:"entity_id"`
+	EntityName      string                 `json:"entity_name,omitempty"`
 	SubmittedBy     uint                   `json:"submitted_by"`
 	SubmitterName   string                 `json:"submitter_name,omitempty"`
 	FieldChanges    []models.FieldChange   `json:"field_changes"`
