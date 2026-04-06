@@ -71,15 +71,25 @@ type ReleaseExternalLinkResponse struct {
 	URL      string `json:"url"`
 }
 
+// ReleaseListArtist represents an artist in release list views (minimal info for display)
+type ReleaseListArtist struct {
+	ID   uint   `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
 // ReleaseListResponse represents a release in list views
 type ReleaseListResponse struct {
-	ID          uint    `json:"id"`
-	Title       string  `json:"title"`
-	Slug        string  `json:"slug"`
-	ReleaseType string  `json:"release_type"`
-	ReleaseYear *int    `json:"release_year"`
-	CoverArtURL *string `json:"cover_art_url"`
-	ArtistCount int     `json:"artist_count"`
+	ID          uint                `json:"id"`
+	Title       string              `json:"title"`
+	Slug        string              `json:"slug"`
+	ReleaseType string              `json:"release_type"`
+	ReleaseYear *int                `json:"release_year"`
+	CoverArtURL *string             `json:"cover_art_url"`
+	ArtistCount int                 `json:"artist_count"`
+	Artists     []ReleaseListArtist `json:"artists"`
+	LabelName   *string             `json:"label_name"`
+	LabelSlug   *string             `json:"label_slug"`
 }
 
 // ArtistReleaseListResponse extends ReleaseListResponse with the artist's role on that release

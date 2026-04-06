@@ -9,6 +9,7 @@ export type {
   ReleaseArtist,
   ReleaseExternalLink,
   ReleaseDetail,
+  ReleaseListArtist,
   ReleaseListItem,
   ReleasesListResponse,
   ArtistReleaseListItem,
