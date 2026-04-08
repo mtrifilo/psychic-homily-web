@@ -48,7 +48,7 @@ const COLORS = {
   bookmarks: '#3b82f6',
   tags_added: '#8b5cf6',
   tag_votes: '#a78bfa',
-  crate_items: '#f97316',
+  collection_items: '#f97316',
   requests: '#10b981',
   request_votes: '#34d399',
   revisions: '#ec4899',
@@ -283,11 +283,11 @@ function EngagementSection({ months }: { months: MonthRange }) {
   if (error) return <ErrorState message="Failed to load engagement metrics." />
   if (!data) return null
 
-  // Group 1: Content curation (tags + crates)
+  // Group 1: Content curation (tags + collection items)
   const curationData = mergeMonthlyData({
     tags_added: data.tags_added,
     tag_votes: data.tag_votes,
-    crate_items: data.collection_items, // API field is collection_items
+    collection_items: data.collection_items,
   })
 
   // Group 2: Requests & voting
@@ -345,12 +345,12 @@ function EngagementSection({ months }: { months: MonthRange }) {
             />
             <Area
               type="monotone"
-              dataKey="crate_items"
-              stroke={COLORS.crate_items}
-              fill={COLORS.crate_items}
+              dataKey="collection_items"
+              stroke={COLORS.collection_items}
+              fill={COLORS.collection_items}
               fillOpacity={0.15}
               strokeWidth={2}
-              name="Crate Items"
+              name="Collection Items"
             />
           </AreaChart>
         </ResponsiveContainer>
@@ -492,9 +492,9 @@ function CommunityHealthSection() {
           description="Percentage of requests that have been fulfilled"
         />
         <StatCard
-          label="New Crates (30d)"
+          label="New Collections (30d)"
           value={data.new_collections_30d}
-          description="Crates created in the last 30 days"
+          description="Collections created in the last 30 days"
         />
       </div>
 

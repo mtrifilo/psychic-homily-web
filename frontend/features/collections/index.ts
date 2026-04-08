@@ -1,0 +1,21 @@
+// Public API for the collections feature module.
+// Other features should import from '@/features/collections', not from internal paths.
+
+export type {
+  Collection,
+  CollectionDetail,
+  CollectionItem,
+  CollectionStats,
+  CollectionEntityType,
+} from './types'
+
+export { COLLECTION_ENTITY_TYPES } from './types'
+
+export {
+  useCollections,
+  useMyCollections,
+  useCollection,
+  useCollectionStats,
+  useSetFeatured,
+  useDeleteCollection,
+} from './hooks'

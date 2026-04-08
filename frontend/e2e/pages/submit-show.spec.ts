@@ -93,12 +93,12 @@ test.describe('Submit a show', () => {
       authenticatedPage.getByText('Show Submitted!')
     ).toBeVisible({ timeout: 10_000 })
 
-    // Wait for redirect to /collection
-    await authenticatedPage.waitForURL(/\/collection/, { timeout: 10_000 })
+    // Wait for redirect to /library (PSY-275: collection merged into library)
+    await authenticatedPage.waitForURL(/\/library/, { timeout: 10_000 })
 
-    // Verify we're on the collection page
+    // Verify we're on the library page
     await expect(
-      authenticatedPage.getByRole('heading', { name: /my collection/i })
+      authenticatedPage.getByRole('heading', { name: /^library$/i })
     ).toBeVisible({ timeout: 10_000 })
   })
 })

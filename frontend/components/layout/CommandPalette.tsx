@@ -82,10 +82,10 @@ const routes: RouteItem[] = [
     keywords: ['scenes', 'cities', 'city', 'local', 'geographic', 'phoenix', 'music scene'],
   },
   {
-    label: 'Crates',
-    href: '/crates',
+    label: 'Collections',
+    href: '/collections',
     icon: LayoutList,
-    keywords: ['crates', 'curated', 'lists', 'playlists', 'collections'],
+    keywords: ['collections', 'crates', 'curated', 'lists', 'playlists'],
   },
   {
     label: 'Charts',
@@ -139,14 +139,7 @@ const routes: RouteItem[] = [
     label: 'Library',
     href: '/library',
     icon: Library,
-    keywords: ['library', 'saved', 'bookmarks', 'favorites', 'following', 'my stuff', 'personal', 'my shows', 'going', 'interested', 'attending'],
-    requireAuth: true,
-  },
-  {
-    label: 'Collection',
-    href: '/collection',
-    icon: BookOpen,
-    keywords: ['collection', 'saved', 'my list', 'favorites', 'bookmarks'],
+    keywords: ['library', 'saved', 'bookmarks', 'favorites', 'following', 'my stuff', 'personal', 'my shows', 'going', 'interested', 'attending', 'my collection', 'submissions', 'my submissions'],
     requireAuth: true,
   },
   {
@@ -244,10 +237,10 @@ const adminRoutes: RouteItem[] = [
     requireAdmin: true,
   },
   {
-    label: 'Admin: Crates',
-    href: '/admin?tab=crates',
+    label: 'Admin: Collections',
+    href: '/admin?tab=collections',
     icon: Library,
-    keywords: ['admin', 'crates', 'manage', 'featured', 'collections'],
+    keywords: ['admin', 'collections', 'crates', 'manage', 'featured'],
     requireAdmin: true,
   },
   {

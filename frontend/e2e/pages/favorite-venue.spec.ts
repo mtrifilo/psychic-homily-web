@@ -93,7 +93,7 @@ test.describe('Favorite venue', () => {
     ).toBeVisible({ timeout: 5_000 })
   })
 
-  test('favorited venue appears in collection favorites tab', async ({
+  test('favorited venue appears in library venues tab', async ({
     authenticatedPage,
   }) => {
     // Navigate to a venue detail page
@@ -144,10 +144,10 @@ test.describe('Favorite venue', () => {
     // Remember the venue URL for cleanup
     const venueUrl = authenticatedPage.url()
 
-    // Navigate to collection favorites tab
-    await authenticatedPage.goto('/collection?tab=favorites')
+    // Navigate to library venues tab (PSY-275: favorites merged into venues tab on /library)
+    await authenticatedPage.goto('/library?tab=venues')
     await expect(
-      authenticatedPage.getByRole('heading', { name: /my collection/i })
+      authenticatedPage.getByRole('heading', { name: /^library$/i })
     ).toBeVisible({ timeout: 10_000 })
 
     // The venue name should appear (not the empty state)

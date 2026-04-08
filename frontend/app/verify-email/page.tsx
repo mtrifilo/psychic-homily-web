@@ -134,8 +134,8 @@ function VerifyEmailContent() {
                   </Link>
                 </Button>
                 <Button asChild variant="outline">
-                  <Link href="/collection">
-                    Go to My Collection
+                  <Link href="/library">
+                    Go to My Library
                   </Link>
                 </Button>
               </div>

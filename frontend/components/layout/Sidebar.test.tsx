@@ -23,9 +23,9 @@ describe('sidebarGroups', () => {
     expect(sidebarGroups.map(g => g.label)).toEqual(['Discover', 'Community'])
   })
 
-  it('Discover contains Shows, Festivals, Artists, Venues, Releases, Labels, Tags, Crates, Radio', () => {
+  it('Discover contains Shows, Festivals, Artists, Venues, Releases, Labels, Tags, Collections, Radio', () => {
     const discover = sidebarGroups.find(g => g.label === 'Discover')!
-    expect(discover.items.map(i => i.label)).toEqual(['Shows', 'Festivals', 'Artists', 'Venues', 'Releases', 'Labels', 'Tags', 'Scenes', 'Crates', 'Charts', 'Radio'])
+    expect(discover.items.map(i => i.label)).toEqual(['Shows', 'Festivals', 'Artists', 'Venues', 'Releases', 'Labels', 'Tags', 'Scenes', 'Collections', 'Charts', 'Radio'])
   })
 
   it('Community contains Contribute, Requests, Blog, DJ Sets, Substack, Submissions', () => {
@@ -116,14 +116,13 @@ describe('Sidebar', () => {
     expect(onToggleCollapse).toHaveBeenCalledOnce()
   })
 
-  it('does not show Library/Collection/Settings when unauthenticated', () => {
+  it('does not show Library/Settings when unauthenticated', () => {
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
     expect(screen.queryByText('Library')).not.toBeInTheDocument()
-    expect(screen.queryByText('Collection')).not.toBeInTheDocument()
     expect(screen.queryByText('Settings')).not.toBeInTheDocument()
   })
 
-  it('shows Library/Collection/Settings when authenticated', () => {
+  it('shows Library/Settings when authenticated', () => {
     mockAuthContext.mockReturnValue({
       user: { email: 'test@test.com', is_admin: false },
       isAuthenticated: true,
@@ -132,8 +131,20 @@ describe('Sidebar', () => {
     })
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
     expect(screen.getByText('Library')).toBeInTheDocument()
-    expect(screen.getByText('Collection')).toBeInTheDocument()
     expect(screen.getByText('Settings')).toBeInTheDocument()
+  })
+
+  it('does not show a standalone Collection entry in auth section', () => {
+    mockAuthContext.mockReturnValue({
+      user: { email: 'test@test.com', is_admin: false },
+      isAuthenticated: true,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    // Only "Collections" (plural, in Discover group) should exist — no "Collection" singular entry.
+    expect(screen.queryByText('Collection')).not.toBeInTheDocument()
+    expect(screen.getByText('Collections')).toBeInTheDocument()
   })
 
   it('does not show My Shows or Following entries', () => {

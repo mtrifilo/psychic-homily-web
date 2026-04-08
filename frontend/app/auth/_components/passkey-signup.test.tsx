@@ -76,7 +76,7 @@ describe('PasskeySignupButton', () => {
       }),
     })
 
-    renderWithProviders(<PasskeySignupButton returnTo="/collection" />)
+    renderWithProviders(<PasskeySignupButton returnTo="/library" />)
 
     await user.click(screen.getByRole('button', { name: /sign up with passkey/i }))
     await user.type(screen.getByLabelText('Email'), 'signup@example.com')
@@ -110,7 +110,7 @@ describe('PasskeySignupButton', () => {
     )
 
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/collection')
+      expect(mockPush).toHaveBeenCalledWith('/library')
     })
   })
 })

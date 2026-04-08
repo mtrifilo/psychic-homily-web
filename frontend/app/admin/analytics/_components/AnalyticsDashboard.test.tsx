@@ -75,7 +75,7 @@ const mockEngagementData = {
   bookmarks: [{ month: '2025-10', count: 30 }],
   tags_added: [{ month: '2025-10', count: 20 }],
   tag_votes: [{ month: '2025-10', count: 50 }],
-  collection_items: [{ month: '2025-10', count: 10 }], // API field name; displayed as "Crate Items"
+  collection_items: [{ month: '2025-10', count: 10 }], // API field name; displayed as "Collection Items"
   requests: [{ month: '2025-10', count: 5 }],
   request_votes: [{ month: '2025-10', count: 15 }],
   revisions: [{ month: '2025-10', count: 8 }],
@@ -90,7 +90,7 @@ const mockCommunityData = {
     { week: '2026-W11', count: 20 },
   ],
   request_fulfillment_rate: 0.72,
-  new_collections_30d: 8, // API field name; displayed as "New Crates (30d)"
+  new_collections_30d: 8, // API field name; displayed as "New Collections (30d)"
   top_contributors: [
     { user_id: 1, username: 'alice', display_name: 'Alice M.', count: 50 },
     { user_id: 2, username: 'bob', count: 35 },
@@ -222,7 +222,7 @@ describe('AnalyticsDashboard', () => {
     expect(screen.getByText('42')).toBeInTheDocument()
     expect(screen.getByText('Request Fulfillment Rate')).toBeInTheDocument()
     expect(screen.getByText('72%')).toBeInTheDocument()
-    expect(screen.getByText('New Crates (30d)')).toBeInTheDocument()
+    expect(screen.getByText('New Collections (30d)')).toBeInTheDocument()
     expect(screen.getByText('8')).toBeInTheDocument()
   })
 

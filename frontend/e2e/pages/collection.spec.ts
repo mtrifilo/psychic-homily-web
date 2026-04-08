@@ -1,64 +1,66 @@
 import { test, expect } from '../fixtures'
 
-test.describe('Collection page', () => {
-  test('displays My Collection heading and tabs', async ({
+// PSY-275: the old /collection page was merged into /library.
+// These tests now target /library and the consolidated tabs (Shows, Venues, Submissions).
+test.describe('Library page (formerly /collection)', () => {
+  test('displays Library heading and tabs', async ({
     authenticatedPage,
   }) => {
-    await authenticatedPage.goto('/collection')
+    await authenticatedPage.goto('/library')
 
     // Heading
     await expect(
-      authenticatedPage.getByRole('heading', { name: /my collection/i })
+      authenticatedPage.getByRole('heading', { name: /^library$/i })
     ).toBeVisible({ timeout: 10_000 })
 
-    // Three tabs
+    // Key tabs present in the consolidated Library
     await expect(
-      authenticatedPage.getByRole('tab', { name: /saved shows/i })
+      authenticatedPage.getByRole('tab', { name: /shows/i })
     ).toBeVisible()
     await expect(
-      authenticatedPage.getByRole('tab', { name: /favorite venues/i })
+      authenticatedPage.getByRole('tab', { name: /venues/i })
     ).toBeVisible()
     await expect(
-      authenticatedPage.getByRole('tab', { name: /my submissions/i })
+      authenticatedPage.getByRole('tab', { name: /submissions/i })
     ).toBeVisible()
 
-    // Saved Shows tab is selected by default
+    // Shows tab is selected by default
     await expect(
-      authenticatedPage.getByRole('tab', { name: /saved shows/i })
+      authenticatedPage.getByRole('tab', { name: /shows/i })
     ).toHaveAttribute('data-state', 'active')
   })
 
   test('shows empty state when no shows are saved', async ({
     authenticatedPage,
   }) => {
-    await authenticatedPage.goto('/collection')
+    await authenticatedPage.goto('/library')
 
     await expect(
-      authenticatedPage.getByRole('heading', { name: /my collection/i })
+      authenticatedPage.getByRole('heading', { name: /^library$/i })
     ).toBeVisible({ timeout: 10_000 })
 
-    // Empty state for saved shows
+    // Empty state for shows
     await expect(
-      authenticatedPage.getByText('No saved shows yet')
+      authenticatedPage.getByText('No shows saved yet')
     ).toBeVisible({ timeout: 5_000 })
     await expect(
       authenticatedPage.getByRole('link', { name: 'Browse Shows' })
     ).toBeVisible()
   })
 
-  test('falls back to saved tab when tab query is invalid', async ({
+  test('falls back to shows tab when tab query is invalid', async ({
     authenticatedPage,
   }) => {
-    await authenticatedPage.goto('/collection?tab=invalid')
+    await authenticatedPage.goto('/library?tab=invalid')
 
     await expect(
-      authenticatedPage.getByRole('heading', { name: /my collection/i })
+      authenticatedPage.getByRole('heading', { name: /^library$/i })
     ).toBeVisible({ timeout: 10_000 })
 
     await expect(
-      authenticatedPage.getByRole('tab', { name: /saved shows/i })
+      authenticatedPage.getByRole('tab', { name: /shows/i })
     ).toHaveAttribute('data-state', 'active')
-    await authenticatedPage.waitForURL('/collection')
+    await authenticatedPage.waitForURL('/library')
   })
 
   test('shows saved show after saving one', async ({
@@ -106,10 +108,10 @@ test.describe('Collection page', () => {
     // Remember the show URL for cleanup
     const showUrl = authenticatedPage.url()
 
-    // Navigate to collection
-    await authenticatedPage.goto('/collection')
+    // Navigate to library
+    await authenticatedPage.goto('/library')
     await expect(
-      authenticatedPage.getByRole('heading', { name: /my collection/i })
+      authenticatedPage.getByRole('heading', { name: /^library$/i })
     ).toBeVisible({ timeout: 10_000 })
 
     // At least one show card should be visible

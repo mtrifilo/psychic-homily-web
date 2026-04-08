@@ -113,11 +113,11 @@ export default function Nav() {
             ))}
             {isAuthenticated && (
               <Link
-                href="/collection"
+                href="/library"
                 className="px-3 py-1.5 text-sm font-medium rounded-md hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-1.5"
               >
                 <Library className="h-4 w-4" />
-                My Collection
+                My Library
               </Link>
             )}
           </div>
@@ -252,12 +252,12 @@ export default function Nav() {
                       Your Account
                     </p>
                     <Link
-                      href="/collection"
+                      href="/library"
                       onClick={() => setOpen(false)}
                       className="text-lg font-medium px-4 py-3 rounded-lg hover:bg-muted/50 hover:text-primary transition-colors flex items-center gap-2"
                     >
                       <Library className="h-4 w-4" />
-                      My Collection
+                      My Library
                     </Link>
                     <Link
                       href="/profile"

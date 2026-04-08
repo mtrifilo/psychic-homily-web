@@ -42,15 +42,15 @@ const nextConfig: NextConfig = {
         destination: '/',
         permanent: true,
       },
-      // "collections" renamed to "crates"
+      // "crates" renamed back to "collections" (PSY-275)
       {
-        source: '/collections',
-        destination: '/crates',
+        source: '/crates',
+        destination: '/collections',
         permanent: true,
       },
       {
-        source: '/collections/:slug',
-        destination: '/crates/:slug',
+        source: '/crates/:slug',
+        destination: '/collections/:slug',
         permanent: true,
       },
       // "my-shows" and "following" consolidated into Library
@@ -61,6 +61,12 @@ const nextConfig: NextConfig = {
       },
       {
         source: '/following',
+        destination: '/library',
+        permanent: false,
+      },
+      // User "collection" page merged into Library (PSY-275)
+      {
+        source: '/collection',
         destination: '/library',
         permanent: false,
       },

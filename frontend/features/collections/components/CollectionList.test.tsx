@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { CrateList } from './CrateList'
-import type { Crate } from '../types'
+import { CollectionList } from './CollectionList'
+import type { Collection } from '../types'
 
 // Mock AuthContext
 const mockAuthContext = vi.fn(() => ({
@@ -15,13 +15,13 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
 
-// Mock crate hooks
-const mockUseCrates = vi.fn()
+// Mock collection hooks
+const mockUseCollections = vi.fn()
 const mockCreateMutate = vi.fn()
 
 vi.mock('../hooks', () => ({
-  useCrates: () => mockUseCrates(),
-  useCreateCrate: () => ({
+  useCollections: () => mockUseCollections(),
+  useCreateCollection: () => ({
     mutate: mockCreateMutate,
     isPending: false,
     error: null,
@@ -29,9 +29,9 @@ vi.mock('../hooks', () => ({
 }))
 
 // Mock child components
-vi.mock('./CrateCard', () => ({
-  CrateCard: ({ crate }: { crate: Crate }) => (
-    <article data-testid={`crate-card-${crate.id}`}>{crate.title}</article>
+vi.mock('./CollectionCard', () => ({
+  CollectionCard: ({ collection }: { collection: Collection }) => (
+    <article data-testid={`collection-card-${collection.id}`}>{collection.title}</article>
   ),
 }))
 
@@ -67,17 +67,17 @@ vi.mock('@/components/ui/dialog', () => ({
   ),
   DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
-  DialogTrigger: ({ children, asChild }: { children: React.ReactNode; asChild?: boolean }) => (
+  DialogTrigger: ({ children }: { children: React.ReactNode; asChild?: boolean }) => (
     <>{children}</>
   ),
 }))
 
-function makeCrate(overrides: Partial<Crate> = {}): Crate {
+function makeCollection(overrides: Partial<Collection> = {}): Collection {
   return {
     id: 1,
-    title: 'Test Crate',
-    slug: 'test-crate',
-    description: 'A test crate',
+    title: 'Test Collection',
+    slug: 'test-collection',
+    description: 'A test collection',
     creator_id: 1,
     creator_name: 'testuser',
     collaborative: false,
@@ -92,7 +92,7 @@ function makeCrate(overrides: Partial<Crate> = {}): Crate {
   }
 }
 
-describe('CrateList', () => {
+describe('CollectionList', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockAuthContext.mockReturnValue({
@@ -105,66 +105,66 @@ describe('CrateList', () => {
 
   describe('loading state', () => {
     it('shows loading spinner when loading and no data', () => {
-      mockUseCrates.mockReturnValue({
+      mockUseCollections.mockReturnValue({
         data: undefined,
         isLoading: true,
         error: null,
         refetch: vi.fn(),
       })
-      render(<CrateList />)
+      render(<CollectionList />)
       expect(screen.getByTestId('loading-spinner')).toBeInTheDocument()
     })
   })
 
   describe('error state', () => {
     it('shows error message when fetch fails', () => {
-      mockUseCrates.mockReturnValue({
+      mockUseCollections.mockReturnValue({
         data: undefined,
         isLoading: false,
         error: new Error('Network error'),
         refetch: vi.fn(),
       })
-      render(<CrateList />)
-      expect(screen.getByText('Failed to load crates. Please try again later.')).toBeInTheDocument()
+      render(<CollectionList />)
+      expect(screen.getByText('Failed to load collections. Please try again later.')).toBeInTheDocument()
     })
 
     it('shows retry button on error', () => {
       const mockRefetch = vi.fn()
-      mockUseCrates.mockReturnValue({
+      mockUseCollections.mockReturnValue({
         data: undefined,
         isLoading: false,
         error: new Error('Network error'),
         refetch: mockRefetch,
       })
-      render(<CrateList />)
+      render(<CollectionList />)
       expect(screen.getByText('Retry')).toBeInTheDocument()
     })
 
     it('calls refetch when retry clicked', async () => {
       const user = userEvent.setup()
       const mockRefetch = vi.fn()
-      mockUseCrates.mockReturnValue({
+      mockUseCollections.mockReturnValue({
         data: undefined,
         isLoading: false,
         error: new Error('Network error'),
         refetch: mockRefetch,
       })
-      render(<CrateList />)
+      render(<CollectionList />)
       await user.click(screen.getByText('Retry'))
       expect(mockRefetch).toHaveBeenCalled()
     })
   })
 
   describe('empty state', () => {
-    it('shows empty message when no crates', () => {
-      mockUseCrates.mockReturnValue({
-        data: { crates: [] },
+    it('shows empty message when no collections', () => {
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
       })
-      render(<CrateList />)
-      expect(screen.getByText('No public crates yet.')).toBeInTheDocument()
+      render(<CollectionList />)
+      expect(screen.getByText('No public collections yet.')).toBeInTheDocument()
     })
 
     it('shows encouragement for authenticated user when empty', () => {
@@ -174,98 +174,98 @@ describe('CrateList', () => {
         isLoading: false,
         logout: vi.fn(),
       })
-      mockUseCrates.mockReturnValue({
-        data: { crates: [] },
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
       })
-      render(<CrateList />)
+      render(<CollectionList />)
       expect(screen.getByText('Be the first to create one!')).toBeInTheDocument()
     })
 
     it('does not show encouragement for unauthenticated user', () => {
-      mockUseCrates.mockReturnValue({
-        data: { crates: [] },
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
       })
-      render(<CrateList />)
+      render(<CollectionList />)
       expect(screen.queryByText('Be the first to create one!')).not.toBeInTheDocument()
     })
   })
 
-  describe('with crates', () => {
-    it('renders crate cards', () => {
-      mockUseCrates.mockReturnValue({
+  describe('with collections', () => {
+    it('renders collection cards', () => {
+      mockUseCollections.mockReturnValue({
         data: {
-          crates: [
-            makeCrate({ id: 1, title: 'Crate One' }),
-            makeCrate({ id: 2, title: 'Crate Two' }),
+          collections: [
+            makeCollection({ id: 1, title: 'Collection One' }),
+            makeCollection({ id: 2, title: 'Collection Two' }),
           ],
         },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
       })
-      render(<CrateList />)
-      expect(screen.getByTestId('crate-card-1')).toBeInTheDocument()
-      expect(screen.getByTestId('crate-card-2')).toBeInTheDocument()
+      render(<CollectionList />)
+      expect(screen.getByTestId('collection-card-1')).toBeInTheDocument()
+      expect(screen.getByTestId('collection-card-2')).toBeInTheDocument()
     })
 
-    it('separates featured and regular crates', () => {
-      mockUseCrates.mockReturnValue({
+    it('separates featured and regular collections', () => {
+      mockUseCollections.mockReturnValue({
         data: {
-          crates: [
-            makeCrate({ id: 1, title: 'Featured One', is_featured: true }),
-            makeCrate({ id: 2, title: 'Regular One', is_featured: false }),
+          collections: [
+            makeCollection({ id: 1, title: 'Featured One', is_featured: true }),
+            makeCollection({ id: 2, title: 'Regular One', is_featured: false }),
           ],
         },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
       })
-      render(<CrateList />)
+      render(<CollectionList />)
       expect(screen.getByText('Featured')).toBeInTheDocument()
-      expect(screen.getByText('All Crates')).toBeInTheDocument()
+      expect(screen.getByText('All Collections')).toBeInTheDocument()
     })
 
-    it('does not show Featured heading when no featured crates', () => {
-      mockUseCrates.mockReturnValue({
+    it('does not show Featured heading when no featured collections', () => {
+      mockUseCollections.mockReturnValue({
         data: {
-          crates: [
-            makeCrate({ id: 1, title: 'Regular One', is_featured: false }),
+          collections: [
+            makeCollection({ id: 1, title: 'Regular One', is_featured: false }),
           ],
         },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
       })
-      render(<CrateList />)
+      render(<CollectionList />)
       expect(screen.queryByText('Featured')).not.toBeInTheDocument()
-      expect(screen.queryByText('All Crates')).not.toBeInTheDocument()
+      expect(screen.queryByText('All Collections')).not.toBeInTheDocument()
     })
 
-    it('does not show All Crates heading when only featured', () => {
-      mockUseCrates.mockReturnValue({
+    it('does not show All Collections heading when only featured', () => {
+      mockUseCollections.mockReturnValue({
         data: {
-          crates: [
-            makeCrate({ id: 1, title: 'Featured One', is_featured: true }),
+          collections: [
+            makeCollection({ id: 1, title: 'Featured One', is_featured: true }),
           ],
         },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
       })
-      render(<CrateList />)
+      render(<CollectionList />)
       expect(screen.getByText('Featured')).toBeInTheDocument()
-      // The "All Crates" heading only shows when both featured and regular exist
-      expect(screen.queryByText('All Crates')).not.toBeInTheDocument()
+      // The "All Collections" heading only shows when both featured and regular exist
+      expect(screen.queryByText('All Collections')).not.toBeInTheDocument()
     })
   })
 
-  describe('create crate button', () => {
+  describe('create collection button', () => {
     it('shows create button for authenticated user', () => {
       mockAuthContext.mockReturnValue({
         user: { id: '1' },
@@ -273,28 +273,28 @@ describe('CrateList', () => {
         isLoading: false,
         logout: vi.fn(),
       })
-      mockUseCrates.mockReturnValue({
-        data: { crates: [] },
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
       })
-      render(<CrateList />)
-      // Button and dialog title both render "Create Crate"; verify button exists
-      const matches = screen.getAllByText('Create Crate')
+      render(<CollectionList />)
+      // Button and dialog title both render "Create Collection"; verify button exists
+      const matches = screen.getAllByText('Create Collection')
       const button = matches.find(el => el.closest('button'))
       expect(button).toBeTruthy()
     })
 
     it('does not show create button for unauthenticated user', () => {
-      mockUseCrates.mockReturnValue({
-        data: { crates: [] },
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
       })
-      render(<CrateList />)
-      expect(screen.queryByText('Create Crate')).not.toBeInTheDocument()
+      render(<CollectionList />)
+      expect(screen.queryByText('Create Collection')).not.toBeInTheDocument()
     })
 
     it('shows create dialog with form', () => {
@@ -304,16 +304,16 @@ describe('CrateList', () => {
         isLoading: false,
         logout: vi.fn(),
       })
-      mockUseCrates.mockReturnValue({
-        data: { crates: [] },
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
       })
-      render(<CrateList />)
+      render(<CollectionList />)
       // Dialog content renders (since we mock Dialog to always render children)
-      // "Create Crate" appears as both button text and dialog title
-      expect(screen.getAllByText('Create Crate').length).toBeGreaterThanOrEqual(2)
+      // "Create Collection" appears as both button text and dialog title
+      expect(screen.getAllByText('Create Collection').length).toBeGreaterThanOrEqual(2)
       expect(screen.getByLabelText('Title')).toBeInTheDocument()
       expect(screen.getByLabelText('Description (optional)')).toBeInTheDocument()
     })
@@ -325,13 +325,13 @@ describe('CrateList', () => {
         isLoading: false,
         logout: vi.fn(),
       })
-      mockUseCrates.mockReturnValue({
-        data: { crates: [] },
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
       })
-      render(<CrateList />)
+      render(<CollectionList />)
       const publicCheckbox = screen.getByLabelText('Public') as HTMLInputElement
       expect(publicCheckbox.checked).toBe(true)
     })
@@ -343,13 +343,13 @@ describe('CrateList', () => {
         isLoading: false,
         logout: vi.fn(),
       })
-      mockUseCrates.mockReturnValue({
-        data: { crates: [] },
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
       })
-      render(<CrateList />)
+      render(<CollectionList />)
       const collabCheckbox = screen.getByLabelText('Collaborative') as HTMLInputElement
       expect(collabCheckbox.checked).toBe(false)
     })

@@ -1,22 +1,23 @@
 import { test, expect } from '../fixtures'
 
-test.describe('My Submissions tab', () => {
-  test('displays user submissions in My Submissions tab', async ({
+// PSY-275: "My Submissions" now lives as a tab on the consolidated Library page.
+test.describe('Submissions tab (Library)', () => {
+  test('displays user submissions in Submissions tab', async ({
     authenticatedPage,
   }) => {
-    await authenticatedPage.goto('/collection')
+    await authenticatedPage.goto('/library')
 
     await expect(
-      authenticatedPage.getByRole('heading', { name: /my collection/i })
+      authenticatedPage.getByRole('heading', { name: /^library$/i })
     ).toBeVisible({ timeout: 10_000 })
 
-    // Click My Submissions tab
+    // Click Submissions tab
     await authenticatedPage
-      .getByRole('tab', { name: /my submissions/i })
+      .getByRole('tab', { name: /submissions/i })
       .click()
 
     await expect(
-      authenticatedPage.getByRole('tab', { name: /my submissions/i })
+      authenticatedPage.getByRole('tab', { name: /submissions/i })
     ).toHaveAttribute('data-state', 'active')
 
     // At least one submission should be visible
@@ -34,18 +35,14 @@ test.describe('My Submissions tab', () => {
   test('shows submission status and details', async ({
     authenticatedPage,
   }) => {
-    await authenticatedPage.goto('/collection')
+    await authenticatedPage.goto('/library?tab=submissions')
 
     await expect(
-      authenticatedPage.getByRole('heading', { name: /my collection/i })
+      authenticatedPage.getByRole('heading', { name: /^library$/i })
     ).toBeVisible({ timeout: 10_000 })
 
-    await authenticatedPage
-      .getByRole('tab', { name: /my submissions/i })
-      .click()
-
     await expect(
-      authenticatedPage.getByRole('tab', { name: /my submissions/i })
+      authenticatedPage.getByRole('tab', { name: /submissions/i })
     ).toHaveAttribute('data-state', 'active')
 
     // Wait for submissions to load

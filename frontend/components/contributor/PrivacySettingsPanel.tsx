@@ -51,8 +51,8 @@ const privacyFields: {
   },
   {
     key: 'collections',
-    label: 'Crates',
-    description: 'Your curated crates',
+    label: 'Collections',
+    description: 'Your curated collections',
   },
 ]
 

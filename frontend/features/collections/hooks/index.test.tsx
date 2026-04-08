@@ -7,15 +7,15 @@ const mockApiRequest = vi.fn()
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
   API_ENDPOINTS: {
-    CRATES: {
-      LIST: '/crates',
-      DETAIL: (slug: string) => `/crates/${slug}`,
-      STATS: (slug: string) => `/crates/${slug}/stats`,
-      ITEMS: (slug: string) => `/crates/${slug}/items`,
-      ITEM: (slug: string, itemId: number) => `/crates/${slug}/items/${itemId}`,
-      SUBSCRIBE: (slug: string) => `/crates/${slug}/subscribe`,
-      FEATURE: (slug: string) => `/crates/${slug}/feature`,
-      MY: '/auth/crates',
+    COLLECTIONS: {
+      LIST: '/collections',
+      DETAIL: (slug: string) => `/collections/${slug}`,
+      STATS: (slug: string) => `/collections/${slug}/stats`,
+      ITEMS: (slug: string) => `/collections/${slug}/items`,
+      ITEM: (slug: string, itemId: number) => `/collections/${slug}/items/${itemId}`,
+      SUBSCRIBE: (slug: string) => `/collections/${slug}/subscribe`,
+      FEATURE: (slug: string) => `/collections/${slug}/feature`,
+      MY: '/auth/collections',
     },
   },
   API_BASE_URL: 'http://localhost:8080',
@@ -23,83 +23,87 @@ vi.mock('@/lib/api', () => ({
 
 vi.mock('@/lib/queryClient', () => ({
   queryKeys: {
-    crates: {
-      all: ['crates'],
-      detail: (slug: string) => ['crates', 'detail', slug],
-      stats: (slug: string) => ['crates', 'stats', slug],
-      my: ['crates', 'my'],
+    collections: {
+      all: ['collections'],
+      detail: (slug: string) => ['collections', 'detail', slug],
+      stats: (slug: string) => ['collections', 'stats', slug],
+      my: ['collections', 'my'],
     },
   },
   createInvalidateQueries: () => ({
-    crates: vi.fn(),
+    collections: vi.fn(),
   }),
 }))
 
 import {
-  useCrates,
-  useCrate,
-  useCrateStats,
-  useMyCrates,
+  useCollections,
+  useCollection,
+  useCollectionStats,
+  useMyCollections,
   useSetFeatured,
-  useCreateCrate,
-  useUpdateCrate,
-  useDeleteCrate,
-  useAddCrateItem,
-  useRemoveCrateItem,
-  useSubscribeCrate,
-  useUnsubscribeCrate,
+  useCreateCollection,
+  useUpdateCollection,
+  useDeleteCollection,
+  useAddCollectionItem,
+  useRemoveCollectionItem,
+  useSubscribeCollection,
+  useUnsubscribeCollection,
 } from './index'
 
 
-describe('Crate query hooks', () => {
+describe('Collection query hooks', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
   })
 
-  describe('useCrates', () => {
-    it('fetches crates list', async () => {
+  describe('useCollections', () => {
+    it('fetches collections list', async () => {
+      // Backend returns { crates, total }; hook normalizes to { collections, total }
       const mockResponse = {
-        crates: [{ id: 1, title: 'Test Crate', slug: 'test' }],
+        crates: [{ id: 1, title: 'Test Collection', slug: 'test' }],
         total: 1,
       }
       mockApiRequest.mockResolvedValueOnce(mockResponse)
 
-      const { result } = renderHook(() => useCrates(), {
+      const { result } = renderHook(() => useCollections(), {
         wrapper: createWrapper(),
       })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-      expect(mockApiRequest).toHaveBeenCalledWith('/crates')
+      expect(mockApiRequest).toHaveBeenCalledWith('/collections')
+      expect(result.current.data?.collections).toHaveLength(1)
+      expect(result.current.data?.total).toBe(1)
     })
 
-    it('handles empty crates list', async () => {
+    it('handles empty collections list', async () => {
       mockApiRequest.mockResolvedValueOnce({ crates: [], total: 0 })
 
-      const { result } = renderHook(() => useCrates(), {
+      const { result } = renderHook(() => useCollections(), {
         wrapper: createWrapper(),
       })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(result.current.data?.collections).toEqual([])
     })
   })
 
-  describe('useCrate', () => {
-    it('fetches a single crate by slug', async () => {
-      const mockDetail = { id: 1, title: 'My Crate', slug: 'my-crate', items: [] }
+  describe('useCollection', () => {
+    it('fetches a single collection by slug', async () => {
+      const mockDetail = { id: 1, title: 'My Collection', slug: 'my-collection', items: [] }
       mockApiRequest.mockResolvedValueOnce(mockDetail)
 
-      const { result } = renderHook(() => useCrate('my-crate'), {
+      const { result } = renderHook(() => useCollection('my-collection'), {
         wrapper: createWrapper(),
       })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
-      expect(mockApiRequest).toHaveBeenCalledWith('/crates/my-crate')
+      expect(mockApiRequest).toHaveBeenCalledWith('/collections/my-collection')
     })
 
     it('does not fetch when slug is empty', () => {
-      const { result } = renderHook(() => useCrate(''), {
+      const { result } = renderHook(() => useCollection(''), {
         wrapper: createWrapper(),
       })
 
@@ -109,7 +113,7 @@ describe('Crate query hooks', () => {
 
     it('does not fetch when enabled is false', () => {
       const { result } = renderHook(
-        () => useCrate('my-slug', { enabled: false }),
+        () => useCollection('my-slug', { enabled: false }),
         { wrapper: createWrapper() }
       )
 
@@ -118,21 +122,21 @@ describe('Crate query hooks', () => {
     })
   })
 
-  describe('useCrateStats', () => {
-    it('fetches stats for a crate', async () => {
+  describe('useCollectionStats', () => {
+    it('fetches stats for a collection', async () => {
       const mockStats = { item_count: 5, subscriber_count: 10 }
       mockApiRequest.mockResolvedValueOnce(mockStats)
 
-      const { result } = renderHook(() => useCrateStats('my-crate'), {
+      const { result } = renderHook(() => useCollectionStats('my-collection'), {
         wrapper: createWrapper(),
       })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
-      expect(mockApiRequest).toHaveBeenCalledWith('/crates/my-crate/stats')
+      expect(mockApiRequest).toHaveBeenCalledWith('/collections/my-collection/stats')
     })
 
     it('does not fetch when slug is empty', () => {
-      const { result } = renderHook(() => useCrateStats(''), {
+      const { result } = renderHook(() => useCollectionStats(''), {
         wrapper: createWrapper(),
       })
 
@@ -140,31 +144,31 @@ describe('Crate query hooks', () => {
     })
   })
 
-  describe('useMyCrates', () => {
-    it('fetches user crates', async () => {
+  describe('useMyCollections', () => {
+    it('fetches user collections', async () => {
       mockApiRequest.mockResolvedValueOnce({ crates: [], total: 0 })
 
-      const { result } = renderHook(() => useMyCrates(), {
+      const { result } = renderHook(() => useMyCollections(), {
         wrapper: createWrapper(),
       })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
-      expect(mockApiRequest).toHaveBeenCalledWith('/auth/crates')
+      expect(mockApiRequest).toHaveBeenCalledWith('/auth/collections')
     })
   })
 })
 
-describe('Crate mutation hooks', () => {
+describe('Collection mutation hooks', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
   })
 
-  describe('useCreateCrate', () => {
-    it('creates a crate with POST', async () => {
+  describe('useCreateCollection', () => {
+    it('creates a collection with POST', async () => {
       mockApiRequest.mockResolvedValueOnce({ id: 1, title: 'New', slug: 'new' })
 
-      const { result } = renderHook(() => useCreateCrate(), {
+      const { result } = renderHook(() => useCreateCollection(), {
         wrapper: createWrapper(),
       })
 
@@ -179,7 +183,7 @@ describe('Crate mutation hooks', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        '/crates',
+        '/collections',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ title: 'New', is_public: true, collaborative: false }),
@@ -188,11 +192,11 @@ describe('Crate mutation hooks', () => {
     })
   })
 
-  describe('useUpdateCrate', () => {
-    it('updates a crate with PUT', async () => {
+  describe('useUpdateCollection', () => {
+    it('updates a collection with PUT', async () => {
       mockApiRequest.mockResolvedValueOnce({ id: 1, title: 'Updated', slug: 'test' })
 
-      const { result } = renderHook(() => useUpdateCrate(), {
+      const { result } = renderHook(() => useUpdateCollection(), {
         wrapper: createWrapper(),
       })
 
@@ -203,7 +207,7 @@ describe('Crate mutation hooks', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        '/crates/test',
+        '/collections/test',
         expect.objectContaining({
           method: 'PUT',
           body: JSON.stringify({ title: 'Updated' }),
@@ -212,11 +216,11 @@ describe('Crate mutation hooks', () => {
     })
   })
 
-  describe('useDeleteCrate', () => {
-    it('deletes a crate with DELETE', async () => {
+  describe('useDeleteCollection', () => {
+    it('deletes a collection with DELETE', async () => {
       mockApiRequest.mockResolvedValueOnce(undefined)
 
-      const { result } = renderHook(() => useDeleteCrate(), {
+      const { result } = renderHook(() => useDeleteCollection(), {
         wrapper: createWrapper(),
       })
 
@@ -227,7 +231,7 @@ describe('Crate mutation hooks', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        '/crates/to-delete',
+        '/collections/to-delete',
         expect.objectContaining({ method: 'DELETE' })
       )
     })
@@ -248,7 +252,7 @@ describe('Crate mutation hooks', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        '/crates/test/feature',
+        '/collections/test/feature',
         expect.objectContaining({
           method: 'PUT',
           body: JSON.stringify({ featured: true }),
@@ -257,17 +261,17 @@ describe('Crate mutation hooks', () => {
     })
   })
 
-  describe('useAddCrateItem', () => {
-    it('adds an item to a crate', async () => {
+  describe('useAddCollectionItem', () => {
+    it('adds an item to a collection', async () => {
       mockApiRequest.mockResolvedValueOnce(undefined)
 
-      const { result } = renderHook(() => useAddCrateItem(), {
+      const { result } = renderHook(() => useAddCollectionItem(), {
         wrapper: createWrapper(),
       })
 
       await act(async () => {
         result.current.mutate({
-          slug: 'my-crate',
+          slug: 'my-collection',
           entityType: 'artist',
           entityId: 42,
           notes: 'Great artist',
@@ -277,7 +281,7 @@ describe('Crate mutation hooks', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        '/crates/my-crate/items',
+        '/collections/my-collection/items',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({
@@ -290,64 +294,64 @@ describe('Crate mutation hooks', () => {
     })
   })
 
-  describe('useRemoveCrateItem', () => {
-    it('removes an item from a crate', async () => {
+  describe('useRemoveCollectionItem', () => {
+    it('removes an item from a collection', async () => {
       mockApiRequest.mockResolvedValueOnce(undefined)
 
-      const { result } = renderHook(() => useRemoveCrateItem(), {
+      const { result } = renderHook(() => useRemoveCollectionItem(), {
         wrapper: createWrapper(),
       })
 
       await act(async () => {
-        result.current.mutate({ slug: 'my-crate', itemId: 5 })
+        result.current.mutate({ slug: 'my-collection', itemId: 5 })
       })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        '/crates/my-crate/items/5',
+        '/collections/my-collection/items/5',
         expect.objectContaining({ method: 'DELETE' })
       )
     })
   })
 
-  describe('useSubscribeCrate', () => {
+  describe('useSubscribeCollection', () => {
     it('subscribes with POST', async () => {
       mockApiRequest.mockResolvedValueOnce(undefined)
 
-      const { result } = renderHook(() => useSubscribeCrate(), {
+      const { result } = renderHook(() => useSubscribeCollection(), {
         wrapper: createWrapper(),
       })
 
       await act(async () => {
-        result.current.mutate({ slug: 'my-crate' })
+        result.current.mutate({ slug: 'my-collection' })
       })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        '/crates/my-crate/subscribe',
+        '/collections/my-collection/subscribe',
         expect.objectContaining({ method: 'POST' })
       )
     })
   })
 
-  describe('useUnsubscribeCrate', () => {
+  describe('useUnsubscribeCollection', () => {
     it('unsubscribes with DELETE', async () => {
       mockApiRequest.mockResolvedValueOnce(undefined)
 
-      const { result } = renderHook(() => useUnsubscribeCrate(), {
+      const { result } = renderHook(() => useUnsubscribeCollection(), {
         wrapper: createWrapper(),
       })
 
       await act(async () => {
-        result.current.mutate({ slug: 'my-crate' })
+        result.current.mutate({ slug: 'my-collection' })
       })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        '/crates/my-crate/subscribe',
+        '/collections/my-collection/subscribe',
         expect.objectContaining({ method: 'DELETE' })
       )
     })
@@ -359,7 +363,7 @@ describe('Crate mutation hooks', () => {
       Object.assign(error, { status: 500 })
       mockApiRequest.mockRejectedValueOnce(error)
 
-      const { result } = renderHook(() => useCreateCrate(), {
+      const { result } = renderHook(() => useCreateCollection(), {
         wrapper: createWrapper(),
       })
 

@@ -1,6 +1,6 @@
-// Crate types — aligned with backend contracts/crate.go response types.
+// Collection types — aligned with backend contracts/collection.go response types.
 
-export const CRATE_ENTITY_TYPES = [
+export const COLLECTION_ENTITY_TYPES = [
   'artist',
   'release',
   'label',
@@ -9,10 +9,10 @@ export const CRATE_ENTITY_TYPES = [
   'festival',
 ] as const
 
-export type CrateEntityType = (typeof CRATE_ENTITY_TYPES)[number]
+export type CollectionEntityType = (typeof COLLECTION_ENTITY_TYPES)[number]
 
-/** Crate list item (returned by list endpoints, without items array) */
-export interface Crate {
+/** Collection list item (returned by list endpoints, without items array) */
+export interface Collection {
   id: number
   title: string
   slug: string
@@ -30,14 +30,14 @@ export interface Crate {
   updated_at: string
 }
 
-/** Full crate detail (returned by GET /crates/{slug}) */
-export interface CrateDetail extends Crate {
-  items: CrateItem[]
+/** Full collection detail (returned by GET /collections/{slug}) */
+export interface CollectionDetail extends Collection {
+  items: CollectionItem[]
   is_subscribed: boolean
 }
 
-/** A single item within a crate */
-export interface CrateItem {
+/** A single item within a collection */
+export interface CollectionItem {
   id: number
   entity_type: string
   entity_id: number
@@ -50,8 +50,8 @@ export interface CrateItem {
   created_at: string
 }
 
-/** Crate stats response */
-export interface CrateStats {
+/** Collection stats response */
+export interface CollectionStats {
   item_count: number
   subscriber_count: number
   contributor_count: number
