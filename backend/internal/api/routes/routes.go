@@ -1036,10 +1036,18 @@ func setupRadioRoutes(rc RouteContext) {
 	huma.Delete(rc.Protected, "/admin/radio-stations/{id}", radioHandler.AdminDeleteRadioStationHandler)
 	huma.Post(rc.Protected, "/admin/radio-stations/{id}/shows", radioHandler.AdminCreateRadioShowHandler)
 	huma.Post(rc.Protected, "/admin/radio-stations/{id}/fetch", radioHandler.AdminTriggerFetchHandler)
+	huma.Post(rc.Protected, "/admin/radio-stations/{id}/discover", radioHandler.AdminDiscoverShowsHandler)
 
 	// Admin radio show endpoints (admin-only checks inside handlers)
 	huma.Put(rc.Protected, "/admin/radio-shows/{id}", radioHandler.AdminUpdateRadioShowHandler)
 	huma.Delete(rc.Protected, "/admin/radio-shows/{id}", radioHandler.AdminDeleteRadioShowHandler)
+	huma.Post(rc.Protected, "/admin/radio-shows/{id}/import", radioHandler.AdminImportShowEpisodesHandler)
+
+	// Admin import job endpoints
+	huma.Post(rc.Protected, "/admin/radio-shows/{id}/import-job", radioHandler.AdminCreateImportJobHandler)
+	huma.Get(rc.Protected, "/admin/radio/import-jobs/{id}", radioHandler.AdminGetImportJobHandler)
+	huma.Post(rc.Protected, "/admin/radio/import-jobs/{id}/cancel", radioHandler.AdminCancelImportJobHandler)
+	huma.Get(rc.Protected, "/admin/radio-shows/{id}/import-jobs", radioHandler.AdminListImportJobsHandler)
 
 	// Admin unmatched play management endpoints
 	huma.Get(rc.Protected, "/admin/radio/unmatched", radioHandler.AdminGetUnmatchedPlaysHandler)

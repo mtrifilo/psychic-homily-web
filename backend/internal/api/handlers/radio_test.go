@@ -925,13 +925,22 @@ func TestAdminDeleteRadioShow_NotFound(t *testing.T) {
 // AdminTriggerFetchHandler Tests
 // ============================================================================
 
-func TestAdminTriggerFetch_Returns501(t *testing.T) {
-	mock := &mockRadioService{}
+func TestAdminTriggerFetch_Success(t *testing.T) {
+	mock := &mockRadioService{
+		discoverStationShowsFn: func(stationID uint) (*contracts.RadioDiscoverResult, error) {
+			return &contracts.RadioDiscoverResult{ShowsDiscovered: 3, ShowNames: []string{"Show A", "Show B", "Show C"}}, nil
+		},
+	}
 	h := testRadioHandler(mock)
 	req := &AdminTriggerFetchRequest{StationID: 1}
 
-	_, err := h.AdminTriggerFetchHandler(radioAdminCtx(), req)
-	assertHumaError(t, err, 501)
+	resp, err := h.AdminTriggerFetchHandler(radioAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.ShowsDiscovered != 3 {
+		t.Fatalf("expected 3 shows discovered, got %d", resp.Body.ShowsDiscovered)
+	}
 }
 
 func TestAdminTriggerFetch_NotAdmin(t *testing.T) {
@@ -940,5 +949,362 @@ func TestAdminTriggerFetch_NotAdmin(t *testing.T) {
 	req := &AdminTriggerFetchRequest{StationID: 1}
 
 	_, err := h.AdminTriggerFetchHandler(context.Background(), req)
+	assertHumaError(t, err, 403)
+}
+
+// ============================================================================
+// AdminDiscoverShowsHandler Tests
+// ============================================================================
+
+func TestAdminDiscoverShows_Success(t *testing.T) {
+	mock := &mockRadioService{
+		discoverStationShowsFn: func(stationID uint) (*contracts.RadioDiscoverResult, error) {
+			return &contracts.RadioDiscoverResult{ShowsDiscovered: 2, ShowNames: []string{"Show X", "Show Y"}}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	req := &AdminDiscoverShowsRequest{StationID: 1}
+
+	resp, err := h.AdminDiscoverShowsHandler(radioAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.ShowsDiscovered != 2 {
+		t.Fatalf("expected 2 shows discovered, got %d", resp.Body.ShowsDiscovered)
+	}
+	if len(resp.Body.ShowNames) != 2 {
+		t.Fatalf("expected 2 show names, got %d", len(resp.Body.ShowNames))
+	}
+}
+
+func TestAdminDiscoverShows_NotAdmin(t *testing.T) {
+	mock := &mockRadioService{}
+	h := testRadioHandler(mock)
+	req := &AdminDiscoverShowsRequest{StationID: 1}
+
+	_, err := h.AdminDiscoverShowsHandler(context.Background(), req)
+	assertHumaError(t, err, 403)
+}
+
+func TestAdminDiscoverShows_ServiceError(t *testing.T) {
+	mock := &mockRadioService{
+		discoverStationShowsFn: func(stationID uint) (*contracts.RadioDiscoverResult, error) {
+			return nil, fmt.Errorf("station not found")
+		},
+	}
+	h := testRadioHandler(mock)
+	req := &AdminDiscoverShowsRequest{StationID: 999}
+
+	_, err := h.AdminDiscoverShowsHandler(radioAdminCtx(), req)
+	assertHumaError(t, err, 500)
+}
+
+// ============================================================================
+// AdminImportShowEpisodesHandler Tests
+// ============================================================================
+
+func TestAdminImportShowEpisodes_Success(t *testing.T) {
+	mock := &mockRadioService{
+		importShowEpisodesFn: func(showID uint, since string, until string) (*contracts.RadioImportResult, error) {
+			return &contracts.RadioImportResult{
+				EpisodesImported: 5,
+				PlaysImported:    50,
+				PlaysMatched:     30,
+			}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	req := &AdminImportShowEpisodesRequest{ShowID: 1}
+	req.Body.Since = "2024-01-01"
+	req.Body.Until = "2024-12-31"
+
+	resp, err := h.AdminImportShowEpisodesHandler(radioAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.EpisodesImported != 5 {
+		t.Fatalf("expected 5 episodes imported, got %d", resp.Body.EpisodesImported)
+	}
+	if resp.Body.PlaysImported != 50 {
+		t.Fatalf("expected 50 plays imported, got %d", resp.Body.PlaysImported)
+	}
+	if resp.Body.PlaysMatched != 30 {
+		t.Fatalf("expected 30 plays matched, got %d", resp.Body.PlaysMatched)
+	}
+}
+
+func TestAdminImportShowEpisodes_NotAdmin(t *testing.T) {
+	mock := &mockRadioService{}
+	h := testRadioHandler(mock)
+	req := &AdminImportShowEpisodesRequest{ShowID: 1}
+	req.Body.Since = "2024-01-01"
+	req.Body.Until = "2024-12-31"
+
+	_, err := h.AdminImportShowEpisodesHandler(context.Background(), req)
+	assertHumaError(t, err, 403)
+}
+
+func TestAdminImportShowEpisodes_ServiceError(t *testing.T) {
+	mock := &mockRadioService{
+		importShowEpisodesFn: func(showID uint, since string, until string) (*contracts.RadioImportResult, error) {
+			return nil, fmt.Errorf("show not found")
+		},
+	}
+	h := testRadioHandler(mock)
+	req := &AdminImportShowEpisodesRequest{ShowID: 999}
+	req.Body.Since = "2024-01-01"
+	req.Body.Until = "2024-12-31"
+
+	_, err := h.AdminImportShowEpisodesHandler(radioAdminCtx(), req)
+	assertHumaError(t, err, 500)
+}
+// ============================================================================
+// AdminCreateImportJobHandler Tests
+// ============================================================================
+
+func TestAdminCreateImportJob_Success(t *testing.T) {
+	now := time.Now()
+	mock := &mockRadioService{
+		createImportJobFn: func(showID uint, since, until string) (*contracts.RadioImportJobResponse, error) {
+			return &contracts.RadioImportJobResponse{
+				ID:          1,
+				ShowID:      showID,
+				ShowName:    "Test Show",
+				StationID:   1,
+				StationName: "Test Station",
+				Since:       since,
+				Until:       until,
+				Status:      "pending",
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}, nil
+		},
+		startImportJobFn: func(jobID uint) error {
+			return nil
+		},
+	}
+	h := testRadioHandler(mock)
+	req := &AdminCreateImportJobRequest{ShowID: 1}
+	req.Body.Since = "2025-01-01"
+	req.Body.Until = "2025-12-31"
+
+	resp, err := h.AdminCreateImportJobHandler(radioAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.ID != 1 {
+		t.Errorf("expected job ID 1, got %d", resp.Body.ID)
+	}
+	if resp.Body.ShowName != "Test Show" {
+		t.Errorf("expected show name 'Test Show', got %s", resp.Body.ShowName)
+	}
+	if resp.Body.Status != "pending" {
+		t.Errorf("expected status 'pending', got %s", resp.Body.Status)
+	}
+}
+
+func TestAdminCreateImportJob_NotAdmin(t *testing.T) {
+	mock := &mockRadioService{}
+	h := testRadioHandler(mock)
+	req := &AdminCreateImportJobRequest{ShowID: 1}
+	req.Body.Since = "2025-01-01"
+	req.Body.Until = "2025-12-31"
+
+	_, err := h.AdminCreateImportJobHandler(context.Background(), req)
+	assertHumaError(t, err, 403)
+}
+
+func TestAdminCreateImportJob_MissingSince(t *testing.T) {
+	mock := &mockRadioService{}
+	h := testRadioHandler(mock)
+	req := &AdminCreateImportJobRequest{ShowID: 1}
+	req.Body.Since = ""
+	req.Body.Until = "2025-12-31"
+
+	_, err := h.AdminCreateImportJobHandler(radioAdminCtx(), req)
+	assertHumaError(t, err, 400)
+}
+
+func TestAdminCreateImportJob_MissingUntil(t *testing.T) {
+	mock := &mockRadioService{}
+	h := testRadioHandler(mock)
+	req := &AdminCreateImportJobRequest{ShowID: 1}
+	req.Body.Since = "2025-01-01"
+	req.Body.Until = ""
+
+	_, err := h.AdminCreateImportJobHandler(radioAdminCtx(), req)
+	assertHumaError(t, err, 400)
+}
+
+func TestAdminCreateImportJob_ServiceError(t *testing.T) {
+	mock := &mockRadioService{
+		createImportJobFn: func(showID uint, since, until string) (*contracts.RadioImportJobResponse, error) {
+			return nil, fmt.Errorf("an import job is already running")
+		},
+	}
+	h := testRadioHandler(mock)
+	req := &AdminCreateImportJobRequest{ShowID: 1}
+	req.Body.Since = "2025-01-01"
+	req.Body.Until = "2025-12-31"
+
+	_, err := h.AdminCreateImportJobHandler(radioAdminCtx(), req)
+	assertHumaError(t, err, 500)
+}
+
+// ============================================================================
+// AdminGetImportJobHandler Tests
+// ============================================================================
+
+func TestAdminGetImportJob_Success(t *testing.T) {
+	now := time.Now()
+	mock := &mockRadioService{
+		getImportJobFn: func(jobID uint) (*contracts.RadioImportJobResponse, error) {
+			return &contracts.RadioImportJobResponse{
+				ID:          jobID,
+				ShowID:      1,
+				ShowName:    "Test Show",
+				StationID:   1,
+				StationName: "Test Station",
+				Status:      "running",
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	resp, err := h.AdminGetImportJobHandler(radioAdminCtx(), &AdminGetImportJobRequest{JobID: 1})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.ID != 1 {
+		t.Errorf("expected job ID 1, got %d", resp.Body.ID)
+	}
+	if resp.Body.Status != "running" {
+		t.Errorf("expected status 'running', got %s", resp.Body.Status)
+	}
+}
+
+func TestAdminGetImportJob_NotFound(t *testing.T) {
+	mock := &mockRadioService{
+		getImportJobFn: func(jobID uint) (*contracts.RadioImportJobResponse, error) {
+			return nil, fmt.Errorf("job not found")
+		},
+	}
+	h := testRadioHandler(mock)
+	_, err := h.AdminGetImportJobHandler(radioAdminCtx(), &AdminGetImportJobRequest{JobID: 999})
+	assertHumaError(t, err, 404)
+}
+
+func TestAdminGetImportJob_NotAdmin(t *testing.T) {
+	mock := &mockRadioService{}
+	h := testRadioHandler(mock)
+	_, err := h.AdminGetImportJobHandler(context.Background(), &AdminGetImportJobRequest{JobID: 1})
+	assertHumaError(t, err, 403)
+}
+
+// ============================================================================
+// AdminCancelImportJobHandler Tests
+// ============================================================================
+
+func TestAdminCancelImportJob_Success(t *testing.T) {
+	mock := &mockRadioService{
+		cancelImportJobFn: func(jobID uint) error {
+			return nil
+		},
+	}
+	h := testRadioHandler(mock)
+	resp, err := h.AdminCancelImportJobHandler(radioAdminCtx(), &AdminCancelImportJobRequest{JobID: 1})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Error("expected success=true")
+	}
+}
+
+func TestAdminCancelImportJob_ServiceError(t *testing.T) {
+	mock := &mockRadioService{
+		cancelImportJobFn: func(jobID uint) error {
+			return fmt.Errorf("job cannot be cancelled")
+		},
+	}
+	h := testRadioHandler(mock)
+	_, err := h.AdminCancelImportJobHandler(radioAdminCtx(), &AdminCancelImportJobRequest{JobID: 1})
+	assertHumaError(t, err, 500)
+}
+
+func TestAdminCancelImportJob_NotAdmin(t *testing.T) {
+	mock := &mockRadioService{}
+	h := testRadioHandler(mock)
+	_, err := h.AdminCancelImportJobHandler(context.Background(), &AdminCancelImportJobRequest{JobID: 1})
+	assertHumaError(t, err, 403)
+}
+
+// ============================================================================
+// AdminListImportJobsHandler Tests
+// ============================================================================
+
+func TestAdminListImportJobs_Success(t *testing.T) {
+	now := time.Now()
+	mock := &mockRadioService{
+		listImportJobsFn: func(showID uint) ([]*contracts.RadioImportJobResponse, error) {
+			return []*contracts.RadioImportJobResponse{
+				{
+					ID:          1,
+					ShowID:      showID,
+					ShowName:    "Test Show",
+					StationID:   1,
+					StationName: "Test Station",
+					Status:      "completed",
+					CreatedAt:   now,
+					UpdatedAt:   now,
+				},
+			}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	resp, err := h.AdminListImportJobsHandler(radioAdminCtx(), &AdminListImportJobsRequest{ShowID: 1})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Count != 1 {
+		t.Errorf("expected count 1, got %d", resp.Body.Count)
+	}
+	if resp.Body.Jobs[0].Status != "completed" {
+		t.Errorf("expected status 'completed', got %s", resp.Body.Jobs[0].Status)
+	}
+}
+
+func TestAdminListImportJobs_Empty(t *testing.T) {
+	mock := &mockRadioService{
+		listImportJobsFn: func(showID uint) ([]*contracts.RadioImportJobResponse, error) {
+			return []*contracts.RadioImportJobResponse{}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	resp, err := h.AdminListImportJobsHandler(radioAdminCtx(), &AdminListImportJobsRequest{ShowID: 1})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Count != 0 {
+		t.Errorf("expected count 0, got %d", resp.Body.Count)
+	}
+}
+
+func TestAdminListImportJobs_ServiceError(t *testing.T) {
+	mock := &mockRadioService{
+		listImportJobsFn: func(showID uint) ([]*contracts.RadioImportJobResponse, error) {
+			return nil, fmt.Errorf("database error")
+		},
+	}
+	h := testRadioHandler(mock)
+	_, err := h.AdminListImportJobsHandler(radioAdminCtx(), &AdminListImportJobsRequest{ShowID: 1})
+	assertHumaError(t, err, 500)
+}
+
+func TestAdminListImportJobs_NotAdmin(t *testing.T) {
+	mock := &mockRadioService{}
+	h := testRadioHandler(mock)
+	_, err := h.AdminListImportJobsHandler(context.Background(), &AdminListImportJobsRequest{ShowID: 1})
 	assertHumaError(t, err, 403)
 }

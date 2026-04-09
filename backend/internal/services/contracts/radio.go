@@ -303,6 +303,13 @@ type RadioImportResult struct {
 	Errors           []string `json:"errors,omitempty"`
 }
 
+// RadioDiscoverResult summarizes the result of discovering shows for a station.
+type RadioDiscoverResult struct {
+	ShowsDiscovered int      `json:"shows_discovered"`
+	ShowNames       []string `json:"show_names"`
+	Errors          []string `json:"errors,omitempty"`
+}
+
 // EpisodeImportResult summarizes the result of importing a single episode's playlist.
 type EpisodeImportResult struct {
 	PlaysImported int `json:"plays_imported"`
@@ -351,6 +358,39 @@ type BulkLinkRequest struct {
 // BulkLinkResult summarizes the result of a bulk link operation.
 type BulkLinkResult struct {
 	Updated int `json:"updated"`
+}
+
+// ──────────────────────────────────────────────
+// Import job types
+// ──────────────────────────────────────────────
+
+// RadioImportJobResponse is the DTO for a radio import job.
+type RadioImportJobResponse struct {
+	ID                 uint       `json:"id"`
+	ShowID             uint       `json:"show_id"`
+	ShowName           string     `json:"show_name"`
+	StationID          uint       `json:"station_id"`
+	StationName        string     `json:"station_name"`
+	Since              string     `json:"since"`
+	Until              string     `json:"until"`
+	Status             string     `json:"status"`
+	EpisodesFound      int        `json:"episodes_found"`
+	EpisodesImported   int        `json:"episodes_imported"`
+	PlaysImported      int        `json:"plays_imported"`
+	PlaysMatched       int        `json:"plays_matched"`
+	CurrentEpisodeDate *string    `json:"current_episode_date,omitempty"`
+	ErrorLog           *string    `json:"error_log,omitempty"`
+	StartedAt          *time.Time `json:"started_at,omitempty"`
+	CompletedAt        *time.Time `json:"completed_at,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+}
+
+// CreateImportJobRequest represents a request to create a radio import job.
+type CreateImportJobRequest struct {
+	ShowID uint   `json:"show_id"`
+	Since  string `json:"since"`
+	Until  string `json:"until"`
 }
 
 // RadioFetchCycleResult summarizes the result of a radio fetch cycle.
