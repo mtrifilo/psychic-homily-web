@@ -250,7 +250,7 @@ describe('TopBar', () => {
       expect(screen.getByText('Community')).toBeInTheDocument()
     })
 
-    it('shows My Shows, Collection, Settings links when authenticated on mobile', () => {
+    it('shows Library and Settings links when authenticated on mobile', () => {
       mockAuthContext.mockReturnValue({
         user: { email: 'test@test.com', is_admin: false },
         isAuthenticated: true,
@@ -259,8 +259,10 @@ describe('TopBar', () => {
       })
       render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
       expect(screen.getByText('Library')).toBeInTheDocument()
-      expect(screen.getByText('Collection')).toBeInTheDocument()
       expect(screen.getByText('Settings')).toBeInTheDocument()
+      // "Collection" singular should not exist; the Sidebar Discover group's
+      // "Collections" (plural) lives elsewhere.
+      expect(screen.queryByText('Collection')).not.toBeInTheDocument()
     })
 
     it('shows Admin link on mobile when user is admin', () => {

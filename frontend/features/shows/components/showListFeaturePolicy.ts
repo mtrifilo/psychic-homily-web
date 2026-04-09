@@ -12,7 +12,7 @@ export interface ShowListFeaturePolicy {
 /**
  * Feature policy for show-list contexts:
  * - discovery: home + /shows
- * - ownership: /collection (saved + submissions)
+ * - ownership: /library (saved + submissions)
  * - context: artist/venue/favorite-venues embedded lists
  */
 export const SHOW_LIST_FEATURE_POLICY: Record<ShowListContext, ShowListFeaturePolicy> = {

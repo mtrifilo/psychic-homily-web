@@ -32,7 +32,7 @@ test.describe('Email Verification', () => {
     })
     await expect(page.getByRole('link', { name: 'Submit a Show' })).toBeVisible()
     await expect(
-      page.getByRole('link', { name: 'Go to My Collection' })
+      page.getByRole('link', { name: 'Go to My Library' })
     ).toBeVisible()
   })
 

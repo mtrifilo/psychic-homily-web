@@ -266,12 +266,12 @@ export function ShowForm({
 
             if (isPrivate) {
               // Private shows redirect with dialog trigger
-              router.push('/collection?submitted=private')
+              router.push('/library?tab=submissions&submitted=private')
             } else if (redirectOnCreate) {
               // Approved submissions show brief success then redirect
               setShowSuccess(true)
               setTimeout(() => {
-                router.push('/collection')
+                router.push('/library?tab=submissions')
               }, 2000)
             } else {
               setShowSuccess(true)

@@ -62,12 +62,12 @@ describe('PasskeyLoginButton', () => {
       }),
     })
 
-    renderWithProviders(<PasskeyLoginButton returnTo="/collection" />)
+    renderWithProviders(<PasskeyLoginButton returnTo="/library" />)
 
     await user.click(screen.getByRole('button', { name: /sign in with passkey/i }))
 
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/collection')
+      expect(mockPush).toHaveBeenCalledWith('/library')
     })
   })
 })

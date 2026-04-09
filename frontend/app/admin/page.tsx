@@ -165,8 +165,8 @@ const ModerationPage = dynamic(() => import('./moderation/page'), {
   ),
 })
 
-const CrateManagementComponent = dynamic(
-  () => import('@/components/admin/CrateManagement').then(m => ({ default: m.CrateManagement })),
+const CollectionManagementComponent = dynamic(
+  () => import('@/components/admin/CollectionManagement').then(m => ({ default: m.CollectionManagement })),
   {
     loading: () => (
       <div className="flex items-center justify-center py-12">
@@ -179,7 +179,7 @@ const CrateManagementComponent = dynamic(
 const VALID_TABS = [
   'dashboard', 'moderation', 'pending-shows', 'pending-venue-edits', 'unverified-venues',
   'reports', 'import-show', 'releases', 'labels', 'festivals', 'pipeline',
-  'crates', 'tags', 'data-quality', 'analytics', 'artists-admin', 'radio',
+  'collections', 'tags', 'data-quality', 'analytics', 'artists-admin', 'radio',
   'users', 'audit-log',
 ] as const
 
@@ -345,9 +345,9 @@ function AdminPageContent() {
               <Workflow className="h-4 w-4" />
               Data Pipeline
             </TabsTrigger>
-            <TabsTrigger value="crates" className="gap-2">
+            <TabsTrigger value="collections" className="gap-2">
               <Library className="h-4 w-4" />
-              Crates
+              Collections
             </TabsTrigger>
             <TabsTrigger value="tags" className="gap-2">
               <Tags className="h-4 w-4" />
@@ -423,8 +423,8 @@ function AdminPageContent() {
             <PipelineVenuesComponent />
           </TabsContent>
 
-          <TabsContent value="crates" className="space-y-4" data-testid="admin-tab-crates">
-            <CrateManagementComponent />
+          <TabsContent value="collections" className="space-y-4" data-testid="admin-tab-collections">
+            <CollectionManagementComponent />
           </TabsContent>
 
           <TabsContent value="tags" className="space-y-4" data-testid="admin-tab-tags">

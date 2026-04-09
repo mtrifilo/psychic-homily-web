@@ -9,9 +9,9 @@ describe('sanitizeReturnTo', () => {
   })
 
   it('allows safe internal routes', () => {
-    expect(sanitizeReturnTo('/collection')).toBe('/collection')
-    expect(sanitizeReturnTo('/collection?tab=favorites')).toBe(
-      '/collection?tab=favorites'
+    expect(sanitizeReturnTo('/library')).toBe('/library')
+    expect(sanitizeReturnTo('/library?tab=venues')).toBe(
+      '/library?tab=venues'
     )
     expect(sanitizeReturnTo('/shows/slug#details')).toBe('/shows/slug#details')
   })
@@ -24,7 +24,7 @@ describe('sanitizeReturnTo', () => {
 
   it('blocks auth-loop destinations', () => {
     expect(sanitizeReturnTo('/auth')).toBe('/')
-    expect(sanitizeReturnTo('/auth?returnTo=/collection')).toBe('/')
+    expect(sanitizeReturnTo('/auth?returnTo=/library')).toBe('/')
     expect(sanitizeReturnTo('/auth/magic-link?token=abc')).toBe('/')
   })
 })

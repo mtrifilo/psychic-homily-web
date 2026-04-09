@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
-import { useCrates, useCreateCrate } from '../hooks'
-import { CrateCard } from './CrateCard'
+import { useCollections, useCreateCollection } from '../hooks'
+import { CollectionCard } from './CollectionCard'
 import { LoadingSpinner } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,11 +16,11 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import type { Crate } from '../types'
+import type { Collection } from '../types'
 
-export function CrateList() {
+export function CollectionList() {
   const { isAuthenticated } = useAuthContext()
-  const { data, isLoading, error, refetch } = useCrates()
+  const { data, isLoading, error, refetch } = useCollections()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
 
   if (isLoading && !data) {
@@ -34,7 +34,7 @@ export function CrateList() {
   if (error) {
     return (
       <div className="text-center py-12 text-destructive">
-        <p>Failed to load crates. Please try again later.</p>
+        <p>Failed to load collections. Please try again later.</p>
         <Button variant="outline" className="mt-4" onClick={() => refetch()}>
           Retry
         </Button>
@@ -42,11 +42,11 @@ export function CrateList() {
     )
   }
 
-  const allCrates = data?.crates ?? []
+  const allCollections = data?.collections ?? []
 
   // Separate featured and non-featured
-  const featured = allCrates.filter((c: Crate) => c.is_featured)
-  const regular = allCrates.filter((c: Crate) => !c.is_featured)
+  const featured = allCollections.filter((c: Collection) => c.is_featured)
+  const regular = allCollections.filter((c: Collection) => !c.is_featured)
 
   return (
     <section className="w-full max-w-6xl">
@@ -57,14 +57,14 @@ export function CrateList() {
             <DialogTrigger asChild>
               <Button size="sm">
                 <Plus className="h-4 w-4 mr-1.5" />
-                Create Crate
+                Create Collection
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create Crate</DialogTitle>
+                <DialogTitle>Create Collection</DialogTitle>
               </DialogHeader>
-              <CreateCrateForm
+              <CreateCollectionForm
                 onSuccess={() => setCreateDialogOpen(false)}
               />
             </DialogContent>
@@ -72,26 +72,26 @@ export function CrateList() {
         </div>
       )}
 
-      {/* Featured crates */}
+      {/* Featured collections */}
       {featured.length > 0 && (
         <div className="mb-8">
           <h2 className="text-lg font-semibold mb-4">Featured</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {featured.map((crate: Crate) => (
-              <CrateCard key={crate.id} crate={crate} />
+            {featured.map((collection: Collection) => (
+              <CollectionCard key={collection.id} collection={collection} />
             ))}
           </div>
         </div>
       )}
 
-      {/* All crates */}
+      {/* All collections */}
       <div>
         {featured.length > 0 && regular.length > 0 && (
-          <h2 className="text-lg font-semibold mb-4">All Crates</h2>
+          <h2 className="text-lg font-semibold mb-4">All Collections</h2>
         )}
-        {allCrates.length === 0 ? (
+        {allCollections.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
-            <p>No public crates yet.</p>
+            <p>No public collections yet.</p>
             {isAuthenticated && (
               <p className="text-sm mt-2">
                 Be the first to create one!
@@ -100,8 +100,8 @@ export function CrateList() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {regular.map((crate: Crate) => (
-              <CrateCard key={crate.id} crate={crate} />
+            {regular.map((collection: Collection) => (
+              <CollectionCard key={collection.id} collection={collection} />
             ))}
           </div>
         )}
@@ -111,11 +111,11 @@ export function CrateList() {
 }
 
 // ──────────────────────────────────────────────
-// Create Crate Form (inline in dialog)
+// Create Collection Form (inline in dialog)
 // ──────────────────────────────────────────────
 
-function CreateCrateForm({ onSuccess }: { onSuccess: () => void }) {
-  const createMutation = useCreateCrate()
+function CreateCollectionForm({ onSuccess }: { onSuccess: () => void }) {
+  const createMutation = useCreateCollection()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [isPublic, setIsPublic] = useState(true)
@@ -146,13 +146,13 @@ function CreateCrateForm({ onSuccess }: { onSuccess: () => void }) {
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
         <label
-          htmlFor="crate-title"
+          htmlFor="collection-title"
           className="text-sm font-medium mb-1.5 block"
         >
           Title
         </label>
         <Input
-          id="crate-title"
+          id="collection-title"
           value={title}
           onChange={e => setTitle(e.target.value)}
           placeholder="My Favorite Artists"
@@ -163,16 +163,16 @@ function CreateCrateForm({ onSuccess }: { onSuccess: () => void }) {
 
       <div>
         <label
-          htmlFor="crate-description"
+          htmlFor="collection-description"
           className="text-sm font-medium mb-1.5 block"
         >
           Description (optional)
         </label>
         <Textarea
-          id="crate-description"
+          id="collection-description"
           value={description}
           onChange={e => setDescription(e.target.value)}
-          placeholder="A brief description of this crate..."
+          placeholder="A brief description of this collection..."
           rows={3}
         />
       </div>
@@ -203,7 +203,7 @@ function CreateCrateForm({ onSuccess }: { onSuccess: () => void }) {
         <p className="text-sm text-destructive">
           {createMutation.error instanceof Error
             ? createMutation.error.message
-            : 'Failed to create crate'}
+            : 'Failed to create collection'}
         </p>
       )}
 

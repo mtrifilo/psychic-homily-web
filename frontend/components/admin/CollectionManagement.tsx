@@ -2,13 +2,13 @@
 
 import { useState } from 'react'
 import {
-  useCrates,
-  useCrate,
-  useCrateStats,
+  useCollections,
+  useCollection,
+  useCollectionStats,
   useSetFeatured,
-  useDeleteCrate,
-} from '@/features/crates'
-import type { Crate, CrateDetail, CrateStats } from '@/features/crates'
+  useDeleteCollection,
+} from '@/features/collections'
+import type { Collection } from '@/features/collections'
 import { Switch } from '@/components/ui/switch'
 
 function EntityTypeBadge({ type }: { type: string }) {
@@ -30,25 +30,25 @@ function EntityTypeBadge({ type }: { type: string }) {
   )
 }
 
-function CrateDetailPanel({
-  crate,
+function CollectionDetailPanel({
+  collection,
   onClose,
 }: {
-  crate: Crate
+  collection: Collection
   onClose: () => void
 }) {
-  const { data: detail, isLoading: detailLoading } = useCrate(crate.slug)
-  const { data: stats, isLoading: statsLoading } = useCrateStats(crate.slug)
-  const deleteCrate = useDeleteCrate()
+  const { data: detail, isLoading: detailLoading } = useCollection(collection.slug)
+  const { data: stats, isLoading: statsLoading } = useCollectionStats(collection.slug)
+  const deleteCollection = useDeleteCollection()
 
   const handleDelete = () => {
     if (
       window.confirm(
-        `Delete crate "${crate.title}"? This cannot be undone.`
+        `Delete collection "${collection.title}"? This cannot be undone.`
       )
     ) {
-      deleteCrate.mutate(
-        { slug: crate.slug },
+      deleteCollection.mutate(
+        { slug: collection.slug },
         { onSuccess: () => onClose() }
       )
     }
@@ -58,9 +58,9 @@ function CrateDetailPanel({
     <div className="border border-border rounded-lg p-4 space-y-4 bg-card">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold">{crate.title}</h3>
+          <h3 className="text-lg font-semibold">{collection.title}</h3>
           <p className="text-sm text-muted-foreground">
-            /{crate.slug} &middot; by {crate.creator_name}
+            /{collection.slug} &middot; by {collection.creator_name}
           </p>
         </div>
         <button
@@ -71,8 +71,8 @@ function CrateDetailPanel({
         </button>
       </div>
 
-      {crate.description && (
-        <p className="text-sm text-muted-foreground">{crate.description}</p>
+      {collection.description && (
+        <p className="text-sm text-muted-foreground">{collection.description}</p>
       )}
 
       {/* Stats */}
@@ -173,7 +173,7 @@ function CrateDetailPanel({
             </table>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No items in this crate</p>
+          <p className="text-sm text-muted-foreground">No items in this collection</p>
         )}
       </div>
 
@@ -181,17 +181,17 @@ function CrateDetailPanel({
       <div className="flex gap-2 pt-2 border-t border-border">
         <button
           onClick={handleDelete}
-          disabled={deleteCrate.isPending}
+          disabled={deleteCollection.isPending}
           className="px-3 py-1 bg-red-500/20 text-red-400 rounded text-sm hover:bg-red-500/30 disabled:opacity-50"
         >
-          {deleteCrate.isPending ? 'Deleting...' : 'Delete Crate'}
+          {deleteCollection.isPending ? 'Deleting...' : 'Delete Collection'}
         </button>
       </div>
 
-      {deleteCrate.error && (
+      {deleteCollection.error && (
         <p className="text-sm text-red-400">
-          {deleteCrate.error instanceof Error
-            ? deleteCrate.error.message
+          {deleteCollection.error instanceof Error
+            ? deleteCollection.error.message
             : 'Delete failed'}
         </p>
       )}
@@ -199,32 +199,32 @@ function CrateDetailPanel({
   )
 }
 
-export function CrateManagement() {
-  const { data, isLoading, error } = useCrates()
+export function CollectionManagement() {
+  const { data, isLoading, error } = useCollections()
   const setFeatured = useSetFeatured()
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null)
 
   if (isLoading)
-    return <p className="text-muted-foreground">Loading crates...</p>
-  if (error) return <p className="text-red-400">Failed to load crates</p>
+    return <p className="text-muted-foreground">Loading collections...</p>
+  if (error) return <p className="text-red-400">Failed to load collections</p>
 
-  const crates = data?.crates ?? []
-  const selectedCrate = crates.find((c) => c.slug === selectedSlug)
+  const collections = data?.collections ?? []
+  const selectedCollection = collections.find((c) => c.slug === selectedSlug)
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Crates</h2>
+        <h2 className="text-lg font-semibold">Collections</h2>
         <span className="text-sm text-muted-foreground">
           {data?.total ?? 0} total
         </span>
       </div>
 
-      {crates.length === 0 ? (
-        <p className="text-muted-foreground">No crates yet</p>
+      {collections.length === 0 ? (
+        <p className="text-muted-foreground">No collections yet</p>
       ) : (
         <>
-          {/* Crates table */}
+          {/* Collections table */}
           <div className="border border-border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
@@ -239,42 +239,42 @@ export function CrateManagement() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {crates.map((crate) => (
+                {collections.map((collection) => (
                   <tr
-                    key={crate.id}
+                    key={collection.id}
                     onClick={() =>
                       setSelectedSlug(
-                        selectedSlug === crate.slug
+                        selectedSlug === collection.slug
                           ? null
-                          : crate.slug
+                          : collection.slug
                       )
                     }
                     className={`cursor-pointer hover:bg-muted/30 ${
-                      selectedSlug === crate.slug ? 'bg-muted/50' : ''
+                      selectedSlug === collection.slug ? 'bg-muted/50' : ''
                     }`}
                   >
                     <td className="p-3">
-                      <div className="font-medium">{crate.title}</div>
+                      <div className="font-medium">{collection.title}</div>
                       <div className="text-xs text-muted-foreground">
-                        /{crate.slug}
+                        /{collection.slug}
                       </div>
                     </td>
                     <td className="p-3 text-muted-foreground">
-                      {crate.creator_name}
+                      {collection.creator_name}
                     </td>
-                    <td className="p-3 text-center">{crate.item_count}</td>
+                    <td className="p-3 text-center">{collection.item_count}</td>
                     <td className="p-3 text-center">
-                      {crate.subscriber_count}
+                      {collection.subscriber_count}
                     </td>
                     <td
                       className="p-3 text-center"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <Switch
-                        checked={crate.is_featured}
+                        checked={collection.is_featured}
                         onCheckedChange={(checked) => {
                           setFeatured.mutate({
-                            slug: crate.slug,
+                            slug: collection.slug,
                             featured: checked,
                           })
                         }}
@@ -283,14 +283,14 @@ export function CrateManagement() {
                       />
                     </td>
                     <td className="p-3 text-center">
-                      {crate.is_public ? (
+                      {collection.is_public ? (
                         <span className="text-green-400 text-xs">Yes</span>
                       ) : (
                         <span className="text-muted-foreground text-xs">No</span>
                       )}
                     </td>
                     <td className="p-3 text-muted-foreground text-xs">
-                      {new Date(crate.created_at).toLocaleDateString()}
+                      {new Date(collection.created_at).toLocaleDateString()}
                     </td>
                   </tr>
                 ))}
@@ -299,9 +299,9 @@ export function CrateManagement() {
           </div>
 
           {/* Detail panel */}
-          {selectedCrate && (
-            <CrateDetailPanel
-              crate={selectedCrate}
+          {selectedCollection && (
+            <CollectionDetailPanel
+              collection={selectedCollection}
               onClose={() => setSelectedSlug(null)}
             />
           )}

@@ -38,7 +38,7 @@ export const sidebarGroups: SidebarGroup[] = [
       { href: '/labels', label: 'Labels', icon: Tag },
       { href: '/tags', label: 'Tags', icon: Tags },
       { href: '/scenes', label: 'Scenes', icon: Globe },
-      { href: '/crates', label: 'Crates', icon: LayoutList },
+      { href: '/collections', label: 'Collections', icon: LayoutList },
       { href: '/charts', label: 'Charts', icon: TrendingUp },
       { href: '/radio', label: 'Radio', icon: Radio },
     ],
@@ -135,7 +135,6 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
               <div className={cn('mb-2 border-t border-sidebar-border', collapsed ? 'mx-2' : 'mx-3')} />
               <div className="space-y-0.5">
                 {renderItem({ href: '/library', label: 'Library', icon: Library })}
-                {renderItem({ href: '/collection', label: 'Collection', icon: BookOpen })}
                 {renderItem({ href: '/settings/notifications', label: 'Notifications', icon: Bell })}
                 {renderItem({ href: '/profile', label: 'Settings', icon: Settings })}
                 {user?.is_admin && renderItem({ href: '/admin', label: 'Admin', icon: Shield })}

@@ -6,7 +6,7 @@ export const metadata: Metadata = {
 }
 
 /**
- * Redirect old /shows/saved URL to new /collection page
+ * Redirect old /shows/saved URL to the consolidated Library page
  * This maintains backwards compatibility for bookmarked URLs
  */
 export default async function SavedShowsRedirect({
@@ -27,7 +27,7 @@ export default async function SavedShowsRedirect({
   }
 
   const queryString = params.toString()
-  const destination = queryString ? `/collection?${queryString}` : '/collection'
+  const destination = queryString ? `/library?${queryString}` : '/library'
 
   redirect(destination)
 }

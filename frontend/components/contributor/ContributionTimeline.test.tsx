@@ -138,7 +138,7 @@ describe('ContributionTimeline', () => {
     expect(link.closest('a')).toHaveAttribute('href', '/requests/5')
   })
 
-  it('links collections to /collection/:id', () => {
+  it('links collections to /collections/:id', () => {
     render(
       <ContributionTimeline
         contributions={[
@@ -151,7 +151,7 @@ describe('ContributionTimeline', () => {
       />
     )
     const link = screen.getByText('My Favorites')
-    expect(link.closest('a')).toHaveAttribute('href', '/collection/8')
+    expect(link.closest('a')).toHaveAttribute('href', '/collections/8')
   })
 
   it('shows fallback label with link when entity_name is missing for a known type', () => {

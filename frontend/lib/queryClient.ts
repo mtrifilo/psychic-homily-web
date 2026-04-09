@@ -247,12 +247,12 @@ export const queryKeys = {
     rankings: (username: string) => ['contributor', 'rankings', username] as const,
   },
 
-  // Crate queries
-  crates: {
-    all: ['crates'] as const,
-    detail: (slug: string) => ['crates', 'detail', slug] as const,
-    stats: (slug: string) => ['crates', 'stats', slug] as const,
-    my: ['crates', 'my'] as const,
+  // Collection queries
+  collections: {
+    all: ['collections'] as const,
+    detail: (slug: string) => ['collections', 'detail', slug] as const,
+    stats: (slug: string) => ['collections', 'stats', slug] as const,
+    my: ['collections', 'my'] as const,
   },
 
   // Request queries
@@ -422,9 +422,9 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
       queryClient.invalidateQueries({ queryKey: ['contributor', 'ownContributions'] }),
     ]),
 
-  // Invalidate crate queries
-  crates: () =>
-    queryClient.invalidateQueries({ queryKey: ['crates'] }),
+  // Invalidate collection queries
+  collections: () =>
+    queryClient.invalidateQueries({ queryKey: ['collections'] }),
 
   // Invalidate request queries
   requests: () =>

@@ -2,10 +2,11 @@ import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
 
 test.describe('Protected route redirects', () => {
-  test('unauthenticated user is redirected from /collection to /auth', async ({
+  test('unauthenticated user is redirected from /library to /auth', async ({
     page,
   }) => {
-    await page.goto('/collection')
+    // /library is the consolidated auth-gated page (was /collection pre-PSY-275).
+    await page.goto('/library')
 
     // Should redirect to auth page
     await page.waitForURL(/\/auth/, { timeout: 10_000 })

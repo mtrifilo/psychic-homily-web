@@ -39,7 +39,7 @@ function getEntityLink(entry: ContributionEntry): string | null {
     case 'request':
       return `/requests/${entry.entity_id}`
     case 'collection':
-      return `/collection/${entry.entity_id}`
+      return `/collections/${entry.entity_id}`
     case 'venue_edit':
       return `/venues/${entry.entity_id}`
     default:
