@@ -115,42 +115,30 @@ const ntsEpisodeOlderJSON = `{
   ]
 }`
 
-const ntsEpisodeDetailWithTracklistJSON = `{
-  "name": "Huerco S. - March 2026",
-  "episode_alias": "march-2026",
-  "broadcast": "2026-03-15T20:00:00Z",
-  "mixcloud": "https://www.mixcloud.com/NTSRadio/huerco-s-15th-march-2026/",
-  "genre_tags": ["ambient", "experimental"],
-  "mood_tags": ["meditative", "nocturnal"],
-  "duration": 120,
-  "tracklist": [
-    {"artist": "Grouper", "title": "Holding", "album": "Dragging a Dead Deer Up a Hill"},
-    {"artist": "Stars of the Lid", "title": "Requiem for Dying Mothers, Part 2", "album": "The Tired Sounds of Stars of the Lid"},
-    {"artist": "Midori Takada", "title": "Mr. Henri Rousseau's Dream", "album": "Through the Looking Glass"},
-    {"artist": "Pauline Anna Strom", "title": "Trans-Millenia Consort", "album": "Trans-Millenia Music"},
-    {"artist": "Hiroshi Yoshimura", "title": "Creek", "album": "GREEN"}
+// ntsTracklistJSON is a realistic response from
+// GET /v2/shows/{alias}/episodes/{ep_alias}/tracklist. The real NTS API
+// wraps tracks in a `results` array under a metadata/resultset envelope.
+const ntsTracklistJSON = `{
+  "metadata": {
+    "resultset": {"count": 5}
+  },
+  "results": [
+    {"artist": "Grouper", "title": "Holding", "uid": "uid-1", "offset": 0, "duration": 240},
+    {"artist": "Stars of the Lid", "title": "Requiem for Dying Mothers, Part 2", "uid": "uid-2", "offset": 241, "duration": 600},
+    {"artist": "Midori Takada", "title": "Mr. Henri Rousseau's Dream", "uid": "uid-3", "offset": 842, "duration": 420},
+    {"artist": "Pauline Anna Strom", "title": "Trans-Millenia Consort", "uid": "uid-4", "offset": 1263, "duration": 360},
+    {"artist": "Hiroshi Yoshimura", "title": "Creek", "uid": "uid-5", "offset": 1624, "duration": 300}
   ]
 }`
 
-const ntsEpisodeDetailEmptyTracklistJSON = `{
-  "name": "Scratcha DVA - March 2026",
-  "episode_alias": "march-2026-mix",
-  "broadcast": "2026-03-20T22:00:00Z",
-  "mixcloud": "https://www.mixcloud.com/NTSRadio/scratcha-dva-20th-march-2026/",
-  "genre_tags": ["grime", "bass", "club"],
-  "mood_tags": ["energetic", "dark"],
-  "duration": 120,
-  "tracklist": []
-}`
-
-const ntsEpisodeDetailNoTracklistJSON = `{
-  "name": "Ambient Mix Session",
-  "episode_alias": "ambient-session",
-  "broadcast": "2026-03-10T18:00:00Z",
-  "mixcloud": "https://www.mixcloud.com/NTSRadio/ambient-session/",
-  "genre_tags": ["ambient"],
-  "mood_tags": ["meditative"],
-  "duration": 180
+// ntsEmptyTracklistJSON is what the tracklist endpoint returns for episodes
+// that have no tracklist entered (common for DJ mixes). It's a 200 response
+// with an empty results array.
+const ntsEmptyTracklistJSON = `{
+  "metadata": {
+    "resultset": {"count": 0}
+  },
+  "results": []
 }`
 
 const ntsEmptyShowsJSON = `{"results": []}`
@@ -335,7 +323,7 @@ func TestNTS_FetchNewEpisodes_StopsAtOldEpisodes(t *testing.T) {
 	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	episodes, err := provider.FetchNewEpisodes("huerco-s", since)
 	require.NoError(t, err)
-	// Should have 100 from page 1, and 0 from page 2 (old episode filtered)
+	// Should have ntsPageLimit from page 1, and 0 from page 2 (old episode filtered)
 	assert.Equal(t, ntsPageLimit, len(episodes))
 }
 
@@ -360,9 +348,12 @@ func TestNTS_FetchNewEpisodes_Empty(t *testing.T) {
 
 func TestNTS_FetchPlaylist_WithTracklist(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// FetchPlaylist must call the /tracklist sub-endpoint, not the
+		// episode detail endpoint — the latter does not include tracklist
+		// data and every import was coming back empty because of it.
+		assert.Equal(t, "/v2/shows/huerco-s/episodes/march-2026/tracklist", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
-		assert.Equal(t, "/v2/shows/huerco-s/episodes/march-2026", r.URL.Path)
-		fmt.Fprint(w, ntsEpisodeDetailWithTracklistJSON)
+		fmt.Fprint(w, ntsTracklistJSON)
 	}))
 	defer server.Close()
 
@@ -379,17 +370,24 @@ func TestNTS_FetchPlaylist_WithTracklist(t *testing.T) {
 	assert.Equal(t, "Grouper", p0.ArtistName)
 	require.NotNil(t, p0.TrackTitle)
 	assert.Equal(t, "Holding", *p0.TrackTitle)
-	require.NotNil(t, p0.AlbumTitle)
-	assert.Equal(t, "Dragging a Dead Deer Up a Hill", *p0.AlbumTitle)
 
-	// No MusicBrainz IDs for NTS
+	// NTS tracklist endpoint exposes only artist + title -- no album, label,
+	// MusicBrainz IDs, release year, or wall-clock air timestamp. `offset`
+	// and `duration` are seconds within the episode audio, not times of day.
+	assert.Nil(t, p0.AlbumTitle)
+	assert.Nil(t, p0.LabelName)
+	assert.Nil(t, p0.ReleaseYear)
 	assert.Nil(t, p0.MusicBrainzArtistID)
 	assert.Nil(t, p0.MusicBrainzRecordingID)
 	assert.Nil(t, p0.MusicBrainzReleaseID)
+	assert.Nil(t, p0.AirTimestamp)
 
-	// No label or year data from NTS
-	assert.Nil(t, p0.LabelName)
-	assert.Nil(t, p0.ReleaseYear)
+	// Check middle track — verify position numbering
+	p2 := plays[2]
+	assert.Equal(t, 2, p2.Position)
+	assert.Equal(t, "Midori Takada", p2.ArtistName)
+	require.NotNil(t, p2.TrackTitle)
+	assert.Equal(t, "Mr. Henri Rousseau's Dream", *p2.TrackTitle)
 
 	// Check last track
 	p4 := plays[4]
@@ -397,14 +395,13 @@ func TestNTS_FetchPlaylist_WithTracklist(t *testing.T) {
 	assert.Equal(t, "Hiroshi Yoshimura", p4.ArtistName)
 	require.NotNil(t, p4.TrackTitle)
 	assert.Equal(t, "Creek", *p4.TrackTitle)
-	require.NotNil(t, p4.AlbumTitle)
-	assert.Equal(t, "GREEN", *p4.AlbumTitle)
 }
 
 func TestNTS_FetchPlaylist_EmptyTracklist(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v2/shows/scratcha-dva/episodes/march-2026-mix/tracklist", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, ntsEpisodeDetailEmptyTracklistJSON)
+		fmt.Fprint(w, ntsEmptyTracklistJSON)
 	}))
 	defer server.Close()
 
@@ -417,10 +414,13 @@ func TestNTS_FetchPlaylist_EmptyTracklist(t *testing.T) {
 	assert.Len(t, plays, 0, "DJ mix episodes should return 0 plays")
 }
 
-func TestNTS_FetchPlaylist_NoTracklistField(t *testing.T) {
+// NTS returns 404 for episodes that have no tracklist at all (not just an
+// empty array). This is the normal case for DJ mixes and should not be
+// treated as an error.
+func TestNTS_FetchPlaylist_TracklistNotFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, ntsEpisodeDetailNoTracklistJSON)
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, `{"detail": "Not found."}`)
 	}))
 	defer server.Close()
 
@@ -428,8 +428,8 @@ func TestNTS_FetchPlaylist_NoTracklistField(t *testing.T) {
 	defer provider.Close()
 
 	plays, err := provider.FetchPlaylist("ambient-show/ambient-session")
-	require.NoError(t, err)
-	assert.NotNil(t, plays, "missing tracklist field should return non-nil empty slice")
+	require.NoError(t, err, "404 on tracklist endpoint should not be an error")
+	assert.NotNil(t, plays, "404 should return non-nil empty slice")
 	assert.Len(t, plays, 0)
 }
 
@@ -437,20 +437,28 @@ func TestNTS_FetchPlaylist_InvalidExternalID(t *testing.T) {
 	provider := NewNTSProviderWithClient(&http.Client{}, "http://localhost")
 	defer provider.Close()
 
-	_, err := provider.FetchPlaylist("invalid-no-slash")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid episode external ID format")
+	cases := []string{
+		"invalid-no-slash",
+		"",
+		"show-only/",
+		"/ep-only",
+	}
+	for _, id := range cases {
+		_, err := provider.FetchPlaylist(id)
+		assert.Error(t, err, "expected error for %q", id)
+		if err != nil {
+			assert.Contains(t, err.Error(), "invalid episode external ID format")
+		}
+	}
 }
 
 func TestNTS_FetchPlaylist_SkipsEmptyArtist(t *testing.T) {
 	tracklistJSON := `{
-		"name": "Test Episode",
-		"episode_alias": "test",
-		"broadcast": "2026-03-15T20:00:00Z",
-		"tracklist": [
-			{"artist": "Grouper", "title": "Holding", "album": ""},
-			{"artist": "", "title": "Unknown Track", "album": ""},
-			{"artist": "Stars of the Lid", "title": "Requiem", "album": ""}
+		"metadata": {"resultset": {"count": 3}},
+		"results": [
+			{"artist": "Grouper", "title": "Holding"},
+			{"artist": "", "title": "Unknown Track"},
+			{"artist": "Stars of the Lid", "title": "Requiem"}
 		]
 	}`
 
@@ -655,7 +663,7 @@ func TestNTS_MalformedJSON_FetchPlaylist(t *testing.T) {
 
 	_, err := provider.FetchPlaylist("show/ep")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "parsing episode detail")
+	assert.Contains(t, err.Error(), "parsing tracklist response")
 }
 
 // =============================================================================
