@@ -145,13 +145,65 @@ func (p *KEXPProvider) FetchNewEpisodes(showExternalID string, since time.Time) 
 	return allEpisodes, nil
 }
 
+// kexpPlaylistWindow is the upper bound added to a broadcast's start_time when
+// querying the KEXP plays endpoint. KEXP "shows" (broadcasts) expose start_time
+// but no end_time, and programs are typically 1–4 hours long. 5 hours gives a
+// small safety buffer for shows that run long without encroaching far into the
+// next broadcast's playlist.
+const kexpPlaylistWindow = 5 * time.Hour
+
 // FetchPlaylist returns track plays for a KEXP "show" (episode).
+//
+// KEXP's /v2/plays endpoint does NOT support a show_id filter — passing one is
+// silently ignored and every request returns the global plays list. Instead we
+// filter by broadcast time window using airdate_after/airdate_before:
+//
+//  1. GET /v2/shows/{id}/ to resolve the broadcast's start_time.
+//  2. Compute [start_time, start_time + kexpPlaylistWindow] as the bounds.
+//  3. GET /v2/plays/?airdate_after=...&airdate_before=...&play_type=trackplay
+//     and paginate via the `next` cursor.
+//
+// If the broadcast is not found (404) we return an empty playlist rather than
+// an error so callers can continue processing other episodes.
 func (p *KEXPProvider) FetchPlaylist(episodeExternalID string) ([]RadioPlayImport, error) {
+	// Step 1: fetch the broadcast to get its start_time.
+	showDetailURL := fmt.Sprintf("%s/v2/shows/%s/", p.baseURL, episodeExternalID)
+
+	<-p.rateLimiter.C
+	resp, err := p.doGet(showDetailURL)
+	if err != nil {
+		// KEXP returned a non-200 (including 404 for missing broadcasts) —
+		// treat as "no plays" so the import pipeline can continue.
+		if strings.Contains(err.Error(), "status 404") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("fetching show detail: %w", err)
+	}
+
+	var show kexpShow
+	if err := json.Unmarshal(resp, &show); err != nil {
+		return nil, fmt.Errorf("parsing show detail response: %w", err)
+	}
+
+	if show.StartTime == "" {
+		return nil, nil
+	}
+
+	startTime, err := time.Parse(time.RFC3339, show.StartTime)
+	if err != nil {
+		return nil, fmt.Errorf("parsing show start_time %q: %w", show.StartTime, err)
+	}
+	endTime := startTime.Add(kexpPlaylistWindow)
+
+	// Step 2: fetch plays filtered by the broadcast's time window.
 	var allPlays []RadioPlayImport
 	position := 0
 
-	url := fmt.Sprintf("%s/v2/plays/?show_id=%s&limit=100&ordering=airdate",
-		p.baseURL, episodeExternalID)
+	url := fmt.Sprintf("%s/v2/plays/?airdate_after=%s&airdate_before=%s&play_type=trackplay&limit=100&ordering=airdate",
+		p.baseURL,
+		startTime.UTC().Format(time.RFC3339),
+		endTime.UTC().Format(time.RFC3339),
+	)
 
 	for url != "" {
 		<-p.rateLimiter.C
@@ -167,7 +219,8 @@ func (p *KEXPProvider) FetchPlaylist(episodeExternalID string) ([]RadioPlayImpor
 		}
 
 		for _, kPlay := range page.Results {
-			// Only import track plays, skip airbreaks, station IDs, etc.
+			// Defensive: filter again even though the API was asked to return
+			// only trackplays, in case future API changes relax that filter.
 			if kPlay.PlayType != "trackplay" {
 				continue
 			}

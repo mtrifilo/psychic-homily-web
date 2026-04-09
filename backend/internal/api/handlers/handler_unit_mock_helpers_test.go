@@ -1920,6 +1920,8 @@ type mockRadioService struct {
 	importStationFn func(uint, int) (*contracts.RadioImportResult, error)
 	fetchNewEpisodesFn func(uint) (*contracts.RadioImportResult, error)
 	importEpisodePlaylistFn func(uint, string) (*contracts.EpisodeImportResult, error)
+	discoverStationShowsFn func(uint) (*contracts.RadioDiscoverResult, error)
+	importShowEpisodesFn func(uint, string, string) (*contracts.RadioImportResult, error)
 	matchPlaysFn func(uint) (*contracts.MatchResult, error)
 	getUnmatchedPlaysFn func(uint, int, int) ([]*contracts.UnmatchedPlayGroup, int64, error)
 	linkPlayFn func(uint, *contracts.LinkPlayRequest) (error)
@@ -1927,6 +1929,11 @@ type mockRadioService struct {
 	computeAffinityFn func() (error)
 	syncAffinityToRelationshipsFn func() (*contracts.SyncAffinityResult, error)
 	reMatchUnmatchedFn func() (*contracts.MatchResult, error)
+	createImportJobFn func(uint, string, string) (*contracts.RadioImportJobResponse, error)
+	startImportJobFn func(uint) (error)
+	cancelImportJobFn func(uint) (error)
+	getImportJobFn func(uint) (*contracts.RadioImportJobResponse, error)
+	listImportJobsFn func(uint) ([]*contracts.RadioImportJobResponse, error)
 }
 
 func (m *mockRadioService) CreateStation(req *contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
@@ -2073,6 +2080,18 @@ func (m *mockRadioService) ImportEpisodePlaylist(showID uint, episodeExternalID 
 	}
 	return nil, nil
 }
+func (m *mockRadioService) DiscoverStationShows(stationID uint) (*contracts.RadioDiscoverResult, error) {
+	if m.discoverStationShowsFn != nil {
+		return m.discoverStationShowsFn(stationID)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) ImportShowEpisodes(showID uint, since string, until string) (*contracts.RadioImportResult, error) {
+	if m.importShowEpisodesFn != nil {
+		return m.importShowEpisodesFn(showID, since, until)
+	}
+	return nil, nil
+}
 func (m *mockRadioService) MatchPlays(episodeID uint) (*contracts.MatchResult, error) {
 	if m.matchPlaysFn != nil {
 		return m.matchPlaysFn(episodeID)
@@ -2112,6 +2131,36 @@ func (m *mockRadioService) SyncAffinityToRelationships() (*contracts.SyncAffinit
 func (m *mockRadioService) ReMatchUnmatched() (*contracts.MatchResult, error) {
 	if m.reMatchUnmatchedFn != nil {
 		return m.reMatchUnmatchedFn()
+	}
+	return nil, nil
+}
+func (m *mockRadioService) CreateImportJob(showID uint, since string, until string) (*contracts.RadioImportJobResponse, error) {
+	if m.createImportJobFn != nil {
+		return m.createImportJobFn(showID, since, until)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) StartImportJob(jobID uint) (error) {
+	if m.startImportJobFn != nil {
+		return m.startImportJobFn(jobID)
+	}
+	return nil
+}
+func (m *mockRadioService) CancelImportJob(jobID uint) (error) {
+	if m.cancelImportJobFn != nil {
+		return m.cancelImportJobFn(jobID)
+	}
+	return nil
+}
+func (m *mockRadioService) GetImportJob(jobID uint) (*contracts.RadioImportJobResponse, error) {
+	if m.getImportJobFn != nil {
+		return m.getImportJobFn(jobID)
+	}
+	return nil, nil
+}
+func (m *mockRadioService) ListImportJobs(showID uint) ([]*contracts.RadioImportJobResponse, error) {
+	if m.listImportJobsFn != nil {
+		return m.listImportJobsFn(showID)
 	}
 	return nil, nil
 }
