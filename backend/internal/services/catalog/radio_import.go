@@ -222,6 +222,115 @@ func (s *RadioService) MatchPlays(episodeID uint) (*contracts.MatchResult, error
 	return matcher.MatchPlaysForEpisode(episodeID)
 }
 
+// DiscoverStationShows discovers all shows for a station without importing episodes.
+func (s *RadioService) DiscoverStationShows(stationID uint) (*contracts.RadioDiscoverResult, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var station models.RadioStation
+	if err := s.db.First(&station, stationID).Error; err != nil {
+		return nil, fmt.Errorf("station not found: %w", err)
+	}
+
+	if station.PlaylistSource == nil || *station.PlaylistSource == "" {
+		return nil, fmt.Errorf("station %d has no playlist source configured", stationID)
+	}
+
+	provider, err := s.getProvider(*station.PlaylistSource)
+	if err != nil {
+		return nil, err
+	}
+	defer closeProvider(provider)
+
+	result := &contracts.RadioDiscoverResult{}
+
+	importedShows, err := provider.DiscoverShows()
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("discover shows: %v", err))
+		return result, nil
+	}
+
+	for _, importShow := range importedShows {
+		_, err := s.upsertRadioShow(stationID, importShow)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("upsert show %s: %v", importShow.Name, err))
+			continue
+		}
+		result.ShowsDiscovered++
+		result.ShowNames = append(result.ShowNames, importShow.Name)
+	}
+
+	return result, nil
+}
+
+// ImportShowEpisodes imports episodes for a single show within a date range.
+func (s *RadioService) ImportShowEpisodes(showID uint, since string, until string) (*contracts.RadioImportResult, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	sinceTime, err := time.Parse("2006-01-02", since)
+	if err != nil {
+		return nil, fmt.Errorf("invalid since date %q: %w", since, err)
+	}
+	untilTime, err := time.Parse("2006-01-02", until)
+	if err != nil {
+		return nil, fmt.Errorf("invalid until date %q: %w", until, err)
+	}
+	// Include the entire "until" day
+	untilTime = untilTime.AddDate(0, 0, 1)
+
+	var show models.RadioShow
+	if err := s.db.Preload("Station").First(&show, showID).Error; err != nil {
+		return nil, fmt.Errorf("show not found: %w", err)
+	}
+
+	if show.Station.PlaylistSource == nil || *show.Station.PlaylistSource == "" {
+		return nil, fmt.Errorf("station has no playlist source configured")
+	}
+
+	provider, err := s.getProvider(*show.Station.PlaylistSource)
+	if err != nil {
+		return nil, err
+	}
+	defer closeProvider(provider)
+
+	if show.ExternalID == nil || *show.ExternalID == "" {
+		return nil, fmt.Errorf("show %d has no external ID", showID)
+	}
+
+	episodes, err := provider.FetchNewEpisodes(*show.ExternalID, sinceTime)
+	if err != nil {
+		return nil, fmt.Errorf("fetching episodes: %w", err)
+	}
+
+	result := &contracts.RadioImportResult{}
+
+	for _, ep := range episodes {
+		// Filter episodes by air_date within [since, until)
+		epDate, parseErr := time.Parse("2006-01-02", ep.AirDate)
+		if parseErr != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("parse air_date %q for episode %s: %v", ep.AirDate, ep.ExternalID, parseErr))
+			continue
+		}
+		if epDate.Before(sinceTime) || !epDate.Before(untilTime) {
+			continue
+		}
+
+		epResult, err := s.importEpisode(show.ID, ep, provider)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("import episode %s: %v", ep.ExternalID, err))
+			continue
+		}
+		result.EpisodesImported++
+		result.PlaysImported += epResult.PlaysImported
+		result.PlaysMatched += epResult.PlaysMatched
+	}
+
+	return result, nil
+}
+
 // =============================================================================
 // Internal import helpers
 // =============================================================================

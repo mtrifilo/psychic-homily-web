@@ -116,4 +116,8 @@ export {
   useUpdateRadioShow,
   useDeleteRadioShow,
   useFetchPlaylists,
+  useDiscoverShows,
+  useImportShowEpisodes,
+  type RadioDiscoverResult,
+  type RadioImportResult,
 } from './useAdminRadio'

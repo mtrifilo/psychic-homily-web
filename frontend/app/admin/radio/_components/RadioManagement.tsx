@@ -17,6 +17,13 @@ import {
   UserPlus,
   SkipForward,
   BarChart3,
+  Radar,
+  Upload,
+  Clock,
+  PlayCircle,
+  XCircle,
+  CheckCircle2,
+  History,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,9 +52,18 @@ import {
   useUpdateRadioShow,
   useDeleteRadioShow,
   useFetchPlaylists,
+  useDiscoverShows,
+  useImportShowEpisodes,
+  useCreateImportJob,
+  useImportJob,
+  useCancelImportJob,
+  useShowImportJobs,
   type RadioStationListItem,
   type RadioStationDetail,
   type RadioShowListItem,
+  type RadioDiscoverResult,
+  type RadioImportResult,
+  type RadioImportJob,
   type CreateRadioStationInput,
   type UpdateRadioStationInput,
   type CreateRadioShowInput,
@@ -685,6 +701,332 @@ function EditShowForm({
 // Station Detail Panel (with shows management)
 // ============================================================================
 
+// ============================================================================
+// Per-Show Import Controls
+// ============================================================================
+
+function ShowImportControls({ show }: { show: RadioShowListItem }) {
+  const importMutation = useImportShowEpisodes()
+  const [since, setSince] = useState('')
+  const [until, setUntil] = useState('')
+  const [importResult, setImportResult] = useState<RadioImportResult | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+
+  const handleImport = useCallback(() => {
+    if (!since || !until) return
+    setImportResult(null)
+    setImportError(null)
+    importMutation.mutate(
+      { showId: show.id, since, until },
+      {
+        onSuccess: (result) => {
+          setImportResult(result)
+        },
+        onError: (err) => {
+          setImportError(err.message)
+        },
+      }
+    )
+  }, [show.id, since, until, importMutation])
+
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="flex items-end gap-2">
+        <div>
+          <Label className="text-xs text-muted-foreground">Since</Label>
+          <Input
+            type="date"
+            value={since}
+            onChange={(e) => setSince(e.target.value)}
+            className="h-8 text-xs w-36"
+          />
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground">Until</Label>
+          <Input
+            type="date"
+            value={until}
+            onChange={(e) => setUntil(e.target.value)}
+            className="h-8 text-xs w-36"
+          />
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleImport}
+          disabled={importMutation.isPending || !since || !until}
+          className="h-8"
+        >
+          {importMutation.isPending ? (
+            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+          ) : (
+            <Upload className="mr-1 h-3 w-3" />
+          )}
+          Import Episodes
+        </Button>
+      </div>
+      {importResult && (
+        <div className="text-xs rounded-md bg-muted p-2 space-y-0.5">
+          <p>Episodes imported: <strong>{importResult.episodes_imported}</strong></p>
+          <p>Plays imported: <strong>{importResult.plays_imported}</strong></p>
+          <p>Plays matched: <strong>{importResult.plays_matched}</strong></p>
+          {importResult.errors && importResult.errors.length > 0 && (
+            <div className="mt-1 text-destructive">
+              <p className="font-medium">Errors:</p>
+              {importResult.errors.map((e, i) => (
+                <p key={i}>{e}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {importError && (
+        <p className="text-xs text-destructive">{importError}</p>
+      )}
+    </div>
+  )
+}
+
+// ============================================================================
+// Import Job Progress Row
+// ============================================================================
+
+function ImportJobRow({ job }: { job: RadioImportJob }) {
+  const cancelMutation = useCancelImportJob()
+
+  const isActive = job.status === 'running' || job.status === 'pending'
+  const progress = job.episodes_found > 0
+    ? Math.round((job.episodes_imported / job.episodes_found) * 100)
+    : 0
+
+  const statusIcon = {
+    pending: <Clock className="h-4 w-4 text-muted-foreground" />,
+    running: <Loader2 className="h-4 w-4 animate-spin text-blue-500" />,
+    completed: <CheckCircle2 className="h-4 w-4 text-green-500" />,
+    failed: <AlertCircle className="h-4 w-4 text-destructive" />,
+    cancelled: <XCircle className="h-4 w-4 text-muted-foreground" />,
+  }[job.status]
+
+  const statusColor = {
+    pending: 'bg-muted text-muted-foreground',
+    running: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+    completed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    cancelled: 'bg-muted text-muted-foreground',
+  }[job.status]
+
+  return (
+    <div className="rounded-lg border p-4 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {statusIcon}
+          <Badge className={statusColor}>{job.status}</Badge>
+          <span className="text-sm text-muted-foreground">
+            {job.since} to {job.until}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {job.started_at && (
+            <span className="text-xs text-muted-foreground">
+              Started {new Date(job.started_at).toLocaleString()}
+            </span>
+          )}
+          {isActive && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive"
+              disabled={cancelMutation.isPending}
+              onClick={() => cancelMutation.mutate(job.id)}
+            >
+              {cancelMutation.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+              ) : (
+                <XCircle className="h-3 w-3 mr-1" />
+              )}
+              Cancel
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Progress bar for running/completed jobs */}
+      {(job.status === 'running' || job.status === 'completed') && job.episodes_found > 0 && (
+        <div className="space-y-1">
+          <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${
+                job.status === 'completed' ? 'bg-green-500' : 'bg-blue-500'
+              }`}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>
+              {job.episodes_imported.toLocaleString()} / {job.episodes_found.toLocaleString()} episodes
+              {job.current_episode_date && job.status === 'running' && (
+                <> &mdash; processing {job.current_episode_date}</>
+              )}
+            </span>
+            <span>
+              {job.plays_imported.toLocaleString()} plays &mdash;{' '}
+              {job.plays_imported > 0
+                ? Math.round((job.plays_matched / job.plays_imported) * 100)
+                : 0}% matched
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Error log for failed jobs */}
+      {job.status === 'failed' && job.error_log && (
+        <div className="rounded-md bg-destructive/10 p-2 text-xs text-destructive whitespace-pre-wrap max-h-24 overflow-y-auto">
+          {job.error_log}
+        </div>
+      )}
+
+      {/* Completed summary */}
+      {job.status === 'completed' && (
+        <div className="text-xs text-muted-foreground">
+          Completed {job.completed_at ? new Date(job.completed_at).toLocaleString() : ''} &mdash;{' '}
+          {job.episodes_imported.toLocaleString()} episodes, {job.plays_imported.toLocaleString()} plays, {job.plays_matched.toLocaleString()} matched
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============================================================================
+// Show Import Section (per-show import history + active job tracking)
+// ============================================================================
+
+function ShowImportSection({
+  show,
+  stationId,
+}: {
+  show: RadioShowListItem
+  stationId: number
+}) {
+  const { data: jobsData, isLoading } = useShowImportJobs(show.id)
+  const createMutation = useCreateImportJob()
+  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [since, setSince] = useState('')
+  const [until, setUntil] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const jobs = jobsData?.jobs ?? []
+  const hasActiveJob = jobs.some(j => j.status === 'running' || j.status === 'pending')
+
+  // Track the most recent active job for live polling
+  const activeJob = jobs.find(j => j.status === 'running' || j.status === 'pending')
+  const { data: liveJob } = useImportJob(activeJob?.id ?? 0, !!activeJob)
+
+  const handleCreate = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault()
+      setError(null)
+
+      if (!since) { setError('Start date is required'); return }
+      if (!until) { setError('End date is required'); return }
+      if (since > until) { setError('Start date must be before end date'); return }
+
+      createMutation.mutate(
+        { showId: show.id, since, until },
+        {
+          onSuccess: () => {
+            setShowCreateForm(false)
+            setSince('')
+            setUntil('')
+          },
+          onError: (err) => setError(err.message),
+        }
+      )
+    },
+    [since, until, show.id, createMutation]
+  )
+
+  return (
+    <div className="mt-3 space-y-3">
+      {/* Active job with live progress */}
+      {liveJob && (liveJob.status === 'running' || liveJob.status === 'pending') && (
+        <ImportJobRow job={liveJob} />
+      )}
+
+      {/* Create import form */}
+      {showCreateForm ? (
+        <form onSubmit={handleCreate} className="rounded-lg border border-dashed p-4 space-y-3">
+          {error && (
+            <div className="rounded-md bg-destructive/10 p-2 text-sm text-destructive">{error}</div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor={`since-${show.id}`}>From</Label>
+              <Input
+                id={`since-${show.id}`}
+                type="date"
+                value={since}
+                onChange={(e) => setSince(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor={`until-${show.id}`}>To</Label>
+              <Input
+                id={`until-${show.id}`}
+                type="date"
+                value={until}
+                onChange={(e) => setUntil(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" disabled={createMutation.isPending}>
+              {createMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-1" />
+              ) : (
+                <PlayCircle className="h-4 w-4 mr-1" />
+              )}
+              Start Import
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowCreateForm(false)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowCreateForm(true)}
+          disabled={hasActiveJob}
+        >
+          <Download className="h-4 w-4 mr-1" />
+          {hasActiveJob ? 'Import Running...' : 'Import Episodes'}
+        </Button>
+      )}
+
+      {/* Job history (non-active) */}
+      {!isLoading && jobs.filter(j => j.status !== 'running' && j.status !== 'pending').length > 0 && (
+        <details className="text-sm">
+          <summary className="cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-1">
+            <History className="h-3 w-3" />
+            Import History ({jobs.filter(j => j.status !== 'running' && j.status !== 'pending').length})
+          </summary>
+          <div className="mt-2 space-y-2">
+            {jobs
+              .filter(j => j.status !== 'running' && j.status !== 'pending')
+              .map(job => (
+                <ImportJobRow key={job.id} job={job} />
+              ))
+            }
+          </div>
+        </details>
+      )}
+    </div>
+  )
+}
+
+
+
 function StationDetailPanel({
   station,
   onBack,
@@ -698,26 +1040,29 @@ function StationDetailPanel({
 }) {
   const { data: stationDetail } = useRadioStationDetail(station.id)
   const { data: showsData, isLoading: showsLoading } = useRadioShows(station.id)
-  const fetchMutation = useFetchPlaylists()
+  const discoverMutation = useDiscoverShows()
   const deleteShowMutation = useDeleteRadioShow()
 
   const [dialogMode, setDialogMode] = useState<'create-show' | 'edit-show' | 'delete-show' | null>(null)
   const [selectedShow, setSelectedShow] = useState<RadioShowListItem | null>(null)
-  const [fetchResult, setFetchResult] = useState<string | null>(null)
+  const [discoverResult, setDiscoverResult] = useState<RadioDiscoverResult | null>(null)
+  const [discoverError, setDiscoverError] = useState<string | null>(null)
+  const [expandedShows, setExpandedShows] = useState<Set<number>>(new Set())
 
   const shows = showsData?.shows ?? []
 
-  const handleFetchPlaylists = useCallback(() => {
-    setFetchResult(null)
-    fetchMutation.mutate(station.id, {
-      onSuccess: () => {
-        setFetchResult('Playlist fetch triggered successfully.')
+  const handleDiscoverShows = useCallback(() => {
+    setDiscoverResult(null)
+    setDiscoverError(null)
+    discoverMutation.mutate(station.id, {
+      onSuccess: (result) => {
+        setDiscoverResult(result)
       },
       onError: (err) => {
-        setFetchResult(`Fetch failed: ${err.message}`)
+        setDiscoverError(err.message)
       },
     })
-  }, [station.id, fetchMutation])
+  }, [station.id, discoverMutation])
 
   const handleDeleteShow = useCallback(
     (show: RadioShowListItem) => {
@@ -728,6 +1073,18 @@ function StationDetailPanel({
     },
     [deleteShowMutation, station.id]
   )
+
+  const toggleShowExpanded = useCallback((showId: number) => {
+    setExpandedShows((prev) => {
+      const next = new Set(prev)
+      if (next.has(showId)) {
+        next.delete(showId)
+      } else {
+        next.add(showId)
+      }
+      return next
+    })
+  }, [])
 
   const lastFetch = stationDetail?.last_playlist_fetch_at
     ? new Date(stationDetail.last_playlist_fetch_at).toLocaleString()
@@ -787,18 +1144,33 @@ function StationDetailPanel({
         </div>
       )}
 
-      {/* Fetch Playlists */}
-      <div className="flex items-center gap-3">
-        <Button onClick={handleFetchPlaylists} disabled={fetchMutation.isPending} size="sm">
-          {fetchMutation.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Download className="mr-2 h-4 w-4" />
+      {/* Discover Shows */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-3">
+          <Button onClick={handleDiscoverShows} disabled={discoverMutation.isPending} size="sm">
+            {discoverMutation.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Radar className="mr-2 h-4 w-4" />
+            )}
+            Discover Shows
+          </Button>
+          {discoverResult && (
+            <span className="text-sm text-muted-foreground">
+              Discovered {discoverResult.shows_discovered} show(s)
+              {discoverResult.show_names.length > 0 && `: ${discoverResult.show_names.join(', ')}`}
+            </span>
           )}
-          Fetch Playlists
-        </Button>
-        {fetchResult && (
-          <span className="text-sm text-muted-foreground">{fetchResult}</span>
+          {discoverError && (
+            <span className="text-sm text-destructive">Discovery failed: {discoverError}</span>
+          )}
+        </div>
+        {discoverResult?.errors && discoverResult.errors.length > 0 && (
+          <div className="text-xs text-destructive space-y-0.5">
+            {discoverResult.errors.map((e, i) => (
+              <p key={i}>{e}</p>
+            ))}
+          </div>
         )}
       </div>
 
@@ -823,35 +1195,51 @@ function StationDetailPanel({
         ) : (
           <div className="rounded-lg border divide-y">
             {shows.map((show) => (
-              <div key={show.id} className="flex items-center justify-between px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{show.name}</span>
-                    <Badge variant={show.is_active ? 'default' : 'secondary'} className="text-xs">
-                      {show.is_active ? 'Active' : 'Inactive'}
-                    </Badge>
+              <div key={show.id} className="px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{show.name}</span>
+                      <Badge variant={show.is_active ? 'default' : 'secondary'} className="text-xs">
+                        {show.is_active ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {show.host_name ? `Hosted by ${show.host_name}` : 'No host'} &middot; {show.episode_count} episode(s)
+                    </p>
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {show.host_name ? `Hosted by ${show.host_name}` : 'No host'} &middot; {show.episode_count} episode(s)
-                  </p>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      title="Import episodes"
+                      onClick={() => toggleShowExpanded(show.id)}
+                    >
+                      <Upload className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setSelectedShow(show); setDialogMode('edit-show') }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive"
+                      onClick={() => { setSelectedShow(show); setDialogMode('delete-show') }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => { setSelectedShow(show); setDialogMode('edit-show') }}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive"
-                    onClick={() => { setSelectedShow(show); setDialogMode('delete-show') }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
+                {expandedShows.has(show.id) && (
+                  <>
+                    <ShowImportControls show={show} />
+                    <ShowImportSection show={show} stationId={station.id} />
+                  </>
+                )}
               </div>
             ))}
           </div>
