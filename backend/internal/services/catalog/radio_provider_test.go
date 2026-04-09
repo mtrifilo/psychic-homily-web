@@ -586,6 +586,8 @@ func TestRadioService_NilDB_Import(t *testing.T) {
 	assertNilDBError(t, func() error { _, err := svc.FetchNewEpisodes(1); return err })
 	assertNilDBError(t, func() error { _, err := svc.ImportEpisodePlaylist(1, "ext-1"); return err })
 	assertNilDBError(t, func() error { _, err := svc.MatchPlays(1); return err })
+	assertNilDBError(t, func() error { _, err := svc.DiscoverStationShows(1); return err })
+	assertNilDBError(t, func() error { _, err := svc.ImportShowEpisodes(1, "2024-01-01", "2024-12-31"); return err })
 }
 
 func TestRadioMatchingEngine_NilDB(t *testing.T) {

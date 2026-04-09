@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,12 +10,22 @@ import (
 	"time"
 )
 
+// errNTSNotFound is returned by doGet when the NTS API responds with 404.
+// FetchPlaylist uses it to distinguish "no tracklist for this episode"
+// (which is normal for DJ mixes) from actual HTTP failures.
+var errNTSNotFound = errors.New("NTS API returned 404")
+
 const (
 	ntsBaseURL        = "https://www.nts.live/api"
 	ntsUserAgent      = "PsychicHomily/1.0 (radio-playlist-indexer)"
 	ntsDefaultTimeout = 30 * time.Second
 	ntsRateLimit      = 1 * time.Second
-	ntsPageLimit      = 100
+	// ntsPageLimit is the max page size NTS will actually honor.
+	// The /v2/shows/{alias}/episodes endpoint silently caps results at 12
+	// regardless of the requested limit, so anything higher just wastes
+	// API calls. The /v2/shows endpoint respects larger limits, but using
+	// a single constant keeps the provider simple.
+	ntsPageLimit = 12
 )
 
 // NTSProvider implements RadioPlaylistProvider for NTS Radio's v2 REST API.
@@ -137,10 +148,20 @@ func (p *NTSProvider) FetchNewEpisodes(showExternalID string, since time.Time) (
 
 // FetchPlaylist returns the track plays for a specific NTS episode.
 // The episodeExternalID should be in the format "show-alias/episode-alias".
+//
+// NTS serves tracklists from a separate sub-endpoint:
+//
+//	GET /v2/shows/{show-alias}/episodes/{ep-alias}/tracklist
+//
+// The episode detail endpoint does NOT include tracklist data. Many NTS
+// episodes (DJ mixes, ambient sets) have no tracklist at all -- the
+// tracklist endpoint may return 200 with an empty results array, or 404.
+// Both cases are treated as "no tracks" and return an empty slice, not an
+// error.
 func (p *NTSProvider) FetchPlaylist(episodeExternalID string) ([]RadioPlayImport, error) {
 	// episodeExternalID is "show-alias/episode-alias"
 	parts := strings.SplitN(episodeExternalID, "/", 2)
-	if len(parts) != 2 {
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return nil, fmt.Errorf("invalid episode external ID format (expected show-alias/episode-alias): %s", episodeExternalID)
 	}
 	showAlias := parts[0]
@@ -148,30 +169,33 @@ func (p *NTSProvider) FetchPlaylist(episodeExternalID string) ([]RadioPlayImport
 
 	<-p.rateLimiter.C
 
-	url := fmt.Sprintf("%s/v2/shows/%s/episodes/%s", p.baseURL, showAlias, episodeAlias)
+	url := fmt.Sprintf("%s/v2/shows/%s/episodes/%s/tracklist", p.baseURL, showAlias, episodeAlias)
 	resp, err := p.doGet(url)
 	if err != nil {
-		return nil, fmt.Errorf("fetching episode detail: %w", err)
+		// Episodes without tracklists may 404 -- treat as empty, not an error.
+		if errors.Is(err, errNTSNotFound) {
+			return []RadioPlayImport{}, nil
+		}
+		return nil, fmt.Errorf("fetching tracklist: %w", err)
 	}
 
-	var detail ntsEpisodeDetail
-	if err := json.Unmarshal(resp, &detail); err != nil {
-		return nil, fmt.Errorf("parsing episode detail: %w", err)
+	var tracklist ntsTracklistResponse
+	if err := json.Unmarshal(resp, &tracklist); err != nil {
+		return nil, fmt.Errorf("parsing tracklist response: %w", err)
 	}
 
 	// Many NTS episodes have no tracklist (DJ mixes, ambient sets) — return empty slice
-	if len(detail.Tracklist) == 0 {
+	if len(tracklist.Results) == 0 {
 		return []RadioPlayImport{}, nil
 	}
 
 	var plays []RadioPlayImport
-	for i, track := range detail.Tracklist {
+	for _, track := range tracklist.Results {
 		if track.Artist == "" {
 			continue
 		}
 
 		play := RadioPlayImport{
-			Position:   i,
 			ArtistName: track.Artist,
 		}
 
@@ -179,15 +203,11 @@ func (p *NTSProvider) FetchPlaylist(episodeExternalID string) ([]RadioPlayImport
 			title := track.Title
 			play.TrackTitle = &title
 		}
-		if track.Album != "" {
-			album := track.Album
-			play.AlbumTitle = &album
-		}
 
 		plays = append(plays, play)
 	}
 
-	// Re-number positions sequentially after any skipped entries
+	// Number positions sequentially (0-based) to match other providers.
 	for i := range plays {
 		plays[i].Position = i
 	}
@@ -213,6 +233,9 @@ func (p *NTSProvider) doGet(url string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, errNTSNotFound
+	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("NTS API returned status %d: %s", resp.StatusCode, string(body))
@@ -361,19 +384,19 @@ type ntsEpisode struct {
 	DurationMinutes int      `json:"duration"`
 }
 
-type ntsEpisodeDetail struct {
-	Name            string          `json:"name"`
-	EpisodeAlias    string          `json:"episode_alias"`
-	Broadcast       string          `json:"broadcast"`
-	Mixcloud        string          `json:"mixcloud"`
-	GenreTags       []string        `json:"genre_tags"`
-	MoodTags        []string        `json:"mood_tags"`
-	DurationMinutes int             `json:"duration"`
-	Tracklist       []ntsTrackEntry `json:"tracklist"`
+// ntsTracklistResponse matches the JSON returned by
+// GET /v2/shows/{alias}/episodes/{ep_alias}/tracklist. NTS wraps the track
+// list in a "results" array with a metadata/resultset envelope.
+type ntsTracklistResponse struct {
+	Results []ntsTrackEntry `json:"results"`
 }
 
+// ntsTrackEntry represents a single track in an NTS episode tracklist.
+// Only artist and title are actually used -- offset/duration are seconds
+// within the episode (not wall-clock air times) so we don't populate
+// AirTimestamp from them. Album, label, and release year are not
+// available from the NTS tracklist endpoint.
 type ntsTrackEntry struct {
 	Artist string `json:"artist"`
 	Title  string `json:"title"`
-	Album  string `json:"album"`
 }

@@ -69,6 +69,25 @@ type RadioShowWriter interface {
 	DeleteShow(showID uint) error
 }
 
+// RadioImporter handles radio show discovery and episode import.
+type RadioImporter interface {
+	DiscoverStationShows(stationID uint) (*contracts.RadioDiscoverResult, error)
+	ImportShowEpisodes(showID uint, since string, until string) (*contracts.RadioImportResult, error)
+}
+
+// RadioImportJobManager manages radio import jobs (admin endpoints).
+type RadioImportJobManager interface {
+	CreateImportJob(showID uint, since, until string) (*contracts.RadioImportJobResponse, error)
+	CancelImportJob(jobID uint) error
+	GetImportJob(jobID uint) (*contracts.RadioImportJobResponse, error)
+	ListImportJobs(showID uint) ([]*contracts.RadioImportJobResponse, error)
+}
+
+// RadioImportJobStarter can start import jobs (admin endpoints).
+type RadioImportJobStarter interface {
+	StartImportJob(jobID uint) error
+}
+
 // ArtistSlugResolver resolves artist slugs to IDs.
 type ArtistSlugResolver interface {
 	GetArtistBySlug(slug string) (*contracts.ArtistDetailResponse, error)
@@ -92,6 +111,9 @@ type RadioHandler struct {
 	stationWriter      RadioStationWriter
 	showWriter         RadioShowWriter
 	unmatchedManager   RadioUnmatchedManager
+	importer           RadioImporter
+	importJobManager   RadioImportJobManager
+	importJobStarter   RadioImportJobStarter
 	artistResolver     ArtistSlugResolver
 	releaseResolver    ReleaseSlugResolver
 	auditLogService    contracts.AuditLogServiceInterface
@@ -112,6 +134,9 @@ func NewRadioHandler(
 		stationWriter:      radioService,
 		showWriter:         radioService,
 		unmatchedManager:   radioService,
+		importer:           radioService,
+		importJobManager:   radioService,
+		importJobStarter:   radioService,
 		artistResolver:     artistResolver,
 		releaseResolver:    releaseResolver,
 		auditLogService:    auditLogService,
@@ -1012,7 +1037,36 @@ func (h *RadioHandler) AdminDeleteRadioShowHandler(ctx context.Context, req *Adm
 }
 
 // ============================================================================
-// Admin: Trigger Playlist Fetch (stub)
+// Admin: Discover Shows for Station
+// ============================================================================
+
+// AdminDiscoverShowsRequest represents the request for discovering shows for a station.
+type AdminDiscoverShowsRequest struct {
+	StationID uint `path:"id" doc:"Radio station ID" example:"1"`
+}
+
+// AdminDiscoverShowsResponse represents the response for discovering shows.
+type AdminDiscoverShowsResponse struct {
+	Body contracts.RadioDiscoverResult
+}
+
+// AdminDiscoverShowsHandler handles POST /admin/radio-stations/{id}/discover
+func (h *RadioHandler) AdminDiscoverShowsHandler(ctx context.Context, req *AdminDiscoverShowsRequest) (*AdminDiscoverShowsResponse, error) {
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := h.importer.DiscoverStationShows(req.StationID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to discover shows", err)
+	}
+
+	return &AdminDiscoverShowsResponse{Body: *result}, nil
+}
+
+// ============================================================================
+// Admin: Trigger Playlist Fetch (redirects to discover)
 // ============================================================================
 
 // AdminTriggerFetchRequest represents the request for triggering a playlist fetch.
@@ -1021,14 +1075,52 @@ type AdminTriggerFetchRequest struct {
 }
 
 // AdminTriggerFetchHandler handles POST /admin/radio-stations/{id}/fetch
-// This is a stub that returns 501 Not Implemented until the KEXP provider is built.
-func (h *RadioHandler) AdminTriggerFetchHandler(ctx context.Context, req *AdminTriggerFetchRequest) (*struct{}, error) {
+// Repurposed to call DiscoverStationShows.
+func (h *RadioHandler) AdminTriggerFetchHandler(ctx context.Context, req *AdminTriggerFetchRequest) (*AdminDiscoverShowsResponse, error) {
 	_, err := requireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return nil, huma.Error501NotImplemented("Playlist fetch not yet implemented")
+	result, err := h.importer.DiscoverStationShows(req.StationID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to discover shows", err)
+	}
+
+	return &AdminDiscoverShowsResponse{Body: *result}, nil
+}
+
+// ============================================================================
+// Admin: Import Show Episodes
+// ============================================================================
+
+// AdminImportShowEpisodesRequest represents the request for importing episodes for a show.
+type AdminImportShowEpisodesRequest struct {
+	ShowID uint `path:"id" doc:"Radio show ID" example:"1"`
+	Body   struct {
+		Since string `json:"since" doc:"Start date (YYYY-MM-DD)" example:"2024-01-01"`
+		Until string `json:"until" doc:"End date (YYYY-MM-DD)" example:"2024-12-31"`
+	}
+}
+
+// AdminImportShowEpisodesResponse represents the response for importing show episodes.
+type AdminImportShowEpisodesResponse struct {
+	Body contracts.RadioImportResult
+}
+
+// AdminImportShowEpisodesHandler handles POST /admin/radio-shows/{id}/import
+func (h *RadioHandler) AdminImportShowEpisodesHandler(ctx context.Context, req *AdminImportShowEpisodesRequest) (*AdminImportShowEpisodesResponse, error) {
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := h.importer.ImportShowEpisodes(req.ShowID, req.Body.Since, req.Body.Until)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to import show episodes", err)
+	}
+
+	return &AdminImportShowEpisodesResponse{Body: *result}, nil
 }
 
 // ============================================================================
@@ -1211,6 +1303,203 @@ func (h *RadioHandler) AdminBulkLinkPlaysHandler(ctx context.Context, req *Admin
 	)
 
 	return &AdminBulkLinkPlaysResponse{Body: result}, nil
+}
+
+// ============================================================================
+// Admin: Create Import Job
+// ============================================================================
+
+// AdminCreateImportJobRequest represents the request for creating an import job.
+type AdminCreateImportJobRequest struct {
+	ShowID uint `path:"id" doc:"Radio show ID" example:"1"`
+	Body   struct {
+		Since string `json:"since" doc:"Start date (YYYY-MM-DD)" example:"2025-01-01"`
+		Until string `json:"until" doc:"End date (YYYY-MM-DD)" example:"2025-12-31"`
+	}
+}
+
+// AdminCreateImportJobResponse represents the response for creating an import job.
+type AdminCreateImportJobResponse struct {
+	Body *contracts.RadioImportJobResponse
+}
+
+// AdminCreateImportJobHandler handles POST /admin/radio-shows/{id}/import-job
+func (h *RadioHandler) AdminCreateImportJobHandler(ctx context.Context, req *AdminCreateImportJobRequest) (*AdminCreateImportJobResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.Body.Since == "" {
+		return nil, huma.Error400BadRequest("since date is required")
+	}
+	if req.Body.Until == "" {
+		return nil, huma.Error400BadRequest("until date is required")
+	}
+
+	job, err := h.importJobManager.CreateImportJob(req.ShowID, req.Body.Since, req.Body.Until)
+	if err != nil {
+		logger.FromContext(ctx).Error("create_import_job_failed",
+			"show_id", req.ShowID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to create import job (request_id: %s)", requestID),
+		)
+	}
+
+	// Start the job (fire and forget — errors are logged in the job runner)
+	if startErr := h.importJobStarter.StartImportJob(job.ID); startErr != nil {
+		logger.FromContext(ctx).Error("start_import_job_failed",
+			"job_id", job.ID,
+			"error", startErr.Error(),
+			"request_id", requestID,
+		)
+		// Return the job anyway — it was created, just failed to start
+	}
+
+	// Audit log (fire and forget)
+	if h.auditLogService != nil {
+		go func() {
+			h.auditLogService.LogAction(user.ID, "create_radio_import_job", "radio_import_job", job.ID, map[string]interface{}{
+				"show_id": req.ShowID,
+				"since":   req.Body.Since,
+				"until":   req.Body.Until,
+			})
+		}()
+	}
+
+	logger.FromContext(ctx).Info("radio_import_job_created",
+		"job_id", job.ID,
+		"show_id", req.ShowID,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &AdminCreateImportJobResponse{Body: job}, nil
+}
+
+// ============================================================================
+// Admin: Get Import Job
+// ============================================================================
+
+// AdminGetImportJobRequest represents the request for getting an import job.
+type AdminGetImportJobRequest struct {
+	JobID uint `path:"id" doc:"Import job ID" example:"1"`
+}
+
+// AdminGetImportJobResponse represents the response for getting an import job.
+type AdminGetImportJobResponse struct {
+	Body *contracts.RadioImportJobResponse
+}
+
+// AdminGetImportJobHandler handles GET /admin/radio/import-jobs/{id}
+func (h *RadioHandler) AdminGetImportJobHandler(ctx context.Context, req *AdminGetImportJobRequest) (*AdminGetImportJobResponse, error) {
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	job, err := h.importJobManager.GetImportJob(req.JobID)
+	if err != nil {
+		return nil, huma.Error404NotFound("Import job not found")
+	}
+
+	return &AdminGetImportJobResponse{Body: job}, nil
+}
+
+// ============================================================================
+// Admin: Cancel Import Job
+// ============================================================================
+
+// AdminCancelImportJobRequest represents the request for cancelling an import job.
+type AdminCancelImportJobRequest struct {
+	JobID uint `path:"id" doc:"Import job ID" example:"1"`
+}
+
+// AdminCancelImportJobResponse represents the response for cancelling an import job.
+type AdminCancelImportJobResponse struct {
+	Body struct {
+		Success bool `json:"success"`
+	}
+}
+
+// AdminCancelImportJobHandler handles POST /admin/radio/import-jobs/{id}/cancel
+func (h *RadioHandler) AdminCancelImportJobHandler(ctx context.Context, req *AdminCancelImportJobRequest) (*AdminCancelImportJobResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := h.importJobManager.CancelImportJob(req.JobID); err != nil {
+		logger.FromContext(ctx).Error("cancel_import_job_failed",
+			"job_id", req.JobID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to cancel import job (request_id: %s)", requestID),
+		)
+	}
+
+	// Audit log (fire and forget)
+	if h.auditLogService != nil {
+		go func() {
+			h.auditLogService.LogAction(user.ID, "cancel_radio_import_job", "radio_import_job", req.JobID, nil)
+		}()
+	}
+
+	logger.FromContext(ctx).Info("radio_import_job_cancelled",
+		"job_id", req.JobID,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	resp := &AdminCancelImportJobResponse{}
+	resp.Body.Success = true
+	return resp, nil
+}
+
+// ============================================================================
+// Admin: List Import Jobs for Show
+// ============================================================================
+
+// AdminListImportJobsRequest represents the request for listing import jobs.
+type AdminListImportJobsRequest struct {
+	ShowID uint `path:"id" doc:"Radio show ID" example:"1"`
+}
+
+// AdminListImportJobsResponse represents the response for listing import jobs.
+type AdminListImportJobsResponse struct {
+	Body struct {
+		Jobs  []*contracts.RadioImportJobResponse `json:"jobs" doc:"Import jobs for this show"`
+		Count int                                 `json:"count" doc:"Number of jobs"`
+	}
+}
+
+// AdminListImportJobsHandler handles GET /admin/radio-shows/{id}/import-jobs
+func (h *RadioHandler) AdminListImportJobsHandler(ctx context.Context, req *AdminListImportJobsRequest) (*AdminListImportJobsResponse, error) {
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	jobs, err := h.importJobManager.ListImportJobs(req.ShowID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to list import jobs", err)
+	}
+
+	resp := &AdminListImportJobsResponse{}
+	resp.Body.Jobs = jobs
+	if jobs != nil {
+		resp.Body.Count = len(jobs)
+	}
+	return resp, nil
 }
 
 // ============================================================================
