@@ -1058,3 +1058,253 @@ func TestAdminImportShowEpisodes_ServiceError(t *testing.T) {
 	_, err := h.AdminImportShowEpisodesHandler(radioAdminCtx(), req)
 	assertHumaError(t, err, 500)
 }
+// ============================================================================
+// AdminCreateImportJobHandler Tests
+// ============================================================================
+
+func TestAdminCreateImportJob_Success(t *testing.T) {
+	now := time.Now()
+	mock := &mockRadioService{
+		createImportJobFn: func(showID uint, since, until string) (*contracts.RadioImportJobResponse, error) {
+			return &contracts.RadioImportJobResponse{
+				ID:          1,
+				ShowID:      showID,
+				ShowName:    "Test Show",
+				StationID:   1,
+				StationName: "Test Station",
+				Since:       since,
+				Until:       until,
+				Status:      "pending",
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}, nil
+		},
+		startImportJobFn: func(jobID uint) error {
+			return nil
+		},
+	}
+	h := testRadioHandler(mock)
+	req := &AdminCreateImportJobRequest{ShowID: 1}
+	req.Body.Since = "2025-01-01"
+	req.Body.Until = "2025-12-31"
+
+	resp, err := h.AdminCreateImportJobHandler(radioAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.ID != 1 {
+		t.Errorf("expected job ID 1, got %d", resp.Body.ID)
+	}
+	if resp.Body.ShowName != "Test Show" {
+		t.Errorf("expected show name 'Test Show', got %s", resp.Body.ShowName)
+	}
+	if resp.Body.Status != "pending" {
+		t.Errorf("expected status 'pending', got %s", resp.Body.Status)
+	}
+}
+
+func TestAdminCreateImportJob_NotAdmin(t *testing.T) {
+	mock := &mockRadioService{}
+	h := testRadioHandler(mock)
+	req := &AdminCreateImportJobRequest{ShowID: 1}
+	req.Body.Since = "2025-01-01"
+	req.Body.Until = "2025-12-31"
+
+	_, err := h.AdminCreateImportJobHandler(context.Background(), req)
+	assertHumaError(t, err, 403)
+}
+
+func TestAdminCreateImportJob_MissingSince(t *testing.T) {
+	mock := &mockRadioService{}
+	h := testRadioHandler(mock)
+	req := &AdminCreateImportJobRequest{ShowID: 1}
+	req.Body.Since = ""
+	req.Body.Until = "2025-12-31"
+
+	_, err := h.AdminCreateImportJobHandler(radioAdminCtx(), req)
+	assertHumaError(t, err, 400)
+}
+
+func TestAdminCreateImportJob_MissingUntil(t *testing.T) {
+	mock := &mockRadioService{}
+	h := testRadioHandler(mock)
+	req := &AdminCreateImportJobRequest{ShowID: 1}
+	req.Body.Since = "2025-01-01"
+	req.Body.Until = ""
+
+	_, err := h.AdminCreateImportJobHandler(radioAdminCtx(), req)
+	assertHumaError(t, err, 400)
+}
+
+func TestAdminCreateImportJob_ServiceError(t *testing.T) {
+	mock := &mockRadioService{
+		createImportJobFn: func(showID uint, since, until string) (*contracts.RadioImportJobResponse, error) {
+			return nil, fmt.Errorf("an import job is already running")
+		},
+	}
+	h := testRadioHandler(mock)
+	req := &AdminCreateImportJobRequest{ShowID: 1}
+	req.Body.Since = "2025-01-01"
+	req.Body.Until = "2025-12-31"
+
+	_, err := h.AdminCreateImportJobHandler(radioAdminCtx(), req)
+	assertHumaError(t, err, 500)
+}
+
+// ============================================================================
+// AdminGetImportJobHandler Tests
+// ============================================================================
+
+func TestAdminGetImportJob_Success(t *testing.T) {
+	now := time.Now()
+	mock := &mockRadioService{
+		getImportJobFn: func(jobID uint) (*contracts.RadioImportJobResponse, error) {
+			return &contracts.RadioImportJobResponse{
+				ID:          jobID,
+				ShowID:      1,
+				ShowName:    "Test Show",
+				StationID:   1,
+				StationName: "Test Station",
+				Status:      "running",
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	resp, err := h.AdminGetImportJobHandler(radioAdminCtx(), &AdminGetImportJobRequest{JobID: 1})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.ID != 1 {
+		t.Errorf("expected job ID 1, got %d", resp.Body.ID)
+	}
+	if resp.Body.Status != "running" {
+		t.Errorf("expected status 'running', got %s", resp.Body.Status)
+	}
+}
+
+func TestAdminGetImportJob_NotFound(t *testing.T) {
+	mock := &mockRadioService{
+		getImportJobFn: func(jobID uint) (*contracts.RadioImportJobResponse, error) {
+			return nil, fmt.Errorf("job not found")
+		},
+	}
+	h := testRadioHandler(mock)
+	_, err := h.AdminGetImportJobHandler(radioAdminCtx(), &AdminGetImportJobRequest{JobID: 999})
+	assertHumaError(t, err, 404)
+}
+
+func TestAdminGetImportJob_NotAdmin(t *testing.T) {
+	mock := &mockRadioService{}
+	h := testRadioHandler(mock)
+	_, err := h.AdminGetImportJobHandler(context.Background(), &AdminGetImportJobRequest{JobID: 1})
+	assertHumaError(t, err, 403)
+}
+
+// ============================================================================
+// AdminCancelImportJobHandler Tests
+// ============================================================================
+
+func TestAdminCancelImportJob_Success(t *testing.T) {
+	mock := &mockRadioService{
+		cancelImportJobFn: func(jobID uint) error {
+			return nil
+		},
+	}
+	h := testRadioHandler(mock)
+	resp, err := h.AdminCancelImportJobHandler(radioAdminCtx(), &AdminCancelImportJobRequest{JobID: 1})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Error("expected success=true")
+	}
+}
+
+func TestAdminCancelImportJob_ServiceError(t *testing.T) {
+	mock := &mockRadioService{
+		cancelImportJobFn: func(jobID uint) error {
+			return fmt.Errorf("job cannot be cancelled")
+		},
+	}
+	h := testRadioHandler(mock)
+	_, err := h.AdminCancelImportJobHandler(radioAdminCtx(), &AdminCancelImportJobRequest{JobID: 1})
+	assertHumaError(t, err, 500)
+}
+
+func TestAdminCancelImportJob_NotAdmin(t *testing.T) {
+	mock := &mockRadioService{}
+	h := testRadioHandler(mock)
+	_, err := h.AdminCancelImportJobHandler(context.Background(), &AdminCancelImportJobRequest{JobID: 1})
+	assertHumaError(t, err, 403)
+}
+
+// ============================================================================
+// AdminListImportJobsHandler Tests
+// ============================================================================
+
+func TestAdminListImportJobs_Success(t *testing.T) {
+	now := time.Now()
+	mock := &mockRadioService{
+		listImportJobsFn: func(showID uint) ([]*contracts.RadioImportJobResponse, error) {
+			return []*contracts.RadioImportJobResponse{
+				{
+					ID:          1,
+					ShowID:      showID,
+					ShowName:    "Test Show",
+					StationID:   1,
+					StationName: "Test Station",
+					Status:      "completed",
+					CreatedAt:   now,
+					UpdatedAt:   now,
+				},
+			}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	resp, err := h.AdminListImportJobsHandler(radioAdminCtx(), &AdminListImportJobsRequest{ShowID: 1})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Count != 1 {
+		t.Errorf("expected count 1, got %d", resp.Body.Count)
+	}
+	if resp.Body.Jobs[0].Status != "completed" {
+		t.Errorf("expected status 'completed', got %s", resp.Body.Jobs[0].Status)
+	}
+}
+
+func TestAdminListImportJobs_Empty(t *testing.T) {
+	mock := &mockRadioService{
+		listImportJobsFn: func(showID uint) ([]*contracts.RadioImportJobResponse, error) {
+			return []*contracts.RadioImportJobResponse{}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	resp, err := h.AdminListImportJobsHandler(radioAdminCtx(), &AdminListImportJobsRequest{ShowID: 1})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Count != 0 {
+		t.Errorf("expected count 0, got %d", resp.Body.Count)
+	}
+}
+
+func TestAdminListImportJobs_ServiceError(t *testing.T) {
+	mock := &mockRadioService{
+		listImportJobsFn: func(showID uint) ([]*contracts.RadioImportJobResponse, error) {
+			return nil, fmt.Errorf("database error")
+		},
+	}
+	h := testRadioHandler(mock)
+	_, err := h.AdminListImportJobsHandler(radioAdminCtx(), &AdminListImportJobsRequest{ShowID: 1})
+	assertHumaError(t, err, 500)
+}
+
+func TestAdminListImportJobs_NotAdmin(t *testing.T) {
+	mock := &mockRadioService{}
+	h := testRadioHandler(mock)
+	_, err := h.AdminListImportJobsHandler(context.Background(), &AdminListImportJobsRequest{ShowID: 1})
+	assertHumaError(t, err, 403)
+}

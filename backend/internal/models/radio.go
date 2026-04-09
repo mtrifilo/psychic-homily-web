@@ -182,6 +182,40 @@ func (RadioPlay) TableName() string {
 	return "radio_plays"
 }
 
+// Import job status constants
+const (
+	RadioImportJobStatusPending   = "pending"
+	RadioImportJobStatusRunning   = "running"
+	RadioImportJobStatusCompleted = "completed"
+	RadioImportJobStatusFailed    = "failed"
+	RadioImportJobStatusCancelled = "cancelled"
+)
+
+// RadioImportJob represents an async import job for a radio show's episodes.
+type RadioImportJob struct {
+	ID                 uint          `gorm:"primaryKey" json:"id"`
+	ShowID             uint          `gorm:"not null" json:"show_id"`
+	Show               RadioShow     `gorm:"foreignKey:ShowID" json:"-"`
+	StationID          uint          `gorm:"not null" json:"station_id"`
+	Station            RadioStation  `gorm:"foreignKey:StationID" json:"-"`
+	Since              string        `gorm:"type:date;not null" json:"since"`
+	Until              string        `gorm:"type:date;not null" json:"until"`
+	Status             string        `gorm:"type:varchar(20);not null;default:pending" json:"status"`
+	EpisodesFound      int           `gorm:"not null;default:0" json:"episodes_found"`
+	EpisodesImported   int           `gorm:"not null;default:0" json:"episodes_imported"`
+	PlaysImported      int           `gorm:"not null;default:0" json:"plays_imported"`
+	PlaysMatched       int           `gorm:"not null;default:0" json:"plays_matched"`
+	CurrentEpisodeDate *string       `json:"current_episode_date,omitempty"`
+	ErrorLog           *string       `gorm:"type:text" json:"error_log,omitempty"`
+	StartedAt          *time.Time    `json:"started_at,omitempty"`
+	CompletedAt        *time.Time    `json:"completed_at,omitempty"`
+	CreatedAt          time.Time     `json:"created_at"`
+	UpdatedAt          time.Time     `json:"updated_at"`
+}
+
+// TableName specifies the table name for RadioImportJob
+func (RadioImportJob) TableName() string { return "radio_import_jobs" }
+
 // RadioArtistAffinity represents co-occurrence of two artists across radio playlists.
 // The composite primary key is (artist_a_id, artist_b_id).
 // A CHECK constraint ensures artist_a_id < artist_b_id (canonical ordering).

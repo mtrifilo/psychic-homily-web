@@ -1043,6 +1043,12 @@ func setupRadioRoutes(rc RouteContext) {
 	huma.Delete(rc.Protected, "/admin/radio-shows/{id}", radioHandler.AdminDeleteRadioShowHandler)
 	huma.Post(rc.Protected, "/admin/radio-shows/{id}/import", radioHandler.AdminImportShowEpisodesHandler)
 
+	// Admin import job endpoints
+	huma.Post(rc.Protected, "/admin/radio-shows/{id}/import-job", radioHandler.AdminCreateImportJobHandler)
+	huma.Get(rc.Protected, "/admin/radio/import-jobs/{id}", radioHandler.AdminGetImportJobHandler)
+	huma.Post(rc.Protected, "/admin/radio/import-jobs/{id}/cancel", radioHandler.AdminCancelImportJobHandler)
+	huma.Get(rc.Protected, "/admin/radio-shows/{id}/import-jobs", radioHandler.AdminListImportJobsHandler)
+
 	// Admin unmatched play management endpoints
 	huma.Get(rc.Protected, "/admin/radio/unmatched", radioHandler.AdminGetUnmatchedPlaysHandler)
 	huma.Post(rc.Protected, "/admin/radio/plays/{id}/link", radioHandler.AdminLinkPlayHandler)
