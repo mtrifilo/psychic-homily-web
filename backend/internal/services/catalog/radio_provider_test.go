@@ -300,26 +300,38 @@ func TestKEXPProvider_FetchNewEpisodes(t *testing.T) {
 }
 
 func TestKEXPProvider_FetchPlaylist(t *testing.T) {
+	var playsRequestQuery string
+
 	mux := http.NewServeMux()
+	// Show detail endpoint — called first to resolve start_time.
+	mux.HandleFunc("/v2/shows/5678/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":           5678,
+			"program_id":   42,
+			"program_name": "The Morning Show",
+			"start_time":   "2026-01-15T06:00:00-08:00",
+		})
+	})
 	mux.HandleFunc("/v2/plays/", func(w http.ResponseWriter, r *http.Request) {
+		playsRequestQuery = r.URL.RawQuery
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"next":  nil,
 			"count": 3,
 			"results": []map[string]interface{}{
 				{
-					"id":                      1,
-					"play_type":               "trackplay",
-					"airdate":                 "2026-01-15T06:05:00-08:00",
-					"artist":                  "Radiohead",
-					"song":                    "Everything In Its Right Place",
-					"album":                   "Kid A",
-					"label_name":              "Parlophone",
-					"release_date":            "2000-10-02",
-					"rotation_status":         "library",
-					"is_new":                  false,
-					"is_live":                 false,
-					"is_request":              false,
-					"musicbrainz_artist_id":   "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+					"id":                    1,
+					"play_type":             "trackplay",
+					"airdate":               "2026-01-15T06:05:00-08:00",
+					"artist":                "Radiohead",
+					"song":                  "Everything In Its Right Place",
+					"album":                 "Kid A",
+					"label_name":            "Parlophone",
+					"release_date":          "2000-10-02",
+					"rotation_status":       "library",
+					"is_new":                false,
+					"is_live":               false,
+					"is_request":            false,
+					"musicbrainz_artist_id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
 				},
 				{
 					"id":        2,
@@ -351,6 +363,23 @@ func TestKEXPProvider_FetchPlaylist(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, plays, 2) // Airbreak skipped
 
+	// Verify the plays request used time-range filtering instead of show_id.
+	assert.NotContains(t, playsRequestQuery, "show_id",
+		"plays request must not include show_id (silently ignored by KEXP)")
+	assert.NotContains(t, playsRequestQuery, "show=",
+		"plays request must not include show= (silently ignored by KEXP)")
+	assert.Contains(t, playsRequestQuery, "airdate_after=",
+		"plays request must filter by airdate_after")
+	assert.Contains(t, playsRequestQuery, "airdate_before=",
+		"plays request must filter by airdate_before")
+	assert.Contains(t, playsRequestQuery, "play_type=trackplay",
+		"plays request must filter to trackplay entries only")
+	// airdate_after should match the show start_time (UTC). The broadcast
+	// starts at 2026-01-15T06:00:00-08:00 which is 2026-01-15T14:00:00Z.
+	assert.Contains(t, playsRequestQuery, "airdate_after=2026-01-15T14:00:00Z")
+	// airdate_before should be 5 hours later: 2026-01-15T19:00:00Z.
+	assert.Contains(t, playsRequestQuery, "airdate_before=2026-01-15T19:00:00Z")
+
 	// First play
 	assert.Equal(t, 0, plays[0].Position)
 	assert.Equal(t, "Radiohead", plays[0].ArtistName)
@@ -371,6 +400,12 @@ func TestKEXPProvider_FetchPlaylist(t *testing.T) {
 
 func TestKEXPProvider_FetchPlaylist_OnlyTrackPlays(t *testing.T) {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/shows/1234/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":         1234,
+			"start_time": "2026-01-15T06:00:00Z",
+		})
+	})
 	mux.HandleFunc("/v2/plays/", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"next":  nil,
@@ -394,6 +429,125 @@ func TestKEXPProvider_FetchPlaylist_OnlyTrackPlays(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, plays, 1) // Only the trackplay
 	assert.Equal(t, "The National", plays[0].ArtistName)
+}
+
+func TestKEXPProvider_FetchPlaylist_EmptyPlays(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/shows/9999/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":         9999,
+			"start_time": "2026-01-15T06:00:00Z",
+		})
+	})
+	mux.HandleFunc("/v2/plays/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"next":    nil,
+			"count":   0,
+			"results": []map[string]interface{}{},
+		})
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	provider := NewKEXPProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	plays, err := provider.FetchPlaylist("9999")
+
+	require.NoError(t, err)
+	assert.Empty(t, plays)
+}
+
+func TestKEXPProvider_FetchPlaylist_ShowNotFound(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/shows/404/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"detail":"Not found."}`))
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	provider := NewKEXPProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	plays, err := provider.FetchPlaylist("404")
+
+	require.NoError(t, err, "404 on show detail should return empty slice, not error")
+	assert.Empty(t, plays)
+}
+
+func TestKEXPProvider_FetchPlaylist_Pagination(t *testing.T) {
+	playsCallCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/shows/5678/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":         5678,
+			"start_time": "2026-01-15T06:00:00Z",
+		})
+	})
+
+	var server *httptest.Server
+	mux.HandleFunc("/v2/plays/", func(w http.ResponseWriter, r *http.Request) {
+		playsCallCount++
+		if playsCallCount == 1 {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"next":  fmt.Sprintf("%s/v2/plays/?cursor=page2", server.URL),
+				"count": 3,
+				"results": []map[string]interface{}{
+					{
+						"id":        1,
+						"play_type": "trackplay",
+						"airdate":   "2026-01-15T06:05:00Z",
+						"artist":    "Radiohead",
+						"song":      "Idioteque",
+					},
+					{
+						"id":        2,
+						"play_type": "trackplay",
+						"airdate":   "2026-01-15T06:10:00Z",
+						"artist":    "Deerhunter",
+						"song":      "Desire Lines",
+					},
+				},
+			})
+		} else {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"next":  nil,
+				"count": 3,
+				"results": []map[string]interface{}{
+					{
+						"id":        3,
+						"play_type": "trackplay",
+						"airdate":   "2026-01-15T06:15:00Z",
+						"artist":    "The National",
+						"song":      "Bloodbuzz Ohio",
+					},
+				},
+			})
+		}
+	})
+
+	server = httptest.NewServer(mux)
+	defer server.Close()
+
+	provider := NewKEXPProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	plays, err := provider.FetchPlaylist("5678")
+
+	require.NoError(t, err)
+	assert.Len(t, plays, 3)
+	assert.Equal(t, 2, playsCallCount, "should follow pagination cursor")
+
+	// Positions should be sequential across pages.
+	assert.Equal(t, 0, plays[0].Position)
+	assert.Equal(t, "Radiohead", plays[0].ArtistName)
+	assert.Equal(t, 1, plays[1].Position)
+	assert.Equal(t, "Deerhunter", plays[1].ArtistName)
+	assert.Equal(t, 2, plays[2].Position)
+	assert.Equal(t, "The National", plays[2].ArtistName)
 }
 
 func TestKEXPProvider_HTTPError(t *testing.T) {
@@ -703,8 +857,20 @@ func (suite *RadioImportIntegrationTestSuite) TestImportStation_Success() {
 		})
 	})
 
-	// Mock shows (episodes)
+	// Mock shows (episodes) — handles both list and detail-by-ID requests.
 	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
+		// Detail-by-ID: /v2/shows/100/ used by FetchPlaylist.
+		if r.URL.Path == "/v2/shows/100/" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"id":           100,
+				"program_id":   42,
+				"program_name": "The Morning Show",
+				"start_time":   "2026-01-15T06:00:00-08:00",
+				"end_time":     "2026-01-15T10:00:00-08:00",
+			})
+			return
+		}
+		// List: /v2/shows/?program_id=... used by FetchNewEpisodes.
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 1,
 			"results": []map[string]interface{}{
