@@ -303,6 +303,17 @@ func (s *RadioService) failJob(jobID uint, errMsg string) {
 	slog.Default().Error("radio_import_job_failed", "job_id", jobID, "error", errMsg)
 }
 
+// normalizeDateString strips any time component from a date string so the
+// response always returns YYYY-MM-DD. Postgres DATE columns round-trip through
+// GORM into Go strings as "2025-04-01T00:00:00Z" even though the column only
+// holds a date, so we trim it back to the 10-char form the API expects.
+func normalizeDateString(s string) string {
+	if len(s) >= 10 {
+		return s[:10]
+	}
+	return s
+}
+
 // jobToResponse maps a model to a DTO response.
 func (s *RadioService) jobToResponse(job *models.RadioImportJob, showName, stationName string) *contracts.RadioImportJobResponse {
 	return &contracts.RadioImportJobResponse{
@@ -311,8 +322,8 @@ func (s *RadioService) jobToResponse(job *models.RadioImportJob, showName, stati
 		ShowName:           showName,
 		StationID:          job.StationID,
 		StationName:        stationName,
-		Since:              job.Since,
-		Until:              job.Until,
+		Since:              normalizeDateString(job.Since),
+		Until:              normalizeDateString(job.Until),
 		Status:             job.Status,
 		EpisodesFound:      job.EpisodesFound,
 		EpisodesImported:   job.EpisodesImported,
