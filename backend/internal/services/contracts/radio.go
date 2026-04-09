@@ -303,6 +303,13 @@ type RadioImportResult struct {
 	Errors           []string `json:"errors,omitempty"`
 }
 
+// RadioDiscoverResult summarizes the result of discovering shows for a station.
+type RadioDiscoverResult struct {
+	ShowsDiscovered int      `json:"shows_discovered"`
+	ShowNames       []string `json:"show_names"`
+	Errors          []string `json:"errors,omitempty"`
+}
+
 // EpisodeImportResult summarizes the result of importing a single episode's playlist.
 type EpisodeImportResult struct {
 	PlaysImported int `json:"plays_imported"`

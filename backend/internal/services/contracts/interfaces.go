@@ -581,6 +581,8 @@ type RadioServiceInterface interface {
 	ImportStation(stationID uint, backfillDays int) (*RadioImportResult, error)
 	FetchNewEpisodes(stationID uint) (*RadioImportResult, error)
 	ImportEpisodePlaylist(showID uint, episodeExternalID string) (*EpisodeImportResult, error)
+	DiscoverStationShows(stationID uint) (*RadioDiscoverResult, error)
+	ImportShowEpisodes(showID uint, since string, until string) (*RadioImportResult, error)
 
 	// Matching
 	MatchPlays(episodeID uint) (*MatchResult, error)

@@ -41,6 +41,8 @@ const RADIO_ENDPOINTS = {
   ADMIN_UPDATE_SHOW: (showId: number) => `${API_BASE_URL}/admin/radio-shows/${showId}`,
   ADMIN_DELETE_SHOW: (showId: number) => `${API_BASE_URL}/admin/radio-shows/${showId}`,
   ADMIN_FETCH_PLAYLISTS: (stationId: number) => `${API_BASE_URL}/admin/radio-stations/${stationId}/fetch`,
+  ADMIN_DISCOVER_SHOWS: (stationId: number) => `${API_BASE_URL}/admin/radio-stations/${stationId}/discover`,
+  ADMIN_IMPORT_SHOW_EPISODES: (showId: number) => `${API_BASE_URL}/admin/radio-shows/${showId}/import`,
 }
 
 // ============================================================================
@@ -187,6 +189,20 @@ export interface UpdateRadioShowInput {
   archive_url?: string | null
   image_url?: string | null
   is_active?: boolean
+}
+
+export interface RadioDiscoverResult {
+  shows_discovered: number
+  show_names: string[]
+  errors?: string[]
+}
+
+export interface RadioImportResult {
+  shows_discovered: number
+  episodes_imported: number
+  plays_imported: number
+  plays_matched: number
+  errors?: string[]
 }
 
 // ============================================================================
@@ -389,6 +405,46 @@ export function useFetchPlaylists() {
     mutationFn: async (stationId: number) => {
       return apiRequest<void>(RADIO_ENDPOINTS.ADMIN_FETCH_PLAYLISTS(stationId), {
         method: 'POST',
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
+      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
+    },
+  })
+}
+
+/**
+ * Hook to discover shows for a station
+ */
+export function useDiscoverShows() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (stationId: number) => {
+      return apiRequest<RadioDiscoverResult>(RADIO_ENDPOINTS.ADMIN_DISCOVER_SHOWS(stationId), {
+        method: 'POST',
+      })
+    },
+    onSuccess: (_data, stationId) => {
+      queryClient.invalidateQueries({ queryKey: radioQueryKeys.shows(stationId) })
+      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stations })
+      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
+    },
+  })
+}
+
+/**
+ * Hook to import episodes for a specific radio show
+ */
+export function useImportShowEpisodes() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ showId, since, until }: { showId: number; since: string; until: string }) => {
+      return apiRequest<RadioImportResult>(RADIO_ENDPOINTS.ADMIN_IMPORT_SHOW_EPISODES(showId), {
+        method: 'POST',
+        body: JSON.stringify({ since, until }),
       })
     },
     onSuccess: () => {

@@ -69,6 +69,12 @@ type RadioShowWriter interface {
 	DeleteShow(showID uint) error
 }
 
+// RadioImporter handles radio show discovery and episode import.
+type RadioImporter interface {
+	DiscoverStationShows(stationID uint) (*contracts.RadioDiscoverResult, error)
+	ImportShowEpisodes(showID uint, since string, until string) (*contracts.RadioImportResult, error)
+}
+
 // ArtistSlugResolver resolves artist slugs to IDs.
 type ArtistSlugResolver interface {
 	GetArtistBySlug(slug string) (*contracts.ArtistDetailResponse, error)
@@ -92,6 +98,7 @@ type RadioHandler struct {
 	stationWriter      RadioStationWriter
 	showWriter         RadioShowWriter
 	unmatchedManager   RadioUnmatchedManager
+	importer           RadioImporter
 	artistResolver     ArtistSlugResolver
 	releaseResolver    ReleaseSlugResolver
 	auditLogService    contracts.AuditLogServiceInterface
@@ -112,6 +119,7 @@ func NewRadioHandler(
 		stationWriter:      radioService,
 		showWriter:         radioService,
 		unmatchedManager:   radioService,
+		importer:           radioService,
 		artistResolver:     artistResolver,
 		releaseResolver:    releaseResolver,
 		auditLogService:    auditLogService,
@@ -1012,7 +1020,36 @@ func (h *RadioHandler) AdminDeleteRadioShowHandler(ctx context.Context, req *Adm
 }
 
 // ============================================================================
-// Admin: Trigger Playlist Fetch (stub)
+// Admin: Discover Shows for Station
+// ============================================================================
+
+// AdminDiscoverShowsRequest represents the request for discovering shows for a station.
+type AdminDiscoverShowsRequest struct {
+	StationID uint `path:"id" doc:"Radio station ID" example:"1"`
+}
+
+// AdminDiscoverShowsResponse represents the response for discovering shows.
+type AdminDiscoverShowsResponse struct {
+	Body contracts.RadioDiscoverResult
+}
+
+// AdminDiscoverShowsHandler handles POST /admin/radio-stations/{id}/discover
+func (h *RadioHandler) AdminDiscoverShowsHandler(ctx context.Context, req *AdminDiscoverShowsRequest) (*AdminDiscoverShowsResponse, error) {
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := h.importer.DiscoverStationShows(req.StationID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to discover shows", err)
+	}
+
+	return &AdminDiscoverShowsResponse{Body: *result}, nil
+}
+
+// ============================================================================
+// Admin: Trigger Playlist Fetch (redirects to discover)
 // ============================================================================
 
 // AdminTriggerFetchRequest represents the request for triggering a playlist fetch.
@@ -1021,14 +1058,52 @@ type AdminTriggerFetchRequest struct {
 }
 
 // AdminTriggerFetchHandler handles POST /admin/radio-stations/{id}/fetch
-// This is a stub that returns 501 Not Implemented until the KEXP provider is built.
-func (h *RadioHandler) AdminTriggerFetchHandler(ctx context.Context, req *AdminTriggerFetchRequest) (*struct{}, error) {
+// Repurposed to call DiscoverStationShows.
+func (h *RadioHandler) AdminTriggerFetchHandler(ctx context.Context, req *AdminTriggerFetchRequest) (*AdminDiscoverShowsResponse, error) {
 	_, err := requireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return nil, huma.Error501NotImplemented("Playlist fetch not yet implemented")
+	result, err := h.importer.DiscoverStationShows(req.StationID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to discover shows", err)
+	}
+
+	return &AdminDiscoverShowsResponse{Body: *result}, nil
+}
+
+// ============================================================================
+// Admin: Import Show Episodes
+// ============================================================================
+
+// AdminImportShowEpisodesRequest represents the request for importing episodes for a show.
+type AdminImportShowEpisodesRequest struct {
+	ShowID uint `path:"id" doc:"Radio show ID" example:"1"`
+	Body   struct {
+		Since string `json:"since" doc:"Start date (YYYY-MM-DD)" example:"2024-01-01"`
+		Until string `json:"until" doc:"End date (YYYY-MM-DD)" example:"2024-12-31"`
+	}
+}
+
+// AdminImportShowEpisodesResponse represents the response for importing show episodes.
+type AdminImportShowEpisodesResponse struct {
+	Body contracts.RadioImportResult
+}
+
+// AdminImportShowEpisodesHandler handles POST /admin/radio-shows/{id}/import
+func (h *RadioHandler) AdminImportShowEpisodesHandler(ctx context.Context, req *AdminImportShowEpisodesRequest) (*AdminImportShowEpisodesResponse, error) {
+	_, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := h.importer.ImportShowEpisodes(req.ShowID, req.Body.Since, req.Body.Until)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to import show episodes", err)
+	}
+
+	return &AdminImportShowEpisodesResponse{Body: *result}, nil
 }
 
 // ============================================================================
