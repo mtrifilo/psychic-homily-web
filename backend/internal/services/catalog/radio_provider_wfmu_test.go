@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -712,11 +714,18 @@ func TestWFMU_DiscoverShows_Integration(t *testing.T) {
 }
 
 func TestWFMU_FetchNewEpisodes_Integration(t *testing.T) {
+	// Track which path was taken — recent `since` should hit the RSS feed,
+	// NOT the archive page.
+	var rssHits, archiveHits int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/playlistfeed/NB.xml":
+			rssHits++
 			w.Header().Set("Content-Type", "application/rss+xml")
 			fmt.Fprint(w, wfmuRSSFeed)
+		case "/playlists/NB":
+			archiveHits++
+			http.NotFound(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -726,11 +735,16 @@ func TestWFMU_FetchNewEpisodes_Integration(t *testing.T) {
 	provider := NewWFMUProviderWithClient(server.Client(), server.URL)
 	defer provider.Close()
 
-	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	// Recent `since` — should use RSS path.
+	since := time.Now().Add(-7 * 24 * time.Hour)
 	episodes, err := provider.FetchNewEpisodes("NB", since)
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(episodes), 3, "should have at least 3 episodes since Jan 2026")
+	assert.Equal(t, 1, rssHits, "recent since should hit the RSS feed")
+	assert.Equal(t, 0, archiveHits, "recent since should NOT hit the archive page")
 
+	// Episodes returned depend on how many RSS items are newer than `since`;
+	// the contract we verify is that every returned episode has the expected
+	// shape.
 	for _, ep := range episodes {
 		assert.NotEmpty(t, ep.ExternalID)
 		assert.Equal(t, "NB", ep.ShowExternalID)
@@ -952,4 +966,326 @@ func TestWFMU_ExtractDateFromTitle(t *testing.T) {
 			assert.Equal(t, tc.expected, extractDateFromTitle(tc.title))
 		})
 	}
+}
+
+// =============================================================================
+// Archive Page Parsing Tests — Historical Backfill (PSY-278)
+// =============================================================================
+
+// loadWFMUTestdata reads a fixture file from ./testdata and returns its bytes.
+func loadWFMUTestdata(t *testing.T, name string) []byte {
+	t.Helper()
+	path := filepath.Join("testdata", name)
+	data, err := os.ReadFile(path)
+	require.NoError(t, err, "reading testdata file %s", path)
+	return data
+}
+
+func TestWFMU_ParseArchivePage_AllEpisodes(t *testing.T) {
+	body := loadWFMUTestdata(t, "wfmu_archive_page_bt.html")
+
+	episodes, err := parseWFMUArchivePage(body, "BT", time.Time{})
+	require.NoError(t, err)
+
+	// The fixture has 7 <li> rows total:
+	//   - 5 modern /playlists/shows/{ID} episodes
+	//   - 1 legacy pre-2009 episode (skipped — no /playlists/shows/ link)
+	//   - 2 fill-in placeholders (skipped — no playlist link at all)
+	assert.Len(t, episodes, 5, "should parse 5 modern episodes, skip fill-ins and legacy")
+
+	// Build a map for easier assertions
+	byID := make(map[string]RadioEpisodeImport)
+	for _, ep := range episodes {
+		byID[ep.ExternalID] = ep
+	}
+
+	// Verify each expected episode is present with correct date
+	expected := map[string]string{
+		"78951": "2018-05-08",
+		"78776": "2018-05-01",
+		"78585": "2018-04-24",
+		"78458": "2018-04-17",
+		"77868": "2018-03-13",
+	}
+	for id, date := range expected {
+		ep, ok := byID[id]
+		assert.True(t, ok, "episode %s should be present", id)
+		if ok {
+			assert.Equal(t, date, ep.AirDate, "episode %s air date", id)
+			assert.Equal(t, "BT", ep.ShowExternalID)
+			assert.NotNil(t, ep.ArchiveURL, "episode %s should have archive URL", id)
+			if ep.ArchiveURL != nil {
+				assert.Contains(t, *ep.ArchiveURL, "/playlists/shows/"+id)
+			}
+		}
+	}
+
+	// Legacy pre-2009 episode must NOT be present
+	_, hasLegacy := byID["135"]
+	assert.False(t, hasLegacy, "pre-2009 legacy episode 135 should be skipped")
+
+	// Fill-in placeholders must NOT be present
+	_, hasFillIn1 := byID["78094"]
+	assert.False(t, hasFillIn1, "fill-in placeholder 78094 should be skipped")
+	_, hasFillIn2 := byID["77975"]
+	assert.False(t, hasFillIn2, "fill-in placeholder 77975 should be skipped")
+}
+
+func TestWFMU_ParseArchivePage_Titles(t *testing.T) {
+	body := loadWFMUTestdata(t, "wfmu_archive_page_bt.html")
+
+	episodes, err := parseWFMUArchivePage(body, "BT", time.Time{})
+	require.NoError(t, err)
+
+	byID := make(map[string]RadioEpisodeImport)
+	for _, ep := range episodes {
+		byID[ep.ExternalID] = ep
+	}
+
+	// Episode with a non-empty <b> title
+	ep78776, ok := byID["78776"]
+	require.True(t, ok)
+	require.NotNil(t, ep78776.Title, "episode 78776 should have a title")
+	assert.Equal(t, "Retrospective on the show's assorted live sessions", *ep78776.Title)
+
+	ep77868, ok := byID["77868"]
+	require.True(t, ok)
+	require.NotNil(t, ep77868.Title, "episode 77868 should have a title")
+	assert.Equal(t, "Marathon Week 2 w/ co-host Fabio", *ep77868.Title)
+
+	// Episodes with empty <b> titles should have no Title set
+	ep78951, ok := byID["78951"]
+	require.True(t, ok)
+	assert.Nil(t, ep78951.Title, "episode 78951 has empty <b> — title should be nil")
+}
+
+func TestWFMU_ParseArchivePage_SinceFilter(t *testing.T) {
+	body := loadWFMUTestdata(t, "wfmu_archive_page_bt.html")
+
+	// Filter to episodes on or after April 20, 2018
+	since := time.Date(2018, 4, 20, 0, 0, 0, 0, time.UTC)
+	episodes, err := parseWFMUArchivePage(body, "BT", since)
+	require.NoError(t, err)
+
+	// Should return only episodes from April 24, May 1, May 8 (3 episodes)
+	assert.Len(t, episodes, 3, "should filter episodes older than since")
+
+	for _, ep := range episodes {
+		airTime, err := time.Parse("2006-01-02", ep.AirDate)
+		require.NoError(t, err)
+		assert.False(t, airTime.Before(since),
+			"episode %s (%s) should not be before since", ep.ExternalID, ep.AirDate)
+	}
+}
+
+func TestWFMU_ParseArchivePage_SinceFilter_AllOld(t *testing.T) {
+	body := loadWFMUTestdata(t, "wfmu_archive_page_bt.html")
+
+	// Filter to future — should return nothing
+	since := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	episodes, err := parseWFMUArchivePage(body, "BT", since)
+	require.NoError(t, err)
+	assert.Empty(t, episodes, "no episodes should match a future since")
+}
+
+func TestWFMU_ParseArchivePage_Empty(t *testing.T) {
+	body := loadWFMUTestdata(t, "wfmu_archive_page_empty.html")
+
+	episodes, err := parseWFMUArchivePage(body, "EMPTY", time.Time{})
+	require.NoError(t, err)
+	assert.Empty(t, episodes, "empty archive should return empty slice")
+}
+
+func TestWFMU_ParseArchivePage_NoShowlist(t *testing.T) {
+	// HTML with no <div class="showlist"> — should return empty, not error.
+	body := []byte(`<!DOCTYPE html><html><body><p>Nothing here.</p></body></html>`)
+
+	episodes, err := parseWFMUArchivePage(body, "XX", time.Time{})
+	require.NoError(t, err)
+	assert.Empty(t, episodes, "missing showlist should return empty")
+}
+
+func TestWFMU_ParseArchivePage_MalformedRows(t *testing.T) {
+	// Showlist present but rows have missing/malformed data.
+	body := []byte(`<!DOCTYPE html><html><body>
+<div class="showlist">
+<ul>
+<li>
+  <span class="KDBFavIcon KDBepisode" id="KDBepisode-100"></span>
+  January 10, 2024:
+  <a href="/playlists/shows/100">See the playlist</a>
+</li>
+<li>
+  <!-- No KDBepisode span, no date, no link -->
+  Just some text
+</li>
+<li>
+  <!-- Has link but no date -->
+  <span class="KDBFavIcon KDBepisode" id="KDBepisode-101"></span>
+  <a href="/playlists/shows/101">See the playlist</a>
+</li>
+<li>
+  <!-- Date but no link (fill-in placeholder) -->
+  <span class="KDBFavIcon KDBepisode" id="KDBepisode-102"></span>
+  January 17, 2024:
+  <b>Guest host filled in.</b>
+</li>
+<li>
+  <!-- Valid episode -->
+  <span class="KDBFavIcon KDBepisode" id="KDBepisode-103"></span>
+  January 24, 2024:
+  <b>Good one</b>
+  <a href="/playlists/shows/103">See the playlist</a>
+</li>
+</ul>
+</div>
+</body></html>`)
+
+	episodes, err := parseWFMUArchivePage(body, "XX", time.Time{})
+	require.NoError(t, err)
+
+	// Should parse: 100 (valid), 103 (valid). Skip: 101 (no date), 102 (no link), row 2 (nothing).
+	assert.Len(t, episodes, 2, "should gracefully skip malformed rows")
+
+	byID := make(map[string]RadioEpisodeImport)
+	for _, ep := range episodes {
+		byID[ep.ExternalID] = ep
+	}
+	assert.Contains(t, byID, "100")
+	assert.Contains(t, byID, "103")
+	assert.Equal(t, "2024-01-10", byID["100"].AirDate)
+	assert.Equal(t, "2024-01-24", byID["103"].AirDate)
+}
+
+func TestWFMU_ParseArchivePage_Deduplication(t *testing.T) {
+	// Duplicate episode IDs should be deduped.
+	body := []byte(`<!DOCTYPE html><html><body>
+<div class="showlist">
+<ul>
+<li>
+  <span class="KDBFavIcon KDBepisode" id="KDBepisode-500"></span>
+  March 1, 2024:
+  <a href="/playlists/shows/500">See the playlist</a>
+</li>
+<li>
+  <span class="KDBFavIcon KDBepisode" id="KDBepisode-500"></span>
+  March 1, 2024:
+  <a href="/playlists/shows/500">See the playlist</a>
+</li>
+</ul>
+</div>
+</body></html>`)
+
+	episodes, err := parseWFMUArchivePage(body, "XX", time.Time{})
+	require.NoError(t, err)
+	assert.Len(t, episodes, 1, "duplicate episode IDs should be deduplicated")
+}
+
+func TestWFMU_ExtractArchiveDate(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"may", "May 8, 2018: episode", "2018-05-08"},
+		{"january", "January 2, 2001:", "2001-01-02"},
+		{"december", "December 31, 2025: something", "2025-12-31"},
+		{"october two digits", "October 15, 2019:", "2019-10-15"},
+		{"lowercase", "march 12, 2026:", "2026-03-12"},
+		{"surrounded by text", "...May 8, 2018: More text", "2018-05-08"},
+		{"no date", "some text without any date", ""},
+		{"empty", "", ""},
+		{"bad day", "May 99, 2018:", ""},
+		{"bad year", "May 8, 1500:", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, extractArchiveDate(tc.input))
+		})
+	}
+}
+
+// =============================================================================
+// Archive Page Integration Tests
+// =============================================================================
+
+func TestWFMU_FetchNewEpisodes_ArchiveFallback_Integration(t *testing.T) {
+	archiveBody := loadWFMUTestdata(t, "wfmu_archive_page_bt.html")
+
+	var rssHits, archiveHits int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/playlistfeed/BT.xml":
+			rssHits++
+			w.Header().Set("Content-Type", "application/rss+xml")
+			fmt.Fprint(w, wfmuRSSFeed)
+		case "/playlists/BT":
+			archiveHits++
+			w.Header().Set("Content-Type", "text/html")
+			w.Write(archiveBody)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	provider := NewWFMUProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	// Old `since` (beyond the 14-day window) triggers the archive page path.
+	since := time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC)
+	episodes, err := provider.FetchNewEpisodes("BT", since)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, rssHits, "historical since should NOT hit RSS")
+	assert.Equal(t, 1, archiveHits, "historical since should hit archive page")
+	assert.Len(t, episodes, 5, "should return all 5 modern episodes from fixture")
+
+	for _, ep := range episodes {
+		assert.Equal(t, "BT", ep.ShowExternalID)
+		assert.NotEmpty(t, ep.ExternalID)
+		assert.NotEmpty(t, ep.AirDate)
+	}
+}
+
+func TestWFMU_FetchNewEpisodes_ArchiveFallback_ZeroSince(t *testing.T) {
+	archiveBody := loadWFMUTestdata(t, "wfmu_archive_page_bt.html")
+
+	var archiveHits int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/playlists/BT" {
+			archiveHits++
+			w.Write(archiveBody)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	provider := NewWFMUProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	// Zero `since` means "all history" → archive page.
+	episodes, err := provider.FetchNewEpisodes("BT", time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, archiveHits)
+	assert.Len(t, episodes, 5)
+}
+
+func TestWFMU_FetchNewEpisodes_ArchiveFallback_404(t *testing.T) {
+	// Unknown show codes should return empty, not error.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, "Not Found")
+	}))
+	defer server.Close()
+
+	provider := NewWFMUProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	// Old `since` → archive path; 404 → empty slice, no error.
+	episodes, err := provider.FetchNewEpisodes("NOPE", time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC))
+	require.NoError(t, err, "404 from archive page should become empty slice")
+	assert.Empty(t, episodes)
 }
