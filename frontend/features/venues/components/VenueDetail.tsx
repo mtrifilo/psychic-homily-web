@@ -11,6 +11,7 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryClient'
 import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb, TagPill, EntityDescription, AddToCollectionButton } from '@/components/shared'
+import { EntityCollections } from '@/features/collections'
 import { NotifyMeButton } from '@/features/notifications'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
@@ -310,6 +311,9 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
             verified={venue.verified}
           />
           <VenueGenreProfile venueId={venue.id} />
+          <div className="mt-6">
+            <EntityCollections entityType="venue" entityId={venue.id} />
+          </div>
         </div>
       </div>
 

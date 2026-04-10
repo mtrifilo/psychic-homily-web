@@ -295,3 +295,41 @@ export function useUnsubscribeCollection() {
     },
   })
 }
+
+/** Fetch public collections containing a specific entity */
+export function useEntityCollections(
+  entityType: string,
+  entityId: number,
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: queryKeys.collections.entity(entityType, entityId),
+    queryFn: () =>
+      apiRequest<{ crates: Collection[]; }>(
+        API_ENDPOINTS.COLLECTIONS.ENTITY(entityType, entityId)
+      ).then((data) => ({
+        collections: data.crates ?? [],
+      })),
+    enabled: (options?.enabled ?? true) && entityId > 0,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/** Fetch a user's public collections (for profile pages) */
+export function useUserPublicCollections(
+  username: string,
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: queryKeys.collections.userPublic(username),
+    queryFn: () =>
+      apiRequest<{ crates: Collection[]; total: number }>(
+        API_ENDPOINTS.COLLECTIONS.USER_PUBLIC(username)
+      ).then((data) => ({
+        collections: data.crates ?? [],
+        total: data.total,
+      })),
+    enabled: (options?.enabled ?? true) && username.length > 0,
+    staleTime: 5 * 60 * 1000,
+  })
+}

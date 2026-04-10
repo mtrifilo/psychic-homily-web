@@ -704,6 +704,14 @@ func setupCollectionRoutes(rc RouteContext) {
 	// Admin: feature/unfeature crates — legacy /collections/ paths (backward compat)
 	huma.Put(rc.Protected, "/collections/{slug}/feature", collectionHandler.SetFeaturedHandler)
 
+	// Entity collections — public, find collections containing a given entity
+	huma.Get(optionalAuthGroup, "/crates/entity/{entity_type}/{entity_id}", collectionHandler.GetEntityCollectionsHandler)
+	huma.Get(optionalAuthGroup, "/collections/entity/{entity_type}/{entity_id}", collectionHandler.GetEntityCollectionsHandler)
+
+	// User's public collections — public, for profile pages
+	huma.Get(optionalAuthGroup, "/users/{username}/crates", collectionHandler.GetUserPublicCollectionsHandler)
+	huma.Get(optionalAuthGroup, "/users/{username}/collections", collectionHandler.GetUserPublicCollectionsHandler)
+
 	// User's own crates (created + subscribed)
 	huma.Get(rc.Protected, "/auth/crates", collectionHandler.GetUserCollectionsHandler)
 

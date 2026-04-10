@@ -81,6 +81,10 @@ vi.mock('./AttendanceButton', () => ({
   ),
 }))
 
+vi.mock('@/features/collections', () => ({
+  EntityCollections: () => <div data-testid="entity-collections" />,
+}))
+
 function makeArtist(overrides: Partial<ArtistResponse> = {}): ArtistResponse {
   return {
     id: 1,

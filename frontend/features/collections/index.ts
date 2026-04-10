@@ -24,4 +24,8 @@ export {
   useRemoveCollectionItem,
   useReorderCollectionItems,
   useUpdateCollectionItem,
+  useEntityCollections,
+  useUserPublicCollections,
 } from './hooks'
+
+export { EntityCollections, UserCollections } from './components'

@@ -134,5 +134,8 @@ type CollectionServiceInterface interface {
 	MarkVisited(slug string, userID uint) error
 	GetStats(slug string) (*CollectionStatsResponse, error)
 	GetUserCollections(userID uint, limit, offset int) ([]*CollectionListResponse, int64, error)
+	GetEntityCollections(entityType string, entityID uint, limit int) ([]*CollectionListResponse, error)
+	GetUserPublicCollections(userID uint, limit, offset int) ([]*CollectionListResponse, int64, error)
+	GetUserPublicCollectionsByUsername(username string, limit, offset int) ([]*CollectionListResponse, int64, error)
 	SetFeatured(slug string, featured bool) error
 }
