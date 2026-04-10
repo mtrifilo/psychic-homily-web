@@ -15,19 +15,35 @@ import type { Collection, CollectionDetail, CollectionStats } from '../types'
 // Queries
 // ──────────────────────────────────────────────
 
-/** Fetch public collections list */
-export function useCollections() {
+/** Filter params for the public collections list */
+export interface CollectionListParams {
+  search?: string
+  featured?: boolean
+}
+
+/** Fetch public collections list with optional filters */
+export function useCollections(params?: CollectionListParams) {
   return useQuery({
-    queryKey: queryKeys.collections.all,
-    queryFn: () =>
+    queryKey: queryKeys.collections.list(params),
+    queryFn: () => {
+      const searchParams = new URLSearchParams()
+      if (params?.search) searchParams.set('search', params.search)
+      if (params?.featured) searchParams.set('featured', '1')
+
+      const qs = searchParams.toString()
+      const url = qs
+        ? `${API_ENDPOINTS.COLLECTIONS.LIST}?${qs}`
+        : API_ENDPOINTS.COLLECTIONS.LIST
+
       // Backend currently returns { crates, total } — map to { collections, total }
       // so the frontend consistently uses "collections" terminology.
-      apiRequest<{ crates: Collection[]; total: number }>(
-        API_ENDPOINTS.COLLECTIONS.LIST
-      ).then((data) => ({
-        collections: data.crates ?? [],
-        total: data.total,
-      })),
+      return apiRequest<{ crates: Collection[]; total: number }>(url).then(
+        (data) => ({
+          collections: data.crates ?? [],
+          total: data.total,
+        })
+      )
+    },
     staleTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,
   })

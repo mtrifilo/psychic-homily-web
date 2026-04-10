@@ -11,6 +11,11 @@ vi.mock('next/link', () => ({
   ),
 }))
 
+// Mock formatRelativeTime
+vi.mock('@/lib/formatRelativeTime', () => ({
+  formatRelativeTime: (date: string) => `relative(${date})`,
+}))
+
 import { CollectionCard } from './CollectionCard'
 import type { Collection } from '../types'
 
