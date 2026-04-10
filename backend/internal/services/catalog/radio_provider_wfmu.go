@@ -18,6 +18,11 @@ const (
 	wfmuUserAgent      = "PsychicHomily/1.0 (radio-playlist-indexer)"
 	wfmuDefaultTimeout = 30 * time.Second
 	wfmuRateLimit      = 1 * time.Second
+	// wfmuRSSFallbackWindow is the age threshold beyond which FetchNewEpisodes
+	// switches from the 10-item RSS feed to the full HTML archive page. RSS is
+	// sufficient for ongoing incremental fetches; the archive page is required
+	// for historical backfill.
+	wfmuRSSFallbackWindow = 14 * 24 * time.Hour
 )
 
 // WFMUProvider implements RadioPlaylistProvider for WFMU's HTML playlists and RSS feeds.
@@ -72,8 +77,26 @@ func (p *WFMUProvider) DiscoverShows() ([]RadioShowImport, error) {
 	return shows, nil
 }
 
-// FetchNewEpisodes returns episodes for a WFMU show since the given time, via RSS feed.
+// FetchNewEpisodes returns episodes for a WFMU show since the given time.
+//
+// WFMU's RSS feed (/playlistfeed/{CODE}.xml) returns only the most recent 10
+// episodes, which works for incremental fetches but makes historical backfill
+// impossible. When `since` falls within the RSS fallback window (~14 days ago),
+// we use the fast RSS path. For older `since` values we scrape the full show
+// archive page (/playlists/{CODE}), which lists every episode ever aired for
+// the show — up to ~26 years of history.
 func (p *WFMUProvider) FetchNewEpisodes(showExternalID string, since time.Time) ([]RadioEpisodeImport, error) {
+	// Use RSS for recent windows: fast, sufficient, cheap.
+	// A zero `since` means "all history" — always use the archive page.
+	if !since.IsZero() && time.Since(since) < wfmuRSSFallbackWindow {
+		return p.fetchEpisodesFromRSS(showExternalID, since)
+	}
+	return p.fetchEpisodesFromArchivePage(showExternalID, since)
+}
+
+// fetchEpisodesFromRSS fetches recent episodes from the WFMU playlist RSS feed
+// (/playlistfeed/{CODE}.xml). The feed contains the 10 most recent episodes.
+func (p *WFMUProvider) fetchEpisodesFromRSS(showExternalID string, since time.Time) ([]RadioEpisodeImport, error) {
 	<-p.rateLimiter.C
 
 	feedURL := fmt.Sprintf("%s/playlistfeed/%s.xml", p.baseURL, showExternalID)
@@ -85,6 +108,35 @@ func (p *WFMUProvider) FetchNewEpisodes(showExternalID string, since time.Time) 
 	episodes, err := parseWFMURSSFeed(body, showExternalID, since)
 	if err != nil {
 		return nil, fmt.Errorf("parsing RSS feed for %s: %w", showExternalID, err)
+	}
+
+	return episodes, nil
+}
+
+// fetchEpisodesFromArchivePage fetches all historical episodes by scraping the
+// show archive page (/playlists/{CODE}). This is the backfill path — WFMU has
+// no API, so the full archive is only available as HTML. The archive page
+// typically lists hundreds to thousands of episodes on a single page (no
+// pagination), so one fetch covers the entire history of the show.
+//
+// A 404 from WFMU (unknown show code) is converted to an empty slice rather
+// than an error, consistent with "no episodes" semantics.
+func (p *WFMUProvider) fetchEpisodesFromArchivePage(showExternalID string, since time.Time) ([]RadioEpisodeImport, error) {
+	<-p.rateLimiter.C
+
+	pageURL := fmt.Sprintf("%s/playlists/%s", p.baseURL, showExternalID)
+	body, err := p.doGet(pageURL)
+	if err != nil {
+		// Unknown show codes return 404 — treat as "no episodes" rather than error.
+		if strings.Contains(err.Error(), "status 404") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("fetching archive page for %s: %w", showExternalID, err)
+	}
+
+	episodes, err := parseWFMUArchivePage(body, showExternalID, since)
+	if err != nil {
+		return nil, fmt.Errorf("parsing archive page for %s: %w", showExternalID, err)
 	}
 
 	return episodes, nil
@@ -511,6 +563,263 @@ func extractEpisodeID(url string) string {
 		return ""
 	}
 	return matches[1]
+}
+
+// =============================================================================
+// Archive Page Parser — FetchNewEpisodes (historical backfill)
+// =============================================================================
+
+// kdbEpisodeIDRegex extracts the numeric episode ID from a KenzoDB span id
+// attribute like id="KDBepisode-78951". These spans wrap every episode row on
+// a WFMU show archive page.
+var kdbEpisodeIDRegex = regexp.MustCompile(`^KDBepisode-(\d+)$`)
+
+// archiveDateRegex matches the "Month Day, Year:" date prefix that introduces
+// each episode row in a WFMU show archive page (e.g. "May 8, 2018:").
+var archiveDateRegex = regexp.MustCompile(`(?i)\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),\s+(\d{4})\b`)
+
+// parseWFMUArchivePage parses a WFMU show archive page (/playlists/{CODE}) and
+// returns every episode that has a playlist link, filtered to those with an
+// AirDate on or after `since`. A zero `since` returns all parseable episodes.
+//
+// The archive page structure (as emitted by KenzoDB) is:
+//
+//	<div class="showlist">
+//	  <ul>
+//	    <li>
+//	      <span class="KDBFavIcon KDBepisode" id="KDBepisode-{ID}">...</span>
+//	      {Month} {Day}, {Year}:
+//	      <b>{optional title}</b>
+//	      <a href="/playlists/shows/{ID}">See the playlist</a>
+//	      ...
+//	    </li>
+//	    ...
+//	  </ul>
+//	</div>
+//
+// There can be multiple <ul> blocks (grouped by year). Some <li>s are
+// placeholders for fill-in episodes by guest hosts and have no playlist link —
+// those are skipped. Pre-2009 episodes may use a legacy
+// "Playlists/{ShowName}/xxx.html" link format; those are also skipped since
+// their IDs are not addressable via the modern /playlists/shows/{ID} endpoint
+// that FetchPlaylist expects.
+func parseWFMUArchivePage(body []byte, showExternalID string, since time.Time) ([]RadioEpisodeImport, error) {
+	doc, err := html.Parse(strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("parsing HTML: %w", err)
+	}
+
+	showlist := findArchiveShowlist(doc)
+	if showlist == nil {
+		// No showlist container means the page structure isn't recognizable
+		// (e.g. an error page or a completely different template). Return
+		// empty rather than error — matches "no episodes found" semantics.
+		return nil, nil
+	}
+
+	// Collect every <li> inside the showlist div (they may be split across
+	// multiple <ul>s, but all direct-or-nested <li> descendants are episode rows).
+	var liNodes []*html.Node
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "li" {
+			liNodes = append(liNodes, n)
+			return // don't recurse into a <li>; episode rows don't nest
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(showlist)
+
+	episodes := make([]RadioEpisodeImport, 0, len(liNodes))
+	seen := make(map[string]bool, len(liNodes))
+
+	for _, li := range liNodes {
+		ep := parseArchiveEpisodeRow(li, showExternalID)
+		if ep == nil {
+			continue
+		}
+		if seen[ep.ExternalID] {
+			continue
+		}
+		// Apply since filter. A zero since returns everything.
+		if !since.IsZero() && ep.AirDate != "" {
+			if airTime, err := time.Parse("2006-01-02", ep.AirDate); err == nil {
+				if airTime.Before(since) {
+					continue
+				}
+			}
+		}
+		seen[ep.ExternalID] = true
+		episodes = append(episodes, *ep)
+	}
+
+	return episodes, nil
+}
+
+// findArchiveShowlist locates the <div class="showlist"> container that holds
+// the episode list on a WFMU show archive page.
+func findArchiveShowlist(n *html.Node) *html.Node {
+	if n == nil {
+		return nil
+	}
+	if n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "showlist") {
+		return n
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if found := findArchiveShowlist(c); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// parseArchiveEpisodeRow extracts a single episode from a <li> row on a WFMU
+// show archive page. Returns nil if the row is a fill-in placeholder (no
+// playlist link), uses a legacy URL format (pre-2009), or is otherwise
+// unparseable.
+func parseArchiveEpisodeRow(li *html.Node, showExternalID string) *RadioEpisodeImport {
+	// Episode ID comes from the /playlists/shows/{ID} anchor — this is the
+	// canonical link that FetchPlaylist can later fetch. Rows without such an
+	// anchor (fill-ins, pre-2009 legacy HTML) are skipped.
+	var playlistHref string
+	var findPlaylistLink func(*html.Node)
+	findPlaylistLink = func(n *html.Node) {
+		if playlistHref != "" {
+			return
+		}
+		if n.Type == html.ElementNode && n.Data == "a" {
+			href := getAttr(n, "href")
+			if strings.Contains(href, "/playlists/shows/") {
+				playlistHref = href
+				return
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			findPlaylistLink(c)
+		}
+	}
+	findPlaylistLink(li)
+
+	episodeID := extractEpisodeID(playlistHref)
+	if episodeID == "" {
+		// Fall back to the KDBepisode-{ID} span, but only if we still have a
+		// playlist link (a pure fill-in placeholder has neither).
+		if playlistHref == "" {
+			return nil
+		}
+		episodeID = extractKDBEpisodeID(li)
+		if episodeID == "" {
+			return nil
+		}
+	}
+
+	// Extract the row text to find the date.
+	rowText := collectText(li)
+	airDate := extractArchiveDate(rowText)
+	if airDate == "" {
+		// Without a date we can't dedupe/sort reliably — skip.
+		return nil
+	}
+
+	ep := &RadioEpisodeImport{
+		ExternalID:     episodeID,
+		ShowExternalID: showExternalID,
+		AirDate:        airDate,
+	}
+
+	// Title: the <b> element following the date typically contains the
+	// episode title (may be empty for routine weekly episodes).
+	if title := extractArchiveTitle(li); title != "" {
+		ep.Title = &title
+	}
+
+	// Build an absolute archive URL from the href. If the href is relative,
+	// prefix with wfmuBaseURL so consumers have a canonical link.
+	archiveURL := playlistHref
+	if strings.HasPrefix(archiveURL, "/") {
+		archiveURL = wfmuBaseURL + archiveURL
+	}
+	if archiveURL != "" {
+		ep.ArchiveURL = &archiveURL
+	}
+
+	return ep
+}
+
+// extractKDBEpisodeID walks a <li> looking for a <span id="KDBepisode-{ID}">
+// and returns the numeric ID. This is the KenzoDB-generated unique identifier
+// attached to every episode row.
+func extractKDBEpisodeID(n *html.Node) string {
+	var result string
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if result != "" {
+			return
+		}
+		if node.Type == html.ElementNode && node.Data == "span" {
+			id := getAttr(node, "id")
+			if matches := kdbEpisodeIDRegex.FindStringSubmatch(id); len(matches) == 2 {
+				result = matches[1]
+				return
+			}
+		}
+		for c := node.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(n)
+	return result
+}
+
+// extractArchiveDate parses a "Month Day, Year" date from the text of an
+// archive page episode row and returns it in YYYY-MM-DD format. Returns empty
+// string if no date is found.
+func extractArchiveDate(text string) string {
+	matches := archiveDateRegex.FindStringSubmatch(text)
+	if len(matches) < 4 {
+		return ""
+	}
+	month, ok := monthMap[strings.ToLower(matches[1])]
+	if !ok {
+		return ""
+	}
+	day, err := strconv.Atoi(matches[2])
+	if err != nil || day < 1 || day > 31 {
+		return ""
+	}
+	year, err := strconv.Atoi(matches[3])
+	if err != nil || year < 1900 || year > 2100 {
+		return ""
+	}
+	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
+}
+
+// extractArchiveTitle returns the text of the first <b> element inside a <li>
+// that is not empty. Archive episode titles are typically wrapped in <b> tags
+// (e.g. "Marathon Week 2 w/ co-host Fabio"). Returns empty string for rows
+// with no bold title.
+func extractArchiveTitle(li *html.Node) string {
+	var result string
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if result != "" {
+			return
+		}
+		if node.Type == html.ElementNode && (node.Data == "b" || node.Data == "strong") {
+			text := strings.TrimSpace(collectText(node))
+			if text != "" {
+				result = text
+				return
+			}
+		}
+		for c := node.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(li)
+	return result
 }
 
 // =============================================================================
