@@ -10,7 +10,7 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import type { ArtistResponse } from '../types'
 import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
 import { Button } from '@/components/ui/button'
-import { SocialLinks, MusicEmbed, SaveButton, Breadcrumb } from '@/components/shared'
+import { SocialLinks, MusicEmbed, SaveButton, Breadcrumb, AddToCollectionButton } from '@/components/shared'
 import { ShowForm } from '@/components/forms'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -278,6 +278,11 @@ export function ShowDetail({ showId }: ShowDetailProps) {
 
             <div className="flex items-center gap-2">
               <SaveButton showId={show.id} variant="outline" size="sm" />
+              <AddToCollectionButton
+                entityType="show"
+                entityId={show.id}
+                entityName={show.title || artists.map(a => a.name).join(', ')}
+              />
               <ReportShowButton
                 showId={show.id}
                 showTitle={show.title || artists.map(a => a.name).join(', ')}

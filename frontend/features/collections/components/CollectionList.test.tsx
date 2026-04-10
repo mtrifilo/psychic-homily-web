@@ -15,6 +15,12 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
 
+// Mock next/navigation
+const mockPush = vi.fn()
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush }),
+}))
+
 // Mock collection hooks
 const mockUseCollections = vi.fn()
 const mockCreateMutate = vi.fn()
