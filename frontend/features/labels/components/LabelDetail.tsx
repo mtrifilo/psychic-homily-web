@@ -12,7 +12,7 @@ import {
   Music,
 } from 'lucide-react'
 import { useLabel, useLabelRoster, useLabelCatalog } from '../hooks/useLabels'
-import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton } from '@/components/shared'
+import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton, AddToCollectionButton } from '@/components/shared'
 import { NotifyMeButton } from '@/features/notifications'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -187,6 +187,7 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
             <div className="flex items-center gap-2">
               <NotifyMeButton entityType="label" entityId={label.id} entityName={label.name} />
               <FollowButton entityType="labels" entityId={label.id} />
+              <AddToCollectionButton entityType="label" entityId={label.id} entityName={label.name} />
             </div>
           }
         />

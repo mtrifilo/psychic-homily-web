@@ -19,7 +19,7 @@ import {
   useFestivalVenues,
   useFestivals,
 } from '../hooks/useFestivals'
-import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton } from '@/components/shared'
+import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton, AddToCollectionButton } from '@/components/shared'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -314,6 +314,7 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
                   </Button>
                 )}
                 <FollowButton entityType="festivals" entityId={festival.id} />
+                <AddToCollectionButton entityType="festival" entityId={festival.id} entityName={festival.name} />
               </div>
             }
           />

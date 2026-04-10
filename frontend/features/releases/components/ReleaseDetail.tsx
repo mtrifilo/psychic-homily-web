@@ -18,6 +18,7 @@ import {
   EntityDetailLayout,
   EntityHeader,
   RevisionHistory,
+  AddToCollectionButton,
 } from '@/components/shared'
 import { AttributionLine } from '@/features/contributions'
 import { EntityTagList } from '@/features/tags'
@@ -234,6 +235,9 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
                   </Badge>
                   {release.release_year && <span>{release.release_year}</span>}
                 </>
+              }
+              actions={
+                <AddToCollectionButton entityType="release" entityId={release.id} entityName={release.title} />
               }
             />
             <AttributionLine entityType="release" entityId={release.id} />
