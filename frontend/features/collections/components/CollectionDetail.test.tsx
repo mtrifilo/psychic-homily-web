@@ -70,6 +70,12 @@ vi.mock('../hooks', () => ({
     isPending: false,
     error: null,
   }),
+  useAddCollectionItem: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
   useRemoveCollectionItem: () => ({
     mutate: vi.fn(),
     isPending: false,
@@ -83,6 +89,15 @@ vi.mock('../hooks', () => ({
     isPending: false,
   }),
   useDeleteCollection: () => mockDeleteMutation(),
+}))
+
+// Mock useEntitySearch
+vi.mock('@/lib/hooks/common/useEntitySearch', () => ({
+  useEntitySearch: () => ({
+    data: { artists: [], venues: [], releases: [], labels: [], festivals: [] },
+    isSearching: false,
+    totalResults: 0,
+  }),
 }))
 
 function makeCollection(

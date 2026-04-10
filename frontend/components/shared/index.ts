@@ -1,3 +1,4 @@
+export { AddToCollectionButton } from './AddToCollectionButton'
 export { LoadingSpinner } from './LoadingSpinner'
 export { SaveButton } from './SaveButton'
 export { MusicEmbed } from './MusicEmbed'

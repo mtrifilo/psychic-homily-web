@@ -172,6 +172,7 @@ vi.mock('@/components/shared', () => ({
   EntityDescription: ({ description, canEdit }: { description: string | null | undefined; canEdit: boolean }) => (
     <div data-testid="entity-description">{description || (canEdit ? 'Add description' : '')}</div>
   ),
+  AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
 }))
 
 import { ArtistDetail } from './ArtistDetail'

@@ -55,6 +55,7 @@ vi.mock('@/components/shared', () => ({
   Breadcrumb: ({ fallback, currentPage }: { fallback: { href: string; label: string }; currentPage: string }) => (
     <nav aria-label="Breadcrumb"><a href={fallback.href}>{fallback.label}</a><span>{currentPage}</span></nav>
   ),
+  AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
 }))
 
 vi.mock('@/components/forms', () => ({

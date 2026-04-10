@@ -10,7 +10,7 @@ import type { ApiError } from '@/lib/api'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryClient'
-import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb, TagPill, EntityDescription } from '@/components/shared'
+import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb, TagPill, EntityDescription, AddToCollectionButton } from '@/components/shared'
 import { NotifyMeButton } from '@/features/notifications'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
@@ -186,6 +186,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
                   )}
                   <FavoriteVenueButton venueId={venue.id} size="md" />
                   <FollowButton entityType="venues" entityId={venue.id} />
+                  <AddToCollectionButton entityType="venue" entityId={venue.id} entityName={venue.name} />
                   <NotifyMeButton entityType="venue" entityId={venue.id} entityName={venue.name} />
                 </div>
                 <p className="text-muted-foreground mt-1">

@@ -18,4 +18,5 @@ export {
   useCollectionStats,
   useSetFeatured,
   useDeleteCollection,
+  useAddCollectionItem,
 } from './hooks'

@@ -16,10 +16,12 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useRouter } from 'next/navigation'
 import type { Collection } from '../types'
 
 export function CollectionList() {
   const { isAuthenticated } = useAuthContext()
+  const router = useRouter()
   const { data, isLoading, error, refetch } = useCollections()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
 
@@ -65,7 +67,12 @@ export function CollectionList() {
                 <DialogTitle>Create Collection</DialogTitle>
               </DialogHeader>
               <CreateCollectionForm
-                onSuccess={() => setCreateDialogOpen(false)}
+                onSuccess={(newSlug) => {
+                  setCreateDialogOpen(false)
+                  if (newSlug) {
+                    router.push(`/collections/${newSlug}`)
+                  }
+                }}
               />
             </DialogContent>
           </Dialog>
@@ -114,7 +121,7 @@ export function CollectionList() {
 // Create Collection Form (inline in dialog)
 // ──────────────────────────────────────────────
 
-function CreateCollectionForm({ onSuccess }: { onSuccess: () => void }) {
+function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => void }) {
   const createMutation = useCreateCollection()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -133,10 +140,10 @@ function CreateCollectionForm({ onSuccess }: { onSuccess: () => void }) {
         collaborative,
       },
       {
-        onSuccess: () => {
+        onSuccess: (data) => {
           setTitle('')
           setDescription('')
-          onSuccess()
+          onSuccess(data?.slug)
         },
       }
     )
