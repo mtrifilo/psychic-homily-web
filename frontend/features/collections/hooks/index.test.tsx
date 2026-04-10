@@ -13,6 +13,8 @@ vi.mock('@/lib/api', () => ({
       STATS: (slug: string) => `/collections/${slug}/stats`,
       ITEMS: (slug: string) => `/collections/${slug}/items`,
       ITEM: (slug: string, itemId: number) => `/collections/${slug}/items/${itemId}`,
+      UPDATE_ITEM: (slug: string, itemId: number) => `/collections/${slug}/items/${itemId}`,
+      REORDER: (slug: string) => `/collections/${slug}/items/reorder`,
       SUBSCRIBE: (slug: string) => `/collections/${slug}/subscribe`,
       FEATURE: (slug: string) => `/collections/${slug}/feature`,
       MY: '/auth/collections',
@@ -46,6 +48,8 @@ import {
   useDeleteCollection,
   useAddCollectionItem,
   useRemoveCollectionItem,
+  useReorderCollectionItems,
+  useUpdateCollectionItem,
   useSubscribeCollection,
   useUnsubscribeCollection,
 } from './index'
@@ -311,6 +315,95 @@ describe('Collection mutation hooks', () => {
       expect(mockApiRequest).toHaveBeenCalledWith(
         '/collections/my-collection/items/5',
         expect.objectContaining({ method: 'DELETE' })
+      )
+    })
+  })
+
+  describe('useReorderCollectionItems', () => {
+    it('reorders items with PUT', async () => {
+      mockApiRequest.mockResolvedValueOnce(undefined)
+
+      const { result } = renderHook(() => useReorderCollectionItems(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({
+          slug: 'my-collection',
+          items: [
+            { item_id: 2, position: 0 },
+            { item_id: 1, position: 1 },
+          ],
+        })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/collections/my-collection/items/reorder',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({
+            items: [
+              { item_id: 2, position: 0 },
+              { item_id: 1, position: 1 },
+            ],
+          }),
+        })
+      )
+    })
+  })
+
+  describe('useUpdateCollectionItem', () => {
+    it('updates item notes with PATCH', async () => {
+      mockApiRequest.mockResolvedValueOnce(undefined)
+
+      const { result } = renderHook(() => useUpdateCollectionItem(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({
+          slug: 'my-collection',
+          itemId: 5,
+          notes: 'Updated notes',
+        })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/collections/my-collection/items/5',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ notes: 'Updated notes' }),
+        })
+      )
+    })
+
+    it('clears notes when null is sent', async () => {
+      mockApiRequest.mockResolvedValueOnce(undefined)
+
+      const { result } = renderHook(() => useUpdateCollectionItem(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({
+          slug: 'my-collection',
+          itemId: 5,
+          notes: null,
+        })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/collections/my-collection/items/5',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ notes: null }),
+        })
       )
     })
   })

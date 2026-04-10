@@ -113,6 +113,11 @@ type CollectionStatsResponse struct {
 	EntityTypeCounts map[string]int `json:"entity_type_counts"`
 }
 
+// UpdateCollectionItemRequest represents the data that can be updated on a collection item
+type UpdateCollectionItemRequest struct {
+	Notes *string `json:"notes"`
+}
+
 // CollectionServiceInterface defines the contract for collection operations.
 type CollectionServiceInterface interface {
 	CreateCollection(creatorID uint, req *CreateCollectionRequest) (*CollectionDetailResponse, error)
@@ -121,6 +126,7 @@ type CollectionServiceInterface interface {
 	UpdateCollection(slug string, userID uint, isAdmin bool, req *UpdateCollectionRequest) (*CollectionDetailResponse, error)
 	DeleteCollection(slug string, userID uint, isAdmin bool) error
 	AddItem(slug string, userID uint, req *AddCollectionItemRequest) (*CollectionItemResponse, error)
+	UpdateItem(slug string, itemID uint, userID uint, isAdmin bool, req *UpdateCollectionItemRequest) (*CollectionItemResponse, error)
 	RemoveItem(slug string, itemID uint, userID uint, isAdmin bool) error
 	ReorderItems(slug string, userID uint, req *ReorderCollectionItemsRequest) error
 	Subscribe(slug string, userID uint) error

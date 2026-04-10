@@ -680,11 +680,13 @@ func setupCollectionRoutes(rc RouteContext) {
 
 	// Crate item management — canonical /crates/ paths
 	huma.Post(rc.Protected, "/crates/{slug}/items", collectionHandler.AddItemHandler)
+	huma.Patch(rc.Protected, "/crates/{slug}/items/{item_id}", collectionHandler.UpdateItemHandler)
 	huma.Delete(rc.Protected, "/crates/{slug}/items/{item_id}", collectionHandler.RemoveItemHandler)
 	huma.Put(rc.Protected, "/crates/{slug}/items/reorder", collectionHandler.ReorderItemsHandler)
 
 	// Crate item management — legacy /collections/ paths (backward compat)
 	huma.Post(rc.Protected, "/collections/{slug}/items", collectionHandler.AddItemHandler)
+	huma.Patch(rc.Protected, "/collections/{slug}/items/{item_id}", collectionHandler.UpdateItemHandler)
 	huma.Delete(rc.Protected, "/collections/{slug}/items/{item_id}", collectionHandler.RemoveItemHandler)
 	huma.Put(rc.Protected, "/collections/{slug}/items/reorder", collectionHandler.ReorderItemsHandler)
 
