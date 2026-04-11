@@ -73,7 +73,7 @@ HTTP Request → Chi Router → Global Middleware → Huma Adapter → Route Gro
   - `services/contracts/` — all service interfaces and shared request/response types. Large interfaces are split by concern (e.g., `ShowServiceInterface` for CRUD, `ShowAdminServiceInterface` for admin, `ShowImportServiceInterface` for import/export, `ShowStateServiceInterface` for state mutations, `ShowFullServiceInterface` composite).
   - `services/catalog/` — show, venue, artist, festival, label, release
   - `services/auth/` — auth (OAuth), JWT, Apple auth, WebAuthn, password validator
-  - `services/engagement/` — bookmark, saved show, favorite venue, calendar, reminder
+  - `services/engagement/` — bookmark, saved show, favorite venue, calendar, reminder, comment, comment_vote, comment_subscription
   - `services/notification/` — email, Discord
   - `services/pipeline/` — extraction, fetcher, discovery, orchestrator, venue source config, music discovery, scheduler
   - `services/user/` — user, contributor profile
@@ -84,6 +84,8 @@ HTTP Request → Chi Router → Global Middleware → Huma Adapter → Route Gro
 - **Migrations**: Numbered SQL files in `db/migrations/` (`000XXX_name.up.sql` / `.down.sql`).
 - **Entity scaffolding**: `go run ./cmd/scaffold <entity> --fields "name:string,url:url,is_active:bool"` generates 12 boilerplate files (migration, model, contracts, service, handler, frontend feature module). Use `--dry-run` to preview. Prints manual wiring instructions for container, routes, query keys, sidebar, Cmd+K.
 - **Fire-and-forget**: Discord notifications and audit log writes log errors but never fail parent operations.
+- **Comment system**: Polymorphic `(entity_type, entity_id)` on `comments` table. `kind` enum: `comment` (general) or `field_note` (structured show reflections). Bounded nesting via `parent_id`/`root_id`/`depth` (max 3 levels). Wilson score voting. Markdown via goldmark + bluemonday. Trust-tier publishing: `new_user` → `pending_review`, `contributor`+ → `visible`. Rate limiting: 60s per-entity cooldown + hourly tier limits. Auto-subscribe on comment creation. Field notes store structured metadata in `structured_data` JSONB.
+- **Collections**: Full item management via `AddItem`/`RemoveItem`/`ReorderItems`. Per-item `notes`. Browse with `CollectionFilters` (search, featured, entity_type, creator). Entity backlinks via `GetEntityCollections`. User profile via `GetUserPublicCollections`.
 
 #### Huma API Framework Quirks
 
@@ -102,7 +104,7 @@ HTTP Request → Chi Router → Global Middleware → Huma Adapter → Route Gro
 - **Admin**: Tab-based UI in `app/admin/page.tsx` with dynamic imports. Shared admin components (pending show cards, report cards, dialogs) in `components/admin/` with barrel export. Page-specific admin components (management UIs, dashboard, user cards) live in `app/admin/<route>/_components/`.
 - **Component dirs**: Domain directories (artists, shows, venues) have `index.ts` barrel files. Shadcn primitives in `components/ui/` — don't modify directly.
 - **Page-specific components** (`_components/`): Components used by exactly one route live in `app/<route>/_components/` using the Next.js `_` prefix convention. Import with `@/` alias (e.g., `@/app/admin/releases/_components/ReleaseManagement`). Components used by 2+ routes stay in `components/`.
-- **Feature modules** (`features/`): Co-located feature modules with `components/`, `hooks/`, `types.ts`, and root `index.ts` public API. All features migrated: releases, labels, festivals, blog, auth, collections, requests, shows, artists, venues. Import from root `index.ts` only, never internal paths. Shared code used by 2+ features stays in `lib/` or `components/shared/`.
+- **Feature modules** (`features/`): Co-located feature modules with `components/`, `hooks/`, `types.ts`, and root `index.ts` public API. All features migrated: releases, labels, festivals, blog, auth, collections, requests, shows, artists, venues, **comments** (including field notes). Import from root `index.ts` only, never internal paths. Shared code used by 2+ features stays in `lib/` or `components/shared/`. Shared `AddToCollectionButton` in `components/shared/`.
 - **URLs**: Artists, venues, and shows use SEO-friendly slugs. Handlers support both numeric IDs and slugs.
 
 ### Backend Test Patterns
