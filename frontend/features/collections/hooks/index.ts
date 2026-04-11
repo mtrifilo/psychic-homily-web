@@ -24,7 +24,7 @@ export interface CollectionListParams {
 /** Fetch public collections list with optional filters */
 export function useCollections(params?: CollectionListParams) {
   return useQuery({
-    queryKey: queryKeys.collections.list(params),
+    queryKey: queryKeys.collections.list(params ? { ...params } : undefined),
     queryFn: () => {
       const searchParams = new URLSearchParams()
       if (params?.search) searchParams.set('search', params.search)
