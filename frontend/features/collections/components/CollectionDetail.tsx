@@ -23,6 +23,7 @@ import {
   Search,
   ChevronUp,
   ChevronDown,
+  Share2,
 } from 'lucide-react'
 import {
   Dialog,
@@ -55,6 +56,7 @@ import { Breadcrumb } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useRouter } from 'next/navigation'
 import type { ApiError } from '@/lib/api'
+import { formatRelativeTime } from '@/lib/formatRelativeTime'
 
 interface CollectionDetailProps {
   slug: string
@@ -79,6 +81,14 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [showCopied, setShowCopied] = useState(false)
+
+  const handleShare = useCallback(() => {
+    navigator.clipboard.writeText(window.location.href).then(() => {
+      setShowCopied(true)
+      setTimeout(() => setShowCopied(false), 2000)
+    })
+  }, [])
 
   if (isLoading) {
     return (
@@ -205,7 +215,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                 )}
 
                 {/* Stats */}
-                <div className="mt-3 flex items-center gap-4 text-sm text-muted-foreground">
+                <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <Library className="h-4 w-4" />
                     {collection.item_count === 1
@@ -218,11 +228,44 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                       ? '1 subscriber'
                       : `${collection.subscriber_count} subscribers`}
                   </span>
+                  <span title={new Date(collection.created_at).toLocaleString()}>
+                    Created {formatRelativeTime(collection.created_at)}
+                  </span>
+                  {collection.updated_at !== collection.created_at && (
+                    <span title={new Date(collection.updated_at).toLocaleString()}>
+                      Updated {formatRelativeTime(collection.updated_at)}
+                    </span>
+                  )}
                 </div>
+
+                {/* Entity type breakdown */}
+                {items.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {Object.entries(
+                      items.reduce<Record<string, number>>((acc, item) => {
+                        acc[item.entity_type] = (acc[item.entity_type] || 0) + 1
+                        return acc
+                      }, {})
+                    ).map(([type, count]) => (
+                      <Badge key={type} variant="secondary" className="text-xs font-normal">
+                        {count} {count === 1 ? getEntityTypeLabel(type).toLowerCase() : `${getEntityTypeLabel(type).toLowerCase()}s`}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Action buttons */}
               <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleShare}
+                >
+                  <Share2 className="h-4 w-4 mr-1.5" />
+                  {showCopied ? 'Copied!' : 'Share'}
+                </Button>
+
                 {canSubscribe && (
                   <Button
                     variant={collection.is_subscribed ? 'secondary' : 'default'}
@@ -263,6 +306,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                       onClick={() => setIsDeleteDialogOpen(true)}
                       disabled={deleteMutation.isPending}
                       className="text-destructive hover:text-destructive"
+                      aria-label="Delete collection"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
