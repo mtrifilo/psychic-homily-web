@@ -24,6 +24,7 @@ import { AttributionLine } from '@/features/contributions'
 import { EntityTagList } from '@/features/tags'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
+import { CommentThread } from '@/features/comments'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -357,6 +358,11 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
           entityType="release"
           entityId={release.id}
         />
+      </div>
+
+      {/* Discussion */}
+      <div className="mt-0 px-4 md:px-0">
+        <CommentThread entityType="release" entityId={release.id} />
       </div>
     </>
   )

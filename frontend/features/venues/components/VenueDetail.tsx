@@ -12,6 +12,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryClient'
 import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb, TagPill, EntityDescription, AddToCollectionButton } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
+import { CommentThread } from '@/features/comments'
 import { NotifyMeButton } from '@/features/notifications'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
@@ -323,6 +324,9 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
         entityId={venue.id}
         isAdmin={!!user?.is_admin}
       />
+
+      {/* Discussion */}
+      <CommentThread entityType="venue" entityId={venue.id} />
 
       {/* Edit Drawer (all authenticated users) */}
       {venue && isAuthenticated && (

@@ -131,6 +131,12 @@ vi.mock('@/features/collections', () => ({
   EntityCollections: () => <div data-testid="entity-collections" />,
 }))
 
+vi.mock('@/features/comments', () => ({
+  CommentThread: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
+    <div data-testid="comment-thread">Comments for {entityType} {entityId}</div>
+  ),
+}))
+
 vi.mock('@/components/ui/button', () => ({
   Button: ({ children, asChild, ...props }: { children: React.ReactNode; asChild?: boolean; [key: string]: unknown }) => {
     if (asChild) return <>{children}</>

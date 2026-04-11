@@ -101,6 +101,13 @@ vi.mock('../hooks', () => ({
   useDeleteCollection: () => mockDeleteMutation(),
 }))
 
+// Mock comments feature
+vi.mock('@/features/comments', () => ({
+  CommentThread: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
+    <div data-testid="comment-thread">Comments for {entityType} {entityId}</div>
+  ),
+}))
+
 // Mock useEntitySearch
 vi.mock('@/lib/hooks/common/useEntitySearch', () => ({
   useEntitySearch: () => ({
