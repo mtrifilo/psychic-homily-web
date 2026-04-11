@@ -34,6 +34,15 @@ func resolveEntityName(db *gorm.DB, entityType string, entityID uint) string {
 		if err := db.Table("shows").Select("title").Where("id = ?", entityID).Scan(&result).Error; err == nil && result.Title != "" {
 			return result.Title
 		}
+	case "comment":
+		// For comments, return a truncated body as the "name"
+		var result struct{ Body string }
+		if err := db.Table("comments").Select("body").Where("id = ?", entityID).Scan(&result).Error; err == nil && result.Body != "" {
+			if len(result.Body) > 60 {
+				return result.Body[:60] + "..."
+			}
+			return result.Body
+		}
 	}
 
 	return fmt.Sprintf("%s #%d", entityType, entityID)

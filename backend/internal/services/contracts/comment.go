@@ -80,6 +80,28 @@ type CommentServiceInterface interface {
 	UpdateComment(userID uint, commentID uint, req *UpdateCommentRequest) (*CommentResponse, error)
 	DeleteComment(userID uint, commentID uint, isAdmin bool) error
 }
+// ──────────────────────────────────────────────
+// Comment admin service interface
+// ──────────────────────────────────────────────
+
+// CommentAdminServiceInterface defines the contract for comment moderation operations.
+type CommentAdminServiceInterface interface {
+	// HideComment hides a comment with a reason (admin action).
+	HideComment(adminUserID uint, commentID uint, reason string) error
+
+	// RestoreComment restores a hidden comment to visible (admin action).
+	RestoreComment(adminUserID uint, commentID uint) error
+
+	// ListPendingComments returns comments with pending_review visibility.
+	ListPendingComments(limit, offset int) ([]*CommentResponse, int64, error)
+
+	// ApproveComment approves a pending comment (sets visibility to visible).
+	ApproveComment(adminUserID uint, commentID uint) error
+
+	// RejectComment rejects a pending comment (sets visibility to hidden_by_mod).
+	RejectComment(adminUserID uint, commentID uint, reason string) error
+}
+
 // CommentVoteResponse contains vote counts and the current user's vote.
 type CommentVoteResponse struct {
 	Ups      int      `json:"ups"`

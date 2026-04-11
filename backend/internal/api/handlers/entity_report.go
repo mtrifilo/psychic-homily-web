@@ -68,6 +68,11 @@ func (h *EntityReportHandler) ReportShowHandler(ctx context.Context, req *Report
 	return h.reportEntity(ctx, "show", req)
 }
 
+// ReportCommentHandler handles POST /comments/{entity_id}/report
+func (h *EntityReportHandler) ReportCommentHandler(ctx context.Context, req *ReportEntityRequest) (*ReportEntityResponse, error) {
+	return h.reportEntity(ctx, "comment", req)
+}
+
 // reportEntity is the shared implementation for all report endpoints.
 func (h *EntityReportHandler) reportEntity(ctx context.Context, entityType string, req *ReportEntityRequest) (*ReportEntityResponse, error) {
 	user := middleware.GetUserFromContext(ctx)

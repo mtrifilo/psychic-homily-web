@@ -135,6 +135,36 @@ func commentToResponse(c *models.Comment) *contracts.CommentResponse {
 	return resp
 }
 
+// userTierHourlyLimit returns the hourly comment limit for a given user tier.
+// Returns -1 for unlimited.
+func userTierHourlyLimit(tier string) int {
+	switch tier {
+	case "new_user", "":
+		return 5
+	case "contributor":
+		return 30
+	case "trusted_contributor":
+		return 100
+	case "local_ambassador", "admin":
+		return -1 // unlimited
+	default:
+		return 5
+	}
+}
+
+// computeInitialVisibility determines the initial visibility based on user trust tier.
+func computeInitialVisibility(user *models.User) models.CommentVisibility {
+	if user.IsAdmin {
+		return models.CommentVisibilityVisible
+	}
+	switch user.UserTier {
+	case "contributor", "trusted_contributor", "local_ambassador":
+		return models.CommentVisibilityVisible
+	default: // "new_user" or empty
+		return models.CommentVisibilityPendingReview
+	}
+}
+
 // CreateComment creates a new comment or reply.
 func (s *CommentService) CreateComment(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
 	if s.db == nil {
@@ -159,6 +189,47 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 	// Validate entity exists
 	if err := s.validateEntityExists(entityType, req.EntityID); err != nil {
 		return nil, err
+	}
+
+	// Look up user for trust tier and rate limiting
+	var user models.User
+	if err := s.db.First(&user, userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("user not found")
+		}
+		return nil, fmt.Errorf("failed to look up user: %w", err)
+	}
+
+	// Rate limiting: per-entity cooldown (60s between comments on same entity)
+	var recentEntityCount int64
+	if err := s.db.Model(&models.Comment{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND created_at > ?",
+			userID, entityType, req.EntityID, time.Now().Add(-60*time.Second)).
+		Count(&recentEntityCount).Error; err != nil {
+		return nil, fmt.Errorf("failed to check rate limit: %w", err)
+	}
+	if recentEntityCount > 0 {
+		return nil, errors.New("please wait 60 seconds between comments on the same entity")
+	}
+
+	// Rate limiting: global hourly limit based on trust tier
+	hourlyLimit := userTierHourlyLimit(user.UserTier)
+	if hourlyLimit >= 0 { // -1 means unlimited
+		var hourlyCount int64
+		if err := s.db.Model(&models.Comment{}).
+			Where("user_id = ? AND created_at > ?", userID, time.Now().Add(-1*time.Hour)).
+			Count(&hourlyCount).Error; err != nil {
+			return nil, fmt.Errorf("failed to check hourly rate limit: %w", err)
+		}
+		if int(hourlyCount) >= hourlyLimit {
+			return nil, fmt.Errorf("you've reached your hourly comment limit (%d/hour for %s users)",
+				hourlyLimit, func() string {
+					if user.UserTier == "" {
+						return "new"
+					}
+					return strings.ReplaceAll(user.UserTier, "_", " ")
+				}())
+		}
 	}
 
 	// Determine kind
@@ -212,6 +283,9 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 	// Render markdown to HTML
 	bodyHTML := s.renderMarkdown(body)
 
+	// Determine initial visibility based on trust tier
+	visibility := computeInitialVisibility(&user)
+
 	comment := &models.Comment{
 		EntityType:      entityType,
 		EntityID:        req.EntityID,
@@ -222,7 +296,7 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 		Depth:           depth,
 		Body:            body,
 		BodyHTML:        bodyHTML,
-		Visibility:      models.CommentVisibilityVisible,
+		Visibility:      visibility,
 		ReplyPermission: replyPerm,
 	}
 
@@ -467,6 +541,167 @@ func (s *CommentService) DeleteComment(userID uint, commentID uint, isAdmin bool
 		"updated_at": time.Now(),
 	}).Error; err != nil {
 		return fmt.Errorf("failed to delete comment: %w", err)
+	}
+
+	return nil
+}
+
+// ============================================================================
+// Admin moderation methods
+// ============================================================================
+
+// HideComment hides a comment with a reason (admin action).
+func (s *CommentService) HideComment(adminUserID uint, commentID uint, reason string) error {
+	if s.db == nil {
+		return errors.New("database not initialized")
+	}
+
+	var comment models.Comment
+	if err := s.db.First(&comment, commentID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("comment not found")
+		}
+		return fmt.Errorf("failed to fetch comment: %w", err)
+	}
+
+	now := time.Now()
+	if err := s.db.Model(&comment).Updates(map[string]interface{}{
+		"visibility":        models.CommentVisibilityHiddenByMod,
+		"hidden_reason":     reason,
+		"hidden_by_user_id": adminUserID,
+		"hidden_at":         now,
+		"updated_at":        now,
+	}).Error; err != nil {
+		return fmt.Errorf("failed to hide comment: %w", err)
+	}
+
+	return nil
+}
+
+// RestoreComment restores a hidden comment to visible (admin action).
+func (s *CommentService) RestoreComment(adminUserID uint, commentID uint) error {
+	if s.db == nil {
+		return errors.New("database not initialized")
+	}
+
+	var comment models.Comment
+	if err := s.db.First(&comment, commentID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("comment not found")
+		}
+		return fmt.Errorf("failed to fetch comment: %w", err)
+	}
+
+	if comment.Visibility == models.CommentVisibilityVisible {
+		return errors.New("comment is already visible")
+	}
+
+	if err := s.db.Model(&comment).Updates(map[string]interface{}{
+		"visibility":        models.CommentVisibilityVisible,
+		"hidden_reason":     nil,
+		"hidden_by_user_id": nil,
+		"hidden_at":         nil,
+		"updated_at":        time.Now(),
+	}).Error; err != nil {
+		return fmt.Errorf("failed to restore comment: %w", err)
+	}
+
+	return nil
+}
+
+// ListPendingComments returns comments with pending_review visibility.
+func (s *CommentService) ListPendingComments(limit, offset int) ([]*contracts.CommentResponse, int64, error) {
+	if s.db == nil {
+		return nil, 0, errors.New("database not initialized")
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var total int64
+	if err := s.db.Model(&models.Comment{}).
+		Where("visibility = ?", models.CommentVisibilityPendingReview).
+		Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count pending comments: %w", err)
+	}
+
+	var comments []models.Comment
+	if err := s.db.Preload("User").
+		Where("visibility = ?", models.CommentVisibilityPendingReview).
+		Order("created_at ASC").
+		Limit(limit).
+		Offset(offset).
+		Find(&comments).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch pending comments: %w", err)
+	}
+
+	responses := make([]*contracts.CommentResponse, len(comments))
+	for i := range comments {
+		responses[i] = commentToResponse(&comments[i])
+	}
+
+	return responses, total, nil
+}
+
+// ApproveComment approves a pending comment (sets visibility to visible).
+func (s *CommentService) ApproveComment(adminUserID uint, commentID uint) error {
+	if s.db == nil {
+		return errors.New("database not initialized")
+	}
+
+	var comment models.Comment
+	if err := s.db.First(&comment, commentID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("comment not found")
+		}
+		return fmt.Errorf("failed to fetch comment: %w", err)
+	}
+
+	if comment.Visibility != models.CommentVisibilityPendingReview {
+		return errors.New("comment is not pending review")
+	}
+
+	if err := s.db.Model(&comment).Updates(map[string]interface{}{
+		"visibility": models.CommentVisibilityVisible,
+		"updated_at": time.Now(),
+	}).Error; err != nil {
+		return fmt.Errorf("failed to approve comment: %w", err)
+	}
+
+	return nil
+}
+
+// RejectComment rejects a pending comment (sets visibility to hidden_by_mod).
+func (s *CommentService) RejectComment(adminUserID uint, commentID uint, reason string) error {
+	if s.db == nil {
+		return errors.New("database not initialized")
+	}
+
+	var comment models.Comment
+	if err := s.db.First(&comment, commentID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("comment not found")
+		}
+		return fmt.Errorf("failed to fetch comment: %w", err)
+	}
+
+	if comment.Visibility != models.CommentVisibilityPendingReview {
+		return errors.New("comment is not pending review")
+	}
+
+	now := time.Now()
+	if err := s.db.Model(&comment).Updates(map[string]interface{}{
+		"visibility":        models.CommentVisibilityHiddenByMod,
+		"hidden_reason":     reason,
+		"hidden_by_user_id": adminUserID,
+		"hidden_at":         now,
+		"updated_at":        now,
+	}).Error; err != nil {
+		return fmt.Errorf("failed to reject comment: %w", err)
 	}
 
 	return nil
