@@ -791,6 +791,56 @@ func (m *mockCollectionService) SetFeatured(slug string, featured bool) (error) 
 }
 
 // ============================================================================
+// Mock: CommentServiceInterface
+// ============================================================================
+
+type mockCommentService struct {
+	createCommentFn func(uint, *contracts.CreateCommentRequest) (*contracts.CommentResponse, error)
+	getCommentFn func(uint) (*contracts.CommentResponse, error)
+	listCommentsForEntityFn func(string, uint, contracts.CommentListFilters) (*contracts.CommentListResponse, error)
+	getThreadFn func(uint) ([]*contracts.CommentResponse, error)
+	updateCommentFn func(uint, uint, *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error)
+	deleteCommentFn func(uint, uint, bool) (error)
+}
+
+func (m *mockCommentService) CreateComment(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+	if m.createCommentFn != nil {
+		return m.createCommentFn(userID, req)
+	}
+	return nil, nil
+}
+func (m *mockCommentService) GetComment(commentID uint) (*contracts.CommentResponse, error) {
+	if m.getCommentFn != nil {
+		return m.getCommentFn(commentID)
+	}
+	return nil, nil
+}
+func (m *mockCommentService) ListCommentsForEntity(entityType string, entityID uint, filters contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
+	if m.listCommentsForEntityFn != nil {
+		return m.listCommentsForEntityFn(entityType, entityID, filters)
+	}
+	return nil, nil
+}
+func (m *mockCommentService) GetThread(rootID uint) ([]*contracts.CommentResponse, error) {
+	if m.getThreadFn != nil {
+		return m.getThreadFn(rootID)
+	}
+	return nil, nil
+}
+func (m *mockCommentService) UpdateComment(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
+	if m.updateCommentFn != nil {
+		return m.updateCommentFn(userID, commentID, req)
+	}
+	return nil, nil
+}
+func (m *mockCommentService) DeleteComment(userID uint, commentID uint, isAdmin bool) (error) {
+	if m.deleteCommentFn != nil {
+		return m.deleteCommentFn(userID, commentID, isAdmin)
+	}
+	return nil
+}
+
+// ============================================================================
 // Mock: ContributorProfileServiceInterface
 // ============================================================================
 
@@ -3579,6 +3629,7 @@ var _ contracts.AutoPromotionServiceInterface = (*mockAutoPromotionService)(nil)
 var _ contracts.CalendarServiceInterface = (*mockCalendarService)(nil)
 var _ contracts.ChartsServiceInterface = (*mockChartsService)(nil)
 var _ contracts.CollectionServiceInterface = (*mockCollectionService)(nil)
+var _ contracts.CommentServiceInterface = (*mockCommentService)(nil)
 var _ contracts.ContributorProfileServiceInterface = (*mockContributorProfileService)(nil)
 var _ contracts.DataQualityServiceInterface = (*mockDataQualityService)(nil)
 var _ contracts.DataSyncServiceInterface = (*mockDataSyncService)(nil)
