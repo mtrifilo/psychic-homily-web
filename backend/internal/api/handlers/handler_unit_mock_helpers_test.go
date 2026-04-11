@@ -841,6 +841,63 @@ func (m *mockCommentService) DeleteComment(userID uint, commentID uint, isAdmin 
 }
 
 // ============================================================================
+// Mock: CommentSubscriptionServiceInterface
+// ============================================================================
+
+type mockCommentSubscriptionService struct {
+	subscribeFn func(uint, string, uint) (error)
+	unsubscribeFn func(uint, string, uint) (error)
+	isSubscribedFn func(uint, string, uint) (bool, error)
+	markReadFn func(uint, string, uint) (error)
+	getUnreadCountFn func(uint, string, uint) (int, error)
+	getSubscriptionsForUserFn func(uint, int, int) ([]contracts.SubscriptionResponse, int64, error)
+	getSubscribersForEntityFn func(string, uint) ([]uint, error)
+}
+
+func (m *mockCommentSubscriptionService) Subscribe(userID uint, entityType string, entityID uint) (error) {
+	if m.subscribeFn != nil {
+		return m.subscribeFn(userID, entityType, entityID)
+	}
+	return nil
+}
+func (m *mockCommentSubscriptionService) Unsubscribe(userID uint, entityType string, entityID uint) (error) {
+	if m.unsubscribeFn != nil {
+		return m.unsubscribeFn(userID, entityType, entityID)
+	}
+	return nil
+}
+func (m *mockCommentSubscriptionService) IsSubscribed(userID uint, entityType string, entityID uint) (bool, error) {
+	if m.isSubscribedFn != nil {
+		return m.isSubscribedFn(userID, entityType, entityID)
+	}
+	return false, nil
+}
+func (m *mockCommentSubscriptionService) MarkRead(userID uint, entityType string, entityID uint) (error) {
+	if m.markReadFn != nil {
+		return m.markReadFn(userID, entityType, entityID)
+	}
+	return nil
+}
+func (m *mockCommentSubscriptionService) GetUnreadCount(userID uint, entityType string, entityID uint) (int, error) {
+	if m.getUnreadCountFn != nil {
+		return m.getUnreadCountFn(userID, entityType, entityID)
+	}
+	return 0, nil
+}
+func (m *mockCommentSubscriptionService) GetSubscriptionsForUser(userID uint, limit int, offset int) ([]contracts.SubscriptionResponse, int64, error) {
+	if m.getSubscriptionsForUserFn != nil {
+		return m.getSubscriptionsForUserFn(userID, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *mockCommentSubscriptionService) GetSubscribersForEntity(entityType string, entityID uint) ([]uint, error) {
+	if m.getSubscribersForEntityFn != nil {
+		return m.getSubscribersForEntityFn(entityType, entityID)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: CommentVoteServiceInterface
 // ============================================================================
 
@@ -3673,6 +3730,7 @@ var _ contracts.CalendarServiceInterface = (*mockCalendarService)(nil)
 var _ contracts.ChartsServiceInterface = (*mockChartsService)(nil)
 var _ contracts.CollectionServiceInterface = (*mockCollectionService)(nil)
 var _ contracts.CommentServiceInterface = (*mockCommentService)(nil)
+var _ contracts.CommentSubscriptionServiceInterface = (*mockCommentSubscriptionService)(nil)
 var _ contracts.CommentVoteServiceInterface = (*mockCommentVoteService)(nil)
 var _ contracts.ContributorProfileServiceInterface = (*mockContributorProfileService)(nil)
 var _ contracts.DataQualityServiceInterface = (*mockDataQualityService)(nil)
