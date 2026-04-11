@@ -264,8 +264,23 @@ func (s *RadioService) DiscoverStationShows(stationID uint) (*contracts.RadioDis
 	return result, nil
 }
 
-// ImportShowEpisodes imports episodes for a single show within a date range.
-func (s *RadioService) ImportShowEpisodes(showID uint, since string, until string) (*contracts.RadioImportResult, error) {
+// importProgressCallback is called periodically during episode import to report
+// cumulative progress. Returning cancel=true stops the import early.
+type importProgressCallback func(episodesImported, playsImported, playsMatched int, currentDate string, errors []string) (cancel bool)
+
+// importShowEpisodesWithProgress is the shared implementation for importing
+// episodes of a single show within a date range. It handles date parsing,
+// provider setup, episode fetching/filtering, and per-episode import.
+//
+// If progressFn is non-nil it is called after every episode with cumulative
+// stats; a true return value stops the import early. The episodesFound callback
+// (if non-nil) is called once after filtering with the total episode count.
+func (s *RadioService) importShowEpisodesWithProgress(
+	showID uint,
+	since, until string,
+	episodesFoundFn func(int),
+	progressFn importProgressCallback,
+) (*contracts.RadioImportResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -278,8 +293,6 @@ func (s *RadioService) ImportShowEpisodes(showID uint, since string, until strin
 	if err != nil {
 		return nil, fmt.Errorf("invalid until date %q: %w", until, err)
 	}
-	// Include the entire "until" day
-	untilTime = untilTime.AddDate(0, 0, 1)
 
 	var show models.RadioShow
 	if err := s.db.Preload("Station").First(&show, showID).Error; err != nil {
@@ -305,30 +318,53 @@ func (s *RadioService) ImportShowEpisodes(showID uint, since string, until strin
 		return nil, fmt.Errorf("fetching episodes: %w", err)
 	}
 
-	result := &contracts.RadioImportResult{}
-
+	// Filter episodes by air_date within [since, until] (inclusive both ends)
+	var filtered []RadioEpisodeImport
 	for _, ep := range episodes {
-		// Filter episodes by air_date within [since, until)
 		epDate, parseErr := time.Parse("2006-01-02", ep.AirDate)
 		if parseErr != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("parse air_date %q for episode %s: %v", ep.AirDate, ep.ExternalID, parseErr))
 			continue
 		}
-		if epDate.Before(sinceTime) || !epDate.Before(untilTime) {
-			continue
+		if !epDate.Before(sinceTime) && !epDate.After(untilTime) {
+			filtered = append(filtered, ep)
+		}
+	}
+
+	if episodesFoundFn != nil {
+		episodesFoundFn(len(filtered))
+	}
+
+	result := &contracts.RadioImportResult{}
+
+	for _, ep := range filtered {
+		epResult, importErr := s.importEpisode(show.ID, ep, provider)
+		if importErr != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("import episode %s: %v", ep.ExternalID, importErr))
+		} else {
+			result.EpisodesImported++
+			result.PlaysImported += epResult.PlaysImported
+			result.PlaysMatched += epResult.PlaysMatched
 		}
 
-		epResult, err := s.importEpisode(show.ID, ep, provider)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("import episode %s: %v", ep.ExternalID, err))
-			continue
+		if progressFn != nil {
+			if cancel := progressFn(
+				result.EpisodesImported,
+				result.PlaysImported,
+				result.PlaysMatched,
+				ep.AirDate,
+				result.Errors,
+			); cancel {
+				return result, nil
+			}
 		}
-		result.EpisodesImported++
-		result.PlaysImported += epResult.PlaysImported
-		result.PlaysMatched += epResult.PlaysMatched
 	}
 
 	return result, nil
+}
+
+// ImportShowEpisodes imports episodes for a single show within a date range.
+func (s *RadioService) ImportShowEpisodes(showID uint, since string, until string) (*contracts.RadioImportResult, error) {
+	return s.importShowEpisodesWithProgress(showID, since, until, nil, nil)
 }
 
 // =============================================================================
