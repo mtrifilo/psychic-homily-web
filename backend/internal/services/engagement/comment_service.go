@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -111,6 +112,7 @@ func commentToResponse(c *models.Comment) *contracts.CommentResponse {
 		Depth:           c.Depth,
 		Body:            c.Body,
 		BodyHTML:        c.BodyHTML,
+		StructuredData:  c.StructuredData,
 		Visibility:      string(c.Visibility),
 		ReplyPermission: string(c.ReplyPermission),
 		Ups:             c.Ups,
@@ -544,6 +546,222 @@ func (s *CommentService) DeleteComment(userID uint, commentID uint, isAdmin bool
 	}
 
 	return nil
+}
+
+// ============================================================================
+// Field Note methods
+// ============================================================================
+
+// CreateFieldNote creates a field note (specialized comment) on a show.
+// Field notes must target past shows and store structured data (sound quality, crowd energy, etc.).
+func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error) {
+	if s.db == nil {
+		return nil, errors.New("database not initialized")
+	}
+
+	// Validate body
+	body := strings.TrimSpace(req.Body)
+	if len(body) < models.MinCommentBodyLength {
+		return nil, errors.New("field note body is required")
+	}
+	if len(body) > models.MaxCommentBodyLength {
+		return nil, fmt.Errorf("field note body exceeds maximum length of %d characters", models.MaxCommentBodyLength)
+	}
+
+	// Validate sound_quality range (1-5)
+	if req.SoundQuality != nil && (*req.SoundQuality < 1 || *req.SoundQuality > 5) {
+		return nil, errors.New("sound_quality must be between 1 and 5")
+	}
+
+	// Validate crowd_energy range (1-5)
+	if req.CrowdEnergy != nil && (*req.CrowdEnergy < 1 || *req.CrowdEnergy > 5) {
+		return nil, errors.New("crowd_energy must be between 1 and 5")
+	}
+
+	// Look up the show and verify it's in the past
+	var show models.Show
+	if err := s.db.First(&show, req.ShowID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("show not found")
+		}
+		return nil, fmt.Errorf("failed to look up show: %w", err)
+	}
+
+	if show.EventDate.After(time.Now()) {
+		return nil, errors.New("field notes can only be added to past shows")
+	}
+
+	// Validate show_artist_id belongs to this show (if provided)
+	if req.ShowArtistID != nil {
+		var count int64
+		if err := s.db.Model(&models.ShowArtist{}).
+			Where("show_id = ? AND artist_id = ?", req.ShowID, *req.ShowArtistID).
+			Count(&count).Error; err != nil {
+			return nil, fmt.Errorf("failed to validate show artist: %w", err)
+		}
+		if count == 0 {
+			return nil, errors.New("artist is not on this show's bill")
+		}
+	}
+
+	// Look up user for trust tier and rate limiting
+	var user models.User
+	if err := s.db.First(&user, userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("user not found")
+		}
+		return nil, fmt.Errorf("failed to look up user: %w", err)
+	}
+
+	// Rate limiting: per-entity cooldown (60s between comments on same entity)
+	var recentEntityCount int64
+	if err := s.db.Model(&models.Comment{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND created_at > ?",
+			userID, models.CommentEntityShow, req.ShowID, time.Now().Add(-60*time.Second)).
+		Count(&recentEntityCount).Error; err != nil {
+		return nil, fmt.Errorf("failed to check rate limit: %w", err)
+	}
+	if recentEntityCount > 0 {
+		return nil, errors.New("please wait 60 seconds between comments on the same entity")
+	}
+
+	// Rate limiting: global hourly limit based on trust tier
+	hourlyLimit := userTierHourlyLimit(user.UserTier)
+	if hourlyLimit >= 0 {
+		var hourlyCount int64
+		if err := s.db.Model(&models.Comment{}).
+			Where("user_id = ? AND created_at > ?", userID, time.Now().Add(-1*time.Hour)).
+			Count(&hourlyCount).Error; err != nil {
+			return nil, fmt.Errorf("failed to check hourly rate limit: %w", err)
+		}
+		if int(hourlyCount) >= hourlyLimit {
+			return nil, fmt.Errorf("you've reached your hourly comment limit (%d/hour for %s users)",
+				hourlyLimit, func() string {
+					if user.UserTier == "" {
+						return "new"
+					}
+					return strings.ReplaceAll(user.UserTier, "_", " ")
+				}())
+		}
+	}
+
+	// Compute verified attendee: user marked "going" before the show date
+	isVerifiedAttendee := false
+	var goingBookmark models.UserBookmark
+	err := s.db.Where(
+		"user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
+		userID, models.BookmarkEntityShow, req.ShowID, models.BookmarkActionGoing,
+	).First(&goingBookmark).Error
+	if err == nil {
+		// User has a "going" bookmark — verified if created before the show date
+		if goingBookmark.CreatedAt.Before(show.EventDate) {
+			isVerifiedAttendee = true
+		}
+	}
+
+	// Build structured data
+	structuredData := contracts.FieldNoteStructuredData{
+		ShowArtistID:       req.ShowArtistID,
+		SongPosition:       req.SongPosition,
+		SoundQuality:       req.SoundQuality,
+		CrowdEnergy:        req.CrowdEnergy,
+		NotableMoments:     req.NotableMoments,
+		SetlistSpoiler:     req.SetlistSpoiler,
+		IsVerifiedAttendee: isVerifiedAttendee,
+	}
+	sdJSON, err := json.Marshal(structuredData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal structured data: %w", err)
+	}
+	rawJSON := json.RawMessage(sdJSON)
+
+	// Render markdown to HTML
+	bodyHTML := s.renderMarkdown(body)
+
+	// Determine initial visibility based on trust tier
+	visibility := computeInitialVisibility(&user)
+
+	comment := &models.Comment{
+		EntityType:      models.CommentEntityShow,
+		EntityID:        req.ShowID,
+		Kind:            models.CommentKindFieldNote,
+		UserID:          userID,
+		Body:            body,
+		BodyHTML:        bodyHTML,
+		StructuredData:  &rawJSON,
+		Visibility:      visibility,
+		ReplyPermission: models.ReplyPermissionAnyone,
+	}
+
+	if err := s.db.Create(comment).Error; err != nil {
+		return nil, fmt.Errorf("failed to create field note: %w", err)
+	}
+
+	// Auto-subscribe the user to this show's comments (fire-and-forget)
+	sub := models.CommentSubscription{
+		UserID:       userID,
+		EntityType:   string(models.CommentEntityShow),
+		EntityID:     req.ShowID,
+		SubscribedAt: time.Now().UTC(),
+	}
+	if err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&sub).Error; err != nil {
+		log.Printf("warning: failed to auto-subscribe user %d to show/%d comments: %v", userID, req.ShowID, err)
+	}
+
+	// Reload with user info
+	if err := s.db.Preload("User").First(comment, comment.ID).Error; err != nil {
+		return nil, fmt.Errorf("failed to reload field note: %w", err)
+	}
+
+	return commentToResponse(comment), nil
+}
+
+// ListFieldNotesForShow returns field notes for a show, sorted by song_position ASC (NULLs first),
+// then by score DESC within the same position.
+func (s *CommentService) ListFieldNotesForShow(showID uint, limit, offset int) (*contracts.CommentListResponse, error) {
+	if s.db == nil {
+		return nil, errors.New("database not initialized")
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Base query: field notes on this show that are visible
+	query := s.db.Model(&models.Comment{}).
+		Where("entity_type = ? AND entity_id = ? AND kind = ? AND visibility = ?",
+			models.CommentEntityShow, showID, models.CommentKindFieldNote, models.CommentVisibilityVisible)
+
+	// Count total
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, fmt.Errorf("failed to count field notes: %w", err)
+	}
+
+	// Sort by song_position ASC (NULLs first), then score DESC
+	// We extract song_position from the JSONB structured_data column.
+	var comments []models.Comment
+	if err := query.Preload("User").
+		Order("(structured_data->>'song_position')::int ASC NULLS FIRST, score DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&comments).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch field notes: %w", err)
+	}
+
+	responses := make([]*contracts.CommentResponse, len(comments))
+	for i := range comments {
+		responses[i] = commentToResponse(&comments[i])
+	}
+
+	return &contracts.CommentListResponse{
+		Comments: responses,
+		Total:    total,
+		HasMore:  int64(offset+limit) < total,
+	}, nil
 }
 
 // ============================================================================
