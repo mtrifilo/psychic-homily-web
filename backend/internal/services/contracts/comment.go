@@ -80,3 +80,33 @@ type CommentServiceInterface interface {
 	UpdateComment(userID uint, commentID uint, req *UpdateCommentRequest) (*CommentResponse, error)
 	DeleteComment(userID uint, commentID uint, isAdmin bool) error
 }
+// CommentVoteResponse contains vote counts and the current user's vote.
+type CommentVoteResponse struct {
+	Ups      int      `json:"ups"`
+	Downs    int      `json:"downs"`
+	Score    float64  `json:"score"`
+	UserVote *int     `json:"user_vote"` // 1, -1, or null
+}
+
+// ──────────────────────────────────────────────
+// Comment Vote service interface
+// ──────────────────────────────────────────────
+
+// CommentVoteServiceInterface defines the contract for comment voting operations.
+type CommentVoteServiceInterface interface {
+	// Vote casts or updates a vote on a comment.
+	// direction must be 1 (upvote) or -1 (downvote).
+	Vote(userID uint, commentID uint, direction int) error
+
+	// Unvote removes a user's vote on a comment.
+	Unvote(userID uint, commentID uint) error
+
+	// GetUserVote returns the user's vote direction (1 or -1) or nil if not voted.
+	GetUserVote(userID uint, commentID uint) (*int, error)
+
+	// GetUserVotesForComments returns a map of commentID→direction for batch lookups.
+	GetUserVotesForComments(userID uint, commentIDs []uint) (map[uint]int, error)
+
+	// GetCommentVoteCounts returns the current ups, downs, and Wilson score for a comment.
+	GetCommentVoteCounts(commentID uint) (int, int, float64, error)
+}

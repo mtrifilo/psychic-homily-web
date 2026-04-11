@@ -841,6 +841,49 @@ func (m *mockCommentService) DeleteComment(userID uint, commentID uint, isAdmin 
 }
 
 // ============================================================================
+// Mock: CommentVoteServiceInterface
+// ============================================================================
+
+type mockCommentVoteService struct {
+	voteFn func(uint, uint, int) (error)
+	unvoteFn func(uint, uint) (error)
+	getUserVoteFn func(uint, uint) (*int, error)
+	getUserVotesForCommentsFn func(uint, []uint) (map[uint]int, error)
+	getCommentVoteCountsFn func(uint) (int, int, float64, error)
+}
+
+func (m *mockCommentVoteService) Vote(userID uint, commentID uint, direction int) (error) {
+	if m.voteFn != nil {
+		return m.voteFn(userID, commentID, direction)
+	}
+	return nil
+}
+func (m *mockCommentVoteService) Unvote(userID uint, commentID uint) (error) {
+	if m.unvoteFn != nil {
+		return m.unvoteFn(userID, commentID)
+	}
+	return nil
+}
+func (m *mockCommentVoteService) GetUserVote(userID uint, commentID uint) (*int, error) {
+	if m.getUserVoteFn != nil {
+		return m.getUserVoteFn(userID, commentID)
+	}
+	return nil, nil
+}
+func (m *mockCommentVoteService) GetUserVotesForComments(userID uint, commentIDs []uint) (map[uint]int, error) {
+	if m.getUserVotesForCommentsFn != nil {
+		return m.getUserVotesForCommentsFn(userID, commentIDs)
+	}
+	return nil, nil
+}
+func (m *mockCommentVoteService) GetCommentVoteCounts(commentID uint) (int, int, float64, error) {
+	if m.getCommentVoteCountsFn != nil {
+		return m.getCommentVoteCountsFn(commentID)
+	}
+	return 0, 0, 0, nil
+}
+
+// ============================================================================
 // Mock: ContributorProfileServiceInterface
 // ============================================================================
 
@@ -3630,6 +3673,7 @@ var _ contracts.CalendarServiceInterface = (*mockCalendarService)(nil)
 var _ contracts.ChartsServiceInterface = (*mockChartsService)(nil)
 var _ contracts.CollectionServiceInterface = (*mockCollectionService)(nil)
 var _ contracts.CommentServiceInterface = (*mockCommentService)(nil)
+var _ contracts.CommentVoteServiceInterface = (*mockCommentVoteService)(nil)
 var _ contracts.ContributorProfileServiceInterface = (*mockContributorProfileService)(nil)
 var _ contracts.DataQualityServiceInterface = (*mockDataQualityService)(nil)
 var _ contracts.DataSyncServiceInterface = (*mockDataSyncService)(nil)

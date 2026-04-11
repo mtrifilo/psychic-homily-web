@@ -133,6 +133,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupDataGapsRoutes(rc)
 	setupRadioRoutes(rc)
 	setupCommentRoutes(rc)
+	setupCommentVoteRoutes(rc)
 
 	return api
 }
@@ -1084,4 +1085,13 @@ func setupCommentRoutes(rc RouteContext) {
 	huma.Post(rc.Protected, "/comments/{comment_id}/replies", commentHandler.CreateReplyHandler)
 	huma.Put(rc.Protected, "/comments/{comment_id}", commentHandler.UpdateCommentHandler)
 	huma.Delete(rc.Protected, "/comments/{comment_id}", commentHandler.DeleteCommentHandler)
+}
+
+// setupCommentVoteRoutes configures comment voting endpoints.
+func setupCommentVoteRoutes(rc RouteContext) {
+	commentVoteHandler := handlers.NewCommentVoteHandler(rc.SC.CommentVote)
+
+	// Protected: vote and unvote on comments
+	huma.Post(rc.Protected, "/comments/{comment_id}/vote", commentVoteHandler.VoteCommentHandler)
+	huma.Delete(rc.Protected, "/comments/{comment_id}/vote", commentVoteHandler.UnvoteCommentHandler)
 }
