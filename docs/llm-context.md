@@ -46,33 +46,48 @@ See `docs/vision.md` for the full north star, What.cd feature mapping, and entit
 - **Radio:** PSY-279 (provider `until` parameter), execute data cleanup runbook
 - **Strategic:** UX gap analysis priorities — edition-level release provenance, ratings, "your impact" metrics, ranked lists, knowledge graph export, structured setlists
 
+## Feature Registry
+
+> Single source of truth for what each feature can actually do. Verified April 11, 2026. If you're unsure whether something works, check here before assuming a Linear "completed" status is accurate.
+
+| Feature | Core User Workflow | Known Gaps |
+|---------|-------------------|------------|
+| **Shows** | Browse, filter by city, detail page, going/interested, save, share | — |
+| **Artists** | Browse, detail with discography/shows/relationships, follow | — |
+| **Venues** | Browse, detail with upcoming shows/genre profile, favorite | — |
+| **Releases** | Browse, detail with artist roles/external links | — |
+| **Labels** | Browse, detail with roster/catalog | — |
+| **Festivals** | Browse, detail with lineup/overlap analysis | — |
+| **Collections** | Create, add/remove items, reorder, per-item notes, browse with tabs/search, entity backlinks, user profile tab, share | No cover art, no clone, "Crate" terminology in activity feed (PSY-319) |
+| **Comments** | Create on 7 entity types, vote (Wilson score), reply (3 levels), edit with history, soft delete, subscribe with auto-subscribe | No radio episode comments, no notifications (PSY-289), no per-author reply permissions (PSY-296) |
+| **Field Notes** | Create on past shows, star ratings (sound/crowd), verified attendee badge, spoiler handling, position sort | — |
+| **Comment Moderation** | Trust-tier publishing, rate limiting, admin hide/restore/approve/reject, pending queue, auto-hide on 3+ reports, entity reports for comments | No edit history viewer (PSY-297) |
+| **Tags** | Browse tag pages, view entities by tag | **NEEDS VERIFICATION** — was marked "completed" but may have UX gaps like Collections did |
+| **Scenes** | Browse, detail with venue/artist/show listings | — |
+| **Charts** | Trending shows, popular artists, active venues, hot releases | — |
+| **Radio** | 3 stations, shows, episodes, playlists, "As Heard On" | Provider bugs fixed but existing DB data needs cleanup (see runbook). Historical import infrastructure built but not yet executed. |
+| **Requests** | Browse, create, vote | **NEEDS VERIFICATION** |
+| **Contributions** | Entity edit drawer, pending edits, attribution, reports, moderation queue, trust tiers, leaderboard, contribution prompts | — |
+| **Admin** | Dashboard, entity CRUD, moderation queue, analytics backend, radio management, comment moderation | Admin nav has too many horizontal tabs requiring scrolling — **known UX issue** |
+| **Library** | Saved shows/artists/venues/releases/labels/festivals tabs | — |
+| **Auth** | Email/password, magic link, OAuth (Google/GitHub), passkeys | — |
+
 ## Task Routing
 
-
-| If your task involves...                                                       | Read these docs                                              |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------------ |
-| Product vision, new entities, strategic direction                              | `docs/vision.md`                                             |
-| What to build next, quarterly priorities                                       | `docs/strategy/ROADMAP.md`                                   |
-| Frontend UI redesign (sidebar, layout, cards, templates)                       | `docs/strategy/ui-redesign.md`                               |
-| Frontend form patterns, component conventions, query patterns                  | `docs/learnings/frontend-patterns.md`                        |
-| Web frontend or Go backend features                                            | `docs/strategy/web.md`                                       |
-| iOS app                                                                        | `docs/strategy/ios.md` + `docs/learnings/ios.md`             |
-| Discovery scrapers or data pipeline                                            | `docs/strategy/discovery.md` + `docs/learnings/discovery.md` |
-| Backend architecture, conventions, test patterns                               | `CLAUDE.md` (Architecture section)                           |
-| Scene pages, venue intelligence, city landing pages                            | `docs/strategy/scene-pages.md`                               |
-| Similar artist visualization, relationship graph, artist voting                | `docs/strategy/similar-artists.md`                           |
-| Notification filters, matching engine, multi-channel notifications             | `docs/strategy/notification-filters.md`                      |
-| Comments, discussion, field notes, voting, subscriptions, moderation           | `docs/strategy/comments-and-field-notes.md`                  |
-| Collections UX, curated lists, prior-art patterns                              | `docs/learnings/curated-list-prior-art.md`                   |
-| Radio stations, radio shows, playlist parsing, "as heard on", co-occurrence    | `docs/strategy/radio-entities.md`                            |
-| Radio data cleanup, re-import after provider fixes                             | `docs/learnings/radio-data-cleanup-runbook.md`               |
-| Radio provider backfill capabilities, API limits, historical data              | `docs/learnings/radio-provider-backfill-audit.md`            |
-| Festival intelligence, lineup overlap, breakout tracking, circuit analysis     | `docs/strategy/festival-intelligence.md`                     |
-| Gazelle/What.cd implementation patterns (voting, tags, notifications, privacy) | `docs/learnings/gazelle-patterns.md`                         |
-| Gazelle user profiles (identity hub, paranoia, ranks, customization, donors)   | `docs/learnings/gazelle-user-profiles.md`                    |
-| What.cd user psychology, contributor motivation, product-market fit lessons     | `docs/learnings/whatcd-user-insights.md`                     |
-| Agent workflow, Linear issues, PR process                                      | `docs/agent-workflow.md`                                     |
-| Dogfooding, QA testing, user journey catalog                                   | `docs/user-journeys.md`                                     |
+| If your task involves... | Read these docs |
+|--------------------------|-----------------|
+| Product vision, strategic direction | `docs/vision.md`, `docs/strategy/ROADMAP.md` |
+| Backend architecture, conventions, test patterns | `CLAUDE.md` (Architecture section) |
+| Comments, discussion, field notes, moderation | `docs/strategy/comments-and-field-notes.md` |
+| Collections UX, curated lists, prior art | `docs/learnings/curated-list-prior-art.md` |
+| Radio entities, providers, backfill | `docs/strategy/radio-entities.md`, `docs/learnings/radio-provider-backfill-audit.md` |
+| Discovery pipeline, scrapers | `docs/strategy/discovery.md`, `docs/learnings/discovery.md` |
+| Frontend patterns, form conventions | `docs/learnings/frontend-patterns.md` |
+| Gazelle/What.cd patterns | `docs/learnings/gazelle-patterns.md`, `gazelle-user-profiles.md`, `whatcd-user-insights.md` |
+| Agent workflow, Linear, PRs | `docs/agent-workflow.md` |
+| Dogfooding, QA testing | `docs/user-journeys.md` |
+| iOS app | `docs/strategy/ios.md` |
+| Any shipped feature's design rationale | Check `docs/strategy/{feature}.md` — each has a STATUS header |
 
 
 ## Guardrails
