@@ -75,7 +75,7 @@ export interface EditableField {
   group?: 'info' | 'social' | 'details'
 }
 
-export type ReportableEntityType = 'artist' | 'venue' | 'festival' | 'show'
+export type ReportableEntityType = 'artist' | 'venue' | 'festival' | 'show' | 'comment'
 
 export interface ReportTypeOption {
   value: string
@@ -111,6 +111,13 @@ export const REPORT_TYPES: Record<ReportableEntityType, ReportTypeOption[]> = {
     { value: 'inaccurate', label: 'Inaccurate Information', description: 'Date, time, venue, or other info is wrong' },
     { value: 'wrong_venue', label: 'Wrong Venue', description: 'This show is listed at the wrong venue' },
     { value: 'wrong_date', label: 'Wrong Date', description: 'The show date or time is incorrect' },
+  ],
+  comment: [
+    { value: 'spam', label: 'Spam', description: 'This comment is spam or advertising' },
+    { value: 'harassment', label: 'Harassment', description: 'This comment is abusive or harassing' },
+    { value: 'off_topic', label: 'Off Topic', description: 'This comment is irrelevant to the discussion' },
+    { value: 'inaccurate', label: 'Inaccurate', description: 'This comment contains incorrect information' },
+    { value: 'other', label: 'Other', description: 'Another issue not listed above' },
   ],
 }
 

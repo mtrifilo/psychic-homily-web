@@ -11,6 +11,7 @@ import { usePendingArtistReports } from '@/lib/hooks/admin/useAdminArtistReports
 import { usePendingShows } from '@/lib/hooks/admin/useAdminShows'
 import { useAdminPendingEdits } from '@/lib/hooks/admin/useAdminPendingEdits'
 import { useAdminEntityReports } from '@/lib/hooks/admin/useAdminEntityReports'
+import { useAdminPendingComments } from '@/lib/hooks/admin/useAdminComments'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
@@ -243,8 +244,11 @@ function AdminPageContent() {
   const {
     data: entityReportsData,
   } = useAdminEntityReports({ status: 'pending' })
+  const {
+    data: pendingCommentsData,
+  } = useAdminPendingComments()
 
-  const moderationCount = (pendingEditsData?.total || 0) + (entityReportsData?.total || 0)
+  const moderationCount = (pendingEditsData?.total || 0) + (entityReportsData?.total || 0) + (pendingCommentsData?.total || 0)
 
   if (isLoading || !isAuthenticated || !isAdmin) {
     return (

@@ -95,6 +95,17 @@ export {
 } from './useAnalytics'
 
 export {
+  type PendingComment,
+  type PendingCommentsResponse,
+  adminCommentQueryKeys,
+  useAdminPendingComments,
+  useAdminApproveComment,
+  useAdminRejectComment,
+  useAdminHideComment,
+  useAdminRestoreComment,
+} from './useAdminComments'
+
+export {
   radioQueryKeys,
   type RadioStationListItem,
   type RadioStationDetail,
