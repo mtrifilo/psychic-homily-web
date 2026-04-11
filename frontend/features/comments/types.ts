@@ -19,6 +19,7 @@ export interface Comment {
   created_at: string
   updated_at: string
   user_vote?: number | null
+  structured_data?: FieldNoteStructuredData | null
 }
 
 export interface CommentListResponse {
@@ -30,4 +31,28 @@ export interface CommentListResponse {
 export interface CommentThreadResponse {
   comment: Comment
   replies: Comment[]
+}
+
+// ============================================================================
+// Field Notes
+// ============================================================================
+
+export interface FieldNoteStructuredData {
+  show_artist_id?: number | null
+  song_position?: number | null
+  sound_quality?: number | null
+  crowd_energy?: number | null
+  notable_moments?: string | null
+  setlist_spoiler: boolean
+  is_verified_attendee: boolean
+}
+
+export interface CreateFieldNoteInput {
+  body: string
+  show_artist_id?: number
+  song_position?: number
+  sound_quality?: number
+  crowd_energy?: number
+  notable_moments?: string
+  setlist_spoiler?: boolean
 }
