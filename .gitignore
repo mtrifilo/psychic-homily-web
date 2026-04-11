@@ -83,3 +83,9 @@ scripts/test-runner/test-runner
 
 # Claude Code worktrees
 .claude/worktrees/
+
+# Dogfood QA output
+dogfood-output*/
+
+# Linear CLI config
+.linear.toml

@@ -135,14 +135,9 @@ function makeCollection(
   }
 }
 
-/** Helper: find the trash/delete icon button (has class text-destructive, no text) */
+/** Helper: find the delete collection button by aria-label */
 function findTrashButton(): HTMLElement {
-  const buttons = screen.getAllByRole('button')
-  const trashButton = buttons.find(
-    (b) => b.className.includes('text-destructive') && !b.textContent?.includes('Delete')
-  )
-  if (!trashButton) throw new Error('Trash button not found')
-  return trashButton
+  return screen.getByRole('button', { name: 'Delete collection' })
 }
 
 describe('CollectionDetail', () => {
