@@ -123,3 +123,30 @@ type CommentVote struct {
 func (CommentVote) TableName() string {
 	return "comment_votes"
 }
+
+// CommentSubscription tracks a user's subscription to comment threads on an entity.
+type CommentSubscription struct {
+	UserID       uint      `gorm:"primaryKey;column:user_id"`
+	EntityType   string    `gorm:"primaryKey;column:entity_type"`
+	EntityID     uint      `gorm:"primaryKey;column:entity_id"`
+	SubscribedAt time.Time `gorm:"not null;column:subscribed_at"`
+}
+
+// TableName specifies the table name for CommentSubscription
+func (CommentSubscription) TableName() string {
+	return "comment_subscriptions"
+}
+
+// CommentLastRead tracks the highest comment ID a user has seen per entity.
+type CommentLastRead struct {
+	UserID            uint      `gorm:"primaryKey;column:user_id"`
+	EntityType        string    `gorm:"primaryKey;column:entity_type"`
+	EntityID          uint      `gorm:"primaryKey;column:entity_id"`
+	LastReadCommentID uint      `gorm:"not null;column:last_read_comment_id;default:0"`
+	UpdatedAt         time.Time `gorm:"not null;column:updated_at"`
+}
+
+// TableName specifies the table name for CommentLastRead
+func (CommentLastRead) TableName() string {
+	return "comment_last_read"
+}

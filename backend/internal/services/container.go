@@ -39,8 +39,9 @@ type ServiceContainer struct {
 	ArtistRelationship *catalog.ArtistRelationshipService
 	Scene              *catalog.SceneService
 	Attendance         *engagement.AttendanceService
-	Comment            *engagement.CommentService
-	CommentVote        *engagement.CommentVoteService
+	Comment             *engagement.CommentService
+	CommentVote         *engagement.CommentVoteService
+	CommentSubscription *engagement.CommentSubscriptionService
 	Follow             *engagement.FollowService
 	FavoriteVenue      *engagement.FavoriteVenueService
 	Festival               *catalog.FestivalService
@@ -152,8 +153,9 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		ArtistRelationship: catalog.NewArtistRelationshipService(database),
 		Scene:              catalog.NewSceneService(database),
 		Attendance:         engagement.NewAttendanceService(database),
-		Comment:            engagement.NewCommentService(database),
-		CommentVote:        engagement.NewCommentVoteService(database),
+		Comment:             engagement.NewCommentService(database),
+		CommentVote:         engagement.NewCommentVoteService(database),
+		CommentSubscription: engagement.NewCommentSubscriptionService(database),
 		Follow:             engagement.NewFollowService(database),
 		FavoriteVenue:      engagement.NewFavoriteVenueService(database),
 		Festival:               catalog.NewFestivalService(database),

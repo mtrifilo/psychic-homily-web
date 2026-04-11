@@ -8,9 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"log"
+
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/yuin/goldmark"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
@@ -225,6 +228,19 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 
 	if err := s.db.Create(comment).Error; err != nil {
 		return nil, fmt.Errorf("failed to create comment: %w", err)
+	}
+
+	// Auto-subscribe the commenter to this entity's comments (fire-and-forget)
+	sub := models.CommentSubscription{
+		UserID:       userID,
+		EntityType:   string(entityType),
+		EntityID:     req.EntityID,
+		SubscribedAt: time.Now().UTC(),
+	}
+	// ON CONFLICT DO NOTHING — idempotent, ignore if already subscribed
+	if err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&sub).Error; err != nil {
+		// Log but don't fail the comment creation
+		log.Printf("warning: failed to auto-subscribe user %d to %s/%d comments: %v", userID, entityType, req.EntityID, err)
 	}
 
 	// Reload with user info
