@@ -110,3 +110,49 @@ type CommentVoteServiceInterface interface {
 	// GetCommentVoteCounts returns the current ups, downs, and Wilson score for a comment.
 	GetCommentVoteCounts(commentID uint) (int, int, float64, error)
 }
+
+// ──────────────────────────────────────────────
+// Comment subscription response types
+// ──────────────────────────────────────────────
+
+// SubscriptionResponse represents a user's subscription to an entity with unread count.
+type SubscriptionResponse struct {
+	EntityType   string    `json:"entity_type"`
+	EntityID     uint      `json:"entity_id"`
+	SubscribedAt time.Time `json:"subscribed_at"`
+	UnreadCount  int       `json:"unread_count"`
+}
+
+// SubscriptionStatusResponse represents subscription status and unread count for an entity.
+type SubscriptionStatusResponse struct {
+	Subscribed  bool `json:"subscribed"`
+	UnreadCount int  `json:"unread_count"`
+}
+
+// ──────────────────────────────────────────────
+// Comment subscription service interface
+// ──────────────────────────────────────────────
+
+// CommentSubscriptionServiceInterface defines the contract for comment subscription operations.
+type CommentSubscriptionServiceInterface interface {
+	// Subscribe adds a subscription for a user to an entity's comments.
+	Subscribe(userID uint, entityType string, entityID uint) error
+
+	// Unsubscribe removes a subscription for a user from an entity's comments.
+	Unsubscribe(userID uint, entityType string, entityID uint) error
+
+	// IsSubscribed checks whether a user is subscribed to an entity's comments.
+	IsSubscribed(userID uint, entityType string, entityID uint) (bool, error)
+
+	// MarkRead updates the last-read pointer for a user on an entity to the latest comment.
+	MarkRead(userID uint, entityType string, entityID uint) error
+
+	// GetUnreadCount returns the number of unread comments for a user on an entity.
+	GetUnreadCount(userID uint, entityType string, entityID uint) (int, error)
+
+	// GetSubscriptionsForUser returns paginated subscriptions with unread counts.
+	GetSubscriptionsForUser(userID uint, limit, offset int) ([]SubscriptionResponse, int64, error)
+
+	// GetSubscribersForEntity returns user IDs of all subscribers for an entity.
+	GetSubscribersForEntity(entityType string, entityID uint) ([]uint, error)
+}

@@ -134,6 +134,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupRadioRoutes(rc)
 	setupCommentRoutes(rc)
 	setupCommentVoteRoutes(rc)
+	setupCommentSubscriptionRoutes(rc)
 
 	return api
 }
@@ -1094,4 +1095,15 @@ func setupCommentVoteRoutes(rc RouteContext) {
 	// Protected: vote and unvote on comments
 	huma.Post(rc.Protected, "/comments/{comment_id}/vote", commentVoteHandler.VoteCommentHandler)
 	huma.Delete(rc.Protected, "/comments/{comment_id}/vote", commentVoteHandler.UnvoteCommentHandler)
+}
+
+// setupCommentSubscriptionRoutes configures comment subscription and unread tracking endpoints.
+func setupCommentSubscriptionRoutes(rc RouteContext) {
+	subHandler := handlers.NewCommentSubscriptionHandler(rc.SC.CommentSubscription, rc.SC.AuditLog)
+
+	// Protected: subscribe, unsubscribe, check status, mark read
+	huma.Post(rc.Protected, "/entities/{entity_type}/{entity_id}/subscribe", subHandler.SubscribeHandler)
+	huma.Delete(rc.Protected, "/entities/{entity_type}/{entity_id}/subscribe", subHandler.UnsubscribeHandler)
+	huma.Get(rc.Protected, "/entities/{entity_type}/{entity_id}/subscribe/status", subHandler.SubscriptionStatusHandler)
+	huma.Post(rc.Protected, "/entities/{entity_type}/{entity_id}/mark-read", subHandler.MarkReadHandler)
 }
