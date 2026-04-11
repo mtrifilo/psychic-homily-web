@@ -21,4 +21,7 @@ export {
   useSetFeatured,
   useDeleteCollection,
   useAddCollectionItem,
+  useRemoveCollectionItem,
+  useReorderCollectionItems,
+  useUpdateCollectionItem,
 } from './hooks'

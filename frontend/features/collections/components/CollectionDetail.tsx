@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import Link from 'next/link'
 import {
   Loader2,
@@ -21,6 +21,8 @@ import {
   Tent,
   Plus,
   Search,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react'
 import {
   Dialog,
@@ -35,6 +37,8 @@ import {
   useUpdateCollection,
   useAddCollectionItem,
   useRemoveCollectionItem,
+  useReorderCollectionItems,
+  useUpdateCollectionItem,
   useSubscribeCollection,
   useUnsubscribeCollection,
   useDeleteCollection,
@@ -276,27 +280,11 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
       )}
 
       {/* Items list */}
-      <div>
-        <h2 className="text-lg font-semibold mb-4">Items</h2>
-        {items.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            <Library className="h-12 w-12 mx-auto mb-3 text-muted-foreground/30" />
-            <p>{isCreator ? 'Add your first item using the search above.' : 'This collection is empty.'}</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {items.map((item, index) => (
-              <CollectionItemRow
-                key={item.id}
-                item={item}
-                position={index + 1}
-                slug={slug}
-                isCreator={isCreator}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      <CollectionItemsList
+        items={items}
+        slug={slug}
+        isCreator={isCreator}
+      />
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
@@ -351,75 +339,307 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 }
 
 // ──────────────────────────────────────────────
+// Items List (with reorder support)
+// ──────────────────────────────────────────────
+
+function CollectionItemsList({
+  items,
+  slug,
+  isCreator,
+}: {
+  items: CollectionItem[]
+  slug: string
+  isCreator: boolean
+}) {
+  const reorderMutation = useReorderCollectionItems()
+
+  const handleMoveUp = useCallback(
+    (index: number) => {
+      if (index <= 0) return
+      const newItems = [...items]
+      ;[newItems[index - 1], newItems[index]] = [newItems[index], newItems[index - 1]]
+      const reorderPayload = newItems.map((item, i) => ({
+        item_id: item.id,
+        position: i,
+      }))
+      reorderMutation.mutate({ slug, items: reorderPayload })
+    },
+    [items, slug, reorderMutation]
+  )
+
+  const handleMoveDown = useCallback(
+    (index: number) => {
+      if (index >= items.length - 1) return
+      const newItems = [...items]
+      ;[newItems[index], newItems[index + 1]] = [newItems[index + 1], newItems[index]]
+      const reorderPayload = newItems.map((item, i) => ({
+        item_id: item.id,
+        position: i,
+      }))
+      reorderMutation.mutate({ slug, items: reorderPayload })
+    },
+    [items, slug, reorderMutation]
+  )
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold mb-4">Items</h2>
+      {items.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <Library className="h-12 w-12 mx-auto mb-3 text-muted-foreground/30" />
+          <p>
+            {isCreator
+              ? 'Add your first item using the search above.'
+              : 'This collection is empty.'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((item, index) => (
+            <CollectionItemRow
+              key={item.id}
+              item={item}
+              position={index + 1}
+              index={index}
+              totalItems={items.length}
+              slug={slug}
+              isCreator={isCreator}
+              onMoveUp={handleMoveUp}
+              onMoveDown={handleMoveDown}
+              isReordering={reorderMutation.isPending}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────
 // Item Row
 // ──────────────────────────────────────────────
 
 function CollectionItemRow({
   item,
   position,
+  index,
+  totalItems,
   slug,
   isCreator,
+  onMoveUp,
+  onMoveDown,
+  isReordering,
 }: {
   item: CollectionItem
   position: number
+  index: number
+  totalItems: number
   slug: string
   isCreator: boolean
+  onMoveUp: (index: number) => void
+  onMoveDown: (index: number) => void
+  isReordering: boolean
 }) {
   const removeMutation = useRemoveCollectionItem()
+  const updateMutation = useUpdateCollectionItem()
+  const [isEditingNotes, setIsEditingNotes] = useState(false)
+  const [notesValue, setNotesValue] = useState(item.notes ?? '')
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false)
   const Icon = ENTITY_ICONS[item.entity_type] ?? Library
 
   const handleRemove = () => {
-    removeMutation.mutate({ slug, itemId: item.id })
+    removeMutation.mutate(
+      { slug, itemId: item.id },
+      { onSuccess: () => setShowRemoveConfirm(false) }
+    )
+  }
+
+  const handleSaveNotes = () => {
+    const trimmed = notesValue.trim()
+    updateMutation.mutate(
+      { slug, itemId: item.id, notes: trimmed || null },
+      {
+        onSuccess: () => {
+          setIsEditingNotes(false)
+        },
+      }
+    )
+  }
+
+  const handleCancelNotes = () => {
+    setNotesValue(item.notes ?? '')
+    setIsEditingNotes(false)
   }
 
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-card p-3">
-      {/* Position number */}
-      <span className="text-sm font-medium text-muted-foreground/60 w-6 text-right shrink-0">
-        {position}
-      </span>
+    <div className="rounded-lg border border-border/50 bg-card p-3">
+      <div className="flex items-center gap-3">
+        {/* Reorder arrows (creator only) */}
+        {isCreator && (
+          <div className="flex flex-col shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
+              onClick={() => onMoveUp(index)}
+              disabled={index === 0 || isReordering}
+              title="Move up"
+              aria-label="Move up"
+            >
+              <ChevronUp className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
+              onClick={() => onMoveDown(index)}
+              disabled={index === totalItems - 1 || isReordering}
+              title="Move down"
+              aria-label="Move down"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
 
-      {/* Entity type icon */}
-      <div className="h-8 w-8 shrink-0 rounded-md bg-muted/50 flex items-center justify-center">
-        <Icon className="h-4 w-4 text-muted-foreground/60" />
+        {/* Position number */}
+        <span className="text-sm font-medium text-muted-foreground/60 w-6 text-right shrink-0">
+          {position}
+        </span>
+
+        {/* Entity type icon */}
+        <div className="h-8 w-8 shrink-0 rounded-md bg-muted/50 flex items-center justify-center">
+          <Icon className="h-4 w-4 text-muted-foreground/60" />
+        </div>
+
+        {/* Entity info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <Link
+              href={getEntityUrl(item.entity_type, item.entity_slug)}
+              className="font-medium text-foreground hover:text-primary transition-colors truncate"
+            >
+              {item.entity_name}
+            </Link>
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
+              {getEntityTypeLabel(item.entity_type)}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+            <span>added by {item.added_by_name}</span>
+            {!isEditingNotes && item.notes && (
+              <>
+                <span className="text-muted-foreground/40">|</span>
+                <span className="truncate">{item.notes}</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Action buttons (creator only) */}
+        {isCreator && (
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Edit notes button */}
+            {!isEditingNotes && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setNotesValue(item.notes ?? '')
+                  setIsEditingNotes(true)
+                }}
+                title="Edit notes"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+            )}
+
+            {/* Remove button */}
+            {!showRemoveConfirm ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                onClick={() => setShowRemoveConfirm(true)}
+                disabled={removeMutation.isPending}
+                title="Remove from collection"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            ) : (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={handleRemove}
+                  disabled={removeMutation.isPending}
+                >
+                  {removeMutation.isPending ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    'Remove'
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setShowRemoveConfirm(false)}
+                  disabled={removeMutation.isPending}
+                >
+                  Cancel
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Entity info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <Link
-            href={getEntityUrl(item.entity_type, item.entity_slug)}
-            className="font-medium text-foreground hover:text-primary transition-colors truncate"
-          >
-            {item.entity_name}
-          </Link>
-          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
-            {getEntityTypeLabel(item.entity_type)}
-          </Badge>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-          <span>added by {item.added_by_name}</span>
-          {item.notes && (
-            <>
-              <span className="text-muted-foreground/40">|</span>
-              <span className="truncate">{item.notes}</span>
-            </>
+      {/* Inline notes editor */}
+      {isEditingNotes && isCreator && (
+        <div className="mt-2 ml-[4.25rem] space-y-2">
+          <Textarea
+            value={notesValue}
+            onChange={(e) => setNotesValue(e.target.value)}
+            placeholder="Add a note about this item..."
+            rows={2}
+            className="text-sm"
+            autoFocus
+          />
+          {updateMutation.isError && (
+            <p className="text-xs text-destructive">
+              {updateMutation.error instanceof Error
+                ? updateMutation.error.message
+                : 'Failed to update notes'}
+            </p>
           )}
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={handleSaveNotes}
+              disabled={updateMutation.isPending}
+            >
+              {updateMutation.isPending ? (
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+              ) : (
+                <Check className="h-3 w-3 mr-1" />
+              )}
+              Save
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              onClick={handleCancelNotes}
+              disabled={updateMutation.isPending}
+            >
+              Cancel
+            </Button>
+          </div>
         </div>
-      </div>
-
-      {/* Remove button (creator only) */}
-      {isCreator && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
-          onClick={handleRemove}
-          disabled={removeMutation.isPending}
-          title="Remove from collection"
-        >
-          <X className="h-4 w-4" />
-        </Button>
       )}
     </div>
   )

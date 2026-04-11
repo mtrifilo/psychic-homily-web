@@ -381,6 +381,71 @@ func (h *CollectionHandler) AddItemHandler(ctx context.Context, req *AddItemHand
 }
 
 // ============================================================================
+// Update Item
+// ============================================================================
+
+// UpdateItemHandlerRequest represents the request for updating an item in a collection
+type UpdateItemHandlerRequest struct {
+	Slug   string `path:"slug" doc:"Crate slug" example:"my-favorite-artists"`
+	ItemID string `path:"item_id" doc:"Crate item ID" example:"1"`
+	Body   struct {
+		Notes *string `json:"notes" required:"false" doc:"Notes about this item"`
+	}
+}
+
+// UpdateItemHandlerResponse represents the response for updating an item
+type UpdateItemHandlerResponse struct {
+	Body *contracts.CollectionItemResponse
+}
+
+// UpdateItemHandler handles PATCH /collections/{slug}/items/{item_id}
+func (h *CollectionHandler) UpdateItemHandler(ctx context.Context, req *UpdateItemHandlerRequest) (*UpdateItemHandlerResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	itemID, err := strconv.ParseUint(req.ItemID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid item ID")
+	}
+
+	serviceReq := &contracts.UpdateCollectionItemRequest{
+		Notes: req.Body.Notes,
+	}
+
+	item, err := h.collectionService.UpdateItem(req.Slug, uint(itemID), user.ID, user.IsAdmin, serviceReq)
+	if err != nil {
+		mappedErr := mapCollectionError(err)
+		if mappedErr != nil {
+			return nil, mappedErr
+		}
+		logger.FromContext(ctx).Error("update_collection_item_failed",
+			"slug", req.Slug,
+			"item_id", itemID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to update collection item (request_id: %s)", requestID),
+		)
+	}
+
+	// Audit log (fire and forget)
+	if h.auditLogService != nil {
+		go func() {
+			h.auditLogService.LogAction(user.ID, "update_crate_item", "collection", item.ID, map[string]interface{}{
+				"slug": req.Slug,
+			})
+		}()
+	}
+
+	return &UpdateItemHandlerResponse{Body: item}, nil
+}
+
+// ============================================================================
 // Remove Item
 // ============================================================================
 

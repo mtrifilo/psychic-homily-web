@@ -667,6 +667,7 @@ type mockCollectionService struct {
 	updateCollectionFn func(string, uint, bool, *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, error)
 	deleteCollectionFn func(string, uint, bool) (error)
 	addItemFn func(string, uint, *contracts.AddCollectionItemRequest) (*contracts.CollectionItemResponse, error)
+	updateItemFn func(string, uint, uint, bool, *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, error)
 	removeItemFn func(string, uint, uint, bool) (error)
 	reorderItemsFn func(string, uint, *contracts.ReorderCollectionItemsRequest) (error)
 	subscribeFn func(string, uint) (error)
@@ -710,6 +711,12 @@ func (m *mockCollectionService) DeleteCollection(slug string, userID uint, isAdm
 func (m *mockCollectionService) AddItem(slug string, userID uint, req *contracts.AddCollectionItemRequest) (*contracts.CollectionItemResponse, error) {
 	if m.addItemFn != nil {
 		return m.addItemFn(slug, userID, req)
+	}
+	return nil, nil
+}
+func (m *mockCollectionService) UpdateItem(slug string, itemID uint, userID uint, isAdmin bool, req *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, error) {
+	if m.updateItemFn != nil {
+		return m.updateItemFn(slug, itemID, userID, isAdmin, req)
 	}
 	return nil, nil
 }

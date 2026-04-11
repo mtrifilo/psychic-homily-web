@@ -415,6 +415,62 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 	}, nil
 }
 
+// UpdateItem updates an item's notes in a collection
+func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, isAdmin bool, req *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var collection models.Collection
+	err := s.db.Where("slug = ?", slug).First(&collection).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.ErrCollectionNotFound(slug)
+		}
+		return nil, fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	var item models.CollectionItem
+	err = s.db.Where("id = ? AND collection_id = ?", itemID, collection.ID).First(&item).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.ErrCollectionItemNotFound(itemID)
+		}
+		return nil, fmt.Errorf("failed to get collection item: %w", err)
+	}
+
+	// Check permission: collection creator, item adder, or admin
+	if collection.CreatorID != userID && item.AddedByUserID != userID && !isAdmin {
+		return nil, apperrors.ErrCollectionForbidden(slug)
+	}
+
+	// Update notes
+	if req.Notes != nil {
+		item.Notes = req.Notes
+	}
+
+	if err := s.db.Save(&item).Error; err != nil {
+		return nil, fmt.Errorf("failed to update collection item: %w", err)
+	}
+
+	// Resolve entity name and slug
+	entityName, entitySlug := s.resolveEntityNameAndSlug(item.EntityType, item.EntityID)
+	addedByName := s.resolveUserName(item.AddedByUserID)
+
+	return &contracts.CollectionItemResponse{
+		ID:            item.ID,
+		EntityType:    item.EntityType,
+		EntityID:      item.EntityID,
+		EntityName:    entityName,
+		EntitySlug:    entitySlug,
+		Position:      item.Position,
+		AddedByUserID: item.AddedByUserID,
+		AddedByName:   addedByName,
+		Notes:         item.Notes,
+		CreatedAt:     item.CreatedAt,
+	}, nil
+}
+
 // RemoveItem removes an item from a collection
 func (s *CollectionService) RemoveItem(slug string, itemID uint, userID uint, isAdmin bool) error {
 	if s.db == nil {
