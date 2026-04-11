@@ -78,6 +78,9 @@ type Comment struct {
 	BodyHTML        string            `gorm:"not null;column:body_html"`
 	StructuredData  *json.RawMessage  `gorm:"column:structured_data;type:jsonb"`
 	Visibility      CommentVisibility `gorm:"not null;column:visibility;default:'visible'"`
+	HiddenReason    *string           `gorm:"column:hidden_reason"`
+	HiddenByUserID  *uint             `gorm:"column:hidden_by_user_id"`
+	HiddenAt        *time.Time        `gorm:"column:hidden_at"`
 	ReplyPermission ReplyPermission   `gorm:"not null;column:reply_permission;default:'anyone'"`
 	Ups             int               `gorm:"not null;column:ups;default:0"`
 	Downs           int               `gorm:"not null;column:downs;default:0"`

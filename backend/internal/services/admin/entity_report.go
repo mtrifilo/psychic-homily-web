@@ -39,6 +39,10 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 
 	// Verify the entity exists
 	tableName := req.EntityType + "s"
+	// Comments table is already plural
+	if req.EntityType == "comment" {
+		tableName = "comments"
+	}
 	var count int64
 	if err := s.db.Table(tableName).Where("id = ?", req.EntityID).Count(&count).Error; err != nil {
 		return nil, fmt.Errorf("failed to verify entity: %w", err)
@@ -70,6 +74,23 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 
 	if err := s.db.Create(report).Error; err != nil {
 		return nil, fmt.Errorf("failed to create entity report: %w", err)
+	}
+
+	// Auto-hide comments with 3+ reports
+	if req.EntityType == "comment" {
+		var totalReports int64
+		if err := s.db.Model(&models.EntityReport{}).
+			Where("entity_type = 'comment' AND entity_id = ? AND status = ?",
+				req.EntityID, models.EntityReportStatusPending).
+			Count(&totalReports).Error; err == nil && totalReports >= 3 {
+			// Auto-hide the comment
+			s.db.Table("comments").Where("id = ? AND visibility = 'visible'", req.EntityID).
+				Updates(map[string]interface{}{
+					"visibility":    "hidden_by_mod",
+					"hidden_reason": "auto-hidden: multiple reports",
+					"updated_at":    time.Now(),
+				})
+		}
 	}
 
 	// Reload with relationships

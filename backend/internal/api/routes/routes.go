@@ -986,6 +986,7 @@ func setupEntityReportRoutes(rc RouteContext) {
 		// The generic entity report handler + service support shows, so the admin queue
 		// can display show reports submitted through the existing endpoint or this one.
 		huma.Post(reportAPI, "/shows/{entity_id}/entity-report", entityReportHandler.ReportShowHandler)
+		huma.Post(reportAPI, "/comments/{entity_id}/report", entityReportHandler.ReportCommentHandler)
 	})
 
 	// Admin: entity report management
@@ -1071,8 +1072,10 @@ func setupRadioRoutes(rc RouteContext) {
 // setupCommentRoutes configures comment endpoints.
 // Public routes use optional auth (could be used for user vote context in future).
 // Protected routes require authentication.
+// Admin routes require admin privileges.
 func setupCommentRoutes(rc RouteContext) {
 	commentHandler := handlers.NewCommentHandler(rc.SC.Comment, rc.SC.Comment, rc.SC.AuditLog)
+	commentAdminHandler := handlers.NewCommentAdminHandler(rc.SC.Comment, rc.SC.AuditLog)
 
 	// Public: list comments, get comment, get thread
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
@@ -1086,6 +1089,13 @@ func setupCommentRoutes(rc RouteContext) {
 	huma.Post(rc.Protected, "/comments/{comment_id}/replies", commentHandler.CreateReplyHandler)
 	huma.Put(rc.Protected, "/comments/{comment_id}", commentHandler.UpdateCommentHandler)
 	huma.Delete(rc.Protected, "/comments/{comment_id}", commentHandler.DeleteCommentHandler)
+
+	// Admin: comment moderation
+	huma.Post(rc.Protected, "/admin/comments/{comment_id}/hide", commentAdminHandler.AdminHideCommentHandler)
+	huma.Post(rc.Protected, "/admin/comments/{comment_id}/restore", commentAdminHandler.AdminRestoreCommentHandler)
+	huma.Get(rc.Protected, "/admin/comments/pending", commentAdminHandler.AdminListPendingCommentsHandler)
+	huma.Post(rc.Protected, "/admin/comments/{comment_id}/approve", commentAdminHandler.AdminApproveCommentHandler)
+	huma.Post(rc.Protected, "/admin/comments/{comment_id}/reject", commentAdminHandler.AdminRejectCommentHandler)
 }
 
 // setupCommentVoteRoutes configures comment voting endpoints.

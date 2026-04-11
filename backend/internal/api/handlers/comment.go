@@ -226,6 +226,9 @@ func (h *CommentHandler) CreateCommentHandler(ctx context.Context, req *CreateCo
 		if strings.Contains(err.Error(), "body is required") || strings.Contains(err.Error(), "exceeds maximum length") {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
+		if strings.Contains(err.Error(), "please wait") || strings.Contains(err.Error(), "hourly comment limit") {
+			return nil, huma.Error429TooManyRequests(err.Error())
+		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(
 			fmt.Sprintf("Failed to create comment (request_id: %s)", requestID),
@@ -306,6 +309,9 @@ func (h *CommentHandler) CreateReplyHandler(ctx context.Context, req *CreateRepl
 		}
 		if strings.Contains(err.Error(), "parent comment belongs to a different entity") {
 			return nil, huma.Error400BadRequest(err.Error())
+		}
+		if strings.Contains(err.Error(), "please wait") || strings.Contains(err.Error(), "hourly comment limit") {
+			return nil, huma.Error429TooManyRequests(err.Error())
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(

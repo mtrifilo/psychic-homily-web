@@ -61,6 +61,36 @@ func TestCommentService_NilDB(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "database not initialized")
 	})
+
+	t.Run("HideComment_NilDB", func(t *testing.T) {
+		err := svc.HideComment(1, 1, "reason")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "database not initialized")
+	})
+
+	t.Run("RestoreComment_NilDB", func(t *testing.T) {
+		err := svc.RestoreComment(1, 1)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "database not initialized")
+	})
+
+	t.Run("ListPendingComments_NilDB", func(t *testing.T) {
+		_, _, err := svc.ListPendingComments(20, 0)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "database not initialized")
+	})
+
+	t.Run("ApproveComment_NilDB", func(t *testing.T) {
+		err := svc.ApproveComment(1, 1)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "database not initialized")
+	})
+
+	t.Run("RejectComment_NilDB", func(t *testing.T) {
+		err := svc.RejectComment(1, 1, "reason")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "database not initialized")
+	})
 }
 
 func TestCommentService_InvalidEntityType(t *testing.T) {
@@ -194,6 +224,43 @@ func TestMarkdownRendering(t *testing.T) {
 	})
 }
 
+func TestComputeInitialVisibility(t *testing.T) {
+	t.Run("AdminAlwaysVisible", func(t *testing.T) {
+		user := &models.User{IsAdmin: true, UserTier: "new_user"}
+		assert.Equal(t, models.CommentVisibilityVisible, computeInitialVisibility(user))
+	})
+	t.Run("NewUser_PendingReview", func(t *testing.T) {
+		user := &models.User{UserTier: "new_user"}
+		assert.Equal(t, models.CommentVisibilityPendingReview, computeInitialVisibility(user))
+	})
+	t.Run("EmptyTier_PendingReview", func(t *testing.T) {
+		user := &models.User{UserTier: ""}
+		assert.Equal(t, models.CommentVisibilityPendingReview, computeInitialVisibility(user))
+	})
+	t.Run("Contributor_Visible", func(t *testing.T) {
+		user := &models.User{UserTier: "contributor"}
+		assert.Equal(t, models.CommentVisibilityVisible, computeInitialVisibility(user))
+	})
+	t.Run("TrustedContributor_Visible", func(t *testing.T) {
+		user := &models.User{UserTier: "trusted_contributor"}
+		assert.Equal(t, models.CommentVisibilityVisible, computeInitialVisibility(user))
+	})
+	t.Run("LocalAmbassador_Visible", func(t *testing.T) {
+		user := &models.User{UserTier: "local_ambassador"}
+		assert.Equal(t, models.CommentVisibilityVisible, computeInitialVisibility(user))
+	})
+}
+
+func TestUserTierHourlyLimit(t *testing.T) {
+	assert.Equal(t, 5, userTierHourlyLimit("new_user"))
+	assert.Equal(t, 5, userTierHourlyLimit(""))
+	assert.Equal(t, 30, userTierHourlyLimit("contributor"))
+	assert.Equal(t, 100, userTierHourlyLimit("trusted_contributor"))
+	assert.Equal(t, -1, userTierHourlyLimit("local_ambassador"))
+	assert.Equal(t, -1, userTierHourlyLimit("admin"))
+	assert.Equal(t, 5, userTierHourlyLimit("unknown_tier"))
+}
+
 func TestWilsonScore(t *testing.T) {
 	t.Run("NoVotes", func(t *testing.T) {
 		score := wilsonScore(0, 0)
@@ -283,6 +350,22 @@ func (suite *CommentServiceIntegrationTestSuite) createTestUser() *models.User {
 		LastName:      stringPtr("User"),
 		IsActive:      true,
 		EmailVerified: true,
+		UserTier:      "contributor", // contributor tier auto-publishes comments
+	}
+	err := suite.db.Create(user).Error
+	suite.Require().NoError(err)
+	return user
+}
+
+func (suite *CommentServiceIntegrationTestSuite) createTestNewUser() *models.User {
+	user := &models.User{
+		Email:         stringPtr(fmt.Sprintf("newuser-%d@test.com", time.Now().UnixNano())),
+		Username:      stringPtr(fmt.Sprintf("newuser%d", time.Now().UnixNano())),
+		FirstName:     stringPtr("New"),
+		LastName:      stringPtr("User"),
+		IsActive:      true,
+		EmailVerified: true,
+		UserTier:      "new_user", // new_user tier → pending_review
 	}
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
@@ -326,6 +409,29 @@ func (suite *CommentServiceIntegrationTestSuite) createTestVenue(name string) ui
 	err := suite.db.Create(venue).Error
 	suite.Require().NoError(err)
 	return venue.ID
+}
+
+// insertComment creates a comment directly in the DB, bypassing rate limiting.
+// Used for test setup where we need multiple comments rapidly.
+func (suite *CommentServiceIntegrationTestSuite) insertComment(userID uint, entityType string, entityID uint, body string, parentID *uint, rootID *uint, depth int) *models.Comment {
+	svc := suite.commentService
+	bodyHTML := svc.renderMarkdown(body)
+	comment := &models.Comment{
+		EntityType:      models.CommentEntityType(entityType),
+		EntityID:        entityID,
+		Kind:            models.CommentKindComment,
+		UserID:          userID,
+		ParentID:        parentID,
+		RootID:          rootID,
+		Depth:           depth,
+		Body:            body,
+		BodyHTML:        bodyHTML,
+		Visibility:      models.CommentVisibilityVisible,
+		ReplyPermission: models.ReplyPermissionAnyone,
+	}
+	err := suite.db.Create(comment).Error
+	suite.Require().NoError(err)
+	return comment
 }
 
 func (suite *CommentServiceIntegrationTestSuite) createTestShow(title string) uint {
@@ -447,6 +553,7 @@ func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_MarkdownRende
 
 func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_Reply() {
 	user := suite.createTestUser()
+	user2 := suite.createTestUser()
 	artistID := suite.createTestArtist("Reply Artist")
 
 	// Create top-level comment
@@ -457,8 +564,8 @@ func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_Reply() {
 	})
 	suite.Require().NoError(err)
 
-	// Create reply
-	reply, err := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+	// Create reply from a different user (avoids per-entity cooldown)
+	reply, err := suite.commentService.CreateComment(user2.ID, &contracts.CreateCommentRequest{
 		EntityType: "artist",
 		EntityID:   artistID,
 		Body:       "Reply comment",
@@ -474,19 +581,21 @@ func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_Reply() {
 }
 
 func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_NestedReply() {
-	user := suite.createTestUser()
+	user1 := suite.createTestUser()
+	user2 := suite.createTestUser()
+	user3 := suite.createTestUser()
 	artistID := suite.createTestArtist("Nested Reply Artist")
 
-	// Depth 0: root
-	root, err := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+	// Depth 0: root (user1)
+	root, err := suite.commentService.CreateComment(user1.ID, &contracts.CreateCommentRequest{
 		EntityType: "artist",
 		EntityID:   artistID,
 		Body:       "Depth 0",
 	})
 	suite.Require().NoError(err)
 
-	// Depth 1: reply to root
-	reply1, err := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+	// Depth 1: reply to root (user2)
+	reply1, err := suite.commentService.CreateComment(user2.ID, &contracts.CreateCommentRequest{
 		EntityType: "artist",
 		EntityID:   artistID,
 		Body:       "Depth 1",
@@ -495,8 +604,8 @@ func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_NestedReply()
 	suite.Require().NoError(err)
 	suite.Equal(1, reply1.Depth)
 
-	// Depth 2: reply to reply (max allowed)
-	reply2, err := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+	// Depth 2: reply to reply (user3, max allowed)
+	reply2, err := suite.commentService.CreateComment(user3.ID, &contracts.CreateCommentRequest{
 		EntityType: "artist",
 		EntityID:   artistID,
 		Body:       "Depth 2",
@@ -511,27 +620,14 @@ func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_DepthLimitExc
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("Deep Artist")
 
-	// Create chain: depth 0 → 1 → 2
-	root, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "Root",
-	})
-	reply1, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "Reply 1",
-		ParentID:   &root.ID,
-	})
-	reply2, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "Reply 2",
-		ParentID:   &reply1.ID,
-	})
+	// Create chain via direct DB insert (bypasses rate limiting)
+	root := suite.insertComment(user.ID, "artist", artistID, "Root", nil, nil, 0)
+	reply1 := suite.insertComment(user.ID, "artist", artistID, "Reply 1", &root.ID, &root.ID, 1)
+	reply2 := suite.insertComment(user.ID, "artist", artistID, "Reply 2", &reply1.ID, &root.ID, 2)
 
-	// Attempt depth 3 — should fail
-	_, err := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+	// Attempt depth 3 via service — should fail due to max depth
+	user2 := suite.createTestUser()
+	_, err := suite.commentService.CreateComment(user2.ID, &contracts.CreateCommentRequest{
 		EntityType: "artist",
 		EntityID:   artistID,
 		Body:       "Too deep",
@@ -613,13 +709,9 @@ func (suite *CommentServiceIntegrationTestSuite) TestListComments_BasicPaginatio
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("List Artist")
 
-	// Create 5 comments
+	// Create 5 comments via direct insert (bypasses rate limiting)
 	for i := 0; i < 5; i++ {
-		suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-			EntityType: "artist",
-			EntityID:   artistID,
-			Body:       fmt.Sprintf("Comment %d", i),
-		})
+		suite.insertComment(user.ID, "artist", artistID, fmt.Sprintf("Comment %d", i), nil, nil, 0)
 	}
 
 	// Page 1 (limit 2)
@@ -645,18 +737,9 @@ func (suite *CommentServiceIntegrationTestSuite) TestListComments_TopLevelOnly()
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("Top Level Only Artist")
 
-	// Create a root and a reply
-	root, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "Root comment",
-	})
-	suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "Reply comment",
-		ParentID:   &root.ID,
-	})
+	// Create a root and a reply via direct insert (bypasses rate limiting)
+	root := suite.insertComment(user.ID, "artist", artistID, "Root comment", nil, nil, 0)
+	suite.insertComment(user.ID, "artist", artistID, "Reply comment", &root.ID, &root.ID, 1)
 
 	// List should only return top-level
 	result, err := suite.commentService.ListCommentsForEntity("artist", artistID, contracts.CommentListFilters{})
@@ -669,17 +752,10 @@ func (suite *CommentServiceIntegrationTestSuite) TestListComments_SortByNew() {
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("Sort New Artist")
 
-	c1, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "First comment",
-	})
+	// Direct insert to bypass rate limiting
+	c1 := suite.insertComment(user.ID, "artist", artistID, "First comment", nil, nil, 0)
 	time.Sleep(10 * time.Millisecond)
-	c2, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "Second comment",
-	})
+	c2 := suite.insertComment(user.ID, "artist", artistID, "Second comment", nil, nil, 0)
 
 	result, err := suite.commentService.ListCommentsForEntity("artist", artistID, contracts.CommentListFilters{
 		Sort: "new",
@@ -695,17 +771,9 @@ func (suite *CommentServiceIntegrationTestSuite) TestListComments_SortByBest() {
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("Sort Best Artist")
 
-	// Create two comments, manually set different scores
-	c1, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "Low score",
-	})
-	c2, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "High score",
-	})
+	// Direct insert to bypass rate limiting
+	c1 := suite.insertComment(user.ID, "artist", artistID, "Low score", nil, nil, 0)
+	c2 := suite.insertComment(user.ID, "artist", artistID, "High score", nil, nil, 0)
 
 	// Manually set scores (simulate voting)
 	suite.db.Model(&models.Comment{}).Where("id = ?", c1.ID).Update("score", 0.1)
@@ -724,19 +792,21 @@ func (suite *CommentServiceIntegrationTestSuite) TestListComments_FilterByKind()
 	user := suite.createTestUser()
 	showID := suite.createTestShow("Kind Filter Show")
 
-	// Create one comment and one field_note
-	suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "show",
-		EntityID:   showID,
-		Body:       "Regular comment",
-		Kind:       "comment",
-	})
-	suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "show",
-		EntityID:   showID,
-		Body:       "Field note content",
-		Kind:       "field_note",
-	})
+	// Direct insert to bypass rate limiting — one comment and one field_note
+	comment := suite.insertComment(user.ID, "show", showID, "Regular comment", nil, nil, 0)
+	// Insert a field_note directly
+	fnComment := &models.Comment{
+		EntityType:      models.CommentEntityShow,
+		EntityID:        showID,
+		Kind:            models.CommentKindFieldNote,
+		UserID:          user.ID,
+		Body:            "Field note content",
+		BodyHTML:        "<p>Field note content</p>",
+		Visibility:      models.CommentVisibilityVisible,
+		ReplyPermission: models.ReplyPermissionAnyone,
+	}
+	suite.Require().NoError(suite.db.Create(fnComment).Error)
+	_ = comment
 
 	// Filter for field_notes only
 	result, err := suite.commentService.ListCommentsForEntity("show", showID, contracts.CommentListFilters{
@@ -779,23 +849,10 @@ func (suite *CommentServiceIntegrationTestSuite) TestGetThread_FullThread() {
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("Thread Artist")
 
-	root, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "Thread root",
-	})
-	reply1, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "Reply 1",
-		ParentID:   &root.ID,
-	})
-	suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "Reply to reply 1",
-		ParentID:   &reply1.ID,
-	})
+	// Direct insert to bypass rate limiting
+	root := suite.insertComment(user.ID, "artist", artistID, "Thread root", nil, nil, 0)
+	reply1 := suite.insertComment(user.ID, "artist", artistID, "Reply 1", &root.ID, &root.ID, 1)
+	suite.insertComment(user.ID, "artist", artistID, "Reply to reply 1", &reply1.ID, &root.ID, 2)
 
 	thread, err := suite.commentService.GetThread(root.ID)
 	suite.Require().NoError(err)
@@ -817,17 +874,9 @@ func (suite *CommentServiceIntegrationTestSuite) TestGetThread_NotARoot() {
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("Not Root Artist")
 
-	root, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "Root",
-	})
-	reply, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "Reply",
-		ParentID:   &root.ID,
-	})
+	// Direct insert to bypass rate limiting
+	root := suite.insertComment(user.ID, "artist", artistID, "Root", nil, nil, 0)
+	reply := suite.insertComment(user.ID, "artist", artistID, "Reply", &root.ID, &root.ID, 1)
 
 	_, err := suite.commentService.GetThread(reply.ID)
 	suite.Error(err)
@@ -1003,16 +1052,9 @@ func (suite *CommentServiceIntegrationTestSuite) TestListComments_SortByTop() {
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("Sort Top Artist")
 
-	c1, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "Low net",
-	})
-	c2, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "High net",
-	})
+	// Direct insert to bypass rate limiting
+	c1 := suite.insertComment(user.ID, "artist", artistID, "Low net", nil, nil, 0)
+	c2 := suite.insertComment(user.ID, "artist", artistID, "High net", nil, nil, 0)
 
 	// c1: 2 ups, 3 downs = -1 net
 	suite.db.Model(&models.Comment{}).Where("id = ?", c1.ID).Updates(map[string]interface{}{"ups": 2, "downs": 3})
@@ -1031,16 +1073,9 @@ func (suite *CommentServiceIntegrationTestSuite) TestListComments_SortByControve
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("Controversial Artist")
 
-	c1, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "Not controversial",
-	})
-	c2, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
-		EntityType: "artist",
-		EntityID:   artistID,
-		Body:       "Very controversial",
-	})
+	// Direct insert to bypass rate limiting
+	c1 := suite.insertComment(user.ID, "artist", artistID, "Not controversial", nil, nil, 0)
+	c2 := suite.insertComment(user.ID, "artist", artistID, "Very controversial", nil, nil, 0)
 
 	// c1: 1 up, 0 down — 1 total, 1 abs diff
 	suite.db.Model(&models.Comment{}).Where("id = ?", c1.ID).Updates(map[string]interface{}{"ups": 1, "downs": 0})
@@ -1141,4 +1176,275 @@ func (suite *CommentServiceIntegrationTestSuite) TestGetThread_SingleRootNoRepli
 	suite.Require().NoError(err)
 	suite.Len(thread, 1)
 	suite.Equal("Solo root", thread[0].Body)
+}
+
+// =============================================================================
+// Group 10: Trust-Tier Visibility (PSY-292)
+// =============================================================================
+
+func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_NewUser_PendingReview() {
+	newUser := suite.createTestNewUser()
+	artistID := suite.createTestArtist("Pending Artist")
+
+	comment, err := suite.commentService.CreateComment(newUser.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "New user comment",
+	})
+	suite.Require().NoError(err)
+	suite.Equal("pending_review", comment.Visibility)
+}
+
+func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_Contributor_Visible() {
+	user := suite.createTestUser() // contributor tier
+	artistID := suite.createTestArtist("Contributor Artist")
+
+	comment, err := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "Contributor comment",
+	})
+	suite.Require().NoError(err)
+	suite.Equal("visible", comment.Visibility)
+}
+
+func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_Admin_Visible() {
+	admin := suite.createTestAdmin()
+	artistID := suite.createTestArtist("Admin Artist")
+
+	comment, err := suite.commentService.CreateComment(admin.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "Admin comment",
+	})
+	suite.Require().NoError(err)
+	suite.Equal("visible", comment.Visibility)
+}
+
+// =============================================================================
+// Group 11: Rate Limiting (PSY-292)
+// =============================================================================
+
+func (suite *CommentServiceIntegrationTestSuite) TestRateLimit_PerEntityCooldown() {
+	user := suite.createTestUser()
+	artistID := suite.createTestArtist("Cooldown Artist")
+
+	// First comment succeeds
+	_, err := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "First comment",
+	})
+	suite.Require().NoError(err)
+
+	// Second comment on same entity within 60s fails
+	_, err = suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "Too fast",
+	})
+	suite.Error(err)
+	suite.Contains(err.Error(), "please wait 60 seconds")
+}
+
+func (suite *CommentServiceIntegrationTestSuite) TestRateLimit_DifferentEntityAllowed() {
+	user := suite.createTestUser()
+	artist1ID := suite.createTestArtist("Rate Artist 1")
+	artist2ID := suite.createTestArtist("Rate Artist 2")
+
+	// First comment on entity 1
+	_, err := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artist1ID,
+		Body:       "Comment on artist 1",
+	})
+	suite.Require().NoError(err)
+
+	// Second comment on different entity should succeed
+	_, err = suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artist2ID,
+		Body:       "Comment on artist 2",
+	})
+	suite.Require().NoError(err)
+}
+
+func (suite *CommentServiceIntegrationTestSuite) TestRateLimit_NewUserHourlyLimit() {
+	newUser := suite.createTestNewUser()
+
+	// Insert 5 comments directly to fill the hourly limit
+	for i := 0; i < 5; i++ {
+		artistID := suite.createTestArtist(fmt.Sprintf("Hourly Artist %d", i))
+		suite.insertComment(newUser.ID, "artist", artistID, fmt.Sprintf("Comment %d", i), nil, nil, 0)
+	}
+
+	// 6th comment should fail (hourly limit for new_user is 5)
+	artistID := suite.createTestArtist("Hourly Overflow Artist")
+	_, err := suite.commentService.CreateComment(newUser.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "One too many",
+	})
+	suite.Error(err)
+	suite.Contains(err.Error(), "hourly comment limit")
+}
+
+// =============================================================================
+// Group 12: Admin Moderation (PSY-292)
+// =============================================================================
+
+func (suite *CommentServiceIntegrationTestSuite) TestHideComment_Success() {
+	user := suite.createTestUser()
+	admin := suite.createTestAdmin()
+	artistID := suite.createTestArtist("Hide Artist")
+
+	comment, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "Will be hidden",
+	})
+
+	err := suite.commentService.HideComment(admin.ID, comment.ID, "violates guidelines")
+	suite.Require().NoError(err)
+
+	// Verify it's hidden
+	fetched, err := suite.commentService.GetComment(comment.ID)
+	suite.Require().NoError(err)
+	suite.Equal("hidden_by_mod", fetched.Visibility)
+}
+
+func (suite *CommentServiceIntegrationTestSuite) TestHideComment_NotFound() {
+	err := suite.commentService.HideComment(1, 999999, "reason")
+	suite.Error(err)
+	suite.Contains(err.Error(), "not found")
+}
+
+func (suite *CommentServiceIntegrationTestSuite) TestRestoreComment_Success() {
+	user := suite.createTestUser()
+	admin := suite.createTestAdmin()
+	artistID := suite.createTestArtist("Restore Artist")
+
+	comment, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "Hide then restore",
+	})
+	suite.commentService.HideComment(admin.ID, comment.ID, "temp hide")
+
+	err := suite.commentService.RestoreComment(admin.ID, comment.ID)
+	suite.Require().NoError(err)
+
+	fetched, err := suite.commentService.GetComment(comment.ID)
+	suite.Require().NoError(err)
+	suite.Equal("visible", fetched.Visibility)
+}
+
+func (suite *CommentServiceIntegrationTestSuite) TestRestoreComment_AlreadyVisible() {
+	user := suite.createTestUser()
+	artistID := suite.createTestArtist("Already Visible Artist")
+
+	comment, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "Already visible",
+	})
+
+	err := suite.commentService.RestoreComment(1, comment.ID)
+	suite.Error(err)
+	suite.Contains(err.Error(), "already visible")
+}
+
+func (suite *CommentServiceIntegrationTestSuite) TestListPendingComments() {
+	newUser := suite.createTestNewUser()
+	artistID := suite.createTestArtist("Pending List Artist")
+
+	// Create a pending comment (new_user tier)
+	_, err := suite.commentService.CreateComment(newUser.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "Pending comment",
+	})
+	suite.Require().NoError(err)
+
+	// List pending
+	comments, total, err := suite.commentService.ListPendingComments(20, 0)
+	suite.Require().NoError(err)
+	suite.GreaterOrEqual(total, int64(1))
+	found := false
+	for _, c := range comments {
+		if c.Body == "Pending comment" {
+			found = true
+			suite.Equal("pending_review", c.Visibility)
+		}
+	}
+	suite.True(found, "Expected to find the pending comment")
+}
+
+func (suite *CommentServiceIntegrationTestSuite) TestApproveComment_Success() {
+	newUser := suite.createTestNewUser()
+	admin := suite.createTestAdmin()
+	artistID := suite.createTestArtist("Approve Artist")
+
+	comment, _ := suite.commentService.CreateComment(newUser.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "Needs approval",
+	})
+	suite.Equal("pending_review", comment.Visibility)
+
+	err := suite.commentService.ApproveComment(admin.ID, comment.ID)
+	suite.Require().NoError(err)
+
+	fetched, _ := suite.commentService.GetComment(comment.ID)
+	suite.Equal("visible", fetched.Visibility)
+}
+
+func (suite *CommentServiceIntegrationTestSuite) TestApproveComment_NotPending() {
+	user := suite.createTestUser()
+	artistID := suite.createTestArtist("Not Pending Artist")
+
+	// Contributor comment is auto-visible
+	comment, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "Already approved",
+	})
+
+	err := suite.commentService.ApproveComment(1, comment.ID)
+	suite.Error(err)
+	suite.Contains(err.Error(), "not pending review")
+}
+
+func (suite *CommentServiceIntegrationTestSuite) TestRejectComment_Success() {
+	newUser := suite.createTestNewUser()
+	admin := suite.createTestAdmin()
+	artistID := suite.createTestArtist("Reject Artist")
+
+	comment, _ := suite.commentService.CreateComment(newUser.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "Spam content",
+	})
+	suite.Equal("pending_review", comment.Visibility)
+
+	err := suite.commentService.RejectComment(admin.ID, comment.ID, "spam")
+	suite.Require().NoError(err)
+
+	fetched, _ := suite.commentService.GetComment(comment.ID)
+	suite.Equal("hidden_by_mod", fetched.Visibility)
+}
+
+func (suite *CommentServiceIntegrationTestSuite) TestRejectComment_NotPending() {
+	user := suite.createTestUser()
+	artistID := suite.createTestArtist("Not Pending Reject Artist")
+
+	comment, _ := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "Not pending",
+	})
+
+	err := suite.commentService.RejectComment(1, comment.ID, "reason")
+	suite.Error(err)
+	suite.Contains(err.Error(), "not pending review")
 }

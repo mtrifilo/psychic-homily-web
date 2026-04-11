@@ -791,6 +791,49 @@ func (m *mockCollectionService) SetFeatured(slug string, featured bool) (error) 
 }
 
 // ============================================================================
+// Mock: CommentAdminServiceInterface
+// ============================================================================
+
+type mockCommentAdminService struct {
+	hideCommentFn func(uint, uint, string) (error)
+	restoreCommentFn func(uint, uint) (error)
+	listPendingCommentsFn func(int, int) ([]*contracts.CommentResponse, int64, error)
+	approveCommentFn func(uint, uint) (error)
+	rejectCommentFn func(uint, uint, string) (error)
+}
+
+func (m *mockCommentAdminService) HideComment(adminUserID uint, commentID uint, reason string) (error) {
+	if m.hideCommentFn != nil {
+		return m.hideCommentFn(adminUserID, commentID, reason)
+	}
+	return nil
+}
+func (m *mockCommentAdminService) RestoreComment(adminUserID uint, commentID uint) (error) {
+	if m.restoreCommentFn != nil {
+		return m.restoreCommentFn(adminUserID, commentID)
+	}
+	return nil
+}
+func (m *mockCommentAdminService) ListPendingComments(limit int, offset int) ([]*contracts.CommentResponse, int64, error) {
+	if m.listPendingCommentsFn != nil {
+		return m.listPendingCommentsFn(limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *mockCommentAdminService) ApproveComment(adminUserID uint, commentID uint) (error) {
+	if m.approveCommentFn != nil {
+		return m.approveCommentFn(adminUserID, commentID)
+	}
+	return nil
+}
+func (m *mockCommentAdminService) RejectComment(adminUserID uint, commentID uint, reason string) (error) {
+	if m.rejectCommentFn != nil {
+		return m.rejectCommentFn(adminUserID, commentID, reason)
+	}
+	return nil
+}
+
+// ============================================================================
 // Mock: CommentServiceInterface
 // ============================================================================
 
@@ -3729,6 +3772,7 @@ var _ contracts.AutoPromotionServiceInterface = (*mockAutoPromotionService)(nil)
 var _ contracts.CalendarServiceInterface = (*mockCalendarService)(nil)
 var _ contracts.ChartsServiceInterface = (*mockChartsService)(nil)
 var _ contracts.CollectionServiceInterface = (*mockCollectionService)(nil)
+var _ contracts.CommentAdminServiceInterface = (*mockCommentAdminService)(nil)
 var _ contracts.CommentServiceInterface = (*mockCommentService)(nil)
 var _ contracts.CommentSubscriptionServiceInterface = (*mockCommentSubscriptionService)(nil)
 var _ contracts.CommentVoteServiceInterface = (*mockCommentVoteService)(nil)

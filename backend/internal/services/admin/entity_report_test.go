@@ -74,11 +74,12 @@ func TestValidReportTypesForEntity(t *testing.T) {
 
 func TestValidEntityReportEntityTypes(t *testing.T) {
 	types := models.ValidEntityReportEntityTypes()
-	assert.Len(t, types, 4)
+	assert.Len(t, types, 5)
 	assert.Contains(t, types, "artist")
 	assert.Contains(t, types, "venue")
 	assert.Contains(t, types, "festival")
 	assert.Contains(t, types, "show")
+	assert.Contains(t, types, "comment")
 }
 
 // =============================================================================

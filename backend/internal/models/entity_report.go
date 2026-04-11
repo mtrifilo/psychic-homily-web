@@ -17,6 +17,7 @@ const (
 	EntityReportEntityVenue    = "venue"
 	EntityReportEntityFestival = "festival"
 	EntityReportEntityShow     = "show"
+	EntityReportEntityComment  = "comment"
 )
 
 // Valid report types per entity type.
@@ -48,6 +49,13 @@ var validReportTypes = map[string]map[string]bool{
 		"wrong_venue": true,
 		"wrong_date":  true,
 	},
+	EntityReportEntityComment: {
+		"spam":       true,
+		"harassment": true,
+		"off_topic":  true,
+		"inaccurate": true,
+		"other":      true,
+	},
 }
 
 // EntityReport represents a user report about an entity issue.
@@ -74,7 +82,7 @@ func (EntityReport) TableName() string { return "entity_reports" }
 
 // ValidEntityReportEntityTypes returns the set of entity types that support reports.
 func ValidEntityReportEntityTypes() []string {
-	return []string{EntityReportEntityArtist, EntityReportEntityVenue, EntityReportEntityFestival, EntityReportEntityShow}
+	return []string{EntityReportEntityArtist, EntityReportEntityVenue, EntityReportEntityFestival, EntityReportEntityShow, EntityReportEntityComment}
 }
 
 // IsValidEntityReportEntityType checks if the given entity type supports reports.
