@@ -1092,9 +1092,11 @@ func setupCommentRoutes(rc RouteContext) {
 	huma.Delete(rc.Protected, "/comments/{comment_id}", commentHandler.DeleteCommentHandler)
 
 	// Admin: comment moderation
+	// NOTE: literal paths MUST be registered before parameterized paths to avoid
+	// {comment_id} consuming "pending" as a value and returning 404.
+	huma.Get(rc.Protected, "/admin/comments/pending", commentAdminHandler.AdminListPendingCommentsHandler)
 	huma.Post(rc.Protected, "/admin/comments/{comment_id}/hide", commentAdminHandler.AdminHideCommentHandler)
 	huma.Post(rc.Protected, "/admin/comments/{comment_id}/restore", commentAdminHandler.AdminRestoreCommentHandler)
-	huma.Get(rc.Protected, "/admin/comments/pending", commentAdminHandler.AdminListPendingCommentsHandler)
 	huma.Post(rc.Protected, "/admin/comments/{comment_id}/approve", commentAdminHandler.AdminApproveCommentHandler)
 	huma.Post(rc.Protected, "/admin/comments/{comment_id}/reject", commentAdminHandler.AdminRejectCommentHandler)
 }
