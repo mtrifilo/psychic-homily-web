@@ -132,6 +132,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupLeaderboardRoutes(rc)
 	setupDataGapsRoutes(rc)
 	setupRadioRoutes(rc)
+	setupCommentRoutes(rc)
 
 	return api
 }
@@ -1063,4 +1064,24 @@ func setupRadioRoutes(rc RouteContext) {
 	huma.Get(rc.Protected, "/admin/radio/unmatched", radioHandler.AdminGetUnmatchedPlaysHandler)
 	huma.Post(rc.Protected, "/admin/radio/plays/{id}/link", radioHandler.AdminLinkPlayHandler)
 	huma.Post(rc.Protected, "/admin/radio/plays/bulk-link", radioHandler.AdminBulkLinkPlaysHandler)
+}
+
+// setupCommentRoutes configures comment endpoints.
+// Public routes use optional auth (could be used for user vote context in future).
+// Protected routes require authentication.
+func setupCommentRoutes(rc RouteContext) {
+	commentHandler := handlers.NewCommentHandler(rc.SC.Comment, rc.SC.Comment, rc.SC.AuditLog)
+
+	// Public: list comments, get comment, get thread
+	optionalAuthGroup := huma.NewGroup(rc.API, "")
+	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))
+	huma.Get(optionalAuthGroup, "/entities/{entity_type}/{entity_id}/comments", commentHandler.ListCommentsHandler)
+	huma.Get(optionalAuthGroup, "/comments/{comment_id}", commentHandler.GetCommentHandler)
+	huma.Get(optionalAuthGroup, "/comments/{comment_id}/thread", commentHandler.GetThreadHandler)
+
+	// Protected: create, reply, update, delete
+	huma.Post(rc.Protected, "/entities/{entity_type}/{entity_id}/comments", commentHandler.CreateCommentHandler)
+	huma.Post(rc.Protected, "/comments/{comment_id}/replies", commentHandler.CreateReplyHandler)
+	huma.Put(rc.Protected, "/comments/{comment_id}", commentHandler.UpdateCommentHandler)
+	huma.Delete(rc.Protected, "/comments/{comment_id}", commentHandler.DeleteCommentHandler)
 }
