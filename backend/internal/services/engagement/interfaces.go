@@ -12,4 +12,5 @@ var (
 	_ contracts.AttendanceServiceInterface    = (*AttendanceService)(nil)
 	_ contracts.FollowServiceInterface        = (*FollowService)(nil)
 	_ contracts.CommentServiceInterface       = (*CommentService)(nil)
+	_ contracts.CommentVoteServiceInterface   = (*CommentVoteService)(nil)
 )
