@@ -1,9 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { Library, Users, Star } from 'lucide-react'
+import { Library, Users, Star, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
+import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import type { Collection } from '../types'
 
 interface CollectionCardProps {
@@ -30,7 +31,7 @@ export function CollectionCard({ collection }: CollectionCardProps) {
         {/* Text content */}
         <div className="flex-1 min-w-0">
           <Link href={`/collections/${collection.slug}`} className="block group">
-            <h3 className="font-bold text-foreground group-hover:text-primary transition-colors truncate">
+            <h3 className="font-bold text-foreground group-hover:text-primary transition-colors line-clamp-2">
               {collection.title}
             </h3>
           </Link>
@@ -52,14 +53,14 @@ export function CollectionCard({ collection }: CollectionCardProps) {
           {collection.description && (
             <p
               className={cn(
-                'text-sm text-muted-foreground mt-1 line-clamp-2'
+                'text-sm text-muted-foreground mt-1 line-clamp-3'
               )}
             >
               {collection.description}
             </p>
           )}
 
-          <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
+          <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
             <span>by {collection.creator_name}</span>
             <span className="flex items-center gap-1">
               <Library className="h-3 w-3" />
@@ -75,6 +76,10 @@ export function CollectionCard({ collection }: CollectionCardProps) {
                   : `${collection.subscriber_count} subscribers`}
               </span>
             )}
+            <span className="flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {formatRelativeTime(collection.updated_at)}
+            </span>
           </div>
         </div>
       </div>

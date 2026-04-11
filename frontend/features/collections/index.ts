@@ -11,6 +11,8 @@ export type {
 
 export { COLLECTION_ENTITY_TYPES } from './types'
 
+export type { CollectionListParams } from './hooks'
+
 export {
   useCollections,
   useMyCollections,

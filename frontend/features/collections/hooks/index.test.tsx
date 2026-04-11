@@ -27,6 +27,7 @@ vi.mock('@/lib/queryClient', () => ({
   queryKeys: {
     collections: {
       all: ['collections'],
+      list: (params?: Record<string, unknown>) => ['collections', 'list', params],
       detail: (slug: string) => ['collections', 'detail', slug],
       stats: (slug: string) => ['collections', 'stats', slug],
       my: ['collections', 'my'],

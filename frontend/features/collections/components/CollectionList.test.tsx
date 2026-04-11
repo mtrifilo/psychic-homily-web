@@ -21,12 +21,19 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
 }))
 
+// Mock use-debounce to fire immediately
+vi.mock('use-debounce', () => ({
+  useDebounce: (value: unknown) => [value],
+}))
+
 // Mock collection hooks
 const mockUseCollections = vi.fn()
+const mockUseMyCollections = vi.fn()
 const mockCreateMutate = vi.fn()
 
 vi.mock('../hooks', () => ({
-  useCollections: () => mockUseCollections(),
+  useCollections: (params: unknown) => mockUseCollections(params),
+  useMyCollections: () => mockUseMyCollections(),
   useCreateCollection: () => ({
     mutate: mockCreateMutate,
     isPending: false,
@@ -78,6 +85,37 @@ vi.mock('@/components/ui/dialog', () => ({
   ),
 }))
 
+// Track the active tab value for selective rendering of TabsContent
+let activeTabValue = 'all'
+
+vi.mock('@/components/ui/tabs', () => ({
+  Tabs: ({ children, value, onValueChange }: {
+    children: React.ReactNode
+    value: string
+    onValueChange: (v: string) => void
+  }) => {
+    activeTabValue = value
+    return (
+      <div data-testid="tabs" data-value={value}>
+        {children}
+      </div>
+    )
+  },
+  TabsList: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="tabs-list">{children}</div>
+  ),
+  TabsTrigger: ({ children, value }: { children: React.ReactNode; value: string }) => (
+    <button data-testid={`tab-${value}`} role="tab">{children}</button>
+  ),
+  TabsContent: ({ children, value }: { children: React.ReactNode; value: string }) => {
+    // Only render the active tab's content to avoid duplicate elements
+    if (value !== activeTabValue) return null
+    return (
+      <div data-testid={`tab-content-${value}`} role="tabpanel">{children}</div>
+    )
+  },
+}))
+
 function makeCollection(overrides: Partial<Collection> = {}): Collection {
   return {
     id: 1,
@@ -106,6 +144,12 @@ describe('CollectionList', () => {
       isAuthenticated: false,
       isLoading: false,
       logout: vi.fn(),
+    })
+    // Default: my collections returns empty
+    mockUseMyCollections.mockReturnValue({
+      data: { collections: [] },
+      isLoading: false,
+      error: null,
     })
   })
 
@@ -170,10 +214,10 @@ describe('CollectionList', () => {
         refetch: vi.fn(),
       })
       render(<CollectionList />)
-      expect(screen.getByText('No public collections yet.')).toBeInTheDocument()
+      expect(screen.getByText('No collections yet')).toBeInTheDocument()
     })
 
-    it('shows encouragement for authenticated user when empty', () => {
+    it('shows create CTA for authenticated user when empty', () => {
       mockAuthContext.mockReturnValue({
         user: { id: '1' },
         isAuthenticated: true,
@@ -190,7 +234,7 @@ describe('CollectionList', () => {
       expect(screen.getByText('Be the first to create one!')).toBeInTheDocument()
     })
 
-    it('does not show encouragement for unauthenticated user', () => {
+    it('shows sign-in prompt for unauthenticated user when empty', () => {
       mockUseCollections.mockReturnValue({
         data: { collections: [] },
         isLoading: false,
@@ -198,7 +242,7 @@ describe('CollectionList', () => {
         refetch: vi.fn(),
       })
       render(<CollectionList />)
-      expect(screen.queryByText('Be the first to create one!')).not.toBeInTheDocument()
+      expect(screen.getByText('Sign in to create and curate your own collections.')).toBeInTheDocument()
     })
   })
 
@@ -219,55 +263,66 @@ describe('CollectionList', () => {
       expect(screen.getByTestId('collection-card-1')).toBeInTheDocument()
       expect(screen.getByTestId('collection-card-2')).toBeInTheDocument()
     })
+  })
 
-    it('separates featured and regular collections', () => {
+  describe('tabs', () => {
+    it('renders All, Popular, Recent, Featured tabs for unauthenticated user', () => {
       mockUseCollections.mockReturnValue({
-        data: {
-          collections: [
-            makeCollection({ id: 1, title: 'Featured One', is_featured: true }),
-            makeCollection({ id: 2, title: 'Regular One', is_featured: false }),
-          ],
-        },
+        data: { collections: [] },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
       })
       render(<CollectionList />)
-      expect(screen.getByText('Featured')).toBeInTheDocument()
-      expect(screen.getByText('All Collections')).toBeInTheDocument()
+      expect(screen.getByTestId('tab-all')).toBeInTheDocument()
+      expect(screen.getByTestId('tab-popular')).toBeInTheDocument()
+      expect(screen.getByTestId('tab-recent')).toBeInTheDocument()
+      expect(screen.getByTestId('tab-featured')).toBeInTheDocument()
+      expect(screen.queryByTestId('tab-yours')).not.toBeInTheDocument()
     })
 
-    it('does not show Featured heading when no featured collections', () => {
+    it('renders Yours tab for authenticated user', () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: '1' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
       mockUseCollections.mockReturnValue({
-        data: {
-          collections: [
-            makeCollection({ id: 1, title: 'Regular One', is_featured: false }),
-          ],
-        },
+        data: { collections: [] },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
       })
       render(<CollectionList />)
-      expect(screen.queryByText('Featured')).not.toBeInTheDocument()
-      expect(screen.queryByText('All Collections')).not.toBeInTheDocument()
+      expect(screen.getByTestId('tab-yours')).toBeInTheDocument()
+    })
+  })
+
+  describe('search', () => {
+    it('renders search input', () => {
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      expect(screen.getByPlaceholderText('Search collections...')).toBeInTheDocument()
     })
 
-    it('does not show All Collections heading when only featured', () => {
+    it('shows search empty state when no results found', async () => {
+      const user = userEvent.setup()
       mockUseCollections.mockReturnValue({
-        data: {
-          collections: [
-            makeCollection({ id: 1, title: 'Featured One', is_featured: true }),
-          ],
-        },
+        data: { collections: [] },
         isLoading: false,
         error: null,
         refetch: vi.fn(),
       })
       render(<CollectionList />)
-      expect(screen.getByText('Featured')).toBeInTheDocument()
-      // The "All Collections" heading only shows when both featured and regular exist
-      expect(screen.queryByText('All Collections')).not.toBeInTheDocument()
+      const searchInput = screen.getByPlaceholderText('Search collections...')
+      await user.type(searchInput, 'nonexistent')
+      expect(screen.getByText('No collections found')).toBeInTheDocument()
     })
   })
 
@@ -300,7 +355,14 @@ describe('CollectionList', () => {
         refetch: vi.fn(),
       })
       render(<CollectionList />)
-      expect(screen.queryByText('Create Collection')).not.toBeInTheDocument()
+      // Unauthenticated user should not see the header Create Collection button
+      // (there may be a CTA in the empty state)
+      const matches = screen.queryAllByText('Create Collection')
+      const headerButton = matches.find(el => {
+        const btn = el.closest('button')
+        return btn && !btn.closest('[data-testid="tab-content-all"]')
+      })
+      expect(headerButton).toBeUndefined()
     })
 
     it('shows create dialog with form', () => {
@@ -318,8 +380,6 @@ describe('CollectionList', () => {
       })
       render(<CollectionList />)
       // Dialog content renders (since we mock Dialog to always render children)
-      // "Create Collection" appears as both button text and dialog title
-      expect(screen.getAllByText('Create Collection').length).toBeGreaterThanOrEqual(2)
       expect(screen.getByLabelText('Title')).toBeInTheDocument()
       expect(screen.getByLabelText('Description (optional)')).toBeInTheDocument()
     })

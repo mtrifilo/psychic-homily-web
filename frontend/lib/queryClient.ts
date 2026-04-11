@@ -250,6 +250,7 @@ export const queryKeys = {
   // Collection queries
   collections: {
     all: ['collections'] as const,
+    list: (params?: Record<string, unknown>) => ['collections', 'list', params] as const,
     detail: (slug: string) => ['collections', 'detail', slug] as const,
     stats: (slug: string) => ['collections', 'stats', slug] as const,
     my: ['collections', 'my'] as const,

@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { Plus } from 'lucide-react'
-import { useCollections, useCreateCollection } from '../hooks'
+import { useState, useMemo } from 'react'
+import { Plus, Search, Library, Star, Clock, TrendingUp, User } from 'lucide-react'
+import { useDebounce } from 'use-debounce'
+import { useCollections, useMyCollections, useCreateCollection } from '../hooks'
 import { CollectionCard } from './CollectionCard'
 import { LoadingSpinner } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -15,46 +16,102 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useRouter } from 'next/navigation'
 import type { Collection } from '../types'
 
+type BrowseTab = 'all' | 'popular' | 'recent' | 'featured' | 'yours'
+
 export function CollectionList() {
   const { isAuthenticated } = useAuthContext()
   const router = useRouter()
-  const { data, isLoading, error, refetch } = useCollections()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<BrowseTab>('all')
+  const [searchInput, setSearchInput] = useState('')
+  const [debouncedSearch] = useDebounce(searchInput, 300)
 
-  if (isLoading && !data) {
-    return (
-      <div className="flex justify-center items-center py-12">
-        <LoadingSpinner />
-      </div>
-    )
-  }
+  // Determine whether to filter featured on the backend
+  const isFeaturedTab = activeTab === 'featured'
+  const searchTerm = debouncedSearch.trim()
 
-  if (error) {
-    return (
-      <div className="text-center py-12 text-destructive">
-        <p>Failed to load collections. Please try again later.</p>
-        <Button variant="outline" className="mt-4" onClick={() => refetch()}>
-          Retry
-        </Button>
-      </div>
-    )
-  }
+  // Fetch public collections (with search + featured filter)
+  const {
+    data: publicData,
+    isLoading: publicLoading,
+    error: publicError,
+    refetch: publicRefetch,
+  } = useCollections({
+    search: searchTerm || undefined,
+    featured: isFeaturedTab || undefined,
+  })
 
-  const allCollections = data?.collections ?? []
+  // Fetch user's own collections (only when on "yours" tab and authenticated)
+  const {
+    data: myData,
+    isLoading: myLoading,
+    error: myError,
+  } = useMyCollections()
 
-  // Separate featured and non-featured
-  const featured = allCollections.filter((c: Collection) => c.is_featured)
-  const regular = allCollections.filter((c: Collection) => !c.is_featured)
+  // Determine which data to use based on active tab
+  const isYoursTab = activeTab === 'yours'
+  const isLoading = isYoursTab ? myLoading : publicLoading
+  const error = isYoursTab ? myError : publicError
+  const rawCollections = isYoursTab
+    ? (myData?.collections ?? [])
+    : (publicData?.collections ?? [])
+
+  // Apply client-side sort for "popular" and "recent" tabs
+  const collections = useMemo(() => {
+    const items = [...rawCollections]
+
+    if (activeTab === 'popular') {
+      items.sort((a, b) => b.subscriber_count - a.subscriber_count)
+    } else if (activeTab === 'recent') {
+      items.sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )
+    }
+
+    return items
+  }, [rawCollections, activeTab])
+
+  // Available tabs (Yours only for authenticated users)
+  const tabs: { value: BrowseTab; label: string; icon: React.ReactNode }[] = [
+    { value: 'all', label: 'All', icon: <Library className="h-4 w-4" /> },
+    { value: 'popular', label: 'Popular', icon: <TrendingUp className="h-4 w-4" /> },
+    { value: 'recent', label: 'Recent', icon: <Clock className="h-4 w-4" /> },
+    { value: 'featured', label: 'Featured', icon: <Star className="h-4 w-4" /> },
+    ...(isAuthenticated
+      ? [
+          {
+            value: 'yours' as BrowseTab,
+            label: 'Yours',
+            icon: <User className="h-4 w-4" />,
+          },
+        ]
+      : []),
+  ]
 
   return (
     <section className="w-full max-w-6xl">
       {/* Actions bar */}
-      {isAuthenticated && (
-        <div className="flex justify-end mb-6">
+      <div className="flex items-center justify-between gap-4 mb-6">
+        {/* Search input */}
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search collections..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="pl-9"
+            aria-label="Search collections"
+          />
+        </div>
+
+        {/* Create button */}
+        {isAuthenticated && (
           <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm">
@@ -76,44 +133,170 @@ export function CollectionList() {
               />
             </DialogContent>
           </Dialog>
-        </div>
-      )}
-
-      {/* Featured collections */}
-      {featured.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-lg font-semibold mb-4">Featured</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {featured.map((collection: Collection) => (
-              <CollectionCard key={collection.id} collection={collection} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* All collections */}
-      <div>
-        {featured.length > 0 && regular.length > 0 && (
-          <h2 className="text-lg font-semibold mb-4">All Collections</h2>
-        )}
-        {allCollections.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            <p>No public collections yet.</p>
-            {isAuthenticated && (
-              <p className="text-sm mt-2">
-                Be the first to create one!
-              </p>
-            )}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {regular.map((collection: Collection) => (
-              <CollectionCard key={collection.id} collection={collection} />
-            ))}
-          </div>
         )}
       </div>
+
+      {/* Tabs */}
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as BrowseTab)}
+        className="w-full"
+      >
+        <TabsList className="mb-6">
+          {tabs.map((tab) => (
+            <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5">
+              {tab.icon}
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        {/* All tab content areas render the same grid — content differs by data source */}
+        {tabs.map((tab) => (
+          <TabsContent key={tab.value} value={tab.value}>
+            <CollectionGrid
+              collections={collections}
+              isLoading={isLoading}
+              error={error}
+              onRetry={() => publicRefetch()}
+              emptyState={
+                <EmptyState
+                  tab={tab.value}
+                  hasSearch={!!searchTerm}
+                  isAuthenticated={isAuthenticated}
+                  onCreateClick={() => setCreateDialogOpen(true)}
+                />
+              }
+            />
+          </TabsContent>
+        ))}
+      </Tabs>
     </section>
+  )
+}
+
+// ──────────────────────────────────────────────
+// Collection Grid
+// ──────────────────────────────────────────────
+
+function CollectionGrid({
+  collections,
+  isLoading,
+  error,
+  onRetry,
+  emptyState,
+}: {
+  collections: Collection[]
+  isLoading: boolean
+  error: Error | null
+  onRetry: () => void
+  emptyState: React.ReactNode
+}) {
+  if (isLoading && collections.length === 0) {
+    return (
+      <div className="flex justify-center items-center py-12">
+        <LoadingSpinner />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12 text-destructive">
+        <p>Failed to load collections. Please try again later.</p>
+        <Button variant="outline" className="mt-4" onClick={onRetry}>
+          Retry
+        </Button>
+      </div>
+    )
+  }
+
+  if (collections.length === 0) {
+    return <>{emptyState}</>
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {collections.map((collection) => (
+        <CollectionCard key={collection.id} collection={collection} />
+      ))}
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────
+// Empty States
+// ──────────────────────────────────────────────
+
+function EmptyState({
+  tab,
+  hasSearch,
+  isAuthenticated,
+  onCreateClick,
+}: {
+  tab: BrowseTab
+  hasSearch: boolean
+  isAuthenticated: boolean
+  onCreateClick: () => void
+}) {
+  if (hasSearch) {
+    return (
+      <div className="text-center py-12 text-muted-foreground">
+        <Search className="h-12 w-12 mx-auto mb-3 text-muted-foreground/30" />
+        <p className="text-lg mb-1">No collections found</p>
+        <p className="text-sm">
+          Try a different search term or browse all collections.
+        </p>
+      </div>
+    )
+  }
+
+  if (tab === 'yours') {
+    return (
+      <div className="text-center py-12 text-muted-foreground">
+        <Library className="h-12 w-12 mx-auto mb-3 text-muted-foreground/30" />
+        <p className="text-lg mb-1">You haven&apos;t created any collections yet</p>
+        <p className="text-sm mb-4">
+          Collections are curated lists of shows, artists, releases, and more.
+        </p>
+        <Button size="sm" onClick={onCreateClick}>
+          <Plus className="h-4 w-4 mr-1.5" />
+          Create Collection
+        </Button>
+      </div>
+    )
+  }
+
+  if (tab === 'featured') {
+    return (
+      <div className="text-center py-12 text-muted-foreground">
+        <Star className="h-12 w-12 mx-auto mb-3 text-muted-foreground/30" />
+        <p className="text-lg mb-1">No featured collections yet</p>
+        <p className="text-sm">
+          Featured collections are curated by the community and highlighted by moderators.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="text-center py-12 text-muted-foreground">
+      <Library className="h-12 w-12 mx-auto mb-3 text-muted-foreground/30" />
+      <p className="text-lg mb-1">No collections yet</p>
+      {isAuthenticated ? (
+        <>
+          <p className="text-sm mb-4">Be the first to create one!</p>
+          <Button size="sm" onClick={onCreateClick}>
+            <Plus className="h-4 w-4 mr-1.5" />
+            Create Collection
+          </Button>
+        </>
+      ) : (
+        <p className="text-sm">
+          Sign in to create and curate your own collections.
+        </p>
+      )}
+    </div>
   )
 }
 
