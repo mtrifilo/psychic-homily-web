@@ -1,6 +1,8 @@
 # PH CLI — Knowledge Graph Ingest Tool
 
-> Design doc for the `ph` CLI, a Bun-based command-line tool for rapidly adding entities to the Psychic Homily knowledge graph. Designed for use from Claude Code sessions: Claude extracts structured data from screenshots/text, `ph` validates, detects duplicates, previews changes, and submits to the API.
+> **STATUS: SHIPPED.** All tickets complete. Lives in a separate repo.
+>
+> Design doc for the `ph` CLI. Retained as reference.
 
 ## Problem
 

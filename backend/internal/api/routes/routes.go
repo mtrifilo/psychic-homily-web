@@ -135,6 +135,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupCommentRoutes(rc)
 	setupCommentVoteRoutes(rc)
 	setupCommentSubscriptionRoutes(rc)
+	setupFieldNoteRoutes(rc)
 
 	return api
 }
@@ -1118,4 +1119,17 @@ func setupCommentSubscriptionRoutes(rc RouteContext) {
 	huma.Delete(rc.Protected, "/entities/{entity_type}/{entity_id}/subscribe", subHandler.UnsubscribeHandler)
 	huma.Get(rc.Protected, "/entities/{entity_type}/{entity_id}/subscribe/status", subHandler.SubscriptionStatusHandler)
 	huma.Post(rc.Protected, "/entities/{entity_type}/{entity_id}/mark-read", subHandler.MarkReadHandler)
+}
+
+// setupFieldNoteRoutes configures field note endpoints on shows.
+func setupFieldNoteRoutes(rc RouteContext) {
+	fieldNoteHandler := handlers.NewFieldNoteHandler(rc.SC.Comment, rc.SC.Comment, rc.SC.AuditLog)
+
+	// Public: list field notes for a show
+	optionalAuthGroup := huma.NewGroup(rc.API, "")
+	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))
+	huma.Get(optionalAuthGroup, "/shows/{show_id}/field-notes", fieldNoteHandler.ListFieldNotesHandler)
+
+	// Protected: create field note
+	huma.Post(rc.Protected, "/shows/{show_id}/field-notes", fieldNoteHandler.CreateFieldNoteHandler)
 }

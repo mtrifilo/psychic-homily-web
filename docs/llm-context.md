@@ -8,64 +8,86 @@ Psychic Homily is **the spiritual successor to What.cd and Oink** — the same o
 
 See `docs/vision.md` for the full north star, What.cd feature mapping, and entity model.
 
-## Current Checkpoint (March 2026)
+## Current Checkpoint (April 2026)
 
-**Where we are:** Phase 2 **COMPLETE**. Phase 3 community contribution flows **in progress** — entity edit drawer (PSY-127), attribution (PSY-136), entity reports (PSY-131) all shipped. **Dogfood QA round (March 30-31):** 8 bugs found and fixed (PSY-254–261). Profile username editing, Cmd+K entity search, tag detail entity listing, timestamp fixes all merged. Code reorg fully complete. Community curation is the moat, not the data pipeline.
+**Where we are:** All phases through Phase 3 **COMPLETE**. Radio entities (Phase 2d) **COMPLETE** with 3 provider bug fixes shipped. **Collections UX overhaul COMPLETE** — feature went from non-functional shell to 75% complete in one session (5 PRs). **Comments system Wave 1-5 COMPLETE** — full discussion infrastructure with voting, subscriptions, moderation, trust tiers, and show field notes. Community curation is the moat.
 
 
 | Area          | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Core entities | Artists, Venues, Shows, Releases, Labels, Festivals — all with full CRUD, slugs, search, admin UI. Collections, Requests, Revisions, Tags, Artist relationships: all full stack DONE. Tag admin, Bill position, Artist merge/split, Data quality dashboard, Scene pages: all DONE. **Data provenance** (PSY-34) on all 6 core entity tables. |
-| User features | Accounts, saved shows, ICS calendar feed, favorite venues/cities, show reminders. **Contributor profiles** (PSY-63/64): public profiles, 3-level privacy, tier model, **profile editing** (PSY-261, username/name/bio). **Going/interested** (PSY-55): full stack DONE. **Follow system** (PSY-56): full stack DONE. **Entity edit drawer** (PSY-127): community edit suggestions with pending queue. **Entity reports** (PSY-131): flag issues on artists/venues/festivals. **Attribution** (PSY-136): "Last edited by" on detail pages. |
-| Admin         | Show/venue approval workflows, batch approve/reject (PSY-81), audit log, discovery imports, release/label/festival CRUD, collection management. Data quality dashboard (PSY-45), tag admin (PSY-46), artist merge/split (PSY-47): all DONE. **Platform analytics** (PSY-48): backend DONE (growth, engagement, community health, data quality time-series), frontend planned. Phase 1.7 (opportunistic): dashboard UX polish (PSY-37–44). Phase 3: unified moderation queue, trust tiers, contributor leaderboard. |
+| Collections   | **Full-stack DONE** (PSY-314–318): add/remove items from collection + entity detail pages, per-item notes, reorder (up/down), browse page with tabs/search/filters, entity backlinks ("In Collections" on all 6 entity types), user profile Collections tab, share button, timestamps, entity type breakdown. Backend was already complete; 5 PRs wired up the frontend. |
+| Comments      | **Waves 1-5 DONE** (PSY-285–295): polymorphic comments on all entity types, bounded nesting (3 levels), markdown rendering (goldmark + bluemonday), Wilson score voting, subscriptions with auto-subscribe, trust-tier publishing (new_user→pending_review), rate limiting (per-entity + global), admin moderation (hide/restore/approve/reject/pending queue), auto-hide on 3+ reports, entity reports for comments. **Show field notes** (PSY-294/295): structured attendee reflections with verified attendee badges, star ratings (sound/crowd), spoiler handling, position-based sort. |
+| User features | Accounts, saved shows, ICS calendar feed, favorite venues/cities, show reminders. **Contributor profiles** (PSY-63/64): public profiles, 3-level privacy, tier model, **profile editing** (PSY-261, username/name/bio). **Going/interested** (PSY-55): full stack DONE. **Follow system** (PSY-56): full stack DONE. **Entity edit drawer** (PSY-127): community edit suggestions with pending queue. **Entity reports** (PSY-131): flag issues on artists/venues/festivals/comments. **Attribution** (PSY-136): "Last edited by" on detail pages. |
+| Radio         | **Phase 2d COMPLETE** + provider bug fixes (PSY-276–278): 3 providers (KEXP, WFMU, NTS) all fixed and working. **Historical import infrastructure** (PSY-272/273): show-level import with async job system, progress tracking, cancellation. Provider `FetchPlaylist` bugs fixed (NTS tracklist endpoint, KEXP time-range filtering, WFMU archive page parsing). |
+| Admin         | Show/venue approval workflows, batch approve/reject (PSY-81), audit log, discovery imports, release/label/festival CRUD, collection management. Data quality dashboard (PSY-45), tag admin (PSY-46), artist merge/split (PSY-47): all DONE. **Platform analytics** (PSY-48): backend DONE. **Comment moderation** (PSY-292/293): pending comment queue, trust-tier visibility, auto-hide, admin hide/restore/approve/reject. Phase 1.7 dashboard UX polish: all DONE. |
 | Auth          | Email/password, magic link, OAuth (Google/GitHub), passkeys (WebAuthn)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Discovery     | **AI-first pipeline operational.** Full end-to-end: venue config → tiered fetch (static/dynamic/screenshot via chromedp) → change detection → AI extraction (Claude Haiku) → non-music filtering → import with per-venue auto-approve control. Admin trigger endpoints live. **Automated scheduler** (PSY-31): background service with worker pool, circuit breaker, anomaly detection, Discord notifications. **Phase 1.6a COMPLETE.** **Phase 1.6b:** PSY-30 (AI billing) DONE, PSY-31 (scheduler) DONE. **PSY-58 (iCal/RSS feeds) DONE.** Remaining: PSY-33 (consolidate discovery UI — may be covered by PSY-36), PSY-35 (post-import enrichment). |
-| Frontend      | Sidebar nav, **Cmd+K command palette with entity search** (PSY-257), redesigned show/artist/venue cards, density toggle, EntityDetailLayout template. **Feature modules** (`features/`): co-located components/hooks/types for all domains. Browse/detail pages for collections, requests, **tags with entity listing** (PSY-260), scenes. Revision history + **attribution lines** on entity detail pages. Library page (shows/artists/venues/releases/labels/festivals tabs). Charts page (trending shows, popular artists, active venues, hot releases). **Shared `formatRelativeTime` utility** with UTC-safe parsing. |
+| Frontend      | Sidebar nav, **Cmd+K command palette with entity search** (PSY-257), redesigned show/artist/venue cards, density toggle, EntityDetailLayout template. **Feature modules** (`features/`): co-located components/hooks/types for all domains including **comments** (`features/comments/`). Browse/detail pages for collections (with tabs/search/filters), requests, tags, scenes. Revision history + attribution on entity detail pages. Library page. Charts page. **Comments on all 7 entity types** with voting, threading, replies. **Show field notes** with star ratings, verified badges, spoiler handling. **"Add to Collection" picker** on all entity pages. **"In Collections" backlinks** on all entity pages. |
 | Data seeding  | MusicBrainz CLI, Bandcamp enrichment CLI, Festival data entry CLI (all human-run with --dry-run)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Testing       | 69 E2E, 68.5%+ backend coverage, 2378 frontend unit tests (180 test files). **Dogfood QA** (March 30-31): all user journeys (V1-V5, U1-U14, A1-A3) tested via agent-browser. 8 bugs found and fixed. |
+| Testing       | 69 E2E, 68.5%+ backend coverage, ~2500+ frontend unit tests (190+ test files). **Dogfood QA**: all user journeys tested. **Collections UX audit** (April 2026): full dogfood with prior-art benchmarking against Letterboxd/What.cd/Discogs. |
 | Observability | PostHog analytics, Sentry error tracking                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | iOS           | Code complete (39 files), not shipped — needs Apple Developer enrollment                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 
-**Phase 1.5 complete.** All 24 issues shipped.
-**Phase 1.6 COMPLETE.** Pipeline foundation + AI billing + scheduler + feeds all shipped.
-**Phase 1.7 COMPLETE.** Admin dashboard UX (PSY-37–44) all shipped.
-**Phase 2 COMPLETE.** All 18 tickets across 2a (community foundations), 2b (tags, relationships, scenes), 2c (engagement, follow, analytics, charts, venue profiles) shipped.
-**Code reorg COMPLETE.** Backend services reorg + frontend feature modules all shipped.
-**Phase 3 IN PROGRESS.** Community contribution flows: entity edit drawer (PSY-127), attribution (PSY-136), entity reports (PSY-130/131), profile editing (PSY-261), pending edits (PSY-125). Dogfood QA complete — 8 bugs found and fixed (PSY-254–261).
+**All phases through Phase 3 COMPLETE.** Phase 1.5 (entities), 1.6 (pipeline), 1.7 (admin UX), 2a-2d (community, tags, engagement, radio), 3 (contribution flows) — all shipped.
 
-**Recently shipped (March 2026):**
-- Phase 3: Entity edit drawer (PSY-127), attribution lines (PSY-136), entity reports (PSY-130/131), profile username editing (PSY-261)
-- Dogfood fixes: UTC timestamp fix (PSY-255), scene chart month fix (PSY-258), report dialog UX (PSY-256), Cmd+K entity search (PSY-257), tag detail entity listing (PSY-260), request author display (PSY-259), attribution username (PSY-254)
+**Recently shipped (April 2026):**
+- **Radio historical import**: Show-level discovery (PSY-272), async import jobs with progress tracking (PSY-273), provider audit doc (PSY-274)
+- **Radio provider bug fixes**: NTS tracklist endpoint (PSY-276), KEXP time-range filtering (PSY-277), WFMU archive page parsing (PSY-278)
+- **Collections UX overhaul**: Add/remove items (PSY-314), reorder + notes (PSY-315), browse discovery (PSY-316), entity backlinks + profiles (PSY-317), share + timestamps (PSY-318)
+- **Comments Wave 1-5**: Schema + CRUD (PSY-285), handlers (PSY-286), voting + Wilson score (PSY-287), subscriptions (PSY-288), frontend module + entity integration (PSY-290/291), moderation backend (PSY-292), moderation UI (PSY-293), field notes backend (PSY-294), field notes frontend (PSY-295)
+- **Housekeeping**: Radio import dedup refactor, data cleanup runbook, curated list prior-art research doc
 
 **Next up:**
-- **Phase 3 (remaining):** PSY-125 (generic pending edits approval queue), PSY-126 (trust-tiered editing), PSY-128 (contribution prompts), unified moderation queue, contributor leaderboard.
-- **Phase 2d (parallel):** Radio entities — PSY-160 data model shipped, KEXP MVP next.
-- All Phase 2 + Phase 3 design docs complete. See `docs/strategy/ROADMAP.md` for full details.
+- **Comments Wave 6:** PSY-296 (per-author reply permissions), PSY-297 (admin edit history viewer)
+- **Comment notifications:** PSY-289 (notifications + mention parsing)
+- **Collections polish:** PSY-319 (terminology, cover art, tags)
+- **Radio:** PSY-279 (provider `until` parameter), execute data cleanup runbook
+- **Strategic:** UX gap analysis priorities — edition-level release provenance, ratings, "your impact" metrics, ranked lists, knowledge graph export, structured setlists
+
+## Feature Registry
+
+> Single source of truth for what each feature can actually do. Verified April 11, 2026. If you're unsure whether something works, check here before assuming a Linear "completed" status is accurate.
+
+| Feature | Core User Workflow | Known Gaps |
+|---------|-------------------|------------|
+| **Shows** | Browse, filter by city, detail page, going/interested, save, share | — |
+| **Artists** | Browse, detail with discography/shows/relationships, follow | — |
+| **Venues** | Browse, detail with upcoming shows/genre profile, favorite | — |
+| **Releases** | Browse, detail with artist roles/external links | — |
+| **Labels** | Browse, detail with roster/catalog | — |
+| **Festivals** | Browse, detail with lineup/overlap analysis | — |
+| **Collections** | Create, add/remove items, reorder, per-item notes, browse with tabs/search, entity backlinks, user profile tab, share | No cover art, no clone, "Crate" terminology in activity feed (PSY-319) |
+| **Comments** | Create on 7 entity types, vote (Wilson score), reply (3 levels), edit with history, soft delete, subscribe with auto-subscribe | No radio episode comments, no notifications (PSY-289), no per-author reply permissions (PSY-296) |
+| **Field Notes** | Create on past shows, star ratings (sound/crowd), verified attendee badge, spoiler handling, position sort | — |
+| **Comment Moderation** | Trust-tier publishing, rate limiting, admin hide/restore/approve/reject, pending queue, auto-hide on 3+ reports, entity reports for comments | No edit history viewer (PSY-297) |
+| **Tags** | Browse tag pages, view entities by tag | **NEEDS VERIFICATION** — was marked "completed" but may have UX gaps like Collections did |
+| **Scenes** | Browse, detail with venue/artist/show listings | — |
+| **Charts** | Trending shows, popular artists, active venues, hot releases | — |
+| **Radio** | 3 stations, shows, episodes, playlists, "As Heard On" | Provider bugs fixed but existing DB data needs cleanup (see runbook). Historical import infrastructure built but not yet executed. |
+| **Requests** | Browse, create, vote | **NEEDS VERIFICATION** |
+| **Contributions** | Entity edit drawer, pending edits, attribution, reports, moderation queue, trust tiers, leaderboard, contribution prompts | — |
+| **Admin** | Dashboard, entity CRUD, moderation queue, analytics backend, radio management, comment moderation | Admin nav has too many horizontal tabs requiring scrolling — **known UX issue** |
+| **Library** | Saved shows/artists/venues/releases/labels/festivals tabs | — |
+| **Auth** | Email/password, magic link, OAuth (Google/GitHub), passkeys | — |
 
 ## Task Routing
 
-
-| If your task involves...                                                       | Read these docs                                              |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------------ |
-| Product vision, new entities, strategic direction                              | `docs/vision.md`                                             |
-| What to build next, quarterly priorities                                       | `docs/strategy/ROADMAP.md`                                   |
-| Frontend UI redesign (sidebar, layout, cards, templates)                       | `docs/strategy/ui-redesign.md`                               |
-| Frontend form patterns, component conventions, query patterns                  | `docs/learnings/frontend-patterns.md`                        |
-| Web frontend or Go backend features                                            | `docs/strategy/web.md`                                       |
-| iOS app                                                                        | `docs/strategy/ios.md` + `docs/learnings/ios.md`             |
-| Discovery scrapers or data pipeline                                            | `docs/strategy/discovery.md` + `docs/learnings/discovery.md` |
-| Backend architecture, conventions, test patterns                               | `CLAUDE.md` (Architecture section)                           |
-| Scene pages, venue intelligence, city landing pages                            | `docs/strategy/scene-pages.md`                               |
-| Similar artist visualization, relationship graph, artist voting                | `docs/strategy/similar-artists.md`                           |
-| Notification filters, matching engine, multi-channel notifications             | `docs/strategy/notification-filters.md`                      |
-| Radio stations, radio shows, playlist parsing, "as heard on", co-occurrence    | `docs/strategy/radio-entities.md`                            |
-| Festival intelligence, lineup overlap, breakout tracking, circuit analysis     | `docs/strategy/festival-intelligence.md`                     |
-| Gazelle/What.cd implementation patterns (voting, tags, notifications, privacy) | `docs/learnings/gazelle-patterns.md`                         |
-| Gazelle user profiles (identity hub, paranoia, ranks, customization, donors)   | `docs/learnings/gazelle-user-profiles.md`                    |
-| What.cd user psychology, contributor motivation, product-market fit lessons     | `docs/learnings/whatcd-user-insights.md`                     |
-| Agent workflow, Linear issues, PR process                                      | `docs/agent-workflow.md`                                     |
-| Dogfooding, QA testing, user journey catalog                                   | `docs/user-journeys.md`                                     |
+| If your task involves... | Read these docs |
+|--------------------------|-----------------|
+| Product vision, strategic direction | `docs/vision.md`, `docs/strategy/ROADMAP.md` |
+| Backend architecture, conventions, test patterns | `CLAUDE.md` (Architecture section) |
+| Comments, discussion, field notes, moderation | `docs/strategy/comments-and-field-notes.md` |
+| Collections UX, curated lists, prior art | `docs/learnings/curated-list-prior-art.md` |
+| Radio entities, providers, backfill | `docs/strategy/radio-entities.md`, `docs/learnings/radio-provider-backfill-audit.md` |
+| Discovery pipeline, scrapers | `docs/strategy/discovery.md`, `docs/learnings/discovery.md` |
+| Frontend patterns, form conventions | `docs/learnings/frontend-patterns.md` |
+| Gazelle/What.cd patterns | `docs/learnings/gazelle-patterns.md`, `gazelle-user-profiles.md`, `whatcd-user-insights.md` |
+| Agent workflow, Linear, PRs | `docs/agent-workflow.md` |
+| Dogfooding, QA testing | `docs/user-journeys.md` |
+| iOS app | `docs/strategy/ios.md` |
+| Any shipped feature's design rationale | Check `docs/strategy/{feature}.md` — each has a STATUS header |
 
 
 ## Guardrails
@@ -75,5 +97,5 @@ See `docs/vision.md` for the full north star, What.cd feature mapping, and entit
 - **Fire-and-forget** — Discord notifications and audit logs never fail parent operations
 - **JSONB columns** — use `*json.RawMessage` (not `datatypes.JSON`)
 - **Huma quirks** — all request body fields required by default, even pointers; mark optional explicitly. Query/path/header params must NOT use pointer types (`*uint`, `*string`) — Huma panics; use value types with zero-value checks instead.
-- **Migration numbering** — latest is 000066 (add_comment_moderation_fields, PSY-292); next is 000067
+- **Migration numbering** — latest is 000066 (add_comment_moderation_fields); next is 000067
 

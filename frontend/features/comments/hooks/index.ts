@@ -2,8 +2,8 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
-import { commentEndpoints, commentQueryKeys } from '../api'
-import type { Comment, CommentListResponse, CommentThreadResponse } from '../types'
+import { commentEndpoints, commentQueryKeys, fieldNoteEndpoints, fieldNoteQueryKeys } from '../api'
+import type { Comment, CommentListResponse, CommentThreadResponse, CreateFieldNoteInput } from '../types'
 
 // ============================================================================
 // Queries
@@ -279,6 +279,42 @@ export function useUnvoteComment() {
     onSettled: (_data, _err, variables) => {
       queryClient.invalidateQueries({
         queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
+      })
+    },
+  })
+}
+
+// ============================================================================
+// Field Note Queries & Mutations
+// ============================================================================
+
+export function useFieldNotes(showId: number, options?: { enabled?: boolean }) {
+  return useQuery<CommentListResponse>({
+    queryKey: fieldNoteQueryKeys.show(showId),
+    queryFn: () =>
+      apiRequest<CommentListResponse>(fieldNoteEndpoints.LIST(showId)),
+    enabled: (options?.enabled ?? true) && showId > 0,
+  })
+}
+
+export function useCreateFieldNote() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      showId,
+      input,
+    }: {
+      showId: number
+      input: CreateFieldNoteInput
+    }) =>
+      apiRequest<Comment>(fieldNoteEndpoints.CREATE(showId), {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: fieldNoteQueryKeys.show(variables.showId),
       })
     },
   })

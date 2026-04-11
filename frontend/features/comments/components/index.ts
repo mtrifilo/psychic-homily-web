@@ -1,3 +1,6 @@
 export { CommentThread } from './CommentThread'
 export { CommentCard } from './CommentCard'
 export { CommentForm } from './CommentForm'
+export { FieldNoteForm } from './FieldNoteForm'
+export { FieldNoteCard } from './FieldNoteCard'
+export { FieldNotesSection } from './FieldNotesSection'

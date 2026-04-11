@@ -1,10 +1,12 @@
 # Web Track
 
-> Next.js frontend + Go backend. The primary platform for the Music Scene Index — the spiritual successor to What.cd, anchored in live music.
+> **STATUS: ACTIVE.** Primary platform. All phases through 3 complete. ~2500+ frontend tests (190+ files), 69 E2E, 80%+ backend handler coverage.
+>
+> Next.js frontend + Go backend. The primary platform for the Music Scene Index.
 
 ## Current Status
 
-Phase 1.5 complete — knowledge graph vertical slice shipped. 69 E2E tests, 68.5% backend coverage, 897+ frontend unit tests. PostHog + Sentry live.
+All phases through Phase 3 complete. Comments system (Waves 1-5), Collections UX overhaul, Radio provider fixes all shipped (April 2026). ~2500+ frontend unit tests, 69 E2E, 80%+ backend handler coverage. PostHog + Sentry live.
 
 Core entities: Artists, Venues, Shows, **Releases** (with artist roles + external links), **Labels** (with roster + catalog), **Festivals** (with tiered lineups, multi-venue). Enriched artist pages with discography, label affiliations, festival appearances. Generic bookmarks system. **Contributor profiles** (PSY-63): public profiles with contribution stats/history, 3-level granular privacy, user tiers, custom profile sections, 58 tests. Data seeding CLIs (MusicBrainz, Bandcamp, festival entry). Frontend redesign complete (sidebar nav, Cmd+K, entity detail template, card redesigns, visual polish).
 
