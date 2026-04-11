@@ -13,6 +13,7 @@ var (
 	_ contracts.FollowServiceInterface        = (*FollowService)(nil)
 	_ contracts.CommentServiceInterface              = (*CommentService)(nil)
 	_ contracts.CommentAdminServiceInterface         = (*CommentService)(nil)
+	_ contracts.FieldNoteServiceInterface            = (*CommentService)(nil)
 	_ contracts.CommentVoteServiceInterface          = (*CommentVoteService)(nil)
 	_ contracts.CommentSubscriptionServiceInterface  = (*CommentSubscriptionService)(nil)
 )
