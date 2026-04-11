@@ -89,6 +89,9 @@ vi.mock('@/features/comments', () => ({
   CommentThread: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
     <div data-testid="comment-thread">Comments for {entityType} {entityId}</div>
   ),
+  FieldNotesSection: ({ showId }: { showId: number }) => (
+    <div data-testid="field-notes-section">Field Notes for {showId}</div>
+  ),
 }))
 
 function makeArtist(overrides: Partial<ArtistResponse> = {}): ArtistResponse {
