@@ -1,6 +1,8 @@
 # Discovery Track
 
-> Data ingestion pipeline for the Music Scene Index. Evolving from brittle Playwright venue scrapers toward an AI-first, multi-source pipeline that can scale to hundreds of venues worldwide with zero per-venue code.
+> **STATUS: SHIPPED (March 2026).** AI-first pipeline operational. Scheduler, change detection, iCal/RSS feeds all shipped. Remaining: PSY-33 (consolidate discovery UI), PSY-35 (post-import enrichment).
+>
+> Data ingestion pipeline for the Music Scene Index. Retained as architectural reference.
 
 ## Current Status
 
