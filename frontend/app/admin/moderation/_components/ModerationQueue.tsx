@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
+  MessageSquare,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -25,8 +26,15 @@ import {
   useResolveEntityReport,
   useDismissEntityReport,
 } from '@/lib/hooks/admin/useAdminEntityReports'
+import {
+  useAdminPendingComments,
+  useAdminApproveComment,
+  useAdminRejectComment,
+  useAdminHideComment,
+} from '@/lib/hooks/admin/useAdminComments'
 import type { PendingEditResponse } from '@/lib/hooks/admin/useAdminPendingEdits'
 import type { EntityReportResponse } from '@/lib/hooks/admin/useAdminEntityReports'
+import type { PendingComment } from '@/lib/hooks/admin/useAdminComments'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -40,6 +48,8 @@ function getEntityUrl(entityType: string, entityId: number): string {
       return `/festivals/${entityId}`
     case 'show':
       return `/shows/${entityId}`
+    case 'comment':
+      return '#'
     default:
       return '#'
   }
@@ -79,7 +89,7 @@ function renderValue(value: unknown): string {
 
 // ─── Filter Types ────────────────────────────────────────────────────────────
 
-type ItemTypeFilter = 'all' | 'edits' | 'reports'
+type ItemTypeFilter = 'all' | 'edits' | 'reports' | 'comments'
 type EntityTypeFilter = '' | 'artist' | 'venue' | 'festival' | 'show'
 
 // ─── Unified Item Type ───────────────────────────────────────────────────────
@@ -87,6 +97,7 @@ type EntityTypeFilter = '' | 'artist' | 'venue' | 'festival' | 'show'
 type ModerationItem =
   | { type: 'edit'; data: PendingEditResponse }
   | { type: 'report'; data: EntityReportResponse }
+  | { type: 'comment'; data: PendingComment }
 
 // ─── Pending Edit Card ───────────────────────────────────────────────────────
 
@@ -402,6 +413,302 @@ function EntityReportCard({ report }: { report: EntityReportResponse }) {
   )
 }
 
+// ─── Pending Comment Card ───────────────────────────────────────────────────
+
+function PendingCommentCard({ comment }: { comment: PendingComment }) {
+  const [rejecting, setRejecting] = useState(false)
+  const [rejectionReason, setRejectionReason] = useState('')
+
+  const approveMutation = useAdminApproveComment()
+  const rejectMutation = useAdminRejectComment()
+
+  const isActioning = approveMutation.isPending || rejectMutation.isPending
+
+  const handleApprove = useCallback(() => {
+    approveMutation.mutate(comment.id)
+  }, [approveMutation, comment.id])
+
+  const handleReject = useCallback(() => {
+    if (!rejectionReason.trim()) return
+    rejectMutation.mutate(
+      { commentId: comment.id, reason: rejectionReason.trim() },
+      { onSuccess: () => { setRejecting(false); setRejectionReason('') } }
+    )
+  }, [rejectMutation, comment.id, rejectionReason])
+
+  const entityUrl = getEntityUrl(comment.entity_type, comment.entity_id)
+
+  return (
+    <Card className="overflow-hidden" data-testid="pending-comment-card">
+      <CardContent className="p-4">
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <Badge variant="secondary" className="shrink-0 bg-violet-500/10 text-violet-700 dark:text-violet-400 border-violet-200 dark:border-violet-800">
+              <MessageSquare className="h-3 w-3 mr-1" />
+              Comment
+            </Badge>
+            <Badge variant="outline" className="shrink-0">
+              {entityTypeLabel(comment.entity_type)}
+            </Badge>
+            {comment.entity_name && (
+              <a
+                href={entityUrl}
+                className="text-sm font-medium text-foreground hover:underline truncate"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {comment.entity_name}
+                <ExternalLink className="h-3 w-3 inline ml-1 opacity-50" />
+              </a>
+            )}
+          </div>
+          <span className="text-xs text-muted-foreground shrink-0">
+            {timeAgo(comment.created_at)}
+          </span>
+        </div>
+
+        {/* Meta */}
+        <div className="mt-2 text-sm text-muted-foreground">
+          <span>by {comment.author_name || `User #${comment.user_id}`}</span>
+          {comment.trust_tier && (
+            <Badge variant="outline" className="ml-2 text-[10px] px-1.5 py-0">
+              {comment.trust_tier}
+            </Badge>
+          )}
+        </div>
+
+        {/* Comment body */}
+        <div
+          className="mt-2 rounded-md border bg-muted/30 p-3 text-sm prose prose-sm dark:prose-invert max-w-none"
+          dangerouslySetInnerHTML={{ __html: comment.body_html }}
+          data-testid="comment-body"
+        />
+
+        {/* Rejection reason input */}
+        {rejecting && (
+          <div className="mt-3 space-y-2">
+            <textarea
+              value={rejectionReason}
+              onChange={e => setRejectionReason(e.target.value)}
+              placeholder="Rejection reason (required)"
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+              rows={2}
+              autoFocus
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={handleReject}
+                disabled={!rejectionReason.trim() || isActioning}
+              >
+                {rejectMutation.isPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                ) : (
+                  <X className="h-3 w-3 mr-1" />
+                )}
+                Confirm Reject
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => { setRejecting(false); setRejectionReason('') }}
+                disabled={isActioning}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Action buttons */}
+        {!rejecting && (
+          <div className="mt-3 flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={handleApprove}
+              disabled={isActioning}
+            >
+              {approveMutation.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+              ) : (
+                <Check className="h-3 w-3 mr-1" />
+              )}
+              Approve
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setRejecting(true)}
+              disabled={isActioning}
+            >
+              <X className="h-3 w-3 mr-1" />
+              Reject
+            </Button>
+          </div>
+        )}
+
+        {/* Error display */}
+        {(approveMutation.isError || rejectMutation.isError) && (
+          <p className="mt-2 text-xs text-destructive">
+            {(approveMutation.error || rejectMutation.error)?.message || 'Action failed'}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── Comment Report Card ────────────────────────────────────────────────────
+
+function CommentReportCard({ report }: { report: EntityReportResponse }) {
+  const [showNotes, setShowNotes] = useState(false)
+  const [notes, setNotes] = useState('')
+  const [action, setAction] = useState<'hide' | 'dismiss' | null>(null)
+
+  const hideMutation = useAdminHideComment()
+  const dismissMutation = useDismissEntityReport()
+
+  const isActioning = hideMutation.isPending || dismissMutation.isPending
+
+  const handleAction = useCallback(() => {
+    if (action === 'hide') {
+      hideMutation.mutate(
+        { commentId: report.entity_id, reason: notes.trim() || 'Hidden via report review' },
+        { onSuccess: () => { setShowNotes(false); setNotes(''); setAction(null) } }
+      )
+    } else if (action === 'dismiss') {
+      dismissMutation.mutate(
+        { reportId: report.id, notes: notes.trim() || undefined },
+        { onSuccess: () => { setShowNotes(false); setNotes(''); setAction(null) } }
+      )
+    }
+  }, [action, hideMutation, dismissMutation, report.id, report.entity_id, notes])
+
+  const startAction = useCallback((type: 'hide' | 'dismiss') => {
+    setAction(type)
+    setShowNotes(true)
+  }, [])
+
+  // Truncate comment body for preview
+  const bodyPreview = report.details
+    ? (report.details.length > 200 ? report.details.substring(0, 200) + '...' : report.details)
+    : undefined
+
+  return (
+    <Card className="overflow-hidden" data-testid="comment-report-card">
+      <CardContent className="p-4">
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <Badge variant="secondary" className="shrink-0 bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
+              <Flag className="h-3 w-3 mr-1" />
+              Report
+            </Badge>
+            <Badge variant="outline" className="shrink-0">
+              Comment
+            </Badge>
+            <span className="text-sm text-muted-foreground truncate">
+              {report.entity_name || `Comment #${report.entity_id}`}
+            </span>
+          </div>
+          <span className="text-xs text-muted-foreground shrink-0">
+            {timeAgo(report.created_at)}
+          </span>
+        </div>
+
+        {/* Meta */}
+        <div className="mt-2 space-y-1">
+          <div className="flex items-center gap-2 text-sm">
+            <Badge variant="outline" className="text-xs">
+              {reportTypeLabel(report.report_type)}
+            </Badge>
+            <span className="text-muted-foreground">
+              by {report.reporter_name || `User #${report.reported_by}`}
+            </span>
+          </div>
+          {bodyPreview && (
+            <p className="text-sm text-muted-foreground italic">
+              &ldquo;{bodyPreview}&rdquo;
+            </p>
+          )}
+        </div>
+
+        {/* Notes input */}
+        {showNotes && (
+          <div className="mt-3 space-y-2">
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder={action === 'hide' ? 'Reason for hiding (optional)' : 'Notes for dismissal (optional)'}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+              rows={2}
+              autoFocus
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant={action === 'hide' ? 'destructive' : 'outline'}
+                onClick={handleAction}
+                disabled={isActioning}
+              >
+                {isActioning ? (
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                ) : action === 'hide' ? (
+                  <X className="h-3 w-3 mr-1" />
+                ) : (
+                  <Check className="h-3 w-3 mr-1" />
+                )}
+                {action === 'hide' ? 'Confirm Hide' : 'Confirm Dismiss'}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => { setShowNotes(false); setNotes(''); setAction(null) }}
+                disabled={isActioning}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Action buttons */}
+        {!showNotes && (
+          <div className="mt-3 flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => startAction('hide')}
+              disabled={isActioning}
+            >
+              <X className="h-3 w-3 mr-1" />
+              Hide Comment
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => startAction('dismiss')}
+              disabled={isActioning}
+            >
+              <Check className="h-3 w-3 mr-1" />
+              Dismiss Report
+            </Button>
+          </div>
+        )}
+
+        {/* Error display */}
+        {(hideMutation.isError || dismissMutation.isError) && (
+          <p className="mt-2 text-xs text-destructive">
+            {(hideMutation.error || dismissMutation.error)?.message || 'Action failed'}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export function ModerationQueue() {
@@ -428,8 +735,15 @@ export function ModerationQueue() {
     entity_type: entityTypeFilter || undefined,
   })
 
-  const isLoading = editsLoading || reportsLoading
-  const error = editsError || reportsError
+  // Fetch pending comments
+  const {
+    data: commentsData,
+    isLoading: commentsLoading,
+    error: commentsError,
+  } = useAdminPendingComments()
+
+  const isLoading = editsLoading || reportsLoading || commentsLoading
+  const error = editsError || reportsError || commentsError
 
   // Merge and sort items by created_at (oldest first for review fairness)
   const items = useMemo<ModerationItem[]>(() => {
@@ -437,18 +751,25 @@ export function ModerationQueue() {
       type: 'edit' as const,
       data: e,
     }))
+    // All reports (entity + comment reports) are of type 'report' in the unified list
     const reportItems: ModerationItem[] = (reportsData?.reports || []).map(r => ({
       type: 'report' as const,
       data: r,
     }))
+    const commentItems: ModerationItem[] = (commentsData?.comments || []).map(c => ({
+      type: 'comment' as const,
+      data: c,
+    }))
 
-    let merged = [...editItems, ...reportItems]
+    let merged = [...editItems, ...reportItems, ...commentItems]
 
     // Apply item type filter
     if (itemTypeFilter === 'edits') {
       merged = merged.filter(i => i.type === 'edit')
     } else if (itemTypeFilter === 'reports') {
       merged = merged.filter(i => i.type === 'report')
+    } else if (itemTypeFilter === 'comments') {
+      merged = merged.filter(i => i.type === 'comment')
     }
 
     // Sort oldest first (review fairness)
@@ -458,11 +779,12 @@ export function ModerationQueue() {
     )
 
     return merged
-  }, [editsData, reportsData, itemTypeFilter])
+  }, [editsData, reportsData, commentsData, itemTypeFilter])
 
   const totalEdits = editsData?.total || 0
   const totalReports = reportsData?.total || 0
-  const totalItems = totalEdits + totalReports
+  const totalComments = commentsData?.total || 0
+  const totalItems = totalEdits + totalReports + totalComments
 
   if (isLoading) {
     return (
@@ -508,6 +830,12 @@ export function ModerationQueue() {
             label="Reports"
             count={totalReports}
           />
+          <FilterButton
+            active={itemTypeFilter === 'comments'}
+            onClick={() => setItemTypeFilter('comments')}
+            label="Comments"
+            count={totalComments}
+          />
         </div>
 
         {/* Entity type filter */}
@@ -541,7 +869,9 @@ export function ModerationQueue() {
               ? 'No pending entity edits to review.'
               : itemTypeFilter === 'reports'
                 ? 'No pending entity reports to review.'
-                : 'No items need moderation. Pending entity edits and reports will appear here when users submit them.'}
+                : itemTypeFilter === 'comments'
+                  ? 'No pending comments to review.'
+                  : 'No items need moderation. Pending entity edits, reports, and comments will appear here when users submit them.'}
           </p>
         </div>
       )}
@@ -549,13 +879,20 @@ export function ModerationQueue() {
       {/* Items list */}
       {items.length > 0 && (
         <div className="grid gap-3">
-          {items.map(item =>
-            item.type === 'edit' ? (
-              <PendingEditCard key={`edit-${item.data.id}`} edit={item.data} />
-            ) : (
-              <EntityReportCard key={`report-${item.data.id}`} report={item.data} />
-            )
-          )}
+          {items.map(item => {
+            if (item.type === 'edit') {
+              return <PendingEditCard key={`edit-${item.data.id}`} edit={item.data as PendingEditResponse} />
+            }
+            if (item.type === 'comment') {
+              return <PendingCommentCard key={`comment-${item.data.id}`} comment={item.data as PendingComment} />
+            }
+            // Reports — use CommentReportCard for comment reports, EntityReportCard for others
+            const report = item.data as EntityReportResponse
+            if (report.entity_type === 'comment') {
+              return <CommentReportCard key={`comment-report-${report.id}`} report={report} />
+            }
+            return <EntityReportCard key={`report-${report.id}`} report={report} />
+          })}
         </div>
       )}
     </div>

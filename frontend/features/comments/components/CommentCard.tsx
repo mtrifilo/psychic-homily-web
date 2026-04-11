@@ -1,12 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronUp, ChevronDown, MessageSquare, Pencil, Trash2, ChevronRight } from 'lucide-react'
+import { ChevronUp, ChevronDown, MessageSquare, Pencil, Trash2, ChevronRight, Flag } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CommentForm } from './CommentForm'
+import { ReportEntityDialog } from '@/features/contributions'
 import {
   useReplyToComment,
   useUpdateComment,
@@ -40,6 +41,7 @@ export function CommentCard({
   const [isDeleteConfirm, setIsDeleteConfirm] = useState(false)
   const [showReplies, setShowReplies] = useState(true)
   const [loadedThread, setLoadedThread] = useState(false)
+  const [isReportOpen, setIsReportOpen] = useState(false)
 
   const replyMutation = useReplyToComment()
   const updateMutation = useUpdateComment()
@@ -221,6 +223,20 @@ export function CommentCard({
               </Button>
             </div>
           )}
+
+          {/* Report button (non-owner, authenticated) */}
+          {isAuthenticated && !isOwner && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={() => setIsReportOpen(true)}
+              data-testid="report-comment-button"
+            >
+              <Flag className="h-3.5 w-3.5 mr-1" />
+              Report
+            </Button>
+          )}
         </div>
       )}
 
@@ -276,6 +292,17 @@ export function CommentCard({
           <MessageSquare className="h-3.5 w-3.5 mr-1" />
           Show replies
         </Button>
+      )}
+
+      {/* Report dialog */}
+      {isAuthenticated && !isOwner && (
+        <ReportEntityDialog
+          open={isReportOpen}
+          onOpenChange={setIsReportOpen}
+          entityType="comment"
+          entityId={comment.id}
+          entityName={`Comment by ${comment.author_name}`}
+        />
       )}
     </div>
   )
