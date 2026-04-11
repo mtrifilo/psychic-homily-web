@@ -39,6 +39,7 @@ import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
 import { EntityEditDrawer, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
+import { CommentThread } from '@/features/comments'
 import { NotifyMeButton } from '@/features/notifications'
 import { ArtistShowsList } from './ArtistShowsList'
 import { RelatedArtists } from './RelatedArtists'
@@ -1053,6 +1054,11 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           entityId={artist.id}
           isAdmin={!!isAdmin}
         />
+      </div>
+
+      {/* Discussion */}
+      <div className="mt-0 px-4 md:px-0">
+        <CommentThread entityType="artist" entityId={artist.id} />
       </div>
 
       {/* Edit Drawer (all authenticated users) */}

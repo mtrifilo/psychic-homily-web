@@ -14,6 +14,7 @@ import {
 import { useLabel, useLabelRoster, useLabelCatalog } from '../hooks/useLabels'
 import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton, AddToCollectionButton } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
+import { CommentThread } from '@/features/comments'
 import { NotifyMeButton } from '@/features/notifications'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -167,6 +168,7 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
   )
 
   return (
+    <>
     <EntityDetailLayout
       fallback={{ href: '/labels', label: 'Labels' }}
       entityName={label.name}
@@ -327,5 +329,11 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
         </div>
       </TabsContent>
     </EntityDetailLayout>
+
+    {/* Discussion */}
+    <div className="mt-0 px-4 md:px-0">
+      <CommentThread entityType="label" entityId={label.id} />
+    </div>
+  </>
   )
 }

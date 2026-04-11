@@ -36,6 +36,7 @@ import {
 } from '../types'
 import { useIsAuthenticated } from '@/features/auth'
 import { EntityEditDrawer, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
+import { CommentThread } from '@/features/comments'
 import { useQueryClient } from '@tanstack/react-query'
 
 interface FestivalDetailProps {
@@ -481,6 +482,11 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
         </div>
       </TabsContent>
     </EntityDetailLayout>
+
+    {/* Discussion */}
+    <div className="mt-0 px-4 md:px-0">
+      <CommentThread entityType="festival" entityId={festival.id} />
+    </div>
 
     {/* Edit Drawer */}
     {festival && isAuthenticated && (

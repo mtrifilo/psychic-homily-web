@@ -57,6 +57,7 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { useRouter } from 'next/navigation'
 import type { ApiError } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
+import { CommentThread } from '@/features/comments'
 
 interface CollectionDetailProps {
   slug: string
@@ -329,6 +330,9 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
         slug={slug}
         isCreator={isCreator}
       />
+
+      {/* Discussion */}
+      <CommentThread entityType="collection" entityId={collection.id} />
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

@@ -95,6 +95,13 @@ vi.mock('@/components/forms/ArtistEditForm', () => ({
   }) => (open ? <div data-testid="edit-form">Edit Form</div> : null),
 }))
 
+// Mock comments feature
+vi.mock('@/features/comments', () => ({
+  CommentThread: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
+    <div data-testid="comment-thread">Comments for {entityType} {entityId}</div>
+  ),
+}))
+
 // Mock next/navigation
 vi.mock('next/navigation', () => ({
   usePathname: () => '/artists/test-artist',
