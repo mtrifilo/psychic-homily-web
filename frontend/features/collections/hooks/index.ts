@@ -200,6 +200,54 @@ export function useRemoveCollectionItem() {
   })
 }
 
+/** Reorder items in a collection */
+export function useReorderCollectionItems() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      slug,
+      items,
+    }: {
+      slug: string
+      items: { item_id: number; position: number }[]
+    }) =>
+      apiRequest<void>(API_ENDPOINTS.COLLECTIONS.REORDER(slug), {
+        method: 'PUT',
+        body: JSON.stringify({ items }),
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.collections.detail(variables.slug),
+      })
+    },
+  })
+}
+
+/** Update an item's notes in a collection */
+export function useUpdateCollectionItem() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      slug,
+      itemId,
+      notes,
+    }: {
+      slug: string
+      itemId: number
+      notes: string | null
+    }) =>
+      apiRequest<void>(API_ENDPOINTS.COLLECTIONS.UPDATE_ITEM(slug, itemId), {
+        method: 'PATCH',
+        body: JSON.stringify({ notes }),
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.collections.detail(variables.slug),
+      })
+    },
+  })
+}
+
 /** Subscribe to a collection */
 export function useSubscribeCollection() {
   const queryClient = useQueryClient()

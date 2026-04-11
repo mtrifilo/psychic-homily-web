@@ -252,6 +252,8 @@ export const API_ENDPOINTS = {
     ITEMS: (slug: string) => `${API_BASE_URL}/collections/${slug}/items`,
     ITEM: (slug: string, itemId: number) =>
       `${API_BASE_URL}/collections/${slug}/items/${itemId}`,
+    UPDATE_ITEM: (slug: string, itemId: number) =>
+      `${API_BASE_URL}/collections/${slug}/items/${itemId}`,
     REORDER: (slug: string) =>
       `${API_BASE_URL}/collections/${slug}/items/reorder`,
     SUBSCRIBE: (slug: string) => `${API_BASE_URL}/collections/${slug}/subscribe`,

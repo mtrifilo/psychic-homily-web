@@ -80,6 +80,16 @@ vi.mock('../hooks', () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
+  useReorderCollectionItems: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
+  useUpdateCollectionItem: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
   useSubscribeCollection: () => ({
     mutate: vi.fn(),
     isPending: false,
