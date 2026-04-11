@@ -27,6 +27,13 @@ export const commentEndpoints = {
     `${API_BASE_URL}/comments/${commentId}/thread`,
 } as const
 
+export const fieldNoteEndpoints = {
+  LIST: (showId: number) =>
+    `${API_BASE_URL}/shows/${showId}/field-notes`,
+  CREATE: (showId: number) =>
+    `${API_BASE_URL}/shows/${showId}/field-notes`,
+} as const
+
 // ============================================================================
 // Query Keys
 // ============================================================================
@@ -37,4 +44,10 @@ export const commentQueryKeys = {
     ['comments', entityType, entityId] as const,
   thread: (commentId: number) =>
     ['comments', 'thread', commentId] as const,
+} as const
+
+export const fieldNoteQueryKeys = {
+  all: ['field-notes'] as const,
+  show: (showId: number) =>
+    ['field-notes', showId] as const,
 } as const

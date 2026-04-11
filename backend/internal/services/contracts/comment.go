@@ -1,6 +1,9 @@
 package contracts
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ──────────────────────────────────────────────
 // Comment request types
@@ -21,6 +24,29 @@ type UpdateCommentRequest struct {
 	Body string `json:"body"`
 }
 
+// CreateFieldNoteRequest contains the fields needed to create a field note on a show.
+type CreateFieldNoteRequest struct {
+	ShowID         uint    `json:"show_id"`
+	Body           string  `json:"body"`
+	ShowArtistID   *uint   `json:"show_artist_id,omitempty"`
+	SongPosition   *int    `json:"song_position,omitempty"`
+	SoundQuality   *int    `json:"sound_quality,omitempty"`
+	CrowdEnergy    *int    `json:"crowd_energy,omitempty"`
+	NotableMoments *string `json:"notable_moments,omitempty"`
+	SetlistSpoiler bool    `json:"setlist_spoiler"`
+}
+
+// FieldNoteStructuredData represents the JSONB structured data stored with field note comments.
+type FieldNoteStructuredData struct {
+	ShowArtistID     *uint   `json:"show_artist_id,omitempty"`
+	SongPosition     *int    `json:"song_position,omitempty"`
+	SoundQuality     *int    `json:"sound_quality,omitempty"`
+	CrowdEnergy      *int    `json:"crowd_energy,omitempty"`
+	NotableMoments   *string `json:"notable_moments,omitempty"`
+	SetlistSpoiler   bool    `json:"setlist_spoiler"`
+	IsVerifiedAttendee bool  `json:"is_verified_attendee"`
+}
+
 // CommentListFilters defines filtering and sorting options for listing comments.
 type CommentListFilters struct {
 	Sort       string // best, new, top, controversial
@@ -36,28 +62,29 @@ type CommentListFilters struct {
 
 // CommentResponse represents a comment with author info for API responses.
 type CommentResponse struct {
-	ID              uint       `json:"id"`
-	EntityType      string     `json:"entity_type"`
-	EntityID        uint       `json:"entity_id"`
-	Kind            string     `json:"kind"`
-	UserID          uint       `json:"user_id"`
-	AuthorName      string     `json:"author_name"`
-	AuthorUsername  string     `json:"author_username,omitempty"`
-	ParentID        *uint      `json:"parent_id,omitempty"`
-	RootID          *uint      `json:"root_id,omitempty"`
-	Depth           int        `json:"depth"`
-	Body            string     `json:"body"`
-	BodyHTML        string     `json:"body_html"`
-	Visibility      string     `json:"visibility"`
-	ReplyPermission string     `json:"reply_permission"`
-	Ups             int        `json:"ups"`
-	Downs           int        `json:"downs"`
-	Score           float64    `json:"score"`
-	IsEdited        bool       `json:"is_edited"`
-	EditCount       int        `json:"edit_count"`
-	UserVote        *int       `json:"user_vote,omitempty"` // 1, -1, or nil if no vote
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ID              uint             `json:"id"`
+	EntityType      string           `json:"entity_type"`
+	EntityID        uint             `json:"entity_id"`
+	Kind            string           `json:"kind"`
+	UserID          uint             `json:"user_id"`
+	AuthorName      string           `json:"author_name"`
+	AuthorUsername  string           `json:"author_username,omitempty"`
+	ParentID        *uint            `json:"parent_id,omitempty"`
+	RootID          *uint            `json:"root_id,omitempty"`
+	Depth           int              `json:"depth"`
+	Body            string           `json:"body"`
+	BodyHTML        string           `json:"body_html"`
+	StructuredData  *json.RawMessage `json:"structured_data,omitempty"`
+	Visibility      string           `json:"visibility"`
+	ReplyPermission string           `json:"reply_permission"`
+	Ups             int              `json:"ups"`
+	Downs           int              `json:"downs"`
+	Score           float64          `json:"score"`
+	IsEdited        bool             `json:"is_edited"`
+	EditCount       int              `json:"edit_count"`
+	UserVote        *int             `json:"user_vote,omitempty"` // 1, -1, or nil if no vote
+	CreatedAt       time.Time        `json:"created_at"`
+	UpdatedAt       time.Time        `json:"updated_at"`
 }
 
 // CommentListResponse wraps a list of comments with pagination metadata.
@@ -79,6 +106,12 @@ type CommentServiceInterface interface {
 	GetThread(rootID uint) ([]*CommentResponse, error)
 	UpdateComment(userID uint, commentID uint, req *UpdateCommentRequest) (*CommentResponse, error)
 	DeleteComment(userID uint, commentID uint, isAdmin bool) error
+}
+
+// FieldNoteServiceInterface defines the contract for field note operations on shows.
+type FieldNoteServiceInterface interface {
+	CreateFieldNote(userID uint, req *CreateFieldNoteRequest) (*CommentResponse, error)
+	ListFieldNotesForShow(showID uint, limit, offset int) (*CommentListResponse, error)
 }
 // ──────────────────────────────────────────────
 // Comment admin service interface

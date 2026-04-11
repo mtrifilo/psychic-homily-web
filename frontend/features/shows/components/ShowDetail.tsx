@@ -12,7 +12,7 @@ import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatt
 import { Button } from '@/components/ui/button'
 import { SocialLinks, MusicEmbed, SaveButton, Breadcrumb, AddToCollectionButton } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
-import { CommentThread } from '@/features/comments'
+import { CommentThread, FieldNotesSection } from '@/features/comments'
 import { ShowForm } from '@/components/forms'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -413,6 +413,15 @@ export function ShowDetail({ showId }: ShowDetailProps) {
       {/* In Collections */}
       <section className="mb-8">
         <EntityCollections entityType="show" entityId={show.id} />
+      </section>
+
+      {/* Field Notes */}
+      <section className="mb-8">
+        <FieldNotesSection
+          showId={show.id}
+          showDate={show.event_date}
+          artists={artists.map(a => ({ id: a.id, name: a.name }))}
+        />
       </section>
 
       {/* Discussion */}

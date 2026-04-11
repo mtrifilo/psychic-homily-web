@@ -1,13 +1,15 @@
 // Public API for the comments feature module
 
 // API (endpoints + query keys)
-export { commentEndpoints, commentQueryKeys } from './api'
+export { commentEndpoints, commentQueryKeys, fieldNoteEndpoints, fieldNoteQueryKeys } from './api'
 
 // Types
 export type {
   Comment,
   CommentListResponse,
   CommentThreadResponse,
+  FieldNoteStructuredData,
+  CreateFieldNoteInput,
 } from './types'
 
 // Hooks
@@ -20,7 +22,16 @@ export {
   useDeleteComment,
   useVoteComment,
   useUnvoteComment,
+  useFieldNotes,
+  useCreateFieldNote,
 } from './hooks'
 
 // Components
-export { CommentThread, CommentCard, CommentForm } from './components'
+export {
+  CommentThread,
+  CommentCard,
+  CommentForm,
+  FieldNoteForm,
+  FieldNoteCard,
+  FieldNotesSection,
+} from './components'
