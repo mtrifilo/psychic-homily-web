@@ -146,149 +146,95 @@ func (s *RadioService) ListImportJobs(showID uint) ([]*contracts.RadioImportJobR
 }
 
 // runImportJob is the background goroutine that performs the actual import work.
+// It delegates to importShowEpisodesWithProgress with a callback that updates
+// the job's DB row with progress and checks for cancellation.
 func (s *RadioService) runImportJob(jobID uint) {
 	logger := slog.Default().With("job_id", jobID)
 	logger.Info("radio_import_job_started")
 
-	// Reload job from DB
+	// Reload job from DB to get show/since/until
 	var job models.RadioImportJob
-	if err := s.db.Preload("Show").Preload("Show.Station").First(&job, jobID).Error; err != nil {
+	if err := s.db.First(&job, jobID).Error; err != nil {
 		logger.Error("radio_import_job_load_failed", "error", err.Error())
 		return
 	}
 
-	station := job.Show.Station
-	if station.PlaylistSource == nil || *station.PlaylistSource == "" {
-		s.failJob(jobID, "station has no playlist source configured")
-		return
+	// Track total episodes processed (including errors) for interval-based checks
+	var totalProcessed int
+	var lastEpisodeDate string
+
+	episodesFoundFn := func(count int) {
+		s.db.Model(&models.RadioImportJob{}).Where("id = ?", jobID).
+			Update("episodes_found", count)
+		logger.Info("radio_import_job_episodes_found", "in_date_range", count)
 	}
 
-	provider, err := s.getProvider(*station.PlaylistSource)
-	if err != nil {
-		s.failJob(jobID, fmt.Sprintf("getting provider: %v", err))
-		return
-	}
-	defer closeProvider(provider)
+	progressFn := func(episodesImported, playsImported, playsMatched int, currentDate string, errors []string) (cancel bool) {
+		totalProcessed++
+		lastEpisodeDate = currentDate
 
-	// Parse date range
-	sinceTime, err := time.Parse("2006-01-02", job.Since)
-	if err != nil {
-		s.failJob(jobID, fmt.Sprintf("parsing since date: %v", err))
-		return
-	}
-	untilTime, err := time.Parse("2006-01-02", job.Until)
-	if err != nil {
-		s.failJob(jobID, fmt.Sprintf("parsing until date: %v", err))
-		return
-	}
-
-	// Get external ID for the show
-	if job.Show.ExternalID == nil || *job.Show.ExternalID == "" {
-		s.failJob(jobID, "show has no external ID")
-		return
-	}
-
-	// Fetch episodes from provider
-	episodes, err := provider.FetchNewEpisodes(*job.Show.ExternalID, sinceTime)
-	if err != nil {
-		s.failJob(jobID, fmt.Sprintf("fetching episodes: %v", err))
-		return
-	}
-
-	// Filter episodes to the date range
-	var filtered []RadioEpisodeImport
-	for _, ep := range episodes {
-		epDate, parseErr := time.Parse("2006-01-02", ep.AirDate)
-		if parseErr != nil {
-			continue
-		}
-		if !epDate.Before(sinceTime) && !epDate.After(untilTime) {
-			filtered = append(filtered, ep)
-		}
-	}
-
-	// Update episodes found count
-	s.db.Model(&models.RadioImportJob{}).Where("id = ?", jobID).
-		Update("episodes_found", len(filtered))
-
-	logger.Info("radio_import_job_episodes_found",
-		"total_from_provider", len(episodes),
-		"in_date_range", len(filtered),
-	)
-
-	var (
-		totalPlaysImported int
-		totalPlaysMatched  int
-		episodesImported   int
-		errorMessages      []string
-	)
-
-	for i, ep := range filtered {
 		// Check for cancellation every 5 episodes
-		if i > 0 && i%5 == 0 {
-			var currentJob models.RadioImportJob
-			if err := s.db.Select("status").First(&currentJob, jobID).Error; err == nil {
-				if currentJob.Status == models.RadioImportJobStatusCancelled {
-					logger.Info("radio_import_job_cancelled", "episodes_processed", i)
-					return
-				}
+		if totalProcessed%5 == 0 {
+			if s.isJobCancelled(jobID) {
+				logger.Info("radio_import_job_cancelled", "episodes_processed", totalProcessed)
+				return true
 			}
 		}
 
-		// Import the episode
-		epResult, importErr := s.importEpisode(job.ShowID, ep, provider)
-		if importErr != nil {
-			errorMessages = append(errorMessages, fmt.Sprintf("episode %s: %v", ep.AirDate, importErr))
-			continue
-		}
-
-		episodesImported++
-		totalPlaysImported += epResult.PlaysImported
-		totalPlaysMatched += epResult.PlaysMatched
-
 		// Batch update progress every 10 episodes
-		if i > 0 && i%10 == 0 {
-			currentDate := ep.AirDate
+		if totalProcessed%10 == 0 {
 			s.db.Model(&models.RadioImportJob{}).Where("id = ?", jobID).
 				Updates(map[string]interface{}{
 					"episodes_imported":    episodesImported,
-					"plays_imported":       totalPlaysImported,
-					"plays_matched":        totalPlaysMatched,
+					"plays_imported":       playsImported,
+					"plays_matched":        playsMatched,
 					"current_episode_date": currentDate,
 				})
 		}
+
+		return false
+	}
+
+	result, err := s.importShowEpisodesWithProgress(job.ShowID, job.Since, job.Until, episodesFoundFn, progressFn)
+	if err != nil {
+		s.failJob(jobID, err.Error())
+		return
+	}
+
+	// If the job was cancelled mid-import, don't overwrite its status
+	if s.isJobCancelled(jobID) {
+		return
 	}
 
 	// Final update: mark completed
 	now := time.Now()
 	updates := map[string]interface{}{
 		"status":            models.RadioImportJobStatusCompleted,
-		"episodes_imported": episodesImported,
-		"plays_imported":    totalPlaysImported,
-		"plays_matched":     totalPlaysMatched,
+		"episodes_imported": result.EpisodesImported,
+		"plays_imported":    result.PlaysImported,
+		"plays_matched":     result.PlaysMatched,
 		"completed_at":      now,
 	}
 
-	if len(errorMessages) > 0 {
+	if lastEpisodeDate != "" {
+		updates["current_episode_date"] = lastEpisodeDate
+	}
+
+	if len(result.Errors) > 0 {
 		errorLog := ""
-		for _, msg := range errorMessages {
+		for _, msg := range result.Errors {
 			errorLog += msg + "\n"
 		}
 		updates["error_log"] = errorLog
 	}
 
-	// Set current_episode_date to the last processed episode
-	if len(filtered) > 0 {
-		updates["current_episode_date"] = filtered[len(filtered)-1].AirDate
-	}
-
 	s.db.Model(&models.RadioImportJob{}).Where("id = ?", jobID).Updates(updates)
 
 	logger.Info("radio_import_job_completed",
-		"episodes_imported", episodesImported,
-		"plays_imported", totalPlaysImported,
-		"plays_matched", totalPlaysMatched,
-		"errors", len(errorMessages),
+		"episodes_imported", result.EpisodesImported,
+		"plays_imported", result.PlaysImported,
+		"plays_matched", result.PlaysMatched,
+		"errors", len(result.Errors),
 	)
 }
 
