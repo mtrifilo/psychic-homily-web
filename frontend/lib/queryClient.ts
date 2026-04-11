@@ -254,6 +254,10 @@ export const queryKeys = {
     detail: (slug: string) => ['collections', 'detail', slug] as const,
     stats: (slug: string) => ['collections', 'stats', slug] as const,
     my: ['collections', 'my'] as const,
+    entity: (entityType: string, entityId: number) =>
+      ['collections', 'entity', entityType, entityId] as const,
+    userPublic: (username: string) =>
+      ['collections', 'userPublic', username] as const,
   },
 
   // Request queries

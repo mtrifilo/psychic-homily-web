@@ -11,6 +11,7 @@ import type { ArtistResponse } from '../types'
 import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
 import { Button } from '@/components/ui/button'
 import { SocialLinks, MusicEmbed, SaveButton, Breadcrumb, AddToCollectionButton } from '@/components/shared'
+import { EntityCollections } from '@/features/collections'
 import { ShowForm } from '@/components/forms'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -407,6 +408,11 @@ export function ShowDetail({ showId }: ShowDetailProps) {
           </div>
         </section>
       )}
+
+      {/* In Collections */}
+      <section className="mb-8">
+        <EntityCollections entityType="show" entityId={show.id} />
+      </section>
 
       {/* Delete Confirmation Dialog */}
       <DeleteShowDialog

@@ -679,6 +679,93 @@ func (h *CollectionHandler) GetUserCollectionsHandler(ctx context.Context, req *
 }
 
 // ============================================================================
+// Get Entity Collections
+// ============================================================================
+
+// GetEntityCollectionsHandlerRequest represents the request for getting collections containing an entity
+type GetEntityCollectionsHandlerRequest struct {
+	EntityType string `path:"entity_type" doc:"Entity type (artist, release, label, show, venue, festival)" example:"artist"`
+	EntityID   string `path:"entity_id" doc:"Entity ID" example:"42"`
+	Limit      int    `query:"limit" required:"false" doc:"Max results (default 10)" example:"10"`
+}
+
+// GetEntityCollectionsHandlerResponse represents the response for entity collections
+type GetEntityCollectionsHandlerResponse struct {
+	Body struct {
+		Collections []*contracts.CollectionListResponse `json:"crates" doc:"List of crates containing this entity"`
+	}
+}
+
+// GetEntityCollectionsHandler handles GET /collections/entity/{entity_type}/{entity_id}
+func (h *CollectionHandler) GetEntityCollectionsHandler(ctx context.Context, req *GetEntityCollectionsHandlerRequest) (*GetEntityCollectionsHandlerResponse, error) {
+	entityID, err := strconv.ParseUint(req.EntityID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid entity ID")
+	}
+
+	validTypes := map[string]bool{
+		"artist": true, "release": true, "label": true,
+		"show": true, "venue": true, "festival": true,
+	}
+	if !validTypes[req.EntityType] {
+		return nil, huma.Error400BadRequest("Invalid entity type")
+	}
+
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+
+	collections, err := h.collectionService.GetEntityCollections(req.EntityType, uint(entityID), limit)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to fetch entity collections", err)
+	}
+
+	resp := &GetEntityCollectionsHandlerResponse{}
+	resp.Body.Collections = collections
+
+	return resp, nil
+}
+
+// ============================================================================
+// Get User Public Collections
+// ============================================================================
+
+// GetUserPublicCollectionsHandlerRequest represents the request for getting a user's public collections
+type GetUserPublicCollectionsHandlerRequest struct {
+	Username string `path:"username" doc:"Username" example:"johndoe"`
+	Limit    int    `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
+	Offset   int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+}
+
+// GetUserPublicCollectionsHandlerResponse represents the response for user public collections
+type GetUserPublicCollectionsHandlerResponse struct {
+	Body struct {
+		Collections []*contracts.CollectionListResponse `json:"crates" doc:"List of user's public crates"`
+		Total       int64                              `json:"total" doc:"Total number of public crates"`
+	}
+}
+
+// GetUserPublicCollectionsHandler handles GET /users/{username}/collections
+func (h *CollectionHandler) GetUserPublicCollectionsHandler(ctx context.Context, req *GetUserPublicCollectionsHandlerRequest) (*GetUserPublicCollectionsHandlerResponse, error) {
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+
+	collections, total, err := h.collectionService.GetUserPublicCollectionsByUsername(req.Username, limit, req.Offset)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to fetch user collections", err)
+	}
+
+	resp := &GetUserPublicCollectionsHandlerResponse{}
+	resp.Body.Collections = collections
+	resp.Body.Total = total
+
+	return resp, nil
+}
+
+// ============================================================================
 // Helpers
 // ============================================================================
 

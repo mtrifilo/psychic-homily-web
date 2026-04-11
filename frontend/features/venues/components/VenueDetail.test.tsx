@@ -127,6 +127,10 @@ vi.mock('./DeleteVenueDialog', () => ({
     open ? <div data-testid="delete-dialog">Delete Dialog</div> : null,
 }))
 
+vi.mock('@/features/collections', () => ({
+  EntityCollections: () => <div data-testid="entity-collections" />,
+}))
+
 vi.mock('@/components/ui/button', () => ({
   Button: ({ children, asChild, ...props }: { children: React.ReactNode; asChild?: boolean; [key: string]: unknown }) => {
     if (asChild) return <>{children}</>

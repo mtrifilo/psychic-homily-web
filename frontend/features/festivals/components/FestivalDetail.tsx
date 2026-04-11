@@ -20,6 +20,7 @@ import {
   useFestivals,
 } from '../hooks/useFestivals'
 import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton, AddToCollectionButton } from '@/components/shared'
+import { EntityCollections } from '@/features/collections'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -260,6 +261,9 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
           {festival.social && <SocialLinks social={festival.social} />}
         </div>
       </div>
+
+      {/* In Collections */}
+      <EntityCollections entityType="festival" entityId={festival.id} />
     </div>
   )
 

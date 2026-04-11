@@ -23,6 +23,7 @@ import {
 import { AttributionLine } from '@/features/contributions'
 import { EntityTagList } from '@/features/tags'
 import { AsHeardOn } from '@/features/radio'
+import { EntityCollections } from '@/features/collections'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -216,6 +217,9 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
 
       {/* As Heard On (radio) */}
       <AsHeardOn entityType="release" entitySlug={release.slug} />
+
+      {/* In Collections */}
+      <EntityCollections entityType="release" entityId={release.id} />
     </div>
   )
 

@@ -38,6 +38,7 @@ import { EntityTagList } from '@/features/tags'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
 import { EntityEditDrawer, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
 import { AsHeardOn } from '@/features/radio'
+import { EntityCollections } from '@/features/collections'
 import { NotifyMeButton } from '@/features/notifications'
 import { ArtistShowsList } from './ArtistShowsList'
 import { RelatedArtists } from './RelatedArtists'
@@ -402,6 +403,9 @@ function ArtistSidebar({
 
       {/* As Heard On (radio) */}
       <AsHeardOn entityType="artist" entitySlug={artist.slug} />
+
+      {/* In Collections */}
+      <EntityCollections entityType="artist" entityId={artist.id} />
     </div>
   )
 }

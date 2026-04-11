@@ -259,6 +259,10 @@ export const API_ENDPOINTS = {
     SUBSCRIBE: (slug: string) => `${API_BASE_URL}/collections/${slug}/subscribe`,
     FEATURE: (slug: string) => `${API_BASE_URL}/collections/${slug}/feature`,
     MY: `${API_BASE_URL}/auth/collections`,
+    ENTITY: (entityType: string, entityId: number) =>
+      `${API_BASE_URL}/collections/entity/${entityType}/${entityId}`,
+    USER_PUBLIC: (username: string) =>
+      `${API_BASE_URL}/users/${username}/collections`,
   },
 
   // Request endpoints

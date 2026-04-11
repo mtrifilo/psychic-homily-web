@@ -13,6 +13,7 @@ import {
   usePublicProfile,
   usePublicContributions,
 } from '@/features/auth'
+import { UserCollections } from '@/features/collections'
 
 function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('en-US', {
@@ -227,6 +228,12 @@ export function PublicProfile({ username }: PublicProfileProps) {
           <ProfileSections sections={profile.sections} />
         </section>
       )}
+
+      {/* Collections */}
+      <section className="mb-8">
+        <h2 className="text-lg font-semibold mb-4">Collections</h2>
+        <UserCollections username={username} />
+      </section>
 
       {/* Empty state when profile is public but has no content */}
       {!showStats && !showContributions && !showSections && profile.stats_count === undefined && (

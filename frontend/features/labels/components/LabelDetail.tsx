@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { useLabel, useLabelRoster, useLabelCatalog } from '../hooks/useLabels'
 import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton, AddToCollectionButton } from '@/components/shared'
+import { EntityCollections } from '@/features/collections'
 import { NotifyMeButton } from '@/features/notifications'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -159,6 +160,9 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
           </div>
         </div>
       </div>
+
+      {/* In Collections */}
+      <EntityCollections entityType="label" entityId={label.id} />
     </div>
   )
 

@@ -755,6 +755,160 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 	return responses, total, nil
 }
 
+// GetEntityCollections returns public collections that contain the given entity
+func (s *CollectionService) GetEntityCollections(entityType string, entityID uint, limit int) ([]*contracts.CollectionListResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	if limit <= 0 {
+		limit = 10
+	}
+
+	// Find collection IDs that contain this entity (public collections only)
+	var collectionIDs []uint
+	err := s.db.Model(&models.CollectionItem{}).
+		Select("DISTINCT collection_items.collection_id").
+		Joins("JOIN collections ON collections.id = collection_items.collection_id").
+		Where("collection_items.entity_type = ? AND collection_items.entity_id = ? AND collections.is_public = ?", entityType, entityID, true).
+		Limit(limit).
+		Pluck("collection_items.collection_id", &collectionIDs).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to find entity collections: %w", err)
+	}
+
+	if len(collectionIDs) == 0 {
+		return []*contracts.CollectionListResponse{}, nil
+	}
+
+	var collections []models.Collection
+	if err := s.db.Where("id IN ?", collectionIDs).Order("updated_at DESC").Find(&collections).Error; err != nil {
+		return nil, fmt.Errorf("failed to load entity collections: %w", err)
+	}
+
+	// Batch-load counts and creator names
+	creatorIDs := make([]uint, 0)
+	creatorIDSet := make(map[uint]bool)
+	for _, c := range collections {
+		if !creatorIDSet[c.CreatorID] {
+			creatorIDs = append(creatorIDs, c.CreatorID)
+			creatorIDSet[c.CreatorID] = true
+		}
+	}
+
+	itemCounts := s.batchCountItems(collectionIDs)
+	subscriberCounts := s.batchCountSubscribers(collectionIDs)
+	contributorCounts := s.batchCountContributors(collectionIDs)
+	creatorNames := s.batchResolveUserNames(creatorIDs)
+
+	responses := make([]*contracts.CollectionListResponse, len(collections))
+	for i, c := range collections {
+		responses[i] = &contracts.CollectionListResponse{
+			ID:               c.ID,
+			Title:            c.Title,
+			Slug:             c.Slug,
+			Description:      c.Description,
+			CreatorID:        c.CreatorID,
+			CreatorName:      creatorNames[c.CreatorID],
+			Collaborative:    c.Collaborative,
+			CoverImageURL:    c.CoverImageURL,
+			IsPublic:         c.IsPublic,
+			IsFeatured:       c.IsFeatured,
+			ItemCount:        itemCounts[c.ID],
+			SubscriberCount:  subscriberCounts[c.ID],
+			ContributorCount: contributorCounts[c.ID],
+			CreatedAt:        c.CreatedAt,
+			UpdatedAt:        c.UpdatedAt,
+		}
+	}
+
+	return responses, nil
+}
+
+// GetUserPublicCollections returns public collections created by a specific user
+func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset int) ([]*contracts.CollectionListResponse, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	query := s.db.Model(&models.Collection{}).
+		Where("creator_id = ? AND is_public = ?", userID, true)
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count user public collections: %w", err)
+	}
+
+	var collections []models.Collection
+	if err := query.Order("updated_at DESC").Limit(limit).Offset(offset).Find(&collections).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to get user public collections: %w", err)
+	}
+
+	if len(collections) == 0 {
+		return []*contracts.CollectionListResponse{}, total, nil
+	}
+
+	collectionIDs := make([]uint, len(collections))
+	creatorIDs := make([]uint, 0)
+	creatorIDSet := make(map[uint]bool)
+	for i, c := range collections {
+		collectionIDs[i] = c.ID
+		if !creatorIDSet[c.CreatorID] {
+			creatorIDs = append(creatorIDs, c.CreatorID)
+			creatorIDSet[c.CreatorID] = true
+		}
+	}
+
+	itemCounts := s.batchCountItems(collectionIDs)
+	subscriberCounts := s.batchCountSubscribers(collectionIDs)
+	contributorCounts := s.batchCountContributors(collectionIDs)
+	creatorNames := s.batchResolveUserNames(creatorIDs)
+
+	responses := make([]*contracts.CollectionListResponse, len(collections))
+	for i, c := range collections {
+		responses[i] = &contracts.CollectionListResponse{
+			ID:               c.ID,
+			Title:            c.Title,
+			Slug:             c.Slug,
+			Description:      c.Description,
+			CreatorID:        c.CreatorID,
+			CreatorName:      creatorNames[c.CreatorID],
+			Collaborative:    c.Collaborative,
+			CoverImageURL:    c.CoverImageURL,
+			IsPublic:         c.IsPublic,
+			IsFeatured:       c.IsFeatured,
+			ItemCount:        itemCounts[c.ID],
+			SubscriberCount:  subscriberCounts[c.ID],
+			ContributorCount: contributorCounts[c.ID],
+			CreatedAt:        c.CreatedAt,
+			UpdatedAt:        c.UpdatedAt,
+		}
+	}
+
+	return responses, total, nil
+}
+
+// GetUserPublicCollectionsByUsername returns public collections by username lookup
+func (s *CollectionService) GetUserPublicCollectionsByUsername(username string, limit, offset int) ([]*contracts.CollectionListResponse, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	// Look up user by username
+	var user models.User
+	err := s.db.Where("username = ?", username).First(&user).Error
+	if err != nil {
+		// User not found - return empty
+		return []*contracts.CollectionListResponse{}, 0, nil
+	}
+
+	return s.GetUserPublicCollections(user.ID, limit, offset)
+}
+
 // SetFeatured sets or unsets the featured flag on a collection
 func (s *CollectionService) SetFeatured(slug string, featured bool) error {
 	if s.db == nil {

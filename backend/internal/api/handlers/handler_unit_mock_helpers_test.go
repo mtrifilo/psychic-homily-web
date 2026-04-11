@@ -675,6 +675,9 @@ type mockCollectionService struct {
 	markVisitedFn func(string, uint) (error)
 	getStatsFn func(string) (*contracts.CollectionStatsResponse, error)
 	getUserCollectionsFn func(uint, int, int) ([]*contracts.CollectionListResponse, int64, error)
+	getEntityCollectionsFn func(string, uint, int) ([]*contracts.CollectionListResponse, error)
+	getUserPublicCollectionsFn func(uint, int, int) ([]*contracts.CollectionListResponse, int64, error)
+	getUserPublicCollectionsByUsernameFn func(string, int, int) ([]*contracts.CollectionListResponse, int64, error)
 	setFeaturedFn func(string, bool) (error)
 }
 
@@ -759,6 +762,24 @@ func (m *mockCollectionService) GetStats(slug string) (*contracts.CollectionStat
 func (m *mockCollectionService) GetUserCollections(userID uint, limit int, offset int) ([]*contracts.CollectionListResponse, int64, error) {
 	if m.getUserCollectionsFn != nil {
 		return m.getUserCollectionsFn(userID, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *mockCollectionService) GetEntityCollections(entityType string, entityID uint, limit int) ([]*contracts.CollectionListResponse, error) {
+	if m.getEntityCollectionsFn != nil {
+		return m.getEntityCollectionsFn(entityType, entityID, limit)
+	}
+	return nil, nil
+}
+func (m *mockCollectionService) GetUserPublicCollections(userID uint, limit int, offset int) ([]*contracts.CollectionListResponse, int64, error) {
+	if m.getUserPublicCollectionsFn != nil {
+		return m.getUserPublicCollectionsFn(userID, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *mockCollectionService) GetUserPublicCollectionsByUsername(username string, limit int, offset int) ([]*contracts.CollectionListResponse, int64, error) {
+	if m.getUserPublicCollectionsByUsernameFn != nil {
+		return m.getUserPublicCollectionsByUsernameFn(username, limit, offset)
 	}
 	return nil, 0, nil
 }
