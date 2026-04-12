@@ -77,6 +77,10 @@ func (suite *TagServiceIntegrationTestSuite) SetupTest() {
 	_, _ = sqlDB.Exec("DELETE FROM entity_tags")
 	_, _ = sqlDB.Exec("DELETE FROM tag_aliases")
 	_, _ = sqlDB.Exec("DELETE FROM tags")
+	_, _ = sqlDB.Exec("DELETE FROM show_artists")
+	_, _ = sqlDB.Exec("DELETE FROM show_venues")
+	_, _ = sqlDB.Exec("DELETE FROM shows")
+	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
