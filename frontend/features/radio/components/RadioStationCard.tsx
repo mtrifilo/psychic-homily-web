@@ -1,9 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { Radio, MapPin, Music, Headphones } from 'lucide-react'
+import { Radio, MapPin, Music } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { getBroadcastTypeLabel } from '../types'
 import type { RadioStationListItem } from '../types'
 
@@ -68,12 +67,6 @@ export function RadioStationCard({ station }: RadioStationCardProps) {
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-2 mt-4">
-        <Button asChild variant="outline" size="sm">
-          <Link href={stationUrl}>View Station</Link>
-        </Button>
-      </div>
     </article>
   )
 }
