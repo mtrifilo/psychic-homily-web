@@ -74,7 +74,7 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
     )
   }
 
-  const title = episode.title || formatDate(episode.air_date)
+  const hasTitle = !!episode.title
   const plays = episode.plays ?? []
   const genreTags = episode.genre_tags ?? []
   const moodTags = episode.mood_tags ?? []
@@ -108,7 +108,32 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
 
         {/* Episode header */}
         <div className="mb-8">
-          <h1 className="text-2xl font-bold">{title}</h1>
+          {hasTitle ? (
+            <>
+              <h1 className="text-2xl font-bold">{episode.title}</h1>
+              <p className="text-base text-muted-foreground mt-1 flex items-center gap-1.5">
+                <Calendar className="h-4 w-4 shrink-0" />
+                {formatDate(episode.air_date)}
+                {episode.air_time && (
+                  <span className="flex items-center gap-1 ml-1">
+                    <Clock className="h-3.5 w-3.5 shrink-0" />
+                    {formatAirTime(episode.air_time)}
+                  </span>
+                )}
+              </p>
+            </>
+          ) : (
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Calendar className="h-6 w-6 shrink-0" />
+              {formatDate(episode.air_date)}
+              {episode.air_time && (
+                <span className="text-lg font-normal text-muted-foreground flex items-center gap-1 ml-1">
+                  <Clock className="h-4 w-4 shrink-0" />
+                  {formatAirTime(episode.air_time)}
+                </span>
+              )}
+            </h1>
+          )}
           <p className="text-sm text-muted-foreground mt-1">
             <Link
               href={`/radio/${stationSlug}/${showSlug}`}
@@ -126,16 +151,6 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
           </p>
 
           <div className="flex items-center gap-3 flex-wrap mt-3">
-            <span className="flex items-center gap-1 text-sm text-muted-foreground">
-              <Calendar className="h-3.5 w-3.5" />
-              {formatDate(episode.air_date)}
-            </span>
-            {episode.air_time && (
-              <span className="flex items-center gap-1 text-sm text-muted-foreground">
-                <Clock className="h-3.5 w-3.5" />
-                {formatAirTime(episode.air_time)}
-              </span>
-            )}
             {episode.duration_minutes && (
               <span className="text-sm text-muted-foreground">
                 {episode.duration_minutes} min
