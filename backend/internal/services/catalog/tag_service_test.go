@@ -98,7 +98,7 @@ func (suite *TagServiceIntegrationTestSuite) createTestUser(name string) *models
 }
 
 func (suite *TagServiceIntegrationTestSuite) createTag(name, category string) *models.Tag {
-	tag, err := suite.tagService.CreateTag(name, nil, nil, category, false)
+	tag, err := suite.tagService.CreateTag(name, nil, nil, category, false, nil)
 	suite.Require().NoError(err)
 	return tag
 }
@@ -118,7 +118,7 @@ func (suite *TagServiceIntegrationTestSuite) createArtist(name string) uint {
 
 func (suite *TagServiceIntegrationTestSuite) TestCreateTag_Success() {
 	desc := "A subgenre of punk rock"
-	tag, err := suite.tagService.CreateTag("Post-Punk", &desc, nil, "genre", true)
+	tag, err := suite.tagService.CreateTag("Post-Punk", &desc, nil, "genre", true, nil)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(tag)
 
@@ -129,10 +129,11 @@ func (suite *TagServiceIntegrationTestSuite) TestCreateTag_Success() {
 	suite.Assert().NotNil(tag.Description)
 	suite.Assert().Equal("A subgenre of punk rock", *tag.Description)
 	suite.Assert().Equal(0, tag.UsageCount)
+	suite.Assert().Nil(tag.CreatedByUserID)
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestCreateTag_InvalidCategory() {
-	tag, err := suite.tagService.CreateTag("Test", nil, nil, "invalid", false)
+	tag, err := suite.tagService.CreateTag("Test", nil, nil, "invalid", false, nil)
 	suite.Assert().Error(err)
 	suite.Assert().Contains(err.Error(), "invalid tag category")
 	suite.Assert().Nil(tag)
@@ -141,7 +142,7 @@ func (suite *TagServiceIntegrationTestSuite) TestCreateTag_InvalidCategory() {
 func (suite *TagServiceIntegrationTestSuite) TestCreateTag_DuplicateName() {
 	suite.createTag("rock", "genre")
 
-	tag, err := suite.tagService.CreateTag("Rock", nil, nil, "genre", false)
+	tag, err := suite.tagService.CreateTag("Rock", nil, nil, "genre", false, nil)
 	suite.Assert().Error(err)
 	var tagErr *apperrors.TagError
 	suite.Assert().ErrorAs(err, &tagErr)
@@ -152,10 +153,35 @@ func (suite *TagServiceIntegrationTestSuite) TestCreateTag_DuplicateName() {
 func (suite *TagServiceIntegrationTestSuite) TestCreateTag_WithParent() {
 	parent := suite.createTag("rock", "genre")
 
-	child, err := suite.tagService.CreateTag("post-punk", nil, &parent.ID, "genre", false)
+	child, err := suite.tagService.CreateTag("post-punk", nil, &parent.ID, "genre", false, nil)
 	suite.Require().NoError(err)
 	suite.Assert().NotNil(child.ParentID)
 	suite.Assert().Equal(parent.ID, *child.ParentID)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestCreateTag_WithUserID() {
+	user := suite.createTestUser("creator")
+
+	tag, err := suite.tagService.CreateTag("Ambient", nil, nil, "genre", false, &user.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(tag)
+	suite.Assert().NotNil(tag.CreatedByUserID)
+	suite.Assert().Equal(user.ID, *tag.CreatedByUserID)
+
+	// Verify persisted and preloaded via GetTag
+	fetched, err := suite.tagService.GetTag(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(fetched)
+	suite.Assert().NotNil(fetched.CreatedByUserID)
+	suite.Assert().Equal(user.ID, *fetched.CreatedByUserID)
+	suite.Assert().NotNil(fetched.CreatedBy)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestCreateTag_NilUserID() {
+	tag, err := suite.tagService.CreateTag("NoCreator", nil, nil, "genre", false, nil)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(tag)
+	suite.Assert().Nil(tag.CreatedByUserID)
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestGetTag_ByID() {
@@ -225,7 +251,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_FilterByParent() {
 	parent := suite.createTag("rock", "genre")
 	suite.createTag("post-punk", "genre")
 	// Make post-rock a child of rock
-	suite.tagService.CreateTag("post-rock", nil, &parent.ID, "genre", false)
+	suite.tagService.CreateTag("post-rock", nil, &parent.ID, "genre", false, nil)
 
 	tags, total, err := suite.tagService.ListTags("", "", &parent.ID, "name", 50, 0)
 	suite.Require().NoError(err)
@@ -614,7 +640,7 @@ func (suite *TagServiceIntegrationTestSuite) TestPruneDownvotedTags() {
 func (suite *TagServiceIntegrationTestSuite) TestPruneDownvotedTags_OfficialImmune() {
 	user1 := suite.createTestUser("voter1")
 	user2 := suite.createTestUser("voter2")
-	tag, _ := suite.tagService.CreateTag("official-tag", nil, nil, "genre", true)
+	tag, _ := suite.tagService.CreateTag("official-tag", nil, nil, "genre", true, nil)
 	artistID := suite.createArtist("Some Official Band")
 
 	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user1.ID, "")
