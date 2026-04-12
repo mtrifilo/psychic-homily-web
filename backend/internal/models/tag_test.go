@@ -66,9 +66,21 @@ func TestIsValidTagEntityType_Invalid(t *testing.T) {
 
 func TestTagCategoryConstants(t *testing.T) {
 	assert.Equal(t, "genre", TagCategoryGenre)
+	assert.Equal(t, "mood", TagCategoryMood)
+	assert.Equal(t, "era", TagCategoryEra)
+	assert.Equal(t, "instrument", TagCategoryInstrument)
+	assert.Equal(t, "scene", TagCategoryScene)
 	assert.Equal(t, "locale", TagCategoryLocale)
+	assert.Equal(t, "venue-vibe", TagCategoryVenueVibe)
 	assert.Equal(t, "other", TagCategoryOther)
-	assert.Len(t, TagCategories, 3)
+	assert.Len(t, TagCategories, 8)
+}
+
+func TestIsValidTagCategory_AllNewCategories(t *testing.T) {
+	newCategories := []string{"mood", "era", "instrument", "scene", "venue-vibe"}
+	for _, c := range newCategories {
+		assert.True(t, IsValidTagCategory(c), "expected %q to be valid", c)
+	}
 }
 
 func TestTagEntityTypeConstants(t *testing.T) {

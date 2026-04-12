@@ -34,7 +34,7 @@ func NewTagHandler(tagService contracts.TagServiceInterface, auditLog contracts.
 // ============================================================================
 
 type ListTagsRequest struct {
-	Category string `query:"category" required:"false" doc:"Filter by category (genre, locale, other)"`
+	Category string `query:"category" required:"false" doc:"Filter by category (genre, mood, era, instrument, scene, locale, venue-vibe, other)"`
 	Search   string `query:"search" required:"false" doc:"Search tags by name"`
 	ParentID uint   `query:"parent_id" required:"false" doc:"Filter by parent tag ID"`
 	Sort     string `query:"sort" required:"false" doc:"Sort by: usage, name, created (default: usage)"`
@@ -378,7 +378,7 @@ type CreateTagRequest struct {
 		Name        string  `json:"name" doc:"Tag name" example:"post-punk"`
 		Description *string `json:"description" required:"false" doc:"Tag description"`
 		ParentID    *uint   `json:"parent_id" required:"false" doc:"Parent tag ID for hierarchy"`
-		Category    string  `json:"category" doc:"Tag category (genre, locale, other)" example:"genre"`
+		Category    string  `json:"category" doc:"Tag category (genre, mood, era, instrument, scene, locale, venue-vibe, other)" example:"genre"`
 		IsOfficial  bool    `json:"is_official" required:"false" doc:"Whether this is an official/canonical tag"`
 	}
 }

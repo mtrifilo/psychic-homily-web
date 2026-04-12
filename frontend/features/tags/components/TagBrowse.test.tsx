@@ -229,7 +229,12 @@ describe('TagBrowse', () => {
 
     expect(screen.getByText('All')).toBeInTheDocument()
     expect(screen.getByText('Genre')).toBeInTheDocument()
+    expect(screen.getByText('Mood')).toBeInTheDocument()
+    expect(screen.getByText('Era')).toBeInTheDocument()
+    expect(screen.getByText('Instrument')).toBeInTheDocument()
+    expect(screen.getByText('Scene')).toBeInTheDocument()
     expect(screen.getByText('Locale')).toBeInTheDocument()
+    expect(screen.getByText('Venue Vibe')).toBeInTheDocument()
     expect(screen.getByText('Other')).toBeInTheDocument()
   })
 
