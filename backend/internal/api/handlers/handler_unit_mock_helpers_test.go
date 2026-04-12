@@ -1638,6 +1638,28 @@ func (m *mockFestivalService) GetFestivalsForArtist(artistID uint) ([]*contracts
 }
 
 // ============================================================================
+// Mock: FieldNoteServiceInterface
+// ============================================================================
+
+type mockFieldNoteService struct {
+	createFieldNoteFn func(uint, *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error)
+	listFieldNotesForShowFn func(uint, int, int) (*contracts.CommentListResponse, error)
+}
+
+func (m *mockFieldNoteService) CreateFieldNote(userID uint, req *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error) {
+	if m.createFieldNoteFn != nil {
+		return m.createFieldNoteFn(userID, req)
+	}
+	return nil, nil
+}
+func (m *mockFieldNoteService) ListFieldNotesForShow(showID uint, limit int, offset int) (*contracts.CommentListResponse, error) {
+	if m.listFieldNotesForShowFn != nil {
+		return m.listFieldNotesForShowFn(showID, limit, offset)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: FollowServiceInterface
 // ============================================================================
 
@@ -2984,7 +3006,7 @@ type mockTagService struct {
 	listTagsFn func(string, string, *uint, string, int, int) ([]models.Tag, int64, error)
 	updateTagFn func(uint, *string, *string, *uint, *string, *bool) (*models.Tag, error)
 	deleteTagFn func(uint) (error)
-	addTagToEntityFn func(uint, string, string, uint, uint) (*models.EntityTag, error)
+	addTagToEntityFn func(uint, string, string, uint, uint, string) (*models.EntityTag, error)
 	removeTagFromEntityFn func(uint, string, uint) (error)
 	listEntityTagsFn func(string, uint, uint) ([]contracts.EntityTagResponse, error)
 	voteOnTagFn func(uint, string, uint, uint, bool) (error)
@@ -3035,9 +3057,9 @@ func (m *mockTagService) DeleteTag(tagID uint) (error) {
 	}
 	return nil
 }
-func (m *mockTagService) AddTagToEntity(tagID uint, tagName string, entityType string, entityID uint, userID uint) (*models.EntityTag, error) {
+func (m *mockTagService) AddTagToEntity(tagID uint, tagName string, entityType string, entityID uint, userID uint, category string) (*models.EntityTag, error) {
 	if m.addTagToEntityFn != nil {
-		return m.addTagToEntityFn(tagID, tagName, entityType, entityID, userID)
+		return m.addTagToEntityFn(tagID, tagName, entityType, entityID, userID, category)
 	}
 	return nil, nil
 }
@@ -3788,6 +3810,7 @@ var _ contracts.ExtractionServiceInterface = (*mockExtractionService)(nil)
 var _ contracts.FavoriteVenueServiceInterface = (*mockFavoriteVenueService)(nil)
 var _ contracts.FestivalIntelligenceServiceInterface = (*mockFestivalIntelligenceService)(nil)
 var _ contracts.FestivalServiceInterface = (*mockFestivalService)(nil)
+var _ contracts.FieldNoteServiceInterface = (*mockFieldNoteService)(nil)
 var _ contracts.FollowServiceInterface = (*mockFollowService)(nil)
 var _ contracts.JWTServiceInterface = (*mockJWTService)(nil)
 var _ contracts.LabelServiceInterface = (*mockLabelService)(nil)

@@ -3,6 +3,7 @@ package catalog
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"strings"
 
 	"gorm.io/gorm"
@@ -226,7 +227,9 @@ func (s *TagService) DeleteTag(tagID uint) error {
 // ──────────────────────────────────────────────
 
 // AddTagToEntity applies a tag to an entity. Supports tag ID or name (with alias resolution).
-func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType string, entityID uint, userID uint) (*models.EntityTag, error) {
+// If tagName is provided and no existing tag or alias matches, creates the tag inline
+// for contributor+ users. The category parameter is used when creating new tags (defaults to "other").
+func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType string, entityID uint, userID uint, category string) (*models.EntityTag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -237,6 +240,7 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 
 	// Resolve tag by ID or name
 	var tag *models.Tag
+	var createdInline bool
 	if tagID > 0 {
 		var t models.Tag
 		if err := s.db.First(&t, tagID).Error; err != nil {
@@ -259,11 +263,19 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 			var t models.Tag
 			if err := s.db.Where("LOWER(name) = LOWER(?)", tagName).First(&t).Error; err != nil {
 				if err == gorm.ErrRecordNotFound {
-					return nil, apperrors.ErrTagNotFoundBySlug(tagName)
+					// Tag not found — create inline if user has permission
+					newTag, createErr := s.createTagInline(tagName, category, userID)
+					if createErr != nil {
+						return nil, createErr
+					}
+					tag = newTag
+					createdInline = true
+				} else {
+					return nil, fmt.Errorf("failed to find tag by name: %w", err)
 				}
-				return nil, fmt.Errorf("failed to find tag by name: %w", err)
+			} else {
+				tag = &t
 			}
-			tag = &t
 		}
 	} else {
 		return nil, fmt.Errorf("tag_id or tag_name is required")
@@ -292,7 +304,96 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 	s.db.Model(&models.Tag{}).Where("id = ?", tag.ID).
 		Update("usage_count", gorm.Expr("usage_count + 1"))
 
+	// Auto-upvote for the creator when tag was created inline
+	if createdInline {
+		autoVote := models.TagVote{
+			TagID:      tag.ID,
+			EntityType: entityType,
+			EntityID:   entityID,
+			UserID:     userID,
+			Vote:       1,
+		}
+		// Fire-and-forget: don't fail the parent operation
+		s.db.Create(&autoVote)
+	}
+
 	return entityTag, nil
+}
+
+// createTagInline creates a new tag as part of the AddTagToEntity flow.
+// Only contributor+ users can create tags inline; new_user gets a 403.
+func (s *TagService) createTagInline(tagName string, category string, userID uint) (*models.Tag, error) {
+	// Look up user to check trust tier
+	var user models.User
+	if err := s.db.First(&user, userID).Error; err != nil {
+		return nil, fmt.Errorf("failed to look up user: %w", err)
+	}
+
+	// Gate on trust tier: new_user cannot create tags
+	if user.UserTier == "new_user" && !user.IsAdmin {
+		return nil, apperrors.ErrTagCreationForbidden()
+	}
+
+	// Normalize the tag name
+	normalized := NormalizeTagName(tagName)
+	if len(normalized) < 2 {
+		return nil, apperrors.ErrTagNameInvalid("must be at least 2 characters after normalization")
+	}
+	if len(normalized) > 50 {
+		return nil, apperrors.ErrTagNameInvalid("must be 50 characters or fewer after normalization")
+	}
+
+	// Default category
+	if category == "" {
+		category = "other"
+	}
+	if !models.IsValidTagCategory(category) {
+		return nil, fmt.Errorf("invalid tag category: %s", category)
+	}
+
+	// Check for duplicate after normalization (case-insensitive)
+	var existing models.Tag
+	if err := s.db.Where("LOWER(name) = LOWER(?)", normalized).First(&existing).Error; err == nil {
+		// Already exists after normalization — use existing
+		return &existing, nil
+	}
+
+	// Generate slug
+	baseSlug := utils.GenerateSlug(normalized)
+	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
+		var count int64
+		s.db.Model(&models.Tag{}).Where("slug = ?", candidate).Count(&count)
+		return count > 0
+	})
+
+	tag := &models.Tag{
+		Name:       normalized,
+		Slug:       slug,
+		Category:   category,
+		IsOfficial: false,
+	}
+
+	if err := s.db.Create(tag).Error; err != nil {
+		return nil, fmt.Errorf("failed to create tag: %w", err)
+	}
+
+	return tag, nil
+}
+
+// NormalizeTagName normalizes a tag name for consistent storage.
+// Lowercases, replaces whitespace with hyphens, strips non-alphanumeric
+// except hyphens, collapses multiple hyphens, and trims.
+func NormalizeTagName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	// Replace whitespace with hyphens
+	name = regexp.MustCompile(`\s+`).ReplaceAllString(name, "-")
+	// Strip non-alphanumeric except hyphens
+	name = regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(name, "")
+	// Collapse multiple hyphens
+	name = regexp.MustCompile(`-+`).ReplaceAllString(name, "-")
+	// Trim hyphens from edges
+	name = strings.Trim(name, "-")
+	return name
 }
 
 // RemoveTagFromEntity removes a tag from an entity.

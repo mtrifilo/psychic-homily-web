@@ -77,7 +77,7 @@ type TagServiceInterface interface {
 	DeleteTag(tagID uint) error
 
 	// Entity tagging
-	AddTagToEntity(tagID uint, tagName string, entityType string, entityID uint, userID uint) (*models.EntityTag, error)
+	AddTagToEntity(tagID uint, tagName string, entityType string, entityID uint, userID uint, category string) (*models.EntityTag, error)
 	RemoveTagFromEntity(tagID uint, entityType string, entityID uint) error
 	ListEntityTags(entityType string, entityID uint, userID uint) ([]EntityTagResponse, error)
 

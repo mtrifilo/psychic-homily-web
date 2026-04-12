@@ -125,7 +125,7 @@ export function useTagEntities(
 // Mutations
 // ──────────────────────────────────────────────
 
-/** Add a tag to an entity */
+/** Add a tag to an entity (creates tag inline if not found for contributor+ users) */
 export function useAddTagToEntity() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -134,15 +134,17 @@ export function useAddTagToEntity() {
       entityId,
       tag_id,
       tag_name,
+      category,
     }: {
       entityType: string
       entityId: number
       tag_id?: number
       tag_name?: string
+      category?: string
     }) =>
       apiRequest<void>(API_ENDPOINTS.ENTITY_TAGS.ADD(entityType, entityId), {
         method: 'POST',
-        body: JSON.stringify({ tag_id, tag_name }),
+        body: JSON.stringify({ tag_id, tag_name, category }),
       }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
