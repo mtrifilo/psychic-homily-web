@@ -1584,7 +1584,7 @@ export function RadioManagement() {
                   <tr className="border-b bg-muted/50">
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Name</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">City</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Source</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Broadcast Type</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Shows</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Active</th>
                   </tr>
