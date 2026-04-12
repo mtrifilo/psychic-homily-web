@@ -203,6 +203,7 @@ function AddTagForm({
   const addMutation = useAddTagToEntity()
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [createCategory, setCreateCategory] = useState<string>('genre')
   const { data: searchResults, isLoading: searchLoading } = useSearchTags(debouncedQuery, 10)
 
   // Debounce search input
@@ -230,7 +231,7 @@ function AddTagForm({
     const name = searchQuery.trim()
     if (!name) return
     addMutation.mutate(
-      { entityType, entityId, tag_name: name },
+      { entityType, entityId, tag_name: name, category: createCategory },
       {
         onSuccess: () => {
           setSearchQuery('')
@@ -313,13 +314,29 @@ function AddTagForm({
               <p className="text-sm text-muted-foreground mb-2">
                 No matching tags found.
               </p>
+              <div className="flex items-center gap-2 mb-2">
+                <label className="text-xs text-muted-foreground">Category:</label>
+                <select
+                  value={createCategory}
+                  onChange={e => setCreateCategory(e.target.value)}
+                  className="text-xs rounded border border-input bg-background px-2 py-1"
+                >
+                  <option value="genre">Genre</option>
+                  <option value="locale">Locale</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
               <Button
                 size="sm"
                 variant="outline"
                 onClick={handleCreateTag}
                 disabled={addMutation.isPending || !searchQuery.trim()}
               >
-                <Plus className="h-3.5 w-3.5 mr-1.5" />
+                {addMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Plus className="h-3.5 w-3.5 mr-1.5" />
+                )}
                 Create &quot;{searchQuery.trim()}&quot;
               </Button>
             </div>

@@ -224,8 +224,9 @@ type AddTagToEntityRequest struct {
 	EntityType string `path:"entity_type" doc:"Entity type" example:"artist"`
 	EntityID   string `path:"entity_id" doc:"Entity ID" example:"1"`
 	Body       struct {
-		TagID   uint   `json:"tag_id" required:"false" doc:"Tag ID (provide tag_id or tag_name)"`
-		TagName string `json:"tag_name" required:"false" doc:"Tag name (with alias resolution)"`
+		TagID    uint   `json:"tag_id" required:"false" doc:"Tag ID (provide tag_id or tag_name)"`
+		TagName  string `json:"tag_name" required:"false" doc:"Tag name (with alias resolution; creates tag if not found)"`
+		Category string `json:"category" required:"false" doc:"Tag category for new tags (genre, locale, other; default: other)"`
 	}
 }
 
@@ -244,7 +245,7 @@ func (h *TagHandler) AddTagToEntityHandler(ctx context.Context, req *AddTagToEnt
 		return nil, huma.Error400BadRequest("Either tag_id or tag_name is required")
 	}
 
-	_, err = h.tagService.AddTagToEntity(req.Body.TagID, req.Body.TagName, req.EntityType, uint(entityID), user.ID)
+	_, err = h.tagService.AddTagToEntity(req.Body.TagID, req.Body.TagName, req.EntityType, uint(entityID), user.ID, req.Body.Category)
 	if err != nil {
 		mapped := mapTagError(err)
 		if mapped != nil {
@@ -730,6 +731,10 @@ func mapTagError(err error) error {
 			return huma.Error409Conflict(tagErr.Message)
 		case apperrors.CodeEntityTagNotFound:
 			return huma.Error404NotFound(tagErr.Message)
+		case apperrors.CodeTagCreationForbidden:
+			return huma.Error403Forbidden(tagErr.Message)
+		case apperrors.CodeTagNameInvalid:
+			return huma.Error400BadRequest(tagErr.Message)
 		}
 	}
 	return nil

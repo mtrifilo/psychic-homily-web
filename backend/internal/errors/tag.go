@@ -6,11 +6,13 @@ import (
 
 // Tag error codes
 const (
-	CodeTagNotFound       = "TAG_NOT_FOUND"
-	CodeTagExists         = "TAG_EXISTS"
-	CodeTagAliasExists    = "TAG_ALIAS_EXISTS"
-	CodeEntityTagExists   = "ENTITY_TAG_EXISTS"
-	CodeEntityTagNotFound = "ENTITY_TAG_NOT_FOUND"
+	CodeTagNotFound              = "TAG_NOT_FOUND"
+	CodeTagExists                = "TAG_EXISTS"
+	CodeTagAliasExists           = "TAG_ALIAS_EXISTS"
+	CodeEntityTagExists          = "ENTITY_TAG_EXISTS"
+	CodeEntityTagNotFound        = "ENTITY_TAG_NOT_FOUND"
+	CodeTagCreationForbidden     = "TAG_CREATION_FORBIDDEN"
+	CodeTagNameInvalid           = "TAG_NAME_INVALID"
 )
 
 // TagError represents a tag-related error with additional context.
@@ -78,5 +80,21 @@ func ErrEntityTagNotFound(tagID uint, entityType string, entityID uint) *TagErro
 	return &TagError{
 		Code:    CodeEntityTagNotFound,
 		Message: fmt.Sprintf("Tag %d not applied to %s %d", tagID, entityType, entityID),
+	}
+}
+
+// ErrTagCreationForbidden creates a forbidden error for new users trying to create tags.
+func ErrTagCreationForbidden() *TagError {
+	return &TagError{
+		Code:    CodeTagCreationForbidden,
+		Message: "New users can only apply existing tags. Reach Contributor tier to create new tags.",
+	}
+}
+
+// ErrTagNameInvalid creates a validation error for invalid tag names.
+func ErrTagNameInvalid(reason string) *TagError {
+	return &TagError{
+		Code:    CodeTagNameInvalid,
+		Message: fmt.Sprintf("Invalid tag name: %s", reason),
 	}
 }

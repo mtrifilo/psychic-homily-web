@@ -77,6 +77,10 @@ func (suite *TagServiceIntegrationTestSuite) SetupTest() {
 	_, _ = sqlDB.Exec("DELETE FROM entity_tags")
 	_, _ = sqlDB.Exec("DELETE FROM tag_aliases")
 	_, _ = sqlDB.Exec("DELETE FROM tags")
+	_, _ = sqlDB.Exec("DELETE FROM show_artists")
+	_, _ = sqlDB.Exec("DELETE FROM show_venues")
+	_, _ = sqlDB.Exec("DELETE FROM shows")
+	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
@@ -278,7 +282,7 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_ByID() {
 	tag := suite.createTag("indie", "genre")
 	artistID := suite.createArtist("Test Band")
 
-	et, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID)
+	et, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
 	suite.Require().NoError(err)
 	suite.Assert().Equal(tag.ID, et.TagID)
 	suite.Assert().Equal("artist", et.EntityType)
@@ -295,7 +299,7 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_ByName() {
 	tag := suite.createTag("ambient", "genre")
 	artistID := suite.createArtist("Ambient Artist")
 
-	et, err := suite.tagService.AddTagToEntity(0, "ambient", "artist", artistID, user.ID)
+	et, err := suite.tagService.AddTagToEntity(0, "ambient", "artist", artistID, user.ID, "")
 	suite.Require().NoError(err)
 	suite.Assert().Equal(tag.ID, et.TagID)
 }
@@ -307,7 +311,7 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_ByAlias() {
 	suite.Require().NoError(err)
 	artistID := suite.createArtist("Post Punk Band")
 
-	et, err := suite.tagService.AddTagToEntity(0, "post punk", "artist", artistID, user.ID)
+	et, err := suite.tagService.AddTagToEntity(0, "post punk", "artist", artistID, user.ID, "")
 	suite.Require().NoError(err)
 	suite.Assert().Equal(tag.ID, et.TagID)
 }
@@ -317,10 +321,10 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_Duplicate() {
 	tag := suite.createTag("rock", "genre")
 	artistID := suite.createArtist("Rock Band")
 
-	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID)
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
 	suite.Require().NoError(err)
 
-	_, err = suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID)
+	_, err = suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
 	suite.Assert().Error(err)
 	var tagErr *apperrors.TagError
 	suite.Assert().ErrorAs(err, &tagErr)
@@ -331,7 +335,7 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InvalidEntityTyp
 	user := suite.createTestUser("tagger")
 	tag := suite.createTag("rock", "genre")
 
-	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "invalid", 1, user.ID)
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "invalid", 1, user.ID, "")
 	suite.Assert().Error(err)
 	suite.Assert().Contains(err.Error(), "invalid entity type")
 }
@@ -341,7 +345,7 @@ func (suite *TagServiceIntegrationTestSuite) TestRemoveTagFromEntity_Success() {
 	tag := suite.createTag("metal", "genre")
 	artistID := suite.createArtist("Metal Band")
 
-	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID)
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
 	suite.Require().NoError(err)
 
 	err = suite.tagService.RemoveTagFromEntity(tag.ID, "artist", artistID)
@@ -366,8 +370,8 @@ func (suite *TagServiceIntegrationTestSuite) TestListEntityTags() {
 	tag2 := suite.createTag("lo-fi", "other")
 	artistID := suite.createArtist("Indie Lo-Fi Band")
 
-	suite.tagService.AddTagToEntity(tag1.ID, "", "artist", artistID, user.ID)
-	suite.tagService.AddTagToEntity(tag2.ID, "", "artist", artistID, user.ID)
+	suite.tagService.AddTagToEntity(tag1.ID, "", "artist", artistID, user.ID, "")
+	suite.tagService.AddTagToEntity(tag2.ID, "", "artist", artistID, user.ID, "")
 
 	tags, err := suite.tagService.ListEntityTags("artist", artistID, 0)
 	suite.Require().NoError(err)
@@ -379,7 +383,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListEntityTags_WithUserVote() {
 	tag := suite.createTag("punk", "genre")
 	artistID := suite.createArtist("Punk Band")
 
-	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID)
+	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
 	suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user.ID, true)
 
 	tags, err := suite.tagService.ListEntityTags("artist", artistID, user.ID)
@@ -399,7 +403,7 @@ func (suite *TagServiceIntegrationTestSuite) TestVoteOnTag_Upvote() {
 	tag := suite.createTag("synth", "genre")
 	artistID := suite.createArtist("Synth Band")
 
-	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID)
+	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
 
 	err := suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user.ID, true)
 	suite.Assert().NoError(err)
@@ -410,7 +414,7 @@ func (suite *TagServiceIntegrationTestSuite) TestVoteOnTag_ChangeVote() {
 	tag := suite.createTag("grunge", "genre")
 	artistID := suite.createArtist("Grunge Band")
 
-	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID)
+	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
 	suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user.ID, true)
 
 	// Change to downvote
@@ -440,7 +444,7 @@ func (suite *TagServiceIntegrationTestSuite) TestRemoveTagVote() {
 	tag := suite.createTag("noise", "genre")
 	artistID := suite.createArtist("Noise Band")
 
-	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID)
+	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
 	suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user.ID, true)
 
 	err := suite.tagService.RemoveTagVote(tag.ID, "artist", artistID, user.ID)
@@ -560,7 +564,7 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTrendingTags() {
 	artistID := suite.createArtist("Multi-Genre")
 
 	// Apply tags to entities to increase usage count
-	suite.tagService.AddTagToEntity(tag1.ID, "", "artist", artistID, user.ID)
+	suite.tagService.AddTagToEntity(tag1.ID, "", "artist", artistID, user.ID, "")
 	// tag2 not applied, so usage_count stays 0
 
 	_ = tag2
@@ -577,9 +581,9 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTrendingTags_FilterByCategor
 	tag2 := suite.createTag("1990s", "other")
 	artistID := suite.createArtist("Band")
 
-	suite.tagService.AddTagToEntity(tag1.ID, "", "artist", artistID, user.ID)
+	suite.tagService.AddTagToEntity(tag1.ID, "", "artist", artistID, user.ID, "")
 	artist2 := suite.createArtist("Band2")
-	suite.tagService.AddTagToEntity(tag2.ID, "", "artist", artist2, user.ID)
+	suite.tagService.AddTagToEntity(tag2.ID, "", "artist", artist2, user.ID, "")
 
 	tags, err := suite.tagService.GetTrendingTags(10, "other")
 	suite.Require().NoError(err)
@@ -594,7 +598,7 @@ func (suite *TagServiceIntegrationTestSuite) TestPruneDownvotedTags() {
 	artistID := suite.createArtist("Some Band")
 
 	// Apply tag and get downvoted
-	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user1.ID)
+	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user1.ID, "")
 	suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user1.ID, false)
 	suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user2.ID, false)
 
@@ -613,7 +617,7 @@ func (suite *TagServiceIntegrationTestSuite) TestPruneDownvotedTags_OfficialImmu
 	tag, _ := suite.tagService.CreateTag("official-tag", nil, nil, "genre", true)
 	artistID := suite.createArtist("Some Official Band")
 
-	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user1.ID)
+	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user1.ID, "")
 	suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user1.ID, false)
 	suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user2.ID, false)
 
@@ -624,6 +628,214 @@ func (suite *TagServiceIntegrationTestSuite) TestPruneDownvotedTags_OfficialImmu
 	// Official tag still applied
 	tags, _ := suite.tagService.ListEntityTags("artist", artistID, 0)
 	suite.Assert().Len(tags, 1)
+}
+
+// ──────────────────────────────────────────────
+// Inline Tag Creation Tests
+// ──────────────────────────────────────────────
+
+func (suite *TagServiceIntegrationTestSuite) createTestUserWithTier(name, tier string) *models.User {
+	user := suite.createTestUser(name)
+	suite.db.Model(user).Update("user_tier", tier)
+	user.UserTier = tier
+	return user
+}
+
+func (suite *TagServiceIntegrationTestSuite) createAdminUser(name string) *models.User {
+	user := suite.createTestUser(name)
+	suite.db.Model(user).Updates(map[string]interface{}{"is_admin": true, "user_tier": "new_user"})
+	user.IsAdmin = true
+	return user
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_ContributorSuccess() {
+	user := suite.createTestUserWithTier("contributor-user", "contributor")
+	artistID := suite.createArtist("Shoegaze Band")
+
+	et, err := suite.tagService.AddTagToEntity(0, "shoegaze-revival", "artist", artistID, user.ID, "genre")
+	suite.Require().NoError(err)
+	suite.Assert().NotNil(et)
+
+	// Verify the tag was created
+	tag, err := suite.tagService.GetTagBySlug("shoegaze-revival")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(tag)
+	suite.Assert().Equal("shoegaze-revival", tag.Name)
+	suite.Assert().Equal("genre", tag.Category)
+	suite.Assert().False(tag.IsOfficial)
+	suite.Assert().Equal(1, tag.UsageCount)
+
+	// Verify entity_tag was created
+	suite.Assert().Equal(tag.ID, et.TagID)
+	suite.Assert().Equal("artist", et.EntityType)
+	suite.Assert().Equal(artistID, et.EntityID)
+
+	// Verify auto-upvote
+	tags, err := suite.tagService.ListEntityTags("artist", artistID, user.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(tags, 1)
+	suite.Assert().NotNil(tags[0].UserVote)
+	suite.Assert().Equal(1, *tags[0].UserVote)
+	suite.Assert().Equal(1, tags[0].Upvotes)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_NewUserForbidden() {
+	user := suite.createTestUserWithTier("new-user", "new_user")
+	artistID := suite.createArtist("Some Band")
+
+	_, err := suite.tagService.AddTagToEntity(0, "brand-new-tag", "artist", artistID, user.ID, "genre")
+	suite.Require().Error(err)
+
+	var tagErr *apperrors.TagError
+	suite.Assert().ErrorAs(err, &tagErr)
+	suite.Assert().Equal(apperrors.CodeTagCreationForbidden, tagErr.Code)
+	suite.Assert().Contains(tagErr.Message, "Contributor tier")
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_AdminSuccess() {
+	admin := suite.createAdminUser("admin-tagger")
+	artistID := suite.createArtist("Admin Band")
+
+	et, err := suite.tagService.AddTagToEntity(0, "admin-created-tag", "artist", artistID, admin.ID, "other")
+	suite.Require().NoError(err)
+	suite.Assert().NotNil(et)
+
+	// Admin can create tags even with new_user tier because they're admin
+	tag, err := suite.tagService.GetTagBySlug("admin-created-tag")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(tag)
+	suite.Assert().Equal("admin-created-tag", tag.Name)
+	suite.Assert().Equal("other", tag.Category)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_TrustedContributorSuccess() {
+	user := suite.createTestUserWithTier("trusted-user", "trusted_contributor")
+	artistID := suite.createArtist("Trusted Band")
+
+	et, err := suite.tagService.AddTagToEntity(0, "trusted-tag", "artist", artistID, user.ID, "locale")
+	suite.Require().NoError(err)
+	suite.Assert().NotNil(et)
+
+	tag, err := suite.tagService.GetTagBySlug("trusted-tag")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(tag)
+	suite.Assert().Equal("locale", tag.Category)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_ExistingTagByName_NoDuplicate() {
+	user := suite.createTestUserWithTier("contributor", "contributor")
+	suite.createTag("ambient", "genre")
+	artistID := suite.createArtist("Ambient Band")
+
+	// This should use the existing "ambient" tag, not create a new one
+	et, err := suite.tagService.AddTagToEntity(0, "ambient", "artist", artistID, user.ID, "genre")
+	suite.Require().NoError(err)
+	suite.Assert().NotNil(et)
+
+	// Verify only one tag with that name exists
+	tags, total, err := suite.tagService.ListTags("", "ambient", nil, "name", 50, 0)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(int64(1), total)
+	suite.Assert().Len(tags, 1)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_AliasResolution() {
+	user := suite.createTestUserWithTier("contributor", "contributor")
+	tag := suite.createTag("post-punk", "genre")
+	_, err := suite.tagService.CreateAlias(tag.ID, "post punk")
+	suite.Require().NoError(err)
+	artistID := suite.createArtist("Post Punk Band 2")
+
+	// "post punk" should resolve to existing "post-punk" via alias
+	et, err := suite.tagService.AddTagToEntity(0, "post punk", "artist", artistID, user.ID, "genre")
+	suite.Require().NoError(err)
+	suite.Assert().Equal(tag.ID, et.TagID)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_DefaultCategoryOther() {
+	user := suite.createTestUserWithTier("contributor", "contributor")
+	artistID := suite.createArtist("Category Test Band")
+
+	// Empty category should default to "other"
+	et, err := suite.tagService.AddTagToEntity(0, "no-category-tag", "artist", artistID, user.ID, "")
+	suite.Require().NoError(err)
+	suite.Assert().NotNil(et)
+
+	tag, err := suite.tagService.GetTagBySlug("no-category-tag")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(tag)
+	suite.Assert().Equal("other", tag.Category)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_WithCategory() {
+	user := suite.createTestUserWithTier("contributor", "contributor")
+	artistID := suite.createArtist("Genre Band")
+
+	et, err := suite.tagService.AddTagToEntity(0, "darkwave", "artist", artistID, user.ID, "genre")
+	suite.Require().NoError(err)
+	suite.Assert().NotNil(et)
+
+	tag, err := suite.tagService.GetTagBySlug("darkwave")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(tag)
+	suite.Assert().Equal("genre", tag.Category)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_TooShortName() {
+	user := suite.createTestUserWithTier("contributor", "contributor")
+	artistID := suite.createArtist("Short Tag Band")
+
+	// Single character should fail after normalization
+	_, err := suite.tagService.AddTagToEntity(0, "x", "artist", artistID, user.ID, "genre")
+	suite.Require().Error(err)
+
+	var tagErr *apperrors.TagError
+	suite.Assert().ErrorAs(err, &tagErr)
+	suite.Assert().Equal(apperrors.CodeTagNameInvalid, tagErr.Code)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_EmptyAfterNormalization() {
+	user := suite.createTestUserWithTier("contributor", "contributor")
+	artistID := suite.createArtist("Empty Tag Band")
+
+	// Only special characters — normalizes to empty
+	_, err := suite.tagService.AddTagToEntity(0, "!!!@@@", "artist", artistID, user.ID, "genre")
+	suite.Require().Error(err)
+
+	var tagErr *apperrors.TagError
+	suite.Assert().ErrorAs(err, &tagErr)
+	suite.Assert().Equal(apperrors.CodeTagNameInvalid, tagErr.Code)
+}
+
+// ──────────────────────────────────────────────
+// Normalization Unit Tests
+// ──────────────────────────────────────────────
+
+func TestNormalizeTagName(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Shoe Gaze", "shoe-gaze"},
+		{"POST-PUNK!!!", "post-punk"},
+		{"  shoegaze-revival-2026  ", "shoegaze-revival-2026"},
+		{"hip  hop", "hip-hop"},
+		{"r&b", "rb"},
+		{"lo-fi", "lo-fi"},
+		{"Alt---Rock", "alt-rock"},
+		{"  ", ""},
+		{"DARK  WAVE", "dark-wave"},
+		{"genre123", "genre123"},
+		{"!!!", ""},
+		{"a", "a"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := NormalizeTagName(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
 
 // ──────────────────────────────────────────────

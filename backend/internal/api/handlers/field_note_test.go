@@ -46,29 +46,6 @@ func makeFieldNoteResponse(id uint, showID uint, userID uint) *contracts.Comment
 }
 
 // ============================================================================
-// Mock field note service
-// ============================================================================
-
-type mockFieldNoteService struct {
-	createFieldNoteFn      func(uint, *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error)
-	listFieldNotesForShowFn func(uint, int, int) (*contracts.CommentListResponse, error)
-}
-
-func (m *mockFieldNoteService) CreateFieldNote(userID uint, req *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error) {
-	if m.createFieldNoteFn != nil {
-		return m.createFieldNoteFn(userID, req)
-	}
-	return nil, nil
-}
-
-func (m *mockFieldNoteService) ListFieldNotesForShow(showID uint, limit, offset int) (*contracts.CommentListResponse, error) {
-	if m.listFieldNotesForShowFn != nil {
-		return m.listFieldNotesForShowFn(showID, limit, offset)
-	}
-	return nil, nil
-}
-
-// ============================================================================
 // Tests: CreateFieldNote
 // ============================================================================
 
