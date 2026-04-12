@@ -58,6 +58,8 @@ import {
   useImportJob,
   useCancelImportJob,
   useShowImportJobs,
+  useUnmatchedPlays,
+  useBulkLinkPlays,
   type RadioStationListItem,
   type RadioStationDetail,
   type RadioShowListItem,
@@ -68,6 +70,8 @@ import {
   type UpdateRadioStationInput,
   type CreateRadioShowInput,
   type UpdateRadioShowInput,
+  type UnmatchedPlayGroup,
+  type SuggestedMatch,
 } from '@/lib/hooks/admin/useAdminRadio'
 
 // ============================================================================
@@ -1311,20 +1315,90 @@ function StationDetailPanel({
 // ============================================================================
 
 function RadioMatchingTab() {
-  const { data: stats, isLoading } = useRadioStats()
+  const { data: stats, isLoading: statsLoading } = useRadioStats()
+  const { data: stationsData } = useAdminRadioStations()
+  const [stationFilter, setStationFilter] = useState(0)
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 50
 
-  if (isLoading) {
+  const {
+    data: unmatchedData,
+    isLoading: unmatchedLoading,
+    isFetching: unmatchedFetching,
+  } = useUnmatchedPlays(stationFilter, PAGE_SIZE, page * PAGE_SIZE)
+
+  const bulkLink = useBulkLinkPlays()
+
+  // Track which group is being linked and to which artist
+  const [linkingGroup, setLinkingGroup] = useState<string | null>(null)
+  const [selectedArtists, setSelectedArtists] = useState<Record<string, number>>({})
+  const [successMessages, setSuccessMessages] = useState<Record<string, string>>({})
+
+  const stations = stationsData?.stations ?? []
+  const groups = unmatchedData?.groups ?? []
+  const total = unmatchedData?.total ?? 0
+  const totalPages = Math.ceil(total / PAGE_SIZE)
+
+  const totalPlays = stats?.total_plays ?? 0
+  const matchedPlays = stats?.matched_plays ?? 0
+  const unmatchedPlays = totalPlays - matchedPlays
+  const matchRate = totalPlays > 0 ? ((matchedPlays / totalPlays) * 100).toFixed(1) : '0.0'
+
+  const handleSelectArtist = useCallback((artistName: string, artistId: number) => {
+    setSelectedArtists((prev) => ({ ...prev, [artistName]: artistId }))
+  }, [])
+
+  const handleBulkLink = useCallback(
+    (artistName: string) => {
+      const artistId = selectedArtists[artistName]
+      if (!artistId) return
+
+      setLinkingGroup(artistName)
+      bulkLink.mutate(
+        { artistName, artistId },
+        {
+          onSuccess: (data) => {
+            setSuccessMessages((prev) => ({
+              ...prev,
+              [artistName]: `Linked ${data.updated} play${data.updated === 1 ? '' : 's'}`,
+            }))
+            setSelectedArtists((prev) => {
+              const next = { ...prev }
+              delete next[artistName]
+              return next
+            })
+            setLinkingGroup(null)
+            // Clear success message after 4 seconds
+            setTimeout(() => {
+              setSuccessMessages((prev) => {
+                const next = { ...prev }
+                delete next[artistName]
+                return next
+              })
+            }, 4000)
+          },
+          onError: () => {
+            setLinkingGroup(null)
+          },
+        }
+      )
+    },
+    [selectedArtists, bulkLink]
+  )
+
+  // Reset page when station filter changes
+  const handleStationFilterChange = useCallback((value: string) => {
+    setStationFilter(Number(value))
+    setPage(0)
+  }, [])
+
+  if (statsLoading) {
     return (
       <div className="flex justify-center py-12">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     )
   }
-
-  const totalPlays = stats?.total_plays ?? 0
-  const matchedPlays = stats?.matched_plays ?? 0
-  const unmatchedPlays = totalPlays - matchedPlays
-  const matchRate = totalPlays > 0 ? ((matchedPlays / totalPlays) * 100).toFixed(1) : '0.0'
 
   return (
     <div className="space-y-6">
@@ -1348,61 +1422,202 @@ function RadioMatchingTab() {
         </div>
       </div>
 
-      {/* Additional stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="rounded-lg border p-4">
-          <div className="text-sm text-muted-foreground">Stations</div>
-          <div className="text-xl font-bold">{stats?.total_stations ?? 0}</div>
-        </div>
-        <div className="rounded-lg border p-4">
-          <div className="text-sm text-muted-foreground">Shows</div>
-          <div className="text-xl font-bold">{stats?.total_shows ?? 0}</div>
-        </div>
-        <div className="rounded-lg border p-4">
-          <div className="text-sm text-muted-foreground">Episodes</div>
-          <div className="text-xl font-bold">{stats?.total_episodes ?? 0}</div>
-        </div>
-      </div>
-
-      {/* Unmatched Plays Stub */}
+      {/* Unmatched Plays */}
       <div>
-        <h3 className="text-lg font-semibold mb-3">Unmatched Plays</h3>
-        <div className="rounded-lg border border-dashed p-6 text-center">
-          <AlertCircle className="mx-auto mb-3 h-10 w-10 text-muted-foreground opacity-50" />
-          <p className="text-sm text-muted-foreground mb-4">
-            {/* TODO: A dedicated unmatched plays endpoint (grouped by artist_name with play counts)
-                will be needed for full functionality. For now, showing aggregate stats from /radio/stats. */}
-            Unmatched plays will be listed here grouped by artist name once a dedicated
-            endpoint is available. Currently {unmatchedPlays.toLocaleString()} {unmatchedPlays === 1 ? 'play is' : 'plays are'} unmatched.
-          </p>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold">Unmatched Plays</h3>
+          <div className="flex items-center gap-2">
+            <Label htmlFor="station-filter" className="text-sm text-muted-foreground">
+              Station:
+            </Label>
+            <select
+              id="station-filter"
+              value={stationFilter}
+              onChange={(e) => handleStationFilterChange(e.target.value)}
+              className="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+            >
+              <option value={0}>All Stations</option>
+              {stations.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+            {unmatchedFetching && (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Matching Actions Stub */}
-      <div>
-        <h3 className="text-lg font-semibold mb-3">Matching Actions</h3>
-        <p className="text-sm text-muted-foreground mb-4">
-          When unmatched plays are listed, you will be able to:
-        </p>
-        <div className="grid grid-cols-3 gap-4">
-          <div className="rounded-lg border border-dashed p-4 text-center opacity-60">
-            <Link2 className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
-            <p className="text-sm font-medium">Link to Artist</p>
-            <p className="text-xs text-muted-foreground mt-1">Search existing artists and link all plays by this artist name</p>
+        {unmatchedLoading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-          <div className="rounded-lg border border-dashed p-4 text-center opacity-60">
-            <UserPlus className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
-            <p className="text-sm font-medium">Create Artist</p>
-            <p className="text-xs text-muted-foreground mt-1">Create a new artist and link all plays</p>
+        ) : groups.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-12 text-center">
+            <CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-green-500 opacity-60" />
+            <p className="text-muted-foreground">
+              {stationFilter > 0
+                ? 'No unmatched plays for this station.'
+                : 'All plays are matched!'}
+            </p>
           </div>
-          <div className="rounded-lg border border-dashed p-4 text-center opacity-60">
-            <SkipForward className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
-            <p className="text-sm font-medium">Skip</p>
-            <p className="text-xs text-muted-foreground mt-1">Mark as intentionally unlinked (e.g., spoken word, station IDs)</p>
-          </div>
-        </div>
+        ) : (
+          <>
+            <div className="rounded-lg border">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">
+                      Artist Name
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">
+                      Plays
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">
+                      Stations
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">
+                      Suggested Matches
+                    </th>
+                    <th className="px-4 py-3 text-right text-sm font-medium text-muted-foreground">
+                      Action
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {groups.map((group) => (
+                    <UnmatchedPlayRow
+                      key={group.artist_name}
+                      group={group}
+                      selectedArtistId={selectedArtists[group.artist_name]}
+                      onSelectArtist={handleSelectArtist}
+                      onBulkLink={handleBulkLink}
+                      isLinking={linkingGroup === group.artist_name}
+                      successMessage={successMessages[group.artist_name]}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-2">
+                <p className="text-sm text-muted-foreground">
+                  Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of{' '}
+                  {total} artist{total === 1 ? '' : 's'}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page === 0}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm text-muted-foreground">
+                    Page {page + 1} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page >= totalPages - 1}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
+  )
+}
+
+// ============================================================================
+// Unmatched Play Row
+// ============================================================================
+
+function UnmatchedPlayRow({
+  group,
+  selectedArtistId,
+  onSelectArtist,
+  onBulkLink,
+  isLinking,
+  successMessage,
+}: {
+  group: UnmatchedPlayGroup
+  selectedArtistId: number | undefined
+  onSelectArtist: (artistName: string, artistId: number) => void
+  onBulkLink: (artistName: string) => void
+  isLinking: boolean
+  successMessage: string | undefined
+}) {
+  const suggestions = group.suggested_matches ?? []
+
+  return (
+    <tr className="hover:bg-muted/30 transition-colors">
+      <td className="px-4 py-3">
+        <span className="font-medium">{group.artist_name}</span>
+      </td>
+      <td className="px-4 py-3">
+        <Badge variant="secondary">{group.play_count}</Badge>
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex flex-wrap gap-1">
+          {group.station_names.map((name) => (
+            <Badge key={name} variant="outline" className="text-xs">
+              {name}
+            </Badge>
+          ))}
+        </div>
+      </td>
+      <td className="px-4 py-3">
+        {suggestions.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {suggestions.map((match) => (
+              <Button
+                key={match.artist_id}
+                variant={selectedArtistId === match.artist_id ? 'default' : 'outline'}
+                size="sm"
+                className="text-xs h-7"
+                onClick={() => onSelectArtist(group.artist_name, match.artist_id)}
+                disabled={isLinking}
+              >
+                {match.artist_name}
+              </Button>
+            ))}
+          </div>
+        ) : (
+          <span className="text-sm text-muted-foreground italic">No suggestions</span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-right">
+        {successMessage ? (
+          <span className="inline-flex items-center gap-1 text-sm text-green-600">
+            <CheckCircle2 className="h-4 w-4" />
+            {successMessage}
+          </span>
+        ) : (
+          <Button
+            size="sm"
+            disabled={!selectedArtistId || isLinking}
+            onClick={() => onBulkLink(group.artist_name)}
+          >
+            {isLinking ? (
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+            ) : (
+              <Link2 className="mr-1 h-3 w-3" />
+            )}
+            Link
+          </Button>
+        )}
+      </td>
+    </tr>
   )
 }
 
