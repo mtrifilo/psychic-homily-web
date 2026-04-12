@@ -23,6 +23,7 @@ export const radioQueryKeys = {
   stats: ['radio', 'stats'] as const,
   importJob: (jobId: number) => ['radio', 'import-jobs', jobId] as const,
   showImportJobs: (showId: number) => ['radio', 'show-import-jobs', showId] as const,
+  unmatched: (stationId: number) => ['radio', 'unmatched', stationId] as const,
 }
 
 // ============================================================================
@@ -49,6 +50,10 @@ const RADIO_ENDPOINTS = {
   ADMIN_GET_IMPORT_JOB: (jobId: number) => `${API_BASE_URL}/admin/radio/import-jobs/${jobId}`,
   ADMIN_CANCEL_IMPORT_JOB: (jobId: number) => `${API_BASE_URL}/admin/radio/import-jobs/${jobId}/cancel`,
   ADMIN_LIST_IMPORT_JOBS: (showId: number) => `${API_BASE_URL}/admin/radio-shows/${showId}/import-jobs`,
+  // Matching
+  ADMIN_UNMATCHED: `${API_BASE_URL}/admin/radio/unmatched`,
+  ADMIN_LINK_PLAY: (playId: number) => `${API_BASE_URL}/admin/radio/plays/${playId}/link`,
+  ADMIN_BULK_LINK: `${API_BASE_URL}/admin/radio/plays/bulk-link`,
 }
 
 // ============================================================================
@@ -235,6 +240,27 @@ export interface RadioImportJob {
 export interface CreateImportJobInput {
   since: string
   until: string
+}
+
+// ──────────────────────────────────────────────
+// Matching types
+// ──────────────────────────────────────────────
+
+export interface SuggestedMatch {
+  artist_id: number
+  artist_name: string
+  artist_slug: string
+}
+
+export interface UnmatchedPlayGroup {
+  artist_name: string
+  play_count: number
+  station_names: string[]
+  suggested_matches: SuggestedMatch[]
+}
+
+export interface BulkLinkResult {
+  updated: number
 }
 
 // ============================================================================
@@ -565,5 +591,48 @@ export function useShowImportJobs(showId: number, enabled = true) {
       return data
     },
     enabled: enabled && showId > 0,
+  })
+}
+
+// ============================================================================
+// Matching Hooks
+// ============================================================================
+
+/**
+ * Hook to fetch unmatched plays grouped by artist name.
+ * Supports station_id filter (0 = all stations) and pagination.
+ */
+export function useUnmatchedPlays(stationId: number, limit = 50, offset = 0) {
+  return useQuery({
+    queryKey: [...radioQueryKeys.unmatched(stationId), limit, offset],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (stationId > 0) params.set('station_id', String(stationId))
+      params.set('limit', String(limit))
+      params.set('offset', String(offset))
+      const url = `${RADIO_ENDPOINTS.ADMIN_UNMATCHED}?${params.toString()}`
+      return apiRequest<{ groups: UnmatchedPlayGroup[]; total: number }>(url)
+    },
+  })
+}
+
+/**
+ * Hook to bulk-link all plays for an artist_name to an artist_id.
+ */
+export function useBulkLinkPlays() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ artistName, artistId }: { artistName: string; artistId: number }) => {
+      return apiRequest<BulkLinkResult>(RADIO_ENDPOINTS.ADMIN_BULK_LINK, {
+        method: 'POST',
+        body: JSON.stringify({ artist_name: artistName, artist_id: artistId }),
+      })
+    },
+    onSuccess: () => {
+      // Invalidate unmatched queries and stats
+      queryClient.invalidateQueries({ queryKey: ['radio', 'unmatched'] })
+      queryClient.invalidateQueries({ queryKey: radioQueryKeys.stats })
+    },
   })
 }

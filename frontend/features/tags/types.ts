@@ -26,6 +26,8 @@ export interface TagDetailResponse extends TagListItem {
   parent_name?: string
   child_count: number
   aliases: string[]
+  created_by_user_id?: number
+  created_by_username?: string
   updated_at: string
 }
 

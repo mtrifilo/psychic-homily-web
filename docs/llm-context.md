@@ -97,5 +97,5 @@ See `docs/vision.md` for the full north star, What.cd feature mapping, and entit
 - **Fire-and-forget** — Discord notifications and audit logs never fail parent operations
 - **JSONB columns** — use `*json.RawMessage` (not `datatypes.JSON`)
 - **Huma quirks** — all request body fields required by default, even pointers; mark optional explicitly. Query/path/header params must NOT use pointer types (`*uint`, `*string`) — Huma panics; use value types with zero-value checks instead.
-- **Migration numbering** — latest is 000066 (add_comment_moderation_fields); next is 000067
+- **Migration numbering** — latest is 000067 (add_tag_created_by); next is 000068
 

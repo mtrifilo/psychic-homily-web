@@ -404,7 +404,7 @@ func (h *TagHandler) CreateTagHandler(ctx context.Context, req *CreateTagRequest
 		return nil, huma.Error400BadRequest("Category is required")
 	}
 
-	tag, err := h.tagService.CreateTag(req.Body.Name, req.Body.Description, req.Body.ParentID, req.Body.Category, req.Body.IsOfficial)
+	tag, err := h.tagService.CreateTag(req.Body.Name, req.Body.Description, req.Body.ParentID, req.Body.Category, req.Body.IsOfficial, &user.ID)
 	if err != nil {
 		mapped := mapTagError(err)
 		if mapped != nil {
@@ -693,21 +693,26 @@ func (h *TagHandler) resolveTag(idOrSlug string) *models.Tag {
 // buildTagResponse converts a models.Tag to a TagResponse.
 func buildTagResponse(tag *models.Tag) *contracts.TagResponse {
 	resp := &contracts.TagResponse{
-		ID:         tag.ID,
-		Name:       tag.Name,
-		Slug:       tag.Slug,
-		Description: tag.Description,
-		ParentID:   tag.ParentID,
-		Category:   tag.Category,
-		IsOfficial: tag.IsOfficial,
-		UsageCount: tag.UsageCount,
-		ChildCount: len(tag.Children),
-		CreatedAt:  tag.CreatedAt,
-		UpdatedAt:  tag.UpdatedAt,
+		ID:              tag.ID,
+		Name:            tag.Name,
+		Slug:            tag.Slug,
+		Description:     tag.Description,
+		ParentID:        tag.ParentID,
+		Category:        tag.Category,
+		IsOfficial:      tag.IsOfficial,
+		UsageCount:      tag.UsageCount,
+		ChildCount:      len(tag.Children),
+		CreatedByUserID: tag.CreatedByUserID,
+		CreatedAt:       tag.CreatedAt,
+		UpdatedAt:       tag.UpdatedAt,
 	}
 
 	if tag.Parent != nil {
 		resp.ParentName = tag.Parent.Name
+	}
+
+	if tag.CreatedBy != nil && tag.CreatedBy.Username != nil && *tag.CreatedBy.Username != "" {
+		resp.CreatedByUsername = tag.CreatedBy.Username
 	}
 
 	if len(tag.Aliases) > 0 {
