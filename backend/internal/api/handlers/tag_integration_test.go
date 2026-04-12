@@ -72,6 +72,26 @@ func (s *TagHandlerIntegrationSuite) TestCreateTag_Success() {
 	s.Equal("genre", resp.Body.Category)
 	s.NotEmpty(resp.Body.Slug)
 	s.NotZero(resp.Body.ID)
+
+	// Verify created_by attribution
+	s.NotNil(resp.Body.CreatedByUserID)
+	s.Equal(admin.ID, *resp.Body.CreatedByUserID)
+	// CreatedByUsername may be nil if test user has no username set
+}
+
+func (s *TagHandlerIntegrationSuite) TestCreateTag_CreatedByIncludedInGetResponse() {
+	admin := createAdminUser(s.deps.db)
+	created := s.createTagViaHandler(admin, "math-rock", models.TagCategoryGenre)
+
+	// Fetch via GetTag and verify attribution persists
+	ctx := ctxWithUser(admin)
+	getReq := &GetTagRequest{TagID: fmt.Sprintf("%d", created.Body.ID)}
+	getResp, err := s.handler.GetTagHandler(ctx, getReq)
+	s.NoError(err)
+	s.NotNil(getResp)
+	s.NotNil(getResp.Body.CreatedByUserID)
+	s.Equal(admin.ID, *getResp.Body.CreatedByUserID)
+	// CreatedByUsername may be nil if test user has no username set
 }
 
 func (s *TagHandlerIntegrationSuite) TestCreateTag_WithDescription() {

@@ -44,16 +44,18 @@ type Tag struct {
 	Description *string   `json:"description,omitempty" gorm:"column:description"`
 	ParentID    *uint     `json:"parent_id,omitempty" gorm:"column:parent_id"`
 	Category    string    `json:"category" gorm:"column:category;not null;default:'genre';size:50"`
-	IsOfficial  bool      `json:"is_official" gorm:"column:is_official;not null;default:false"`
-	UsageCount  int       `json:"usage_count" gorm:"column:usage_count;not null;default:0"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	IsOfficial      bool      `json:"is_official" gorm:"column:is_official;not null;default:false"`
+	UsageCount      int       `json:"usage_count" gorm:"column:usage_count;not null;default:0"`
+	CreatedByUserID *uint     `json:"created_by_user_id,omitempty" gorm:"column:created_by_user_id"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 
 	// Relationships
-	Parent   *Tag        `json:"parent,omitempty" gorm:"foreignKey:ParentID"`
-	Children []Tag       `json:"children,omitempty" gorm:"foreignKey:ParentID"`
-	Aliases  []TagAlias  `json:"aliases,omitempty" gorm:"foreignKey:TagID"`
-	Entities []EntityTag `json:"-" gorm:"foreignKey:TagID"`
+	Parent    *Tag        `json:"parent,omitempty" gorm:"foreignKey:ParentID"`
+	Children  []Tag       `json:"children,omitempty" gorm:"foreignKey:ParentID"`
+	Aliases   []TagAlias  `json:"aliases,omitempty" gorm:"foreignKey:TagID"`
+	Entities  []EntityTag `json:"-" gorm:"foreignKey:TagID"`
+	CreatedBy *User       `json:"-" gorm:"foreignKey:CreatedByUserID"`
 }
 
 // TableName specifies the table name for Tag.

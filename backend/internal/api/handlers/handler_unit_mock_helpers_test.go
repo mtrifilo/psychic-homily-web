@@ -3000,7 +3000,7 @@ func (m *mockShowStateService) SetShowCancelled(showID uint, isCancelled bool) (
 // ============================================================================
 
 type mockTagService struct {
-	createTagFn func(string, *string, *uint, string, bool) (*models.Tag, error)
+	createTagFn func(string, *string, *uint, string, bool, *uint) (*models.Tag, error)
 	getTagFn func(uint) (*models.Tag, error)
 	getTagBySlugFn func(string) (*models.Tag, error)
 	listTagsFn func(string, string, *uint, string, int, int) ([]models.Tag, int64, error)
@@ -3021,9 +3021,9 @@ type mockTagService struct {
 	pruneDownvotedTagsFn func() (int64, error)
 }
 
-func (m *mockTagService) CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool) (*models.Tag, error) {
+func (m *mockTagService) CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool, userID *uint) (*models.Tag, error) {
 	if m.createTagFn != nil {
-		return m.createTagFn(name, description, parentID, category, isOfficial)
+		return m.createTagFn(name, description, parentID, category, isOfficial, userID)
 	}
 	return nil, nil
 }
