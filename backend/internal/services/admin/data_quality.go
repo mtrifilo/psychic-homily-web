@@ -63,6 +63,11 @@ var categoryDefinitions = map[string]struct {
 		EntityType:  "show",
 		Description: "Upcoming approved shows with no price set",
 	},
+	"releases_missing_year": {
+		Label:       "Releases Missing Year",
+		EntityType:  "release",
+		Description: "Releases with no release year set",
+	},
 }
 
 // categoryOrder defines the display order for categories.
@@ -74,6 +79,7 @@ var categoryOrder = []string{
 	"venues_unverified_with_shows",
 	"shows_no_billing_order",
 	"shows_missing_price",
+	"releases_missing_year",
 }
 
 // GetSummary returns counts per data quality category.
@@ -129,6 +135,8 @@ func (s *DataQualityService) GetCategoryItems(category string, limit, offset int
 		return s.getShowsNoBillingOrder(limit, offset)
 	case "shows_missing_price":
 		return s.getShowsMissingPrice(limit, offset)
+	case "releases_missing_year":
+		return s.getReleasesMissingYear(limit, offset)
 	default:
 		return nil, 0, fmt.Errorf("unknown category: %s", category)
 	}
@@ -193,6 +201,12 @@ func (s *DataQualityService) getCategoryCount(category string) (int, error) {
 		err = s.db.Raw(`
 			SELECT COUNT(*) FROM shows
 			WHERE status = 'approved' AND event_date >= NOW() AND price IS NULL
+		`).Scan(&count).Error
+
+	case "releases_missing_year":
+		err = s.db.Raw(`
+			SELECT COUNT(*) FROM releases
+			WHERE release_year IS NULL
 		`).Scan(&count).Error
 	}
 
@@ -554,6 +568,61 @@ func (s *DataQualityService) getShowsMissingPrice(limit, offset int) ([]*contrac
 			Name:       r.Title,
 			Slug:       slug,
 			Reason:     "No price set for upcoming show",
+			ShowCount:  0,
+		})
+	}
+	return items, total, nil
+}
+
+func (s *DataQualityService) getReleasesMissingYear(limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	var total int64
+	err := s.db.Raw(`
+		SELECT COUNT(*) FROM releases
+		WHERE release_year IS NULL
+	`).Scan(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	type row struct {
+		ID          uint
+		Title       string
+		Slug        *string
+		ReleaseType string
+		ArtistNames string
+	}
+	var rows []row
+	err = s.db.Raw(`
+		SELECT r.id, r.title, r.slug, r.release_type,
+		       COALESCE(string_agg(a.name, ', ' ORDER BY ar.position), '') as artist_names
+		FROM releases r
+		LEFT JOIN artist_releases ar ON ar.release_id = r.id
+		LEFT JOIN artists a ON a.id = ar.artist_id
+		WHERE r.release_year IS NULL
+		GROUP BY r.id
+		ORDER BY r.title ASC
+		LIMIT ? OFFSET ?
+	`, limit, offset).Scan(&rows).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	items := make([]*contracts.DataQualityItem, 0, len(rows))
+	for _, r := range rows {
+		slug := ""
+		if r.Slug != nil {
+			slug = *r.Slug
+		}
+		reason := "No release year set"
+		if r.ArtistNames != "" {
+			reason = fmt.Sprintf("No release year set (by %s)", r.ArtistNames)
+		}
+		items = append(items, &contracts.DataQualityItem{
+			EntityType: "release",
+			EntityID:   r.ID,
+			Name:       r.Title,
+			Slug:       slug,
+			Reason:     reason,
 			ShowCount:  0,
 		})
 	}

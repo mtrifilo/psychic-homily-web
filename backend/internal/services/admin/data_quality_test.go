@@ -49,10 +49,12 @@ func (suite *DataQualityServiceIntegrationTestSuite) TearDownSuite() {
 func (suite *DataQualityServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
+	_, _ = sqlDB.Exec("DELETE FROM artist_releases")
 	_, _ = sqlDB.Exec("DELETE FROM artist_aliases")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
+	_, _ = sqlDB.Exec("DELETE FROM releases")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 }
@@ -166,7 +168,7 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestGetSummary_Empty() {
 	summary, err := suite.service.GetSummary()
 	suite.Require().NoError(err)
 	suite.Equal(0, summary.TotalItems)
-	suite.Len(summary.Categories, 7)
+	suite.Len(summary.Categories, 8)
 
 	// All counts should be 0 in an empty DB
 	for _, cat := range summary.Categories {
@@ -396,6 +398,50 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestShowsMissingPrice() {
 	suite.Equal(int64(1), total)
 	suite.Len(items, 1)
 	suite.Equal("No Price Show", items[0].Name)
+}
+
+// =============================================================================
+// TESTS: GetCategoryItems - Releases Missing Year
+// =============================================================================
+
+func (suite *DataQualityServiceIntegrationTestSuite) TestReleasesMissingYear() {
+	// Release with no year
+	noYear := &models.Release{Title: "Unknown Year Album", ReleaseType: models.ReleaseTypeLP}
+	suite.Require().NoError(suite.db.Create(noYear).Error)
+
+	// Release with a year (should NOT appear)
+	year := 2020
+	withYear := &models.Release{Title: "Dated Album", ReleaseType: models.ReleaseTypeLP, ReleaseYear: &year}
+	suite.Require().NoError(suite.db.Create(withYear).Error)
+
+	// Release with no year but linked to an artist (test artist name in reason)
+	noYearLinked := &models.Release{Title: "Mystery EP", ReleaseType: models.ReleaseTypeEP}
+	suite.Require().NoError(suite.db.Create(noYearLinked).Error)
+	artist := suite.createArtist("Cool Band", nil)
+	suite.Require().NoError(suite.db.Create(&models.ArtistRelease{
+		ArtistID:  artist.ID,
+		ReleaseID: noYearLinked.ID,
+		Role:      models.ArtistReleaseRoleMain,
+		Position:  0,
+	}).Error)
+
+	items, total, err := suite.service.GetCategoryItems("releases_missing_year", 50, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total)
+	suite.Len(items, 2)
+
+	// Both items should be releases
+	for _, item := range items {
+		suite.Equal("release", item.EntityType)
+		suite.Contains(item.Reason, "No release year set")
+	}
+
+	// Find the linked release and verify artist name is in the reason
+	for _, item := range items {
+		if item.Name == "Mystery EP" {
+			suite.Contains(item.Reason, "Cool Band")
+		}
+	}
 }
 
 // =============================================================================
