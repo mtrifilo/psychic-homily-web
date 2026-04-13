@@ -652,7 +652,8 @@ func (s *TagService) ResolveAlias(alias string) (*models.Tag, error) {
 // ──────────────────────────────────────────────
 
 // SearchTags performs a case-insensitive search on tag names and aliases.
-func (s *TagService) SearchTags(query string, limit int) ([]models.Tag, error) {
+// If category is non-empty, results are filtered to that category.
+func (s *TagService) SearchTags(query string, limit int, category string) ([]models.Tag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -663,13 +664,21 @@ func (s *TagService) SearchTags(query string, limit int) ([]models.Tag, error) {
 
 	q := strings.ToLower(query)
 
-	// Search tags by name and by alias, dedup by tag ID
+	// Search tags by name and by alias, dedup by tag ID.
+	// Group the OR conditions to ensure category filter applies to both.
+	db := s.db.Where(
+		s.db.Where("LOWER(name) LIKE ?", "%"+q+"%").
+			Or("id IN (?)",
+				s.db.Model(&models.TagAlias{}).Select("tag_id").Where("LOWER(alias) LIKE ?", "%"+q+"%"),
+			),
+	)
+
+	if category != "" {
+		db = db.Where("category = ?", category)
+	}
+
 	var tags []models.Tag
-	err := s.db.Where("LOWER(name) LIKE ?", "%"+q+"%").
-		Or("id IN (?)",
-			s.db.Model(&models.TagAlias{}).Select("tag_id").Where("LOWER(alias) LIKE ?", "%"+q+"%"),
-		).
-		Order("usage_count DESC").
+	err := db.Order("usage_count DESC").
 		Limit(limit).
 		Find(&tags).Error
 	if err != nil {

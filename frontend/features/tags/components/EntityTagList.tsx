@@ -21,7 +21,7 @@ import {
   useRemoveTagVote,
   useSearchTags,
 } from '../hooks'
-import { getCategoryColor } from '../types'
+import { getCategoryColor, TAG_CATEGORIES, getCategoryLabel } from '../types'
 import type { EntityTag, TagListItem } from '../types'
 
 interface EntityTagListProps {
@@ -203,8 +203,13 @@ function AddTagForm({
   const addMutation = useAddTagToEntity()
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [filterCategory, setFilterCategory] = useState<string>('')
   const [createCategory, setCreateCategory] = useState<string>('genre')
-  const { data: searchResults, isLoading: searchLoading } = useSearchTags(debouncedQuery, 10)
+  const { data: searchResults, isLoading: searchLoading } = useSearchTags(
+    debouncedQuery,
+    10,
+    filterCategory || undefined
+  )
 
   // Debounce search input
   useEffect(() => {
@@ -213,6 +218,13 @@ function AddTagForm({
     }, 300)
     return () => clearTimeout(timer)
   }, [searchQuery])
+
+  // Sync create category with filter category
+  useEffect(() => {
+    if (filterCategory) {
+      setCreateCategory(filterCategory)
+    }
+  }, [filterCategory])
 
   const handleSelectTag = (tag: TagListItem) => {
     addMutation.mutate(
@@ -286,6 +298,35 @@ function AddTagForm({
             <X className="h-3.5 w-3.5" />
           </button>
         )}
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-muted-foreground">Category:</span>
+        <button
+          onClick={() => setFilterCategory('')}
+          className={cn(
+            'rounded-full px-2 py-0.5 text-[11px] font-medium border transition-colors',
+            filterCategory === ''
+              ? 'bg-foreground/10 text-foreground border-foreground/20'
+              : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-muted'
+          )}
+        >
+          All
+        </button>
+        {TAG_CATEGORIES.map(cat => (
+          <button
+            key={cat}
+            onClick={() => setFilterCategory(filterCategory === cat ? '' : cat)}
+            className={cn(
+              'rounded-full px-2 py-0.5 text-[11px] font-medium border transition-colors',
+              filterCategory === cat
+                ? getCategoryColor(cat)
+                : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-muted'
+            )}
+          >
+            {getCategoryLabel(cat)}
+          </button>
+        ))}
       </div>
 
       {addMutation.error && (

@@ -97,7 +97,7 @@ type TagServiceInterface interface {
 	GetTagEntities(tagID uint, entityType string, limit, offset int) ([]TaggedEntityItem, int64, error)
 
 	// Utility
-	SearchTags(query string, limit int) ([]models.Tag, error)
+	SearchTags(query string, limit int, category string) ([]models.Tag, error)
 	GetTrendingTags(limit int, category string) ([]models.Tag, error)
 	PruneDownvotedTags() (int64, error)
 }
