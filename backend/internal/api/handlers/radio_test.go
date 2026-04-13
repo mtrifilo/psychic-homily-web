@@ -57,7 +57,7 @@ func TestListRadioStations_Success(t *testing.T) {
 	mock := &mockRadioService{
 		listStationsFn: func(filters map[string]interface{}) ([]*contracts.RadioStationListResponse, error) {
 			return []*contracts.RadioStationListResponse{
-				{ID: 1, Name: "KEXP", Slug: "kexp", BroadcastType: "fm", IsActive: true, ShowCount: 5},
+				{ID: 1, Name: "KEXP", Slug: "kexp", BroadcastType: "both", IsActive: true, ShowCount: 5},
 			}, nil
 		},
 	}
@@ -110,7 +110,7 @@ func TestListRadioStations_ServiceError(t *testing.T) {
 func TestGetRadioStation_BySlug(t *testing.T) {
 	mock := &mockRadioService{
 		getStationBySlugFn: func(slug string) (*contracts.RadioStationDetailResponse, error) {
-			return &contracts.RadioStationDetailResponse{ID: 1, Name: "KEXP", Slug: "kexp", BroadcastType: "fm"}, nil
+			return &contracts.RadioStationDetailResponse{ID: 1, Name: "KEXP", Slug: "kexp", BroadcastType: "both"}, nil
 		},
 	}
 	h := testRadioHandler(mock)
@@ -126,7 +126,7 @@ func TestGetRadioStation_BySlug(t *testing.T) {
 func TestGetRadioStation_ByID(t *testing.T) {
 	mock := &mockRadioService{
 		getStationFn: func(stationID uint) (*contracts.RadioStationDetailResponse, error) {
-			return &contracts.RadioStationDetailResponse{ID: stationID, Name: "KEXP", Slug: "kexp", BroadcastType: "fm"}, nil
+			return &contracts.RadioStationDetailResponse{ID: stationID, Name: "KEXP", Slug: "kexp", BroadcastType: "both"}, nil
 		},
 	}
 	h := testRadioHandler(mock)
@@ -621,7 +621,7 @@ func TestAdminCreateRadioStation_Success(t *testing.T) {
 	h := testRadioHandler(mock)
 	req := &AdminCreateRadioStationRequest{}
 	req.Body.Name = "KEXP"
-	req.Body.BroadcastType = "fm"
+	req.Body.BroadcastType = "both"
 
 	resp, err := h.AdminCreateRadioStationHandler(radioAdminCtx(), req)
 	if err != nil {
@@ -637,7 +637,7 @@ func TestAdminCreateRadioStation_NotAdmin(t *testing.T) {
 	h := testRadioHandler(mock)
 	req := &AdminCreateRadioStationRequest{}
 	req.Body.Name = "KEXP"
-	req.Body.BroadcastType = "fm"
+	req.Body.BroadcastType = "both"
 
 	_, err := h.AdminCreateRadioStationHandler(context.Background(), req)
 	assertHumaError(t, err, 403)
@@ -647,7 +647,7 @@ func TestAdminCreateRadioStation_MissingName(t *testing.T) {
 	mock := &mockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminCreateRadioStationRequest{}
-	req.Body.BroadcastType = "fm"
+	req.Body.BroadcastType = "both"
 
 	_, err := h.AdminCreateRadioStationHandler(radioAdminCtx(), req)
 	assertHumaError(t, err, 400)
@@ -672,7 +672,7 @@ func TestAdminCreateRadioStation_ServiceError(t *testing.T) {
 	h := testRadioHandler(mock)
 	req := &AdminCreateRadioStationRequest{}
 	req.Body.Name = "KEXP"
-	req.Body.BroadcastType = "fm"
+	req.Body.BroadcastType = "both"
 
 	_, err := h.AdminCreateRadioStationHandler(radioAdminCtx(), req)
 	assertHumaError(t, err, 500)
