@@ -10,7 +10,7 @@ export const navLinks = [
     external: true,
     prefetch: false as const,
   },
-  { href: '/submissions', label: 'Submissions', prefetch: false as const },
+  { href: '/submissions', label: 'My Submissions', prefetch: false as const },
 ]
 
 export type NavLink = (typeof navLinks)[number]

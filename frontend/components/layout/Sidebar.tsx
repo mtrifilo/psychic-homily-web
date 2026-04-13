@@ -52,7 +52,7 @@ export const sidebarGroups: SidebarGroup[] = [
       { href: '/blog', label: 'Blog', icon: BookOpen },
       { href: '/dj-sets', label: 'DJ Sets', icon: Headphones },
       { href: 'https://psychichomily.substack.com/', label: 'Substack', icon: Newspaper, external: true },
-      { href: '/submissions', label: 'Submissions', icon: Send },
+      { href: '/submissions', label: 'My Submissions', icon: Send },
     ],
   },
 ]
