@@ -85,7 +85,7 @@ const routes: RouteItem[] = [
     label: 'Collections',
     href: '/collections',
     icon: LayoutList,
-    keywords: ['collections', 'crates', 'curated', 'lists', 'playlists'],
+    keywords: ['collections', 'curated', 'lists', 'playlists'],
   },
   {
     label: 'Charts',
@@ -240,7 +240,7 @@ const adminRoutes: RouteItem[] = [
     label: 'Admin: Collections',
     href: '/admin?tab=collections',
     icon: Library,
-    keywords: ['admin', 'collections', 'crates', 'manage', 'featured'],
+    keywords: ['admin', 'collections', 'manage', 'featured'],
     requireAdmin: true,
   },
   {
