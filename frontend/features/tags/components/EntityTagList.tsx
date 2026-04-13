@@ -140,11 +140,12 @@ function TagWithVotes({
       )}
     >
       {tag.is_official && (
-        <BadgeCheck
-          className="h-3 w-3 text-primary shrink-0"
-          aria-hidden="true"
-          title="Official tag"
-        />
+        <span title="Official tag">
+          <BadgeCheck
+            className="h-3 w-3 text-primary shrink-0"
+            aria-hidden="true"
+          />
+        </span>
       )}
       <Link
         href={`/tags/${tag.slug}`}
