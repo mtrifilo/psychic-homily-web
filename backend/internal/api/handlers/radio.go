@@ -599,7 +599,7 @@ type AdminCreateRadioStationRequest struct {
 		DonationEmbedURL *string          `json:"donation_embed_url,omitempty" required:"false" doc:"Embeddable donation URL"`
 		LogoURL          *string          `json:"logo_url,omitempty" required:"false" doc:"Logo image URL"`
 		Social           *json.RawMessage `json:"social,omitempty" required:"false" doc:"Social media links (JSONB)"`
-		BroadcastType    string           `json:"broadcast_type" doc:"Broadcast type" example:"fm"`
+		BroadcastType    string           `json:"broadcast_type" doc:"Broadcast type (terrestrial, internet, both)" example:"both"`
 		FrequencyMHz     *float64         `json:"frequency_mhz,omitempty" required:"false" doc:"FM frequency" example:"90.3"`
 		PlaylistSource   *string          `json:"playlist_source,omitempty" required:"false" doc:"Playlist source"`
 		PlaylistConfig   *json.RawMessage `json:"playlist_config,omitempty" required:"false" doc:"Playlist config (JSONB)"`
