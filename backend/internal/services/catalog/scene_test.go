@@ -166,7 +166,7 @@ func (suite *SceneServiceIntegrationTestSuite) createFestival(name, city, state 
 	suite.Require().NoError(err)
 }
 
-// seedSceneData creates the minimum data for Phoenix to qualify as a scene:
+// seedSceneData creates data for Phoenix to qualify as a scene:
 // 3 verified venues + 5 upcoming shows with artists.
 func (suite *SceneServiceIntegrationTestSuite) seedSceneData() (venues []*models.Venue, artists []*models.Artist) {
 	user := suite.createUser()
@@ -202,20 +202,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_Empty() {
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestListScenes_BelowThreshold_TooFewVenues() {
-	// Only 2 verified venues — below the 3-venue threshold
-	user := suite.createUser()
-	v1 := suite.createVerifiedVenue("Venue A", "Tucson", "AZ")
-	v2 := suite.createVerifiedVenue("Venue B", "Tucson", "AZ")
-	a := suite.createArtist("Tucson Band")
-
-	future := time.Now().UTC().AddDate(0, 0, 7)
-	for i := 0; i < 6; i++ {
-		venueID := v1.ID
-		if i%2 == 1 {
-			venueID = v2.ID
-		}
-		suite.createApprovedShow(fmt.Sprintf("Tucson Show %d", i), venueID, a.ID, user.ID, future.AddDate(0, 0, i))
-	}
+	// Only unverified venues — below the 1-verified-venue threshold
+	suite.createUnverifiedVenue("Venue A", "Tucson", "AZ")
+	suite.createUnverifiedVenue("Venue B", "Tucson", "AZ")
 
 	scenes, err := suite.sceneService.ListScenes()
 	suite.Require().NoError(err)
@@ -223,18 +212,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_BelowThreshold_Too
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestListScenes_BelowThreshold_TooFewShows() {
-	// 3 venues but only 4 upcoming shows (below 5 threshold)
-	user := suite.createUser()
-	v1 := suite.createVerifiedVenue("Venue X", "Flagstaff", "AZ")
-	v2 := suite.createVerifiedVenue("Venue Y", "Flagstaff", "AZ")
-	v3 := suite.createVerifiedVenue("Venue Z", "Flagstaff", "AZ")
-	a := suite.createArtist("Flagstaff Band")
-
-	future := time.Now().UTC().AddDate(0, 0, 7)
-	suite.createApprovedShow("Flag Show 1", v1.ID, a.ID, user.ID, future)
-	suite.createApprovedShow("Flag Show 2", v2.ID, a.ID, user.ID, future.AddDate(0, 0, 1))
-	suite.createApprovedShow("Flag Show 3", v3.ID, a.ID, user.ID, future.AddDate(0, 0, 2))
-	suite.createApprovedShow("Flag Show 4", v1.ID, a.ID, user.ID, future.AddDate(0, 0, 3))
+	// Verified venues but no approved shows — below the 1-show threshold
+	suite.createVerifiedVenue("Venue X", "Flagstaff", "AZ")
+	suite.createVerifiedVenue("Venue Y", "Flagstaff", "AZ")
 
 	scenes, err := suite.sceneService.ListScenes()
 	suite.Require().NoError(err)
@@ -252,8 +232,49 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_MeetsThreshold() {
 	suite.Equal("Phoenix", scene.City)
 	suite.Equal("AZ", scene.State)
 	suite.Equal("phoenix-az", scene.Slug)
-	suite.GreaterOrEqual(scene.VenueCount, 3)
+	suite.GreaterOrEqual(scene.VenueCount, 1)
+	suite.GreaterOrEqual(scene.TotalShowCount, 1)
 	suite.GreaterOrEqual(scene.UpcomingShowCount, 5)
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_QualifiesWithPastShowsOnly() {
+	// A city with 1 verified venue and 1 past show (no upcoming) should still qualify
+	user := suite.createUser()
+	v := suite.createVerifiedVenue("The Rialto", "Tucson", "AZ")
+	a := suite.createArtist("Tucson Band")
+
+	past := time.Now().UTC().AddDate(0, 0, -30) // 30 days ago
+	suite.createApprovedShow("Past Tucson Show", v.ID, a.ID, user.ID, past)
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+
+	scene := scenes[0]
+	suite.Equal("Tucson", scene.City)
+	suite.Equal("AZ", scene.State)
+	suite.Equal(1, scene.TotalShowCount)
+	suite.Equal(0, scene.UpcomingShowCount)
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_SingleVenueQualifies() {
+	// A city with just 1 verified venue and 1 show should qualify
+	user := suite.createUser()
+	v := suite.createVerifiedVenue("The Mint", "Los Angeles", "CA")
+	a := suite.createArtist("LA Band")
+
+	future := time.Now().UTC().AddDate(0, 0, 14)
+	suite.createApprovedShow("LA Show", v.ID, a.ID, user.ID, future)
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+
+	scene := scenes[0]
+	suite.Equal("Los Angeles", scene.City)
+	suite.Equal(1, scene.VenueCount)
+	suite.Equal(1, scene.TotalShowCount)
+	suite.Equal(1, scene.UpcomingShowCount)
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TestListScenes_MultipleScenes() {
@@ -281,7 +302,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_MultipleScenes() {
 	suite.Require().NoError(err)
 	suite.Require().Len(scenes, 2)
 
-	// Should be sorted by upcoming show count descending
+	// Should be sorted by total show count descending
 	// Chicago has 7, Phoenix has 5
 	suite.Equal("Chicago", scenes[0].City)
 	suite.Equal("Phoenix", scenes[1].City)
@@ -304,9 +325,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_Success() {
 	suite.Nil(detail.Description) // no scenes table yet
 
 	// Stats
-	suite.GreaterOrEqual(detail.Stats.VenueCount, 3)
+	suite.GreaterOrEqual(detail.Stats.VenueCount, 1)
 	suite.GreaterOrEqual(detail.Stats.ArtistCount, 1)
-	suite.GreaterOrEqual(detail.Stats.UpcomingShowCount, 5)
+	suite.GreaterOrEqual(detail.Stats.UpcomingShowCount, 1)
 
 	// Pulse
 	suite.NotNil(detail.Pulse.ShowsByMonth)

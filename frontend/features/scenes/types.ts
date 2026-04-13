@@ -11,6 +11,7 @@ export interface SceneListItem {
   slug: string
   venue_count: number
   upcoming_show_count: number
+  total_show_count: number
 }
 
 export interface SceneListResponse {
