@@ -24,13 +24,15 @@ const mockSearchTags = {
   ],
 }
 
+const mockAddMutate = vi.fn()
+
 vi.mock('../hooks', () => ({
   useEntityTags: () => ({
     data: mockEntityTags,
     isLoading: false,
   }),
   useAddTagToEntity: () => ({
-    mutate: vi.fn(),
+    mutate: mockAddMutate,
     isPending: false,
     error: null,
   }),
@@ -94,5 +96,36 @@ describe('EntityTagList add-tag dialog accessibility', () => {
     // The dialog should NOT have aria-describedby (we passed undefined to suppress it)
     const dialog = screen.getByRole('dialog')
     expect(dialog).not.toHaveAttribute('aria-describedby')
+  })
+
+  it('submits first search result when Enter is pressed with matching tags', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+
+    // Open the dialog
+    await user.click(screen.getByRole('button', { name: 'Add tag' }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    // Type a search query (>= 2 chars to trigger search)
+    const input = screen.getByPlaceholderText('Search tags or type a new one...')
+    await user.type(input, 'punk')
+
+    // Wait for search results to appear
+    await waitFor(() => {
+      expect(screen.getByText('punk')).toBeInTheDocument()
+    })
+
+    // Press Enter
+    await user.keyboard('{Enter}')
+
+    // Should have called the add mutation with the first result (tag id 3)
+    expect(mockAddMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ entityType: 'artist', entityId: 1, tag_id: 3 }),
+      expect.any(Object)
+    )
   })
 })

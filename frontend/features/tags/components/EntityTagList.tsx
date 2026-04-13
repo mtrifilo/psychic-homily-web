@@ -246,6 +246,22 @@ function AddTagForm({
     tag => !existingTagIds.includes(tag.id)
   ) ?? []
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+
+    if (addMutation.isPending) return
+
+    const query = searchQuery.trim()
+    if (!query || debouncedQuery.length < 2) return
+
+    if (filteredResults.length > 0) {
+      handleSelectTag(filteredResults[0])
+    } else if (!searchLoading) {
+      handleCreateTag()
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="relative">
@@ -253,6 +269,7 @@ function AddTagForm({
         <Input
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder="Search tags or type a new one..."
           className="pl-9"
           autoFocus
