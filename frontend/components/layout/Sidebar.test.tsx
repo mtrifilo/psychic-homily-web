@@ -116,13 +116,13 @@ describe('Sidebar', () => {
     expect(onToggleCollapse).toHaveBeenCalledOnce()
   })
 
-  it('does not show Library/Settings when unauthenticated', () => {
+  it('does not show Library/Profile when unauthenticated', () => {
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
     expect(screen.queryByText('Library')).not.toBeInTheDocument()
-    expect(screen.queryByText('Settings')).not.toBeInTheDocument()
+    expect(screen.queryByText('Profile')).not.toBeInTheDocument()
   })
 
-  it('shows Library/Settings when authenticated', () => {
+  it('shows Library/Profile when authenticated', () => {
     mockAuthContext.mockReturnValue({
       user: { email: 'test@test.com', is_admin: false },
       isAuthenticated: true,
@@ -131,7 +131,7 @@ describe('Sidebar', () => {
     })
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
     expect(screen.getByText('Library')).toBeInTheDocument()
-    expect(screen.getByText('Settings')).toBeInTheDocument()
+    expect(screen.getByText('Profile')).toBeInTheDocument()
   })
 
   it('does not show a standalone Collection entry in auth section', () => {
