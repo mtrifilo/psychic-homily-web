@@ -26,6 +26,7 @@ export interface Collection {
   item_count: number
   subscriber_count: number
   contributor_count: number
+  entity_type_counts?: Record<string, number> | null
   created_at: string
   updated_at: string
 }

@@ -54,6 +54,7 @@ type ListCollectionsHandlerResponse struct {
 func (h *CollectionHandler) ListCollectionsHandler(ctx context.Context, req *ListCollectionsHandlerRequest) (*ListCollectionsHandlerResponse, error) {
 	filters := contracts.CollectionFilters{
 		Search:     req.Search,
+		EntityType: req.EntityType,
 		PublicOnly: true, // Public endpoint always filters to public
 	}
 
@@ -194,7 +195,7 @@ func (h *CollectionHandler) CreateCollectionHandler(ctx context.Context, req *Cr
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		go func() {
-			h.auditLogService.LogAction(user.ID, "create_crate", "collection", collection.ID, nil)
+			h.auditLogService.LogAction(user.ID, "create_collection", "collection", collection.ID, nil)
 		}()
 	}
 
@@ -258,7 +259,7 @@ func (h *CollectionHandler) UpdateCollectionHandler(ctx context.Context, req *Up
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		go func() {
-			h.auditLogService.LogAction(user.ID, "update_crate", "collection", collection.ID, nil)
+			h.auditLogService.LogAction(user.ID, "update_collection", "collection", collection.ID, nil)
 		}()
 	}
 
@@ -302,7 +303,7 @@ func (h *CollectionHandler) DeleteCollectionHandler(ctx context.Context, req *De
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		go func() {
-			h.auditLogService.LogAction(user.ID, "delete_crate", "collection", 0, map[string]interface{}{"slug": req.Slug})
+			h.auditLogService.LogAction(user.ID, "delete_collection", "collection", 0, map[string]interface{}{"slug": req.Slug})
 		}()
 	}
 
@@ -369,7 +370,7 @@ func (h *CollectionHandler) AddItemHandler(ctx context.Context, req *AddItemHand
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		go func() {
-			h.auditLogService.LogAction(user.ID, "add_crate_item", "collection", item.ID, map[string]interface{}{
+			h.auditLogService.LogAction(user.ID, "add_collection_item", "collection", item.ID, map[string]interface{}{
 				"slug":        req.Slug,
 				"entity_type": req.Body.EntityType,
 				"entity_id":   req.Body.EntityID,
@@ -436,7 +437,7 @@ func (h *CollectionHandler) UpdateItemHandler(ctx context.Context, req *UpdateIt
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		go func() {
-			h.auditLogService.LogAction(user.ID, "update_crate_item", "collection", item.ID, map[string]interface{}{
+			h.auditLogService.LogAction(user.ID, "update_collection_item", "collection", item.ID, map[string]interface{}{
 				"slug": req.Slug,
 			})
 		}()
@@ -489,7 +490,7 @@ func (h *CollectionHandler) RemoveItemHandler(ctx context.Context, req *RemoveIt
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		go func() {
-			h.auditLogService.LogAction(user.ID, "remove_crate_item", "collection", uint(itemID), map[string]interface{}{
+			h.auditLogService.LogAction(user.ID, "remove_collection_item", "collection", uint(itemID), map[string]interface{}{
 				"slug": req.Slug,
 			})
 		}()
@@ -626,7 +627,7 @@ func (h *CollectionHandler) SetFeaturedHandler(ctx context.Context, req *SetFeat
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		go func() {
-			h.auditLogService.LogAction(user.ID, "set_crate_featured", "collection", 0, map[string]interface{}{
+			h.auditLogService.LogAction(user.ID, "set_collection_featured", "collection", 0, map[string]interface{}{
 				"slug":     req.Slug,
 				"featured": req.Body.Featured,
 			})

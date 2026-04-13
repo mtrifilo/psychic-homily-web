@@ -74,21 +74,22 @@ type CollectionDetailResponse struct {
 
 // CollectionListResponse represents a collection in list views (without items)
 type CollectionListResponse struct {
-	ID               uint      `json:"id"`
-	Title            string    `json:"title"`
-	Slug             string    `json:"slug"`
-	Description      string    `json:"description"`
-	CreatorID        uint      `json:"creator_id"`
-	CreatorName      string    `json:"creator_name"`
-	Collaborative    bool      `json:"collaborative"`
-	CoverImageURL    *string   `json:"cover_image_url"`
-	IsPublic         bool      `json:"is_public"`
-	IsFeatured       bool      `json:"is_featured"`
-	ItemCount        int       `json:"item_count"`
-	SubscriberCount  int       `json:"subscriber_count"`
-	ContributorCount int       `json:"contributor_count"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID               uint           `json:"id"`
+	Title            string         `json:"title"`
+	Slug             string         `json:"slug"`
+	Description      string         `json:"description"`
+	CreatorID        uint           `json:"creator_id"`
+	CreatorName      string         `json:"creator_name"`
+	Collaborative    bool           `json:"collaborative"`
+	CoverImageURL    *string        `json:"cover_image_url"`
+	IsPublic         bool           `json:"is_public"`
+	IsFeatured       bool           `json:"is_featured"`
+	ItemCount        int            `json:"item_count"`
+	SubscriberCount  int            `json:"subscriber_count"`
+	ContributorCount int            `json:"contributor_count"`
+	EntityTypeCounts map[string]int `json:"entity_type_counts"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
 }
 
 // CollectionItemResponse represents an item in a collection

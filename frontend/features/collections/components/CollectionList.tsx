@@ -19,7 +19,13 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useRouter } from 'next/navigation'
-import type { Collection } from '../types'
+import {
+  COLLECTION_ENTITY_TYPES,
+  getEntityTypeLabel,
+  type Collection,
+  type CollectionEntityType,
+} from '../types'
+import { cn } from '@/lib/utils'
 
 type BrowseTab = 'all' | 'popular' | 'recent' | 'featured' | 'yours'
 
@@ -30,12 +36,13 @@ export function CollectionList() {
   const [activeTab, setActiveTab] = useState<BrowseTab>('all')
   const [searchInput, setSearchInput] = useState('')
   const [debouncedSearch] = useDebounce(searchInput, 300)
+  const [entityTypeFilter, setEntityTypeFilter] = useState<CollectionEntityType | 'all'>('all')
 
   // Determine whether to filter featured on the backend
   const isFeaturedTab = activeTab === 'featured'
   const searchTerm = debouncedSearch.trim()
 
-  // Fetch public collections (with search + featured filter)
+  // Fetch public collections (with search + featured + entity-type filters)
   const {
     data: publicData,
     isLoading: publicLoading,
@@ -44,6 +51,7 @@ export function CollectionList() {
   } = useCollections({
     search: searchTerm || undefined,
     featured: isFeaturedTab || undefined,
+    entityType: entityTypeFilter === 'all' ? undefined : entityTypeFilter,
   })
 
   // Fetch user's own collections (only when on "yours" tab and authenticated)
@@ -61,9 +69,15 @@ export function CollectionList() {
     ? (myData?.collections ?? [])
     : (publicData?.collections ?? [])
 
-  // Apply client-side sort for "popular" and "recent" tabs
+  // Apply client-side sort for "popular" and "recent" tabs + entity-type filter on the "yours" tab
   const collections = useMemo(() => {
-    const items = [...rawCollections]
+    let items = [...rawCollections]
+
+    if (isYoursTab && entityTypeFilter !== 'all') {
+      items = items.filter(
+        c => (c.entity_type_counts?.[entityTypeFilter] ?? 0) > 0
+      )
+    }
 
     if (activeTab === 'popular') {
       items.sort((a, b) => b.subscriber_count - a.subscriber_count)
@@ -75,7 +89,7 @@ export function CollectionList() {
     }
 
     return items
-  }, [rawCollections, activeTab])
+  }, [rawCollections, activeTab, isYoursTab, entityTypeFilter])
 
   // Available tabs (Yours only for authenticated users)
   const tabs: { value: BrowseTab; label: string; icon: React.ReactNode }[] = [
@@ -142,7 +156,7 @@ export function CollectionList() {
         onValueChange={(v) => setActiveTab(v as BrowseTab)}
         className="w-full"
       >
-        <TabsList className="mb-6">
+        <TabsList className="mb-4">
           {tabs.map((tab) => (
             <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5">
               {tab.icon}
@@ -150,6 +164,23 @@ export function CollectionList() {
             </TabsTrigger>
           ))}
         </TabsList>
+
+        {/* Entity type filter chips */}
+        <div className="mb-6 flex flex-wrap gap-1.5" role="group" aria-label="Filter by entity type">
+          <TypeChip
+            active={entityTypeFilter === 'all'}
+            onClick={() => setEntityTypeFilter('all')}
+            label="All types"
+          />
+          {COLLECTION_ENTITY_TYPES.map(type => (
+            <TypeChip
+              key={type}
+              active={entityTypeFilter === type}
+              onClick={() => setEntityTypeFilter(type)}
+              label={`${getEntityTypeLabel(type)}s`}
+            />
+          ))}
+        </div>
 
         {/* All tab content areas render the same grid — content differs by data source */}
         {tabs.map((tab) => (
@@ -172,6 +203,36 @@ export function CollectionList() {
         ))}
       </Tabs>
     </section>
+  )
+}
+
+// ──────────────────────────────────────────────
+// Entity Type Filter Chip
+// ──────────────────────────────────────────────
+
+function TypeChip({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean
+  onClick: () => void
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+        active
+          ? 'border-primary bg-primary text-primary-foreground'
+          : 'border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border'
+      )}
+    >
+      {label}
+    </button>
   )
 }
 
