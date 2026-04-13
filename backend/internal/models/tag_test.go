@@ -67,8 +67,13 @@ func TestIsValidTagEntityType_Invalid(t *testing.T) {
 func TestTagCategoryConstants(t *testing.T) {
 	assert.Equal(t, "genre", TagCategoryGenre)
 	assert.Equal(t, "locale", TagCategoryLocale)
+	assert.Equal(t, "mood", TagCategoryMood)
+	assert.Equal(t, "era", TagCategoryEra)
+	assert.Equal(t, "instrument", TagCategoryInstrument)
+	assert.Equal(t, "style", TagCategoryStyle)
+	assert.Equal(t, "descriptor", TagCategoryDescriptor)
 	assert.Equal(t, "other", TagCategoryOther)
-	assert.Len(t, TagCategories, 3)
+	assert.Len(t, TagCategories, 8)
 }
 
 func TestTagEntityTypeConstants(t *testing.T) {

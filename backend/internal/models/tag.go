@@ -4,15 +4,25 @@ import "time"
 
 // Tag category constants
 const (
-	TagCategoryGenre  = "genre"
-	TagCategoryLocale = "locale"
-	TagCategoryOther  = "other"
+	TagCategoryGenre      = "genre"
+	TagCategoryLocale     = "locale"
+	TagCategoryMood       = "mood"
+	TagCategoryEra        = "era"
+	TagCategoryInstrument = "instrument"
+	TagCategoryStyle      = "style"
+	TagCategoryDescriptor = "descriptor"
+	TagCategoryOther      = "other"
 )
 
 // TagCategories is the set of valid tag categories.
 var TagCategories = []string{
 	TagCategoryGenre,
 	TagCategoryLocale,
+	TagCategoryMood,
+	TagCategoryEra,
+	TagCategoryInstrument,
+	TagCategoryStyle,
+	TagCategoryDescriptor,
 	TagCategoryOther,
 }
 

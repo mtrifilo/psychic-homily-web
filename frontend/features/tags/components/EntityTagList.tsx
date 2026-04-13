@@ -340,6 +340,11 @@ function AddTagForm({
                 >
                   <option value="genre">Genre</option>
                   <option value="locale">Locale</option>
+                  <option value="mood">Mood</option>
+                  <option value="era">Era</option>
+                  <option value="instrument">Instrument</option>
+                  <option value="style">Style</option>
+                  <option value="descriptor">Descriptor</option>
                   <option value="other">Other</option>
                 </select>
               </div>
