@@ -12,19 +12,21 @@ import (
 
 // TagResponse represents a tag returned to clients.
 type TagResponse struct {
-	ID           uint               `json:"id"`
-	Name         string             `json:"name"`
-	Slug         string             `json:"slug"`
-	Description  *string            `json:"description,omitempty"`
-	ParentID     *uint              `json:"parent_id,omitempty"`
-	ParentName   string             `json:"parent_name,omitempty"`
-	Category     string             `json:"category"`
-	IsOfficial   bool               `json:"is_official"`
-	UsageCount   int                `json:"usage_count"`
-	ChildCount   int                `json:"child_count"`
-	Aliases      []string           `json:"aliases,omitempty"`
-	CreatedAt    time.Time          `json:"created_at"`
-	UpdatedAt    time.Time          `json:"updated_at"`
+	ID                uint      `json:"id"`
+	Name              string    `json:"name"`
+	Slug              string    `json:"slug"`
+	Description       *string   `json:"description,omitempty"`
+	ParentID          *uint     `json:"parent_id,omitempty"`
+	ParentName        string    `json:"parent_name,omitempty"`
+	Category          string    `json:"category"`
+	IsOfficial        bool      `json:"is_official"`
+	UsageCount        int       `json:"usage_count"`
+	ChildCount        int       `json:"child_count"`
+	Aliases           []string  `json:"aliases,omitempty"`
+	CreatedByUserID   *uint     `json:"created_by_user_id,omitempty"`
+	CreatedByUsername *string   `json:"created_by_username,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 // TagListItem represents a tag in a list response.
@@ -69,7 +71,7 @@ type TagAliasResponse struct {
 // TagServiceInterface defines the contract for tag operations.
 type TagServiceInterface interface {
 	// CRUD
-	CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool) (*models.Tag, error)
+	CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool, userID *uint) (*models.Tag, error)
 	GetTag(tagID uint) (*models.Tag, error)
 	GetTagBySlug(slug string) (*models.Tag, error)
 	ListTags(category string, search string, parentID *uint, sort string, limit, offset int) ([]models.Tag, int64, error)

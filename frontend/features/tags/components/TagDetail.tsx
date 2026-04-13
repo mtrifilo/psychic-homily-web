@@ -109,6 +109,20 @@ export function TagDetail({ slug }: TagDetailProps) {
               <span className="text-sm text-muted-foreground">
                 {tag.usage_count} {tag.usage_count === 1 ? 'use' : 'uses'}
               </span>
+              {tag.created_by_username && (
+                <>
+                  <span className="text-muted-foreground/40">{'·'}</span>
+                  <span className="text-sm text-muted-foreground">
+                    Created by{' '}
+                    <Link
+                      href={`/users/${tag.created_by_username}`}
+                      className="hover:underline"
+                    >
+                      @{tag.created_by_username}
+                    </Link>
+                  </span>
+                </>
+              )}
             </div>
 
             {tag.description && (
