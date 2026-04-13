@@ -384,7 +384,7 @@ function AdminPageContent() {
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-4" data-testid="admin-tab-dashboard">
-            <DashboardPage onNavigate={setActiveTab} />
+            <DashboardPage onNavigate={handleTabChange} />
           </TabsContent>
 
           <TabsContent value="moderation" className="space-y-4" data-testid="admin-tab-moderation">
