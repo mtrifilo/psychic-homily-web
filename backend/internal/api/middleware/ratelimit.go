@@ -34,6 +34,14 @@ const (
 	// ReportRequestsPerMinute is the rate limit for show report submissions
 	// Prevents spamming admins with reports
 	ReportRequestsPerMinute = 5
+
+	// TagCreateRequestsPerHour is the rate limit for tag creation (adding tags to entities).
+	// Prevents spamming entities with tags.
+	TagCreateRequestsPerHour = 20
+
+	// TagVoteRequestsPerMinute is the rate limit for tag voting.
+	// Prevents rapid vote manipulation.
+	TagVoteRequestsPerMinute = 30
 )
 
 // RateLimitAuthEndpoints creates a strict rate limiter for authentication endpoints
@@ -67,6 +75,28 @@ func RateLimitPasskeyEndpoints() func(http.Handler) http.Handler {
 func RateLimitAPIEndpoints() func(http.Handler) http.Handler {
 	return httprate.Limit(
 		APIRequestsPerMinute,
+		time.Minute,
+		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithLimitHandler(RateLimitExceededHandler),
+	)
+}
+
+// RateLimitTagCreateEndpoints creates a rate limiter for tag creation endpoints
+// 20 requests per hour per IP - prevents tag spam on entities
+func RateLimitTagCreateEndpoints() func(http.Handler) http.Handler {
+	return httprate.Limit(
+		TagCreateRequestsPerHour,
+		time.Hour,
+		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithLimitHandler(RateLimitExceededHandler),
+	)
+}
+
+// RateLimitTagVoteEndpoints creates a rate limiter for tag voting endpoints
+// 30 requests per minute per IP - prevents rapid vote manipulation
+func RateLimitTagVoteEndpoints() func(http.Handler) http.Handler {
+	return httprate.Limit(
+		TagVoteRequestsPerMinute,
 		time.Minute,
 		httprate.WithKeyFuncs(httprate.KeyByIP),
 		httprate.WithLimitHandler(RateLimitExceededHandler),
