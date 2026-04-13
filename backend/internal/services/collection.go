@@ -184,6 +184,13 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	if filters.Search != "" {
 		query = query.Where("title ILIKE ?", "%"+filters.Search+"%")
 	}
+	if filters.EntityType != "" {
+		query = query.Where("id IN (?)",
+			s.db.Model(&models.CollectionItem{}).
+				Select("DISTINCT collection_id").
+				Where("entity_type = ?", filters.EntityType),
+		)
+	}
 
 	// Count total before pagination
 	var total int64
@@ -227,6 +234,9 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	// Batch-load contributor counts
 	contributorCounts := s.batchCountContributors(collectionIDs)
 
+	// Batch-load entity type counts
+	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
+
 	// Batch-load creator names
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 
@@ -247,6 +257,7 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 			ItemCount:        itemCounts[c.ID],
 			SubscriberCount:  subscriberCounts[c.ID],
 			ContributorCount: contributorCounts[c.ID],
+			EntityTypeCounts: entityTypeCounts[c.ID],
 			CreatedAt:        c.CreatedAt,
 			UpdatedAt:        c.UpdatedAt,
 		}
@@ -729,6 +740,7 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 	itemCounts := s.batchCountItems(collectionIDs)
 	subscriberCounts := s.batchCountSubscribers(collectionIDs)
 	contributorCounts := s.batchCountContributors(collectionIDs)
+	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
@@ -747,6 +759,7 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 			ItemCount:        itemCounts[c.ID],
 			SubscriberCount:  subscriberCounts[c.ID],
 			ContributorCount: contributorCounts[c.ID],
+			EntityTypeCounts: entityTypeCounts[c.ID],
 			CreatedAt:        c.CreatedAt,
 			UpdatedAt:        c.UpdatedAt,
 		}
@@ -799,6 +812,7 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 	itemCounts := s.batchCountItems(collectionIDs)
 	subscriberCounts := s.batchCountSubscribers(collectionIDs)
 	contributorCounts := s.batchCountContributors(collectionIDs)
+	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
@@ -817,6 +831,7 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 			ItemCount:        itemCounts[c.ID],
 			SubscriberCount:  subscriberCounts[c.ID],
 			ContributorCount: contributorCounts[c.ID],
+			EntityTypeCounts: entityTypeCounts[c.ID],
 			CreatedAt:        c.CreatedAt,
 			UpdatedAt:        c.UpdatedAt,
 		}
@@ -866,6 +881,7 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 	itemCounts := s.batchCountItems(collectionIDs)
 	subscriberCounts := s.batchCountSubscribers(collectionIDs)
 	contributorCounts := s.batchCountContributors(collectionIDs)
+	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
@@ -884,6 +900,7 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 			ItemCount:        itemCounts[c.ID],
 			SubscriberCount:  subscriberCounts[c.ID],
 			ContributorCount: contributorCounts[c.ID],
+			EntityTypeCounts: entityTypeCounts[c.ID],
 			CreatedAt:        c.CreatedAt,
 			UpdatedAt:        c.UpdatedAt,
 		}
@@ -1201,6 +1218,35 @@ func (s *CollectionService) batchCountItems(collectionIDs []uint) map[uint]int {
 		counts[r.CollectionID] = r.Count
 	}
 	return counts
+}
+
+// batchEntityTypeCounts returns a breakdown of item counts by entity type per collection ID.
+// Used to surface entity type badges on collection cards.
+func (s *CollectionService) batchEntityTypeCounts(collectionIDs []uint) map[uint]map[string]int {
+	result := make(map[uint]map[string]int)
+	if len(collectionIDs) == 0 {
+		return result
+	}
+
+	type Row struct {
+		CollectionID uint
+		EntityType   string
+		Count        int
+	}
+	var rows []Row
+	s.db.Model(&models.CollectionItem{}).
+		Select("collection_id, entity_type, COUNT(*) as count").
+		Where("collection_id IN ?", collectionIDs).
+		Group("collection_id, entity_type").
+		Find(&rows)
+
+	for _, r := range rows {
+		if _, ok := result[r.CollectionID]; !ok {
+			result[r.CollectionID] = make(map[string]int)
+		}
+		result[r.CollectionID][r.EntityType] = r.Count
+	}
+	return result
 }
 
 // batchCountSubscribers returns subscriber counts per collection ID

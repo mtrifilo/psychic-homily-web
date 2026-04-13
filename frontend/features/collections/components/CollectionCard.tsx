@@ -5,13 +5,17 @@ import { Library, Users, Star, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
-import type { Collection } from '../types'
+import { getEntityTypeLabel, type Collection } from '../types'
 
 interface CollectionCardProps {
   collection: Collection
 }
 
 export function CollectionCard({ collection }: CollectionCardProps) {
+  const topEntityTypes = Object.entries(collection.entity_type_counts ?? {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+
   return (
     <article className="rounded-lg border border-border/50 bg-card p-4 transition-shadow hover:shadow-sm">
       <div className="flex gap-3">
@@ -36,7 +40,7 @@ export function CollectionCard({ collection }: CollectionCardProps) {
             </h3>
           </Link>
 
-          <div className="flex items-center gap-2 flex-wrap mt-0.5">
+          <div className="flex items-center gap-1 flex-wrap mt-0.5">
             {collection.is_featured && (
               <Badge variant="default" className="text-[10px] px-1.5 py-0">
                 <Star className="h-2.5 w-2.5 mr-0.5" />
@@ -48,6 +52,16 @@ export function CollectionCard({ collection }: CollectionCardProps) {
                 Collaborative
               </Badge>
             )}
+            {topEntityTypes.map(([type, count]) => (
+              <Badge
+                key={type}
+                variant="outline"
+                className="text-[10px] px-1.5 py-0 font-normal"
+              >
+                {count} {getEntityTypeLabel(type).toLowerCase()}
+                {count === 1 ? '' : 's'}
+              </Badge>
+            ))}
           </div>
 
           {collection.description && (

@@ -87,6 +87,12 @@ const actionLabels: Record<string, string> = {
   create_request: 'Created request',
   fulfill_request: 'Fulfilled request',
   create_collection: 'Created collection',
+  update_collection: 'Updated collection',
+  delete_collection: 'Deleted collection',
+  add_collection_item: 'Added to collection',
+  update_collection_item: 'Updated collection item',
+  remove_collection_item: 'Removed from collection',
+  set_collection_featured: 'Featured collection',
 }
 
 function formatAction(action: string): string {

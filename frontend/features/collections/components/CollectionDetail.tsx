@@ -187,8 +187,18 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
         ) : (
           <div>
             <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-3 mb-1">
+              <div className="flex items-start gap-4 min-w-0">
+                {collection.cover_image_url && (
+                  <div className="h-24 w-24 shrink-0 rounded-lg overflow-hidden border border-border/50 bg-muted/50">
+                    <img
+                      src={collection.cover_image_url}
+                      alt={`${collection.title} cover`}
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                )}
+                <div className="min-w-0">
+                <div className="flex items-center gap-3 mb-1 flex-wrap">
                   <h1 className="text-3xl font-bold tracking-tight">
                     {collection.title}
                   </h1>
@@ -254,6 +264,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                     ))}
                   </div>
                 )}
+                </div>
               </div>
 
               {/* Action buttons */}

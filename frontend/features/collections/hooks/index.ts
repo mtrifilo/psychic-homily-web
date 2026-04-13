@@ -19,6 +19,7 @@ import type { Collection, CollectionDetail, CollectionStats } from '../types'
 export interface CollectionListParams {
   search?: string
   featured?: boolean
+  entityType?: string
 }
 
 /** Fetch public collections list with optional filters */
@@ -29,6 +30,7 @@ export function useCollections(params?: CollectionListParams) {
       const searchParams = new URLSearchParams()
       if (params?.search) searchParams.set('search', params.search)
       if (params?.featured) searchParams.set('featured', '1')
+      if (params?.entityType) searchParams.set('entity_type', params.entityType)
 
       const qs = searchParams.toString()
       const url = qs
