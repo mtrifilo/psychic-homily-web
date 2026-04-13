@@ -32,8 +32,8 @@ func NewTagService(database *gorm.DB) *TagService {
 // CRUD
 // ──────────────────────────────────────────────
 
-// CreateTag creates a new tag.
-func (s *TagService) CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool) (*models.Tag, error) {
+// CreateTag creates a new tag. If userID is non-nil, it records who created the tag.
+func (s *TagService) CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool, userID *uint) (*models.Tag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -57,19 +57,21 @@ func (s *TagService) CreateTag(name string, description *string, parentID *uint,
 	})
 
 	tag := &models.Tag{
-		Name:        name,
-		Slug:        slug,
-		Description: description,
-		ParentID:    parentID,
-		Category:    category,
-		IsOfficial:  isOfficial,
+		Name:            name,
+		Slug:            slug,
+		Description:     description,
+		ParentID:        parentID,
+		Category:        category,
+		IsOfficial:      isOfficial,
+		CreatedByUserID: userID,
 	}
 
 	if err := s.db.Create(tag).Error; err != nil {
 		return nil, fmt.Errorf("failed to create tag: %w", err)
 	}
 
-	return tag, nil
+	// Reload with relationships (CreatedBy, Parent, Children, Aliases) for response
+	return s.GetTag(tag.ID)
 }
 
 // GetTag retrieves a tag by ID with relationships.
@@ -79,7 +81,7 @@ func (s *TagService) GetTag(tagID uint) (*models.Tag, error) {
 	}
 
 	var tag models.Tag
-	err := s.db.Preload("Parent").Preload("Children").Preload("Aliases").First(&tag, tagID).Error
+	err := s.db.Preload("Parent").Preload("Children").Preload("Aliases").Preload("CreatedBy").First(&tag, tagID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
@@ -97,7 +99,7 @@ func (s *TagService) GetTagBySlug(slug string) (*models.Tag, error) {
 	}
 
 	var tag models.Tag
-	err := s.db.Preload("Parent").Preload("Children").Preload("Aliases").
+	err := s.db.Preload("Parent").Preload("Children").Preload("Aliases").Preload("CreatedBy").
 		Where("slug = ?", slug).First(&tag).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
