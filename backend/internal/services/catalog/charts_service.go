@@ -27,7 +27,8 @@ func NewChartsService(database *gorm.DB) *ChartsService {
 }
 
 // GetTrendingShows returns upcoming shows ranked by total attendance (going + interested).
-// Only includes future shows with approved status.
+// Only includes future shows with approved status. Shows without engagement data are
+// included and ranked by soonest date, so the chart is never empty when shows exist.
 func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -60,11 +61,11 @@ func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, e
 			COALESCE(v.city, '') AS city,
 			COALESCE(SUM(CASE WHEN ub.action = 'going' THEN 1 ELSE 0 END), 0) AS going_count,
 			COALESCE(SUM(CASE WHEN ub.action = 'interested' THEN 1 ELSE 0 END), 0) AS interested_count,
-			COUNT(ub.id) AS total_attendance
+			COALESCE(COUNT(ub.id), 0) AS total_attendance
 		FROM shows s
 		LEFT JOIN show_venues sv ON sv.show_id = s.id
 		LEFT JOIN venues v ON v.id = sv.venue_id
-		JOIN user_bookmarks ub ON ub.entity_id = s.id
+		LEFT JOIN user_bookmarks ub ON ub.entity_id = s.id
 			AND ub.entity_type = ?
 			AND ub.action IN (?, ?)
 		WHERE s.status = ?
@@ -236,7 +237,8 @@ func (s *ChartsService) GetActiveVenues(limit int) ([]contracts.ActiveVenue, err
 	return results, nil
 }
 
-// GetHotReleases returns releases ranked by bookmark count in the last 30 days.
+// GetHotReleases returns releases ranked by recent bookmark count, falling back to
+// recently added releases when no bookmarks exist so the chart is never empty.
 func (s *ChartsService) GetHotReleases(limit int) ([]contracts.HotRelease, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -259,14 +261,14 @@ func (s *ChartsService) GetHotReleases(limit int) ([]contracts.HotRelease, error
 			r.title,
 			COALESCE(r.slug, '') AS slug,
 			r.release_date,
-			COUNT(ub.id) AS bookmark_count
+			COALESCE(COUNT(ub.id), 0) AS bookmark_count
 		FROM releases r
-		JOIN user_bookmarks ub ON ub.entity_id = r.id
+		LEFT JOIN user_bookmarks ub ON ub.entity_id = r.id
 			AND ub.entity_type = ?
 			AND ub.action = ?
 			AND ub.created_at >= ?
 		GROUP BY r.id, r.title, r.slug, r.release_date
-		ORDER BY bookmark_count DESC, r.title ASC
+		ORDER BY bookmark_count DESC, r.created_at DESC
 		LIMIT ?
 	`, models.BookmarkEntityRelease, models.BookmarkActionBookmark, thirtyDaysAgo, limit).Scan(&rows).Error
 	if err != nil {
