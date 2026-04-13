@@ -1199,7 +1199,7 @@ function StationDetailPanel({
         ) : (
           <div className="rounded-lg border divide-y">
             {shows.map((show) => (
-              <div key={show.id} className="px-4 py-3">
+              <div key={show.id} className="px-4 py-3 hover:bg-muted/50 transition-colors">
                 <div className="flex items-center justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
