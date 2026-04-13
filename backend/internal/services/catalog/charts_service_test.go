@@ -228,6 +228,48 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_RespectsLim
 	suite.Len(shows, 3)
 }
 
+func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_WithoutBookmarks() {
+	user := suite.createUser("charts-nobookmark@test.com")
+	venue := suite.createVenue("No Bookmark Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("No Bookmark Band")
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	show := suite.createApprovedShow("Unbookmarked Show", venue.ID, artist.ID, user.ID, future)
+
+	shows, err := suite.chartsService.GetTrendingShows(20)
+	suite.Require().NoError(err)
+	suite.Require().Len(shows, 1)
+	suite.Equal(show.ID, shows[0].ShowID)
+	suite.Equal("Unbookmarked Show", shows[0].Title)
+	suite.Equal(0, shows[0].GoingCount)
+	suite.Equal(0, shows[0].InterestedCount)
+	suite.Equal(0, shows[0].TotalAttendance)
+	suite.Equal("No Bookmark Venue", shows[0].VenueName)
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_BookmarkedRankedFirst() {
+	user := suite.createUser("charts-rank@test.com")
+	venue := suite.createVenue("Rank Venue", "Phoenix", "AZ")
+	artist := suite.createArtist("Rank Band")
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	// Show with no bookmarks (further future date)
+	unbookmarked := suite.createApprovedShow("Unbookmarked", venue.ID, artist.ID, user.ID, future.AddDate(0, 0, 10))
+	// Show with bookmarks (same date)
+	bookmarked := suite.createApprovedShow("Bookmarked", venue.ID, artist.ID, user.ID, future.AddDate(0, 0, 10))
+	suite.createBookmark(user.ID, models.BookmarkEntityShow, bookmarked.ID, models.BookmarkActionGoing)
+
+	shows, err := suite.chartsService.GetTrendingShows(20)
+	suite.Require().NoError(err)
+	suite.Require().Len(shows, 2)
+	// Bookmarked show should be first
+	suite.Equal(bookmarked.ID, shows[0].ShowID)
+	suite.Equal(1, shows[0].TotalAttendance)
+	// Unbookmarked show second
+	suite.Equal(unbookmarked.ID, shows[1].ShowID)
+	suite.Equal(0, shows[1].TotalAttendance)
+}
+
 // =============================================================================
 // GetPopularArtists Tests
 // =============================================================================
@@ -458,6 +500,43 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetHotReleases_RespectsLimit
 	suite.Len(releases, 3)
 }
 
+func (suite *ChartsServiceIntegrationTestSuite) TestGetHotReleases_WithoutBookmarks() {
+	artist := suite.createArtist("Unbookmarked Artist")
+	release := suite.createRelease("Unbookmarked Album")
+	suite.addArtistToRelease(artist.ID, release.ID)
+
+	releases, err := suite.chartsService.GetHotReleases(20)
+	suite.Require().NoError(err)
+	suite.Require().Len(releases, 1)
+	suite.Equal(release.ID, releases[0].ReleaseID)
+	suite.Equal("Unbookmarked Album", releases[0].Title)
+	suite.Equal(0, releases[0].BookmarkCount)
+	suite.Require().Len(releases[0].ArtistNames, 1)
+	suite.Equal("Unbookmarked Artist", releases[0].ArtistNames[0])
+}
+
+func (suite *ChartsServiceIntegrationTestSuite) TestGetHotReleases_BookmarkedRankedFirst() {
+	user := suite.createUser("hot-rank@test.com")
+	artist := suite.createArtist("Rank Release Artist")
+
+	unbookmarked := suite.createRelease("Unbookmarked Release")
+	suite.addArtistToRelease(artist.ID, unbookmarked.ID)
+
+	bookmarked := suite.createRelease("Bookmarked Release")
+	suite.addArtistToRelease(artist.ID, bookmarked.ID)
+	suite.createBookmark(user.ID, models.BookmarkEntityRelease, bookmarked.ID, models.BookmarkActionBookmark)
+
+	releases, err := suite.chartsService.GetHotReleases(20)
+	suite.Require().NoError(err)
+	suite.Require().Len(releases, 2)
+	// Bookmarked release should be first
+	suite.Equal(bookmarked.ID, releases[0].ReleaseID)
+	suite.Equal(1, releases[0].BookmarkCount)
+	// Unbookmarked release second
+	suite.Equal(unbookmarked.ID, releases[1].ReleaseID)
+	suite.Equal(0, releases[1].BookmarkCount)
+}
+
 func (suite *ChartsServiceIntegrationTestSuite) TestGetHotReleases_Only30Days() {
 	user := suite.createUser("hot-30d@test.com")
 	artist := suite.createArtist("Old Release Artist")
@@ -472,7 +551,10 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetHotReleases_Only30Days() 
 
 	releases, err := suite.chartsService.GetHotReleases(20)
 	suite.Require().NoError(err)
-	suite.Empty(releases) // Should not include bookmark older than 30 days
+	// Release still appears but with 0 bookmark_count (old bookmark not counted)
+	suite.Require().Len(releases, 1)
+	suite.Equal("Old Bookmarked Release", releases[0].Title)
+	suite.Equal(0, releases[0].BookmarkCount)
 }
 
 // =============================================================================
