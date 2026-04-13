@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Newspaper,
-  Send, Library, LayoutList, MessageSquarePlus, Settings, Shield, PanelLeftClose, PanelLeft,
+  Send, Library, LayoutList, MessageSquarePlus, UserCircle, Shield, PanelLeftClose, PanelLeft,
   ExternalLink, Globe, TrendingUp, Bell, HeartHandshake, Trophy, Radio,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -52,7 +52,7 @@ export const sidebarGroups: SidebarGroup[] = [
       { href: '/blog', label: 'Blog', icon: BookOpen },
       { href: '/dj-sets', label: 'DJ Sets', icon: Headphones },
       { href: 'https://psychichomily.substack.com/', label: 'Substack', icon: Newspaper, external: true },
-      { href: '/submissions', label: 'Submissions', icon: Send },
+      { href: '/submissions', label: 'My Submissions', icon: Send },
     ],
   },
 ]
@@ -136,7 +136,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
               <div className="space-y-0.5">
                 {renderItem({ href: '/library', label: 'Library', icon: Library })}
                 {renderItem({ href: '/settings/notifications', label: 'Notifications', icon: Bell })}
-                {renderItem({ href: '/profile', label: 'Settings', icon: Settings })}
+                {renderItem({ href: '/profile', label: 'Profile', icon: UserCircle })}
                 {user?.is_admin && renderItem({ href: '/admin', label: 'Admin', icon: Shield })}
               </div>
             </div>
