@@ -2,6 +2,12 @@
 
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { getRotationStatusLabel, getRotationStatusColor } from '../types'
 import type { RadioPlay } from '../types'
 
@@ -23,6 +29,25 @@ function formatAirTimestamp(isoString: string | null): string | null {
     minute: '2-digit',
     hour12: true,
   })
+}
+
+/** Small dot indicating an entity exists in the knowledge graph */
+function CatalogDot() {
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            className="inline-block w-1.5 h-1.5 rounded-full bg-primary/70 shrink-0"
+            aria-label="In our catalog"
+          />
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-xs">
+          In our catalog
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
 }
 
 export function RadioPlayRow({ play, showPosition = true }: RadioPlayRowProps) {
@@ -50,12 +75,15 @@ export function RadioPlayRow({ play, showPosition = true }: RadioPlayRowProps) {
           <div className="flex items-center gap-2 flex-wrap">
             {/* Artist */}
             {play.artist_slug ? (
-              <Link
-                href={`/artists/${play.artist_slug}`}
-                className="text-sm font-medium hover:text-primary transition-colors"
-              >
-                {play.artist_name}
-              </Link>
+              <span className="inline-flex items-center gap-1">
+                <CatalogDot />
+                <Link
+                  href={`/artists/${play.artist_slug}`}
+                  className="text-sm font-medium text-primary/90 hover:text-primary transition-colors"
+                >
+                  {play.artist_name}
+                </Link>
+              </span>
             ) : (
               <span className="text-sm font-medium">{play.artist_name}</span>
             )}
@@ -78,12 +106,15 @@ export function RadioPlayRow({ play, showPosition = true }: RadioPlayRowProps) {
             {play.album_title && (
               <>
                 {play.release_slug ? (
-                  <Link
-                    href={`/releases/${play.release_slug}`}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {play.album_title}
-                  </Link>
+                  <span className="inline-flex items-center gap-1">
+                    <CatalogDot />
+                    <Link
+                      href={`/releases/${play.release_slug}`}
+                      className="text-xs text-foreground/70 hover:text-foreground transition-colors"
+                    >
+                      {play.album_title}
+                    </Link>
+                  </span>
                 ) : (
                   <span className="text-xs text-muted-foreground">
                     {play.album_title}
@@ -99,12 +130,15 @@ export function RadioPlayRow({ play, showPosition = true }: RadioPlayRowProps) {
             {play.label_name && (
               <>
                 {play.label_slug ? (
-                  <Link
-                    href={`/labels/${play.label_slug}`}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {play.label_name}
-                  </Link>
+                  <span className="inline-flex items-center gap-1">
+                    <CatalogDot />
+                    <Link
+                      href={`/labels/${play.label_slug}`}
+                      className="text-xs text-foreground/70 hover:text-foreground transition-colors"
+                    >
+                      {play.label_name}
+                    </Link>
+                  </span>
                 ) : (
                   <span className="text-xs text-muted-foreground">
                     {play.label_name}
