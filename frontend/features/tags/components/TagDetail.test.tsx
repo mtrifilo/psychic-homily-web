@@ -356,6 +356,36 @@ describe('TagDetail', () => {
     expect(screen.queryByText('Also known as')).not.toBeInTheDocument()
   })
 
+  // ── Created by ──
+
+  it('renders "Created by @username" when created_by_username is present', () => {
+    mockUseTag.mockReturnValue({
+      data: makeTagDetail({ created_by_username: 'johndoe' }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<TagDetail slug="rock" />)
+
+    expect(screen.getByText('@johndoe')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '@johndoe' })).toHaveAttribute(
+      'href',
+      '/users/johndoe'
+    )
+  })
+
+  it('does not render creator when created_by_username is absent', () => {
+    mockUseTag.mockReturnValue({
+      data: makeTagDetail(),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<TagDetail slug="rock" />)
+
+    expect(screen.queryByText(/Created by/)).not.toBeInTheDocument()
+  })
+
   // ── NotifyMeButton ──
 
   it('renders NotifyMeButton with correct props', () => {
