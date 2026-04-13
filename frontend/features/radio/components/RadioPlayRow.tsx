@@ -10,15 +10,39 @@ interface RadioPlayRowProps {
   showPosition?: boolean
 }
 
+/**
+ * Format an ISO timestamp string as a short time like "6:32 AM".
+ * Returns null if the input is missing or unparseable.
+ */
+function formatAirTimestamp(isoString: string | null): string | null {
+  if (!isoString) return null
+  const date = new Date(isoString)
+  if (isNaN(date.getTime())) return null
+  return date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+}
+
 export function RadioPlayRow({ play, showPosition = true }: RadioPlayRowProps) {
+  const airTime = formatAirTimestamp(play.air_timestamp)
+
   return (
     <div className="px-3 py-2.5 hover:bg-muted/30 transition-colors rounded-md">
       <div className="flex items-start gap-3">
-        {/* Position number */}
+        {/* Position number and air timestamp */}
         {showPosition && (
-          <span className="text-xs text-muted-foreground tabular-nums w-6 text-right shrink-0 pt-0.5">
-            {play.position}
-          </span>
+          <div className="shrink-0 pt-0.5 text-right">
+            <span className="text-xs text-muted-foreground tabular-nums w-6 inline-block">
+              {play.position}
+            </span>
+            {airTime && (
+              <div className="text-[10px] text-muted-foreground/60 tabular-nums whitespace-nowrap">
+                {airTime}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Main content */}
