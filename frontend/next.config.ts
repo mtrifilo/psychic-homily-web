@@ -95,7 +95,7 @@ const nextConfig: NextConfig = {
               "default-src 'self'",
               "script-src 'self' 'unsafe-inline' https://vercel.live https://us-assets.i.posthog.com",
               "style-src 'self' 'unsafe-inline'",
-              "img-src 'self' data: blob: https://vercel.com https://vercel.live",
+              "img-src 'self' data: blob: https:",
               "font-src 'self'",
               "worker-src 'self' blob:",
               "connect-src 'self' https://api.psychichomily.com https://stage.api.psychichomily.com https://app.posthog.com https://us.i.posthog.com https://us-assets.i.posthog.com",
