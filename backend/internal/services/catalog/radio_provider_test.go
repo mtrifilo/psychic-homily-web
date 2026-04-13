@@ -292,7 +292,7 @@ func TestKEXPProvider_FetchNewEpisodes(t *testing.T) {
 	defer provider.Close()
 
 	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	episodes, err := provider.FetchNewEpisodes("42", since)
+	episodes, err := provider.FetchNewEpisodes("42", since, time.Time{})
 
 	require.NoError(t, err)
 	assert.Len(t, episodes, 1)
@@ -1213,7 +1213,7 @@ func (suite *RadioImportIntegrationTestSuite) runImportWithProvider(stationID ui
 
 	since := time.Now().AddDate(0, 0, -backfillDays)
 	for extID, showID := range showMap {
-		episodes, err := provider.FetchNewEpisodes(extID, since)
+		episodes, err := provider.FetchNewEpisodes(extID, since, time.Time{})
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("fetch episodes: %v", err))
 			continue
@@ -1240,7 +1240,7 @@ func (suite *RadioImportIntegrationTestSuite) runImportWithProvider(stationID ui
 
 type mockPlaylistProvider struct {
 	discoverShowsFn    func() ([]RadioShowImport, error)
-	fetchNewEpisodesFn func(showExternalID string, since time.Time) ([]RadioEpisodeImport, error)
+	fetchNewEpisodesFn func(showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error)
 	fetchPlaylistFn    func(episodeExternalID string) ([]RadioPlayImport, error)
 }
 
@@ -1251,9 +1251,9 @@ func (m *mockPlaylistProvider) DiscoverShows() ([]RadioShowImport, error) {
 	return nil, nil
 }
 
-func (m *mockPlaylistProvider) FetchNewEpisodes(showExternalID string, since time.Time) ([]RadioEpisodeImport, error) {
+func (m *mockPlaylistProvider) FetchNewEpisodes(showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error) {
 	if m.fetchNewEpisodesFn != nil {
-		return m.fetchNewEpisodesFn(showExternalID, since)
+		return m.fetchNewEpisodesFn(showExternalID, since, until)
 	}
 	return nil, nil
 }

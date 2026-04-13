@@ -77,7 +77,8 @@ func (p *WFMUProvider) DiscoverShows() ([]RadioShowImport, error) {
 	return shows, nil
 }
 
-// FetchNewEpisodes returns episodes for a WFMU show since the given time.
+// FetchNewEpisodes returns episodes for a WFMU show within [since, until].
+// A zero until means no upper bound.
 //
 // WFMU's RSS feed (/playlistfeed/{CODE}.xml) returns only the most recent 10
 // episodes, which works for incremental fetches but makes historical backfill
@@ -85,18 +86,18 @@ func (p *WFMUProvider) DiscoverShows() ([]RadioShowImport, error) {
 // we use the fast RSS path. For older `since` values we scrape the full show
 // archive page (/playlists/{CODE}), which lists every episode ever aired for
 // the show — up to ~26 years of history.
-func (p *WFMUProvider) FetchNewEpisodes(showExternalID string, since time.Time) ([]RadioEpisodeImport, error) {
+func (p *WFMUProvider) FetchNewEpisodes(showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error) {
 	// Use RSS for recent windows: fast, sufficient, cheap.
 	// A zero `since` means "all history" — always use the archive page.
 	if !since.IsZero() && time.Since(since) < wfmuRSSFallbackWindow {
-		return p.fetchEpisodesFromRSS(showExternalID, since)
+		return p.fetchEpisodesFromRSS(showExternalID, since, until)
 	}
-	return p.fetchEpisodesFromArchivePage(showExternalID, since)
+	return p.fetchEpisodesFromArchivePage(showExternalID, since, until)
 }
 
 // fetchEpisodesFromRSS fetches recent episodes from the WFMU playlist RSS feed
 // (/playlistfeed/{CODE}.xml). The feed contains the 10 most recent episodes.
-func (p *WFMUProvider) fetchEpisodesFromRSS(showExternalID string, since time.Time) ([]RadioEpisodeImport, error) {
+func (p *WFMUProvider) fetchEpisodesFromRSS(showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error) {
 	<-p.rateLimiter.C
 
 	feedURL := fmt.Sprintf("%s/playlistfeed/%s.xml", p.baseURL, showExternalID)
@@ -105,7 +106,7 @@ func (p *WFMUProvider) fetchEpisodesFromRSS(showExternalID string, since time.Ti
 		return nil, fmt.Errorf("fetching RSS feed for %s: %w", showExternalID, err)
 	}
 
-	episodes, err := parseWFMURSSFeed(body, showExternalID, since)
+	episodes, err := parseWFMURSSFeed(body, showExternalID, since, until)
 	if err != nil {
 		return nil, fmt.Errorf("parsing RSS feed for %s: %w", showExternalID, err)
 	}
@@ -121,7 +122,7 @@ func (p *WFMUProvider) fetchEpisodesFromRSS(showExternalID string, since time.Ti
 //
 // A 404 from WFMU (unknown show code) is converted to an empty slice rather
 // than an error, consistent with "no episodes" semantics.
-func (p *WFMUProvider) fetchEpisodesFromArchivePage(showExternalID string, since time.Time) ([]RadioEpisodeImport, error) {
+func (p *WFMUProvider) fetchEpisodesFromArchivePage(showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error) {
 	<-p.rateLimiter.C
 
 	pageURL := fmt.Sprintf("%s/playlists/%s", p.baseURL, showExternalID)
@@ -134,7 +135,7 @@ func (p *WFMUProvider) fetchEpisodesFromArchivePage(showExternalID string, since
 		return nil, fmt.Errorf("fetching archive page for %s: %w", showExternalID, err)
 	}
 
-	episodes, err := parseWFMUArchivePage(body, showExternalID, since)
+	episodes, err := parseWFMUArchivePage(body, showExternalID, since, until)
 	if err != nil {
 		return nil, fmt.Errorf("parsing archive page for %s: %w", showExternalID, err)
 	}
@@ -445,8 +446,9 @@ func getAttr(n *html.Node, key string) string {
 // Matches: /playlists/shows/162230 or http://www.wfmu.org/playlists/shows/162230
 var episodeIDRegex = regexp.MustCompile(`/playlists/shows/(\d+)`)
 
-// parseWFMURSSFeed parses a WFMU playlist RSS feed and returns episodes since the given time.
-func parseWFMURSSFeed(body []byte, showExternalID string, since time.Time) ([]RadioEpisodeImport, error) {
+// parseWFMURSSFeed parses a WFMU playlist RSS feed and returns episodes within [since, until].
+// A zero until means no upper bound.
+func parseWFMURSSFeed(body []byte, showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error) {
 	fp := gofeed.NewParser()
 	feed, err := fp.ParseString(string(body))
 	if err != nil {
@@ -477,6 +479,11 @@ func parseWFMURSSFeed(body []byte, showExternalID string, since time.Time) ([]Ra
 
 		// Filter by since time
 		if !pubTime.IsZero() && pubTime.Before(since) {
+			continue
+		}
+
+		// Filter by until time
+		if !pubTime.IsZero() && !until.IsZero() && pubTime.After(until) {
 			continue
 		}
 
@@ -580,7 +587,7 @@ var archiveDateRegex = regexp.MustCompile(`(?i)\b(January|February|March|April|M
 
 // parseWFMUArchivePage parses a WFMU show archive page (/playlists/{CODE}) and
 // returns every episode that has a playlist link, filtered to those with an
-// AirDate on or after `since`. A zero `since` returns all parseable episodes.
+// AirDate within [since, until]. A zero `since` or `until` disables that bound.
 //
 // The archive page structure (as emitted by KenzoDB) is:
 //
@@ -603,7 +610,7 @@ var archiveDateRegex = regexp.MustCompile(`(?i)\b(January|February|March|April|M
 // "Playlists/{ShowName}/xxx.html" link format; those are also skipped since
 // their IDs are not addressable via the modern /playlists/shows/{ID} endpoint
 // that FetchPlaylist expects.
-func parseWFMUArchivePage(body []byte, showExternalID string, since time.Time) ([]RadioEpisodeImport, error) {
+func parseWFMUArchivePage(body []byte, showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error) {
 	doc, err := html.Parse(strings.NewReader(string(body)))
 	if err != nil {
 		return nil, fmt.Errorf("parsing HTML: %w", err)
@@ -643,10 +650,13 @@ func parseWFMUArchivePage(body []byte, showExternalID string, since time.Time) (
 		if seen[ep.ExternalID] {
 			continue
 		}
-		// Apply since filter. A zero since returns everything.
-		if !since.IsZero() && ep.AirDate != "" {
+		// Apply date range filters. Zero since/until disables that bound.
+		if ep.AirDate != "" {
 			if airTime, err := time.Parse("2006-01-02", ep.AirDate); err == nil {
-				if airTime.Before(since) {
+				if !since.IsZero() && airTime.Before(since) {
+					continue
+				}
+				if !until.IsZero() && airTime.After(until) {
 					continue
 				}
 			}

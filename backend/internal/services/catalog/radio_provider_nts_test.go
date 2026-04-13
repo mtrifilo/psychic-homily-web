@@ -253,7 +253,7 @@ func TestNTS_FetchNewEpisodes_AllFields(t *testing.T) {
 	defer provider.Close()
 
 	since := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	episodes, err := provider.FetchNewEpisodes("huerco-s", since)
+	episodes, err := provider.FetchNewEpisodes("huerco-s", since, time.Time{})
 	require.NoError(t, err)
 	assert.Len(t, episodes, 3)
 
@@ -284,7 +284,7 @@ func TestNTS_FetchNewEpisodes_DateFiltering(t *testing.T) {
 
 	// Only get episodes since Feb 1, 2026
 	since := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
-	episodes, err := provider.FetchNewEpisodes("huerco-s", since)
+	episodes, err := provider.FetchNewEpisodes("huerco-s", since, time.Time{})
 	require.NoError(t, err)
 	assert.Len(t, episodes, 2, "should only return episodes after Feb 1, 2026")
 
@@ -321,7 +321,7 @@ func TestNTS_FetchNewEpisodes_StopsAtOldEpisodes(t *testing.T) {
 	defer provider.Close()
 
 	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	episodes, err := provider.FetchNewEpisodes("huerco-s", since)
+	episodes, err := provider.FetchNewEpisodes("huerco-s", since, time.Time{})
 	require.NoError(t, err)
 	// Should have ntsPageLimit from page 1, and 0 from page 2 (old episode filtered)
 	assert.Equal(t, ntsPageLimit, len(episodes))
@@ -337,7 +337,7 @@ func TestNTS_FetchNewEpisodes_Empty(t *testing.T) {
 	provider := NewNTSProviderWithClient(server.Client(), server.URL)
 	defer provider.Close()
 
-	episodes, err := provider.FetchNewEpisodes("nonexistent", time.Now())
+	episodes, err := provider.FetchNewEpisodes("nonexistent", time.Now(), time.Time{})
 	require.NoError(t, err)
 	assert.Empty(t, episodes)
 }
@@ -543,7 +543,7 @@ func TestNTS_MixcloudArchiveURL_Preserved(t *testing.T) {
 	defer provider.Close()
 
 	since := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	episodes, err := provider.FetchNewEpisodes("huerco-s", since)
+	episodes, err := provider.FetchNewEpisodes("huerco-s", since, time.Time{})
 	require.NoError(t, err)
 
 	for _, ep := range episodes {
@@ -577,7 +577,7 @@ func TestNTS_RateLimiting(t *testing.T) {
 	start := time.Now()
 
 	_, _ = provider.DiscoverShows()
-	_, _ = provider.FetchNewEpisodes("test", time.Now())
+	_, _ = provider.FetchNewEpisodes("test", time.Now(), time.Time{})
 	_, _ = provider.FetchPlaylist("test/ep1")
 
 	elapsed := time.Since(start)
@@ -616,7 +616,7 @@ func TestNTS_HTTPError_FetchNewEpisodes(t *testing.T) {
 	provider := NewNTSProviderWithClient(server.Client(), server.URL)
 	defer provider.Close()
 
-	_, err := provider.FetchNewEpisodes("nonexistent", time.Now())
+	_, err := provider.FetchNewEpisodes("nonexistent", time.Now(), time.Time{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "404")
 }

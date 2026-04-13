@@ -97,8 +97,9 @@ func (p *NTSProvider) DiscoverShows() ([]RadioShowImport, error) {
 	return allShows, nil
 }
 
-// FetchNewEpisodes returns episodes for an NTS show since the given time.
-func (p *NTSProvider) FetchNewEpisodes(showExternalID string, since time.Time) ([]RadioEpisodeImport, error) {
+// FetchNewEpisodes returns episodes for an NTS show within [since, until].
+// A zero until means no upper bound.
+func (p *NTSProvider) FetchNewEpisodes(showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error) {
 	var allEpisodes []RadioEpisodeImport
 
 	offset := 0
@@ -121,16 +122,22 @@ func (p *NTSProvider) FetchNewEpisodes(showExternalID string, since time.Time) (
 		for _, ntsEp := range page.Results {
 			ep := parseNTSEpisode(ntsEp, showExternalID)
 
-			// Filter by since date
+			// Filter by date range
 			if ntsEp.Broadcast != "" {
 				broadcastTime, err := time.Parse("2006-01-02T15:04:05Z", ntsEp.Broadcast)
 				if err != nil {
 					// Try date-only format
 					broadcastTime, err = time.Parse("2006-01-02", ntsEp.Broadcast)
 				}
-				if err == nil && broadcastTime.Before(since) {
-					reachedOldEpisodes = true
-					break
+				if err == nil {
+					if broadcastTime.Before(since) {
+						reachedOldEpisodes = true
+						break
+					}
+					// Skip episodes after until bound
+					if !until.IsZero() && broadcastTime.After(until) {
+						continue
+					}
 				}
 			}
 
