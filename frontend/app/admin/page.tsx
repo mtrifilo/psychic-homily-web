@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { Shield, ShieldCheck, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tags, Tent, Workflow, Library, Music, ClipboardCheck, BarChart3, Radio } from 'lucide-react'
+import { Shield, ShieldCheck, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tags, Tent, Workflow, Library, Music, ClipboardCheck, BarChart3, Radio, ChevronLeft, ChevronRight } from 'lucide-react'
 import { usePendingVenueEdits } from '@/lib/hooks/admin/useAdminVenueEdits'
 import { useUnverifiedVenues } from '@/lib/hooks/admin/useAdminVenues'
 import { usePendingReports } from '@/lib/hooks/admin/useAdminReports'
@@ -190,6 +190,94 @@ function isValidTab(value: string | null): value is AdminTab {
   return value !== null && (VALID_TABS as readonly string[]).includes(value)
 }
 
+function ScrollableTabBar({ children, activeTab }: { children: React.ReactNode; activeTab: string }) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(false)
+
+  const updateScrollState = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    setCanScrollLeft(el.scrollLeft > 0)
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1)
+  }, [])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    updateScrollState()
+    el.addEventListener('scroll', updateScrollState, { passive: true })
+    const observer = new ResizeObserver(updateScrollState)
+    observer.observe(el)
+    return () => {
+      el.removeEventListener('scroll', updateScrollState)
+      observer.disconnect()
+    }
+  }, [updateScrollState])
+
+  // Scroll active tab into view when it changes
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const activeButton = el.querySelector(`[data-state="active"]`) as HTMLElement | null
+    if (activeButton) {
+      const containerRect = el.getBoundingClientRect()
+      const buttonRect = activeButton.getBoundingClientRect()
+      const offsetLeft = buttonRect.left - containerRect.left + el.scrollLeft
+      // Center the active tab in the visible area
+      const scrollTarget = offsetLeft - (containerRect.width / 2) + (buttonRect.width / 2)
+      el.scrollTo({ left: scrollTarget, behavior: 'smooth' })
+    }
+  }, [activeTab])
+
+  const scroll = useCallback((direction: 'left' | 'right') => {
+    const el = scrollRef.current
+    if (!el) return
+    const scrollAmount = el.clientWidth * 0.6
+    el.scrollBy({
+      left: direction === 'left' ? -scrollAmount : scrollAmount,
+      behavior: 'smooth',
+    })
+  }, [])
+
+  return (
+    <div className="relative mb-6">
+      {/* Left scroll arrow */}
+      {canScrollLeft && (
+        <button
+          onClick={() => scroll('left')}
+          className="absolute left-0 top-0 z-10 flex h-full w-8 items-center justify-center bg-gradient-to-r from-background to-transparent"
+          aria-label="Scroll tabs left"
+        >
+          <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+        </button>
+      )}
+
+      {/* Scrollable tabs container */}
+      <div
+        ref={scrollRef}
+        className="overflow-x-auto scrollbar-none"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        <TabsList className="w-max flex-nowrap">
+          {children}
+        </TabsList>
+      </div>
+
+      {/* Right scroll arrow */}
+      {canScrollRight && (
+        <button
+          onClick={() => scroll('right')}
+          className="absolute right-0 top-0 z-10 flex h-full w-8 items-center justify-center bg-gradient-to-l from-background to-transparent"
+          aria-label="Scroll tabs right"
+        >
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        </button>
+      )}
+    </div>
+  )
+}
+
 function AdminPageContent() {
   const searchParams = useSearchParams()
   const tabParam = searchParams.get('tab')
@@ -276,7 +364,7 @@ function AdminPageContent() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="mb-6">
+          <ScrollableTabBar activeTab={activeTab}>
             <TabsTrigger value="dashboard" className="gap-2">
               <LayoutDashboard className="h-4 w-4" />
               Dashboard
@@ -381,7 +469,7 @@ function AdminPageContent() {
               <ScrollText className="h-4 w-4" />
               Audit Log
             </TabsTrigger>
-          </TabsList>
+          </ScrollableTabBar>
 
           <TabsContent value="dashboard" className="space-y-4" data-testid="admin-tab-dashboard">
             <DashboardPage onNavigate={setActiveTab} />
