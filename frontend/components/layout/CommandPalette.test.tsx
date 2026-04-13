@@ -91,7 +91,7 @@ describe('CommandPalette', () => {
     expect(screen.getByText('Venues')).toBeInTheDocument()
     expect(screen.getByText('Blog')).toBeInTheDocument()
     expect(screen.getByText('DJ Sets')).toBeInTheDocument()
-    expect(screen.getByText('Submissions')).toBeInTheDocument()
+    expect(screen.getByText('My Submissions')).toBeInTheDocument()
 
     // Auth-only pages hidden
     expect(screen.queryByText('Library')).not.toBeInTheDocument()

@@ -28,9 +28,9 @@ describe('sidebarGroups', () => {
     expect(discover.items.map(i => i.label)).toEqual(['Shows', 'Festivals', 'Artists', 'Venues', 'Releases', 'Labels', 'Tags', 'Scenes', 'Collections', 'Charts', 'Radio'])
   })
 
-  it('Community contains Contribute, Requests, Blog, DJ Sets, Substack, Submissions', () => {
+  it('Community contains Contribute, Requests, Blog, DJ Sets, Substack, My Submissions', () => {
     const community = sidebarGroups.find(g => g.label === 'Community')!
-    expect(community.items.map(i => i.label)).toEqual(['Contribute', 'Leaderboard', 'Requests', 'Blog', 'DJ Sets', 'Substack', 'Submissions'])
+    expect(community.items.map(i => i.label)).toEqual(['Contribute', 'Leaderboard', 'Requests', 'Blog', 'DJ Sets', 'Substack', 'My Submissions'])
   })
 
   it('only Substack is marked external', () => {
@@ -82,7 +82,7 @@ describe('Sidebar', () => {
     expect(screen.getByText('Blog')).toBeInTheDocument()
     expect(screen.getByText('DJ Sets')).toBeInTheDocument()
     expect(screen.getByText('Substack')).toBeInTheDocument()
-    expect(screen.getByText('Submissions')).toBeInTheDocument()
+    expect(screen.getByText('My Submissions')).toBeInTheDocument()
   })
 
   it('hides group headers when collapsed', () => {

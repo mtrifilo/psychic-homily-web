@@ -130,10 +130,10 @@ const routes: RouteItem[] = [
     keywords: ['dj', 'sets', 'mixes', 'electronic'],
   },
   {
-    label: 'Submissions',
+    label: 'My Submissions',
     href: '/submissions',
     icon: Send,
-    keywords: ['submissions', 'submit', 'add', 'new show'],
+    keywords: ['submissions', 'submit', 'add', 'new show', 'my submissions'],
   },
   {
     label: 'Library',
