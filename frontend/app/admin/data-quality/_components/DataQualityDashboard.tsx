@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import {
   AlertTriangle,
+  Calendar,
   ChevronLeft,
   ExternalLink,
   Loader2,
@@ -34,6 +35,7 @@ const categoryIcons: Record<string, LucideIcon> = {
   venues_unverified_with_shows: BadgeCheck,
   shows_no_billing_order: ListOrdered,
   shows_missing_price: DollarSign,
+  releases_missing_year: Calendar,
 }
 
 // Map entity types to base paths for links
@@ -46,6 +48,8 @@ function getEntityUrl(item: DataQualityItem): string {
       return `/venues/${slug}`
     case 'show':
       return `/shows/${slug}`
+    case 'release':
+      return `/releases/${slug}`
     default:
       return '#'
   }
