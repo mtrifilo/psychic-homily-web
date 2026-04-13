@@ -777,11 +777,39 @@ func setupTagRoutes(rc RouteContext) {
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))
 	huma.Get(optionalAuthGroup, "/entities/{entity_type}/{entity_id}/tags", tagHandler.ListEntityTagsHandler)
 
-	// Protected: tagging and voting
-	huma.Post(rc.Protected, "/entities/{entity_type}/{entity_id}/tags", tagHandler.AddTagToEntityHandler)
+	// Rate-limited tag creation: 20 requests per hour per IP
+	// Prevents spamming entities with tags
+	rc.Router.Group(func(r chi.Router) {
+		r.Use(httprate.Limit(
+			middleware.TagCreateRequestsPerHour,
+			time.Hour,
+			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithLimitHandler(rateLimitHandler),
+		))
+		tagCreateAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Tag Create", "1.0.0"))
+		tagCreateAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
+		tagCreateAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
+		huma.Post(tagCreateAPI, "/entities/{entity_type}/{entity_id}/tags", tagHandler.AddTagToEntityHandler)
+	})
+
+	// Protected: remove tag (no additional rate limiting needed)
 	huma.Delete(rc.Protected, "/entities/{entity_type}/{entity_id}/tags/{tag_id}", tagHandler.RemoveTagFromEntityHandler)
-	huma.Post(rc.Protected, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.VoteTagHandler)
-	huma.Delete(rc.Protected, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.RemoveTagVoteHandler)
+
+	// Rate-limited tag voting: 30 requests per minute per IP
+	// Prevents rapid vote manipulation
+	rc.Router.Group(func(r chi.Router) {
+		r.Use(httprate.Limit(
+			middleware.TagVoteRequestsPerMinute,
+			time.Minute,
+			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithLimitHandler(rateLimitHandler),
+		))
+		tagVoteAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Tag Vote", "1.0.0"))
+		tagVoteAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
+		tagVoteAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
+		huma.Post(tagVoteAPI, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.VoteTagHandler)
+		huma.Delete(tagVoteAPI, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.RemoveTagVoteHandler)
+	})
 
 	// Admin: tag CRUD and alias management
 	huma.Post(rc.Protected, "/tags", tagHandler.CreateTagHandler)
