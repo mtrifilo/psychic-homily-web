@@ -104,6 +104,12 @@ func (p *KEXPProvider) DiscoverShows() ([]RadioShowImport, error) {
 				}
 			}
 
+			// Build archive URL from program name.
+			// KEXP website uses /shows/{Name-With-Hyphens}/ (case-sensitive).
+			archiveURL := fmt.Sprintf("https://www.kexp.org/shows/%s/",
+				strings.ReplaceAll(prog.Name, " ", "-"))
+			show.ArchiveURL = &archiveURL
+
 			allShows = append(allShows, show)
 		}
 
