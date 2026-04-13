@@ -173,7 +173,7 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
           <div className="flex-1 min-w-0">
             {/* Show header */}
             <div className="flex items-start gap-4 mb-6">
-              <div className="shrink-0 rounded-lg bg-muted/50 flex items-center justify-center overflow-hidden h-16 w-16">
+              <div className="shrink-0 rounded-xl bg-muted/50 flex items-center justify-center overflow-hidden h-20 w-20">
                 {show.image_url ? (
                   <img
                     src={show.image_url}
@@ -181,7 +181,7 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
                     className="h-full w-full object-cover"
                   />
                 ) : (
-                  <Mic2 className="h-8 w-8 text-muted-foreground/40" />
+                  <Mic2 className="h-10 w-10 text-muted-foreground/40" />
                 )}
               </div>
 
