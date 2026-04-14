@@ -13,8 +13,8 @@ vi.mock('next/link', () => ({
 
 const mockEntityTags = {
   tags: [
-    { tag_id: 1, name: 'rock', slug: 'rock', category: 'genre', upvotes: 3, downvotes: 0, user_vote: 0 },
-    { tag_id: 2, name: 'indie', slug: 'indie', category: 'genre', upvotes: 1, downvotes: 0, user_vote: 0 },
+    { tag_id: 1, name: 'rock', slug: 'rock', category: 'genre', is_official: true, upvotes: 3, downvotes: 0, user_vote: 0 },
+    { tag_id: 2, name: 'indie', slug: 'indie', category: 'genre', is_official: false, upvotes: 1, downvotes: 0, user_vote: 0 },
   ],
 }
 
@@ -77,6 +77,19 @@ describe('EntityTagList add-tag dialog accessibility', () => {
       <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
     )
     expect(screen.queryByRole('button', { name: 'Add tag' })).not.toBeInTheDocument()
+  })
+
+  it('shows official badge icon for official tags and not for community tags', () => {
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+    // The official tag "rock" should have a title tooltip indicating official status
+    const rockLink = screen.getByRole('link', { name: 'rock' })
+    expect(rockLink).toHaveAttribute('title', 'rock (Official)')
+
+    // The community tag "indie" should have a plain title
+    const indieLink = screen.getByRole('link', { name: 'indie' })
+    expect(indieLink).toHaveAttribute('title', 'indie')
   })
 
   it('opens add-tag dialog with title and no aria-describedby attribute', async () => {

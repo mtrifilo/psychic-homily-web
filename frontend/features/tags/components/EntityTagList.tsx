@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, ThumbsUp, ThumbsDown, X, Search, Loader2 } from 'lucide-react'
+import { Plus, ThumbsUp, ThumbsDown, X, Search, Loader2, BadgeCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -135,12 +135,22 @@ function TagWithVotes({
     <div
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs',
-        getCategoryColor(tag.category)
+        getCategoryColor(tag.category),
+        tag.is_official && 'ring-1 ring-primary/20'
       )}
     >
+      {tag.is_official && (
+        <span title="Official tag">
+          <BadgeCheck
+            className="h-3 w-3 text-primary shrink-0"
+            aria-hidden="true"
+          />
+        </span>
+      )}
       <Link
         href={`/tags/${tag.slug}`}
         className="font-medium hover:underline"
+        title={tag.is_official ? `${tag.name} (Official)` : tag.name}
       >
         {tag.name}
       </Link>

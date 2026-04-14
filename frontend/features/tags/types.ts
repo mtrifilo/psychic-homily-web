@@ -36,6 +36,7 @@ export interface EntityTag {
   name: string
   slug: string
   category: string
+  is_official: boolean
   upvotes: number
   downvotes: number
   wilson_score: number
