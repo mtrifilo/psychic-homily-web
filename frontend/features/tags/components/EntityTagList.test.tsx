@@ -13,8 +13,20 @@ vi.mock('next/link', () => ({
 
 const mockEntityTags = {
   tags: [
-    { tag_id: 1, name: 'rock', slug: 'rock', category: 'genre', is_official: true, upvotes: 3, downvotes: 0, user_vote: 0 },
-    { tag_id: 2, name: 'indie', slug: 'indie', category: 'genre', is_official: false, upvotes: 1, downvotes: 0, user_vote: 0 },
+    { tag_id: 1, name: 'rock', slug: 'rock', category: 'genre', is_official: true, upvotes: 3, downvotes: 0, wilson_score: 0.56, user_vote: 0 },
+    { tag_id: 2, name: 'indie', slug: 'indie', category: 'genre', is_official: false, upvotes: 1, downvotes: 0, wilson_score: 0.21, user_vote: 0 },
+  ],
+}
+
+const mockManyTags = {
+  tags: [
+    { tag_id: 1, name: 'rock', slug: 'rock', category: 'genre', is_official: false, upvotes: 3, downvotes: 0, wilson_score: 0.56, user_vote: 0 },
+    { tag_id: 2, name: 'indie', slug: 'indie', category: 'genre', is_official: false, upvotes: 1, downvotes: 0, wilson_score: 0.21, user_vote: 0 },
+    { tag_id: 3, name: 'punk', slug: 'punk', category: 'genre', is_official: false, upvotes: 5, downvotes: 1, wilson_score: 0.62, user_vote: 0 },
+    { tag_id: 4, name: 'shoegaze', slug: 'shoegaze', category: 'genre', is_official: false, upvotes: 2, downvotes: 0, wilson_score: 0.34, user_vote: 0 },
+    { tag_id: 5, name: 'post-punk', slug: 'post-punk', category: 'genre', is_official: false, upvotes: 4, downvotes: 0, wilson_score: 0.60, user_vote: 0 },
+    { tag_id: 6, name: 'noise', slug: 'noise', category: 'genre', is_official: false, upvotes: 0, downvotes: 0, wilson_score: 0.0, user_vote: 0 },
+    { tag_id: 7, name: 'experimental', slug: 'experimental', category: 'genre', is_official: false, upvotes: 1, downvotes: 1, wilson_score: 0.09, user_vote: 0 },
   ],
 }
 
@@ -25,10 +37,11 @@ const mockSearchTags = {
 }
 
 const mockAddMutate = vi.fn()
+let currentMockTags = mockEntityTags
 
 vi.mock('../hooks', () => ({
   useEntityTags: () => ({
-    data: mockEntityTags,
+    data: currentMockTags,
     isLoading: false,
   }),
   useAddTagToEntity: () => ({
@@ -63,6 +76,7 @@ import { EntityTagList } from './EntityTagList'
 describe('EntityTagList add-tag dialog accessibility', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    currentMockTags = mockEntityTags
   })
 
   it('renders the Add button when authenticated', () => {
@@ -140,5 +154,82 @@ describe('EntityTagList add-tag dialog accessibility', () => {
       expect.objectContaining({ entityType: 'artist', entityId: 1, tag_id: 3 }),
       expect.any(Object)
     )
+  })
+})
+
+describe('EntityTagList top-5 cap and Wilson score sorting', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    currentMockTags = mockManyTags
+  })
+
+  it('shows only top 5 tags by default when more than 5 exist', () => {
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    // 7 tags total, only 5 should be visible
+    const tagLinks = screen.getAllByRole('link')
+    expect(tagLinks).toHaveLength(5)
+  })
+
+  it('sorts tags by Wilson score (highest first)', () => {
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    const tagLinks = screen.getAllByRole('link')
+    // Expected order by wilson_score descending: punk(0.62), post-punk(0.60), rock(0.56), shoegaze(0.34), indie(0.21)
+    expect(tagLinks[0]).toHaveTextContent('punk')
+    expect(tagLinks[1]).toHaveTextContent('post-punk')
+    expect(tagLinks[2]).toHaveTextContent('rock')
+    expect(tagLinks[3]).toHaveTextContent('shoegaze')
+    expect(tagLinks[4]).toHaveTextContent('indie')
+  })
+
+  it('shows "Show N more" button when tags exceed the cap', () => {
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    expect(screen.getByText('Show 2 more')).toBeInTheDocument()
+  })
+
+  it('expands to show all tags when "Show N more" is clicked', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    await user.click(screen.getByText('Show 2 more'))
+
+    // All 7 tags should now be visible
+    const tagLinks = screen.getAllByRole('link')
+    expect(tagLinks).toHaveLength(7)
+  })
+
+  it('collapses back to 5 tags when "Show less" is clicked', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    // Expand
+    await user.click(screen.getByText('Show 2 more'))
+    expect(screen.getAllByRole('link')).toHaveLength(7)
+
+    // Collapse
+    await user.click(screen.getByText('Show less'))
+    expect(screen.getAllByRole('link')).toHaveLength(5)
+  })
+
+  it('does not show expand button when 5 or fewer tags exist', () => {
+    currentMockTags = mockEntityTags // only 2 tags
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    expect(screen.queryByText(/Show \d+ more/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Show less')).not.toBeInTheDocument()
   })
 })
