@@ -29,12 +29,12 @@ func NewSceneService(database *gorm.DB) *SceneService {
 
 // Thresholds for a city to qualify as a "scene".
 const (
-	sceneMinVenues = 1
-	sceneMinShows  = 1
+	sceneMinVenues = 2
+	sceneMinShows  = 3
 )
 
 // ListScenes returns cities that meet scene thresholds:
-// 1+ verified venues AND 1+ approved shows (past or upcoming).
+// 2+ verified venues AND 3+ approved shows (past or upcoming).
 func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
