@@ -1028,35 +1028,80 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_CreateNew() {
 	suite.Equal("42", *show.ExternalID)
 }
 
-func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_UpdateExisting() {
+func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_PreservesCuratedData() {
 	station := suite.createStation("KEXP")
 
-	// Create initial show
+	// Create initial show with curated data
 	extID := "42"
+	curatedDesc := "Curated description by admin"
+	curatedHost := "Kennady Quille"
 	show := &models.RadioShow{
-		StationID:  station.ID,
-		Name:       "Old Name",
-		Slug:       "old-name",
-		ExternalID: &extID,
+		StationID:   station.ID,
+		Name:        "Audioasis",
+		Slug:        "audioasis",
+		HostName:    &curatedHost,
+		Description: &curatedDesc,
+		ExternalID:  &extID,
 	}
 	suite.Require().NoError(suite.db.Create(show).Error)
 
-	// Upsert with new name
+	// Upsert with different API data — curated fields should NOT be overwritten
+	apiDesc := "Short API description"
 	importShow := RadioShowImport{
-		ExternalID: "42",
-		Name:       "New Name",
-		HostName:   stringPtr("New Host"),
+		ExternalID:  "42",
+		Name:        "Audioasis (API)",
+		HostName:    stringPtr("Cheryl Waters"),
+		Description: &apiDesc,
+		ImageURL:    stringPtr("https://example.com/image.jpg"),
 	}
 
 	showID, err := suite.radioService.upsertRadioShow(station.ID, importShow)
 	suite.Require().NoError(err)
 	suite.Equal(show.ID, showID)
 
-	// Verify update
+	// Verify curated values are preserved
 	var updated models.RadioShow
 	suite.db.First(&updated, showID)
-	suite.Equal("New Name", updated.Name)
-	suite.Equal("New Host", *updated.HostName)
+	suite.Equal("Audioasis", updated.Name)              // kept curated name
+	suite.Equal("Kennady Quille", *updated.HostName)    // kept curated host
+	suite.Equal("Curated description by admin", *updated.Description) // kept curated description
+	// ImageURL was NULL, so it gets filled from import data
+	suite.Require().NotNil(updated.ImageURL)
+	suite.Equal("https://example.com/image.jpg", *updated.ImageURL)
+}
+
+func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_FillsEmptyFields() {
+	station := suite.createStation("KEXP")
+
+	// Create initial show with minimal data (no host, no description)
+	extID := "42"
+	show := &models.RadioShow{
+		StationID:  station.ID,
+		Name:       "New Show",
+		Slug:       "new-show",
+		ExternalID: &extID,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+
+	// Upsert with API data — empty fields should be populated
+	importShow := RadioShowImport{
+		ExternalID:  "42",
+		Name:        "New Show (API)",
+		HostName:    stringPtr("DJ Host"),
+		Description: stringPtr("A great show"),
+		ArchiveURL:  stringPtr("https://example.com/archive"),
+	}
+
+	showID, err := suite.radioService.upsertRadioShow(station.ID, importShow)
+	suite.Require().NoError(err)
+	suite.Equal(show.ID, showID)
+
+	var updated models.RadioShow
+	suite.db.First(&updated, showID)
+	suite.Equal("New Show", updated.Name)                // name was non-empty, kept
+	suite.Equal("DJ Host", *updated.HostName)            // was nil, filled
+	suite.Equal("A great show", *updated.Description)    // was nil, filled
+	suite.Equal("https://example.com/archive", *updated.ArchiveURL) // was nil, filled
 }
 
 func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_DeduplicatesByExternalID() {
