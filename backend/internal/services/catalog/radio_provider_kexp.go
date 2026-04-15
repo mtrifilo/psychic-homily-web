@@ -119,13 +119,19 @@ func (p *KEXPProvider) DiscoverShows() ([]RadioShowImport, error) {
 	return allShows, nil
 }
 
-// FetchNewEpisodes returns KEXP "shows" (broadcasts) for a program since the given time.
-func (p *KEXPProvider) FetchNewEpisodes(showExternalID string, since time.Time) ([]RadioEpisodeImport, error) {
+// FetchNewEpisodes returns KEXP "shows" (broadcasts) for a program within [since, until].
+// A zero until means no upper bound.
+func (p *KEXPProvider) FetchNewEpisodes(showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error) {
 	var allEpisodes []RadioEpisodeImport
 
 	sinceStr := since.UTC().Format(time.RFC3339)
 	url := fmt.Sprintf("%s/v2/shows/?program_id=%s&start_time_after=%s&limit=100&ordering=start_time",
 		p.baseURL, showExternalID, sinceStr)
+
+	if !until.IsZero() {
+		untilStr := until.UTC().Format(time.RFC3339)
+		url += "&start_time_before=" + untilStr
+	}
 
 	for url != "" {
 		<-p.rateLimiter.C
