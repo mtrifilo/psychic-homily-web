@@ -83,6 +83,7 @@ export const sceneHandlers = [
           slug: 'phoenix-az',
           venue_count: 12,
           upcoming_show_count: 45,
+          total_show_count: 200,
         },
         {
           city: 'Chicago',
@@ -90,6 +91,7 @@ export const sceneHandlers = [
           slug: 'chicago-il',
           venue_count: 30,
           upcoming_show_count: 120,
+          total_show_count: 500,
         },
       ],
       count: 2,

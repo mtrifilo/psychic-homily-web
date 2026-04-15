@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useDebounce } from 'use-debounce'
-import { apiRequest } from '@/lib/api'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { artistEndpoints } from '@/features/artists/api'
 import { venueEndpoints } from '@/features/venues/api'
 import { releaseEndpoints } from '@/features/releases/api'
@@ -19,7 +19,7 @@ export interface EntitySearchResult {
   name: string
   /** Subtitle info (e.g., city/state, release type, year) */
   subtitle: string | null
-  entityType: 'artist' | 'venue' | 'release' | 'label' | 'festival'
+  entityType: 'artist' | 'venue' | 'release' | 'label' | 'festival' | 'tag'
   href: string
 }
 
@@ -29,6 +29,7 @@ export interface EntitySearchResults {
   releases: EntitySearchResult[]
   labels: EntitySearchResult[]
   festivals: EntitySearchResult[]
+  tags: EntitySearchResult[]
 }
 
 // Response shapes from the backend search endpoints
@@ -71,6 +72,14 @@ interface FestivalSearchItem {
   city?: string | null
   state?: string | null
   edition_year?: number
+}
+
+interface TagSearchItem {
+  id: number
+  slug: string
+  name: string
+  category: string
+  usage_count: number
 }
 
 // ============================================================================
@@ -145,6 +154,18 @@ function mapFestival(f: FestivalSearchItem): EntitySearchResult {
   }
 }
 
+function mapTag(t: TagSearchItem): EntitySearchResult {
+  const category = t.category.charAt(0).toUpperCase() + t.category.slice(1)
+  return {
+    id: t.id,
+    slug: t.slug,
+    name: t.name,
+    subtitle: category,
+    entityType: 'tag',
+    href: `/tags/${t.slug}`,
+  }
+}
+
 // ============================================================================
 // Query function
 // ============================================================================
@@ -155,7 +176,7 @@ async function fetchEntitySearch(query: string): Promise<EntitySearchResults> {
   const encoded = encodeURIComponent(query)
 
   // Fire all requests in parallel; if individual ones fail, return empty arrays
-  const [artists, venues, releases, labels, festivals] = await Promise.all([
+  const [artists, venues, releases, labels, festivals, tags] = await Promise.all([
     apiRequest<{ artists: ArtistSearchItem[]; count: number }>(
       `${artistEndpoints.SEARCH}?q=${encoded}`
     ).catch(() => ({ artists: [], count: 0 })),
@@ -171,6 +192,9 @@ async function fetchEntitySearch(query: string): Promise<EntitySearchResults> {
     apiRequest<{ festivals: FestivalSearchItem[]; count: number }>(
       `${festivalEndpoints.SEARCH}?q=${encoded}`
     ).catch(() => ({ festivals: [], count: 0 })),
+    apiRequest<{ tags: TagSearchItem[] }>(
+      `${API_ENDPOINTS.TAGS.SEARCH}?q=${encoded}`
+    ).catch(() => ({ tags: [] })),
   ])
 
   return {
@@ -179,6 +203,7 @@ async function fetchEntitySearch(query: string): Promise<EntitySearchResults> {
     releases: (releases.releases || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapRelease),
     labels: (labels.labels || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapLabel),
     festivals: (festivals.festivals || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapFestival),
+    tags: (tags.tags || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapTag),
   }
 }
 
@@ -192,10 +217,11 @@ const EMPTY_RESULTS: EntitySearchResults = {
   releases: [],
   labels: [],
   festivals: [],
+  tags: [],
 }
 
 /**
- * Hook for searching entities across all types (artists, venues, releases, labels, festivals).
+ * Hook for searching entities across all types (artists, venues, releases, labels, festivals, tags).
  * Used in the Cmd+K command palette to provide entity results alongside page navigation.
  *
  * Returns results grouped by entity type, limited to 5 per type.
@@ -225,7 +251,8 @@ export function useEntitySearch(options: {
     (result.data?.venues.length ?? 0) +
     (result.data?.releases.length ?? 0) +
     (result.data?.labels.length ?? 0) +
-    (result.data?.festivals.length ?? 0)
+    (result.data?.festivals.length ?? 0) +
+    (result.data?.tags.length ?? 0)
 
   return {
     ...result,

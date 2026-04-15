@@ -46,6 +46,7 @@ type EntityTagResponse struct {
 	Name            string  `json:"name"`
 	Slug            string  `json:"slug"`
 	Category        string  `json:"category"`
+	IsOfficial      bool    `json:"is_official"`
 	Upvotes         int     `json:"upvotes"`
 	Downvotes       int     `json:"downvotes"`
 	WilsonScore     float64 `json:"wilson_score"`
