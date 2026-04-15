@@ -64,9 +64,8 @@ describe('Collection query hooks', () => {
 
   describe('useCollections', () => {
     it('fetches collections list', async () => {
-      // Backend returns { crates, total }; hook normalizes to { collections, total }
       const mockResponse = {
-        crates: [{ id: 1, title: 'Test Collection', slug: 'test' }],
+        collections: [{ id: 1, title: 'Test Collection', slug: 'test' }],
         total: 1,
       }
       mockApiRequest.mockResolvedValueOnce(mockResponse)
@@ -83,7 +82,7 @@ describe('Collection query hooks', () => {
     })
 
     it('handles empty collections list', async () => {
-      mockApiRequest.mockResolvedValueOnce({ crates: [], total: 0 })
+      mockApiRequest.mockResolvedValueOnce({ collections: [], total: 0 })
 
       const { result } = renderHook(() => useCollections(), {
         wrapper: createWrapper(),
@@ -151,7 +150,7 @@ describe('Collection query hooks', () => {
 
   describe('useMyCollections', () => {
     it('fetches user collections', async () => {
-      mockApiRequest.mockResolvedValueOnce({ crates: [], total: 0 })
+      mockApiRequest.mockResolvedValueOnce({ collections: [], total: 0 })
 
       const { result } = renderHook(() => useMyCollections(), {
         wrapper: createWrapper(),

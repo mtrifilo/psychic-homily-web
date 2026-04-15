@@ -16,6 +16,7 @@ import {
   Library, LayoutList, MessageSquarePlus, Settings, Search, Clock, X, Globe,
   TrendingUp, LayoutDashboard, Upload, BadgeCheck, Flag, ScrollText, Users, Workflow,
   ClipboardCheck, BarChart3, Music, Bell, HeartHandshake, ShieldCheck, Loader2, Trophy, Radio,
+  Hash,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -85,7 +86,7 @@ const routes: RouteItem[] = [
     label: 'Collections',
     href: '/collections',
     icon: LayoutList,
-    keywords: ['collections', 'crates', 'curated', 'lists', 'playlists'],
+    keywords: ['collections', 'curated', 'lists', 'playlists'],
   },
   {
     label: 'Charts',
@@ -240,7 +241,7 @@ const adminRoutes: RouteItem[] = [
     label: 'Admin: Collections',
     href: '/admin?tab=collections',
     icon: Library,
-    keywords: ['admin', 'collections', 'crates', 'manage', 'featured'],
+    keywords: ['admin', 'collections', 'manage', 'featured'],
     requireAdmin: true,
   },
   {
@@ -296,6 +297,7 @@ const entityTypeIcons: Record<EntitySearchResult['entityType'], LucideIcon> = {
   release: Disc3,
   label: Tag,
   festival: Tent,
+  tag: Hash,
 }
 
 /** Map entity type to display label for grouping */
@@ -305,6 +307,7 @@ const entityTypeLabels: Record<EntitySearchResult['entityType'], string> = {
   release: 'Releases',
   label: 'Labels',
   festival: 'Festivals',
+  tag: 'Tags',
 }
 
 export function CommandPalette() {
@@ -388,7 +391,7 @@ export function CommandPalette() {
   // Collect entity result groups that have results, in display order
   const entityGroups = useMemo(() => {
     if (!entityResults) return []
-    const types = ['artist', 'venue', 'release', 'label', 'festival'] as const
+    const types = ['artist', 'venue', 'release', 'label', 'festival', 'tag'] as const
     const groups: { type: EntitySearchResult['entityType']; results: EntitySearchResult[] }[] = []
     for (const type of types) {
       const key = `${type}s` as keyof typeof entityResults
