@@ -6,6 +6,11 @@ import { createWrapper } from '@/test/utils'
 const mockApiRequest = vi.fn()
 vi.mock('@/lib/api', () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
+  API_ENDPOINTS: {
+    TAGS: {
+      SEARCH: '/api/tags/search',
+    },
+  },
 }))
 
 // Mock use-debounce to return the value immediately for testing
@@ -19,7 +24,7 @@ describe('useEntitySearch', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     // Default: all endpoints return empty
-    mockApiRequest.mockResolvedValue({ artists: [], venues: [], releases: [], labels: [], festivals: [], count: 0 })
+    mockApiRequest.mockResolvedValue({ artists: [], venues: [], releases: [], labels: [], festivals: [], tags: [], count: 0 })
   })
 
   it('should not fetch when query is less than 2 characters', () => {
@@ -51,7 +56,7 @@ describe('useEntitySearch', () => {
     expect(mockApiRequest).not.toHaveBeenCalled()
   })
 
-  it('should fetch all 5 entity types when query is 2+ characters', async () => {
+  it('should fetch all 6 entity types when query is 2+ characters', async () => {
     mockApiRequest.mockImplementation((url: string) => {
       if (url.includes('/artists/search')) {
         return Promise.resolve({
@@ -71,6 +76,9 @@ describe('useEntitySearch', () => {
       if (url.includes('/festivals/search')) {
         return Promise.resolve({ festivals: [], count: 0 })
       }
+      if (url.includes('/tags/search')) {
+        return Promise.resolve({ tags: [] })
+      }
       return Promise.resolve({ count: 0 })
     })
 
@@ -83,13 +91,55 @@ describe('useEntitySearch', () => {
       expect(result.current.totalResults).toBe(1)
     })
 
-    // All 5 endpoints should be called
-    expect(mockApiRequest).toHaveBeenCalledTimes(5)
+    // All 6 endpoints should be called
+    expect(mockApiRequest).toHaveBeenCalledTimes(6)
     expect(mockApiRequest).toHaveBeenCalledWith(expect.stringContaining('/artists/search?q=growlers'))
     expect(mockApiRequest).toHaveBeenCalledWith(expect.stringContaining('/venues/search?q=growlers'))
     expect(mockApiRequest).toHaveBeenCalledWith(expect.stringContaining('/releases/search?q=growlers'))
     expect(mockApiRequest).toHaveBeenCalledWith(expect.stringContaining('/labels/search?q=growlers'))
     expect(mockApiRequest).toHaveBeenCalledWith(expect.stringContaining('/festivals/search?q=growlers'))
+    expect(mockApiRequest).toHaveBeenCalledWith(expect.stringContaining('/tags/search?q=growlers'))
+  })
+
+  it('should map tag results correctly', async () => {
+    mockApiRequest.mockImplementation((url: string) => {
+      if (url.includes('/tags/search')) {
+        return Promise.resolve({
+          tags: [
+            { id: 1, slug: 'post-punk', name: 'Post-Punk', category: 'genre', usage_count: 42 },
+            { id: 2, slug: 'phoenix', name: 'Phoenix', category: 'locale', usage_count: 15 },
+          ],
+        })
+      }
+      return Promise.resolve({ artists: [], venues: [], releases: [], labels: [], festivals: [], count: 0 })
+    })
+
+    const { result } = renderHook(
+      () => useEntitySearch({ query: 'post' }),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => {
+      expect(result.current.data?.tags.length).toBe(2)
+    })
+
+    const tags = result.current.data!.tags
+    expect(tags[0]).toEqual({
+      id: 1,
+      slug: 'post-punk',
+      name: 'Post-Punk',
+      subtitle: 'Genre',
+      entityType: 'tag',
+      href: '/tags/post-punk',
+    })
+    expect(tags[1]).toEqual({
+      id: 2,
+      slug: 'phoenix',
+      name: 'Phoenix',
+      subtitle: 'Locale',
+      entityType: 'tag',
+      href: '/tags/phoenix',
+    })
   })
 
   it('should map artist results correctly', async () => {
@@ -103,7 +153,7 @@ describe('useEntitySearch', () => {
           count: 2,
         })
       }
-      return Promise.resolve({ venues: [], releases: [], labels: [], festivals: [], count: 0 })
+      return Promise.resolve({ venues: [], releases: [], labels: [], festivals: [], tags: [], count: 0 })
     })
 
     const { result } = renderHook(
@@ -142,7 +192,7 @@ describe('useEntitySearch', () => {
           count: 1,
         })
       }
-      return Promise.resolve({ artists: [], releases: [], labels: [], festivals: [], count: 0 })
+      return Promise.resolve({ artists: [], releases: [], labels: [], festivals: [], tags: [], count: 0 })
     })
 
     const { result } = renderHook(
@@ -172,7 +222,7 @@ describe('useEntitySearch', () => {
           count: 1,
         })
       }
-      return Promise.resolve({ artists: [], venues: [], labels: [], festivals: [], count: 0 })
+      return Promise.resolve({ artists: [], venues: [], labels: [], festivals: [], tags: [], count: 0 })
     })
 
     const { result } = renderHook(
@@ -202,7 +252,7 @@ describe('useEntitySearch', () => {
           count: 1,
         })
       }
-      return Promise.resolve({ artists: [], venues: [], releases: [], festivals: [], count: 0 })
+      return Promise.resolve({ artists: [], venues: [], releases: [], festivals: [], tags: [], count: 0 })
     })
 
     const { result } = renderHook(
@@ -232,7 +282,7 @@ describe('useEntitySearch', () => {
           count: 1,
         })
       }
-      return Promise.resolve({ artists: [], venues: [], releases: [], labels: [], count: 0 })
+      return Promise.resolve({ artists: [], venues: [], releases: [], labels: [], tags: [], count: 0 })
     })
 
     const { result } = renderHook(
@@ -267,7 +317,7 @@ describe('useEntitySearch', () => {
       if (url.includes('/artists/search')) {
         return Promise.resolve({ artists: manyArtists, count: 10 })
       }
-      return Promise.resolve({ venues: [], releases: [], labels: [], festivals: [], count: 0 })
+      return Promise.resolve({ venues: [], releases: [], labels: [], festivals: [], tags: [], count: 0 })
     })
 
     const { result } = renderHook(
@@ -291,7 +341,7 @@ describe('useEntitySearch', () => {
           count: 1,
         })
       }
-      return Promise.resolve({ releases: [], labels: [], festivals: [], count: 0 })
+      return Promise.resolve({ releases: [], labels: [], festivals: [], tags: [], count: 0 })
     })
 
     const { result } = renderHook(
@@ -331,7 +381,7 @@ describe('useEntitySearch', () => {
           count: 2,
         })
       }
-      return Promise.resolve({ labels: [], festivals: [], count: 0 })
+      return Promise.resolve({ labels: [], festivals: [], tags: [], count: 0 })
     })
 
     const { result } = renderHook(
@@ -345,7 +395,7 @@ describe('useEntitySearch', () => {
   })
 
   it('should trim whitespace from query', async () => {
-    mockApiRequest.mockResolvedValue({ artists: [], venues: [], releases: [], labels: [], festivals: [], count: 0 })
+    mockApiRequest.mockResolvedValue({ artists: [], venues: [], releases: [], labels: [], festivals: [], tags: [], count: 0 })
 
     renderHook(
       () => useEntitySearch({ query: '  ab  ' }),

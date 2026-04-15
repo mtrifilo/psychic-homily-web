@@ -29,12 +29,12 @@ func NewSceneService(database *gorm.DB) *SceneService {
 
 // Thresholds for a city to qualify as a "scene".
 const (
-	sceneMinVenues = 3
-	sceneMinShows  = 5
+	sceneMinVenues = 2
+	sceneMinShows  = 3
 )
 
 // ListScenes returns cities that meet scene thresholds:
-// 3+ verified venues AND 5+ upcoming approved shows.
+// 2+ verified venues AND 3+ approved shows (past or upcoming).
 func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -43,32 +43,38 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	now := time.Now().UTC()
 
 	type cityRow struct {
-		City              string `gorm:"column:city"`
-		State             string `gorm:"column:state"`
-		VenueCount        int    `gorm:"column:venue_count"`
-		UpcomingShowCount int    `gorm:"column:upcoming_show_count"`
+		City       string `gorm:"column:city"`
+		State      string `gorm:"column:state"`
+		VenueCount int    `gorm:"column:venue_count"`
+		ShowCount  int    `gorm:"column:show_count"`
 	}
 
-	// Step 1: Find cities with 3+ verified venues.
+	// Step 1: Find cities with 1+ verified venues AND 1+ total approved shows.
+	// Uses a single query that joins venues → shows to compute both counts.
 	var cities []cityRow
 	err := s.db.Raw(`
-		SELECT v.city, v.state, COUNT(DISTINCT v.id) AS venue_count
+		SELECT v.city, v.state,
+		       COUNT(DISTINCT v.id) AS venue_count,
+		       COUNT(DISTINCT s.id) AS show_count
 		FROM venues v
+		LEFT JOIN show_venues sv ON sv.venue_id = v.id
+		LEFT JOIN shows s ON s.id = sv.show_id AND s.status = ?
 		WHERE v.verified = true
 		  AND v.city IS NOT NULL AND v.city != ''
 		  AND v.state IS NOT NULL AND v.state != ''
 		GROUP BY v.city, v.state
 		HAVING COUNT(DISTINCT v.id) >= ?
-	`, sceneMinVenues).Scan(&cities).Error
+		   AND COUNT(DISTINCT s.id) >= ?
+	`, models.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&cities).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list scenes: %w", err)
 	}
 
-	// Step 2: For each qualifying city, count upcoming approved shows.
+	// Step 2: For each qualifying city, count upcoming approved shows (for display).
 	var results []*contracts.SceneListResponse
 	for i := range cities {
 		c := &cities[i]
-		var showCount int64
+		var upcomingCount int64
 		err := s.db.Raw(`
 			SELECT COUNT(DISTINCT s.id)
 			FROM shows s
@@ -77,13 +83,9 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 			WHERE v.city = ? AND v.state = ?
 			  AND s.status = ?
 			  AND s.event_date >= ?
-		`, c.City, c.State, models.ShowStatusApproved, now).Scan(&showCount).Error
+		`, c.City, c.State, models.ShowStatusApproved, now).Scan(&upcomingCount).Error
 		if err != nil {
 			return nil, fmt.Errorf("failed to count shows for %s, %s: %w", c.City, c.State, err)
-		}
-
-		if int(showCount) < sceneMinShows {
-			continue
 		}
 
 		results = append(results, &contracts.SceneListResponse{
@@ -91,15 +93,22 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 			State:             c.State,
 			Slug:              buildSceneSlug(c.City, c.State),
 			VenueCount:        c.VenueCount,
-			UpcomingShowCount: int(showCount),
+			UpcomingShowCount: int(upcomingCount),
+			TotalShowCount:    c.ShowCount,
 		})
 	}
 
-	// Sort by upcoming show count descending (do in Go since we already filtered).
+	// Sort by total show count descending, then upcoming shows as tiebreaker.
 	// Simple insertion sort is fine for a small number of cities.
 	for i := 1; i < len(results); i++ {
-		for j := i; j > 0 && results[j].UpcomingShowCount > results[j-1].UpcomingShowCount; j-- {
-			results[j], results[j-1] = results[j-1], results[j]
+		for j := i; j > 0; j-- {
+			if results[j].TotalShowCount > results[j-1].TotalShowCount ||
+				(results[j].TotalShowCount == results[j-1].TotalShowCount &&
+					results[j].UpcomingShowCount > results[j-1].UpcomingShowCount) {
+				results[j], results[j-1] = results[j-1], results[j]
+			} else {
+				break
+			}
 		}
 	}
 
