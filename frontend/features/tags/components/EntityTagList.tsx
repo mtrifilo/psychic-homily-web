@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
-import { Plus, ThumbsUp, ThumbsDown, X, Search, Loader2 } from 'lucide-react'
+import { Plus, ThumbsUp, ThumbsDown, X, Search, Loader2, BadgeCheck, ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,7 +21,7 @@ import {
   useRemoveTagVote,
   useSearchTags,
 } from '../hooks'
-import { getCategoryColor } from '../types'
+import { getCategoryColor, TAG_CATEGORIES, getCategoryLabel } from '../types'
 import type { EntityTag, TagListItem } from '../types'
 
 interface EntityTagListProps {
@@ -30,13 +30,26 @@ interface EntityTagListProps {
   isAuthenticated?: boolean
 }
 
+const DEFAULT_VISIBLE_COUNT = 5
+
 export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityTagListProps) {
   const { data, isLoading } = useEntityTags(entityType, entityId)
   const voteMutation = useVoteOnTag()
   const removeVoteMutation = useRemoveTagVote()
   const [addDialogOpen, setAddDialogOpen] = useState(false)
+  const [expanded, setExpanded] = useState(false)
 
   const tags = data?.tags ?? []
+
+  // Sort by Wilson score (highest confidence first)
+  const sortedTags = useMemo(
+    () => [...tags].sort((a, b) => b.wilson_score - a.wilson_score),
+    [tags]
+  )
+
+  const hasMore = sortedTags.length > DEFAULT_VISIBLE_COUNT
+  const visibleTags = expanded ? sortedTags : sortedTags.slice(0, DEFAULT_VISIBLE_COUNT)
+  const hiddenCount = sortedTags.length - DEFAULT_VISIBLE_COUNT
 
   if (isLoading) {
     return (
@@ -100,8 +113,8 @@ export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityT
           No tags yet. Be the first to add one!
         </p>
       ) : (
-        <div className="flex flex-wrap gap-2">
-          {tags.map(tag => (
+        <div className="flex flex-wrap gap-2 items-center">
+          {visibleTags.map(tag => (
             <TagWithVotes
               key={tag.tag_id}
               tag={tag}
@@ -109,6 +122,24 @@ export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityT
               onVote={handleVote}
             />
           ))}
+          {hasMore && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              {expanded ? (
+                <>
+                  <ChevronUp className="h-3 w-3" />
+                  Show less
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="h-3 w-3" />
+                  Show {hiddenCount} more
+                </>
+              )}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -135,12 +166,22 @@ function TagWithVotes({
     <div
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs',
-        getCategoryColor(tag.category)
+        getCategoryColor(tag.category),
+        tag.is_official && 'ring-1 ring-primary/20'
       )}
     >
+      {tag.is_official && (
+        <span title="Official tag">
+          <BadgeCheck
+            className="h-3 w-3 text-primary shrink-0"
+            aria-hidden="true"
+          />
+        </span>
+      )}
       <Link
         href={`/tags/${tag.slug}`}
         className="font-medium hover:underline"
+        title={tag.is_official ? `${tag.name} (Official)` : tag.name}
       >
         {tag.name}
       </Link>
@@ -203,8 +244,13 @@ function AddTagForm({
   const addMutation = useAddTagToEntity()
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [filterCategory, setFilterCategory] = useState<string>('')
   const [createCategory, setCreateCategory] = useState<string>('genre')
-  const { data: searchResults, isLoading: searchLoading } = useSearchTags(debouncedQuery, 10)
+  const { data: searchResults, isLoading: searchLoading } = useSearchTags(
+    debouncedQuery,
+    10,
+    filterCategory || undefined
+  )
 
   // Debounce search input
   useEffect(() => {
@@ -213,6 +259,13 @@ function AddTagForm({
     }, 300)
     return () => clearTimeout(timer)
   }, [searchQuery])
+
+  // Sync create category with filter category
+  useEffect(() => {
+    if (filterCategory) {
+      setCreateCategory(filterCategory)
+    }
+  }, [filterCategory])
 
   const handleSelectTag = (tag: TagListItem) => {
     addMutation.mutate(
@@ -286,6 +339,35 @@ function AddTagForm({
             <X className="h-3.5 w-3.5" />
           </button>
         )}
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-muted-foreground">Category:</span>
+        <button
+          onClick={() => setFilterCategory('')}
+          className={cn(
+            'rounded-full px-2 py-0.5 text-[11px] font-medium border transition-colors',
+            filterCategory === ''
+              ? 'bg-foreground/10 text-foreground border-foreground/20'
+              : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-muted'
+          )}
+        >
+          All
+        </button>
+        {TAG_CATEGORIES.map(cat => (
+          <button
+            key={cat}
+            onClick={() => setFilterCategory(filterCategory === cat ? '' : cat)}
+            className={cn(
+              'rounded-full px-2 py-0.5 text-[11px] font-medium border transition-colors',
+              filterCategory === cat
+                ? getCategoryColor(cat)
+                : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-muted'
+            )}
+          >
+            {getCategoryLabel(cat)}
+          </button>
+        ))}
       </div>
 
       {addMutation.error && (

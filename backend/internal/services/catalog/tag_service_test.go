@@ -568,7 +568,7 @@ func (suite *TagServiceIntegrationTestSuite) TestSearchTags_ByName() {
 	suite.createTag("post-rock", "genre")
 	suite.createTag("jazz", "genre")
 
-	tags, err := suite.tagService.SearchTags("post", 10)
+	tags, err := suite.tagService.SearchTags("post", 10, "")
 	suite.Require().NoError(err)
 	suite.Assert().Len(tags, 2)
 }
@@ -577,10 +577,33 @@ func (suite *TagServiceIntegrationTestSuite) TestSearchTags_ByAlias() {
 	tag := suite.createTag("post-punk", "genre")
 	suite.tagService.CreateAlias(tag.ID, "post punk revival")
 
-	tags, err := suite.tagService.SearchTags("revival", 10)
+	tags, err := suite.tagService.SearchTags("revival", 10, "")
 	suite.Require().NoError(err)
 	suite.Assert().Len(tags, 1)
 	suite.Assert().Equal(tag.ID, tags[0].ID)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestSearchTags_FilterByCategory() {
+	suite.createTag("post-punk", "genre")
+	suite.createTag("post-office", "other")
+	suite.createTag("portland", "locale")
+
+	// Without category filter: "post" matches post-punk and post-office
+	tags, err := suite.tagService.SearchTags("post", 10, "")
+	suite.Require().NoError(err)
+	suite.Assert().Len(tags, 2)
+
+	// With genre filter: only post-punk
+	tags, err = suite.tagService.SearchTags("post", 10, "genre")
+	suite.Require().NoError(err)
+	suite.Assert().Len(tags, 1)
+	suite.Assert().Equal("post-punk", tags[0].Name)
+
+	// With locale filter: "port" matches portland only
+	tags, err = suite.tagService.SearchTags("port", 10, "locale")
+	suite.Require().NoError(err)
+	suite.Assert().Len(tags, 1)
+	suite.Assert().Equal("portland", tags[0].Name)
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestGetTrendingTags() {

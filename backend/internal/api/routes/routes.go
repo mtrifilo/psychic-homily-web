@@ -651,76 +651,76 @@ func setupPipelineRoutes(rc RouteContext) {
 	huma.Post(rc.Protected, "/admin/pipeline/enrichment/trigger/{show_id}", pipelineHandler.TriggerEnrichmentHandler)
 }
 
-// setupCollectionRoutes configures crate (formerly "collection") endpoints.
-// Both /crates/ and /collections/ paths are registered for backward compatibility.
-// Public endpoints use optional auth (for private crate access checks).
+// setupCollectionRoutes configures collection endpoints.
+// Both /collections/ and /crates/ paths are registered for backward compatibility.
+// Public endpoints use optional auth (for private collection access checks).
 // CRUD, item management, and subscription endpoints require authentication.
 func setupCollectionRoutes(rc RouteContext) {
 	collectionHandler := handlers.NewCollectionHandler(rc.SC.Collection, rc.SC.AuditLog)
 
-	// Public crate endpoints with optional auth
+	// Public collection endpoints with optional auth
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))
 
-	// Canonical /crates/ paths
-	huma.Get(optionalAuthGroup, "/crates", collectionHandler.ListCollectionsHandler)
-	huma.Get(optionalAuthGroup, "/crates/{slug}", collectionHandler.GetCollectionHandler)
-	huma.Get(optionalAuthGroup, "/crates/{slug}/stats", collectionHandler.GetCollectionStatsHandler)
-
-	// Legacy /collections/ paths (backward compat — same handlers, different operation IDs)
+	// Canonical /collections/ paths
 	huma.Get(optionalAuthGroup, "/collections", collectionHandler.ListCollectionsHandler)
 	huma.Get(optionalAuthGroup, "/collections/{slug}", collectionHandler.GetCollectionHandler)
 	huma.Get(optionalAuthGroup, "/collections/{slug}/stats", collectionHandler.GetCollectionStatsHandler)
 
-	// Protected crate endpoints — canonical /crates/ paths
-	huma.Post(rc.Protected, "/crates", collectionHandler.CreateCollectionHandler)
-	huma.Put(rc.Protected, "/crates/{slug}", collectionHandler.UpdateCollectionHandler)
-	huma.Delete(rc.Protected, "/crates/{slug}", collectionHandler.DeleteCollectionHandler)
+	// Legacy /crates/ paths (backward compat)
+	huma.Get(optionalAuthGroup, "/crates", collectionHandler.ListCollectionsHandler)
+	huma.Get(optionalAuthGroup, "/crates/{slug}", collectionHandler.GetCollectionHandler)
+	huma.Get(optionalAuthGroup, "/crates/{slug}/stats", collectionHandler.GetCollectionStatsHandler)
 
-	// Protected crate endpoints — legacy /collections/ paths (backward compat)
+	// Protected collection endpoints — canonical /collections/ paths
 	huma.Post(rc.Protected, "/collections", collectionHandler.CreateCollectionHandler)
 	huma.Put(rc.Protected, "/collections/{slug}", collectionHandler.UpdateCollectionHandler)
 	huma.Delete(rc.Protected, "/collections/{slug}", collectionHandler.DeleteCollectionHandler)
 
-	// Crate item management — canonical /crates/ paths
-	huma.Post(rc.Protected, "/crates/{slug}/items", collectionHandler.AddItemHandler)
-	huma.Patch(rc.Protected, "/crates/{slug}/items/{item_id}", collectionHandler.UpdateItemHandler)
-	huma.Delete(rc.Protected, "/crates/{slug}/items/{item_id}", collectionHandler.RemoveItemHandler)
-	huma.Put(rc.Protected, "/crates/{slug}/items/reorder", collectionHandler.ReorderItemsHandler)
+	// Protected collection endpoints — legacy /crates/ paths (backward compat)
+	huma.Post(rc.Protected, "/crates", collectionHandler.CreateCollectionHandler)
+	huma.Put(rc.Protected, "/crates/{slug}", collectionHandler.UpdateCollectionHandler)
+	huma.Delete(rc.Protected, "/crates/{slug}", collectionHandler.DeleteCollectionHandler)
 
-	// Crate item management — legacy /collections/ paths (backward compat)
+	// Collection item management — canonical /collections/ paths
 	huma.Post(rc.Protected, "/collections/{slug}/items", collectionHandler.AddItemHandler)
 	huma.Patch(rc.Protected, "/collections/{slug}/items/{item_id}", collectionHandler.UpdateItemHandler)
 	huma.Delete(rc.Protected, "/collections/{slug}/items/{item_id}", collectionHandler.RemoveItemHandler)
 	huma.Put(rc.Protected, "/collections/{slug}/items/reorder", collectionHandler.ReorderItemsHandler)
 
-	// Crate subscription — canonical /crates/ paths
-	huma.Post(rc.Protected, "/crates/{slug}/subscribe", collectionHandler.SubscribeHandler)
-	huma.Delete(rc.Protected, "/crates/{slug}/subscribe", collectionHandler.UnsubscribeHandler)
+	// Collection item management — legacy /crates/ paths (backward compat)
+	huma.Post(rc.Protected, "/crates/{slug}/items", collectionHandler.AddItemHandler)
+	huma.Patch(rc.Protected, "/crates/{slug}/items/{item_id}", collectionHandler.UpdateItemHandler)
+	huma.Delete(rc.Protected, "/crates/{slug}/items/{item_id}", collectionHandler.RemoveItemHandler)
+	huma.Put(rc.Protected, "/crates/{slug}/items/reorder", collectionHandler.ReorderItemsHandler)
 
-	// Crate subscription — legacy /collections/ paths (backward compat)
+	// Collection subscription — canonical /collections/ paths
 	huma.Post(rc.Protected, "/collections/{slug}/subscribe", collectionHandler.SubscribeHandler)
 	huma.Delete(rc.Protected, "/collections/{slug}/subscribe", collectionHandler.UnsubscribeHandler)
 
-	// Admin: feature/unfeature crates — canonical /crates/ paths
-	huma.Put(rc.Protected, "/crates/{slug}/feature", collectionHandler.SetFeaturedHandler)
+	// Collection subscription — legacy /crates/ paths (backward compat)
+	huma.Post(rc.Protected, "/crates/{slug}/subscribe", collectionHandler.SubscribeHandler)
+	huma.Delete(rc.Protected, "/crates/{slug}/subscribe", collectionHandler.UnsubscribeHandler)
 
-	// Admin: feature/unfeature crates — legacy /collections/ paths (backward compat)
+	// Admin: feature/unfeature collections — canonical /collections/ paths
 	huma.Put(rc.Protected, "/collections/{slug}/feature", collectionHandler.SetFeaturedHandler)
 
+	// Admin: feature/unfeature collections — legacy /crates/ paths (backward compat)
+	huma.Put(rc.Protected, "/crates/{slug}/feature", collectionHandler.SetFeaturedHandler)
+
 	// Entity collections — public, find collections containing a given entity
-	huma.Get(optionalAuthGroup, "/crates/entity/{entity_type}/{entity_id}", collectionHandler.GetEntityCollectionsHandler)
 	huma.Get(optionalAuthGroup, "/collections/entity/{entity_type}/{entity_id}", collectionHandler.GetEntityCollectionsHandler)
+	huma.Get(optionalAuthGroup, "/crates/entity/{entity_type}/{entity_id}", collectionHandler.GetEntityCollectionsHandler)
 
 	// User's public collections — public, for profile pages
-	huma.Get(optionalAuthGroup, "/users/{username}/crates", collectionHandler.GetUserPublicCollectionsHandler)
 	huma.Get(optionalAuthGroup, "/users/{username}/collections", collectionHandler.GetUserPublicCollectionsHandler)
+	huma.Get(optionalAuthGroup, "/users/{username}/crates", collectionHandler.GetUserPublicCollectionsHandler)
 
-	// User's own crates (created + subscribed)
-	huma.Get(rc.Protected, "/auth/crates", collectionHandler.GetUserCollectionsHandler)
-
-	// Legacy user crates path (backward compat)
+	// User's own collections (created + subscribed)
 	huma.Get(rc.Protected, "/auth/collections", collectionHandler.GetUserCollectionsHandler)
+
+	// Legacy user collections path (backward compat)
+	huma.Get(rc.Protected, "/auth/crates", collectionHandler.GetUserCollectionsHandler)
 }
 
 // setupRequestRoutes configures community request endpoints.
@@ -777,11 +777,39 @@ func setupTagRoutes(rc RouteContext) {
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))
 	huma.Get(optionalAuthGroup, "/entities/{entity_type}/{entity_id}/tags", tagHandler.ListEntityTagsHandler)
 
-	// Protected: tagging and voting
-	huma.Post(rc.Protected, "/entities/{entity_type}/{entity_id}/tags", tagHandler.AddTagToEntityHandler)
+	// Rate-limited tag creation: 20 requests per hour per IP
+	// Prevents spamming entities with tags
+	rc.Router.Group(func(r chi.Router) {
+		r.Use(httprate.Limit(
+			middleware.TagCreateRequestsPerHour,
+			time.Hour,
+			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithLimitHandler(rateLimitHandler),
+		))
+		tagCreateAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Tag Create", "1.0.0"))
+		tagCreateAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
+		tagCreateAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
+		huma.Post(tagCreateAPI, "/entities/{entity_type}/{entity_id}/tags", tagHandler.AddTagToEntityHandler)
+	})
+
+	// Protected: remove tag (no additional rate limiting needed)
 	huma.Delete(rc.Protected, "/entities/{entity_type}/{entity_id}/tags/{tag_id}", tagHandler.RemoveTagFromEntityHandler)
-	huma.Post(rc.Protected, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.VoteTagHandler)
-	huma.Delete(rc.Protected, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.RemoveTagVoteHandler)
+
+	// Rate-limited tag voting: 30 requests per minute per IP
+	// Prevents rapid vote manipulation
+	rc.Router.Group(func(r chi.Router) {
+		r.Use(httprate.Limit(
+			middleware.TagVoteRequestsPerMinute,
+			time.Minute,
+			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithLimitHandler(rateLimitHandler),
+		))
+		tagVoteAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Tag Vote", "1.0.0"))
+		tagVoteAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
+		tagVoteAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
+		huma.Post(tagVoteAPI, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.VoteTagHandler)
+		huma.Delete(tagVoteAPI, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.RemoveTagVoteHandler)
+	})
 
 	// Admin: tag CRUD and alias management
 	huma.Post(rc.Protected, "/tags", tagHandler.CreateTagHandler)

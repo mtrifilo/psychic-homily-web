@@ -2,12 +2,13 @@
 
 import { useMemo } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Hash, Loader2, Music, MapPin, Calendar, Disc3, Tag, Tent } from 'lucide-react'
+import { ArrowLeft, Hash, Loader2, Music, MapPin, Calendar, Disc3, Tag, Tent, Clock } from 'lucide-react'
 import { NotifyMeButton } from '@/features/notifications'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Breadcrumb } from '@/components/shared'
+import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useTag, useTagEntities } from '../hooks'
 import { getCategoryColor, getCategoryLabel, getEntityUrl, getEntityTypePluralLabel } from '../types'
 import type { TaggedEntityItem } from '../types'
@@ -85,11 +86,16 @@ export function TagDetail({ slug }: TagDetailProps) {
       {/* Header */}
       <header className="mb-8">
         <div className="flex items-start gap-4">
-          <div className="mt-1">
-            <Hash className="h-8 w-8 text-muted-foreground" />
+          <div
+            className={cn(
+              'mt-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border',
+              getCategoryColor(tag.category)
+            )}
+          >
+            <Hash className="h-6 w-6" />
           </div>
-          <div>
-            <div className="flex items-center gap-3 mb-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-3 mb-1">
               <h1 className="text-3xl font-bold tracking-tight">{tag.name}</h1>
               {tag.is_official && (
                 <Badge variant="secondary">Official</Badge>
@@ -97,7 +103,7 @@ export function TagDetail({ slug }: TagDetailProps) {
               <NotifyMeButton entityType="tag" entityId={tag.id} entityName={tag.name} />
             </div>
 
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-4">
               <span
                 className={cn(
                   'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium',
@@ -123,10 +129,19 @@ export function TagDetail({ slug }: TagDetailProps) {
                   </span>
                 </>
               )}
+              {tag.created_at && (
+                <>
+                  <span className="text-muted-foreground/40">{'·'}</span>
+                  <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
+                    <Clock className="h-3 w-3" />
+                    {formatRelativeTime(tag.created_at)}
+                  </span>
+                </>
+              )}
             </div>
 
             {tag.description && (
-              <p className="text-muted-foreground whitespace-pre-line mb-4">
+              <p className="text-muted-foreground whitespace-pre-line max-w-2xl">
                 {tag.description}
               </p>
             )}
@@ -134,54 +149,59 @@ export function TagDetail({ slug }: TagDetailProps) {
         </div>
       </header>
 
-      {/* Parent tag */}
-      {tag.parent_id && tag.parent_name && (
-        <section className="mb-6">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            Parent Tag
-          </h2>
-          <Link
-            href={`/tags/${tag.parent_id}`}
-            className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm border border-border/50 hover:bg-muted/50 transition-colors"
-          >
-            <Hash className="h-3.5 w-3.5 text-muted-foreground" />
-            {tag.parent_name}
-          </Link>
-        </section>
-      )}
-
-      {/* Child tags count */}
-      {tag.child_count > 0 && (
-        <section className="mb-6">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            Sub-tags
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {tag.child_count} {tag.child_count === 1 ? 'sub-tag' : 'sub-tags'}
-          </p>
-        </section>
-      )}
-
-      {/* Aliases */}
-      {tag.aliases && tag.aliases.length > 0 && (
-        <section className="mb-6">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            Also known as
-          </h2>
-          <div className="flex flex-wrap gap-2">
-            {tag.aliases.map((alias: string) => (
-              <span
-                key={alias}
-                className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground border border-border/50"
+      {/* Metadata cards */}
+      {((tag.parent_id && tag.parent_name) || tag.child_count > 0 || (tag.aliases && tag.aliases.length > 0)) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+          {/* Parent tag */}
+          {tag.parent_id && tag.parent_name && (
+            <div className="rounded-lg border border-border/50 p-4">
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                Parent Tag
+              </h2>
+              <Link
+                href={`/tags/${tag.parent_id}`}
+                className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm border border-border/50 hover:bg-muted/50 transition-colors"
               >
-                {alias}
-              </span>
-            ))}
-          </div>
-        </section>
+                <Hash className="h-3.5 w-3.5 text-muted-foreground" />
+                {tag.parent_name}
+              </Link>
+            </div>
+          )}
+
+          {/* Child tags count */}
+          {tag.child_count > 0 && (
+            <div className="rounded-lg border border-border/50 p-4">
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                Sub-tags
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                {tag.child_count} {tag.child_count === 1 ? 'sub-tag' : 'sub-tags'}
+              </p>
+            </div>
+          )}
+
+          {/* Aliases */}
+          {tag.aliases && tag.aliases.length > 0 && (
+            <div className="rounded-lg border border-border/50 p-4 sm:col-span-2">
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                Also known as
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {tag.aliases.map((alias: string) => (
+                  <span
+                    key={alias}
+                    className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground border border-border/50"
+                  >
+                    {alias}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
-      {/* Tagged Entities */}
+      {/* Usage Stats + Tagged Entities */}
       {tag.usage_count > 0 && (
         <TaggedEntitiesSection slug={slug} />
       )}
@@ -226,7 +246,7 @@ function TaggedEntitiesSection({ slug }: { slug: string }) {
 
   if (isLoading) {
     return (
-      <section className="mt-8 border-t border-border/50 pt-6">
+      <section className="border-t border-border/50 pt-6">
         <div className="flex items-center justify-center py-8">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
@@ -239,8 +259,33 @@ function TaggedEntitiesSection({ slug }: { slug: string }) {
   }
 
   return (
-    <section className="mt-8 border-t border-border/50 pt-6">
+    <section className="border-t border-border/50 pt-6">
       <h2 className="text-lg font-semibold mb-4">Tagged Entities</h2>
+
+      {/* Usage breakdown by entity type */}
+      {sortedTypes.length > 1 && (
+        <div className="flex flex-wrap gap-3 mb-6">
+          {sortedTypes.map((entityType) => {
+            const count = grouped[entityType].length
+            const Icon = ENTITY_TYPE_ICONS[entityType] || Hash
+            return (
+              <div
+                key={entityType}
+                className="inline-flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-1.5 text-sm"
+              >
+                <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="font-medium">{count}</span>
+                <span className="text-muted-foreground">
+                  {count === 1
+                    ? entityType.charAt(0).toUpperCase() + entityType.slice(1)
+                    : getEntityTypePluralLabel(entityType)}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       <div className="space-y-6">
         {sortedTypes.map((entityType) => {
           const entities = grouped[entityType]

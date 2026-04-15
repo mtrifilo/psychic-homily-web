@@ -37,11 +37,9 @@ export function useCollections(params?: CollectionListParams) {
         ? `${API_ENDPOINTS.COLLECTIONS.LIST}?${qs}`
         : API_ENDPOINTS.COLLECTIONS.LIST
 
-      // Backend currently returns { crates, total } — map to { collections, total }
-      // so the frontend consistently uses "collections" terminology.
-      return apiRequest<{ crates: Collection[]; total: number }>(url).then(
+      return apiRequest<{ collections: Collection[]; total: number }>(url).then(
         (data) => ({
-          collections: data.crates ?? [],
+          collections: data.collections ?? [],
           total: data.total,
         })
       )
@@ -77,11 +75,10 @@ export function useMyCollections() {
   return useQuery({
     queryKey: queryKeys.collections.my,
     queryFn: () =>
-      // Backend currently returns { crates, total } — map to { collections, total }.
-      apiRequest<{ crates: Collection[]; total: number }>(
+      apiRequest<{ collections: Collection[]; total: number }>(
         API_ENDPOINTS.COLLECTIONS.MY
       ).then((data) => ({
-        collections: data.crates ?? [],
+        collections: data.collections ?? [],
         total: data.total,
       })),
     staleTime: 5 * 60 * 1000,
@@ -307,10 +304,10 @@ export function useEntityCollections(
   return useQuery({
     queryKey: queryKeys.collections.entity(entityType, entityId),
     queryFn: () =>
-      apiRequest<{ crates: Collection[]; }>(
+      apiRequest<{ collections: Collection[]; }>(
         API_ENDPOINTS.COLLECTIONS.ENTITY(entityType, entityId)
       ).then((data) => ({
-        collections: data.crates ?? [],
+        collections: data.collections ?? [],
       })),
     enabled: (options?.enabled ?? true) && entityId > 0,
     staleTime: 5 * 60 * 1000,
@@ -325,10 +322,10 @@ export function useUserPublicCollections(
   return useQuery({
     queryKey: queryKeys.collections.userPublic(username),
     queryFn: () =>
-      apiRequest<{ crates: Collection[]; total: number }>(
+      apiRequest<{ collections: Collection[]; total: number }>(
         API_ENDPOINTS.COLLECTIONS.USER_PUBLIC(username)
       ).then((data) => ({
-        collections: data.crates ?? [],
+        collections: data.collections ?? [],
         total: data.total,
       })),
     enabled: (options?.enabled ?? true) && username.length > 0,

@@ -1,11 +1,32 @@
 'use client'
 
 import Link from 'next/link'
-import { Library, Users, Star, Clock } from 'lucide-react'
+import {
+  Library,
+  Users,
+  Star,
+  Clock,
+  Mic2,
+  MapPin,
+  Calendar,
+  Disc3,
+  Tag,
+  Tent,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { getEntityTypeLabel, type Collection } from '../types'
+
+const ENTITY_ICONS: Record<string, LucideIcon> = {
+  artist: Mic2,
+  venue: MapPin,
+  show: Calendar,
+  release: Disc3,
+  label: Tag,
+  festival: Tent,
+}
 
 interface CollectionCardProps {
   collection: Collection
@@ -16,10 +37,16 @@ export function CollectionCard({ collection }: CollectionCardProps) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 2)
 
+  // Get up to 4 entity type icons for the mosaic placeholder
+  const mosaicTypes = Object.entries(collection.entity_type_counts ?? {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([type]) => type)
+
   return (
     <article className="rounded-lg border border-border/50 bg-card p-4 transition-shadow hover:shadow-sm">
       <div className="flex gap-3">
-        {/* Icon / cover image placeholder */}
+        {/* Icon / cover image / entity-type mosaic */}
         <div className="h-16 w-16 shrink-0 rounded-md bg-muted/50 flex items-center justify-center overflow-hidden">
           {collection.cover_image_url ? (
             <img
@@ -27,6 +54,32 @@ export function CollectionCard({ collection }: CollectionCardProps) {
               alt={`${collection.title} cover`}
               className="h-full w-full object-cover"
             />
+          ) : mosaicTypes.length > 0 ? (
+            <div
+              className={cn(
+                'grid gap-0.5 p-1.5',
+                mosaicTypes.length === 1
+                  ? 'grid-cols-1'
+                  : 'grid-cols-2'
+              )}
+            >
+              {mosaicTypes.map((type) => {
+                const Icon = ENTITY_ICONS[type] ?? Library
+                return (
+                  <div
+                    key={type}
+                    className="flex items-center justify-center"
+                  >
+                    <Icon
+                      className={cn(
+                        'text-muted-foreground/50',
+                        mosaicTypes.length === 1 ? 'h-7 w-7' : 'h-5 w-5'
+                      )}
+                    />
+                  </div>
+                )
+              })}
+            </div>
           ) : (
             <Library className="h-8 w-8 text-muted-foreground/40" />
           )}
@@ -35,7 +88,10 @@ export function CollectionCard({ collection }: CollectionCardProps) {
         {/* Text content */}
         <div className="flex-1 min-w-0">
           <Link href={`/collections/${collection.slug}`} className="block group">
-            <h3 className="font-bold text-foreground group-hover:text-primary transition-colors line-clamp-2">
+            <h3
+              className="font-bold text-foreground group-hover:text-primary transition-colors line-clamp-1"
+              title={collection.title}
+            >
               {collection.title}
             </h3>
           </Link>

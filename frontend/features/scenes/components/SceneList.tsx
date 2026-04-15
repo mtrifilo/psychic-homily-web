@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { MapPin, Building2, Calendar } from 'lucide-react'
+import { MapPin, Building2, Calendar, Music } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { LoadingSpinner } from '@/components/shared'
 import { useScenes } from '../hooks'
@@ -33,7 +33,7 @@ export function SceneList() {
         <MapPin className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
         <h2 className="text-lg font-medium mb-2">No scenes yet</h2>
         <p className="text-muted-foreground text-sm max-w-md mx-auto">
-          Scene pages appear for cities with enough venue and show activity.
+          Scene pages appear for cities with venue and show activity.
           Check back as the community grows.
         </p>
       </div>
@@ -52,15 +52,21 @@ export function SceneList() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                 <span className="flex items-center gap-1.5">
                   <Building2 className="h-3.5 w-3.5" />
                   {scene.venue_count} venue{scene.venue_count !== 1 ? 's' : ''}
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <Calendar className="h-3.5 w-3.5" />
-                  {scene.upcoming_show_count} upcoming show{scene.upcoming_show_count !== 1 ? 's' : ''}
+                  <Music className="h-3.5 w-3.5" />
+                  {scene.total_show_count} show{scene.total_show_count !== 1 ? 's' : ''}
                 </span>
+                {scene.upcoming_show_count > 0 && (
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="h-3.5 w-3.5" />
+                    {scene.upcoming_show_count} upcoming
+                  </span>
+                )}
               </div>
             </CardContent>
           </Card>

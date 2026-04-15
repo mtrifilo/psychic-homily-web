@@ -31,7 +31,7 @@ vi.mock('@/lib/queryClient', () => ({
     tags: {
       all: ['tags'],
       list: (params?: Record<string, unknown>) => ['tags', 'list', params],
-      search: (query: string) => ['tags', 'search', query.toLowerCase()],
+      search: (query: string, category?: string) => ['tags', 'search', query.toLowerCase(), category ?? ''],
       detail: (id: string | number) => ['tags', 'detail', String(id)],
       entityTags: (entityType: string, entityId: number) => ['tags', 'entityTags', entityType, entityId],
     },
@@ -144,6 +144,31 @@ describe('useSearchTags', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockApiRequest.mock.calls[0][0]).toContain('limit=5')
+  })
+
+  it('includes category filter param', async () => {
+    mockApiRequest.mockResolvedValueOnce({ tags: [] })
+
+    const { result } = renderHook(() => useSearchTags('rock', 10, 'genre'), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const url = mockApiRequest.mock.calls[0][0] as string
+    expect(url).toContain('category=genre')
+    expect(url).toContain('q=rock')
+  })
+
+  it('omits category param when not specified', async () => {
+    mockApiRequest.mockResolvedValueOnce({ tags: [] })
+
+    const { result } = renderHook(() => useSearchTags('rock', 10), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const url = mockApiRequest.mock.calls[0][0] as string
+    expect(url).not.toContain('category=')
   })
 })
 

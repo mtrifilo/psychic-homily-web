@@ -548,6 +548,7 @@ type SceneListResponse struct {
 	Slug              string `json:"slug"`
 	VenueCount        int    `json:"venue_count"`
 	UpcomingShowCount int    `json:"upcoming_show_count"`
+	TotalShowCount    int    `json:"total_show_count"`
 }
 
 // SceneDetailResponse represents the full computed scene for a city

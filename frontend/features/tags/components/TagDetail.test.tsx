@@ -439,8 +439,9 @@ describe('TagDetail', () => {
     renderWithProviders(<TagDetail slug="rock" />)
 
     expect(screen.getByText('Tagged Entities')).toBeInTheDocument()
-    expect(screen.getByText('Artists')).toBeInTheDocument()
-    expect(screen.getByText('Venues')).toBeInTheDocument()
+    // "Artists" and "Venues" appear both in the usage breakdown bar and the section headings
+    expect(screen.getAllByText('Artists').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Venues').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByRole('link', { name: 'Radiohead' })).toHaveAttribute('href', '/artists/radiohead')
     expect(screen.getByRole('link', { name: 'Portishead' })).toHaveAttribute('href', '/artists/portishead')
     expect(screen.getByRole('link', { name: 'The Rebel Lounge' })).toHaveAttribute('href', '/venues/the-rebel-lounge')
@@ -474,5 +475,74 @@ describe('TagDetail', () => {
     // There should be a spinner in the entities section (separate from the main loading state)
     const spinners = document.querySelectorAll('.animate-spin')
     expect(spinners.length).toBeGreaterThanOrEqual(1)
+  })
+
+  // ── Usage breakdown by entity type ──
+
+  it('renders usage breakdown bar when multiple entity types are present', () => {
+    mockUseTag.mockReturnValue({
+      data: makeTagDetail({ usage_count: 4 }),
+      isLoading: false,
+      error: null,
+    })
+    mockUseTagEntities.mockReturnValue({
+      data: {
+        entities: [
+          { entity_type: 'artist', entity_id: 1, name: 'Radiohead', slug: 'radiohead' },
+          { entity_type: 'artist', entity_id: 2, name: 'Portishead', slug: 'portishead' },
+          { entity_type: 'venue', entity_id: 10, name: 'The Rebel Lounge', slug: 'the-rebel-lounge' },
+          { entity_type: 'show', entity_id: 20, name: 'Live at Rebel', slug: 'live-at-rebel' },
+        ],
+        total: 4,
+      },
+      isLoading: false,
+    })
+
+    renderWithProviders(<TagDetail slug="rock" />)
+
+    // The breakdown bar should show counts: "2" for artists, "1" for venue, "1" for show
+    expect(screen.getByText('2')).toBeInTheDocument()
+  })
+
+  it('does not render usage breakdown bar with only one entity type', () => {
+    mockUseTag.mockReturnValue({
+      data: makeTagDetail({ usage_count: 2 }),
+      isLoading: false,
+      error: null,
+    })
+    mockUseTagEntities.mockReturnValue({
+      data: {
+        entities: [
+          { entity_type: 'artist', entity_id: 1, name: 'Radiohead', slug: 'radiohead' },
+          { entity_type: 'artist', entity_id: 2, name: 'Portishead', slug: 'portishead' },
+        ],
+        total: 2,
+      },
+      isLoading: false,
+    })
+
+    renderWithProviders(<TagDetail slug="rock" />)
+
+    // With only one entity type, no breakdown bar is shown — only the section heading
+    expect(screen.getByText('Artists')).toBeInTheDocument()
+    // The count "2" should only appear as part of the section heading "(2)"
+    expect(screen.getByText('(2)')).toBeInTheDocument()
+  })
+
+  // ── Creation date ──
+
+  it('renders creation date from created_at timestamp', () => {
+    mockUseTag.mockReturnValue({
+      data: makeTagDetail({ created_at: '2025-01-01T00:00:00Z' }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<TagDetail slug="rock" />)
+
+    // formatRelativeTime will produce a date string (e.g. "Jan 1, 2025" or "X months ago")
+    // We just verify a Clock icon container is rendered alongside it
+    const clockIcons = document.querySelectorAll('.lucide-clock')
+    expect(clockIcons.length).toBeGreaterThanOrEqual(1)
   })
 })
