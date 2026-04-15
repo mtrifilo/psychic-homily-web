@@ -83,3 +83,17 @@ func TestRateLimitAPIEndpoints_ReturnsMiddleware(t *testing.T) {
 		t.Fatal("RateLimitAPIEndpoints() returned nil")
 	}
 }
+
+func TestRateLimitTagCreateEndpoints_ReturnsMiddleware(t *testing.T) {
+	mw := RateLimitTagCreateEndpoints()
+	if mw == nil {
+		t.Fatal("RateLimitTagCreateEndpoints() returned nil")
+	}
+}
+
+func TestRateLimitTagVoteEndpoints_ReturnsMiddleware(t *testing.T) {
+	mw := RateLimitTagVoteEndpoints()
+	if mw == nil {
+		t.Fatal("RateLimitTagVoteEndpoints() returned nil")
+	}
+}

@@ -456,6 +456,7 @@ func (s *TagService) ListEntityTags(entityType string, entityID uint, userID uin
 			Name:        et.Tag.Name,
 			Slug:        et.Tag.Slug,
 			Category:    et.Tag.Category,
+			IsOfficial:  et.Tag.IsOfficial,
 			Upvotes:     int(upvotes),
 			Downvotes:   int(downvotes),
 			WilsonScore: wilsonScore(int(upvotes), int(downvotes)),
