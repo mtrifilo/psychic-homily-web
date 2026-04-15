@@ -121,8 +121,18 @@ func (p *KEXPProvider) DiscoverShows() ([]RadioShowImport, error) {
 
 // FetchNewEpisodes returns KEXP "shows" (broadcasts) for a program within [since, until].
 // A zero until means no upper bound.
+//
+// NOTE: The KEXP API's program_id query parameter is silently ignored — the
+// endpoint returns ALL broadcasts regardless of which program was requested.
+// We still pass it (in case KEXP fixes this) but filter client-side by
+// comparing each broadcast's program_id to the requested showExternalID.
 func (p *KEXPProvider) FetchNewEpisodes(showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error) {
 	var allEpisodes []RadioEpisodeImport
+
+	programID, err := strconv.Atoi(showExternalID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid KEXP program ID %q: %w", showExternalID, err)
+	}
 
 	sinceStr := since.UTC().Format(time.RFC3339)
 	url := fmt.Sprintf("%s/v2/shows/?program_id=%s&start_time_after=%s&limit=100&ordering=start_time",
@@ -147,6 +157,10 @@ func (p *KEXPProvider) FetchNewEpisodes(showExternalID string, since time.Time, 
 		}
 
 		for _, show := range page.Results {
+			// Client-side filter: KEXP API ignores program_id param.
+			if show.ProgramID != programID {
+				continue
+			}
 			ep := parseKEXPEpisode(show, showExternalID)
 			allEpisodes = append(allEpisodes, ep)
 		}
