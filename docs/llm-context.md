@@ -79,8 +79,17 @@ See `docs/vision.md` for the full north star, What.cd feature mapping, and entit
 | Product vision, strategic direction | `docs/vision.md`, `docs/strategy/ROADMAP.md` |
 | Backend architecture, conventions, test patterns | `CLAUDE.md` (Architecture section) |
 | Comments, discussion, field notes, moderation | `docs/strategy/comments-and-field-notes.md` |
-| Collections UX, curated lists, prior art | `docs/learnings/curated-list-prior-art.md` |
+| Comment notifications, mentions | `docs/strategy/comment-notifications.md` (**NEEDS DEEP DIVE**) |
+| Collections UX, curated lists, prior art | `docs/learnings/curated-list-prior-art.md`, `docs/strategy/collections-ux.md` (**NEEDS DEEP DIVE**) |
+| Tags, tag categories, tag UX | `docs/strategy/tags-redesign.md` (**category taxonomy UNVALIDATED**) |
+| Charts, trending, rankings | `docs/strategy/charts-and-trending.md` (**NEEDS DEEP DIVE**) |
 | Radio entities, providers, backfill | `docs/strategy/radio-entities.md`, `docs/learnings/radio-provider-backfill-audit.md` |
+| Radio browse page UX | `docs/strategy/radio-browse-ux.md` (**NEEDS DEEP DIVE**) |
+| Scene pages, city thresholds | `docs/strategy/scene-pages.md`, `docs/strategy/scene-thresholds.md` (**NEEDS DEEP DIVE**) |
+| Ratings (releases, shows) | `docs/strategy/ratings.md` (**DECIDED: star ratings deferred, lean into existing signals**) |
+| Release editions, provenance | `docs/strategy/release-provenance.md` (**NEEDS DEEP DIVE**) |
+| Featured content, entity rankings | `docs/strategy/featured-content.md` (**NEEDS DEEP DIVE**) |
+| CSP, security headers | `docs/strategy/csp-and-security.md` (**NEEDS REVIEW**) |
 | Discovery pipeline, scrapers | `docs/strategy/discovery.md`, `docs/learnings/discovery.md` |
 | Frontend patterns, form conventions | `docs/learnings/frontend-patterns.md` |
 | Gazelle/What.cd patterns | `docs/learnings/gazelle-patterns.md`, `gazelle-user-profiles.md`, `whatcd-user-insights.md` |
@@ -92,6 +101,8 @@ See `docs/vision.md` for the full north star, What.cd feature mapping, and entit
 
 ## Guardrails
 
+- **Check strategy docs before implementing features** — if `docs/strategy/{feature}.md` exists and says **NEEDS DEEP DIVE**, do NOT implement. Report back to the user that the feature needs design research first.
+- **Never invent design decisions** — if a ticket is ambiguous about categories, thresholds, taxonomies, UX patterns, or feature semantics, STOP and ask. Do not guess.
 - **Entities use slugs** — all public-facing entities have SEO-friendly slug URLs
 - **Approval workflow** — user-submitted content goes through admin review
 - **Fire-and-forget** — Discord notifications and audit logs never fail parent operations
