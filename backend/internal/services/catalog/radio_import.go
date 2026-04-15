@@ -374,28 +374,38 @@ func (s *RadioService) ImportShowEpisodes(showID uint, since string, until strin
 
 // upsertRadioShow creates or updates a radio show from import data.
 // Returns the internal show ID.
+//
+// When a show already exists (matched by station_id + external_id), only
+// fields that are currently empty/NULL in the database are populated from
+// the import data. This preserves admin-curated or migration-seeded values
+// (e.g. description, host_name, broadcast_type) that are typically higher
+// quality than what providers return.
 func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImport) (uint, error) {
 	var existing models.RadioShow
 	err := s.db.Where("station_id = ? AND external_id = ?", stationID, importShow.ExternalID).First(&existing).Error
 	if err == nil {
-		// Update existing show
-		updates := map[string]interface{}{
-			"name": importShow.Name,
+		// Only fill in fields that are currently empty — never overwrite curated data.
+		updates := map[string]interface{}{}
+
+		if existing.Name == "" && importShow.Name != "" {
+			updates["name"] = importShow.Name
 		}
-		if importShow.HostName != nil {
+		if existing.HostName == nil && importShow.HostName != nil {
 			updates["host_name"] = *importShow.HostName
 		}
-		if importShow.Description != nil {
+		if existing.Description == nil && importShow.Description != nil {
 			updates["description"] = *importShow.Description
 		}
-		if importShow.ImageURL != nil {
+		if existing.ImageURL == nil && importShow.ImageURL != nil {
 			updates["image_url"] = *importShow.ImageURL
 		}
-		if importShow.ArchiveURL != nil {
+		if existing.ArchiveURL == nil && importShow.ArchiveURL != nil {
 			updates["archive_url"] = *importShow.ArchiveURL
 		}
 
-		s.db.Model(&existing).Updates(updates)
+		if len(updates) > 0 {
+			s.db.Model(&existing).Updates(updates)
+		}
 		return existing.ID, nil
 	}
 
