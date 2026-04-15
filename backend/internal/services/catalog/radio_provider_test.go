@@ -307,13 +307,15 @@ func TestKEXPProvider_FetchPlaylist(t *testing.T) {
 	var playsRequestQuery string
 
 	mux := http.NewServeMux()
-	// Show detail endpoint — called first to resolve start_time.
+	// Show detail endpoint -- returns start_time AND end_time so the provider
+	// should use the actual broadcast window (4 hours) instead of the fallback.
 	mux.HandleFunc("/v2/shows/5678/", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":           5678,
 			"program_id":   42,
 			"program_name": "The Morning Show",
 			"start_time":   "2026-01-15T06:00:00-08:00",
+			"end_time":     "2026-01-15T10:00:00-08:00",
 		})
 	})
 	mux.HandleFunc("/v2/plays/", func(w http.ResponseWriter, r *http.Request) {
@@ -381,8 +383,9 @@ func TestKEXPProvider_FetchPlaylist(t *testing.T) {
 	// airdate_after should match the show start_time (UTC). The broadcast
 	// starts at 2026-01-15T06:00:00-08:00 which is 2026-01-15T14:00:00Z.
 	assert.Contains(t, playsRequestQuery, "airdate_after=2026-01-15T14:00:00Z")
-	// airdate_before should be 5 hours later: 2026-01-15T19:00:00Z.
-	assert.Contains(t, playsRequestQuery, "airdate_before=2026-01-15T19:00:00Z")
+	// airdate_before should match the show end_time (UTC). The broadcast
+	// ends at 2026-01-15T10:00:00-08:00 which is 2026-01-15T18:00:00Z.
+	assert.Contains(t, playsRequestQuery, "airdate_before=2026-01-15T18:00:00Z")
 
 	// First play
 	assert.Equal(t, 0, plays[0].Position)
@@ -400,6 +403,52 @@ func TestKEXPProvider_FetchPlaylist(t *testing.T) {
 	assert.Equal(t, "Deerhunter", plays[1].ArtistName)
 	assert.True(t, plays[1].IsNew)
 	assert.True(t, plays[1].IsLivePerformance)
+}
+
+func TestKEXPProvider_FetchPlaylist_NoEndTimeFallback(t *testing.T) {
+	var playsRequestQuery string
+
+	mux := http.NewServeMux()
+	// Show detail endpoint -- no end_time, so provider should fall back to
+	// kexpPlaylistWindowFallback (5 hours).
+	mux.HandleFunc("/v2/shows/7777/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":         7777,
+			"start_time": "2026-01-15T14:00:00Z",
+		})
+	})
+	mux.HandleFunc("/v2/plays/", func(w http.ResponseWriter, r *http.Request) {
+		playsRequestQuery = r.URL.RawQuery
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"next":  nil,
+			"count": 1,
+			"results": []map[string]interface{}{
+				{
+					"id":        1,
+					"play_type": "trackplay",
+					"airdate":   "2026-01-15T14:05:00Z",
+					"artist":    "Yo La Tengo",
+					"song":      "Tom Courtenay",
+				},
+			},
+		})
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	provider := NewKEXPProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	plays, err := provider.FetchPlaylist("7777")
+
+	require.NoError(t, err)
+	assert.Len(t, plays, 1)
+	assert.Equal(t, "Yo La Tengo", plays[0].ArtistName)
+
+	// Without end_time, should fall back to start_time + 5h = 2026-01-15T19:00:00Z
+	assert.Contains(t, playsRequestQuery, "airdate_after=2026-01-15T14:00:00Z")
+	assert.Contains(t, playsRequestQuery, "airdate_before=2026-01-15T19:00:00Z")
 }
 
 func TestKEXPProvider_FetchPlaylist_OnlyTrackPlays(t *testing.T) {
