@@ -11,8 +11,9 @@ type RadioPlaylistProvider interface {
 	// DiscoverShows returns all available shows/programs from the station.
 	DiscoverShows() ([]RadioShowImport, error)
 
-	// FetchNewEpisodes returns episodes for a given show since the specified time.
-	FetchNewEpisodes(showExternalID string, since time.Time) ([]RadioEpisodeImport, error)
+	// FetchNewEpisodes returns episodes for a given show within [since, until].
+	// A zero until means no upper bound.
+	FetchNewEpisodes(showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error)
 
 	// FetchPlaylist returns the track plays for a specific episode.
 	FetchPlaylist(episodeExternalID string) ([]RadioPlayImport, error)

@@ -69,7 +69,7 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 	// 2. Fetch episodes for each show
 	since := time.Now().AddDate(0, 0, -backfillDays)
 	for extID, showID := range showMap {
-		episodes, err := provider.FetchNewEpisodes(extID, since)
+		episodes, err := provider.FetchNewEpisodes(extID, since, time.Time{})
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("fetch episodes for show %s: %v", extID, err))
 			continue
@@ -134,7 +134,7 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 			continue
 		}
 
-		episodes, err := provider.FetchNewEpisodes(*show.ExternalID, since)
+		episodes, err := provider.FetchNewEpisodes(*show.ExternalID, since, time.Time{})
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("fetch episodes for show %s: %v", show.Name, err))
 			continue
@@ -313,12 +313,13 @@ func (s *RadioService) importShowEpisodesWithProgress(
 		return nil, fmt.Errorf("show %d has no external ID", showID)
 	}
 
-	episodes, err := provider.FetchNewEpisodes(*show.ExternalID, sinceTime)
+	episodes, err := provider.FetchNewEpisodes(*show.ExternalID, sinceTime, untilTime)
 	if err != nil {
 		return nil, fmt.Errorf("fetching episodes: %w", err)
 	}
 
 	// Filter episodes by air_date within [since, until] (inclusive both ends)
+	// Providers apply coarse date filtering, but we still apply precise bounds here.
 	var filtered []RadioEpisodeImport
 	for _, ep := range episodes {
 		epDate, parseErr := time.Parse("2006-01-02", ep.AirDate)

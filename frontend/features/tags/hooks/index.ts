@@ -55,15 +55,16 @@ export function useTags(params?: UseTagsParams) {
 }
 
 /** Search tags for autocomplete (debounced, enabled when query length >= 2) */
-export function useSearchTags(query: string, limit?: number) {
+export function useSearchTags(query: string, limit?: number, category?: string) {
   const searchParams = new URLSearchParams()
   searchParams.set('q', query)
   if (limit) searchParams.set('limit', String(limit))
+  if (category) searchParams.set('category', category)
 
   const url = `${API_ENDPOINTS.TAGS.SEARCH}?${searchParams.toString()}`
 
   return useQuery({
-    queryKey: queryKeys.tags.search(query),
+    queryKey: queryKeys.tags.search(query, category),
     queryFn: () => apiRequest<TagSearchResponse>(url),
     enabled: query.length >= 2,
     staleTime: 30 * 1000,

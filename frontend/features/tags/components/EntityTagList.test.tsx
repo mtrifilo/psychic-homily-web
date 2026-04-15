@@ -69,6 +69,8 @@ vi.mock('../hooks', () => ({
 
 vi.mock('../types', () => ({
   getCategoryColor: () => '',
+  getCategoryLabel: (cat: string) => cat.charAt(0).toUpperCase() + cat.slice(1),
+  TAG_CATEGORIES: ['genre', 'locale', 'other'],
 }))
 
 import { EntityTagList } from './EntityTagList'
