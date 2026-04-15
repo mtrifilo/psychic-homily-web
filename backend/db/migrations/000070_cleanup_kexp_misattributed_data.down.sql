@@ -1,0 +1,2 @@
+-- Cannot restore deleted episodes or re-split merged shows.
+-- This is a data cleanup migration; down is a no-op.
