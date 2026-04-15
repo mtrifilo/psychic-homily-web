@@ -123,9 +123,9 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 
 	result := &contracts.RadioImportResult{}
 
-	// Get all shows for this station
+	// Get active shows for this station
 	var shows []models.RadioShow
-	if err := s.db.Where("station_id = ?", stationID).Find(&shows).Error; err != nil {
+	if err := s.db.Where("station_id = ? AND is_active = ?", stationID, true).Find(&shows).Error; err != nil {
 		return nil, fmt.Errorf("loading shows: %w", err)
 	}
 
