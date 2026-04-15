@@ -11,12 +11,12 @@ ON CONFLICT (slug) DO NOTHING;
 -- KEXP shows
 INSERT INTO radio_shows (station_id, name, slug, host_name, description, schedule_display, archive_url, external_id, is_active)
 VALUES
-    ((SELECT id FROM radio_stations WHERE slug = 'kexp'), 'The Morning Show', 'the-morning-show', 'John Richards', 'KEXP''s flagship morning program featuring a hand-picked mix of new and classic tracks.', 'Weekdays 6-10 AM PT', 'https://www.kexp.org/shows/the-morning-show/', '1', TRUE),
-    ((SELECT id FROM radio_stations WHERE slug = 'kexp'), 'The Midday Show', 'the-midday-show', 'Cheryl Waters', 'A mid-day mix of new music discoveries and deep cuts.', 'Weekdays 10 AM-2 PM PT', 'https://www.kexp.org/shows/the-midday-show/', '2', TRUE),
-    ((SELECT id FROM radio_stations WHERE slug = 'kexp'), 'The Afternoon Show', 'the-afternoon-show', 'Kevin Cole', 'KEXP afternoon programming with a mix of established and emerging artists.', 'Weekdays 2-6 PM PT', 'https://www.kexp.org/shows/the-afternoon-show/', '3', TRUE),
-    ((SELECT id FROM radio_stations WHERE slug = 'kexp'), 'Audioasis', 'audioasis', 'Kennady Quille', 'KEXP''s long-running Northwest music show spotlighting artists from the Pacific Northwest.', 'Saturdays 6-9 PM PT', 'https://www.kexp.org/shows/Audioasis/', '4', TRUE),
-    ((SELECT id FROM radio_stations WHERE slug = 'kexp'), 'El Sonido', 'el-sonido', 'Albina Cabrera, Goyri', 'A trip around the diverse world of Latin music and culture.', 'Saturdays 9 PM-12 AM PT', 'https://www.kexp.org/shows/El-Sonido/', '5', TRUE),
-    ((SELECT id FROM radio_stations WHERE slug = 'kexp'), 'Midnight in a Perfect World', 'midnight-in-a-perfect-world', NULL, 'Late-night electronic music exploring ambient, house, techno, and experimental sounds.', 'Saturdays 12-3 AM PT', 'https://www.kexp.org/shows/Midnight-in-a-Perfect-World/', '6', TRUE)
+    ((SELECT id FROM radio_stations WHERE slug = 'kexp'), 'The Morning Show', 'the-morning-show', 'John Richards', 'KEXP''s flagship morning program featuring a hand-picked mix of new and classic tracks.', 'Weekdays 6-10 AM PT', 'https://www.kexp.org/shows/The-Morning-Show/', '16', TRUE),
+    ((SELECT id FROM radio_stations WHERE slug = 'kexp'), 'The Midday Show', 'the-midday-show', 'Cheryl Waters', 'A mid-day mix of new music discoveries and deep cuts.', 'Weekdays 10 AM-2 PM PT', 'https://www.kexp.org/shows/The-Midday-Show/', '15', TRUE),
+    ((SELECT id FROM radio_stations WHERE slug = 'kexp'), 'The Afternoon Show', 'the-afternoon-show', 'Kevin Cole', 'KEXP afternoon programming with a mix of established and emerging artists.', 'Weekdays 2-6 PM PT', 'https://www.kexp.org/shows/The-Afternoon-Show/', '14', TRUE),
+    ((SELECT id FROM radio_stations WHERE slug = 'kexp'), 'Audioasis', 'audioasis', 'Kennady Quille', 'KEXP''s long-running Northwest music show spotlighting artists from the Pacific Northwest.', 'Saturdays 6-9 PM PT', 'https://www.kexp.org/shows/Audioasis/', '1', TRUE),
+    ((SELECT id FROM radio_stations WHERE slug = 'kexp'), 'El Sonido', 'el-sonido', 'Albina Cabrera, Goyri', 'A trip around the diverse world of Latin music and culture.', 'Saturdays 9 PM-12 AM PT', 'https://www.kexp.org/shows/El-Sonido/', '2', TRUE),
+    ((SELECT id FROM radio_stations WHERE slug = 'kexp'), 'Midnight in a Perfect World', 'midnight-in-a-perfect-world', NULL, 'Late-night electronic music exploring ambient, house, techno, and experimental sounds.', 'Saturdays 12-3 AM PT', 'https://www.kexp.org/shows/Midnight-in-a-Perfect-World/', '5', TRUE)
 ON CONFLICT (slug) DO NOTHING;
 
 -- WFMU shows

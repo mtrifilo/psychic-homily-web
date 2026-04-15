@@ -1104,6 +1104,71 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_FillsEmptyFiel
 	suite.Equal("https://example.com/archive", *updated.ArchiveURL) // was nil, filled
 }
 
+func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_SlugFallback() {
+	station := suite.createStation("KEXP")
+
+	// Simulate a seeded show with the wrong external_id (the original bug).
+	// The seed had external_id='1' for "The Morning Show", but the real
+	// KEXP API program ID is '16'.
+	wrongExtID := "1"
+	show := &models.RadioShow{
+		StationID:  station.ID,
+		Name:       "The Morning Show",
+		Slug:       "the-morning-show",
+		ExternalID: &wrongExtID,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+
+	// Now upsert with the correct external_id from the API.
+	// The slug "the-morning-show" should match, and external_id should be updated.
+	importShow := RadioShowImport{
+		ExternalID: "16",
+		Name:       "The Morning Show",
+		HostName:   stringPtr("John Richards"),
+	}
+
+	showID, err := suite.radioService.upsertRadioShow(station.ID, importShow)
+	suite.Require().NoError(err)
+	suite.Equal(show.ID, showID, "should match the existing show by slug, not create a new one")
+
+	// Verify external_id was updated to the correct value
+	var updated models.RadioShow
+	suite.db.First(&updated, showID)
+	suite.Equal("16", *updated.ExternalID)
+	suite.Equal("The Morning Show", updated.Name)
+	suite.Equal("John Richards", *updated.HostName)
+
+	// Verify no duplicate was created
+	var count int64
+	suite.db.Model(&models.RadioShow{}).Where("station_id = ?", station.ID).Count(&count)
+	suite.Equal(int64(1), count)
+}
+
+func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_SlugFallbackDoesNotCrossStations() {
+	station1 := suite.createStation("KEXP")
+	station2 := suite.createStation("NTS")
+
+	// Create show in station1 with slug "morning-show"
+	extID := "1"
+	show := &models.RadioShow{
+		StationID:  station1.ID,
+		Name:       "Morning Show",
+		Slug:       "morning-show",
+		ExternalID: &extID,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+
+	// Upsert a show with the same name but for station2 — should NOT match station1's show
+	importShow := RadioShowImport{
+		ExternalID: "99",
+		Name:       "Morning Show",
+	}
+
+	showID, err := suite.radioService.upsertRadioShow(station2.ID, importShow)
+	suite.Require().NoError(err)
+	suite.NotEqual(show.ID, showID, "should not match show from a different station")
+}
+
 func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_DeduplicatesByExternalID() {
 	station := suite.createStation("KEXP")
 	show := suite.createShow(station.ID, "Morning Show")

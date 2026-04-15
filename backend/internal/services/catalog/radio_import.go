@@ -375,34 +375,22 @@ func (s *RadioService) ImportShowEpisodes(showID uint, since string, until strin
 // upsertRadioShow creates or updates a radio show from import data.
 // Returns the internal show ID.
 //
-// When a show already exists (matched by station_id + external_id), only
-// fields that are currently empty/NULL in the database are populated from
-// the import data. This preserves admin-curated or migration-seeded values
-// (e.g. description, host_name, broadcast_type) that are typically higher
-// quality than what providers return.
+// Matching priority:
+//  1. (station_id, external_id) — canonical match
+//  2. (station_id, slug) — fallback for seeded shows whose external_id
+//     may have been incorrect; also updates external_id to the correct value
+//  3. Create new show
+//
+// When a show already exists, only fields that are currently empty/NULL in
+// the database are populated from the import data. This preserves
+// admin-curated or migration-seeded values.
 func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImport) (uint, error) {
+	// Try matching by external_id first (canonical path)
 	var existing models.RadioShow
 	err := s.db.Where("station_id = ? AND external_id = ?", stationID, importShow.ExternalID).First(&existing).Error
 	if err == nil {
 		// Only fill in fields that are currently empty — never overwrite curated data.
-		updates := map[string]interface{}{}
-
-		if existing.Name == "" && importShow.Name != "" {
-			updates["name"] = importShow.Name
-		}
-		if existing.HostName == nil && importShow.HostName != nil {
-			updates["host_name"] = *importShow.HostName
-		}
-		if existing.Description == nil && importShow.Description != nil {
-			updates["description"] = *importShow.Description
-		}
-		if existing.ImageURL == nil && importShow.ImageURL != nil {
-			updates["image_url"] = *importShow.ImageURL
-		}
-		if existing.ArchiveURL == nil && importShow.ArchiveURL != nil {
-			updates["archive_url"] = *importShow.ArchiveURL
-		}
-
+		updates := s.buildNullSafeShowUpdates(&existing, importShow)
 		if len(updates) > 0 {
 			s.db.Model(&existing).Updates(updates)
 		}
@@ -410,11 +398,29 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 	}
 
 	if err != gorm.ErrRecordNotFound {
-		return 0, fmt.Errorf("checking existing show: %w", err)
+		return 0, fmt.Errorf("checking existing show by external_id: %w", err)
+	}
+
+	// Fallback: match by slug within the same station.
+	// This handles seeded shows that had incorrect external_ids — the slug
+	// derived from the name will still match, so we adopt the API's
+	// external_id instead of creating a duplicate.
+	baseSlug := utils.GenerateArtistSlug(importShow.Name)
+	err = s.db.Where("station_id = ? AND slug = ?", stationID, baseSlug).First(&existing).Error
+	if err == nil {
+		// Found by slug — update external_id to the correct API value and
+		// fill in any empty fields.
+		updates := s.buildNullSafeShowUpdates(&existing, importShow)
+		updates["external_id"] = importShow.ExternalID
+		s.db.Model(&existing).Updates(updates)
+		return existing.ID, nil
+	}
+
+	if err != gorm.ErrRecordNotFound {
+		return 0, fmt.Errorf("checking existing show by slug: %w", err)
 	}
 
 	// Create new show
-	baseSlug := utils.GenerateArtistSlug(importShow.Name)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
 		s.db.Model(&models.RadioShow{}).Where("slug = ?", candidate).Count(&count)
@@ -437,6 +443,30 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 	}
 
 	return show.ID, nil
+}
+
+// buildNullSafeShowUpdates returns a map of fields to update, only including
+// fields that are currently empty/NULL in the existing record. This preserves
+// admin-curated or migration-seeded values.
+func (s *RadioService) buildNullSafeShowUpdates(existing *models.RadioShow, importShow RadioShowImport) map[string]interface{} {
+	updates := map[string]interface{}{}
+
+	if existing.Name == "" && importShow.Name != "" {
+		updates["name"] = importShow.Name
+	}
+	if existing.HostName == nil && importShow.HostName != nil {
+		updates["host_name"] = *importShow.HostName
+	}
+	if existing.Description == nil && importShow.Description != nil {
+		updates["description"] = *importShow.Description
+	}
+	if existing.ImageURL == nil && importShow.ImageURL != nil {
+		updates["image_url"] = *importShow.ImageURL
+	}
+	if existing.ArchiveURL == nil && importShow.ArchiveURL != nil {
+		updates["archive_url"] = *importShow.ArchiveURL
+	}
+	return updates
 }
 
 // importEpisode imports a single episode and its playlist.
