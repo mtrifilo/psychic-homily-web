@@ -273,7 +273,7 @@ export const queryKeys = {
   tags: {
     all: ['tags'] as const,
     list: (params?: Record<string, unknown>) => ['tags', 'list', params] as const,
-    search: (query: string) => ['tags', 'search', query.toLowerCase()] as const,
+    search: (query: string, category?: string) => ['tags', 'search', query.toLowerCase(), category ?? ''] as const,
     detail: (idOrSlug: string | number) => ['tags', 'detail', String(idOrSlug)] as const,
     aliases: (tagId: number) => ['tags', 'aliases', tagId] as const,
     entityTags: (entityType: string, entityId: number) => ['tags', 'entityTags', entityType, entityId] as const,

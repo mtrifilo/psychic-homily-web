@@ -141,8 +141,9 @@ func (h *TagHandler) ListTagEntitiesHandler(ctx context.Context, req *ListTagEnt
 // ============================================================================
 
 type SearchTagsRequest struct {
-	Query string `query:"q" doc:"Search query" example:"post"`
-	Limit int    `query:"limit" required:"false" doc:"Max results (default 10)" example:"10"`
+	Query    string `query:"q" doc:"Search query" example:"post"`
+	Limit    int    `query:"limit" required:"false" doc:"Max results (default 10)" example:"10"`
+	Category string `query:"category" required:"false" doc:"Filter by category (genre, locale, descriptor, era, mood, instrument, technique, origin, status, other)" example:"genre"`
 }
 
 type SearchTagsResponse struct {
@@ -156,7 +157,7 @@ func (h *TagHandler) SearchTagsHandler(ctx context.Context, req *SearchTagsReque
 		return nil, huma.Error400BadRequest("Query parameter 'q' is required")
 	}
 
-	tags, err := h.tagService.SearchTags(req.Query, req.Limit)
+	tags, err := h.tagService.SearchTags(req.Query, req.Limit, req.Category)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to search tags")
 	}
