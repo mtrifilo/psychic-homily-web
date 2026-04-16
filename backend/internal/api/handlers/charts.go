@@ -40,6 +40,7 @@ type TrendingShowResponse struct {
 	VenueName       string    `json:"venue_name"`
 	VenueSlug       string    `json:"venue_slug"`
 	City            string    `json:"city"`
+	ArtistNames     []string  `json:"artist_names"`
 	GoingCount      int       `json:"going_count"`
 	InterestedCount int       `json:"interested_count"`
 	TotalAttendance int       `json:"total_attendance"`
@@ -73,6 +74,7 @@ func (h *ChartsHandler) GetTrendingShowsHandler(ctx context.Context, req *GetTre
 			VenueName:       s.VenueName,
 			VenueSlug:       s.VenueSlug,
 			City:            s.City,
+			ArtistNames:     s.ArtistNames,
 			GoingCount:      s.GoingCount,
 			InterestedCount: s.InterestedCount,
 			TotalAttendance: s.TotalAttendance,
@@ -269,6 +271,7 @@ func (h *ChartsHandler) GetChartsOverviewHandler(ctx context.Context, _ *GetChar
 			VenueName:       s.VenueName,
 			VenueSlug:       s.VenueSlug,
 			City:            s.City,
+			ArtistNames:     s.ArtistNames,
 			GoingCount:      s.GoingCount,
 			InterestedCount: s.InterestedCount,
 			TotalAttendance: s.TotalAttendance,
