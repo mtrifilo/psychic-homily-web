@@ -222,20 +222,25 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
           )}
         </Link>
 
-        {/* Venue */}
+        {/* Venue + City */}
         {venue && (
-          venue.slug ? (
-            <Link
-              href={`/venues/${venue.slug}`}
-              className="text-xs text-muted-foreground shrink-0 hover:text-primary transition-colors hidden sm:inline"
-            >
-              {venue.name}
-            </Link>
-          ) : (
-            <span className="text-xs text-muted-foreground shrink-0 hidden sm:inline">
-              {venue.name}
-            </span>
-          )
+          <span className="text-xs text-muted-foreground shrink-0 hidden sm:inline">
+            {venue.slug ? (
+              <Link
+                href={`/venues/${venue.slug}`}
+                className="hover:text-primary transition-colors"
+              >
+                {venue.name}
+              </Link>
+            ) : (
+              venue.name
+            )}
+            {(show.city || show.state) && (
+              <span className="text-muted-foreground/70">
+                {' '}&middot; {[show.city, show.state].filter(Boolean).join(', ')}
+              </span>
+            )}
+          </span>
         )}
 
         {/* Time */}

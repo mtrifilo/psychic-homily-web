@@ -55,9 +55,42 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
     return () => observer.disconnect()
   }, [])
 
-  // Don't show section if no relationships exist
   if (isLoading) return null
-  if (!data || (data.nodes.length === 0 && data.links.length === 0)) return null
+
+  const hasRelationships = data && (data.nodes.length > 0 || data.links.length > 0)
+
+  // Empty state: show header + message + suggest button for authenticated users
+  if (!hasRelationships) {
+    return (
+      <div ref={containerRef} className="mt-8 px-4 md:px-0">
+        <h2 className="text-lg font-semibold mb-4">Related Artists</h2>
+        <p className="text-sm text-muted-foreground">
+          No similar artists yet. Be the first to suggest one!
+        </p>
+        {isAuthenticated && (
+          <div className="mt-4">
+            {showSuggest ? (
+              <SuggestSimilarArtist
+                centerArtistId={artistId}
+                centerArtistSlug={artistSlug}
+                onClose={() => setShowSuggest(false)}
+              />
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowSuggest(true)}
+                className="text-muted-foreground"
+              >
+                <Plus className="h-4 w-4 mr-1.5" />
+                Suggest similar artist
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   const toggleType = (type: string) => {
     setActiveTypes(prev => {

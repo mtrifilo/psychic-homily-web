@@ -68,4 +68,5 @@ type ArtistRelationshipServiceInterface interface {
 
 	// Auto-derivation
 	DeriveSharedBills(minShows int) (int64, error)
+	DeriveSharedLabels(minLabels int) (int64, error)
 }
