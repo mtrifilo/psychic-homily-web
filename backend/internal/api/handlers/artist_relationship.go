@@ -308,3 +308,59 @@ func (h *ArtistRelationshipHandler) DeleteRelationshipHandler(ctx context.Contex
 
 	return nil, nil
 }
+
+// ============================================================================
+// Derive Relationships (admin)
+// ============================================================================
+
+type DeriveRelationshipsRequest struct{}
+
+type DeriveRelationshipsResponse struct {
+	Body struct {
+		Success            bool  `json:"success"`
+		SharedBillsUpserted int64 `json:"shared_bills_upserted"`
+		SharedLabelsUpserted int64 `json:"shared_labels_upserted"`
+	}
+}
+
+func (h *ArtistRelationshipHandler) DeriveRelationshipsHandler(ctx context.Context, req *DeriveRelationshipsRequest) (*DeriveRelationshipsResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	if !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	billsCount, err := h.relService.DeriveSharedBills(2)
+	if err != nil {
+		requestID := logger.GetRequestID(ctx)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to derive shared bills (request_id: %s): %v", requestID, err),
+		)
+	}
+
+	labelsCount, err := h.relService.DeriveSharedLabels(1)
+	if err != nil {
+		requestID := logger.GetRequestID(ctx)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to derive shared labels (request_id: %s): %v", requestID, err),
+		)
+	}
+
+	// Audit log (fire and forget)
+	if h.auditLog != nil {
+		go func() {
+			h.auditLog.LogAction(user.ID, "derive_artist_relationships", "system", 0, map[string]interface{}{
+				"shared_bills_upserted":  billsCount,
+				"shared_labels_upserted": labelsCount,
+			})
+		}()
+	}
+
+	resp := &DeriveRelationshipsResponse{}
+	resp.Body.Success = true
+	resp.Body.SharedBillsUpserted = billsCount
+	resp.Body.SharedLabelsUpserted = labelsCount
+	return resp, nil
+}

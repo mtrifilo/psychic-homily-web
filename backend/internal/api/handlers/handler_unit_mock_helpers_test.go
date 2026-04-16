@@ -178,6 +178,7 @@ type mockArtistRelationshipService struct {
 	removeVoteFn func(uint, uint, string, uint) (error)
 	getUserVoteFn func(uint, uint, string, uint) (*models.ArtistRelationshipVote, error)
 	deriveSharedBillsFn func(int) (int64, error)
+	deriveSharedLabelsFn func(int) (int64, error)
 }
 
 func (m *mockArtistRelationshipService) CreateRelationship(sourceID uint, targetID uint, relType string, autoDerived bool) (*models.ArtistRelationship, error) {
@@ -231,6 +232,12 @@ func (m *mockArtistRelationshipService) GetUserVote(artistA uint, artistB uint, 
 func (m *mockArtistRelationshipService) DeriveSharedBills(minShows int) (int64, error) {
 	if m.deriveSharedBillsFn != nil {
 		return m.deriveSharedBillsFn(minShows)
+	}
+	return 0, nil
+}
+func (m *mockArtistRelationshipService) DeriveSharedLabels(minLabels int) (int64, error) {
+	if m.deriveSharedLabelsFn != nil {
+		return m.deriveSharedLabelsFn(minLabels)
 	}
 	return 0, nil
 }
