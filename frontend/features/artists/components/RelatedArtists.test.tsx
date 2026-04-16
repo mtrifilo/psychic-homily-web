@@ -163,7 +163,7 @@ describe('RelatedArtists', () => {
     expect(downvoteButtons.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('hides section when no relationships exist', async () => {
+  it('shows empty state with suggest button when no relationships exist', async () => {
     const hooks = await import('../hooks/useArtistGraph')
     vi.mocked(hooks.useArtistGraph).mockReturnValueOnce({
       data: {
@@ -175,11 +175,14 @@ describe('RelatedArtists', () => {
       error: null,
     } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
 
-    const { container } = renderWithProviders(
+    renderWithProviders(
       <RelatedArtists artistId={1} artistSlug="lonely" />
     )
-    // Should render nothing
-    expect(container.children.length).toBe(0)
+    // Should show the section header and empty state message
+    expect(screen.getByText('Related Artists')).toBeInTheDocument()
+    expect(screen.getByText('No similar artists yet. Be the first to suggest one!')).toBeInTheDocument()
+    // Should show the suggest button for authenticated users
+    expect(screen.getByText('Suggest similar artist')).toBeInTheDocument()
   })
 
   it('hides section while loading', async () => {
