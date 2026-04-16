@@ -836,6 +836,9 @@ func setupArtistRelationshipRoutes(rc RouteContext) {
 
 	// Admin: delete relationships
 	huma.Delete(rc.Protected, "/artists/relationships/{source_id}/{target_id}", relHandler.DeleteRelationshipHandler)
+
+	// Admin: trigger relationship derivation
+	huma.Post(rc.Protected, "/admin/artist-relationships/derive", relHandler.DeriveRelationshipsHandler)
 }
 
 // setupSceneRoutes configures scene (city aggregation) endpoints.
