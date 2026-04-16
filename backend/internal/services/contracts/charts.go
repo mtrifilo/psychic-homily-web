@@ -15,6 +15,7 @@ type TrendingShow struct {
 	VenueName       string    `json:"venue_name"`
 	VenueSlug       string    `json:"venue_slug"`
 	City            string    `json:"city"`
+	ArtistNames     []string  `json:"artist_names"`
 	GoingCount      int       `json:"going_count"`
 	InterestedCount int       `json:"interested_count"`
 	TotalAttendance int       `json:"total_attendance"`
