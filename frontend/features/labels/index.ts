@@ -33,6 +33,7 @@ export {
   useArtistLabels,
   useLabelRoster,
   useLabelCatalog,
+  useLabelSearch,
 } from './hooks'
 
 export {
@@ -44,4 +45,4 @@ export {
 } from './hooks'
 
 // Components
-export { LabelCard, LabelDetail, LabelList } from './components'
+export { LabelCard, LabelDetail, LabelList, LabelSearch } from './components'
