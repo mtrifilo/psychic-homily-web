@@ -13,7 +13,7 @@ export function HotReleasesList({ releases, compact = false }: HotReleasesListPr
   if (releases.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-4 text-center">
-        No hot releases right now.
+        No recent releases yet.
       </p>
     )
   }
