@@ -367,11 +367,11 @@ func (s *NotificationFilterService) gatherShowRelations(showID uint) (artistIDs,
 		return nil, nil, nil, nil, fmt.Errorf("failed to get show venues: %w", err)
 	}
 
-	// Get label IDs for all artists on this show (via release_artists → releases → labels)
+	// Get label IDs for all artists on this show (via artist_releases → releases → labels)
 	if len(artistIDs) > 0 {
-		err = s.db.Table("release_artists").
-			Joins("JOIN releases ON releases.id = release_artists.release_id").
-			Where("release_artists.artist_id IN ?", []int64(artistIDs)).
+		err = s.db.Table("artist_releases").
+			Joins("JOIN releases ON releases.id = artist_releases.release_id").
+			Where("artist_releases.artist_id IN ?", []int64(artistIDs)).
 			Where("releases.label_id IS NOT NULL").
 			Distinct().
 			Pluck("releases.label_id", &labelIDs).Error
