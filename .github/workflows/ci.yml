@@ -45,6 +45,57 @@ jobs:
             exit 1
           fi
 
+  migration-reversibility:
+    name: Migration Reversibility
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      DB_URL: postgres://test:test@localhost:5432/test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install migrate CLI (v4.19.1 — match production Dockerfile)
+        run: |
+          curl -L https://github.com/golang-migrate/migrate/releases/download/v4.19.1/migrate.linux-amd64.tar.gz \
+            | tar xz
+          sudo mv migrate /usr/local/bin/migrate
+          migrate -version
+
+      - name: migrate up (fresh DB)
+        run: migrate -path backend/db/migrations -database "$DB_URL" up
+
+      - name: migrate down -all (back to empty)
+        run: migrate -path backend/db/migrations -database "$DB_URL" down -all
+
+      - name: migrate up (re-apply all)
+        run: migrate -path backend/db/migrations -database "$DB_URL" up
+
+      - name: Assert expected version
+        run: |
+          EXPECTED=$(ls backend/db/migrations/*.up.sql \
+                     | sed -E 's|.*/([0-9]+)_.*|\1|' \
+                     | sort -n | tail -1 | sed 's/^0*//')
+          ACTUAL=$(PGPASSWORD=test psql -h localhost -U test -d test -tAc \
+                   "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1")
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "ERROR: schema_migrations.version=$ACTUAL but expected $EXPECTED"
+            exit 1
+          fi
+          echo "OK: schema_migrations.version=$ACTUAL matches newest migration file"
+
   backend-tests:
     name: Backend Tests
     runs-on: ubuntu-latest
