@@ -928,7 +928,7 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 			StationSlug:     "kexp",
 			Name:            "The Afternoon Show",
 			Slug:            "the-afternoon-show",
-			HostName:        "Kevin Cole",
+			HostName:        "Larry Mizell, Jr.",
 			Description:     "KEXP afternoon programming with a mix of established and emerging artists.",
 			ScheduleDisplay: "Weekdays 2-6 PM PT",
 			ArchiveURL:      "https://www.kexp.org/shows/the-afternoon-show/",
