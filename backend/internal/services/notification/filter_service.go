@@ -367,18 +367,41 @@ func (s *NotificationFilterService) gatherShowRelations(showID uint) (artistIDs,
 		return nil, nil, nil, nil, fmt.Errorf("failed to get show venues: %w", err)
 	}
 
-	// Get label IDs for all artists on this show (via release_artists → releases → labels)
+	// Get label IDs for all artists on this show (via artist_releases → release_labels).
+	// Labels are M2M with releases through the release_labels junction table
+	// (not a foreign key on releases). An artist can also be directly signed
+	// to labels via artist_labels, which is merged in below.
 	if len(artistIDs) > 0 {
-		err = s.db.Table("release_artists").
-			Joins("JOIN releases ON releases.id = release_artists.release_id").
-			Where("release_artists.artist_id IN ?", []int64(artistIDs)).
-			Where("releases.label_id IS NOT NULL").
+		err = s.db.Table("artist_releases").
+			Joins("JOIN release_labels ON release_labels.release_id = artist_releases.release_id").
+			Where("artist_releases.artist_id IN ?", []int64(artistIDs)).
 			Distinct().
-			Pluck("releases.label_id", &labelIDs).Error
+			Pluck("release_labels.label_id", &labelIDs).Error
 		if err != nil {
 			// Non-fatal: labels are optional
-			log.Printf("warning: failed to get artist labels for show %d: %v", showID, err)
+			log.Printf("warning: failed to get release labels for show %d: %v", showID, err)
 			labelIDs = nil
+		}
+
+		// Also include labels the artists are directly signed to (artist_labels).
+		var artistLabelIDs pq.Int64Array
+		if err2 := s.db.Table("artist_labels").
+			Where("artist_id IN ?", []int64(artistIDs)).
+			Distinct().
+			Pluck("label_id", &artistLabelIDs).Error; err2 != nil {
+			log.Printf("warning: failed to get artist direct labels for show %d: %v", showID, err2)
+		} else {
+			// Merge and dedupe
+			seen := make(map[int64]struct{}, len(labelIDs))
+			for _, id := range labelIDs {
+				seen[id] = struct{}{}
+			}
+			for _, id := range artistLabelIDs {
+				if _, ok := seen[id]; !ok {
+					labelIDs = append(labelIDs, id)
+					seen[id] = struct{}{}
+				}
+			}
 		}
 	}
 

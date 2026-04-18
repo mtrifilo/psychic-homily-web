@@ -204,7 +204,14 @@ BEGIN
     VALUES (
       'E2E Test Show ' || i,
       NOW() + (i || ' days')::INTERVAL,
-      CASE WHEN i % 3 = 0 THEN 'Tucson' ELSE 'Phoenix' END,
+      -- Rotate 3 cities so the "popular cities" UI (MIN_POPULAR_CITIES=3,
+      -- MIN_POPULAR_COUNT=2 in components/filters/CityFilters.tsx) has enough
+      -- data to render. Distribution: ~18 Phoenix, ~18 Tucson, ~19 Mesa.
+      CASE i % 3
+        WHEN 0 THEN 'Tucson'
+        WHEN 1 THEN 'Phoenix'
+        ELSE 'Mesa'
+      END,
       'AZ',
       'approved',
       NOW(), NOW()
