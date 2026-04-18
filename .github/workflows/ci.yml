@@ -7,6 +7,44 @@ on:
     branches: [main]
 
 jobs:
+  migration-lint:
+    name: Migration Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for duplicate migration version numbers
+        run: |
+          DUPS=$(ls backend/db/migrations/*.up.sql \
+                 | sed -E 's|.*/([0-9]+)_.*|\1|' \
+                 | sort | uniq -d)
+          if [ -n "$DUPS" ]; then
+            echo "ERROR: duplicate migration version number(s) detected:"
+            for v in $DUPS; do
+              echo "  version $v:"
+              ls backend/db/migrations/${v}_*.up.sql | sed 's|^|    |'
+            done
+            echo ""
+            echo "golang-migrate refuses to start with duplicate versions."
+            echo "Rename one of the conflicting migrations to a new, higher version."
+            exit 1
+          fi
+
+      - name: Check every up.sql has a matching down.sql
+        run: |
+          MISSING=""
+          for up in backend/db/migrations/*.up.sql; do
+            down="${up%.up.sql}.down.sql"
+            if [ ! -f "$down" ]; then
+              MISSING="$MISSING $up"
+            fi
+          done
+          if [ -n "$MISSING" ]; then
+            echo "ERROR: up migrations without matching down migration:"
+            for m in $MISSING; do echo "  $m"; done
+            exit 1
+          fi
+
   backend-tests:
     name: Backend Tests
     runs-on: ubuntu-latest
