@@ -66,22 +66,15 @@ test.describe('Library page (formerly /collection)', () => {
   test('shows saved show after saving one', async ({
     authenticatedPage,
   }) => {
-    // Navigate to shows list and open a show detail.
-    //
-    // Use a show later in the list (index 5) to avoid colliding with
-    // save-show.spec.ts and show-list-actions.spec.ts which both target
-    // `article.first()`. With `fullyParallel: true` + `workers: 3`, those
-    // parallel tests race on the first show — by the time this test clicks
-    // Save, the button reads "Remove from My List" and the assertion fails.
+    // Navigate to shows list and open a show detail
     await authenticatedPage.goto('/shows')
     await expect(authenticatedPage.locator('article').first()).toBeVisible({
       timeout: 10_000,
     })
 
-    const targetShow = authenticatedPage.locator('article').nth(5)
-    await expect(targetShow).toBeVisible({ timeout: 10_000 })
-
-    await targetShow
+    await authenticatedPage
+      .locator('article')
+      .first()
       .getByRole('link', { name: 'Details' })
       .click()
     await authenticatedPage.waitForURL(/\/shows\//, { timeout: 10_000 })
