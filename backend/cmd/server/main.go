@@ -176,6 +176,10 @@ func main() {
 	radioFetchCtx, radioFetchCancel := context.WithCancel(context.Background())
 	sc.RadioFetch.Start(radioFetchCtx)
 
+	// Start relationship derivation service (background job for shared_bills + shared_label)
+	relDerivationCtx, relDerivationCancel := context.WithCancel(context.Background())
+	sc.RelationshipDerivation.Start(relDerivationCtx)
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -223,6 +227,10 @@ func main() {
 	// Stop radio fetch service
 	radioFetchCancel()
 	sc.RadioFetch.Stop()
+
+	// Stop relationship derivation service
+	relDerivationCancel()
+	sc.RelationshipDerivation.Stop()
 
 	// Shut down chromedp browser pool
 	sc.Fetcher.ShutdownChromedp()

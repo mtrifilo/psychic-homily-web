@@ -12,6 +12,7 @@ import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatt
 import { Button } from '@/components/ui/button'
 import { SocialLinks, MusicEmbed, SaveButton, Breadcrumb, AddToCollectionButton } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
+import { EntityTagList } from '@/features/tags'
 import { CommentThread, FieldNotesSection } from '@/features/comments'
 import { ShowForm } from '@/components/forms'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -242,6 +243,14 @@ export function ShowDetail({ showId }: ShowDetailProps) {
                     {venue.city}, {venue.state}
                   </span>
                 </div>
+                {venue.slug && (
+                  <Link
+                    href={`/venues/${venue.slug}`}
+                    className="inline-block text-sm text-muted-foreground hover:text-primary transition-colors mt-1"
+                  >
+                    See more shows at {venue.name} &rarr;
+                  </Link>
+                )}
               </div>
             )}
 
@@ -409,6 +418,13 @@ export function ShowDetail({ showId }: ShowDetailProps) {
           </div>
         </section>
       )}
+
+      {/* Tags */}
+      <EntityTagList
+        entityType="show"
+        entityId={show.id}
+        isAuthenticated={isAuthenticated}
+      />
 
       {/* In Collections */}
       <section className="mb-8">

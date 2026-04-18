@@ -13,6 +13,7 @@ export interface TrendingShow {
   venue_name: string
   venue_slug: string
   city: string
+  artist_names: string[]
   going_count: number
   interested_count: number
   total_attendance: number

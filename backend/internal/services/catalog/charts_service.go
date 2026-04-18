@@ -80,6 +80,7 @@ func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, e
 	}
 
 	results := make([]contracts.TrendingShow, len(rows))
+	showIDs := make([]uint, len(rows))
 	for i, r := range rows {
 		results[i] = contracts.TrendingShow{
 			ShowID:          r.ShowID,
@@ -89,9 +90,43 @@ func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, e
 			VenueName:       r.VenueName,
 			VenueSlug:       r.VenueSlug,
 			City:            r.City,
+			ArtistNames:     []string{},
 			GoingCount:      r.GoingCount,
 			InterestedCount: r.InterestedCount,
 			TotalAttendance: r.TotalAttendance,
+		}
+		showIDs[i] = r.ShowID
+	}
+
+	// Fetch artist names for all shows in one query
+	if len(showIDs) > 0 {
+		type artistNameRow struct {
+			ShowID uint   `gorm:"column:show_id"`
+			Name   string `gorm:"column:name"`
+		}
+		var artistRows []artistNameRow
+		err := s.db.Raw(`
+			SELECT sa.show_id, a.name
+			FROM show_artists sa
+			JOIN artists a ON a.id = sa.artist_id
+			WHERE sa.show_id IN ?
+			ORDER BY sa.show_id, sa.position
+		`, showIDs).Scan(&artistRows).Error
+		if err != nil {
+			return nil, fmt.Errorf("failed to get show artists: %w", err)
+		}
+
+		// Build map of show_id -> artist names
+		artistMap := make(map[uint][]string)
+		for _, ar := range artistRows {
+			artistMap[ar.ShowID] = append(artistMap[ar.ShowID], ar.Name)
+		}
+
+		// Assign to results
+		for i := range results {
+			if names, ok := artistMap[results[i].ShowID]; ok {
+				results[i].ArtistNames = names
+			}
 		}
 	}
 
