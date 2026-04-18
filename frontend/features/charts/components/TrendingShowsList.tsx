@@ -22,7 +22,7 @@ export function TrendingShowsList({ shows, compact = false }: TrendingShowsListP
   if (shows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-4 text-center">
-        No trending shows right now.
+        No upcoming shows right now.
       </p>
     )
   }

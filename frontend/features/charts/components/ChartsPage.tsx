@@ -18,10 +18,10 @@ import type { ChartView } from '../types'
 
 const views: { id: ChartView; label: string; icon: typeof Flame }[] = [
   { id: 'overview', label: 'Overview', icon: Flame },
-  { id: 'trending-shows', label: 'Trending Shows', icon: Flame },
+  { id: 'trending-shows', label: 'Upcoming Shows', icon: Flame },
   { id: 'popular-artists', label: 'Popular Artists', icon: Mic2 },
   { id: 'active-venues', label: 'Active Venues', icon: MapPin },
-  { id: 'hot-releases', label: 'Hot Releases', icon: Disc3 },
+  { id: 'hot-releases', label: 'Recent Releases', icon: Disc3 },
 ]
 
 export function ChartsPage() {
@@ -53,7 +53,7 @@ export function ChartsPage() {
       {activeView === 'overview' ? (
         <OverviewGrid onViewAll={setActiveView} />
       ) : activeView === 'trending-shows' ? (
-        <DetailView title="Trending Shows" description="Shows with the most going and interested activity.">
+        <DetailView title="Upcoming Shows" description="Shows coming up soon, ordered by date.">
           <TrendingShowsDetail />
         </DetailView>
       ) : activeView === 'popular-artists' ? (
@@ -65,7 +65,7 @@ export function ChartsPage() {
           <ActiveVenuesDetail />
         </DetailView>
       ) : (
-        <DetailView title="Hot Releases" description="Most bookmarked releases right now.">
+        <DetailView title="Recent Releases" description="Recently added releases.">
           <HotReleasesDetail />
         </DetailView>
       )}
@@ -99,7 +99,7 @@ function OverviewGrid({ onViewAll }: { onViewAll: (view: ChartView) => void }) {
   return (
     <div className="grid gap-6 md:grid-cols-2">
       <ChartCard
-        title="Trending Shows"
+        title="Upcoming Shows"
         icon={Flame}
         onViewAll={() => onViewAll('trending-shows')}
       >
@@ -120,7 +120,7 @@ function OverviewGrid({ onViewAll }: { onViewAll: (view: ChartView) => void }) {
         <ActiveVenuesList venues={data.active_venues} compact />
       </ChartCard>
       <ChartCard
-        title="Hot Releases"
+        title="Recent Releases"
         icon={Disc3}
         onViewAll={() => onViewAll('hot-releases')}
       >
