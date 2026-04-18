@@ -54,8 +54,9 @@ type ServiceContainer struct {
 	EntityReport  *adminsvc.EntityReportService
 	User              *usersvc.UserService
 	Leaderboard       *usersvc.LeaderboardService
-	Radio             *catalog.RadioService
-	RadioFetch        *catalog.RadioFetchService
+	Radio                  *catalog.RadioService
+	RadioFetch             *catalog.RadioFetchService
+	RelationshipDerivation *catalog.RelationshipDerivationService
 	Venue             *catalog.VenueService
 	VenueSourceConfig *pipeline.VenueSourceConfigService
 
@@ -131,6 +132,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 
 	revisionSvc := adminsvc.NewRevisionService(database)
 	radioSvc := catalog.NewRadioService(database)
+	artistRelSvc := catalog.NewArtistRelationshipService(database)
 
 	return &ServiceContainer{
 		// DB-only leaf services
@@ -150,7 +152,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Collection:    NewCollectionService(database),
 		Request:       NewRequestService(database),
 		Tag:                catalog.NewTagService(database),
-		ArtistRelationship: catalog.NewArtistRelationshipService(database),
+		ArtistRelationship: artistRelSvc,
 		Scene:              catalog.NewSceneService(database),
 		Attendance:         engagement.NewAttendanceService(database),
 		Comment:             engagement.NewCommentService(database),
@@ -168,9 +170,10 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		EntityReport:  adminsvc.NewEntityReportService(database),
 		User:          userService,
 		Leaderboard:   usersvc.NewLeaderboardService(database),
-		Radio:             radioSvc,
-		RadioFetch:        catalog.NewRadioFetchService(radioSvc, discord),
-		Venue:             venue,
+		Radio:                  radioSvc,
+		RadioFetch:             catalog.NewRadioFetchService(radioSvc, discord),
+		RelationshipDerivation: catalog.NewRelationshipDerivationService(artistRelSvc),
+		Venue:                  venue,
 		VenueSourceConfig: venueSourceConfig,
 
 		// Config-only services

@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { useLabels } from '../hooks/useLabels'
 import { LabelCard } from './LabelCard'
+import { LabelSearch } from './LabelSearch'
 import { LoadingSpinner, DensityToggle } from '@/components/shared'
 import { useDensity } from '@/lib/hooks/common/useDensity'
 import { Button } from '@/components/ui/button'
@@ -75,6 +76,7 @@ export function LabelList() {
     <section className="w-full max-w-6xl">
       {/* Filters */}
       <div className="mb-6 space-y-4">
+        <LabelSearch />
         {/* Status Filter */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-muted-foreground mr-1">Status:</span>

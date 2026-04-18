@@ -4,13 +4,13 @@ import { ChartsPage } from '@/features/charts'
 
 export const metadata = {
   title: 'Charts',
-  description: 'Top charts — trending shows, popular artists, active venues, and hot releases.',
+  description: 'Upcoming shows, popular artists, active venues, and recent releases.',
   alternates: {
     canonical: 'https://psychichomily.com/charts',
   },
   openGraph: {
     title: 'Charts | Psychic Homily',
-    description: 'Top charts — trending shows, popular artists, active venues, and hot releases.',
+    description: 'Upcoming shows, popular artists, active venues, and recent releases.',
     url: '/charts',
     type: 'website',
   },
@@ -22,7 +22,7 @@ export default function ChartsRoute() {
       <main className="w-full max-w-6xl px-4 py-8 md:px-8">
         <h1 className="text-3xl font-bold text-center mb-2">Charts</h1>
         <p className="text-center text-muted-foreground mb-8 max-w-lg mx-auto">
-          Trending shows, popular artists, active venues, and hot releases.
+          Upcoming shows, popular artists, active venues, and recent releases.
         </p>
         <Suspense
           fallback={
