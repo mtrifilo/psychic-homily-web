@@ -100,10 +100,10 @@ describe('ChartsPage', () => {
     })
 
     // Section headings appear in both tabs and card headers — use getAllByText
-    expect(screen.getAllByText('Trending Shows').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('Upcoming Shows').length).toBeGreaterThanOrEqual(2)
     expect(screen.getAllByText('Popular Artists').length).toBeGreaterThanOrEqual(2)
     expect(screen.getAllByText('Active Venues').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getAllByText('Hot Releases').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('Recent Releases').length).toBeGreaterThanOrEqual(2)
   })
 
   it('renders entity names as links', async () => {
@@ -155,7 +155,7 @@ describe('ChartsPage', () => {
     })
 
     // Get tab buttons (first match in the tab bar, not the card header)
-    const trendingButtons = screen.getAllByRole('button', { name: /Trending Shows/i })
+    const trendingButtons = screen.getAllByRole('button', { name: /Upcoming Shows/i })
     const tabButton = trendingButtons[0]
 
     mockApiRequest.mockResolvedValueOnce({
@@ -179,7 +179,7 @@ describe('ChartsPage', () => {
     await user.click(tabButton)
 
     await waitFor(() => {
-      expect(screen.getByText('Shows with the most going and interested activity.')).toBeInTheDocument()
+      expect(screen.getByText('Shows coming up soon, ordered by date.')).toBeInTheDocument()
     })
   })
 
@@ -239,7 +239,7 @@ describe('ChartsPage', () => {
       expect(screen.getByText('Eternal Drift')).toBeInTheDocument()
     })
 
-    const releasesTab = screen.getAllByRole('button', { name: /Hot Releases/i })[0]
+    const releasesTab = screen.getAllByRole('button', { name: /Recent Releases/i })[0]
 
     mockApiRequest.mockResolvedValueOnce({
       releases: [mockOverviewData.hot_releases[0]],
@@ -248,7 +248,7 @@ describe('ChartsPage', () => {
     await user.click(releasesTab)
 
     await waitFor(() => {
-      expect(screen.getByText('Most bookmarked releases right now.')).toBeInTheDocument()
+      expect(screen.getByText('Recently added releases.')).toBeInTheDocument()
     })
   })
 
@@ -269,11 +269,11 @@ describe('ChartsPage', () => {
     })
 
     // Switch to trending shows detail
-    const trendingTab = screen.getAllByRole('button', { name: /Trending Shows/i })[0]
+    const trendingTab = screen.getAllByRole('button', { name: /Upcoming Shows/i })[0]
     await user.click(trendingTab)
 
     await waitFor(() => {
-      expect(screen.getByText('Shows with the most going and interested activity.')).toBeInTheDocument()
+      expect(screen.getByText('Shows coming up soon, ordered by date.')).toBeInTheDocument()
     })
 
     // Third call: overview data again when switching back
@@ -300,12 +300,12 @@ describe('ChartsPage', () => {
     renderWithProviders(<ChartsPage />)
 
     await waitFor(() => {
-      expect(screen.getByText('No trending shows right now.')).toBeInTheDocument()
+      expect(screen.getByText('No upcoming shows right now.')).toBeInTheDocument()
     })
 
     expect(screen.getByText('No popular artists right now.')).toBeInTheDocument()
     expect(screen.getByText('No active venues right now.')).toBeInTheDocument()
-    expect(screen.getByText('No hot releases right now.')).toBeInTheDocument()
+    expect(screen.getByText('No recent releases yet.')).toBeInTheDocument()
   })
 
   it('renders all tab buttons', () => {
@@ -315,9 +315,9 @@ describe('ChartsPage', () => {
 
     expect(screen.getByRole('button', { name: /Overview/i })).toBeInTheDocument()
     // Tab buttons exist (may also appear as card headings)
-    expect(screen.getAllByRole('button', { name: /Trending Shows/i }).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByRole('button', { name: /Upcoming Shows/i }).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByRole('button', { name: /Popular Artists/i }).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByRole('button', { name: /Active Venues/i }).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByRole('button', { name: /Hot Releases/i }).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByRole('button', { name: /Recent Releases/i }).length).toBeGreaterThanOrEqual(1)
   })
 })

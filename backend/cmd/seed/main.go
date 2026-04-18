@@ -912,7 +912,7 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 			Description:     "KEXP's flagship morning program featuring a hand-picked mix of new and classic tracks.",
 			ScheduleDisplay: "Weekdays 6-10 AM PT",
 			ArchiveURL:      "https://www.kexp.org/shows/the-morning-show/",
-			ExternalID:      "1",
+			ExternalID:      "16",
 		},
 		{
 			StationSlug:     "kexp",
@@ -922,7 +922,7 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 			Description:     "A mid-day mix of new music discoveries and deep cuts.",
 			ScheduleDisplay: "Weekdays 10 AM-2 PM PT",
 			ArchiveURL:      "https://www.kexp.org/shows/the-midday-show/",
-			ExternalID:      "2",
+			ExternalID:      "15",
 		},
 		{
 			StationSlug:     "kexp",
@@ -932,7 +932,7 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 			Description:     "KEXP afternoon programming with a mix of established and emerging artists.",
 			ScheduleDisplay: "Weekdays 2-6 PM PT",
 			ArchiveURL:      "https://www.kexp.org/shows/the-afternoon-show/",
-			ExternalID:      "3",
+			ExternalID:      "14",
 		},
 		{
 			StationSlug:     "kexp",
@@ -942,7 +942,7 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 			Description:     "KEXP's long-running Northwest music show spotlighting artists from the Pacific Northwest.",
 			ScheduleDisplay: "Saturdays 6-9 PM PT",
 			ArchiveURL:      "https://www.kexp.org/shows/Audioasis/",
-			ExternalID:      "4",
+			ExternalID:      "1",
 		},
 		{
 			StationSlug:     "kexp",
@@ -952,7 +952,7 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 			Description:     "A trip around the diverse world of Latin music and culture.",
 			ScheduleDisplay: "Saturdays 9 PM-12 AM PT",
 			ArchiveURL:      "https://www.kexp.org/shows/El-Sonido/",
-			ExternalID:      "5",
+			ExternalID:      "2",
 		},
 		{
 			StationSlug:     "kexp",
@@ -962,7 +962,7 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 			Description:     "Late-night electronic music exploring ambient, house, techno, and experimental sounds.",
 			ScheduleDisplay: "Saturdays 12-3 AM PT",
 			ArchiveURL:      "https://www.kexp.org/shows/Midnight-in-a-Perfect-World/",
-			ExternalID:      "6",
+			ExternalID:      "5",
 		},
 
 		// WFMU shows

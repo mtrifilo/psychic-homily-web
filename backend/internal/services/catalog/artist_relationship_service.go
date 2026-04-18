@@ -578,6 +578,86 @@ func (s *ArtistRelationshipService) DeriveSharedBills(minShows int) (int64, erro
 	return upserted, nil
 }
 
+// sharedLabelRow represents the result of the shared-labels co-occurrence query.
+type sharedLabelRow struct {
+	ArtistA      uint
+	ArtistB      uint
+	SharedCount  int
+	LabelNames   string
+}
+
+// DeriveSharedLabels computes shared_label relationships from the artist_labels join table.
+// Creates or updates relationships where artists share minLabels or more labels.
+func (s *ArtistRelationshipService) DeriveSharedLabels(minLabels int) (int64, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("database not initialized")
+	}
+
+	if minLabels <= 0 {
+		minLabels = 1
+	}
+
+	var rows []sharedLabelRow
+	err := s.db.Raw(`
+		SELECT
+			al1.artist_id AS artist_a,
+			al2.artist_id AS artist_b,
+			COUNT(DISTINCT al1.label_id) AS shared_count,
+			STRING_AGG(DISTINCT l.name, ', ' ORDER BY l.name) AS label_names
+		FROM artist_labels al1
+		JOIN artist_labels al2 ON al1.label_id = al2.label_id
+			AND al1.artist_id < al2.artist_id
+		JOIN labels l ON l.id = al1.label_id
+		GROUP BY al1.artist_id, al2.artist_id
+		HAVING COUNT(DISTINCT al1.label_id) >= ?
+	`, minLabels).Scan(&rows).Error
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to query shared labels: %w", err)
+	}
+
+	var upserted int64
+
+	for _, row := range rows {
+		// Score: proportion of shared labels (cap at 1.0)
+		// More shared labels = stronger relationship
+		score := float32(math.Min(float64(row.SharedCount)/5.0, 1.0))
+
+		detail, _ := json.Marshal(map[string]interface{}{
+			"shared_count": row.SharedCount,
+			"label_names":  row.LabelNames,
+		})
+		detailRaw := json.RawMessage(detail)
+
+		// Upsert
+		var existing models.ArtistRelationship
+		err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
+			row.ArtistA, row.ArtistB, models.RelationshipTypeSharedLabel).First(&existing).Error
+
+		if err == gorm.ErrRecordNotFound {
+			rel := &models.ArtistRelationship{
+				SourceArtistID:   row.ArtistA,
+				TargetArtistID:   row.ArtistB,
+				RelationshipType: models.RelationshipTypeSharedLabel,
+				Score:            score,
+				AutoDerived:      true,
+				Detail:           &detailRaw,
+			}
+			if err := s.db.Create(rel).Error; err == nil {
+				upserted++
+			}
+		} else if err == nil {
+			s.db.Model(&existing).Updates(map[string]interface{}{
+				"score":  score,
+				"detail": &detailRaw,
+			})
+			upserted++
+		}
+	}
+
+	return upserted, nil
+}
+
 // ──────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────

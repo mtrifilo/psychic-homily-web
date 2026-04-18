@@ -6,6 +6,8 @@ export {
   useLabelCatalog,
 } from './useLabels'
 
+export { useLabelSearch } from './useLabelSearch'
+
 export {
   type CreateLabelInput,
   type UpdateLabelInput,
