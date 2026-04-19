@@ -24,9 +24,11 @@ test.describe('Profile page', () => {
       authenticatedPage.getByRole('tab', { name: /settings/i })
     ).toBeVisible()
 
-    // User email displayed (use first() — also appears in nav link)
+    // User email displayed (use first() — also appears in nav link).
+    // PSY-431: `authenticatedPage` is worker-scoped, so the email can be any
+    // of the 5 seeded regular users (e2e-user@ / e2e-user-{1..4}@).
     await expect(
-      authenticatedPage.getByText('e2e-user@test.local').first()
+      authenticatedPage.getByText(/^e2e-user(-[1-4])?@test\.local$/).first()
     ).toBeVisible()
 
     // First name displayed in Account Details section (use first() — also appears in contributor profile)

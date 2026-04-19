@@ -5,7 +5,9 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 3 : undefined,
+  // Cap local workers to the seeded user count (see USER_COUNT in
+  // e2e/global-setup.ts). CI stays at 3; headroom lives in the 5 seeded users.
+  workers: process.env.CI ? 3 : 5,
   reporter: 'html',
 
   globalSetup: './e2e/global-setup.ts',

@@ -12,13 +12,32 @@ const AUTH_DIR = path.resolve(__dirname, '.auth')
 const E2E_DB_URL =
   'postgres://e2euser:e2epassword@localhost:5433/e2edb?sslmode=disable'
 
-const TEST_USER = {
-  email: 'e2e-user@test.local',
-  password: 'e2e-test-password-123',
+// Shared password for all seeded test users (see setup-db.sh).
+const TEST_PASSWORD = 'e2e-test-password-123'
+
+// PSY-431: seed N regular users so each Playwright worker gets its own
+// authenticated user (worker index → user N), avoiding cross-worker races
+// on shared user state (saved_shows, favorite_venues, submissions, etc.).
+// Must match the seeded user count in setup-db.sh and the local workers
+// cap in playwright.config.ts.
+const USER_COUNT = 5
+
+function userEmailForWorker(workerIndex: number): string {
+  return workerIndex === 0
+    ? 'e2e-user@test.local'
+    : `e2e-user-${workerIndex}@test.local`
 }
+
+function userAuthFileForWorker(workerIndex: number): string {
+  return workerIndex === 0 ? 'user.json' : `user-${workerIndex}.json`
+}
+
+// Exported so the fixture can reuse the same mapping.
+export { USER_COUNT, userEmailForWorker, userAuthFileForWorker }
+
 const TEST_ADMIN = {
   email: 'e2e-admin@test.local',
-  password: 'e2e-test-password-123',
+  password: TEST_PASSWORD,
 }
 
 function log(msg: string) {
@@ -149,29 +168,38 @@ function startBackend(): ChildProcess {
 }
 
 async function captureAuthState() {
-  log('Capturing auth state for test users...')
+  log(`Capturing auth state for ${USER_COUNT} regular users + 1 admin...`)
   fs.mkdirSync(AUTH_DIR, { recursive: true })
 
   const browser = await chromium.launch()
 
-  // Login as regular user
-  const userContext = await browser.newContext()
-  const userPage = await userContext.newPage()
-  await loginAs(userPage, TEST_USER.email, TEST_USER.password)
-  await userContext.storageState({
-    path: path.join(AUTH_DIR, 'user.json'),
-  })
-  await userContext.close()
+  // Capture all users in parallel so global-setup overhead stays within budget
+  // (each login is ~1s; serial would scale linearly with user count).
+  const captureTasks: Promise<void>[] = []
 
-  // Login as admin user
-  const adminContext = await browser.newContext()
-  const adminPage = await adminContext.newPage()
-  await loginAs(adminPage, TEST_ADMIN.email, TEST_ADMIN.password)
-  await adminContext.storageState({
-    path: path.join(AUTH_DIR, 'admin.json'),
-  })
-  await adminContext.close()
+  for (let i = 0; i < USER_COUNT; i++) {
+    captureTasks.push((async () => {
+      const context = await browser.newContext()
+      const page = await context.newPage()
+      await loginAs(page, userEmailForWorker(i), TEST_PASSWORD)
+      await context.storageState({
+        path: path.join(AUTH_DIR, userAuthFileForWorker(i)),
+      })
+      await context.close()
+    })())
+  }
 
+  captureTasks.push((async () => {
+    const adminContext = await browser.newContext()
+    const adminPage = await adminContext.newPage()
+    await loginAs(adminPage, TEST_ADMIN.email, TEST_ADMIN.password)
+    await adminContext.storageState({
+      path: path.join(AUTH_DIR, 'admin.json'),
+    })
+    await adminContext.close()
+  })())
+
+  await Promise.all(captureTasks)
   await browser.close()
   log('Auth state captured.')
 }
