@@ -12,6 +12,7 @@ vi.mock('@/lib/api', () => ({
       LIST: '/tags',
       SEARCH: '/tags/search',
       GET: (idOrSlug: string | number) => `/tags/${idOrSlug}`,
+      DETAIL: (idOrSlug: string | number) => `/tags/${idOrSlug}/detail`,
       ALIASES: (idOrSlug: string | number) => `/tags/${idOrSlug}/aliases`,
     },
     ENTITY_TAGS: {
@@ -33,6 +34,7 @@ vi.mock('@/lib/queryClient', () => ({
       list: (params?: Record<string, unknown>) => ['tags', 'list', params],
       search: (query: string, category?: string) => ['tags', 'search', query.toLowerCase(), category ?? ''],
       detail: (id: string | number) => ['tags', 'detail', String(id)],
+      enrichedDetail: (id: string | number) => ['tags', 'detail', 'enriched', String(id)],
       entityTags: (entityType: string, entityId: number) => ['tags', 'entityTags', entityType, entityId],
     },
   },
@@ -42,6 +44,7 @@ import {
   useTags,
   useSearchTags,
   useTag,
+  useTagDetail,
   useEntityTags,
   useAddTagToEntity,
   useRemoveTagFromEntity,
@@ -192,6 +195,40 @@ describe('useTag', () => {
       wrapper: createWrapper(),
     })
 
+    expect(result.current.fetchStatus).toBe('idle')
+  })
+})
+
+describe('useTagDetail', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('fetches the enriched detail endpoint by slug', async () => {
+    mockApiRequest.mockResolvedValueOnce({
+      id: 1,
+      name: 'rock',
+      slug: 'rock',
+      children: [],
+      usage_breakdown: {},
+      top_contributors: [],
+      related_tags: [],
+    })
+
+    const { result } = renderHook(() => useTagDetail('rock'), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest).toHaveBeenCalledWith('/tags/rock/detail')
+  })
+
+  it('does not fetch when enabled is false', () => {
+    const { result } = renderHook(
+      () => useTagDetail('rock', { enabled: false }),
+      { wrapper: createWrapper() }
+    )
     expect(result.current.fetchStatus).toBe('idle')
   })
 })

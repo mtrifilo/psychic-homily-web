@@ -3023,7 +3023,8 @@ type mockTagService struct {
 	listAliasesFn func(uint) ([]models.TagAlias, error)
 	resolveAliasFn func(string) (*models.Tag, error)
 	getTagEntitiesFn func(uint, string, int, int) ([]contracts.TaggedEntityItem, int64, error)
-	searchTagsFn func(string, int, string) ([]models.Tag, error)
+	getTagDetailFn func(uint) (*contracts.TagDetailResponse, error)
+	searchTagsFn func(string, int, string) ([]contracts.TagSearchResult, error)
 	getTrendingTagsFn func(int, string) ([]models.Tag, error)
 	pruneDownvotedTagsFn func() (int64, error)
 }
@@ -3124,7 +3125,13 @@ func (m *mockTagService) GetTagEntities(tagID uint, entityType string, limit int
 	}
 	return nil, 0, nil
 }
-func (m *mockTagService) SearchTags(query string, limit int, category string) ([]models.Tag, error) {
+func (m *mockTagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, error) {
+	if m.getTagDetailFn != nil {
+		return m.getTagDetailFn(tagID)
+	}
+	return nil, nil
+}
+func (m *mockTagService) SearchTags(query string, limit int, category string) ([]contracts.TagSearchResult, error) {
 	if m.searchTagsFn != nil {
 		return m.searchTagsFn(query, limit, category)
 	}

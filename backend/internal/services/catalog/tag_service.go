@@ -18,6 +18,7 @@ import (
 // TagService handles tag business logic.
 type TagService struct {
 	db *gorm.DB
+	md *utils.MarkdownRenderer
 }
 
 // NewTagService creates a new tag service.
@@ -25,7 +26,10 @@ func NewTagService(database *gorm.DB) *TagService {
 	if database == nil {
 		database = db.GetDB()
 	}
-	return &TagService{db: database}
+	return &TagService{
+		db: database,
+		md: utils.NewMarkdownRenderer(),
+	}
 }
 
 // ──────────────────────────────────────────────
@@ -654,7 +658,14 @@ func (s *TagService) ResolveAlias(alias string) (*models.Tag, error) {
 
 // SearchTags performs a case-insensitive search on tag names and aliases.
 // If category is non-empty, results are filtered to that category.
-func (s *TagService) SearchTags(query string, limit int, category string) ([]models.Tag, error) {
+//
+// For each returned tag, MatchedAlias is populated with the specific alias
+// that matched the query when the match came through `tag_aliases` rather
+// than `tags.name`. This lets the autocomplete UI show the canonical form
+// alongside the typed alias for transparency ("matched `punk-rock`"). If
+// the tag's name matches directly, MatchedAlias is left empty even when
+// an alias also happens to match — the canonical form is the signal.
+func (s *TagService) SearchTags(query string, limit int, category string) ([]contracts.TagSearchResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -686,7 +697,49 @@ func (s *TagService) SearchTags(query string, limit int, category string) ([]mod
 		return nil, fmt.Errorf("failed to search tags: %w", err)
 	}
 
-	return tags, nil
+	// Build the result set. For tags whose name does NOT match the query,
+	// look up which alias on that tag matched so the UI can surface the
+	// provenance. A single batch query avoids N+1.
+	results := make([]contracts.TagSearchResult, len(tags))
+	pattern := "%" + q + "%"
+
+	// Collect the tag IDs whose name did not match the query — those are
+	// the ones that were returned only because of an alias match.
+	aliasMatchIDs := make([]uint, 0, len(tags))
+	for i, tag := range tags {
+		results[i] = contracts.TagSearchResult{Tag: tag}
+		if !strings.Contains(strings.ToLower(tag.Name), q) {
+			aliasMatchIDs = append(aliasMatchIDs, tag.ID)
+		}
+	}
+
+	if len(aliasMatchIDs) > 0 {
+		// Fetch matching aliases in one query, ordered so the first (lexicographic)
+		// match wins deterministically when a tag has multiple matching aliases.
+		var aliases []models.TagAlias
+		err := s.db.Where("tag_id IN ? AND LOWER(alias) LIKE ?", aliasMatchIDs, pattern).
+			Order("tag_id, alias ASC").
+			Find(&aliases).Error
+		if err != nil {
+			return nil, fmt.Errorf("failed to load matching aliases: %w", err)
+		}
+
+		matchedByTag := make(map[uint]string, len(aliases))
+		for _, a := range aliases {
+			if _, seen := matchedByTag[a.TagID]; seen {
+				continue
+			}
+			matchedByTag[a.TagID] = a.Alias
+		}
+
+		for i := range results {
+			if alias, ok := matchedByTag[results[i].Tag.ID]; ok {
+				results[i].MatchedAlias = alias
+			}
+		}
+	}
+
+	return results, nil
 }
 
 // GetTrendingTags returns the most used tags, optionally filtered by category.
@@ -870,6 +923,194 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 	}
 
 	return items, total, nil
+}
+
+// ──────────────────────────────────────────────
+// Tag detail enrichment
+// ──────────────────────────────────────────────
+
+// GetTagDetail returns the enriched tag detail response: description (+ rendered HTML),
+// parent, direct children, usage breakdown by entity type, top contributors,
+// creator attribution, and related tags computed via naive co-occurrence.
+// Returns (nil, nil) if the tag does not exist.
+func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Load the tag with its base relationships (parent, children, aliases, creator).
+	tag, err := s.GetTag(tagID)
+	if err != nil {
+		return nil, err
+	}
+	if tag == nil {
+		return nil, nil
+	}
+
+	resp := &contracts.TagDetailResponse{
+		TagResponse: contracts.TagResponse{
+			ID:              tag.ID,
+			Name:            tag.Name,
+			Slug:            tag.Slug,
+			Description:     tag.Description,
+			ParentID:        tag.ParentID,
+			Category:        tag.Category,
+			IsOfficial:      tag.IsOfficial,
+			UsageCount:      tag.UsageCount,
+			ChildCount:      len(tag.Children),
+			CreatedByUserID: tag.CreatedByUserID,
+			CreatedAt:       tag.CreatedAt,
+			UpdatedAt:       tag.UpdatedAt,
+		},
+		Children:        []contracts.TagSummary{},
+		UsageBreakdown:  map[string]int64{},
+		TopContributors: []contracts.TagContributor{},
+		RelatedTags:     []contracts.TagSummary{},
+	}
+
+	// Parent summary
+	if tag.Parent != nil {
+		resp.ParentName = tag.Parent.Name
+		resp.Parent = &contracts.TagSummary{
+			ID:         tag.Parent.ID,
+			Name:       tag.Parent.Name,
+			Slug:       tag.Parent.Slug,
+			Category:   tag.Parent.Category,
+			IsOfficial: tag.Parent.IsOfficial,
+			UsageCount: tag.Parent.UsageCount,
+		}
+	}
+
+	// Children summaries
+	if len(tag.Children) > 0 {
+		resp.Children = make([]contracts.TagSummary, 0, len(tag.Children))
+		for _, c := range tag.Children {
+			resp.Children = append(resp.Children, contracts.TagSummary{
+				ID:         c.ID,
+				Name:       c.Name,
+				Slug:       c.Slug,
+				Category:   c.Category,
+				IsOfficial: c.IsOfficial,
+				UsageCount: c.UsageCount,
+			})
+		}
+	}
+
+	// Aliases
+	if len(tag.Aliases) > 0 {
+		resp.Aliases = make([]string, len(tag.Aliases))
+		for i, a := range tag.Aliases {
+			resp.Aliases[i] = a.Alias
+		}
+	}
+
+	// Creator attribution
+	if tag.CreatedBy != nil {
+		ref := &contracts.TagUserRef{ID: tag.CreatedBy.ID}
+		if tag.CreatedBy.Username != nil {
+			ref.Username = *tag.CreatedBy.Username
+			resp.CreatedByUsername = tag.CreatedBy.Username
+		}
+		resp.CreatedBy = ref
+	}
+
+	// Description HTML (markdown rendered + sanitized). Skip if no description.
+	if tag.Description != nil && *tag.Description != "" {
+		resp.DescriptionHTML = s.md.Render(*tag.Description)
+	}
+
+	// Usage breakdown: count entity_tags per valid entity type. Initialize every
+	// valid entity type so the map always has a complete keyset (zero-counts
+	// included); the frontend decides whether to show or hide them.
+	for _, et := range models.TagEntityTypes {
+		resp.UsageBreakdown[et] = 0
+	}
+	type breakdownRow struct {
+		EntityType string
+		Count      int64
+	}
+	var rows []breakdownRow
+	if err := s.db.Model(&models.EntityTag{}).
+		Select("entity_type, COUNT(*) AS count").
+		Where("tag_id = ?", tagID).
+		Group("entity_type").
+		Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to compute usage breakdown: %w", err)
+	}
+	for _, r := range rows {
+		if _, ok := resp.UsageBreakdown[r.EntityType]; ok {
+			resp.UsageBreakdown[r.EntityType] = r.Count
+		}
+	}
+
+	// Top contributors: top 5 users by tag application count.
+	type contribRow struct {
+		UserID   uint
+		Username *string
+		Count    int64
+	}
+	var contribRows []contribRow
+	if err := s.db.Table("entity_tags AS et").
+		Select("et.added_by_user_id AS user_id, u.username AS username, COUNT(*) AS count").
+		Joins("LEFT JOIN users u ON u.id = et.added_by_user_id").
+		Where("et.tag_id = ?", tagID).
+		Group("et.added_by_user_id, u.username").
+		Order("count DESC, et.added_by_user_id ASC").
+		Limit(5).
+		Scan(&contribRows).Error; err != nil {
+		return nil, fmt.Errorf("failed to compute top contributors: %w", err)
+	}
+	for _, r := range contribRows {
+		ref := contracts.TagUserRef{ID: r.UserID}
+		if r.Username != nil {
+			ref.Username = *r.Username
+		}
+		resp.TopContributors = append(resp.TopContributors, contracts.TagContributor{
+			User:  ref,
+			Count: r.Count,
+		})
+	}
+
+	// Related tags: other tags that co-occur on the same (entity_type, entity_id)
+	// as this tag. Naive single-query implementation — fine for v1, optimize via
+	// materialized view if profiling shows hotspots.
+	type relatedRow struct {
+		ID         uint
+		Name       string
+		Slug       string
+		Category   string
+		IsOfficial bool
+		UsageCount int
+	}
+	var relatedRows []relatedRow
+	err = s.db.Raw(`
+		SELECT t.id, t.name, t.slug, t.category, t.is_official, t.usage_count
+		FROM entity_tags et_other
+		JOIN entity_tags et_self
+		  ON et_self.entity_type = et_other.entity_type
+		 AND et_self.entity_id   = et_other.entity_id
+		JOIN tags t ON t.id = et_other.tag_id
+		WHERE et_self.tag_id = ?
+		  AND et_other.tag_id <> ?
+		GROUP BY t.id, t.name, t.slug, t.category, t.is_official, t.usage_count
+		ORDER BY COUNT(*) DESC, t.usage_count DESC, t.name ASC
+		LIMIT 5
+	`, tagID, tagID).Scan(&relatedRows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute related tags: %w", err)
+	}
+	for _, r := range relatedRows {
+		resp.RelatedTags = append(resp.RelatedTags, contracts.TagSummary{
+			ID:         r.ID,
+			Name:       r.Name,
+			Slug:       r.Slug,
+			Category:   r.Category,
+			IsOfficial: r.IsOfficial,
+			UsageCount: r.UsageCount,
+		})
+	}
+
+	return resp, nil
 }
 
 // wilsonScore computes the Wilson score lower bound for a binomial proportion.

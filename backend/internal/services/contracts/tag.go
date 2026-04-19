@@ -29,15 +29,78 @@ type TagResponse struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
+// TagSummary is a minimal tag representation for use in parent/children/related arrays.
+type TagSummary struct {
+	ID         uint   `json:"id"`
+	Name       string `json:"name"`
+	Slug       string `json:"slug"`
+	Category   string `json:"category"`
+	IsOfficial bool   `json:"is_official"`
+	UsageCount int    `json:"usage_count"`
+}
+
+// TagUserRef is a minimal user reference for creator attribution and contributor lists.
+// Username doubles as the public profile slug (users/{username}).
+type TagUserRef struct {
+	ID       uint   `json:"id"`
+	Username string `json:"username,omitempty"`
+}
+
+// TagContributor represents a single top contributor for a tag with their application count.
+type TagContributor struct {
+	User  TagUserRef `json:"user"`
+	Count int64      `json:"count"`
+}
+
+// TagDetailResponse is the enriched response for the tag detail page.
+// It embeds TagResponse and adds description_html, parent, children, usage breakdown,
+// top contributors, created_by, and related tags.
+type TagDetailResponse struct {
+	TagResponse
+	// DescriptionHTML is the description rendered from markdown (goldmark + bluemonday).
+	// Empty when there is no description.
+	DescriptionHTML string `json:"description_html,omitempty"`
+	// Parent is the full parent tag summary, or nil when the tag has no parent.
+	Parent *TagSummary `json:"parent,omitempty"`
+	// Children is the list of direct child tags (empty when the tag has no children).
+	Children []TagSummary `json:"children"`
+	// UsageBreakdown maps entity_type → count across all valid tag entity types.
+	// Every valid entity type is present; zero-counts are included so the frontend
+	// can decide whether to show or hide them.
+	UsageBreakdown map[string]int64 `json:"usage_breakdown"`
+	// TopContributors lists the top 5 users by count of tag applications.
+	TopContributors []TagContributor `json:"top_contributors"`
+	// CreatedBy is the creator's user reference, or nil when unknown.
+	CreatedBy *TagUserRef `json:"created_by,omitempty"`
+	// RelatedTags are the top 5 other tags that co-occur on the same tagged entities.
+	RelatedTags []TagSummary `json:"related_tags"`
+}
+
 // TagListItem represents a tag in a list response.
+//
+// MatchedViaAlias is populated only by the tag search/autocomplete endpoint
+// when the query matched a row in `tag_aliases` rather than `tags.name`. The
+// field holds the specific alias that matched, so the UI can show the user
+// which term was interpreted as the canonical tag ("matched `punk-rock`").
+// Empty/omitted for all other list contexts.
 type TagListItem struct {
-	ID         uint      `json:"id"`
-	Name       string    `json:"name"`
-	Slug       string    `json:"slug"`
-	Category   string    `json:"category"`
-	IsOfficial bool      `json:"is_official"`
-	UsageCount int       `json:"usage_count"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID              uint      `json:"id"`
+	Name            string    `json:"name"`
+	Slug            string    `json:"slug"`
+	Category        string    `json:"category"`
+	IsOfficial      bool      `json:"is_official"`
+	UsageCount      int       `json:"usage_count"`
+	CreatedAt       time.Time `json:"created_at"`
+	MatchedViaAlias string    `json:"matched_via_alias,omitempty"`
+}
+
+// TagSearchResult pairs a tag with any alias (on that tag) that matched the
+// search query. MatchedAlias is empty when the query matched the tag's name
+// directly, or when both the name and an alias matched (name match takes
+// precedence so the canonical form is surfaced without extra noise).
+type TagSearchResult struct {
+	Tag          models.Tag
+	MatchedAlias string
 }
 
 // EntityTagResponse represents a tag applied to an entity with vote info.
@@ -97,8 +160,11 @@ type TagServiceInterface interface {
 	// Tag entities
 	GetTagEntities(tagID uint, entityType string, limit, offset int) ([]TaggedEntityItem, int64, error)
 
+	// Tag detail enrichment
+	GetTagDetail(tagID uint) (*TagDetailResponse, error)
+
 	// Utility
-	SearchTags(query string, limit int, category string) ([]models.Tag, error)
+	SearchTags(query string, limit int, category string) ([]TagSearchResult, error)
 	GetTrendingTags(limit int, category string) ([]models.Tag, error)
 	PruneDownvotedTags() (int64, error)
 }

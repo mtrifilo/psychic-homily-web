@@ -102,6 +102,35 @@ func (h *TagHandler) GetTagHandler(ctx context.Context, req *GetTagRequest) (*Ge
 }
 
 // ============================================================================
+// Get Tag Detail (public) — enriched response for the tag detail page
+// ============================================================================
+
+type GetTagDetailRequest struct {
+	TagID string `path:"tag_id" doc:"Tag ID or slug" example:"post-punk"`
+}
+
+type GetTagDetailResponse struct {
+	Body *contracts.TagDetailResponse
+}
+
+func (h *TagHandler) GetTagDetailHandler(ctx context.Context, req *GetTagDetailRequest) (*GetTagDetailResponse, error) {
+	tag := h.resolveTag(req.TagID)
+	if tag == nil {
+		return nil, huma.Error404NotFound("Tag not found")
+	}
+
+	detail, err := h.tagService.GetTagDetail(tag.ID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to load tag detail")
+	}
+	if detail == nil {
+		return nil, huma.Error404NotFound("Tag not found")
+	}
+
+	return &GetTagDetailResponse{Body: detail}, nil
+}
+
+// ============================================================================
 // List Tagged Entities (public)
 // ============================================================================
 
@@ -157,21 +186,22 @@ func (h *TagHandler) SearchTagsHandler(ctx context.Context, req *SearchTagsReque
 		return nil, huma.Error400BadRequest("Query parameter 'q' is required")
 	}
 
-	tags, err := h.tagService.SearchTags(req.Query, req.Limit, req.Category)
+	results, err := h.tagService.SearchTags(req.Query, req.Limit, req.Category)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to search tags")
 	}
 
-	items := make([]contracts.TagListItem, len(tags))
-	for i, t := range tags {
+	items := make([]contracts.TagListItem, len(results))
+	for i, r := range results {
 		items[i] = contracts.TagListItem{
-			ID:         t.ID,
-			Name:       t.Name,
-			Slug:       t.Slug,
-			Category:   t.Category,
-			IsOfficial: t.IsOfficial,
-			UsageCount: t.UsageCount,
-			CreatedAt:  t.CreatedAt,
+			ID:              r.Tag.ID,
+			Name:            r.Tag.Name,
+			Slug:            r.Tag.Slug,
+			Category:        r.Tag.Category,
+			IsOfficial:      r.Tag.IsOfficial,
+			UsageCount:      r.Tag.UsageCount,
+			CreatedAt:       r.Tag.CreatedAt,
+			MatchedViaAlias: r.MatchedAlias,
 		}
 	}
 

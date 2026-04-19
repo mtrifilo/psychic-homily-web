@@ -30,14 +30,15 @@ const mockManyTags = {
   ],
 }
 
-const mockSearchTags = {
+const defaultMockSearchTags = {
   tags: [
-    { id: 3, name: 'punk', slug: 'punk', category: 'genre', usage_count: 5 },
+    { id: 3, name: 'punk', slug: 'punk', category: 'genre', is_official: false, usage_count: 5, created_at: '' },
   ],
 }
 
 const mockAddMutate = vi.fn()
 let currentMockTags = mockEntityTags
+let currentMockSearchTags: typeof defaultMockSearchTags = defaultMockSearchTags
 
 vi.mock('../hooks', () => ({
   useEntityTags: () => ({
@@ -62,7 +63,7 @@ vi.mock('../hooks', () => ({
     isPending: false,
   }),
   useSearchTags: () => ({
-    data: mockSearchTags,
+    data: currentMockSearchTags,
     isLoading: false,
   }),
 }))
@@ -79,6 +80,7 @@ describe('EntityTagList add-tag dialog accessibility', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     currentMockTags = mockEntityTags
+    currentMockSearchTags = defaultMockSearchTags
   })
 
   it('renders the Add button when authenticated', () => {
@@ -173,6 +175,7 @@ describe('EntityTagList top-5 cap and Wilson score sorting', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     currentMockTags = mockManyTags
+    currentMockSearchTags = defaultMockSearchTags
   })
 
   it('shows only top 5 tags by default when more than 5 exist', () => {
@@ -243,5 +246,113 @@ describe('EntityTagList top-5 cap and Wilson score sorting', () => {
 
     expect(screen.queryByText(/Show \d+ more/)).not.toBeInTheDocument()
     expect(screen.queryByText('Show less')).not.toBeInTheDocument()
+  })
+})
+
+// PSY-442: alias transparency in the add-tag autocomplete.
+// When the backend indicates an autocomplete row matched via `tag_aliases`
+// rather than `tags.name`, the dialog must render a small caption under
+// the tag name so the user sees which term was interpreted as the
+// canonical form. Rows that matched by name render unchanged.
+describe('EntityTagList add-tag dialog alias caption', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    currentMockTags = mockEntityTags
+    currentMockSearchTags = defaultMockSearchTags
+  })
+
+  async function openDialogAndSearch(queryText: string) {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+    await user.click(screen.getByRole('button', { name: 'Add tag' }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+    const input = screen.getByPlaceholderText('Search tags or type a new one...')
+    await user.type(input, queryText)
+    return user
+  }
+
+  it('renders the "matched" caption when a result carries matched_via_alias', async () => {
+    currentMockSearchTags = {
+      tags: [
+        {
+          id: 3,
+          name: 'punk',
+          slug: 'punk',
+          category: 'genre',
+          is_official: false,
+          usage_count: 15,
+          created_at: '',
+          matched_via_alias: 'punk-rock',
+        },
+      ],
+    }
+
+    await openDialogAndSearch('punk-rock')
+
+    await waitFor(() => {
+      expect(screen.getByText('punk')).toBeInTheDocument()
+    })
+
+    const caption = screen.getByTestId('tag-autocomplete-matched-alias')
+    expect(caption).toBeInTheDocument()
+    expect(caption).toHaveTextContent(/matched\s+[“"]punk-rock[”"]/)
+  })
+
+  it('omits the caption for rows matched by name', async () => {
+    // The default search mock does NOT set matched_via_alias — that
+    // mirrors the "user typed the canonical form" case.
+    await openDialogAndSearch('punk')
+
+    await waitFor(() => {
+      expect(screen.getByText('punk')).toBeInTheDocument()
+    })
+
+    expect(
+      screen.queryByTestId('tag-autocomplete-matched-alias')
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders captions only on the rows that matched via alias in a mixed result set', async () => {
+    currentMockSearchTags = {
+      tags: [
+        {
+          id: 3,
+          name: 'punk',
+          slug: 'punk',
+          category: 'genre',
+          is_official: false,
+          usage_count: 15,
+          created_at: '',
+          matched_via_alias: 'punk-rock',
+        },
+        {
+          id: 4,
+          name: 'post-punk',
+          slug: 'post-punk',
+          category: 'genre',
+          is_official: false,
+          usage_count: 7,
+          created_at: '',
+          // no matched_via_alias — matched by name
+        },
+      ],
+    }
+
+    await openDialogAndSearch('punk')
+
+    await waitFor(() => {
+      expect(screen.getByText('punk')).toBeInTheDocument()
+      expect(screen.getByText('post-punk')).toBeInTheDocument()
+    })
+
+    // Exactly one row has a caption — the one whose match came through the
+    // alias table.
+    const captions = screen.getAllByTestId('tag-autocomplete-matched-alias')
+    expect(captions).toHaveLength(1)
+    expect(captions[0]).toHaveTextContent(/matched\s+[“"]punk-rock[”"]/)
   })
 })
