@@ -247,6 +247,16 @@ VALUES (
 )
 ON CONFLICT DO NOTHING;
 
+-- PSY-457: reserved artist for follow-and-attendance.spec.ts. Dedicated row
+-- (not Calexico) so cross-worker follow tests don't race on a shared artist.
+INSERT INTO artists (name, slug, created_at, updated_at)
+VALUES (
+  'E2E [follow-test]',
+  'e2e-follow-test',
+  NOW(), NOW()
+)
+ON CONFLICT DO NOTHING;
+
 DO $$
 DECLARE
   v_id INTEGER;
@@ -308,6 +318,20 @@ BEGIN
     NOW() + INTERVAL '4 hours',
     'Phoenix', 'AZ', 'approved',
     'e2e-add-to-collection-test',
+    NOW(), NOW()
+  )
+  RETURNING id INTO s_id;
+  INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
+  INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
+
+  -- PSY-457: follow-and-attendance.spec.ts "mark going/interested"
+  -- Dedicated show so parallel workers don't race on e2e-collection-saved-show.
+  INSERT INTO shows (title, event_date, city, state, status, slug, created_at, updated_at)
+  VALUES (
+    'E2E [attendance-test]',
+    NOW() + INTERVAL '5 hours',
+    'Phoenix', 'AZ', 'approved',
+    'e2e-attendance-test',
     NOW(), NOW()
   )
   RETURNING id INTO s_id;
