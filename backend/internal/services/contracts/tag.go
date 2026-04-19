@@ -30,14 +30,30 @@ type TagResponse struct {
 }
 
 // TagListItem represents a tag in a list response.
+//
+// MatchedViaAlias is populated only by the tag search/autocomplete endpoint
+// when the query matched a row in `tag_aliases` rather than `tags.name`. The
+// field holds the specific alias that matched, so the UI can show the user
+// which term was interpreted as the canonical tag ("matched `punk-rock`").
+// Empty/omitted for all other list contexts.
 type TagListItem struct {
-	ID         uint      `json:"id"`
-	Name       string    `json:"name"`
-	Slug       string    `json:"slug"`
-	Category   string    `json:"category"`
-	IsOfficial bool      `json:"is_official"`
-	UsageCount int       `json:"usage_count"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID              uint      `json:"id"`
+	Name            string    `json:"name"`
+	Slug            string    `json:"slug"`
+	Category        string    `json:"category"`
+	IsOfficial      bool      `json:"is_official"`
+	UsageCount      int       `json:"usage_count"`
+	CreatedAt       time.Time `json:"created_at"`
+	MatchedViaAlias string    `json:"matched_via_alias,omitempty"`
+}
+
+// TagSearchResult pairs a tag with any alias (on that tag) that matched the
+// search query. MatchedAlias is empty when the query matched the tag's name
+// directly, or when both the name and an alias matched (name match takes
+// precedence so the canonical form is surfaced without extra noise).
+type TagSearchResult struct {
+	Tag          models.Tag
+	MatchedAlias string
 }
 
 // EntityTagResponse represents a tag applied to an entity with vote info.
@@ -98,7 +114,7 @@ type TagServiceInterface interface {
 	GetTagEntities(tagID uint, entityType string, limit, offset int) ([]TaggedEntityItem, int64, error)
 
 	// Utility
-	SearchTags(query string, limit int, category string) ([]models.Tag, error)
+	SearchTags(query string, limit int, category string) ([]TagSearchResult, error)
 	GetTrendingTags(limit int, category string) ([]models.Tag, error)
 	PruneDownvotedTags() (int64, error)
 }

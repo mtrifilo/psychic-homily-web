@@ -654,7 +654,14 @@ func (s *TagService) ResolveAlias(alias string) (*models.Tag, error) {
 
 // SearchTags performs a case-insensitive search on tag names and aliases.
 // If category is non-empty, results are filtered to that category.
-func (s *TagService) SearchTags(query string, limit int, category string) ([]models.Tag, error) {
+//
+// For each returned tag, MatchedAlias is populated with the specific alias
+// that matched the query when the match came through `tag_aliases` rather
+// than `tags.name`. This lets the autocomplete UI show the canonical form
+// alongside the typed alias for transparency ("matched `punk-rock`"). If
+// the tag's name matches directly, MatchedAlias is left empty even when
+// an alias also happens to match — the canonical form is the signal.
+func (s *TagService) SearchTags(query string, limit int, category string) ([]contracts.TagSearchResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -686,7 +693,49 @@ func (s *TagService) SearchTags(query string, limit int, category string) ([]mod
 		return nil, fmt.Errorf("failed to search tags: %w", err)
 	}
 
-	return tags, nil
+	// Build the result set. For tags whose name does NOT match the query,
+	// look up which alias on that tag matched so the UI can surface the
+	// provenance. A single batch query avoids N+1.
+	results := make([]contracts.TagSearchResult, len(tags))
+	pattern := "%" + q + "%"
+
+	// Collect the tag IDs whose name did not match the query — those are
+	// the ones that were returned only because of an alias match.
+	aliasMatchIDs := make([]uint, 0, len(tags))
+	for i, tag := range tags {
+		results[i] = contracts.TagSearchResult{Tag: tag}
+		if !strings.Contains(strings.ToLower(tag.Name), q) {
+			aliasMatchIDs = append(aliasMatchIDs, tag.ID)
+		}
+	}
+
+	if len(aliasMatchIDs) > 0 {
+		// Fetch matching aliases in one query, ordered so the first (lexicographic)
+		// match wins deterministically when a tag has multiple matching aliases.
+		var aliases []models.TagAlias
+		err := s.db.Where("tag_id IN ? AND LOWER(alias) LIKE ?", aliasMatchIDs, pattern).
+			Order("tag_id, alias ASC").
+			Find(&aliases).Error
+		if err != nil {
+			return nil, fmt.Errorf("failed to load matching aliases: %w", err)
+		}
+
+		matchedByTag := make(map[uint]string, len(aliases))
+		for _, a := range aliases {
+			if _, seen := matchedByTag[a.TagID]; seen {
+				continue
+			}
+			matchedByTag[a.TagID] = a.Alias
+		}
+
+		for i := range results {
+			if alias, ok := matchedByTag[results[i].Tag.ID]; ok {
+				results[i].MatchedAlias = alias
+			}
+		}
+	}
+
+	return results, nil
 }
 
 // GetTrendingTags returns the most used tags, optionally filtered by category.
