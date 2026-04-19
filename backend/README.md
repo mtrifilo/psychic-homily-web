@@ -647,6 +647,27 @@ NODE_ENV=production docker compose up
 | `CORS_ALLOWED_ORIGINS` | `https://psychichomily.com` | Comma-separated CORS origins             |
 | `LOG_LEVEL`            | `debug`                     | Logging level (debug, info, warn, error) |
 
+### Background Service Env Flags
+
+Each scheduled background service in `cmd/server/main.go` can be individually
+disabled at startup by setting the corresponding `DISABLE_*` env var to `"1"`.
+Any other value (including unset) leaves the service enabled, so local
+`go run ./cmd/server` keeps starting everything by default.
+
+The frontend E2E harness (`frontend/e2e/global-setup.ts`) sets all seven flags
+to `"1"` so the E2E backend runs lean — no scheduled tickers, no log spam,
+no nondeterministic DB state changes from ambient background jobs.
+
+| Variable                          | Disables                                                        |
+| --------------------------------- | --------------------------------------------------------------- |
+| `DISABLE_RADIO_FETCH`             | Radio playlist ingestion, affinity computation, re-matching     |
+| `DISABLE_AUTO_PROMOTION`          | Daily user trust-tier evaluation / auto-promotion               |
+| `DISABLE_ENRICHMENT_WORKER`       | Post-import enrichment worker (processes enrichment queue)      |
+| `DISABLE_SCHEDULER`               | Extraction scheduler (automated venue extraction runs)          |
+| `DISABLE_CLEANUP`                 | Account cleanup service (permanent deletion of soft-deleted)    |
+| `DISABLE_REMINDERS`               | Show reminder service (24h-before email reminders)              |
+| `DISABLE_RELATIONSHIP_DERIVATION` | Derived artist relationships (shared_bills + shared_label)      |
+
 ### Security Notes
 
 - **Never commit `.env.production`** to version control

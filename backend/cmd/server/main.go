@@ -152,33 +152,84 @@ func main() {
 	// Setup routes
 	_ = routes.SetupRoutes(router, sc, cfg)
 
+	// Background services can be individually disabled via DISABLE_* env flags.
+	// Defaults preserve current local behavior (flag unset → service starts).
+	// E2E tests set all flags to "1" to get a lean, deterministic backend.
+	//
+	// Each service keeps its own cancel func; a nil cancel signals "not started"
+	// so the shutdown path can skip it without panicking.
+	var (
+		cleanupCancel       context.CancelFunc
+		reminderCancel      context.CancelFunc
+		schedulerCancel     context.CancelFunc
+		enrichmentCancel    context.CancelFunc
+		autoPromotionCancel context.CancelFunc
+		radioFetchCancel    context.CancelFunc
+		relDerivationCancel context.CancelFunc
+	)
+
 	// Start account cleanup service (background job for permanent deletion)
-	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
-	sc.Cleanup.Start(cleanupCtx)
+	if os.Getenv("DISABLE_CLEANUP") != "1" {
+		var cleanupCtx context.Context
+		cleanupCtx, cleanupCancel = context.WithCancel(context.Background())
+		sc.Cleanup.Start(cleanupCtx)
+	} else {
+		log.Printf("DISABLE_CLEANUP=1: skipping cleanup service startup")
+	}
 
 	// Start show reminder service (background job for 24h-before email reminders)
-	reminderCtx, reminderCancel := context.WithCancel(context.Background())
-	sc.Reminder.Start(reminderCtx)
+	if os.Getenv("DISABLE_REMINDERS") != "1" {
+		var reminderCtx context.Context
+		reminderCtx, reminderCancel = context.WithCancel(context.Background())
+		sc.Reminder.Start(reminderCtx)
+	} else {
+		log.Printf("DISABLE_REMINDERS=1: skipping reminder service startup")
+	}
 
 	// Start extraction scheduler (background job for automated venue extraction)
-	schedulerCtx, schedulerCancel := context.WithCancel(context.Background())
-	sc.Scheduler.Start(schedulerCtx)
+	if os.Getenv("DISABLE_SCHEDULER") != "1" {
+		var schedulerCtx context.Context
+		schedulerCtx, schedulerCancel = context.WithCancel(context.Background())
+		sc.Scheduler.Start(schedulerCtx)
+	} else {
+		log.Printf("DISABLE_SCHEDULER=1: skipping extraction scheduler startup")
+	}
 
 	// Start enrichment worker (background job for post-import enrichment)
-	enrichmentCtx, enrichmentCancel := context.WithCancel(context.Background())
-	sc.EnrichmentWorker.Start(enrichmentCtx)
+	if os.Getenv("DISABLE_ENRICHMENT_WORKER") != "1" {
+		var enrichmentCtx context.Context
+		enrichmentCtx, enrichmentCancel = context.WithCancel(context.Background())
+		sc.EnrichmentWorker.Start(enrichmentCtx)
+	} else {
+		log.Printf("DISABLE_ENRICHMENT_WORKER=1: skipping enrichment worker startup")
+	}
 
 	// Start auto-promotion scheduler (background job for daily user tier evaluation)
-	autoPromotionCtx, autoPromotionCancel := context.WithCancel(context.Background())
-	sc.AutoPromotion.Start(autoPromotionCtx)
+	if os.Getenv("DISABLE_AUTO_PROMOTION") != "1" {
+		var autoPromotionCtx context.Context
+		autoPromotionCtx, autoPromotionCancel = context.WithCancel(context.Background())
+		sc.AutoPromotion.Start(autoPromotionCtx)
+	} else {
+		log.Printf("DISABLE_AUTO_PROMOTION=1: skipping auto-promotion scheduler startup")
+	}
 
 	// Start radio fetch service (background job for playlist ingestion, affinity, re-matching)
-	radioFetchCtx, radioFetchCancel := context.WithCancel(context.Background())
-	sc.RadioFetch.Start(radioFetchCtx)
+	if os.Getenv("DISABLE_RADIO_FETCH") != "1" {
+		var radioFetchCtx context.Context
+		radioFetchCtx, radioFetchCancel = context.WithCancel(context.Background())
+		sc.RadioFetch.Start(radioFetchCtx)
+	} else {
+		log.Printf("DISABLE_RADIO_FETCH=1: skipping radio fetch service startup")
+	}
 
 	// Start relationship derivation service (background job for shared_bills + shared_label)
-	relDerivationCtx, relDerivationCancel := context.WithCancel(context.Background())
-	sc.RelationshipDerivation.Start(relDerivationCtx)
+	if os.Getenv("DISABLE_RELATIONSHIP_DERIVATION") != "1" {
+		var relDerivationCtx context.Context
+		relDerivationCtx, relDerivationCancel = context.WithCancel(context.Background())
+		sc.RelationshipDerivation.Start(relDerivationCtx)
+	} else {
+		log.Printf("DISABLE_RELATIONSHIP_DERIVATION=1: skipping relationship derivation service startup")
+	}
 
 	// Create HTTP server
 	srv := &http.Server{
@@ -204,33 +255,35 @@ func main() {
 
 	log.Println("Shutting down Psychic Homily API...")
 
-	// Stop cleanup service
-	cleanupCancel()
-	sc.Cleanup.Stop()
-
-	// Stop reminder service
-	reminderCancel()
-	sc.Reminder.Stop()
-
-	// Stop extraction scheduler
-	schedulerCancel()
-	sc.Scheduler.Stop()
-
-	// Stop enrichment worker
-	enrichmentCancel()
-	sc.EnrichmentWorker.Stop()
-
-	// Stop auto-promotion scheduler
-	autoPromotionCancel()
-	sc.AutoPromotion.Stop()
-
-	// Stop radio fetch service
-	radioFetchCancel()
-	sc.RadioFetch.Stop()
-
-	// Stop relationship derivation service
-	relDerivationCancel()
-	sc.RelationshipDerivation.Stop()
+	// Stop background services only if they were started (cancel is nil if DISABLE_* was set).
+	if cleanupCancel != nil {
+		cleanupCancel()
+		sc.Cleanup.Stop()
+	}
+	if reminderCancel != nil {
+		reminderCancel()
+		sc.Reminder.Stop()
+	}
+	if schedulerCancel != nil {
+		schedulerCancel()
+		sc.Scheduler.Stop()
+	}
+	if enrichmentCancel != nil {
+		enrichmentCancel()
+		sc.EnrichmentWorker.Stop()
+	}
+	if autoPromotionCancel != nil {
+		autoPromotionCancel()
+		sc.AutoPromotion.Stop()
+	}
+	if radioFetchCancel != nil {
+		radioFetchCancel()
+		sc.RadioFetch.Stop()
+	}
+	if relDerivationCancel != nil {
+		relDerivationCancel()
+		sc.RelationshipDerivation.Stop()
+	}
 
 	// Shut down chromedp browser pool
 	sc.Fetcher.ShutdownChromedp()
