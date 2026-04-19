@@ -1,27 +1,24 @@
 import { test, expect } from '../fixtures'
 
+// PSY-430: pin to a reserved show seeded by setup-db.sh so parallel
+// mutating tests in other files don't race on the same .first() row.
+const RESERVED_SHOW_SLUG = 'e2e-save-show-test'
+const RESERVED_SHOW_TITLE = 'E2E [save-show-test]'
+const RESERVED_SHOW_URL = `/shows/${RESERVED_SHOW_SLUG}`
+
 test.describe('Save/unsave a show', () => {
   // Tests share DB state (same user saving/unsaving the same show),
   // so they must not run in parallel
   test.describe.configure({ mode: 'serial' })
   test('save button is hidden when not authenticated', async ({ page }) => {
-    await page.goto('/shows')
-    await expect(page.locator('article').first()).toBeVisible({
-      timeout: 10_000,
-    })
+    await page.goto(RESERVED_SHOW_URL)
 
-    await page
-      .locator('article')
-      .first()
-      .locator('a[href^="/shows/"]')
-      .first()
-      .click()
-    await page.waitForURL(/\/shows\//, { timeout: 10_000 })
-
-    // Wait for show detail to load
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({
-      timeout: 10_000,
-    })
+    // Wait for show detail to load (breadcrumb confirms the right show)
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Breadcrumb' })
+        .getByText(RESERVED_SHOW_TITLE)
+    ).toBeVisible({ timeout: 10_000 })
 
     // Save button should NOT be visible when unauthenticated
     await expect(
@@ -32,22 +29,15 @@ test.describe('Save/unsave a show', () => {
   test('can save and unsave a show from detail page', async ({
     authenticatedPage,
   }) => {
-    await authenticatedPage.goto('/shows')
-    await expect(authenticatedPage.locator('article').first()).toBeVisible({
-      timeout: 10_000,
-    })
-
-    await authenticatedPage
-      .locator('article')
-      .first()
-      .locator('a[href^="/shows/"]')
-      .first()
-      .click()
-    await authenticatedPage.waitForURL(/\/shows\//, { timeout: 10_000 })
+    await authenticatedPage.goto(RESERVED_SHOW_URL)
 
     // Wait for detail page to load
+    // Breadcrumb shows the show title; the H1 is the headlining artist name,
+    // so we verify the right show loaded via the breadcrumb.
     await expect(
-      authenticatedPage.getByRole('heading', { level: 1 })
+      authenticatedPage
+        .getByRole('navigation', { name: 'Breadcrumb' })
+        .getByText(RESERVED_SHOW_TITLE)
     ).toBeVisible({ timeout: 10_000 })
 
     // Save button should be visible and show "Add to My List"
@@ -88,22 +78,13 @@ test.describe('Save/unsave a show', () => {
   test('save state persists after navigation', async ({
     authenticatedPage,
   }) => {
-    await authenticatedPage.goto('/shows')
-    await expect(authenticatedPage.locator('article').first()).toBeVisible({
-      timeout: 10_000,
-    })
-
-    // Navigate to first show detail
-    await authenticatedPage
-      .locator('article')
-      .first()
-      .locator('a[href^="/shows/"]')
-      .first()
-      .click()
-    await authenticatedPage.waitForURL(/\/shows\//, { timeout: 10_000 })
-
+    await authenticatedPage.goto(RESERVED_SHOW_URL)
+    // Breadcrumb shows the show title; the H1 is the headlining artist name,
+    // so we verify the right show loaded via the breadcrumb.
     await expect(
-      authenticatedPage.getByRole('heading', { level: 1 })
+      authenticatedPage
+        .getByRole('navigation', { name: 'Breadcrumb' })
+        .getByText(RESERVED_SHOW_TITLE)
     ).toBeVisible({ timeout: 10_000 })
 
     // Save the show and wait for the API response to complete
@@ -125,9 +106,6 @@ test.describe('Save/unsave a show', () => {
       authenticatedPage.getByRole('button', { name: 'Remove from My List' })
     ).toBeVisible({ timeout: 5_000 })
 
-    // Remember the URL so we can come back
-    const showUrl = authenticatedPage.url()
-
     // Navigate away via the breadcrumb link
     await authenticatedPage
       .locator('nav[aria-label="Breadcrumb"]')
@@ -136,9 +114,13 @@ test.describe('Save/unsave a show', () => {
     await authenticatedPage.waitForURL(/\/shows$/, { timeout: 10_000 })
 
     // Navigate back to the same show
-    await authenticatedPage.goto(showUrl)
+    await authenticatedPage.goto(RESERVED_SHOW_URL)
+    // Breadcrumb shows the show title; the H1 is the headlining artist name,
+    // so we verify the right show loaded via the breadcrumb.
     await expect(
-      authenticatedPage.getByRole('heading', { level: 1 })
+      authenticatedPage
+        .getByRole('navigation', { name: 'Breadcrumb' })
+        .getByText(RESERVED_SHOW_TITLE)
     ).toBeVisible({ timeout: 10_000 })
 
     // Should still be saved

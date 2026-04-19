@@ -66,21 +66,19 @@ test.describe('Library page (formerly /collection)', () => {
   test('shows saved show after saving one', async ({
     authenticatedPage,
   }) => {
-    // Navigate to shows list and open a show detail
-    await authenticatedPage.goto('/shows')
-    await expect(authenticatedPage.locator('article').first()).toBeVisible({
-      timeout: 10_000,
-    })
+    // PSY-430: pin to a reserved show seeded by setup-db.sh so parallel
+    // mutating tests in other files don't race on the same .first() row.
+    const reservedShowSlug = 'e2e-collection-saved-show'
+    const reservedShowTitle = 'E2E [collection-saved-show]'
+    const showUrl = `/shows/${reservedShowSlug}`
 
-    await authenticatedPage
-      .locator('article')
-      .first()
-      .getByRole('link', { name: 'Details' })
-      .click()
-    await authenticatedPage.waitForURL(/\/shows\//, { timeout: 10_000 })
-
+    await authenticatedPage.goto(showUrl)
+    // Breadcrumb shows the show title; the H1 is the headlining artist name,
+    // so we verify the right show loaded via the breadcrumb.
     await expect(
-      authenticatedPage.getByRole('heading', { level: 1 })
+      authenticatedPage
+        .getByRole('navigation', { name: 'Breadcrumb' })
+        .getByText(reservedShowTitle)
     ).toBeVisible({ timeout: 10_000 })
 
     // Save the show and wait for API response
@@ -105,31 +103,32 @@ test.describe('Library page (formerly /collection)', () => {
       authenticatedPage.getByRole('button', { name: 'Remove from My List' })
     ).toBeVisible({ timeout: 5_000 })
 
-    // Remember the show URL for cleanup
-    const showUrl = authenticatedPage.url()
-
     // Navigate to library
     await authenticatedPage.goto('/library')
     await expect(
       authenticatedPage.getByRole('heading', { name: /^library$/i })
     ).toBeVisible({ timeout: 10_000 })
 
-    // At least one show card should be visible
-    await expect(authenticatedPage.locator('article').first()).toBeVisible({
-      timeout: 5_000,
+    // The reserved show we just saved should appear in the library.
+    // Uses aria-label on <article> (added in this PR for testability + a11y).
+    const savedCard = authenticatedPage.getByRole('article', {
+      name: reservedShowTitle,
     })
+    await expect(savedCard).toBeVisible({ timeout: 5_000 })
+    // The card links to the show detail page via the artist name.
     await expect(
-      authenticatedPage
-        .locator('article')
-        .first()
-        .getByRole('link', { name: 'Details' })
+      savedCard.locator(`a[href="/shows/${reservedShowSlug}"]`)
     ).toBeVisible()
 
     // Clean up: go back to the show and unsave it (wait for API response
     // so the DELETE completes before the test ends and the page closes)
     await authenticatedPage.goto(showUrl)
+    // Breadcrumb shows the show title; the H1 is the headlining artist name,
+    // so we verify the right show loaded via the breadcrumb.
     await expect(
-      authenticatedPage.getByRole('heading', { level: 1 })
+      authenticatedPage
+        .getByRole('navigation', { name: 'Breadcrumb' })
+        .getByText(reservedShowTitle)
     ).toBeVisible({ timeout: 10_000 })
 
     await Promise.all([

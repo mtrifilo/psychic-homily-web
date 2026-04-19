@@ -197,6 +197,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
 
     return (
       <article
+        aria-label={show.title}
         className={cn(
           'flex items-center gap-3 px-3 py-1.5 hover:bg-muted/50 rounded-md transition-colors',
           show.is_cancelled && 'opacity-60'
@@ -262,6 +263,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
   if (density === 'expanded') {
     return (
       <article
+        aria-label={show.title}
         className={cn(
           'border border-border/50 rounded-lg bg-card hover:shadow-sm transition-all duration-100',
           'px-5 py-5 sm:px-6 sm:py-6',
@@ -497,6 +499,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
   // ----- Comfortable density (default): current card layout -----
   return (
     <article
+      aria-label={show.title}
       className={cn(
         'border border-border/50 rounded-lg bg-card hover:shadow-sm transition-all duration-100',
         'px-3 py-3 sm:px-4 sm:py-4',
