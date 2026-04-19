@@ -968,6 +968,11 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
               actions={headerActions}
             />
             <AttributionLine entityType="artist" entityId={artist.id} />
+            <EntityTagList
+              entityType="artist"
+              entityId={artist.id}
+              isAuthenticated={isAuthenticated}
+            />
             <ContributionPrompt
               entityType="artist"
               entityId={artist.id}
@@ -1037,15 +1042,6 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
       {/* Related Artists */}
       <RelatedArtists artistId={artist.id} artistSlug={artist.slug} />
-
-      {/* Tags */}
-      <div className="mt-0 px-4 md:px-0">
-        <EntityTagList
-          entityType="artist"
-          entityId={artist.id}
-          isAuthenticated={isAuthenticated}
-        />
-      </div>
 
       {/* Revision History */}
       <div className="mt-0">

@@ -246,6 +246,11 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
               }
             />
             <AttributionLine entityType="release" entityId={release.id} />
+            <EntityTagList
+              entityType="release"
+              entityId={release.id}
+              isAuthenticated={isAuthenticated}
+            />
           </>
         }
         tabs={tabs}
@@ -342,15 +347,6 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
           </TabsContent>
         )}
       </EntityDetailLayout>
-
-      {/* Tags */}
-      <div className="mt-0 px-4 md:px-0">
-        <EntityTagList
-          entityType="release"
-          entityId={release.id}
-          isAuthenticated={isAuthenticated}
-        />
-      </div>
 
       {/* Revision History */}
       <div className="mt-0">

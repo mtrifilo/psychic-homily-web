@@ -176,30 +176,37 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
       fallback={{ href: '/labels', label: 'Labels' }}
       entityName={label.name}
       header={
-        <EntityHeader
-          title={label.name}
-          subtitle={
-            <>
-              <Badge variant={getLabelStatusVariant(label.status)}>
-                {getLabelStatusLabel(label.status)}
-              </Badge>
-              {location && (
-                <span className="flex items-center gap-1">
-                  <MapPin className="h-3.5 w-3.5" />
-                  {location}
-                </span>
-              )}
-              {label.founded_year && <span>Est. {label.founded_year}</span>}
-            </>
-          }
-          actions={
-            <div className="flex items-center gap-2">
-              <NotifyMeButton entityType="label" entityId={label.id} entityName={label.name} />
-              <FollowButton entityType="labels" entityId={label.id} />
-              <AddToCollectionButton entityType="label" entityId={label.id} entityName={label.name} />
-            </div>
-          }
-        />
+        <>
+          <EntityHeader
+            title={label.name}
+            subtitle={
+              <>
+                <Badge variant={getLabelStatusVariant(label.status)}>
+                  {getLabelStatusLabel(label.status)}
+                </Badge>
+                {location && (
+                  <span className="flex items-center gap-1">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {location}
+                  </span>
+                )}
+                {label.founded_year && <span>Est. {label.founded_year}</span>}
+              </>
+            }
+            actions={
+              <div className="flex items-center gap-2">
+                <NotifyMeButton entityType="label" entityId={label.id} entityName={label.name} />
+                <FollowButton entityType="labels" entityId={label.id} />
+                <AddToCollectionButton entityType="label" entityId={label.id} entityName={label.name} />
+              </div>
+            }
+          />
+          <EntityTagList
+            entityType="label"
+            entityId={label.id}
+            isAuthenticated={isAuthenticated}
+          />
+        </>
       }
       tabs={tabs}
       activeTab={activeTab}
@@ -332,15 +339,6 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
         </div>
       </TabsContent>
     </EntityDetailLayout>
-
-    {/* Tags */}
-    <div className="mt-0 px-4 md:px-0">
-      <EntityTagList
-        entityType="label"
-        entityId={label.id}
-        isAuthenticated={isAuthenticated}
-      />
-    </div>
 
     {/* Discussion */}
     <div className="mt-0 px-4 md:px-0">
