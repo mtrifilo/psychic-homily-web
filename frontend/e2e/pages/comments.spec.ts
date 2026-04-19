@@ -56,13 +56,15 @@ test.describe('Comments (general)', () => {
       // PSY-430: pair the submit click with waitForResponse so the POST
       // settles before we assert on the rendered list (contributor tier
       // => visibility=visible, so the comment should appear on refetch).
+      // PSY-462: bumped timeout to 30s to absorb CI cold-start cost on the
+      // first backend request of the spec.
       const [createResp] = await Promise.all([
         authenticatedPage.waitForResponse(
           (resp) =>
             resp.url().includes('/entities/venue/') &&
             resp.url().endsWith('/comments') &&
             resp.request().method() === 'POST',
-          { timeout: 10_000 }
+          { timeout: 30_000 }
         ),
         thread.getByTestId('comment-submit').click(),
       ])
@@ -210,9 +212,10 @@ test.describe('Comments (general)', () => {
       expect(replyBody.depth).toBeGreaterThan(0)
       expect(replyBody.depth).toBeLessThanOrEqual(2)
 
-      // The reply renders nested under the parent.
+      // The reply renders nested under the parent. PSY-462: bumped timeout
+      // to 15s to absorb CI cost of invalidation -> refetch -> nested render.
       await expect(parentCard.getByText(uniqueReply)).toBeVisible({
-        timeout: 5_000,
+        timeout: 15_000,
       })
 
       // Cleanup: delete the reply so re-runs are idempotent.
