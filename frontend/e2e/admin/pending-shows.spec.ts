@@ -29,7 +29,7 @@ test.describe('Admin: Pending Shows', () => {
     ).toBeVisible()
   })
 
-  test('can approve a pending show', async ({ adminPage }) => {
+  test('can approve a pending show', { tag: '@smoke' }, async ({ adminPage }) => {
     await adminPage.goto('/admin/pending-shows')
 
     // Wait for page to load

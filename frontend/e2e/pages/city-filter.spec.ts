@@ -24,7 +24,7 @@ test.describe('City filter on shows list', () => {
     ).toBeVisible()
   })
 
-  test('clicking a city in combobox updates URL and filters shows', async ({
+  test('clicking a city in combobox updates URL and filters shows', { tag: '@smoke' }, async ({
     page,
   }) => {
     await page.goto('/shows')

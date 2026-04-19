@@ -2,7 +2,7 @@ import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
 
 test.describe('Shows list', () => {
-  test('loads and displays upcoming shows', async ({ page }) => {
+  test('loads and displays upcoming shows', { tag: '@smoke' }, async ({ page }) => {
     await page.goto('/shows')
 
     await expect(page).toHaveTitle(/Upcoming Shows/)

@@ -7,7 +7,7 @@ const REGISTER_USER = {
 }
 
 test.describe('Registration', () => {
-  test('registers a new account and redirects to home', async ({ page }) => {
+  test('registers a new account and redirects to home', { tag: '@smoke' }, async ({ page }) => {
     await page.goto('/auth')
 
     // Switch to signup tab
