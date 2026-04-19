@@ -52,6 +52,17 @@ function getEntityTypeSingularLabel(entityType: string): string {
 export function TagDetail({ slug }: TagDetailProps) {
   const { data: tag, isLoading, error } = useTagDetail(slug)
 
+  // Usage breakdown: only show non-zero counts. We pad with zeros on the backend
+  // so the object always has all keys, but displaying zero counts is noise.
+  // NOTE: hook must be called unconditionally, above the early returns below.
+  // Guard the logic inside rather than the hook call.
+  const breakdownEntries = useMemo(() => {
+    if (!tag) return []
+    return ENTITY_TYPE_ORDER
+      .map((type) => ({ type, count: tag.usage_breakdown?.[type] ?? 0 }))
+      .filter((e) => e.count > 0)
+  }, [tag])
+
   if (isLoading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -112,15 +123,6 @@ export function TagDetail({ slug }: TagDetailProps) {
   const isGenre = tag.category === 'genre'
   const hasParent = isGenre && Boolean(tag.parent)
   const hasChildren = isGenre && tag.children && tag.children.length > 0
-
-  // Usage breakdown: only show non-zero counts. We pad with zeros on the backend
-  // so the object always has all keys, but displaying zero counts is noise.
-  const breakdownEntries = useMemo(() => {
-    const order = ENTITY_TYPE_ORDER
-    return order
-      .map((type) => ({ type, count: tag.usage_breakdown?.[type] ?? 0 }))
-      .filter((e) => e.count > 0)
-  }, [tag.usage_breakdown])
 
   return (
     <div className="container max-w-4xl mx-auto px-4 py-6">
