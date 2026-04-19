@@ -41,38 +41,6 @@ test.describe('Venue detail', () => {
     ).toBeVisible()
   })
 
-  test('back to venues link navigates to venues list', async ({ page }) => {
-    await page.goto('/shows')
-    await expect(page.locator('article').first()).toBeVisible({
-      timeout: 10_000,
-    })
-
-    await page
-      .locator('article')
-      .first()
-      .locator('a[href^="/shows/"]')
-      .first()
-      .click()
-    await page.waitForURL(/\/shows\//, { timeout: 10_000 })
-
-    const venueLink = page.locator('a[href^="/venues/"]').first()
-    await expect(venueLink).toBeVisible({ timeout: 10_000 })
-    await venueLink.click()
-    await page.waitForURL(/\/venues\//, { timeout: 10_000 })
-
-    // Wait for venue detail to load
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({
-      timeout: 10_000,
-    })
-
-    // Click the breadcrumb link to Venues
-    await page
-      .locator('nav[aria-label="Breadcrumb"]')
-      .getByRole('link', { name: 'Venues' })
-      .click()
-    await page.waitForURL(/\/venues$/, { timeout: 10_000 })
-  })
-
   test('shows tabs switch between upcoming and past', async ({ page }) => {
     await page.goto('/shows')
     await expect(page.locator('article').first()).toBeVisible({

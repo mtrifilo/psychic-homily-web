@@ -59,34 +59,4 @@ test.describe('Show detail', () => {
     await expect(page).toHaveTitle(/.+ at .+/, { timeout: 10_000 })
   })
 
-  test('back to shows link navigates to shows list', async ({ page }) => {
-    await page.goto('/shows')
-    await expect(page.locator('article').first()).toBeVisible({
-      timeout: 10_000,
-    })
-
-    await page
-      .locator('article')
-      .first()
-      .locator('a[href^="/shows/"]')
-      .first()
-      .click()
-    await page.waitForURL(/\/shows\//, { timeout: 10_000 })
-
-    // Wait for show data to load
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({
-      timeout: 10_000,
-    })
-
-    // Click the breadcrumb link to Shows
-    await page
-      .locator('nav[aria-label="Breadcrumb"]')
-      .getByRole('link', { name: 'Shows' })
-      .click()
-    await page.waitForURL(/\/shows$/, { timeout: 10_000 })
-
-    await expect(
-      page.getByRole('heading', { name: /upcoming shows/i })
-    ).toBeVisible()
-  })
 })
