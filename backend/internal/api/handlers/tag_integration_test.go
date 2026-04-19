@@ -351,6 +351,48 @@ func (s *TagHandlerIntegrationSuite) TestSearchTags_WithLimit() {
 	s.LessOrEqual(len(resp.Body.Tags), 3)
 }
 
+// TestSearchTags_MatchedViaAlias covers PSY-442 — the autocomplete endpoint
+// surfaces the specific alias that matched so the add-tag dialog can render
+// a "matched `punk-rock`" caption under the canonical row.
+func (s *TagHandlerIntegrationSuite) TestSearchTags_MatchedViaAlias() {
+	admin := createAdminUser(s.deps.db)
+	tag := s.createTagViaHandler(admin, "punk", models.TagCategoryGenre)
+
+	// Seed an alias via the service layer (alias creation is admin-only via
+	// the handler, but we don't need to exercise that path here).
+	_, err := s.deps.tagService.CreateAlias(tag.Body.ID, "punk-rock")
+	s.Require().NoError(err)
+
+	req := &SearchTagsRequest{Query: "punk-rock"}
+	resp, err := s.handler.SearchTagsHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.Require().NotNil(resp)
+	s.Require().Len(resp.Body.Tags, 1)
+	s.Equal(tag.Body.ID, resp.Body.Tags[0].ID)
+	s.Equal("punk", resp.Body.Tags[0].Name)
+	s.Equal("punk-rock", resp.Body.Tags[0].MatchedViaAlias,
+		"alias-match rows must expose MatchedViaAlias for the frontend caption")
+}
+
+// Name-match rows keep MatchedViaAlias empty so existing autocomplete
+// consumers (Cmd+K, admin browse) render unchanged.
+func (s *TagHandlerIntegrationSuite) TestSearchTags_NameMatchHasNoAliasCaption() {
+	admin := createAdminUser(s.deps.db)
+	tag := s.createTagViaHandler(admin, "punk", models.TagCategoryGenre)
+	// An alias exists on the tag, but the query hits the canonical name directly.
+	_, err := s.deps.tagService.CreateAlias(tag.Body.ID, "punk-rock")
+	s.Require().NoError(err)
+
+	req := &SearchTagsRequest{Query: "punk"}
+	resp, err := s.handler.SearchTagsHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.Require().NotNil(resp)
+	s.Require().Len(resp.Body.Tags, 1)
+	s.Equal(tag.Body.ID, resp.Body.Tags[0].ID)
+	s.Empty(resp.Body.Tags[0].MatchedViaAlias,
+		"name matches should leave MatchedViaAlias empty so the caption stays hidden")
+}
+
 // ============================================================================
 // UpdateTagHandler
 // ============================================================================

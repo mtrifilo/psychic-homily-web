@@ -395,18 +395,28 @@ function AddTagForm({
               key={tag.id}
               onClick={() => handleSelectTag(tag)}
               disabled={addMutation.isPending}
-              className="flex items-center gap-2 w-full rounded-md px-3 py-2 text-sm hover:bg-muted transition-colors text-left"
+              className="flex items-start gap-2 w-full rounded-md px-3 py-2 text-sm hover:bg-muted transition-colors text-left"
             >
               <span
                 className={cn(
-                  'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                  'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium shrink-0 mt-0.5',
                   getCategoryColor(tag.category)
                 )}
               >
                 {tag.category}
               </span>
-              <span className="font-medium">{tag.name}</span>
-              <span className="ml-auto text-xs text-muted-foreground">
+              <div className="min-w-0 flex-1">
+                <span className="font-medium">{tag.name}</span>
+                {tag.matched_via_alias && (
+                  <span
+                    className="block text-[11px] text-muted-foreground truncate"
+                    data-testid="tag-autocomplete-matched-alias"
+                  >
+                    matched &ldquo;{tag.matched_via_alias}&rdquo;
+                  </span>
+                )}
+              </div>
+              <span className="ml-auto shrink-0 text-xs text-muted-foreground mt-0.5">
                 {tag.usage_count} {tag.usage_count === 1 ? 'use' : 'uses'}
               </span>
             </button>

@@ -157,21 +157,22 @@ func (h *TagHandler) SearchTagsHandler(ctx context.Context, req *SearchTagsReque
 		return nil, huma.Error400BadRequest("Query parameter 'q' is required")
 	}
 
-	tags, err := h.tagService.SearchTags(req.Query, req.Limit, req.Category)
+	results, err := h.tagService.SearchTags(req.Query, req.Limit, req.Category)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to search tags")
 	}
 
-	items := make([]contracts.TagListItem, len(tags))
-	for i, t := range tags {
+	items := make([]contracts.TagListItem, len(results))
+	for i, r := range results {
 		items[i] = contracts.TagListItem{
-			ID:         t.ID,
-			Name:       t.Name,
-			Slug:       t.Slug,
-			Category:   t.Category,
-			IsOfficial: t.IsOfficial,
-			UsageCount: t.UsageCount,
-			CreatedAt:  t.CreatedAt,
+			ID:              r.Tag.ID,
+			Name:            r.Tag.Name,
+			Slug:            r.Tag.Slug,
+			Category:        r.Tag.Category,
+			IsOfficial:      r.Tag.IsOfficial,
+			UsageCount:      r.Tag.UsageCount,
+			CreatedAt:       r.Tag.CreatedAt,
+			MatchedViaAlias: r.MatchedAlias,
 		}
 	}
 

@@ -18,6 +18,13 @@ export interface TagListItem {
   is_official: boolean
   usage_count: number
   created_at: string
+  /**
+   * Populated only by the tag search / autocomplete endpoint when the query
+   * matched an entry in `tag_aliases` rather than `tags.name`. The value is
+   * the specific alias that matched, so the add-tag dialog can show
+   * "matched `{alias}`" under the canonical row for transparency (PSY-442).
+   */
+  matched_via_alias?: string
 }
 
 export interface TagDetailResponse extends TagListItem {

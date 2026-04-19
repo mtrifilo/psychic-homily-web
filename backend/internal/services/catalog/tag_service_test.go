@@ -568,19 +568,26 @@ func (suite *TagServiceIntegrationTestSuite) TestSearchTags_ByName() {
 	suite.createTag("post-rock", "genre")
 	suite.createTag("jazz", "genre")
 
-	tags, err := suite.tagService.SearchTags("post", 10, "")
+	results, err := suite.tagService.SearchTags("post", 10, "")
 	suite.Require().NoError(err)
-	suite.Assert().Len(tags, 2)
+	suite.Assert().Len(results, 2)
+	// Name-match results should not report any alias provenance.
+	for _, r := range results {
+		suite.Assert().Empty(r.MatchedAlias, "expected no MatchedAlias for name-match row %q", r.Tag.Name)
+	}
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestSearchTags_ByAlias() {
 	tag := suite.createTag("post-punk", "genre")
-	suite.tagService.CreateAlias(tag.ID, "post punk revival")
-
-	tags, err := suite.tagService.SearchTags("revival", 10, "")
+	_, err := suite.tagService.CreateAlias(tag.ID, "post punk revival")
 	suite.Require().NoError(err)
-	suite.Assert().Len(tags, 1)
-	suite.Assert().Equal(tag.ID, tags[0].ID)
+
+	results, err := suite.tagService.SearchTags("revival", 10, "")
+	suite.Require().NoError(err)
+	suite.Assert().Len(results, 1)
+	suite.Assert().Equal(tag.ID, results[0].Tag.ID)
+	// Alias-match should surface which alias produced the match.
+	suite.Assert().Equal("post punk revival", results[0].MatchedAlias)
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestSearchTags_FilterByCategory() {
@@ -589,21 +596,96 @@ func (suite *TagServiceIntegrationTestSuite) TestSearchTags_FilterByCategory() {
 	suite.createTag("portland", "locale")
 
 	// Without category filter: "post" matches post-punk and post-office
-	tags, err := suite.tagService.SearchTags("post", 10, "")
+	results, err := suite.tagService.SearchTags("post", 10, "")
 	suite.Require().NoError(err)
-	suite.Assert().Len(tags, 2)
+	suite.Assert().Len(results, 2)
 
 	// With genre filter: only post-punk
-	tags, err = suite.tagService.SearchTags("post", 10, "genre")
+	results, err = suite.tagService.SearchTags("post", 10, "genre")
 	suite.Require().NoError(err)
-	suite.Assert().Len(tags, 1)
-	suite.Assert().Equal("post-punk", tags[0].Name)
+	suite.Assert().Len(results, 1)
+	suite.Assert().Equal("post-punk", results[0].Tag.Name)
 
 	// With locale filter: "port" matches portland only
-	tags, err = suite.tagService.SearchTags("port", 10, "locale")
+	results, err = suite.tagService.SearchTags("port", 10, "locale")
 	suite.Require().NoError(err)
-	suite.Assert().Len(tags, 1)
-	suite.Assert().Equal("portland", tags[0].Name)
+	suite.Assert().Len(results, 1)
+	suite.Assert().Equal("portland", results[0].Tag.Name)
+}
+
+// TestSearchTags_AliasTransparency covers PSY-442 — the autocomplete response
+// must surface which alias produced a match so the UI can tell the user
+// "you typed `punk-rock`, using `punk`". Queries that hit the canonical
+// name stay silent so the caption only fires when it's useful.
+func (suite *TagServiceIntegrationTestSuite) TestSearchTags_AliasTransparency_AliasMatch() {
+	tag := suite.createTag("punk", "genre")
+	_, err := suite.tagService.CreateAlias(tag.ID, "punk-rock")
+	suite.Require().NoError(err)
+
+	results, err := suite.tagService.SearchTags("punk-rock", 10, "")
+	suite.Require().NoError(err)
+	suite.Require().Len(results, 1)
+	suite.Assert().Equal(tag.ID, results[0].Tag.ID)
+	suite.Assert().Equal("punk", results[0].Tag.Name)
+	suite.Assert().Equal("punk-rock", results[0].MatchedAlias,
+		"alias match should carry the specific alias that matched")
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestSearchTags_AliasTransparency_NameMatchHasNoProvenance() {
+	tag := suite.createTag("punk", "genre")
+	// Add an alias that also happens to contain the query substring — the
+	// canonical name match still wins and we should not emit MatchedAlias.
+	_, err := suite.tagService.CreateAlias(tag.ID, "punks")
+	suite.Require().NoError(err)
+
+	results, err := suite.tagService.SearchTags("punk", 10, "")
+	suite.Require().NoError(err)
+	suite.Require().Len(results, 1)
+	suite.Assert().Equal(tag.ID, results[0].Tag.ID)
+	suite.Assert().Empty(results[0].MatchedAlias,
+		"when the tag name matches directly the canonical form is the signal")
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestSearchTags_AliasTransparency_DeterministicWhenMultipleAliasesMatch() {
+	tag := suite.createTag("drum-and-bass", "genre")
+	_, err := suite.tagService.CreateAlias(tag.ID, "zeta-alias")
+	suite.Require().NoError(err)
+	_, err = suite.tagService.CreateAlias(tag.ID, "alpha-alias")
+	suite.Require().NoError(err)
+
+	// Both aliases contain "alias"; either is a defensible choice, but the
+	// service must pick one deterministically (alphabetical) so UI behaviour
+	// is stable across runs. "alpha-alias" comes before "zeta-alias" under
+	// any reasonable collation.
+	results, err := suite.tagService.SearchTags("alias", 10, "")
+	suite.Require().NoError(err)
+	suite.Require().Len(results, 1)
+	suite.Assert().Equal(tag.ID, results[0].Tag.ID)
+	suite.Assert().Equal("alpha-alias", results[0].MatchedAlias)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestSearchTags_AliasTransparency_MixedResults() {
+	// One tag matches by name, one by alias — each row should carry the
+	// correct provenance independently.
+	nameMatch := suite.createTag("electro-punk", "genre")
+	aliasTag := suite.createTag("punk", "genre")
+	_, err := suite.tagService.CreateAlias(aliasTag.ID, "punk-rock")
+	suite.Require().NoError(err)
+
+	results, err := suite.tagService.SearchTags("punk", 10, "")
+	suite.Require().NoError(err)
+	suite.Require().Len(results, 2)
+
+	byID := make(map[uint]string, len(results))
+	for _, r := range results {
+		byID[r.Tag.ID] = r.MatchedAlias
+	}
+
+	// The electro-punk tag matched by name.
+	suite.Assert().Empty(byID[nameMatch.ID])
+	// The punk tag also matched by name ("punk" is a substring of "punk"),
+	// not by alias — even though the alias also contains the query.
+	suite.Assert().Empty(byID[aliasTag.ID])
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestGetTrendingTags() {
