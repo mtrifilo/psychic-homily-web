@@ -8,7 +8,10 @@ export default defineConfig({
   // Cap local workers to the seeded user count (see USER_COUNT in
   // e2e/global-setup.ts). CI stays at 3; headroom lives in the 5 seeded users.
   workers: process.env.CI ? 3 : 5,
-  reporter: 'html',
+  // Blob reporter in CI so sharded runs can be merged via `playwright
+  // merge-reports` (see `.github/workflows/ci.yml`, PSY-418). HTML locally
+  // for dev ergonomics.
+  reporter: process.env.CI ? 'blob' : 'html',
 
   globalSetup: './e2e/global-setup.ts',
   globalTeardown: './e2e/global-teardown.ts',
