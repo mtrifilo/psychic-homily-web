@@ -15,7 +15,9 @@ import { useLabel, useLabelRoster, useLabelCatalog } from '../hooks/useLabels'
 import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton, AddToCollectionButton } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
 import { CommentThread } from '@/features/comments'
+import { EntityTagList } from '@/features/tags'
 import { NotifyMeButton } from '@/features/notifications'
+import { useIsAuthenticated } from '@/features/auth'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -32,6 +34,7 @@ interface LabelDetailProps {
 
 export function LabelDetail({ idOrSlug }: LabelDetailProps) {
   const { data: label, isLoading, error } = useLabel({ idOrSlug })
+  const { isAuthenticated } = useIsAuthenticated()
   const { data: rosterData, isLoading: rosterLoading } = useLabelRoster({
     labelIdOrSlug: idOrSlug,
     enabled: !!label,
@@ -329,6 +332,15 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
         </div>
       </TabsContent>
     </EntityDetailLayout>
+
+    {/* Tags */}
+    <div className="mt-0 px-4 md:px-0">
+      <EntityTagList
+        entityType="label"
+        entityId={label.id}
+        isAuthenticated={isAuthenticated}
+      />
+    </div>
 
     {/* Discussion */}
     <div className="mt-0 px-4 md:px-0">

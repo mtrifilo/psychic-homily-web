@@ -13,6 +13,7 @@ import { queryKeys } from '@/lib/queryClient'
 import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb, TagPill, EntityDescription, AddToCollectionButton } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
 import { CommentThread } from '@/features/comments'
+import { EntityTagList } from '@/features/tags'
 import { NotifyMeButton } from '@/features/notifications'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
@@ -316,6 +317,15 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
             <EntityCollections entityType="venue" entityId={venue.id} />
           </div>
         </div>
+      </div>
+
+      {/* Tags */}
+      <div className="mt-0 px-4 md:px-0">
+        <EntityTagList
+          entityType="venue"
+          entityId={venue.id}
+          isAuthenticated={isAuthenticated}
+        />
       </div>
 
       {/* Revision History */}

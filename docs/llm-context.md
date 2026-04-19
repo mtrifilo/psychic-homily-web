@@ -95,6 +95,7 @@ See `docs/vision.md` for the full north star, What.cd feature mapping, and entit
 | Gazelle/What.cd patterns | `docs/learnings/gazelle-patterns.md`, `gazelle-user-profiles.md`, `whatcd-user-insights.md` |
 | Agent workflow, Linear, PRs | `docs/agent-workflow.md` |
 | Dogfooding, QA testing | `docs/user-journeys.md` |
+| Testing layers, where new tests go | `docs/strategy/testing-layers.md` |
 | iOS app | `docs/strategy/ios.md` |
 | Any shipped feature's design rationale | Check `docs/strategy/{feature}.md` — each has a STATUS header |
 

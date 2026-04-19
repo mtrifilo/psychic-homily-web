@@ -137,6 +137,10 @@ vi.mock('@/features/comments', () => ({
   ),
 }))
 
+vi.mock('@/features/tags', () => ({
+  EntityTagList: () => <div data-testid="entity-tag-list" />,
+}))
+
 vi.mock('@/components/ui/button', () => ({
   Button: ({ children, asChild, ...props }: { children: React.ReactNode; asChild?: boolean; [key: string]: unknown }) => {
     if (asChild) return <>{children}</>
