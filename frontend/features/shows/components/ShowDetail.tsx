@@ -280,6 +280,13 @@ export function ShowDetail({ showId }: ShowDetailProps) {
             {show.description && (
               <p className="mt-4 text-muted-foreground">{show.description}</p>
             )}
+
+            {/* Tags */}
+            <EntityTagList
+              entityType="show"
+              entityId={show.id}
+              isAuthenticated={isAuthenticated}
+            />
           </div>
 
           {/* Action Buttons */}
@@ -418,13 +425,6 @@ export function ShowDetail({ showId }: ShowDetailProps) {
           </div>
         </section>
       )}
-
-      {/* Tags */}
-      <EntityTagList
-        entityType="show"
-        entityId={show.id}
-        isAuthenticated={isAuthenticated}
-      />
 
       {/* In Collections */}
       <section className="mb-8">

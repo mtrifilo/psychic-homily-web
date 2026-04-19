@@ -325,6 +325,11 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
             }
           />
           <AttributionLine entityType="festival" entityId={festival.id} />
+          <EntityTagList
+            entityType="festival"
+            entityId={festival.id}
+            isAuthenticated={isAuthenticated}
+          />
           <ContributionPrompt
             entityType="festival"
             entityId={festival.id}
@@ -483,15 +488,6 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
         </div>
       </TabsContent>
     </EntityDetailLayout>
-
-    {/* Tags */}
-    <div className="mt-0 px-4 md:px-0">
-      <EntityTagList
-        entityType="festival"
-        entityId={festival.id}
-        isAuthenticated={isAuthenticated}
-      />
-    </div>
 
     {/* Discussion */}
     <div className="mt-0 px-4 md:px-0">

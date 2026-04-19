@@ -249,6 +249,13 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
             {venue.social && (
               <SocialLinks social={venue.social} className="mt-4" />
             )}
+
+            {/* Tags */}
+            <EntityTagList
+              entityType="venue"
+              entityId={venue.id}
+              isAuthenticated={isAuthenticated}
+            />
           </header>
 
           {/* Contribution Prompt */}
@@ -317,15 +324,6 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
             <EntityCollections entityType="venue" entityId={venue.id} />
           </div>
         </div>
-      </div>
-
-      {/* Tags */}
-      <div className="mt-0 px-4 md:px-0">
-        <EntityTagList
-          entityType="venue"
-          entityId={venue.id}
-          isAuthenticated={isAuthenticated}
-        />
       </div>
 
       {/* Revision History */}
