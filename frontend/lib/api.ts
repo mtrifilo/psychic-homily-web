@@ -282,6 +282,7 @@ export const API_ENDPOINTS = {
     LIST: `${API_BASE_URL}/tags`,
     SEARCH: `${API_BASE_URL}/tags/search`,
     GET: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}`,
+    DETAIL: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}/detail`,
     ALIASES: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}/aliases`,
     DELETE_ALIAS: (tagId: number, aliasId: number) => `${API_BASE_URL}/tags/${tagId}/aliases/${aliasId}`,
     ENTITIES: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}/entities`,

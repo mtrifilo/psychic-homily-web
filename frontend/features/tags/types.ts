@@ -38,6 +38,54 @@ export interface TagDetailResponse extends TagListItem {
   updated_at: string
 }
 
+// ──────────────────────────────────────────────
+// Enriched tag detail (GET /tags/{slug}/detail)
+// ──────────────────────────────────────────────
+
+/** Minimal tag summary used in parent/children/related arrays. */
+export interface TagSummary {
+  id: number
+  name: string
+  slug: string
+  category: string
+  is_official: boolean
+  usage_count: number
+}
+
+/** Minimal user reference. `username` doubles as the profile URL slug. */
+export interface TagUserRef {
+  id: number
+  username?: string
+}
+
+/** Top-contributor row with tag-application count. */
+export interface TagContributor {
+  user: TagUserRef
+  count: number
+}
+
+/**
+ * Enriched tag detail response — extends TagDetailResponse with description_html,
+ * parent/children, usage breakdown, top contributors, created_by, and related tags.
+ * Returned by GET /tags/{slug}/detail.
+ */
+export interface TagEnrichedDetailResponse extends TagDetailResponse {
+  /** Sanitized HTML rendered from the markdown description. Empty when no description. */
+  description_html?: string
+  /** Full parent tag summary, or undefined/null when no parent. */
+  parent?: TagSummary | null
+  /** Direct child tag summaries (always present, may be empty array). */
+  children: TagSummary[]
+  /** Map of entity_type → count. Every valid entity type is always present (zero included). */
+  usage_breakdown: Record<string, number>
+  /** Top 5 contributors by count (may be empty array). */
+  top_contributors: TagContributor[]
+  /** Creator attribution, or undefined/null when unknown. */
+  created_by?: TagUserRef | null
+  /** Co-occurring tags, capped at 5. May be empty array. */
+  related_tags: TagSummary[]
+}
+
 export interface EntityTag {
   tag_id: number
   name: string

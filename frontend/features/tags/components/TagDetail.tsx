@@ -9,16 +9,48 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Breadcrumb } from '@/components/shared'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
-import { useTag, useTagEntities } from '../hooks'
+import { useTagDetail, useTagEntities } from '../hooks'
 import { getCategoryColor, getCategoryLabel, getEntityUrl, getEntityTypePluralLabel } from '../types'
-import type { TaggedEntityItem } from '../types'
+import type { TaggedEntityItem, TagSummary } from '../types'
 
 interface TagDetailProps {
   slug: string
 }
 
+/** Entity type display order — genre tags use parent/children nav; others are flat. */
+const ENTITY_TYPE_ORDER = ['artist', 'venue', 'show', 'release', 'label', 'festival'] as const
+
+const ENTITY_TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  artist: Music,
+  venue: MapPin,
+  show: Calendar,
+  release: Disc3,
+  label: Tag,
+  festival: Tent,
+}
+
+/** Singular display label for entity types used in the breakdown row. */
+function getEntityTypeSingularLabel(entityType: string): string {
+  switch (entityType) {
+    case 'artist':
+      return 'artist'
+    case 'venue':
+      return 'venue'
+    case 'show':
+      return 'show'
+    case 'release':
+      return 'release'
+    case 'label':
+      return 'label'
+    case 'festival':
+      return 'festival'
+    default:
+      return entityType
+  }
+}
+
 export function TagDetail({ slug }: TagDetailProps) {
-  const { data: tag, isLoading, error } = useTag(slug)
+  const { data: tag, isLoading, error } = useTagDetail(slug)
 
   if (isLoading) {
     return (
@@ -75,6 +107,21 @@ export function TagDetail({ slug }: TagDetailProps) {
     )
   }
 
+  // Only genre tags participate in the parent/children hierarchy; other
+  // categories are flat per the tag system design doc.
+  const isGenre = tag.category === 'genre'
+  const hasParent = isGenre && Boolean(tag.parent)
+  const hasChildren = isGenre && tag.children && tag.children.length > 0
+
+  // Usage breakdown: only show non-zero counts. We pad with zeros on the backend
+  // so the object always has all keys, but displaying zero counts is noise.
+  const breakdownEntries = useMemo(() => {
+    const order = ENTITY_TYPE_ORDER
+    return order
+      .map((type) => ({ type, count: tag.usage_breakdown?.[type] ?? 0 }))
+      .filter((e) => e.count > 0)
+  }, [tag.usage_breakdown])
+
   return (
     <div className="container max-w-4xl mx-auto px-4 py-6">
       {/* Breadcrumb Navigation */}
@@ -115,16 +162,16 @@ export function TagDetail({ slug }: TagDetailProps) {
               <span className="text-sm text-muted-foreground">
                 {tag.usage_count} {tag.usage_count === 1 ? 'use' : 'uses'}
               </span>
-              {tag.created_by_username && (
+              {(tag.created_by?.username || tag.created_by_username) && (
                 <>
                   <span className="text-muted-foreground/40">{'·'}</span>
                   <span className="text-sm text-muted-foreground">
                     Created by{' '}
                     <Link
-                      href={`/users/${tag.created_by_username}`}
+                      href={`/users/${tag.created_by?.username || tag.created_by_username}`}
                       className="hover:underline"
                     >
-                      @{tag.created_by_username}
+                      @{tag.created_by?.username || tag.created_by_username}
                     </Link>
                   </span>
                 </>
@@ -140,68 +187,133 @@ export function TagDetail({ slug }: TagDetailProps) {
               )}
             </div>
 
-            {tag.description && (
+            {/* Usage breakdown summary row: "15 artists · 0 venues · 3 releases" */}
+            {breakdownEntries.length > 0 && (
+              <div
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-4 text-sm text-muted-foreground"
+                data-testid="usage-breakdown-summary"
+              >
+                {breakdownEntries.map((entry, idx) => (
+                  <span key={entry.type} className="inline-flex items-center gap-1">
+                    {idx > 0 && <span className="text-muted-foreground/40">{'·'}</span>}
+                    <span className="font-medium text-foreground">{entry.count}</span>
+                    <span>
+                      {entry.count === 1
+                        ? getEntityTypeSingularLabel(entry.type)
+                        : getEntityTypePluralLabel(entry.type).toLowerCase()}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Description: rendered markdown (goldmark + bluemonday via backend). */}
+            {tag.description_html ? (
+              <div
+                className="prose prose-sm dark:prose-invert max-w-2xl text-muted-foreground"
+                data-testid="tag-description"
+                dangerouslySetInnerHTML={{ __html: tag.description_html }}
+              />
+            ) : tag.description ? (
               <p className="text-muted-foreground whitespace-pre-line max-w-2xl">
                 {tag.description}
               </p>
-            )}
+            ) : null}
           </div>
         </div>
       </header>
 
-      {/* Metadata cards */}
-      {((tag.parent_id && tag.parent_name) || tag.child_count > 0 || (tag.aliases && tag.aliases.length > 0)) && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-          {/* Parent tag */}
-          {tag.parent_id && tag.parent_name && (
-            <div className="rounded-lg border border-border/50 p-4">
-              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                Parent Tag
-              </h2>
-              <Link
-                href={`/tags/${tag.parent_id}`}
-                className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm border border-border/50 hover:bg-muted/50 transition-colors"
-              >
-                <Hash className="h-3.5 w-3.5 text-muted-foreground" />
-                {tag.parent_name}
-              </Link>
-            </div>
+      {/* Parent / Children hierarchy — genre tags only */}
+      {(hasParent || hasChildren) && (
+        <section
+          className="mb-8 rounded-lg border border-border/50 p-4 space-y-3"
+          data-testid="tag-hierarchy"
+        >
+          {hasParent && tag.parent && (
+            <HierarchyRow label="Parent">
+              <TagPill tag={tag.parent} />
+            </HierarchyRow>
           )}
-
-          {/* Child tags count */}
-          {tag.child_count > 0 && (
-            <div className="rounded-lg border border-border/50 p-4">
-              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                Sub-tags
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                {tag.child_count} {tag.child_count === 1 ? 'sub-tag' : 'sub-tags'}
-              </p>
-            </div>
-          )}
-
-          {/* Aliases */}
-          {tag.aliases && tag.aliases.length > 0 && (
-            <div className="rounded-lg border border-border/50 p-4 sm:col-span-2">
-              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                Also known as
-              </h2>
+          {hasChildren && (
+            <HierarchyRow label={`Children (${tag.children.length})`}>
               <div className="flex flex-wrap gap-2">
-                {tag.aliases.map((alias: string) => (
-                  <span
-                    key={alias}
-                    className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground border border-border/50"
-                  >
-                    {alias}
-                  </span>
+                {tag.children.map((c) => (
+                  <TagPill key={c.id} tag={c} />
                 ))}
               </div>
-            </div>
+            </HierarchyRow>
           )}
+        </section>
+      )}
+
+      {/* Metadata cards: aliases. Parent/children moved to the hierarchy row above. */}
+      {tag.aliases && tag.aliases.length > 0 && (
+        <div className="mb-8">
+          <div className="rounded-lg border border-border/50 p-4">
+            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+              Also known as
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              {tag.aliases.map((alias: string) => (
+                <span
+                  key={alias}
+                  className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground border border-border/50"
+                >
+                  {alias}
+                </span>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Usage Stats + Tagged Entities */}
+      {/* Top contributors */}
+      {tag.top_contributors && tag.top_contributors.length > 0 && (
+        <section className="mb-8" data-testid="top-contributors">
+          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            Top contributors
+          </h2>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+            {tag.top_contributors.map((c, idx) => {
+              const handle = c.user.username
+              return (
+                <span key={c.user.id} className="inline-flex items-center gap-1">
+                  {idx > 0 && <span className="text-muted-foreground/40">{'·'}</span>}
+                  {handle ? (
+                    <Link
+                      href={`/users/${handle}`}
+                      className="text-foreground hover:underline"
+                    >
+                      @{handle}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      user #{c.user.id}
+                    </span>
+                  )}
+                  <span className="text-muted-foreground">({c.count})</span>
+                </span>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Related tags pill row */}
+      {tag.related_tags && tag.related_tags.length > 0 && (
+        <section className="mb-8" data-testid="related-tags">
+          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            Related tags
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {tag.related_tags.map((t) => (
+              <TagPill key={t.id} tag={t} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Usage Stats + Tagged Entities — preserved from the original layout */}
       {tag.usage_count > 0 && (
         <TaggedEntitiesSection slug={slug} />
       )}
@@ -210,20 +322,43 @@ export function TagDetail({ slug }: TagDetailProps) {
 }
 
 // ──────────────────────────────────────────────
-// Tagged entities section
+// Small presentational helpers
 // ──────────────────────────────────────────────
 
-const ENTITY_TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  artist: Music,
-  venue: MapPin,
-  show: Calendar,
-  release: Disc3,
-  label: Tag,
-  festival: Tent,
+function HierarchyRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-[72px] mt-1.5">
+        {label}
+      </span>
+      <div className="flex-1">{children}</div>
+    </div>
+  )
 }
 
-/** Display order for entity type groups */
-const ENTITY_TYPE_ORDER = ['artist', 'venue', 'show', 'release', 'label', 'festival']
+function TagPill({ tag }: { tag: TagSummary }) {
+  return (
+    <Link
+      href={`/tags/${tag.slug || tag.id}`}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-muted/50',
+        getCategoryColor(tag.category)
+      )}
+    >
+      <Hash className="h-3.5 w-3.5 opacity-70" />
+      {tag.name}
+      {tag.is_official && (
+        <span className="text-[10px] font-medium uppercase tracking-wider opacity-70">
+          official
+        </span>
+      )}
+    </Link>
+  )
+}
+
+// ──────────────────────────────────────────────
+// Tagged entities section (preserved from original implementation)
+// ──────────────────────────────────────────────
 
 function TaggedEntitiesSection({ slug }: { slug: string }) {
   const { data, isLoading } = useTagEntities(slug, { limit: 200 })
@@ -262,7 +397,7 @@ function TaggedEntitiesSection({ slug }: { slug: string }) {
     <section className="border-t border-border/50 pt-6">
       <h2 className="text-lg font-semibold mb-4">Tagged Entities</h2>
 
-      {/* Usage breakdown by entity type */}
+      {/* Per-type counts — complements the header breakdown summary */}
       {sortedTypes.length > 1 && (
         <div className="flex flex-wrap gap-3 mb-6">
           {sortedTypes.map((entityType) => {

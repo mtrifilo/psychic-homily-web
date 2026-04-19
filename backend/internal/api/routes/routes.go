@@ -769,6 +769,7 @@ func setupTagRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/tags", tagHandler.ListTagsHandler)
 	huma.Get(rc.API, "/tags/search", tagHandler.SearchTagsHandler)
 	huma.Get(rc.API, "/tags/{tag_id}", tagHandler.GetTagHandler)
+	huma.Get(rc.API, "/tags/{tag_id}/detail", tagHandler.GetTagDetailHandler)
 	huma.Get(rc.API, "/tags/{tag_id}/aliases", tagHandler.ListAliasesHandler)
 	huma.Get(rc.API, "/tags/{tag_id}/entities", tagHandler.ListTagEntitiesHandler)
 
