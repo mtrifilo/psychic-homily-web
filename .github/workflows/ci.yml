@@ -149,9 +149,19 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   e2e-tests:
-    name: E2E Tests
+    name: E2E Tests (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # PSY-418: split the full E2E suite across 4 parallel shards. Each shard
+    # spins its own Docker stack + backend (via global-setup.ts) on an
+    # isolated runner, so there's no cross-shard port / DB contention.
+    # Shard count chosen from the PSY-417 baseline (93s test phase,
+    # 372s cumulative test-time) — 4 shards roughly quarters the test phase.
+    strategy:
+      fail-fast: false
+      matrix:
+        shardIndex: [1, 2, 3, 4]
+        shardTotal: [4]
     steps:
       - uses: actions/checkout@v4
 
@@ -173,14 +183,48 @@ jobs:
       - name: Install PostgreSQL client
         run: sudo apt-get install -y postgresql-client
 
-      - name: Run E2E tests
+      - name: Run E2E tests (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
         working-directory: ./frontend
-        run: bun run test:e2e
+        run: bunx playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           CI: true
 
-      - name: Upload Playwright report
+      - name: Upload blob report
         if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-${{ matrix.shardIndex }}
+          path: frontend/blob-report/
+          retention-days: 1
+
+  e2e-report:
+    name: E2E Merged Report
+    # Run after all shards finish, even if some failed — we still want the
+    # merged report artifact for triage.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: [e2e-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: bun install --frozen-lockfile
+
+      - name: Download blob reports
+        uses: actions/download-artifact@v4
+        with:
+          path: all-blob-reports
+          pattern: blob-report-*
+          merge-multiple: true
+
+      - name: Merge into HTML report
+        working-directory: ./frontend
+        run: bunx playwright merge-reports --reporter html ../all-blob-reports
+
+      - name: Upload merged HTML report
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
