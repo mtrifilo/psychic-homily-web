@@ -37,6 +37,7 @@ import {
 import { useIsAuthenticated } from '@/features/auth'
 import { EntityEditDrawer, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
 import { CommentThread } from '@/features/comments'
+import { EntityTagList } from '@/features/tags'
 import { useQueryClient } from '@tanstack/react-query'
 
 interface FestivalDetailProps {
@@ -482,6 +483,15 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
         </div>
       </TabsContent>
     </EntityDetailLayout>
+
+    {/* Tags */}
+    <div className="mt-0 px-4 md:px-0">
+      <EntityTagList
+        entityType="festival"
+        entityId={festival.id}
+        isAuthenticated={isAuthenticated}
+      />
+    </div>
 
     {/* Discussion */}
     <div className="mt-0 px-4 md:px-0">
