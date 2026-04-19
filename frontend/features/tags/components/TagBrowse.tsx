@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { Search, Hash, Loader2 } from 'lucide-react'
+import { useDebounce } from 'use-debounce'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -12,16 +13,17 @@ import { TAG_CATEGORIES, getCategoryColor, getCategoryLabel } from '../types'
 import type { TagListItem } from '../types'
 
 const PAGE_SIZE = 50
+const SEARCH_DEBOUNCE_MS = 300
 
 export function TagBrowse() {
   const [category, setCategory] = useState('')
   const [searchInput, setSearchInput] = useState('')
-  const [search, setSearch] = useState('')
+  const [debouncedSearch] = useDebounce(searchInput.trim(), SEARCH_DEBOUNCE_MS)
   const [offset, setOffset] = useState(0)
 
   const { data, isLoading, error, refetch } = useTags({
     category: category || undefined,
-    search: search || undefined,
+    search: debouncedSearch || undefined,
     limit: PAGE_SIZE,
     offset,
     sort: 'usage',
@@ -33,12 +35,6 @@ export function TagBrowse() {
 
   const handleCategoryChange = (newCategory: string) => {
     setCategory(newCategory)
-    setOffset(0)
-  }
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    setSearch(searchInput.trim())
     setOffset(0)
   }
 
@@ -56,17 +52,22 @@ export function TagBrowse() {
   return (
     <section className="w-full max-w-6xl">
       {/* Search */}
-      <form onSubmit={handleSearch} className="mb-6">
+      <div className="mb-6">
         <div className="relative max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
+            type="search"
             value={searchInput}
-            onChange={e => setSearchInput(e.target.value)}
+            onChange={e => {
+              setSearchInput(e.target.value)
+              setOffset(0)
+            }}
             placeholder="Search tags..."
             className="pl-9"
+            aria-label="Search tags"
           />
         </div>
-      </form>
+      </div>
 
       {/* Category filter tabs */}
       <div className="flex items-center gap-1.5 flex-wrap mb-6">
@@ -114,11 +115,15 @@ export function TagBrowse() {
       {/* Tag cards grid */}
       {!isLoading && tags.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
-          <p>No tags found.</p>
-          {search && (
-            <p className="text-sm mt-2">
-              Try a different search term.
-            </p>
+          {debouncedSearch ? (
+            <>
+              <p>
+                No tags match <span className="font-medium">&ldquo;{debouncedSearch}&rdquo;</span>.
+              </p>
+              <p className="text-sm mt-2">Try a different search term.</p>
+            </>
+          ) : (
+            <p>No tags found.</p>
           )}
         </div>
       ) : (
