@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -130,6 +130,102 @@ describe('TagDetail', () => {
 
     const spinner = document.querySelector('.animate-spin')
     expect(spinner).toBeInTheDocument()
+  })
+
+  // ── Regression: loading → success transition (PSY-447) ──
+  // Rules of Hooks violation: earlier versions called useMemo below the
+  // early returns for loading/error/!tag, so the hook count changed when
+  // data arrived (tag went from undefined → populated). In production
+  // React logs "change in the order of Hooks" / "Rendered more hooks than
+  // during the previous render" and the error boundary renders a 500.
+  //
+  // The other tests all pass with the broken code because the mocked
+  // `useTagDetail` does not call any real React hooks, so when the
+  // component body goes from "0 hooks (early return)" to "1 hook (useMemo)",
+  // React has nothing to compare against. In production the real
+  // `useTagDetail` (via TanStack Query's `useQuery`) calls several real
+  // hooks before the component's own early return, so the mismatch is
+  // detected.
+  //
+  // This regression test makes the mock call a real React hook (`useState`)
+  // so that the 0-to-1 transition in the component body becomes a
+  // 1-to-2 transition, which is what React's hook-tracker can detect.
+  it('renders without hook-order errors during the loading → success transition', () => {
+    // Custom mock implementation that calls a real React hook. This
+    // mimics TanStack Query's internal hook calls so React's hook-order
+    // tracker sees the true mismatch introduced by hooks below an
+    // early return.
+    let dataState: TagEnrichedDetailResponse | undefined = undefined
+    let isLoadingState = true
+    mockUseTagDetail.mockImplementation(() => {
+      // Real React hook — ensures the number of hooks this "replacement"
+      // contributes is stable across renders.
+      useState(0)
+      return { data: dataState, isLoading: isLoadingState, error: null }
+    })
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    // Initial render: loading
+    const queryClient = createQueryClient()
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <TagDetail slug="shoegaze" />
+      </QueryClientProvider>
+    )
+
+    // Transition to populated data — this is what triggered the
+    // hook-order violation in production.
+    dataState = makeTagDetail({
+      name: 'Shoegaze',
+      usage_count: 18,
+      usage_breakdown: {
+        artist: 15,
+        venue: 0,
+        show: 3,
+        release: 0,
+        label: 0,
+        festival: 0,
+      },
+    })
+    isLoadingState = false
+
+    let threwDuringRerender: Error | null = null
+    try {
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <TagDetail slug="shoegaze" />
+        </QueryClientProvider>
+      )
+    } catch (e) {
+      threwDuringRerender = e as Error
+    }
+
+    // A hook-order violation throws during render with a message like
+    // "Rendered more hooks than during the previous render." or
+    // "change in the order of Hooks". React also logs a dev-only
+    // console.error about it.
+    const allErrorOutput = [
+      ...(threwDuringRerender ? [threwDuringRerender.message] : []),
+      ...errorSpy.mock.calls.map(([msg]) =>
+        typeof msg === 'string' ? msg : ''
+      ),
+    ]
+    const hookErrors = allErrorOutput.filter(
+      (msg) =>
+        msg.includes('change in the order of Hooks') ||
+        msg.includes('Rendered more hooks than during the previous render') ||
+        msg.includes('Rendered fewer hooks than expected')
+    )
+    expect(hookErrors).toEqual([])
+    expect(threwDuringRerender).toBeNull()
+
+    // Sanity check: populated content actually renders after the transition.
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Shoegaze' })
+    ).toBeInTheDocument()
+
+    errorSpy.mockRestore()
   })
 
   // ── Error states ──
