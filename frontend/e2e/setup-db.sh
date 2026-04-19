@@ -335,12 +335,19 @@ echo "==> Inserting test users..."
 BCRYPT_HASH='$2a$10$h7GdGcX7SxMFQCohXdTQnuVkygj7RPCcPhPrPMgHkWr50w.Fv0XoW'
 
 psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<SQL
--- Regular test user
+-- Regular test users: one per Playwright worker to avoid mutation races (PSY-431).
+-- Worker 0 uses e2e-user@test.local (legacy); workers 1-4 use numbered variants.
+-- Seeded count (5) ≥ max local worker count; CI uses 3 workers.
 INSERT INTO users (email, password_hash, first_name, last_name, is_active, is_admin, email_verified, created_at, updated_at)
-VALUES ('e2e-user@test.local', '${BCRYPT_HASH}', 'Test', 'User', true, false, true, NOW(), NOW())
+VALUES
+  ('e2e-user@test.local',   '${BCRYPT_HASH}', 'Test', 'User 0', true, false, true, NOW(), NOW()),
+  ('e2e-user-1@test.local', '${BCRYPT_HASH}', 'Test', 'User 1', true, false, true, NOW(), NOW()),
+  ('e2e-user-2@test.local', '${BCRYPT_HASH}', 'Test', 'User 2', true, false, true, NOW(), NOW()),
+  ('e2e-user-3@test.local', '${BCRYPT_HASH}', 'Test', 'User 3', true, false, true, NOW(), NOW()),
+  ('e2e-user-4@test.local', '${BCRYPT_HASH}', 'Test', 'User 4', true, false, true, NOW(), NOW())
 ON CONFLICT (email) DO NOTHING;
 
--- Admin test user
+-- Admin test user (single; admin tests are rare and low-race-risk)
 INSERT INTO users (email, password_hash, first_name, last_name, is_active, is_admin, email_verified, created_at, updated_at)
 VALUES ('e2e-admin@test.local', '${BCRYPT_HASH}', 'Test', 'Admin', true, true, true, NOW(), NOW())
 ON CONFLICT (email) DO NOTHING;
@@ -350,10 +357,12 @@ INSERT INTO users (email, password_hash, first_name, last_name, is_active, is_ad
 VALUES ('e2e-unverified@test.local', '${BCRYPT_HASH}', 'Test', 'Unverified', true, false, false, NOW(), NOW())
 ON CONFLICT (email) DO NOTHING;
 
--- Create user_preferences for all test users
+-- Create user_preferences for all seeded test users (regular worker users + admin + unverified)
 INSERT INTO user_preferences (user_id, notification_email, notification_push, show_reminders, theme, timezone, language, created_at, updated_at)
 SELECT id, true, false, false, 'system', 'America/Phoenix', 'en', NOW(), NOW()
-FROM users WHERE email IN ('e2e-user@test.local', 'e2e-admin@test.local', 'e2e-unverified@test.local')
+FROM users
+WHERE email LIKE 'e2e-user%@test.local'
+   OR email IN ('e2e-admin@test.local', 'e2e-unverified@test.local')
 ON CONFLICT (user_id) DO NOTHING;
 SQL
 
@@ -416,6 +425,7 @@ DECLARE
   s_id INTEGER;
   venue1_id INTEGER;
   venue2_id INTEGER;
+  worker_user RECORD;
 BEGIN
   -- Get test user ID
   SELECT id INTO test_user_id FROM users WHERE email = 'e2e-user@test.local';
@@ -469,18 +479,24 @@ BEGIN
   INSERT INTO pending_venue_edits (venue_id, submitted_by, name, status, created_at, updated_at)
   VALUES (venue2_id, test_user_id, 'Renamed Venue E2E', 'pending', NOW(), NOW());
 
-  -- 4) Approved show submitted by test user (for "my submissions" test)
-  INSERT INTO shows (title, event_date, city, state, status, source, submitted_by, created_at, updated_at, slug)
-  VALUES (
-    'E2E My Submitted Show',
-    NOW() + INTERVAL '85 days',
-    'Phoenix', 'AZ', 'approved', 'user', test_user_id,
-    NOW(), NOW(),
-    'e2e-my-submitted-show'
-  )
-  RETURNING id INTO s_id;
-  INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
-  INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
+  -- 4) Approved show submitted by each worker-user (for "my submissions" test).
+  -- PSY-431: one submission per worker-user so my-submissions.spec.ts works
+  -- regardless of which worker the test lands on.
+  FOR worker_user IN
+    SELECT id, email FROM users WHERE email LIKE 'e2e-user%@test.local'
+  LOOP
+    INSERT INTO shows (title, event_date, city, state, status, source, submitted_by, created_at, updated_at, slug)
+    VALUES (
+      'E2E My Submitted Show (' || worker_user.email || ')',
+      NOW() + INTERVAL '85 days',
+      'Phoenix', 'AZ', 'approved', 'user', worker_user.id,
+      NOW(), NOW(),
+      'e2e-my-submitted-show-' || worker_user.id
+    )
+    RETURNING id INTO s_id;
+    INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
+    INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
+  END LOOP;
 
 END $$;
 SQL
