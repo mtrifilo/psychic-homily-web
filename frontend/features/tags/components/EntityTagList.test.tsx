@@ -30,7 +30,19 @@ const mockManyTags = {
   ],
 }
 
-const defaultMockSearchTags = {
+type MockSearchTag = {
+  id: number
+  name: string
+  slug: string
+  category: string
+  is_official: boolean
+  usage_count: number
+  created_at: string
+  matched_via_alias?: string
+}
+type MockSearchTags = { tags: MockSearchTag[] }
+
+const defaultMockSearchTags: MockSearchTags = {
   tags: [
     { id: 3, name: 'punk', slug: 'punk', category: 'genre', is_official: false, usage_count: 5, created_at: '' },
   ],
@@ -38,7 +50,7 @@ const defaultMockSearchTags = {
 
 const mockAddMutate = vi.fn()
 let currentMockTags = mockEntityTags
-let currentMockSearchTags: typeof defaultMockSearchTags = defaultMockSearchTags
+let currentMockSearchTags: MockSearchTags = defaultMockSearchTags
 
 vi.mock('../hooks', () => ({
   useEntityTags: () => ({
@@ -354,5 +366,166 @@ describe('EntityTagList add-tag dialog alias caption', () => {
     const captions = screen.getAllByTestId('tag-autocomplete-matched-alias')
     expect(captions).toHaveLength(1)
     expect(captions[0]).toHaveTextContent(/matched\s+[“"]punk-rock[”"]/)
+  })
+})
+
+// PSY-452: when an alias resolves to a tag that's ALREADY applied to the
+// current entity, the add-tag dialog must surface an "already applied" row
+// and suppress the Create CTA. Previously the search-result filter would
+// silently drop the canonical row, leaving the dialog with zero results and
+// inviting the user to create a duplicate tag under the alias string.
+describe('EntityTagList add-tag dialog already-applied short-circuit', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    currentMockTags = mockEntityTags
+    currentMockSearchTags = defaultMockSearchTags
+  })
+
+  async function openDialogAndSearch(queryText: string) {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+    await user.click(screen.getByRole('button', { name: 'Add tag' }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+    const input = screen.getByPlaceholderText('Search tags or type a new one...')
+    await user.type(input, queryText)
+    return user
+  }
+
+  it('shows "already applied" message and suppresses Create when alias resolves to an applied tag', async () => {
+    // mockEntityTags already includes tag id 1 ("rock"). Pretend the user
+    // typed "rock-music" and the backend returned the canonical "rock" row
+    // via its alias — that row should be filtered out AND short-circuit the
+    // Create CTA.
+    currentMockSearchTags = {
+      tags: [
+        {
+          id: 1,
+          name: 'rock',
+          slug: 'rock',
+          category: 'genre',
+          is_official: false,
+          usage_count: 42,
+          created_at: '',
+          matched_via_alias: 'rock-music',
+        },
+      ],
+    }
+
+    await openDialogAndSearch('rock-music')
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('tag-autocomplete-already-applied')
+      ).toBeInTheDocument()
+    })
+
+    const row = screen.getByTestId('tag-autocomplete-already-applied')
+    expect(row).toHaveTextContent(/[“"]rock[”"] is already applied/)
+
+    // PSY-442 alias caption still renders — the transparency story is
+    // preserved for the already-applied edge case too.
+    const caption = screen.getByTestId('tag-autocomplete-matched-alias')
+    expect(caption).toHaveTextContent(/matched\s+[“"]rock-music[”"]/)
+
+    // Create CTA must be suppressed.
+    expect(
+      screen.queryByRole('button', { name: /Create "rock-music"/ })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('No matching tags found.')).not.toBeInTheDocument()
+  })
+
+  it('shows "already applied" even when the match is by canonical name (no alias)', async () => {
+    // User typed the canonical name of an already-applied tag — backend
+    // returns the row with no matched_via_alias, and the same filter removes
+    // it. Still should short-circuit to "already applied" instead of Create.
+    currentMockSearchTags = {
+      tags: [
+        {
+          id: 2,
+          name: 'indie',
+          slug: 'indie',
+          category: 'genre',
+          is_official: false,
+          usage_count: 8,
+          created_at: '',
+        },
+      ],
+    }
+
+    await openDialogAndSearch('indie')
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('tag-autocomplete-already-applied')
+      ).toBeInTheDocument()
+    })
+
+    expect(
+      screen.getByTestId('tag-autocomplete-already-applied')
+    ).toHaveTextContent(/[“"]indie[”"] is already applied/)
+
+    // No alias caption when the match was by name.
+    expect(
+      screen.queryByTestId('tag-autocomplete-matched-alias')
+    ).not.toBeInTheDocument()
+
+    // Create CTA must be suppressed.
+    expect(
+      screen.queryByRole('button', { name: /Create "indie"/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it('still offers Create when the query truly matches nothing that exists', async () => {
+    // Empty search result — no applied tag matches, so the original "No
+    // matching tags found" + Create CTA flow still applies.
+    currentMockSearchTags = { tags: [] }
+
+    await openDialogAndSearch('brand-new-tag')
+
+    await waitFor(() => {
+      expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
+    })
+
+    expect(
+      screen.queryByTestId('tag-autocomplete-already-applied')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Create "brand-new-tag"/ })
+    ).toBeInTheDocument()
+  })
+
+  it('does not short-circuit Enter into a Create when an alias matches an applied tag', async () => {
+    currentMockSearchTags = {
+      tags: [
+        {
+          id: 1,
+          name: 'rock',
+          slug: 'rock',
+          category: 'genre',
+          is_official: false,
+          usage_count: 42,
+          created_at: '',
+          matched_via_alias: 'rock-music',
+        },
+      ],
+    }
+
+    const user = await openDialogAndSearch('rock-music')
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('tag-autocomplete-already-applied')
+      ).toBeInTheDocument()
+    })
+
+    await user.keyboard('{Enter}')
+
+    // The add mutation must not be called — neither as a select nor as a
+    // create — because the tag is already applied.
+    expect(mockAddMutate).not.toHaveBeenCalled()
   })
 })

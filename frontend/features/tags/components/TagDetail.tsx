@@ -63,6 +63,15 @@ export function TagDetail({ slug }: TagDetailProps) {
       .filter((e) => e.count > 0)
   }, [tag])
 
+  // Top contributors: hide anonymous contributors (no username). Rendering
+  // `user #{id}` leaks an internal DB row id and reads like placeholder content
+  // (PSY-450). Contributors without a public username haven't opted in to
+  // public attribution anyway.
+  const visibleContributors = useMemo(() => {
+    if (!tag?.top_contributors) return []
+    return tag.top_contributors.filter((c) => Boolean(c.user.username))
+  }, [tag])
+
   if (isLoading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -269,30 +278,26 @@ export function TagDetail({ slug }: TagDetailProps) {
         </div>
       )}
 
-      {/* Top contributors */}
-      {tag.top_contributors && tag.top_contributors.length > 0 && (
+      {/* Top contributors — anonymous contributors (no username) are hidden;
+          see PSY-450. If every contributor is anonymous, the section is hidden
+          entirely rather than showing an empty header. */}
+      {visibleContributors.length > 0 && (
         <section className="mb-8" data-testid="top-contributors">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
             Top contributors
           </h2>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-            {tag.top_contributors.map((c, idx) => {
-              const handle = c.user.username
+            {visibleContributors.map((c, idx) => {
+              const handle = c.user.username as string
               return (
                 <span key={c.user.id} className="inline-flex items-center gap-1">
                   {idx > 0 && <span className="text-muted-foreground/40">{'·'}</span>}
-                  {handle ? (
-                    <Link
-                      href={`/users/${handle}`}
-                      className="text-foreground hover:underline"
-                    >
-                      @{handle}
-                    </Link>
-                  ) : (
-                    <span className="text-muted-foreground">
-                      user #{c.user.id}
-                    </span>
-                  )}
+                  <Link
+                    href={`/users/${handle}`}
+                    className="text-foreground hover:underline"
+                  >
+                    @{handle}
+                  </Link>
                   <span className="text-muted-foreground">({c.count})</span>
                 </span>
               )
