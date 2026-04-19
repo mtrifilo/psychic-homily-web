@@ -1,5 +1,11 @@
 import { test, expect } from '../fixtures'
 
+// PSY-430: pin to a reserved venue seeded by setup-db.sh so parallel
+// mutating tests in other files don't race on the same .first() row.
+const RESERVED_VENUE_SLUG = 'e2e-favorite-venue-test'
+const RESERVED_VENUE_NAME = 'E2E [favorite-venue-test]'
+const RESERVED_VENUE_URL = `/venues/${RESERVED_VENUE_SLUG}`
+
 test.describe('Favorite venue', () => {
   // Tests share DB state (same user favoriting/unfavoriting the same venue),
   // so they must not run in parallel
@@ -7,19 +13,12 @@ test.describe('Favorite venue', () => {
   test('favorite button is hidden when not authenticated', async ({
     page,
   }) => {
-    // Navigate to a venue detail page
-    await page.goto('/venues')
-    await expect(
-      page.locator('a[href^="/venues/"]').first()
-    ).toBeVisible({ timeout: 10_000 })
-
-    await page.locator('a[href^="/venues/"]').first().click()
-    await page.waitForURL(/\/venues\//, { timeout: 10_000 })
+    await page.goto(RESERVED_VENUE_URL)
 
     // Wait for venue detail to load
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({
-      timeout: 10_000,
-    })
+    await expect(
+      page.getByRole('heading', { level: 1, name: RESERVED_VENUE_NAME })
+    ).toBeVisible({ timeout: 10_000 })
 
     // Favorite button should NOT be visible when unauthenticated
     await expect(
@@ -32,21 +31,14 @@ test.describe('Favorite venue', () => {
   test('can favorite and unfavorite a venue from detail page', async ({
     authenticatedPage,
   }) => {
-    // Navigate to a venue detail page
-    await authenticatedPage.goto('/venues')
-    await expect(
-      authenticatedPage.locator('a[href^="/venues/"]').first()
-    ).toBeVisible({ timeout: 10_000 })
-
-    await authenticatedPage
-      .locator('a[href^="/venues/"]')
-      .first()
-      .click()
-    await authenticatedPage.waitForURL(/\/venues\//, { timeout: 10_000 })
+    await authenticatedPage.goto(RESERVED_VENUE_URL)
 
     // Wait for venue detail to load
     await expect(
-      authenticatedPage.getByRole('heading', { level: 1 })
+      authenticatedPage.getByRole('heading', {
+        level: 1,
+        name: RESERVED_VENUE_NAME,
+      })
     ).toBeVisible({ timeout: 10_000 })
 
     // Favorite button should be visible
@@ -96,26 +88,12 @@ test.describe('Favorite venue', () => {
   test('favorited venue appears in library venues tab', async ({
     authenticatedPage,
   }) => {
-    // Navigate to a venue detail page
-    await authenticatedPage.goto('/venues')
+    await authenticatedPage.goto(RESERVED_VENUE_URL)
     await expect(
-      authenticatedPage.locator('a[href^="/venues/"]').first()
-    ).toBeVisible({ timeout: 10_000 })
-
-    // Capture venue name for later assertion
-    const venueName = await authenticatedPage
-      .locator('a[href^="/venues/"]')
-      .first()
-      .textContent()
-
-    await authenticatedPage
-      .locator('a[href^="/venues/"]')
-      .first()
-      .click()
-    await authenticatedPage.waitForURL(/\/venues\//, { timeout: 10_000 })
-
-    await expect(
-      authenticatedPage.getByRole('heading', { level: 1 })
+      authenticatedPage.getByRole('heading', {
+        level: 1,
+        name: RESERVED_VENUE_NAME,
+      })
     ).toBeVisible({ timeout: 10_000 })
 
     // Favorite the venue and wait for API response
@@ -141,24 +119,29 @@ test.describe('Favorite venue', () => {
       })
     ).toBeVisible({ timeout: 5_000 })
 
-    // Remember the venue URL for cleanup
-    const venueUrl = authenticatedPage.url()
-
     // Navigate to library venues tab (PSY-275: favorites merged into venues tab on /library)
     await authenticatedPage.goto('/library?tab=venues')
     await expect(
       authenticatedPage.getByRole('heading', { name: /^library$/i })
     ).toBeVisible({ timeout: 10_000 })
 
-    // The venue name should appear (not the empty state)
+    // The reserved venue name should appear (not the empty state).
+    // .first() because the venue may render in both Favorite and Followed
+    // sections of the venues tab — either is sufficient evidence the favorite
+    // landed.
     await expect(
-      authenticatedPage.getByText(venueName!)
+      authenticatedPage
+        .getByRole('link', { name: RESERVED_VENUE_NAME })
+        .first()
     ).toBeVisible({ timeout: 5_000 })
 
     // Clean up: navigate back to venue and unfavorite
-    await authenticatedPage.goto(venueUrl)
+    await authenticatedPage.goto(RESERVED_VENUE_URL)
     await expect(
-      authenticatedPage.getByRole('heading', { level: 1 })
+      authenticatedPage.getByRole('heading', {
+        level: 1,
+        name: RESERVED_VENUE_NAME,
+      })
     ).toBeVisible({ timeout: 10_000 })
 
     await Promise.all([

@@ -185,7 +185,10 @@ function SavedShowCard({ show }: { show: SavedShowResponse }) {
   const artists = show.artists
 
   return (
-    <article className="border-b border-border/50 py-4 -mx-3 px-3 rounded-lg hover:bg-muted/30 transition-colors duration-200">
+    <article
+      aria-label={show.title}
+      className="border-b border-border/50 py-4 -mx-3 px-3 rounded-lg hover:bg-muted/30 transition-colors duration-200"
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
