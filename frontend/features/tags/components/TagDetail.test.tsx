@@ -662,7 +662,7 @@ describe('TagDetail', () => {
     expect(screen.getByText('(5)')).toBeInTheDocument()
   })
 
-  it('renders fallback id when contributor has no username', () => {
+  it('hides anonymous contributors and hides the section when all are anonymous (PSY-450)', () => {
     mockUseTagDetail.mockReturnValue({
       data: makeTagDetail({
         top_contributors: [{ user: { id: 99 }, count: 3 }],
@@ -673,7 +673,31 @@ describe('TagDetail', () => {
 
     renderWithProviders(<TagDetail slug="rock" />)
 
-    expect(screen.getByText('user #99')).toBeInTheDocument()
+    // Never leak the internal DB id as a fallback label.
+    expect(screen.queryByText(/user #\d+/)).not.toBeInTheDocument()
+    // When every contributor is anonymous the section must be hidden entirely.
+    expect(screen.queryByTestId('top-contributors')).not.toBeInTheDocument()
+  })
+
+  it('shows only named contributors when the list is mixed (PSY-450)', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({
+        top_contributors: [
+          { user: { id: 1, username: 'alice' }, count: 8 },
+          { user: { id: 42 }, count: 6 },
+          { user: { id: 2, username: 'bob' }, count: 2 },
+        ],
+      }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<TagDetail slug="rock" />)
+
+    expect(screen.getByTestId('top-contributors')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '@alice' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '@bob' })).toBeInTheDocument()
+    expect(screen.queryByText(/user #\d+/)).not.toBeInTheDocument()
   })
 
   it('hides top contributors section when empty', () => {
