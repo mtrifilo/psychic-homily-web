@@ -299,9 +299,17 @@ function AddTagForm({
     )
   }
 
-  const filteredResults = searchResults?.tags?.filter(
+  const allResults = searchResults?.tags ?? []
+  const filteredResults = allResults.filter(
     tag => !existingTagIds.includes(tag.id)
-  ) ?? []
+  )
+
+  // When the search matches a tag that's already applied (canonical name OR
+  // via an alias), surface an "already applied" row instead of the Create CTA
+  // so the user doesn't accidentally create a duplicate tag (PSY-452).
+  const alreadyAppliedMatch = allResults.find(tag =>
+    existingTagIds.includes(tag.id)
+  )
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key !== 'Enter') return
@@ -314,7 +322,7 @@ function AddTagForm({
 
     if (filteredResults.length > 0) {
       handleSelectTag(filteredResults[0])
-    } else if (!searchLoading) {
+    } else if (!searchLoading && !alreadyAppliedMatch) {
       handleCreateTag()
     }
   }
@@ -422,7 +430,27 @@ function AddTagForm({
             </button>
           ))}
 
-          {filteredResults.length === 0 && (
+          {filteredResults.length === 0 && alreadyAppliedMatch && (
+            <div
+              className="px-3 py-2"
+              data-testid="tag-autocomplete-already-applied"
+            >
+              <p className="text-sm text-muted-foreground">
+                &ldquo;{alreadyAppliedMatch.name}&rdquo; is already applied to
+                this {entityType}.
+              </p>
+              {alreadyAppliedMatch.matched_via_alias && (
+                <p
+                  className="text-[11px] text-muted-foreground mt-1"
+                  data-testid="tag-autocomplete-matched-alias"
+                >
+                  matched &ldquo;{alreadyAppliedMatch.matched_via_alias}&rdquo;
+                </p>
+              )}
+            </div>
+          )}
+
+          {filteredResults.length === 0 && !alreadyAppliedMatch && (
             <div className="px-3 py-2">
               <p className="text-sm text-muted-foreground mb-2">
                 No matching tags found.
