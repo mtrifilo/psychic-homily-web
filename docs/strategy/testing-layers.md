@@ -263,7 +263,7 @@ Sorted by file. Timings from PSY-417 (top-20 only); others marked "not profiled"
 | pages/ai-filler.spec.ts:89 | extracts show info from uploaded image | not profiled | → component | Same — fully mocked; file upload works in jsdom/happy-dom. |
 | pages/ai-filler.spec.ts:141 | shows error when extraction fails | not profiled | → component | Already mocks 200+success:false — classic component test. |
 | pages/artist-detail.spec.ts:5 | displays artist information with shows tabs | 13,771 | Stays | Keep one smoke that proves the detail page renders from real API. |
-| pages/artist-detail.spec.ts:44 | back to artists link navigates to artists list | 12,536 | Delete/merge | Pure nav assertion; redundant with show-detail nav test; could merge into one cross-entity nav test or drop. |
+| pages/artist-detail.spec.ts:44 | back to artists link navigates to artists list | 12,536 | Delete/merge | PSY-454: consolidated into `pages/navigation.spec.ts` (parameterized over shows/artists/venues). |
 | pages/artist-detail.spec.ts:80 | shows tabs switch between upcoming and past | 13,620 | → component | Tabs widget behavior; mockable. |
 | pages/city-filter.spec.ts:5 | city filter combobox and popular cities are visible | 7,471 | → component | Render assertion; mockable. |
 | pages/city-filter.spec.ts:27 | clicking a city in combobox updates URL and filters shows | 11,057 | Smoke | URL state + query param round-trip; keep as smoke. |
@@ -280,6 +280,7 @@ Sorted by file. Timings from PSY-417 (top-20 only); others marked "not profiled"
 | pages/home.spec.ts:32 | displays navigation links | not profiled | → component | Pure nav rendering. |
 | pages/home.spec.ts:45 | displays blog and DJ set sections | not profiled | → component | SSR section render from markdown; assert a heading — mockable. |
 | pages/my-submissions.spec.ts:5 | displays user submissions in Submissions tab | not profiled | Stays | Real query over auth'd user's submissions. |
+| pages/navigation.spec.ts | list → detail → back-link — parameterized over shows/artists/venues (3 runtime tests) | not profiled | Stays | PSY-454: consolidated residual after deleting 5 per-entity nav-only tests. |
 | pages/my-submissions.spec.ts:35 | shows submission status and details | not profiled | → component | Badge + text render — mockable. |
 | pages/profile.spec.ts:4 | displays profile information for authenticated user | not profiled | Stays | Auth'd read — real session + DB. |
 | pages/profile.spec.ts:40 | settings tab shows account sections | not profiled | → component | Static sections; mockable. |
@@ -291,23 +292,23 @@ Sorted by file. Timings from PSY-417 (top-20 only); others marked "not profiled"
 | pages/save-show.spec.ts:78 | save state persists after navigation | not profiled | Stays | Navigation persistence check. |
 | pages/show-detail.spec.ts:5 | displays show details with artist and venue links | not profiled | Stays | Detail-page render from real API. |
 | pages/show-detail.spec.ts:39 | page title includes artist and venue | not profiled | → component | Document-title assertion; SSR metadata doable in a component-like setup. |
-| pages/show-detail.spec.ts:62 | back to shows link navigates to shows list | 8,883 | Delete/merge | Pure nav; redundant with artist/venue-detail nav tests; consolidate or drop. |
+| pages/show-detail.spec.ts:62 | back to shows link navigates to shows list | 8,883 | Delete/merge | PSY-454: consolidated into `pages/navigation.spec.ts`. |
 | pages/show-list-actions.spec.ts:4 | hide save buttons for unauthenticated users | not profiled | → component | Auth-conditional rendering. |
 | pages/show-list-actions.spec.ts:17 | toggle save state from list cards for authenticated users | 9,358 | Stays | Real save-from-list path; distinct from detail-page save. |
 | pages/show-list-actions.spec.ts:74 | show admin edit controls only for admins | 8,980 | → component | Role-based conditional rendering. |
 | pages/shows.spec.ts:5 | loads and displays upcoming shows | not profiled | Smoke | Shows-list smoke. |
 | pages/shows.spec.ts:24 | show cards contain artist links, venue, and details link | not profiled | → component | Card rendering. |
 | pages/shows.spec.ts:44 | pagination loads more shows | not profiled | Stays | Real pagination endpoint + limit semantics. |
-| pages/shows.spec.ts:71 | show detail link navigates correctly | not profiled | Delete/merge | Nav-only; overlaps show-detail.spec.ts coverage. |
+| pages/shows.spec.ts:71 | show detail link navigates correctly | not profiled | Delete/merge | PSY-454: consolidated into `pages/navigation.spec.ts` (the list→detail leg is covered by the parameterized shows case; href-before-click assertion dropped — list card rendering is already covered by `shows.spec.ts:24`). |
 | pages/submit-show.spec.ts:5 | displays submission form for verified user | not profiled | → component | Form render; mockable. |
 | pages/submit-show.spec.ts:34 | can submit a show with existing venue | 30,062 (timedOut) | Smoke | Core contributor smoke; blocked by PSY-437 flake investigation. |
 | pages/submit-show.spec.ts:107 | redirects unauthenticated user to login | not profiled | Stays | Gate smoke; tiny. |
 | pages/venue-detail.spec.ts:5 | displays venue information with shows tabs | 6,490 | Stays | Detail render from real API. |
-| pages/venue-detail.spec.ts:44 | back to venues link navigates to venues list | 6,763 | Delete/merge | Pure nav; redundant with other back-link tests. |
+| pages/venue-detail.spec.ts:44 | back to venues link navigates to venues list | 6,763 | Delete/merge | PSY-454: consolidated into `pages/navigation.spec.ts`. |
 | pages/venue-detail.spec.ts:76 | shows tabs switch between upcoming and past | 6,077 | → component | Tabs widget behavior. |
 | pages/venues.spec.ts:5 | loads and displays venues | not profiled | Stays | Venues-list smoke. |
 | pages/venues.spec.ts:20 | venue cards show name, location, and show count | not profiled | → component | Card rendering. |
-| pages/venues.spec.ts:40 | venue name links to detail page | not profiled | Delete/merge | Pure nav; consumed by `venue-detail.spec.ts:5`. |
+| pages/venues.spec.ts:40 | venue name links to detail page | not profiled | Delete/merge | PSY-454: consolidated into `pages/navigation.spec.ts`. Detail-page render assertion remains covered by `venue-detail.spec.ts:5`. |
 
 ### Summary counts
 
@@ -321,6 +322,8 @@ Sorted by file. Timings from PSY-417 (top-20 only); others marked "not profiled"
 | **Total categorized** | **70** |
 
 Total matches the PSY-417 baseline's 70-test count. Adding Stays + Smoke gives 35 tests kept in E2E (50%), 30 migrated to component (43%), 5 deleted/merged (7%). That's the lever PSY-434 is set up to pull.
+
+**PSY-454 update (2026-04-19):** The 5 Delete/merge rows above have been deleted from the suite and replaced by `pages/navigation.spec.ts`, a single parameterized spec that emits 3 runtime tests (one per entity: shows/artists/venues). Suite delta: −5 + 3 = **−2** runtime tests. Post-consolidation baseline: 68 tests. Buckets after PSY-454: Stays in E2E (non-smoke) = 25, Delete/merge = 0, others unchanged.
 
 Nothing was categorized as `→ integration` because the existing specs are all UI-anchored; the Go-integration opportunities live in the **Coverage gaps** section above (iCal/RSS, comment vote scoring, comment auto-hide, merge/split semantics).
 

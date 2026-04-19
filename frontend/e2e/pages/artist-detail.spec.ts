@@ -41,42 +41,6 @@ test.describe('Artist detail', () => {
     ).toBeVisible()
   })
 
-  test('back to artists link navigates to artists list', async ({ page }) => {
-    await page.goto('/shows')
-    await expect(page.locator('article').first()).toBeVisible({
-      timeout: 10_000,
-    })
-
-    await page
-      .locator('article')
-      .first()
-      .locator('a[href^="/shows/"]')
-      .first()
-      .click()
-    await page.waitForURL(/\/shows\//, { timeout: 10_000 })
-
-    const artistLink = page.locator('a[href^="/artists/"]').first()
-    await expect(artistLink).toBeVisible({ timeout: 10_000 })
-    await artistLink.click()
-    await page.waitForURL(/\/artists\//, { timeout: 10_000 })
-
-    // Wait for artist detail to load
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({
-      timeout: 10_000,
-    })
-
-    // Click the breadcrumb link to Artists
-    await page
-      .locator('nav[aria-label="Breadcrumb"]')
-      .getByRole('link', { name: 'Artists' })
-      .click()
-    await page.waitForURL(/\/artists$/, { timeout: 10_000 })
-
-    await expect(
-      page.getByRole('heading', { name: /artists/i })
-    ).toBeVisible()
-  })
-
   test('shows tabs switch between upcoming and past', async ({ page }) => {
     await page.goto('/shows')
     await expect(page.locator('article').first()).toBeVisible({

@@ -37,23 +37,4 @@ test.describe('Venue list page', () => {
     await expect(firstVenue.getByText(/\d+\s+shows?/)).toBeVisible()
   })
 
-  test('venue name links to detail page', async ({ page }) => {
-    await page.goto('/venues')
-
-    await expect(page.locator('article').first()).toBeVisible({
-      timeout: 10_000,
-    })
-
-    // Find a venue with a link to its detail page
-    const venueLink = page.locator('article').first().locator('a[href^="/venues/"]').first()
-    await expect(venueLink).toBeVisible()
-
-    await venueLink.click()
-    await page.waitForURL(/\/venues\//, { timeout: 10_000 })
-
-    // Should be on a venue detail page
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({
-      timeout: 10_000,
-    })
-  })
 })
