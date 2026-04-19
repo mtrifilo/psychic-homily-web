@@ -113,6 +113,16 @@ function startBackend(): ChildProcess {
       SESSION_SECURE: 'false',
       SESSION_SAME_SITE: 'lax',
       DISCORD_NOTIFICATIONS_ENABLED: 'false',
+      // Disable all scheduled background services for E2E (see PSY-433).
+      // These cause log spam, nondeterministic DB state, and wasted CPU during
+      // tests. Defaults (flag unset) still start everything for local dev.
+      DISABLE_RADIO_FETCH: '1',
+      DISABLE_AUTO_PROMOTION: '1',
+      DISABLE_ENRICHMENT_WORKER: '1',
+      DISABLE_SCHEDULER: '1',
+      DISABLE_CLEANUP: '1',
+      DISABLE_REMINDERS: '1',
+      DISABLE_RELATIONSHIP_DERIVATION: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
