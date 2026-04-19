@@ -240,11 +240,30 @@ echo "==> Inserting reserved E2E rows for mutating tests (PSY-430)..."
 # backfill below skips them and the slug is stable across CI runs.
 psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
 INSERT INTO venues (name, address, city, state, zipcode, verified, created_at, updated_at, slug)
-VALUES (
-  'E2E [favorite-venue-test]',
-  '100 Reserved Way', 'Phoenix', 'AZ', '85001',
-  true, NOW(), NOW(), 'e2e-favorite-venue-test'
-)
+VALUES
+  (
+    'E2E [favorite-venue-test]',
+    '100 Reserved Way', 'Phoenix', 'AZ', '85001',
+    true, NOW(), NOW(), 'e2e-favorite-venue-test'
+  ),
+  -- PSY-456: one reserved venue per comments test so the 60s per-entity
+  -- comment cooldown (user_id + entity_type + entity_id) can't collide
+  -- across the create/vote/reply tests within this spec.
+  (
+    'E2E [comment-create]',
+    '200 Reserved Way', 'Phoenix', 'AZ', '85001',
+    true, NOW(), NOW(), 'e2e-comment-create'
+  ),
+  (
+    'E2E [comment-vote]',
+    '201 Reserved Way', 'Phoenix', 'AZ', '85001',
+    true, NOW(), NOW(), 'e2e-comment-vote'
+  ),
+  (
+    'E2E [comment-reply]',
+    '202 Reserved Way', 'Phoenix', 'AZ', '85001',
+    true, NOW(), NOW(), 'e2e-comment-reply'
+  )
 ON CONFLICT DO NOTHING;
 
 -- PSY-457: reserved artist for follow-and-attendance.spec.ts. Dedicated row
@@ -376,14 +395,19 @@ BCRYPT_HASH='$2a$10$h7GdGcX7SxMFQCohXdTQnuVkygj7RPCcPhPrPMgHkWr50w.Fv0XoW'
 psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<SQL
 -- Regular test users: one per Playwright worker to avoid mutation races (PSY-431).
 -- Worker 0 uses e2e-user@test.local (legacy); workers 1-4 use numbered variants.
--- Seeded count (5) ≥ max local worker count; CI uses 3 workers.
-INSERT INTO users (email, password_hash, first_name, last_name, is_active, is_admin, email_verified, created_at, updated_at)
+-- Seeded count (5) >= max local worker count; CI uses 3 workers.
+--
+-- PSY-456: user_tier = 'contributor' so new comments publish as 'visible'
+-- immediately (new_user tier -> 'pending_review'). Without this, the
+-- comments E2E spec would have to assert on pending_review state or wait
+-- for moderation.
+INSERT INTO users (email, password_hash, first_name, last_name, is_active, is_admin, email_verified, user_tier, created_at, updated_at)
 VALUES
-  ('e2e-user@test.local',   '${BCRYPT_HASH}', 'Test', 'User 0', true, false, true, NOW(), NOW()),
-  ('e2e-user-1@test.local', '${BCRYPT_HASH}', 'Test', 'User 1', true, false, true, NOW(), NOW()),
-  ('e2e-user-2@test.local', '${BCRYPT_HASH}', 'Test', 'User 2', true, false, true, NOW(), NOW()),
-  ('e2e-user-3@test.local', '${BCRYPT_HASH}', 'Test', 'User 3', true, false, true, NOW(), NOW()),
-  ('e2e-user-4@test.local', '${BCRYPT_HASH}', 'Test', 'User 4', true, false, true, NOW(), NOW())
+  ('e2e-user@test.local',   '${BCRYPT_HASH}', 'Test', 'User 0', true, false, true, 'contributor', NOW(), NOW()),
+  ('e2e-user-1@test.local', '${BCRYPT_HASH}', 'Test', 'User 1', true, false, true, 'contributor', NOW(), NOW()),
+  ('e2e-user-2@test.local', '${BCRYPT_HASH}', 'Test', 'User 2', true, false, true, 'contributor', NOW(), NOW()),
+  ('e2e-user-3@test.local', '${BCRYPT_HASH}', 'Test', 'User 3', true, false, true, 'contributor', NOW(), NOW()),
+  ('e2e-user-4@test.local', '${BCRYPT_HASH}', 'Test', 'User 4', true, false, true, 'contributor', NOW(), NOW())
 ON CONFLICT (email) DO NOTHING;
 
 -- Admin test user (single; admin tests are rare and low-race-risk)
@@ -568,6 +592,55 @@ BEGIN
     INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
   END LOOP;
 
+END $$;
+SQL
+
+echo "==> Seeding parent comments for comments E2E spec (PSY-456)..."
+# Pre-seed a parent comment on the vote and reply reserved venues so
+# the vote and reply tests don't have to create their own parent first
+# (avoids doubling mutations + hitting the 60s per-entity cooldown).
+# Authored by the admin user so they have no tier/rate-limit gating
+# regardless of which worker runs the test.
+psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
+DO $$
+DECLARE
+  admin_user_id INTEGER;
+  vote_venue_id INTEGER;
+  reply_venue_id INTEGER;
+BEGIN
+  SELECT id INTO admin_user_id FROM users WHERE email = 'e2e-admin@test.local';
+  SELECT id INTO vote_venue_id FROM venues WHERE slug = 'e2e-comment-vote';
+  SELECT id INTO reply_venue_id FROM venues WHERE slug = 'e2e-comment-reply';
+
+  -- Vote target: a single admin-authored comment that every worker can
+  -- upvote. Vote rows are keyed by (comment_id, user_id), so parallel
+  -- workers each add their own vote without colliding.
+  INSERT INTO comments (
+    entity_type, entity_id, kind, user_id,
+    body, body_html, visibility, reply_permission,
+    created_at, updated_at
+  )
+  VALUES (
+    'venue', vote_venue_id, 'comment', admin_user_id,
+    'E2E vote-target seed comment', '<p>E2E vote-target seed comment</p>',
+    'visible', 'anyone',
+    NOW(), NOW()
+  );
+
+  -- Reply parent: depth-0 admin-authored comment so workers can reply.
+  -- Each worker replies with its own per-worker user, so the per-entity
+  -- cooldown is per-user and doesn't collide.
+  INSERT INTO comments (
+    entity_type, entity_id, kind, user_id,
+    body, body_html, visibility, reply_permission,
+    created_at, updated_at
+  )
+  VALUES (
+    'venue', reply_venue_id, 'comment', admin_user_id,
+    'E2E reply-parent seed comment', '<p>E2E reply-parent seed comment</p>',
+    'visible', 'anyone',
+    NOW(), NOW()
+  );
 END $$;
 SQL
 

@@ -40,7 +40,7 @@ function makeFieldNote(overrides: Partial<Comment> = {}): Comment {
     downs: 1,
     score: 4,
     visibility: 'visible',
-    reply_permission: 'everyone',
+    reply_permission: 'anyone',
     edit_count: 0,
     is_edited: false,
     created_at: '2026-04-01T00:00:00Z',
