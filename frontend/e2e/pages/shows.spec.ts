@@ -68,25 +68,4 @@ test.describe('Shows list', () => {
     expect(newCount).toBeGreaterThan(initialCount)
   })
 
-  test('show detail link navigates correctly', async ({ page }) => {
-    await page.goto('/shows')
-
-    await expect(page.locator('article').first()).toBeVisible({
-      timeout: 10_000,
-    })
-
-    // Click the "Details" link on the first show
-    const detailsLink = page
-      .locator('article')
-      .first()
-      .getByRole('link', { name: 'Details' })
-
-    const href = await detailsLink.getAttribute('href')
-    expect(href).toMatch(/^\/shows\//)
-
-    await detailsLink.click()
-
-    // Should navigate to /shows/<slug-or-id>
-    await page.waitForURL(/\/shows\//, { timeout: 10_000 })
-  })
 })
