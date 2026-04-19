@@ -236,7 +236,7 @@ export function FieldNoteCard({
         </Button>
 
         {/* Reply button */}
-        {isAuthenticated && comment.depth < 2 && comment.reply_permission === 'everyone' && (
+        {isAuthenticated && comment.depth < 2 && comment.reply_permission !== 'author_only' && (
           <Button
             variant="ghost"
             size="sm"

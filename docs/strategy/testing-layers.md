@@ -140,9 +140,9 @@ Journeys are grouped by persona. Each row is a journey a user must be able to co
 | Follow an artist | Click Follow → button flips | E2E (follow-and-attendance.spec.ts) | E2E (stays) | PSY-56; PSY-457 backfilled follow-artist smoke. |
 | Follow a venue | Same for venues | uncovered | component | Venue follow code path is identical to artist; cover once in E2E (artist) + component for venue-specific UI. |
 | Going/Interested on show | PSY-55 attendance toggle | E2E (follow-and-attendance.spec.ts:106) | E2E (stays) | PSY-457 backfilled going smoke. |
-| Comment on entity | Create a comment on show/artist/venue/etc | uncovered | mixed | Comments has 5 component tests for form/thread rendering; no E2E for the full create→view→moderation loop. |
-| Reply to a comment | Nested reply (depth ≤ 3) | uncovered | component | Thread rendering is component-testable; one E2E smoke adequate. |
-| Vote on a comment | Upvote/downvote, Wilson score update | uncovered | integration | Score math is a Go test; button-flip is component. |
+| Comment on entity | Create a comment on show/artist/venue/etc | E2E (comments.spec.ts, PSY-456) + component (CommentForm.test.tsx, CommentThread.test.tsx) | E2E (stays) | Comments has component tests for form/thread rendering; E2E now covers the authenticated create→render loop on a reserved venue. Edit/delete loop still uncovered. |
+| Reply to a comment | Nested reply (depth ≤ 3) | E2E (comments.spec.ts, PSY-456) | E2E (stays) | Smoke-tagged; confirms backend `depth`/`parent_id` invariants + nested rendering on a seeded parent comment. |
+| Vote on a comment | Upvote/downvote, Wilson score update | E2E (comments.spec.ts, PSY-456) + Go (comment_vote_service_test.go) | mixed | E2E asserts the per-user vote button state flip; Wilson-score math + aggregate counts stay Go-tested (race-free under parallel workers on the shared seed comment). |
 | Field note on past show | Create field note with ratings/spoiler/verified | uncovered | mixed | Component tests exist for form/card rendering; end-to-end create→display loop uncovered. |
 | Add to collection | Add a show/artist/etc to a collection | E2E (add-to-collection.spec.ts) | E2E (stays) | Full-stack flow shipped in PSY-314; smoke backfilled in PSY-455. |
 | Remove from collection | Remove via collection detail page | uncovered | component | UI assertion after mocked DELETE. |
@@ -214,7 +214,7 @@ Flagged below with **[backfill]** for gaps worth filing follow-up tickets. Don't
 - Follow system (artist/venue): PSY-56 — artist covered by `follow-and-attendance.spec.ts` (PSY-457); venue-specific UI falls to a component test per PSY-434.
 - Going/Interested on shows: PSY-55 — covered by `follow-and-attendance.spec.ts` (PSY-457).
 - **[backfill]** Collections mutation flows: create-collection — add-to-collection now covered by `e2e/pages/add-to-collection.spec.ts` (PSY-455); the inline "create new collection from picker" path still has no automated coverage beyond unit/component-level hooks.
-- **[backfill]** Comments: entire feature (create, reply, vote, edit, report) has zero E2E; component tests exist for rendering but not for the full loop.
+- Comments: **create, reply, vote** now covered E2E via `pages/comments.spec.ts` (PSY-456). **Edit + report** loops still uncovered; component tests exist for rendering but not for the full loop.
 - **[backfill]** Field notes: structured-data flow uncovered end-to-end.
 - **[backfill]** Entity edit drawer (PSY-127): community edit suggestions uncovered.
 - **[backfill]** Comment moderation queue (PSY-292/293): admin-side uncovered.
@@ -330,7 +330,7 @@ Nothing was categorized as `→ integration` because the existing specs are all 
 - **PSY-446** (smoke-on-PR): the 13 **Smoke** rows are the starting selection. Budget target: <60 s wall-clock on PR CI. If that's tight, drop down to 6–8 by preferring one smoke per persona (landing, register, login, save-show, favorite-venue, approve-pending-show).
 - **[backfill candidates]** The "Coverage gaps" list names ~13 shipped features with no E2E. The highest-value backfill candidates (real-user-impact × shipped-but-unverified):
   1. ~~**Collections add-to-collection flow** (PSY-314, shipped, no coverage — PMF-critical feature).~~ Addressed by PSY-455 (`e2e/pages/add-to-collection.spec.ts`, tagged `@smoke`).
-  2. **Comments create + reply + vote** (Wave 1–5, shipped, no coverage — community moat).
+  2. ~~**Comments create + reply + vote** (Wave 1–5, shipped, no coverage — community moat).~~ Addressed by PSY-456 (`pages/comments.spec.ts`).
   3. ~~**Follow / Going-Interested** (PSY-55, -56, shipped, no coverage — cheap smoke).~~ Addressed by PSY-457 (`follow-and-attendance.spec.ts`).
 
 ## How to add new tests (quick reference)
