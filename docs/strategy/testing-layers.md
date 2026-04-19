@@ -137,9 +137,9 @@ Journeys are grouped by persona. Each row is a journey a user must be able to co
 | Favorited venue appears in library | Library venues tab shows favorited entry | E2E (favorite-venue.spec.ts:88) | E2E (stays) | Cross-page persistence check. |
 | Favorite button hidden (unauth) | Unauth users don't see the button | E2E (favorite-venue.spec.ts:7) | component | Conditional rendering based on auth state — mockable. |
 | Save button hidden (unauth) | Same on shows | E2E (save-show.spec.ts:13, show-list-actions.spec.ts:4) | component | Same. |
-| Follow an artist | Click Follow → button flips | uncovered | E2E (stays) | PSY-56 shipped; no E2E for this. Missing smoke for a live feature. |
-| Follow a venue | Same for venues | uncovered | E2E (stays) | Same. |
-| Going/Interested on show | PSY-55 attendance toggle | uncovered | E2E (stays) | Shipped feature, zero automated coverage. |
+| Follow an artist | Click Follow → button flips | E2E (follow-and-attendance.spec.ts) | E2E (stays) | PSY-56; PSY-457 backfilled follow-artist smoke. |
+| Follow a venue | Same for venues | uncovered | component | Venue follow code path is identical to artist; cover once in E2E (artist) + component for venue-specific UI. |
+| Going/Interested on show | PSY-55 attendance toggle | E2E (follow-and-attendance.spec.ts:106) | E2E (stays) | PSY-457 backfilled going smoke. |
 | Comment on entity | Create a comment on show/artist/venue/etc | uncovered | mixed | Comments has 5 component tests for form/thread rendering; no E2E for the full create→view→moderation loop. |
 | Reply to a comment | Nested reply (depth ≤ 3) | uncovered | component | Thread rendering is component-testable; one E2E smoke adequate. |
 | Vote on a comment | Upvote/downvote, Wilson score update | uncovered | integration | Score math is a Go test; button-flip is component. |
@@ -211,8 +211,8 @@ Journeys are grouped by persona. Each row is a journey a user must be able to co
 
 Flagged below with **[backfill]** for gaps worth filing follow-up tickets. Don't file them from this doc — let the human triage.
 
-- **[backfill]** Follow system (artist/venue): PSY-56 shipped, zero E2E coverage — pick one smoke journey.
-- **[backfill]** Going/Interested on shows: PSY-55 shipped, zero automated coverage.
+- Follow system (artist/venue): PSY-56 — artist covered by `follow-and-attendance.spec.ts` (PSY-457); venue-specific UI falls to a component test per PSY-434.
+- Going/Interested on shows: PSY-55 — covered by `follow-and-attendance.spec.ts` (PSY-457).
 - **[backfill]** Collections mutation flows: create-collection — add-to-collection now covered by `e2e/pages/add-to-collection.spec.ts` (PSY-455); the inline "create new collection from picker" path still has no automated coverage beyond unit/component-level hooks.
 - **[backfill]** Comments: entire feature (create, reply, vote, edit, report) has zero E2E; component tests exist for rendering but not for the full loop.
 - **[backfill]** Field notes: structured-data flow uncovered end-to-end.
@@ -331,7 +331,7 @@ Nothing was categorized as `→ integration` because the existing specs are all 
 - **[backfill candidates]** The "Coverage gaps" list names ~13 shipped features with no E2E. The highest-value backfill candidates (real-user-impact × shipped-but-unverified):
   1. ~~**Collections add-to-collection flow** (PSY-314, shipped, no coverage — PMF-critical feature).~~ Addressed by PSY-455 (`e2e/pages/add-to-collection.spec.ts`, tagged `@smoke`).
   2. **Comments create + reply + vote** (Wave 1–5, shipped, no coverage — community moat).
-  3. **Follow / Going-Interested** (PSY-55, -56, shipped, no coverage — cheap smoke).
+  3. ~~**Follow / Going-Interested** (PSY-55, -56, shipped, no coverage — cheap smoke).~~ Addressed by PSY-457 (`follow-and-attendance.spec.ts`).
 
 ## How to add new tests (quick reference)
 
