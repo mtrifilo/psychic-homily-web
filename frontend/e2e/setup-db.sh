@@ -233,6 +233,74 @@ BEGIN
 END $$;
 SQL
 
+echo "==> Inserting reserved E2E rows for mutating tests (PSY-430)..."
+# Reserved rows that mutating E2E tests target by stable title/slug, so
+# parallel workers in different files don't race on the same .first() row.
+# Convention: title prefixed with "E2E [<purpose>]", slug pre-set so the
+# backfill below skips them and the slug is stable across CI runs.
+psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
+INSERT INTO venues (name, address, city, state, zipcode, verified, created_at, updated_at, slug)
+VALUES (
+  'E2E [favorite-venue-test]',
+  '100 Reserved Way', 'Phoenix', 'AZ', '85001',
+  true, NOW(), NOW(), 'e2e-favorite-venue-test'
+)
+ON CONFLICT DO NOTHING;
+
+DO $$
+DECLARE
+  v_id INTEGER;
+  a_id INTEGER;
+  s_id INTEGER;
+BEGIN
+  SELECT id INTO v_id FROM venues WHERE slug = 'e2e-favorite-venue-test';
+  SELECT id INTO a_id FROM artists ORDER BY id LIMIT 1;
+
+  -- Plain INSERTs (no ON CONFLICT): the e2e DB is wiped per-run by Docker,
+  -- so duplicates are impossible. The slug unique index is partial
+  -- (WHERE slug IS NOT NULL), which makes ON CONFLICT (slug) awkward.
+
+  -- collection.spec.ts "shows saved show after saving one"
+  INSERT INTO shows (title, event_date, city, state, status, slug, created_at, updated_at)
+  VALUES (
+    'E2E [collection-saved-show]',
+    NOW() + INTERVAL '1 hour',
+    'Phoenix', 'AZ', 'approved',
+    'e2e-collection-saved-show',
+    NOW(), NOW()
+  )
+  RETURNING id INTO s_id;
+  INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
+  INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
+
+  -- save-show.spec.ts (both mutating tests)
+  INSERT INTO shows (title, event_date, city, state, status, slug, created_at, updated_at)
+  VALUES (
+    'E2E [save-show-test]',
+    NOW() + INTERVAL '2 hours',
+    'Phoenix', 'AZ', 'approved',
+    'e2e-save-show-test',
+    NOW(), NOW()
+  )
+  RETURNING id INTO s_id;
+  INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
+  INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
+
+  -- show-list-actions.spec.ts "toggle save state from list cards"
+  INSERT INTO shows (title, event_date, city, state, status, slug, created_at, updated_at)
+  VALUES (
+    'E2E [list-actions-test]',
+    NOW() + INTERVAL '3 hours',
+    'Phoenix', 'AZ', 'approved',
+    'e2e-list-actions-test',
+    NOW(), NOW()
+  )
+  RETURNING id INTO s_id;
+  INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
+  INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
+END $$;
+SQL
+
 echo "==> Verifying seeded venues (public API requires verified=true)..."
 psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
 UPDATE venues SET verified = true WHERE verified = false;
