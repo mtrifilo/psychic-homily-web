@@ -144,7 +144,7 @@ Journeys are grouped by persona. Each row is a journey a user must be able to co
 | Reply to a comment | Nested reply (depth ≤ 3) | uncovered | component | Thread rendering is component-testable; one E2E smoke adequate. |
 | Vote on a comment | Upvote/downvote, Wilson score update | uncovered | integration | Score math is a Go test; button-flip is component. |
 | Field note on past show | Create field note with ratings/spoiler/verified | uncovered | mixed | Component tests exist for form/card rendering; end-to-end create→display loop uncovered. |
-| Add to collection | Add a show/artist/etc to a collection | uncovered | E2E (stays) | Full-stack flow shipped in PSY-314; zero automated coverage. |
+| Add to collection | Add a show/artist/etc to a collection | E2E (add-to-collection.spec.ts) | E2E (stays) | Full-stack flow shipped in PSY-314; smoke backfilled in PSY-455. |
 | Remove from collection | Remove via collection detail page | uncovered | component | UI assertion after mocked DELETE. |
 | Reorder collection items | Up/down buttons reorder items | uncovered | component | Pure UI; mock backend. |
 | Per-item notes | Add/edit a note on a collection item | uncovered | component | Inline edit; mockable. |
@@ -213,7 +213,7 @@ Flagged below with **[backfill]** for gaps worth filing follow-up tickets. Don't
 
 - **[backfill]** Follow system (artist/venue): PSY-56 shipped, zero E2E coverage — pick one smoke journey.
 - **[backfill]** Going/Interested on shows: PSY-55 shipped, zero automated coverage.
-- **[backfill]** Collections mutation flows: add-to-collection, create-collection — the feature's main value prop has no automated coverage beyond unit/component-level hooks.
+- **[backfill]** Collections mutation flows: create-collection — add-to-collection now covered by `e2e/pages/add-to-collection.spec.ts` (PSY-455); the inline "create new collection from picker" path still has no automated coverage beyond unit/component-level hooks.
 - **[backfill]** Comments: entire feature (create, reply, vote, edit, report) has zero E2E; component tests exist for rendering but not for the full loop.
 - **[backfill]** Field notes: structured-data flow uncovered end-to-end.
 - **[backfill]** Entity edit drawer (PSY-127): community edit suggestions uncovered.
@@ -329,7 +329,7 @@ Nothing was categorized as `→ integration` because the existing specs are all 
 - **PSY-434** (component-migration): the `→ component` rows in the categorization table are the menu. Recommend migrating in **feature-flavored batches** (e.g., all auth→component in one PR, all ai-filler in one PR, all `.tabs switch` tests in one PR) — each batch should delete the E2E spec as its last commit so we never carry both.
 - **PSY-446** (smoke-on-PR): the 13 **Smoke** rows are the starting selection. Budget target: <60 s wall-clock on PR CI. If that's tight, drop down to 6–8 by preferring one smoke per persona (landing, register, login, save-show, favorite-venue, approve-pending-show).
 - **[backfill candidates]** The "Coverage gaps" list names ~13 shipped features with no E2E. The highest-value backfill candidates (real-user-impact × shipped-but-unverified):
-  1. **Collections add-to-collection flow** (PSY-314, shipped, no coverage — PMF-critical feature).
+  1. ~~**Collections add-to-collection flow** (PSY-314, shipped, no coverage — PMF-critical feature).~~ Addressed by PSY-455 (`e2e/pages/add-to-collection.spec.ts`, tagged `@smoke`).
   2. **Comments create + reply + vote** (Wave 1–5, shipped, no coverage — community moat).
   3. **Follow / Going-Interested** (PSY-55, -56, shipped, no coverage — cheap smoke).
 

@@ -298,6 +298,21 @@ BEGIN
   RETURNING id INTO s_id;
   INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
   INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
+
+  -- add-to-collection.spec.ts "adds a show to a collection from the detail page"
+  -- (PSY-455). Dedicated reserved show so we don't race with save-show or
+  -- collection.spec.ts which both mutate e2e-collection-saved-show.
+  INSERT INTO shows (title, event_date, city, state, status, slug, created_at, updated_at)
+  VALUES (
+    'E2E [add-to-collection-test]',
+    NOW() + INTERVAL '4 hours',
+    'Phoenix', 'AZ', 'approved',
+    'e2e-add-to-collection-test',
+    NOW(), NOW()
+  )
+  RETURNING id INTO s_id;
+  INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
+  INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
 END $$;
 SQL
 
@@ -411,6 +426,37 @@ BEGIN
       (nts_id, 'Charlie Bones', 'charlie-bones-nts', 'Charlie Bones', 'Eclectic morning show with jazz, soul, funk.', 'Weekdays 10 AM-1 PM GMT', 'https://www.nts.live/shows/charlie-bones', 'charlie-bones', true, NOW(), NOW())
     ON CONFLICT DO NOTHING;
   END IF;
+END $$;
+SQL
+
+echo "==> Seeding reserved per-worker collections (PSY-455)..."
+psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
+-- One "E2E Worker Collection" per worker-user so add-to-collection.spec.ts
+-- can target a collection owned by whichever worker-user picks up the test.
+-- Slug = e2e-worker-collection-<user_id>, unique per user per the collections
+-- table's UNIQUE(slug) constraint. The e2e DB is wiped per-run by Docker,
+-- so no ON CONFLICT is needed.
+DO $$
+DECLARE
+  worker_user RECORD;
+BEGIN
+  FOR worker_user IN
+    SELECT id FROM users WHERE email LIKE 'e2e-user%@test.local'
+  LOOP
+    INSERT INTO collections (
+      title, slug, description, creator_id,
+      collaborative, is_public, is_featured,
+      created_at, updated_at
+    )
+    VALUES (
+      'E2E Worker Collection',
+      'e2e-worker-collection-' || worker_user.id,
+      'Reserved collection for add-to-collection E2E smoke tests (PSY-455).',
+      worker_user.id,
+      false, true, false,
+      NOW(), NOW()
+    );
+  END LOOP;
 END $$;
 SQL
 
