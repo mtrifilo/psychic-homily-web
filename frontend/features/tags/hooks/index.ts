@@ -11,6 +11,7 @@ import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
 import type {
   TagDetailResponse,
+  TagEnrichedDetailResponse,
   TagListResponse,
   TagSearchResponse,
   EntityTagsResponse,
@@ -77,6 +78,21 @@ export function useTag(idOrSlug: string | number, options?: { enabled?: boolean 
     queryKey: queryKeys.tags.detail(idOrSlug),
     queryFn: () =>
       apiRequest<TagDetailResponse>(API_ENDPOINTS.TAGS.GET(idOrSlug)),
+    enabled: options?.enabled ?? true,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * Fetch the enriched tag detail (description_html, parent, children,
+ * usage_breakdown, top_contributors, created_by, related_tags).
+ * Used by the tag detail page. Prefer `useTag` for lightweight lookups.
+ */
+export function useTagDetail(idOrSlug: string | number, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.tags.enrichedDetail(idOrSlug),
+    queryFn: () =>
+      apiRequest<TagEnrichedDetailResponse>(API_ENDPOINTS.TAGS.DETAIL(idOrSlug)),
     enabled: options?.enabled ?? true,
     staleTime: 5 * 60 * 1000,
   })

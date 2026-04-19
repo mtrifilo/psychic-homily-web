@@ -229,6 +229,201 @@ func (s *TagHandlerIntegrationSuite) TestGetTag_NotFoundBySlug() {
 }
 
 // ============================================================================
+// GetTagDetailHandler (enriched detail endpoint)
+// ============================================================================
+
+func (s *TagHandlerIntegrationSuite) TestGetTagDetail_NotFound() {
+	req := &GetTagDetailRequest{TagID: "does-not-exist"}
+	_, err := s.handler.GetTagDetailHandler(s.deps.ctx, req)
+	assertHumaError(s.T(), err, 404)
+}
+
+func (s *TagHandlerIntegrationSuite) TestGetTagDetail_Minimal_BySlug() {
+	admin := createAdminUser(s.deps.db)
+	created := s.createTagViaHandler(admin, "detail-tag", models.TagCategoryGenre)
+
+	req := &GetTagDetailRequest{TagID: created.Body.Slug}
+	resp, err := s.handler.GetTagDetailHandler(s.deps.ctx, req)
+	s.NoError(err)
+	s.Require().NotNil(resp)
+	s.Require().NotNil(resp.Body)
+
+	s.Equal(created.Body.ID, resp.Body.ID)
+	s.Equal("detail-tag", resp.Body.Name)
+	// Zero-state sanity: breakdown initialized, collections non-nil (empty slices, not nil).
+	s.Len(resp.Body.UsageBreakdown, len(models.TagEntityTypes))
+	s.NotNil(resp.Body.Children)
+	s.NotNil(resp.Body.TopContributors)
+	s.NotNil(resp.Body.RelatedTags)
+}
+
+func (s *TagHandlerIntegrationSuite) TestGetTagDetail_DescriptionRendered() {
+	admin := createAdminUser(s.deps.db)
+	ctx := ctxWithUser(admin)
+
+	desc := "Rendered **markdown** body."
+	req := &CreateTagRequest{}
+	req.Body.Name = "desc-tag"
+	req.Body.Category = models.TagCategoryGenre
+	req.Body.Description = &desc
+
+	created, err := s.handler.CreateTagHandler(ctx, req)
+	s.Require().NoError(err)
+
+	detailReq := &GetTagDetailRequest{TagID: fmt.Sprintf("%d", created.Body.ID)}
+	resp, err := s.handler.GetTagDetailHandler(s.deps.ctx, detailReq)
+	s.NoError(err)
+	s.Require().NotNil(resp)
+
+	s.Contains(resp.Body.DescriptionHTML, "<strong>markdown</strong>")
+}
+
+func (s *TagHandlerIntegrationSuite) TestGetTagDetail_ParentAndChildren() {
+	admin := createAdminUser(s.deps.db)
+	ctx := ctxWithUser(admin)
+
+	parent := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+
+	childReq := &CreateTagRequest{}
+	childReq.Body.Name = "shoegaze"
+	childReq.Body.Category = models.TagCategoryGenre
+	parentID := parent.Body.ID
+	childReq.Body.ParentID = &parentID
+	childCreated, err := s.handler.CreateTagHandler(ctx, childReq)
+	s.Require().NoError(err)
+
+	// Parent detail has the child.
+	parentResp, err := s.handler.GetTagDetailHandler(s.deps.ctx, &GetTagDetailRequest{TagID: parent.Body.Slug})
+	s.NoError(err)
+	s.Require().NotNil(parentResp)
+	s.Len(parentResp.Body.Children, 1)
+	s.Equal(childCreated.Body.ID, parentResp.Body.Children[0].ID)
+
+	// Child detail has the parent.
+	childResp, err := s.handler.GetTagDetailHandler(s.deps.ctx, &GetTagDetailRequest{TagID: childCreated.Body.Slug})
+	s.NoError(err)
+	s.Require().NotNil(childResp)
+	s.Require().NotNil(childResp.Body.Parent)
+	s.Equal(parent.Body.ID, childResp.Body.Parent.ID)
+	s.Equal("post-punk", childResp.Body.Parent.Name)
+}
+
+func (s *TagHandlerIntegrationSuite) TestGetTagDetail_UsageBreakdownAcrossTypes() {
+	admin := createAdminUser(s.deps.db)
+	ctx := ctxWithUser(admin)
+	tag := s.createTagViaHandler(admin, "multi-type", models.TagCategoryGenre)
+
+	// Tag 1 artist and 1 venue.
+	artist := createArtist(s.deps.db, "Handler Test Band")
+	venue := createVerifiedVenue(s.deps.db, "Handler Test Venue", "Phoenix", "AZ")
+
+	applyReq := func(entityType string, entityID uint) {
+		req := &AddTagToEntityRequest{
+			EntityType: entityType,
+			EntityID:   fmt.Sprintf("%d", entityID),
+		}
+		req.Body.TagID = tag.Body.ID
+		_, err := s.handler.AddTagToEntityHandler(ctx, req)
+		s.Require().NoError(err)
+	}
+	applyReq(models.TagEntityArtist, artist.ID)
+	applyReq(models.TagEntityVenue, venue.ID)
+
+	resp, err := s.handler.GetTagDetailHandler(s.deps.ctx, &GetTagDetailRequest{TagID: tag.Body.Slug})
+	s.NoError(err)
+	s.Require().NotNil(resp)
+
+	s.Equal(int64(1), resp.Body.UsageBreakdown["artist"])
+	s.Equal(int64(1), resp.Body.UsageBreakdown["venue"])
+	s.Equal(int64(0), resp.Body.UsageBreakdown["show"])
+	s.Equal(int64(0), resp.Body.UsageBreakdown["release"])
+	s.Equal(int64(0), resp.Body.UsageBreakdown["label"])
+	s.Equal(int64(0), resp.Body.UsageBreakdown["festival"])
+}
+
+func (s *TagHandlerIntegrationSuite) TestGetTagDetail_TopContributorsAndCreatedBy() {
+	admin := createAdminUser(s.deps.db)
+	// Give admin a username so CreatedBy has a usable handle.
+	aliceUsername := "alice-admin"
+	s.deps.db.Model(admin).Update("username", aliceUsername)
+	admin.Username = &aliceUsername
+	ctx := ctxWithUser(admin)
+
+	tag := s.createTagViaHandler(admin, "contrib-detail", models.TagCategoryGenre)
+
+	artist := createArtist(s.deps.db, "Contrib Artist")
+	applyReq := &AddTagToEntityRequest{
+		EntityType: models.TagEntityArtist,
+		EntityID:   fmt.Sprintf("%d", artist.ID),
+	}
+	applyReq.Body.TagID = tag.Body.ID
+	_, err := s.handler.AddTagToEntityHandler(ctx, applyReq)
+	s.Require().NoError(err)
+
+	resp, err := s.handler.GetTagDetailHandler(s.deps.ctx, &GetTagDetailRequest{TagID: tag.Body.Slug})
+	s.NoError(err)
+	s.Require().NotNil(resp)
+
+	s.Require().Len(resp.Body.TopContributors, 1)
+	s.Equal(admin.ID, resp.Body.TopContributors[0].User.ID)
+	s.Equal(aliceUsername, resp.Body.TopContributors[0].User.Username)
+	s.Equal(int64(1), resp.Body.TopContributors[0].Count)
+
+	s.Require().NotNil(resp.Body.CreatedBy)
+	s.Equal(admin.ID, resp.Body.CreatedBy.ID)
+	s.Equal(aliceUsername, resp.Body.CreatedBy.Username)
+}
+
+func (s *TagHandlerIntegrationSuite) TestGetTagDetail_RelatedTags() {
+	admin := createAdminUser(s.deps.db)
+	// Ensure contributor tier so AddTagToEntity passes the trust gate if it ever
+	// attempts inline creation. IsAdmin bypasses the gate, but be explicit.
+	s.deps.db.Model(admin).Update("user_tier", "contributor")
+	ctx := ctxWithUser(admin)
+
+	focus := s.createTagViaHandler(admin, "focus-tag", models.TagCategoryGenre)
+	related := s.createTagViaHandler(admin, "related-tag", models.TagCategoryGenre)
+
+	artist := createArtist(s.deps.db, "Related Artist")
+	for _, tagID := range []uint{focus.Body.ID, related.Body.ID} {
+		r := &AddTagToEntityRequest{
+			EntityType: models.TagEntityArtist,
+			EntityID:   fmt.Sprintf("%d", artist.ID),
+		}
+		r.Body.TagID = tagID
+		_, err := s.handler.AddTagToEntityHandler(ctx, r)
+		s.Require().NoError(err)
+	}
+
+	resp, err := s.handler.GetTagDetailHandler(s.deps.ctx, &GetTagDetailRequest{TagID: focus.Body.Slug})
+	s.NoError(err)
+	s.Require().NotNil(resp)
+
+	s.Require().Len(resp.Body.RelatedTags, 1)
+	s.Equal(related.Body.ID, resp.Body.RelatedTags[0].ID)
+	// Self must never appear.
+	for _, rt := range resp.Body.RelatedTags {
+		s.NotEqual(focus.Body.ID, rt.ID)
+	}
+}
+
+func (s *TagHandlerIntegrationSuite) TestGetTagDetail_AliasesPreserved() {
+	admin := createAdminUser(s.deps.db)
+	tag := s.createTagViaHandler(admin, "alias-detail", models.TagCategoryGenre)
+
+	ctx := ctxWithUser(admin)
+	aliasReq := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
+	aliasReq.Body.Alias = "detail-aka"
+	_, err := s.handler.CreateAliasHandler(ctx, aliasReq)
+	s.Require().NoError(err)
+
+	resp, err := s.handler.GetTagDetailHandler(s.deps.ctx, &GetTagDetailRequest{TagID: tag.Body.Slug})
+	s.NoError(err)
+	s.Require().NotNil(resp)
+	s.Contains(resp.Body.Aliases, "detail-aka")
+}
+
+// ============================================================================
 // ListTagsHandler
 // ============================================================================
 

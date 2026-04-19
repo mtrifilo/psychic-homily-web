@@ -81,6 +81,7 @@ func (suite *TagServiceIntegrationTestSuite) SetupTest() {
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
+	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
@@ -936,6 +937,317 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_Emp
 	var tagErr *apperrors.TagError
 	suite.Assert().ErrorAs(err, &tagErr)
 	suite.Assert().Equal(apperrors.CodeTagNameInvalid, tagErr.Code)
+}
+
+// ──────────────────────────────────────────────
+// GetTagDetail Tests
+// ──────────────────────────────────────────────
+
+// createTestUserWithUsername creates a user with a specific username for attribution tests.
+func (suite *TagServiceIntegrationTestSuite) createTestUserWithUsername(name, username string) *models.User {
+	user := suite.createTestUser(name)
+	suite.db.Model(user).Update("username", username)
+	user.Username = &username
+	return user
+}
+
+// createVenue creates a minimal venue for breakdown tests.
+func (suite *TagServiceIntegrationTestSuite) createVenue(name string) uint {
+	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
+	venue := &models.Venue{Name: name, Slug: &slug, City: "Phoenix", State: "AZ"}
+	err := suite.db.Create(venue).Error
+	suite.Require().NoError(err)
+	return venue.ID
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_NotFound() {
+	resp, err := suite.tagService.GetTagDetail(9999)
+	suite.Require().NoError(err)
+	suite.Assert().Nil(resp)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_Minimal() {
+	// Bare tag: no description, no parent, no children, no usage, no creator, no related.
+	tag := suite.createTag("empty-tag", "genre")
+
+	resp, err := suite.tagService.GetTagDetail(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+
+	suite.Assert().Equal(tag.ID, resp.ID)
+	suite.Assert().Equal("empty-tag", resp.Name)
+	suite.Assert().Equal("genre", resp.Category)
+	suite.Assert().Equal(0, resp.UsageCount)
+	suite.Assert().Equal("", resp.DescriptionHTML)
+	suite.Assert().Nil(resp.Parent)
+	suite.Assert().Empty(resp.Children)
+	suite.Assert().Nil(resp.CreatedBy)
+	suite.Assert().Empty(resp.Aliases)
+	suite.Assert().Empty(resp.TopContributors)
+	suite.Assert().Empty(resp.RelatedTags)
+
+	// Usage breakdown is always fully populated for every valid entity type (zero counts).
+	suite.Assert().Len(resp.UsageBreakdown, len(models.TagEntityTypes))
+	for _, et := range models.TagEntityTypes {
+		count, ok := resp.UsageBreakdown[et]
+		suite.Assert().True(ok, "breakdown missing entity type %s", et)
+		suite.Assert().Equal(int64(0), count)
+	}
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_DescriptionRenderedAsHTML() {
+	desc := "This is **bold** and *italic* with a [link](https://example.com)."
+	tag, err := suite.tagService.CreateTag("with-desc", &desc, nil, "genre", false, nil)
+	suite.Require().NoError(err)
+
+	resp, err := suite.tagService.GetTagDetail(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+
+	suite.Require().NotNil(resp.Description)
+	suite.Assert().Equal(desc, *resp.Description)
+	suite.Assert().Contains(resp.DescriptionHTML, "<strong>bold</strong>")
+	suite.Assert().Contains(resp.DescriptionHTML, "<em>italic</em>")
+	suite.Assert().Contains(resp.DescriptionHTML, `href="https://example.com"`)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_DescriptionSanitized() {
+	// Bluemonday policy strips dangerous tags and attributes.
+	desc := `Safe text <script>alert('xss')</script> and <img src=x onerror=alert(1)>.`
+	tag, err := suite.tagService.CreateTag("xss-tag", &desc, nil, "other", false, nil)
+	suite.Require().NoError(err)
+
+	resp, err := suite.tagService.GetTagDetail(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+
+	suite.Assert().NotContains(resp.DescriptionHTML, "<script>")
+	suite.Assert().NotContains(resp.DescriptionHTML, "onerror")
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_ParentAndChildren() {
+	parent := suite.createTag("post-punk", "genre")
+	parentID := parent.ID
+	childA, err := suite.tagService.CreateTag("dream-pop", nil, &parentID, "genre", false, nil)
+	suite.Require().NoError(err)
+	childB, err := suite.tagService.CreateTag("shoegaze", nil, &parentID, "genre", true, nil)
+	suite.Require().NoError(err)
+
+	resp, err := suite.tagService.GetTagDetail(parent.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+
+	// Parent has no parent of its own.
+	suite.Assert().Nil(resp.Parent)
+
+	// Parent exposes both children.
+	suite.Assert().Len(resp.Children, 2)
+	childIDs := []uint{resp.Children[0].ID, resp.Children[1].ID}
+	suite.Assert().Contains(childIDs, childA.ID)
+	suite.Assert().Contains(childIDs, childB.ID)
+
+	// Child view: parent summary is populated.
+	childResp, err := suite.tagService.GetTagDetail(childA.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(childResp)
+	suite.Require().NotNil(childResp.Parent)
+	suite.Assert().Equal(parent.ID, childResp.Parent.ID)
+	suite.Assert().Equal("post-punk", childResp.Parent.Name)
+	suite.Assert().Equal("post-punk", childResp.ParentName) // legacy field still populated for backwards compat
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_UsageBreakdown() {
+	user := suite.createTestUserWithTier("tagger", "contributor")
+	tag := suite.createTag("noisy", "genre")
+
+	// Tag 3 artists, 2 venues, 0 of everything else.
+	artist1 := suite.createArtist("Band A")
+	artist2 := suite.createArtist("Band B")
+	artist3 := suite.createArtist("Band C")
+	venue1 := suite.createVenue("Venue A")
+	venue2 := suite.createVenue("Venue B")
+	for _, id := range []uint{artist1, artist2, artist3} {
+		_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", id, user.ID, "")
+		suite.Require().NoError(err)
+	}
+	for _, id := range []uint{venue1, venue2} {
+		_, err := suite.tagService.AddTagToEntity(tag.ID, "", "venue", id, user.ID, "")
+		suite.Require().NoError(err)
+	}
+
+	resp, err := suite.tagService.GetTagDetail(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+
+	suite.Assert().Equal(int64(3), resp.UsageBreakdown["artist"])
+	suite.Assert().Equal(int64(2), resp.UsageBreakdown["venue"])
+	suite.Assert().Equal(int64(0), resp.UsageBreakdown["show"])
+	suite.Assert().Equal(int64(0), resp.UsageBreakdown["release"])
+	suite.Assert().Equal(int64(0), resp.UsageBreakdown["label"])
+	suite.Assert().Equal(int64(0), resp.UsageBreakdown["festival"])
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_TopContributors() {
+	alice := suite.createTestUserWithUsername("alice", "alice")
+	alice.UserTier = "contributor"
+	suite.db.Model(alice).Update("user_tier", "contributor")
+	bob := suite.createTestUserWithUsername("bob", "bob")
+	bob.UserTier = "contributor"
+	suite.db.Model(bob).Update("user_tier", "contributor")
+	carol := suite.createTestUserWithUsername("carol", "carol")
+	carol.UserTier = "contributor"
+	suite.db.Model(carol).Update("user_tier", "contributor")
+
+	tag := suite.createTag("contrib-tag", "genre")
+
+	// Alice: 3 applications, Bob: 2, Carol: 1
+	for i := 0; i < 3; i++ {
+		a := suite.createArtist(fmt.Sprintf("Alice-Artist-%d", i))
+		_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", a, alice.ID, "")
+		suite.Require().NoError(err)
+	}
+	for i := 0; i < 2; i++ {
+		a := suite.createArtist(fmt.Sprintf("Bob-Artist-%d", i))
+		_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", a, bob.ID, "")
+		suite.Require().NoError(err)
+	}
+	a := suite.createArtist("Carol-Artist-0")
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", a, carol.ID, "")
+	suite.Require().NoError(err)
+
+	resp, err := suite.tagService.GetTagDetail(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+
+	suite.Require().Len(resp.TopContributors, 3)
+	// Sorted by count DESC
+	suite.Assert().Equal("alice", resp.TopContributors[0].User.Username)
+	suite.Assert().Equal(int64(3), resp.TopContributors[0].Count)
+	suite.Assert().Equal("bob", resp.TopContributors[1].User.Username)
+	suite.Assert().Equal(int64(2), resp.TopContributors[1].Count)
+	suite.Assert().Equal("carol", resp.TopContributors[2].User.Username)
+	suite.Assert().Equal(int64(1), resp.TopContributors[2].Count)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_TopContributors_CapAtFive() {
+	tag := suite.createTag("six-contrib", "genre")
+	// Create 6 contributors each with 1 application → only top 5 returned.
+	for i := 0; i < 6; i++ {
+		u := suite.createTestUserWithUsername(fmt.Sprintf("user%d", i), fmt.Sprintf("user%d", i))
+		suite.db.Model(u).Update("user_tier", "contributor")
+		a := suite.createArtist(fmt.Sprintf("artist-%d", i))
+		_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", a, u.ID, "")
+		suite.Require().NoError(err)
+	}
+
+	resp, err := suite.tagService.GetTagDetail(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Assert().Len(resp.TopContributors, 5)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_CreatedBy() {
+	creator := suite.createTestUserWithUsername("creator-user", "creatoruser")
+	creatorID := creator.ID
+
+	tag, err := suite.tagService.CreateTag("attributed-tag", nil, nil, "genre", false, &creatorID)
+	suite.Require().NoError(err)
+
+	resp, err := suite.tagService.GetTagDetail(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Require().NotNil(resp.CreatedBy)
+	suite.Assert().Equal(creatorID, resp.CreatedBy.ID)
+	suite.Assert().Equal("creatoruser", resp.CreatedBy.Username)
+	// Legacy pointer field also populated for backwards compatibility.
+	suite.Require().NotNil(resp.CreatedByUsername)
+	suite.Assert().Equal("creatoruser", *resp.CreatedByUsername)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_CreatedBy_UnknownWhenNil() {
+	tag, err := suite.tagService.CreateTag("anonymous-tag", nil, nil, "genre", false, nil)
+	suite.Require().NoError(err)
+
+	resp, err := suite.tagService.GetTagDetail(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Assert().Nil(resp.CreatedBy)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_RelatedTags_CoOccurrence() {
+	user := suite.createTestUserWithTier("rel-user", "contributor")
+	focus := suite.createTag("focus", "genre")
+	relatedA := suite.createTag("related-a", "genre")
+	relatedB := suite.createTag("related-b", "genre")
+	unrelated := suite.createTag("unrelated", "genre")
+
+	// Three artists tagged with focus; two of them also with relatedA; one with relatedB.
+	artist1 := suite.createArtist("Shared-1")
+	artist2 := suite.createArtist("Shared-2")
+	artist3 := suite.createArtist("Shared-3")
+	otherArtist := suite.createArtist("Other")
+
+	for _, id := range []uint{artist1, artist2, artist3} {
+		_, err := suite.tagService.AddTagToEntity(focus.ID, "", "artist", id, user.ID, "")
+		suite.Require().NoError(err)
+	}
+	// relatedA on artist1 + artist2 → co-occurrence with focus = 2
+	for _, id := range []uint{artist1, artist2} {
+		_, err := suite.tagService.AddTagToEntity(relatedA.ID, "", "artist", id, user.ID, "")
+		suite.Require().NoError(err)
+	}
+	// relatedB on artist3 → co-occurrence with focus = 1
+	_, err := suite.tagService.AddTagToEntity(relatedB.ID, "", "artist", artist3, user.ID, "")
+	suite.Require().NoError(err)
+	// unrelated on an entity that focus is NOT tagged on → no co-occurrence
+	_, err = suite.tagService.AddTagToEntity(unrelated.ID, "", "artist", otherArtist, user.ID, "")
+	suite.Require().NoError(err)
+
+	resp, err := suite.tagService.GetTagDetail(focus.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+
+	suite.Require().Len(resp.RelatedTags, 2, "should return exactly the two co-occurring tags, not unrelated")
+	suite.Assert().Equal(relatedA.ID, resp.RelatedTags[0].ID, "relatedA should rank first (co-occurrence=2)")
+	suite.Assert().Equal(relatedB.ID, resp.RelatedTags[1].ID, "relatedB should rank second (co-occurrence=1)")
+
+	// Self is never in the list.
+	for _, rt := range resp.RelatedTags {
+		suite.Assert().NotEqual(focus.ID, rt.ID, "focus tag must not appear in its own related list")
+	}
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_RelatedTags_CapAtFive() {
+	user := suite.createTestUserWithTier("rel-cap", "contributor")
+	focus := suite.createTag("cap-focus", "genre")
+	artistID := suite.createArtist("One Artist Many Tags")
+
+	// Apply focus + 6 other tags to the same artist; related list should cap at 5.
+	_, err := suite.tagService.AddTagToEntity(focus.ID, "", "artist", artistID, user.ID, "")
+	suite.Require().NoError(err)
+	for i := 0; i < 6; i++ {
+		t := suite.createTag(fmt.Sprintf("other-%d", i), "genre")
+		_, err := suite.tagService.AddTagToEntity(t.ID, "", "artist", artistID, user.ID, "")
+		suite.Require().NoError(err)
+	}
+
+	resp, err := suite.tagService.GetTagDetail(focus.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Assert().Len(resp.RelatedTags, 5)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_Aliases() {
+	tag := suite.createTag("with-aliases", "genre")
+	_, err := suite.tagService.CreateAlias(tag.ID, "aka-one")
+	suite.Require().NoError(err)
+	_, err = suite.tagService.CreateAlias(tag.ID, "aka-two")
+	suite.Require().NoError(err)
+
+	resp, err := suite.tagService.GetTagDetail(tag.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Assert().ElementsMatch([]string{"aka-one", "aka-two"}, resp.Aliases)
 }
 
 // ──────────────────────────────────────────────
