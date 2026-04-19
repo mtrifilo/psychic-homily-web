@@ -166,14 +166,18 @@ function TagWithVotes({
     <div
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs',
-        getCategoryColor(tag.category),
-        tag.is_official && 'ring-1 ring-primary/20'
+        // Official tags get a distinct primary-accent background that
+        // overrides the per-category color, making curated tags visibly
+        // different at a glance (ISSUE-004 from tags-audit-2).
+        tag.is_official
+          ? 'border-primary/40 bg-primary/10 text-foreground'
+          : getCategoryColor(tag.category)
       )}
     >
       {tag.is_official && (
-        <span title="Official tag">
+        <span title="Official tag" aria-label="Official tag" role="img">
           <BadgeCheck
-            className="h-3 w-3 text-primary shrink-0"
+            className="h-3.5 w-3.5 text-primary shrink-0"
             aria-hidden="true"
           />
         </span>

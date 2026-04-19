@@ -108,6 +108,16 @@ describe('EntityTagList add-tag dialog accessibility', () => {
     // The community tag "indie" should have a plain title
     const indieLink = screen.getByRole('link', { name: 'indie' })
     expect(indieLink).toHaveAttribute('title', 'indie')
+
+    // The visible BadgeCheck icon marker is present exactly once (only on
+    // the official tag) so the distinction is not tooltip-only.
+    const officialMarkers = screen.getAllByRole('img', { name: 'Official tag' })
+    expect(officialMarkers).toHaveLength(1)
+
+    // And the official pill wrapper carries the primary-accent background
+    // so it reads as curated at a glance (ISSUE-004 tags-audit-2).
+    const officialPill = officialMarkers[0].closest('div')
+    expect(officialPill?.className).toContain('bg-primary/10')
   })
 
   it('opens add-tag dialog with title and no aria-describedby attribute', async () => {

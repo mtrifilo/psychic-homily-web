@@ -19,10 +19,16 @@ test.describe('Show list actions', () => {
   }) => {
     await authenticatedPage.goto('/shows')
 
-    const firstShow = authenticatedPage.locator('article').first()
-    await expect(firstShow).toBeVisible({ timeout: 10_000 })
+    // PSY-430: pin to a reserved show seeded by setup-db.sh so parallel
+    // mutating tests in other files don't race on the same .first() row.
+    // The aria-label on ShowCard's <article> exposes show.title as the
+    // accessible name, so getByRole('article', { name }) finds it directly.
+    const reservedShow = authenticatedPage.getByRole('article', {
+      name: 'E2E [list-actions-test]',
+    })
+    await expect(reservedShow).toBeVisible({ timeout: 10_000 })
 
-    const saveButton = firstShow.locator(
+    const saveButton = reservedShow.locator(
       'button[aria-label="Add to My List"], button[aria-label="Remove from My List"]'
     )
     await expect(saveButton).toBeVisible()
@@ -51,7 +57,7 @@ test.describe('Show list actions', () => {
     ])
     expect(firstToggleResponse.status()).toBeLessThan(400)
     await expect(
-      firstShow.getByRole('button', { name: firstExpectedLabel })
+      reservedShow.getByRole('button', { name: firstExpectedLabel })
     ).toBeVisible({ timeout: 5_000 })
 
     // Cleanup: toggle back so test state is stable.
@@ -63,11 +69,11 @@ test.describe('Show list actions', () => {
           resp.request().method() === secondToggleMethod,
         { timeout: 10_000 }
       ),
-      firstShow.getByRole('button', { name: firstExpectedLabel }).click(),
+      reservedShow.getByRole('button', { name: firstExpectedLabel }).click(),
     ])
     expect(secondToggleResponse.status()).toBeLessThan(400)
     await expect(
-      firstShow.getByRole('button', { name: initialLabel || 'Add to My List' })
+      reservedShow.getByRole('button', { name: initialLabel || 'Add to My List' })
     ).toBeVisible({ timeout: 5_000 })
   })
 
