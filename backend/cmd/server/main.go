@@ -54,6 +54,13 @@ func main() {
 		log.Fatalf("PSY-432 test-fixtures misconfiguration: %v", err)
 	}
 
+	// PSY-475: same default-deny check for the auth-rate-limit disable
+	// flag. Refuses to boot if DISABLE_AUTH_RATE_LIMITS=1 is combined
+	// with a non-allowed ENVIRONMENT (production, stage, preview, unset).
+	if err := routes.ValidateAuthRateLimitEnvironment(os.Getenv); err != nil {
+		log.Fatalf("PSY-475 auth-rate-limit misconfiguration: %v", err)
+	}
+
 	// Initialize structured logger
 	// Use JSON format in production, text format with debug in development
 	isProduction := environment == config.EnvProduction

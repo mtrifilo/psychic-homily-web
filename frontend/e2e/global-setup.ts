@@ -148,6 +148,14 @@ function startBackend(): ChildProcess {
       // one of {test, ci, development}.
       ENABLE_TEST_FIXTURES: '1',
       ENVIRONMENT: 'test',
+      // PSY-475: replace the IP-scoped auth (10/min) + passkey (20/min)
+      // rate limiters with no-op middleware for E2E. All parallel workers
+      // on a CI shard share 127.0.0.1, so the limits got tripped on shard
+      // 3 and caused intermittent failures in register.spec.ts and
+      // magic-link.spec.ts. Same default-deny ENVIRONMENT guard as
+      // ENABLE_TEST_FIXTURES — the server refuses to boot if the flag is
+      // set in anything other than test/ci/development.
+      DISABLE_AUTH_RATE_LIMITS: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
