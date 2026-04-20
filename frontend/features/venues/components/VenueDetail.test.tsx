@@ -51,7 +51,7 @@ vi.mock('@/lib/queryClient', () => ({
 
 // Mock useVenue, useVenueGenres, and useVenueShows hooks
 const mockUseVenue = vi.fn()
-const mockUseVenueGenres = vi.fn(() => ({ data: null }))
+const mockUseVenueGenres = vi.fn((_id?: number) => ({ data: null }))
 const mockUseVenueShows = vi.fn((_opts: unknown) => ({
   data: { shows: [], total: 0 } as { shows: unknown[]; total: number },
   isLoading: false,

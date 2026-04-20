@@ -14,7 +14,7 @@ describe('useMyShowReport', () => {
           report: {
             id: 1,
             show_id: 42,
-            report_type: 'wrong_date',
+            report_type: 'inaccurate',
             details: 'Off by one day',
             status: 'pending',
             created_at: '2026-03-30T12:00:00Z',
@@ -29,7 +29,7 @@ describe('useMyShowReport', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(result.current.data?.report?.report_type).toBe('wrong_date')
+    expect(result.current.data?.report?.report_type).toBe('inaccurate')
   })
 
   it('fetches user report for a show by string slug', async () => {
@@ -93,7 +93,7 @@ describe('useReportShow', () => {
     await act(async () => {
       result.current.mutate({
         showId: 42,
-        reportType: 'wrong_date',
+        reportType: 'inaccurate',
         details: 'The date is March 20, not March 19',
       })
     })
@@ -102,13 +102,13 @@ describe('useReportShow', () => {
 
     // Verify the request body was sent correctly
     expect(capturedBody).toEqual({
-      report_type: 'wrong_date',
+      report_type: 'inaccurate',
       details: 'The date is March 20, not March 19',
     })
 
     // Verify the response data
     expect(result.current.data?.id).toBe(1)
-    expect(result.current.data?.report_type).toBe('wrong_date')
+    expect(result.current.data?.report_type).toBe('inaccurate')
   })
 
   it('sends null for details when not provided', async () => {
@@ -119,7 +119,7 @@ describe('useReportShow', () => {
         return HttpResponse.json({
           id: 1,
           show_id: 42,
-          report_type: 'duplicate',
+          report_type: 'cancelled',
           details: null,
           status: 'pending',
           created_at: '2026-03-30T12:00:00Z',
@@ -135,14 +135,14 @@ describe('useReportShow', () => {
     await act(async () => {
       result.current.mutate({
         showId: 42,
-        reportType: 'duplicate',
+        reportType: 'cancelled',
       })
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
     expect(capturedBody).toEqual({
-      report_type: 'duplicate',
+      report_type: 'cancelled',
       details: null,
     })
   })
@@ -159,7 +159,7 @@ describe('useReportShow', () => {
     })
 
     await act(async () => {
-      result.current.mutate({ showId: 42, reportType: 'wrong_date' })
+      result.current.mutate({ showId: 42, reportType: 'inaccurate' })
     })
 
     await waitFor(() => expect(result.current.isError).toBe(true))

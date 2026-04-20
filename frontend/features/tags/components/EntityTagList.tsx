@@ -19,12 +19,6 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
@@ -710,70 +704,54 @@ function AddTagForm({
               <p className="text-sm text-muted-foreground mb-2">
                 No matching tags found.
               </p>
-              <div className="flex items-center gap-2 mb-2">
-                <label className="text-xs text-muted-foreground">Category:</label>
-                <select
-                  value={createCategory}
-                  onChange={e => setCreateCategory(e.target.value)}
-                  disabled={!canCreateTags}
-                  className="text-xs rounded border border-input bg-background px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="genre">Genre</option>
-                  <option value="locale">Locale</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
               {canCreateTags ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleCreateTag}
-                  disabled={addMutation.isPending || !searchQuery.trim()}
-                >
-                  {addMutation.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                  ) : (
-                    <Plus className="h-3.5 w-3.5 mr-1.5" />
-                  )}
-                  Create &quot;{searchQuery.trim()}&quot;
-                </Button>
-              ) : (
-                <TooltipProvider delayDuration={150}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      {/* span wrapper lets the tooltip fire on a disabled button */}
-                      <span
-                        className="inline-block"
-                        data-testid="tag-create-disabled-wrapper"
-                      >
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled
-                          aria-disabled="true"
-                          data-testid="tag-create-disabled"
-                        >
-                          <Plus className="h-3.5 w-3.5 mr-1.5" />
-                          Create &quot;{searchQuery.trim()}&quot;
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent
-                      side="top"
-                      data-testid="tag-create-disabled-tooltip"
+                <>
+                  <div className="flex items-center gap-2 mb-2">
+                    <label className="text-xs text-muted-foreground">Category:</label>
+                    <select
+                      value={createCategory}
+                      onChange={e => setCreateCategory(e.target.value)}
+                      className="text-xs rounded border border-input bg-background px-2 py-1"
                     >
-                      <p className="text-xs">
-                        Reach Contributor tier to create new tags.{' '}
-                        <Link
-                          href={TIERS_HELP_PATH}
-                          className="underline"
-                        >
-                          Learn more
-                        </Link>
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                      <option value="genre">Genre</option>
+                      <option value="locale">Locale</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCreateTag}
+                    disabled={addMutation.isPending || !searchQuery.trim()}
+                  >
+                    {addMutation.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    ) : (
+                      <Plus className="h-3.5 w-3.5 mr-1.5" />
+                    )}
+                    Create &quot;{searchQuery.trim()}&quot;
+                  </Button>
+                </>
+              ) : (
+                // PSY-483: don't render a silently-disabled Create button (or
+                // its dead-on-arrival Category dropdown) for users who lack
+                // the tier to create tags. The previous PSY-443 approach
+                // hung the explanation off a Radix tooltip on a disabled
+                // button — invisible to touch users and easy to miss with a
+                // mouse. Replace the whole creation affordance with explicit
+                // prose so the gate is visible without any interaction.
+                <p
+                  className="text-sm text-muted-foreground"
+                  data-testid="tag-create-tier-gate"
+                >
+                  New tags require Contributor tier.{' '}
+                  <Link
+                    href={TIERS_HELP_PATH}
+                    className="underline hover:no-underline"
+                  >
+                    Learn how to become a contributor
+                  </Link>
+                </p>
               )}
             </div>
           )}
