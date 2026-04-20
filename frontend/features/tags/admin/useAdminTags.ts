@@ -12,6 +12,7 @@ import type {
   MergeTagsPreview,
   MergeTagsResult,
   LowQualityTagQueueResponse,
+  GenreHierarchyResponse,
 } from '../types'
 
 // ──────────────────────────────────────────────
@@ -301,6 +302,58 @@ export function useMarkTagOfficial() {
       queryClient.invalidateQueries({ queryKey: queryKeys.tags.lowQuality() })
       queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
       queryClient.invalidateQueries({ queryKey: queryKeys.tags.detail(tagId) })
+    },
+  })
+}
+
+// ──────────────────────────────────────────────
+// Genre hierarchy (PSY-311)
+// ──────────────────────────────────────────────
+
+/**
+ * Fetch all genre tags as a flat list with parent_id (admin only).
+ * The frontend builds the tree client-side. 30-second staleTime keeps
+ * the editor snappy after mutations without thrashing the backend.
+ */
+export function useGenreHierarchy(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.tags.genreHierarchy,
+    queryFn: () =>
+      apiRequest<GenreHierarchyResponse>(API_ENDPOINTS.TAGS.ADMIN_HIERARCHY),
+    enabled: options?.enabled ?? true,
+    staleTime: 30 * 1000,
+  })
+}
+
+interface SetTagParentInput {
+  tagId: number
+  /** Pass null (not undefined) to clear the parent. */
+  parentId: number | null
+}
+
+/**
+ * Set or clear the parent of a genre tag (admin only). Cycle detection and
+ * category enforcement live on the backend; this mutation just surfaces the
+ * error message. Invalidates the genre hierarchy + the affected tag's detail
+ * so the detail page parent/children section stays fresh.
+ */
+export function useSetTagParent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ tagId, parentId }: SetTagParentInput) =>
+      apiRequest<void>(API_ENDPOINTS.TAGS.ADMIN_SET_PARENT(tagId), {
+        method: 'PATCH',
+        body: JSON.stringify({ parent_id: parentId }),
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags.genreHierarchy })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tags.detail(variables.tagId),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tags.enrichedDetail(variables.tagId),
+      })
     },
   })
 }

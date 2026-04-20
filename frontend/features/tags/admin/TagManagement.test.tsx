@@ -28,6 +28,8 @@ vi.mock('./useAdminTags', () => ({
   useLowQualityTagQueue: () => ({ data: { tags: [], total: 0 }, isLoading: false, error: null }),
   useSnoozeTag: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
   useMarkTagOfficial: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
+  useGenreHierarchy: () => ({ data: { tags: [] }, isLoading: false, error: null }),
+  useSetTagParent: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
 import { TagManagement } from './TagManagement'

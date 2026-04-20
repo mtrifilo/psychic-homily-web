@@ -239,6 +239,12 @@ type TagServiceInterface interface {
 	MergeTags(sourceID, targetID uint, actorUserID uint) (*MergeTagsResult, error)
 	PreviewMergeTags(sourceID, targetID uint) (*MergeTagsPreview, error)
 
+	// Hierarchy (genre-only)
+	GetTagAncestors(tagID uint) ([]*models.Tag, error)
+	GetTagChildren(tagID uint) ([]*models.Tag, error)
+	GetGenreHierarchy() ([]*models.Tag, error)
+	SetTagParent(tagID uint, parentID *uint, actorUserID uint) error
+
 	// Tag entities
 	GetTagEntities(tagID uint, entityType string, limit, offset int) ([]TaggedEntityItem, int64, error)
 

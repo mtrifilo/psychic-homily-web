@@ -948,6 +948,101 @@ func (h *TagHandler) SnoozeTagHandler(ctx context.Context, req *SnoozeTagRequest
 }
 
 // ============================================================================
+// Genre hierarchy (admin, PSY-311)
+// ============================================================================
+
+// GenreHierarchyTag is the minimal shape returned by the hierarchy endpoint.
+// The frontend builds the tree client-side from parent_id, so we don't need
+// the heavier TagResponse shape with relationships and creator attribution.
+type GenreHierarchyTag struct {
+	ID         uint   `json:"id"`
+	Name       string `json:"name"`
+	Slug       string `json:"slug"`
+	ParentID   *uint  `json:"parent_id,omitempty"`
+	UsageCount int    `json:"usage_count"`
+	IsOfficial bool   `json:"is_official"`
+}
+
+type GetGenreHierarchyResponse struct {
+	Body struct {
+		Tags []GenreHierarchyTag `json:"tags"`
+	}
+}
+
+// GetGenreHierarchyHandler returns all genre tags as a flat list with
+// parent_id populated. The frontend assembles the tree — this keeps the
+// backend query trivial (one indexed scan) and avoids a recursive CTE.
+func (h *TagHandler) GetGenreHierarchyHandler(ctx context.Context, _ *struct{}) (*GetGenreHierarchyResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	if !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	tags, err := h.tagService.GetGenreHierarchy()
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to load genre hierarchy")
+	}
+
+	items := make([]GenreHierarchyTag, len(tags))
+	for i, t := range tags {
+		items[i] = GenreHierarchyTag{
+			ID:         t.ID,
+			Name:       t.Name,
+			Slug:       t.Slug,
+			ParentID:   t.ParentID,
+			UsageCount: t.UsageCount,
+			IsOfficial: t.IsOfficial,
+		}
+	}
+
+	resp := &GetGenreHierarchyResponse{}
+	resp.Body.Tags = items
+	return resp, nil
+}
+
+// SetTagParentRequest has ParentID as a pointer so the request can
+// explicitly send `null` to clear the parent. Huma treats pointer body
+// fields as required by default; we mark it optional so callers can omit
+// it and default to "clear parent" — but in practice the frontend always
+// sends the field explicitly.
+type SetTagParentRequest struct {
+	TagID string `path:"tag_id" doc:"Tag ID" example:"1"`
+	Body  struct {
+		ParentID *uint `json:"parent_id" required:"false" doc:"New parent tag ID, or null to clear parent"`
+	}
+}
+
+// SetTagParentHandler sets or clears the parent of a genre tag. Cycle
+// detection, category enforcement, and audit logging live in the service.
+// The handler's job is path-id parsing + error mapping.
+func (h *TagHandler) SetTagParentHandler(ctx context.Context, req *SetTagParentRequest) (*struct{}, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	if !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	id, err := strconv.ParseUint(req.TagID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid tag ID")
+	}
+
+	if err := h.tagService.SetTagParent(uint(id), req.Body.ParentID, user.ID); err != nil {
+		if mapped := mapTagError(err); mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error500InternalServerError("Failed to set tag parent")
+	}
+
+	return nil, nil
+}
+
+// ============================================================================
 // Helpers
 // ============================================================================
 
@@ -1022,6 +1117,10 @@ func mapTagError(err error) error {
 			return huma.Error400BadRequest(tagErr.Message)
 		case apperrors.CodeTagMergeAliasConflict:
 			return huma.Error409Conflict(tagErr.Message)
+		case apperrors.CodeTagHierarchyCycle:
+			return huma.Error400BadRequest(tagErr.Message)
+		case apperrors.CodeTagHierarchyNotGenre:
+			return huma.Error400BadRequest(tagErr.Message)
 		}
 	}
 	return nil

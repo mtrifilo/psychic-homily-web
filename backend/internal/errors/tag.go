@@ -15,6 +15,8 @@ const (
 	CodeTagNameInvalid           = "TAG_NAME_INVALID"
 	CodeTagMergeInvalid          = "TAG_MERGE_INVALID"
 	CodeTagMergeAliasConflict    = "TAG_MERGE_ALIAS_CONFLICT"
+	CodeTagHierarchyCycle        = "TAG_HIERARCHY_CYCLE"
+	CodeTagHierarchyNotGenre     = "TAG_HIERARCHY_NOT_GENRE"
 )
 
 // TagError represents a tag-related error with additional context.
@@ -116,5 +118,25 @@ func ErrTagMergeAliasConflict(alias string, existingTagID uint) *TagError {
 	return &TagError{
 		Code:    CodeTagMergeAliasConflict,
 		Message: fmt.Sprintf("Cannot merge: alias '%s' already points to tag %d", alias, existingTagID),
+	}
+}
+
+// ErrTagHierarchyCycle is returned when setting a tag's parent would
+// create a cycle (direct self-parent, or proposed parent is a descendant
+// of the tag). Maps to HTTP 400.
+func ErrTagHierarchyCycle(detail string) *TagError {
+	return &TagError{
+		Code:    CodeTagHierarchyCycle,
+		Message: fmt.Sprintf("Cannot set parent: %s", detail),
+	}
+}
+
+// ErrTagHierarchyNotGenre is returned when the hierarchy editor is applied
+// to a non-genre tag (either as the tag being mutated or the proposed parent).
+// Maps to HTTP 400.
+func ErrTagHierarchyNotGenre(tagName, category string) *TagError {
+	return &TagError{
+		Code:    CodeTagHierarchyNotGenre,
+		Message: fmt.Sprintf("Tag hierarchy is genre-only; '%s' is category '%s'", tagName, category),
 	}
 }
