@@ -49,27 +49,28 @@ test.describe('Submit a show', () => {
       .locator('[id="artists[0].name"]')
       .fill('E2E Submitted Artist')
 
-    // Fill venue — type to trigger autocomplete, then select from dropdown
-    // pressSequentially keeps focus on the input while typing
+    // Fill venue — type to trigger autocomplete, then select from dropdown.
+    // The combobox input opens the dropdown when its value is non-empty
+    // (VenueInput.tsx:70 setIsOpen). Debounce is 50ms, so a single fill
+    // fires one search rather than the 10 pressSequentially fired.
     const venueInput = authenticatedPage.locator('[id="venue.name"]')
-    await venueInput.click()
-    await venueInput.pressSequentially('Valley Bar', { delay: 30 })
+    await venueInput.focus()
+    await venueInput.fill('Valley Bar')
 
-    // Wait for the Valley Bar button to appear in the autocomplete dropdown.
-    // pressSequentially fires multiple search API calls as each character is typed,
-    // so we wait for the specific button rather than just the "Existing Venues" header
-    // to avoid clicking during a re-render from a later search response.
-    const valleyBarButton = authenticatedPage.getByRole('button', { name: /Valley Bar/ })
-    await expect(valleyBarButton).toBeVisible({ timeout: 10_000 })
+    // Wait for the specific venue option to appear. The dropdown item
+    // has `role="option"` explicitly set on a <button>; match by role to
+    // stay aligned with the computed accessibility tree. Scope to the
+    // listbox so we don't collide with any "Add a show at Valley Bar"
+    // buttons elsewhere in the app.
+    const listbox = authenticatedPage.getByRole('listbox')
+    const valleyBarOption = listbox.getByRole('option', { name: /Valley Bar/ })
+    await expect(valleyBarOption).toBeVisible({ timeout: 10_000 })
 
-    // Wait briefly for any in-flight search responses to settle
-    await authenticatedPage.waitForLoadState('networkidle')
-
-    // The dropdown button's onMouseDown directly calls handleVenueSelect(venue)
+    // The option's onMouseDown directly calls handleVenueSelect(venue)
     // with the full venue object (including city/state), bypassing the
     // filteredVenues lookup in handleConfirm. It also sets justSelectedRef
     // which prevents a duplicate handleConfirm call on blur.
-    await valleyBarButton.click()
+    await valleyBarOption.click()
 
     // Verify city auto-filled from selected venue
     await expect(
