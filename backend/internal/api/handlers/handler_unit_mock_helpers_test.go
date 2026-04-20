@@ -3024,6 +3024,8 @@ type mockTagService struct {
 	resolveAliasFn func(string) (*models.Tag, error)
 	listAllAliasesFn func(string, int, int) ([]contracts.TagAliasListing, int64, error)
 	bulkImportAliasesFn func([]contracts.BulkAliasImportItem) (*contracts.BulkAliasImportResult, error)
+	mergeTagsFn func(uint, uint, uint) (*contracts.MergeTagsResult, error)
+	previewMergeTagsFn func(uint, uint) (*contracts.MergeTagsPreview, error)
 	getTagEntitiesFn func(uint, string, int, int) ([]contracts.TaggedEntityItem, int64, error)
 	getTagDetailFn func(uint) (*contracts.TagDetailResponse, error)
 	searchTagsFn func(string, int, string) ([]contracts.TagSearchResult, error)
@@ -3130,6 +3132,18 @@ func (m *mockTagService) ListAllAliases(search string, limit int, offset int) ([
 func (m *mockTagService) BulkImportAliases(items []contracts.BulkAliasImportItem) (*contracts.BulkAliasImportResult, error) {
 	if m.bulkImportAliasesFn != nil {
 		return m.bulkImportAliasesFn(items)
+	}
+	return nil, nil
+}
+func (m *mockTagService) MergeTags(sourceID uint, targetID uint, actorUserID uint) (*contracts.MergeTagsResult, error) {
+	if m.mergeTagsFn != nil {
+		return m.mergeTagsFn(sourceID, targetID, actorUserID)
+	}
+	return nil, nil
+}
+func (m *mockTagService) PreviewMergeTags(sourceID uint, targetID uint) (*contracts.MergeTagsPreview, error) {
+	if m.previewMergeTagsFn != nil {
+		return m.previewMergeTagsFn(sourceID, targetID)
 	}
 	return nil, nil
 }

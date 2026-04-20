@@ -9,6 +9,8 @@ import type {
   TagAliasListingResponse,
   BulkAliasImportItem,
   BulkAliasImportResult,
+  MergeTagsPreview,
+  MergeTagsResult,
 } from '../types'
 
 // ──────────────────────────────────────────────
@@ -183,6 +185,59 @@ export function useBulkImportAliases() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tags', 'aliases'] })
       queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
+    },
+  })
+}
+
+// ──────────────────────────────────────────────
+// Merge Tags (PSY-306)
+// ──────────────────────────────────────────────
+
+/**
+ * Preview what a merge would do without committing. Used by the merge dialog
+ * to show counts before the admin confirms. Disabled until both IDs are set
+ * and the user opts in (enabled flag), so we don't spam the backend while
+ * the dialog is still in target-selection mode.
+ */
+export function useMergeTagsPreview(
+  sourceId: number | null,
+  targetId: number | null,
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: ['tags', 'merge-preview', sourceId, targetId],
+    queryFn: () =>
+      apiRequest<MergeTagsPreview>(
+        API_ENDPOINTS.TAGS.ADMIN_MERGE_PREVIEW(sourceId as number, targetId as number)
+      ),
+    enabled:
+      (options?.enabled ?? true) &&
+      sourceId !== null &&
+      targetId !== null &&
+      sourceId > 0 &&
+      targetId > 0 &&
+      sourceId !== targetId,
+    staleTime: 0,
+  })
+}
+
+interface MergeTagsInput {
+  sourceId: number
+  targetId: number
+}
+
+/** Merge source tag into target tag (admin only). Invalidates tag lists + aliases. */
+export function useMergeTags() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ sourceId, targetId }: MergeTagsInput) =>
+      apiRequest<MergeTagsResult>(API_ENDPOINTS.TAGS.ADMIN_MERGE(sourceId), {
+        method: 'POST',
+        body: JSON.stringify({ target_id: targetId }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
+      queryClient.invalidateQueries({ queryKey: ['tags', 'aliases'] })
     },
   })
 }

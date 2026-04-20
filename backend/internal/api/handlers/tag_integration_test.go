@@ -1505,3 +1505,110 @@ func (s *TagHandlerIntegrationSuite) TestBulkImportAliases_MixedResultSummary() 
 	s.Equal(2, resp.Body.Skipped[0].Row)
 	s.Equal("foo", resp.Body.Skipped[0].Alias)
 }
+
+// ============================================================================
+// MergeTagsHandler / MergeTagsPreviewHandler (PSY-306)
+// ============================================================================
+
+func (s *TagHandlerIntegrationSuite) TestMergeTags_Success() {
+	admin := createAdminUser(s.deps.db)
+	source := s.createTagViaHandler(admin, "shoe-gaze", models.TagCategoryGenre)
+	target := s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
+
+	ctx := ctxWithUser(admin)
+	req := &MergeTagsRequest{SourceID: fmt.Sprintf("%d", source.Body.ID)}
+	req.Body.TargetID = target.Body.ID
+
+	resp, err := s.handler.MergeTagsHandler(ctx, req)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp.Body)
+	s.True(resp.Body.AliasCreated)
+
+	// Source is gone.
+	getReq := &GetTagRequest{TagID: fmt.Sprintf("%d", source.Body.ID)}
+	_, err = s.handler.GetTagHandler(ctx, getReq)
+	assertHumaError(s.T(), err, 404)
+}
+
+func (s *TagHandlerIntegrationSuite) TestMergeTags_NonAdmin() {
+	admin := createAdminUser(s.deps.db)
+	source := s.createTagViaHandler(admin, "shoe-gaze", models.TagCategoryGenre)
+	target := s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
+
+	user := createTestUser(s.deps.db)
+	ctx := ctxWithUser(user)
+	req := &MergeTagsRequest{SourceID: fmt.Sprintf("%d", source.Body.ID)}
+	req.Body.TargetID = target.Body.ID
+
+	_, err := s.handler.MergeTagsHandler(ctx, req)
+	assertHumaError(s.T(), err, 403)
+}
+
+func (s *TagHandlerIntegrationSuite) TestMergeTags_NoAuth() {
+	req := &MergeTagsRequest{SourceID: "1"}
+	req.Body.TargetID = 2
+	_, err := s.handler.MergeTagsHandler(s.deps.ctx, req)
+	assertHumaError(s.T(), err, 401)
+}
+
+func (s *TagHandlerIntegrationSuite) TestMergeTags_MissingTarget() {
+	admin := createAdminUser(s.deps.db)
+	source := s.createTagViaHandler(admin, "shoe-gaze", models.TagCategoryGenre)
+
+	ctx := ctxWithUser(admin)
+	req := &MergeTagsRequest{SourceID: fmt.Sprintf("%d", source.Body.ID)}
+	req.Body.TargetID = 0
+
+	_, err := s.handler.MergeTagsHandler(ctx, req)
+	assertHumaError(s.T(), err, 400)
+}
+
+func (s *TagHandlerIntegrationSuite) TestMergeTags_SelfMergeRejected() {
+	admin := createAdminUser(s.deps.db)
+	tag := s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
+
+	ctx := ctxWithUser(admin)
+	req := &MergeTagsRequest{SourceID: fmt.Sprintf("%d", tag.Body.ID)}
+	req.Body.TargetID = tag.Body.ID
+
+	_, err := s.handler.MergeTagsHandler(ctx, req)
+	assertHumaError(s.T(), err, 400)
+}
+
+func (s *TagHandlerIntegrationSuite) TestMergeTags_InvalidSource() {
+	admin := createAdminUser(s.deps.db)
+	target := s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
+
+	ctx := ctxWithUser(admin)
+	req := &MergeTagsRequest{SourceID: "notanumber"}
+	req.Body.TargetID = target.Body.ID
+
+	_, err := s.handler.MergeTagsHandler(ctx, req)
+	assertHumaError(s.T(), err, 400)
+}
+
+func (s *TagHandlerIntegrationSuite) TestMergePreview_Success() {
+	admin := createAdminUser(s.deps.db)
+	source := s.createTagViaHandler(admin, "shoe-gaze", models.TagCategoryGenre)
+	target := s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
+
+	ctx := ctxWithUser(admin)
+	req := &MergeTagsPreviewRequest{
+		SourceID: fmt.Sprintf("%d", source.Body.ID),
+		TargetID: target.Body.ID,
+	}
+
+	resp, err := s.handler.MergeTagsPreviewHandler(ctx, req)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp.Body)
+	s.Equal("shoe-gaze", resp.Body.SourceName)
+	s.Equal("shoegaze", resp.Body.TargetName)
+}
+
+func (s *TagHandlerIntegrationSuite) TestMergePreview_NonAdmin() {
+	user := createTestUser(s.deps.db)
+	ctx := ctxWithUser(user)
+	req := &MergeTagsPreviewRequest{SourceID: "1", TargetID: 2}
+	_, err := s.handler.MergeTagsPreviewHandler(ctx, req)
+	assertHumaError(s.T(), err, 403)
+}

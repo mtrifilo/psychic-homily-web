@@ -288,6 +288,9 @@ export const API_ENDPOINTS = {
     ENTITIES: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}/entities`,
     ADMIN_ALIASES_ALL: `${API_BASE_URL}/admin/tags/aliases`,
     ADMIN_ALIASES_BULK: `${API_BASE_URL}/admin/tags/aliases/bulk`,
+    ADMIN_MERGE: (sourceId: number) => `${API_BASE_URL}/admin/tags/${sourceId}/merge`,
+    ADMIN_MERGE_PREVIEW: (sourceId: number, targetId: number) =>
+      `${API_BASE_URL}/admin/tags/${sourceId}/merge-preview?target_id=${targetId}`,
   },
 
   // Entity tag endpoints
