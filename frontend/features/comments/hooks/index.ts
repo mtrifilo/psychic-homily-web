@@ -25,10 +25,19 @@ export function useComments(
 }
 
 export function useCommentThread(commentId: number, enabled = false) {
+  // Backend returns `{ comments: [root, ...descendants] }` as a flat list;
+  // split here so consumers get the { comment, replies } shape they expect.
   return useQuery<CommentThreadResponse>({
     queryKey: commentQueryKeys.thread(commentId),
-    queryFn: () =>
-      apiRequest<CommentThreadResponse>(commentEndpoints.THREAD(commentId)),
+    queryFn: async () => {
+      const data = await apiRequest<{ comments: Comment[] }>(
+        commentEndpoints.THREAD(commentId)
+      )
+      const comments = data.comments ?? []
+      const root = comments.find((c) => c.id === commentId) ?? comments[0]
+      const replies = comments.filter((c) => c.id !== commentId)
+      return { comment: root, replies }
+    },
     enabled: enabled && commentId > 0,
   })
 }
