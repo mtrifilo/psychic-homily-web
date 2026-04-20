@@ -8,6 +8,10 @@ const mockUseTags = vi.fn()
 vi.mock('../hooks', () => ({
   useTags: (...args: unknown[]) => mockUseTags(...args),
   useTag: vi.fn(),
+  // MergeTagDialog (mounted inside TagManagement) pulls these in even when
+  // the merge dialog is closed, so they have to exist in the mock.
+  useSearchTags: () => ({ data: { tags: [] }, isLoading: false }),
+  useTagAliases: () => ({ data: { aliases: [] }, isLoading: false }),
 }))
 
 vi.mock('./useAdminTags', () => ({
@@ -19,6 +23,8 @@ vi.mock('./useAdminTags', () => ({
   useDeleteAlias: () => ({ mutate: vi.fn(), isPending: false }),
   useAllTagAliases: () => ({ data: { aliases: [], total: 0 }, isLoading: false, error: null }),
   useBulkImportAliases: () => ({ mutate: vi.fn(), isPending: false }),
+  useMergeTags: () => ({ mutate: vi.fn(), isPending: false }),
+  useMergeTagsPreview: () => ({ data: null, isLoading: false, error: null }),
 }))
 
 import { TagManagement } from './TagManagement'

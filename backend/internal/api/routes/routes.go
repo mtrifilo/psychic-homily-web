@@ -828,6 +828,9 @@ func setupTagRoutes(rc RouteContext) {
 	// Admin: global alias listing + bulk CSV/JSON import (PSY-307).
 	huma.Get(rc.Protected, "/admin/tags/aliases", tagHandler.ListAllAliasesHandler)
 	huma.Post(rc.Protected, "/admin/tags/aliases/bulk", tagHandler.BulkImportAliasesHandler)
+	// Admin: merge tags (PSY-306).
+	huma.Get(rc.Protected, "/admin/tags/{source_id}/merge-preview", tagHandler.MergeTagsPreviewHandler)
+	huma.Post(rc.Protected, "/admin/tags/{source_id}/merge", tagHandler.MergeTagsHandler)
 }
 
 // setupArtistRelationshipRoutes configures artist relationship and similar artist endpoints.
