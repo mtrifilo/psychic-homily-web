@@ -10,7 +10,7 @@ import type { ApiError } from '@/lib/api'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryClient'
-import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb, TagPill, EntityDescription, AddToCollectionButton } from '@/components/shared'
+import { SocialLinks, RevisionHistory, FollowButton, Breadcrumb, TagPill, EntityDescription, AddToCollectionButton, EntityHeader } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
 import { CommentThread } from '@/features/comments'
 import { EntityTagList } from '@/features/tags'
@@ -164,7 +164,8 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
   }
 
   return (
-    <div className="container max-w-5xl mx-auto px-4 py-6">
+    // max-w-6xl matches the other 4 EntityDetailLayout-based detail pages (ArtistDetail, ReleaseDetail, LabelDetail, FestivalDetail). Previously max-w-5xl was drift from when the 2-col grid was added; the 400px sidebar + gap still fits comfortably at 6xl on desktop.
+    <div className="container max-w-6xl mx-auto px-4 py-6">
       {/* Breadcrumb Navigation */}
       <Breadcrumb
         fallback={{ href: '/venues', label: 'Venues' }}
@@ -177,72 +178,75 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
         <div className="order-2 lg:order-1">
           {/* Header */}
           <header className="mb-8">
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h1 className="text-2xl md:text-3xl font-bold leading-8 md:leading-9">{venue.name}</h1>
+            <EntityHeader
+              title={venue.name}
+              subtitle={
+                <>
                   {venue.verified && (
                     <BadgeCheck
-                      className="h-6 w-6 text-primary shrink-0"
+                      className="h-5 w-5 text-primary shrink-0"
                       aria-label="Verified venue"
                     />
                   )}
+                  <span>{venue.city}, {venue.state}</span>
+                </>
+              }
+              actions={
+                <>
                   <FavoriteVenueButton venueId={venue.id} size="md" />
                   <FollowButton entityType="venues" entityId={venue.id} />
                   <AddToCollectionButton entityType="venue" entityId={venue.id} entityName={venue.name} />
                   <NotifyMeButton entityType="venue" entityId={venue.id} entityName={venue.name} />
-                </div>
-                <p className="text-muted-foreground mt-1">
-                  {venue.city}, {venue.state}
-                </p>
-                {venue.social?.website && (
-                  <a
-                    href={normalizeUrl(venue.social.website)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-sm text-primary hover:underline mt-1"
-                  >
-                    {getDisplayDomain(venue.social.website)}
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
-                <div className="mt-1">
-                  <AttributionLine entityType="venue" entityId={venue.id} />
-                </div>
-              </div>
-
-              {isAuthenticated && (
-                <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setIsEditingVenue(true)}
-                  >
-                    <Pencil className="h-4 w-4 mr-2" />
-                    Edit
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setIsReportOpen(true)}
-                    className="text-muted-foreground hover:text-foreground"
-                    title="Report an issue"
-                  >
-                    <Flag className="h-4 w-4" />
-                  </Button>
-                  {user?.is_admin && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsDeleteVenueOpen(true)}
-                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
-                    </Button>
+                  {isAuthenticated && (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsEditingVenue(true)}
+                      >
+                        <Pencil className="h-4 w-4 mr-2" />
+                        Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setIsReportOpen(true)}
+                        className="text-muted-foreground hover:text-foreground"
+                        title="Report an issue"
+                      >
+                        <Flag className="h-4 w-4" />
+                      </Button>
+                      {user?.is_admin && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsDeleteVenueOpen(true)}
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete
+                        </Button>
+                      )}
+                    </>
                   )}
-                </div>
-              )}
+                </>
+              }
+            />
+
+            {venue.social?.website && (
+              <a
+                href={normalizeUrl(venue.social.website)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-sm text-primary hover:underline mt-2"
+              >
+                {getDisplayDomain(venue.social.website)}
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+
+            <div className="mt-1">
+              <AttributionLine entityType="venue" entityId={venue.id} />
             </div>
 
             {/* Social Links */}
@@ -327,14 +331,18 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
       </div>
 
       {/* Revision History */}
-      <RevisionHistory
-        entityType="venue"
-        entityId={venue.id}
-        isAdmin={!!user?.is_admin}
-      />
+      <div className="mt-0">
+        <RevisionHistory
+          entityType="venue"
+          entityId={venue.id}
+          isAdmin={!!user?.is_admin}
+        />
+      </div>
 
       {/* Discussion */}
-      <CommentThread entityType="venue" entityId={venue.id} />
+      <div className="mt-0 px-4 md:px-0">
+        <CommentThread entityType="venue" entityId={venue.id} />
+      </div>
 
       {/* Edit Drawer (all authenticated users) */}
       {venue && isAuthenticated && (
