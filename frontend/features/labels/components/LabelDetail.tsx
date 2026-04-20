@@ -97,6 +97,16 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
   const location = formatLabelLocation(label)
   const roster = rosterData?.artists ?? []
   const catalog = catalogData?.releases ?? []
+  // PSY-481 polish: `label.social` can be a non-null object whose every
+  // value is empty/null (the API still returns the wrapper for labels with
+  // no real links). Compute whether at least one link is present so we can
+  // suppress the "Links" heading when SocialLinks would render nothing —
+  // otherwise the detail page shows an orphan section header underlined by
+  // empty space.
+  const hasSocialLinks = !!(
+    label.social &&
+    Object.values(label.social).some(value => typeof value === 'string' && value.trim() !== '')
+  )
 
   const tabs = [
     { value: 'overview', label: 'Overview' },
@@ -226,8 +236,9 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
             </div>
           )}
 
-          {/* Social Links */}
-          {label.social && (
+          {/* Social Links — only render the heading when there's actually
+              something for SocialLinks to show (PSY-481). */}
+          {hasSocialLinks && (
             <div>
               <h2 className="text-lg font-semibold mb-3">Links</h2>
               <SocialLinks social={label.social} />
@@ -235,7 +246,7 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
           )}
 
           {/* Quick preview of roster + catalog when no description */}
-          {!label.description && !label.social && (
+          {!label.description && !hasSocialLinks && (
             <div className="text-sm text-muted-foreground">
               No additional information available for this label.
             </div>
