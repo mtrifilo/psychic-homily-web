@@ -182,18 +182,30 @@ export function MergeTagDialog({
                   data-testid="merge-preview"
                   className="rounded-lg border bg-muted/30 p-3 text-sm space-y-1"
                 >
-                  <p>
-                    This will move{' '}
+                  {/* PSY-487 summary line — single sentence the moderator
+                      can scan in one glance. Detailed lines below add nuance. */}
+                  <p data-testid="merge-preview-summary">
+                    Merging will move{' '}
                     <strong>
-                      {preview.moved_entity_tags} entity tag
+                      {preview.moved_entity_tags} entity application
                       {preview.moved_entity_tags === 1 ? '' : 's'}
-                    </strong>{' '}
-                    and{' '}
+                    </strong>
+                    ,{' '}
                     <strong>
-                      {preview.moved_votes} vote
-                      {preview.moved_votes === 1 ? '' : 's'}
+                      {preview.moved_upvotes} upvote
+                      {preview.moved_upvotes === 1 ? '' : 's'}
+                    </strong>
+                    ,{' '}
+                    <strong>
+                      {preview.moved_downvotes} downvote
+                      {preview.moved_downvotes === 1 ? '' : 's'}
+                    </strong>
+                    ,{' '}
+                    <strong>
+                      {preview.source_aliases_count} alias
+                      {preview.source_aliases_count === 1 ? '' : 'es'}
                     </strong>{' '}
-                    to &quot;{preview.target_name}&quot;.
+                    into &quot;{preview.target_name}&quot;.
                   </p>
                   {totalSkips > 0 && (
                     <p className="text-muted-foreground">
@@ -202,14 +214,6 @@ export function MergeTagDialog({
                       {preview.skipped_votes} duplicate vote
                       {preview.skipped_votes === 1 ? '' : 's'} will be dropped
                       (target already has them).
-                    </p>
-                  )}
-                  {preview.source_aliases_count > 0 && (
-                    <p className="text-muted-foreground">
-                      {preview.source_aliases_count} existing alias
-                      {preview.source_aliases_count === 1 ? '' : 'es'} on
-                      &quot;{preview.source_name}&quot; will be re-pointed to
-                      &quot;{preview.target_name}&quot;.
                     </p>
                   )}
                   <p className="text-muted-foreground">

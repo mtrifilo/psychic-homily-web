@@ -195,6 +195,9 @@ export interface BulkAliasImportResult {
 export interface MergeTagsPreview {
   moved_entity_tags: number
   moved_votes: number
+  /** Up/down split of moved_votes (PSY-487). Always equal to moved_votes when summed. */
+  moved_upvotes: number
+  moved_downvotes: number
   skipped_entity_tags: number
   skipped_votes: number
   source_aliases_count: number
@@ -236,6 +239,20 @@ export interface LowQualityTagQueueResponse {
   total: number
 }
 
+/**
+ * Verb for the bulk-action endpoint on the low-quality queue (PSY-487).
+ * Mirrors the backend constants in `tag_low_quality.go`.
+ */
+export type BulkLowQualityAction = 'snooze' | 'delete' | 'mark_official'
+
+/** Result returned from POST /admin/tags/low-quality/bulk-action. */
+export interface BulkLowQualityActionResult {
+  action: BulkLowQualityAction
+  requested: number
+  affected: number
+  not_found: number
+}
+
 /** Human-readable labels for the reason pills in the queue UI. */
 export const LOW_QUALITY_REASON_LABELS: Record<LowQualityReason, string> = {
   orphaned: 'Orphaned',
@@ -244,6 +261,25 @@ export const LOW_QUALITY_REASON_LABELS: Record<LowQualityReason, string> = {
   short_name: 'Short name',
   long_name: 'Long name',
 }
+
+/**
+ * Filter chip set surfaced above the Needs Review queue (PSY-487).
+ * Order matches the human-friendly read in the spec ("Orphaned, Aging unused,
+ * Downvoted, Unusual length"). Short and long name are merged into a single
+ * "Unusual length" chip — admins don't typically need to distinguish.
+ */
+export interface LowQualitySignalChip {
+  id: string
+  label: string
+  reasons: LowQualityReason[]
+}
+
+export const LOW_QUALITY_SIGNAL_CHIPS: LowQualitySignalChip[] = [
+  { id: 'orphaned', label: 'Orphaned', reasons: ['orphaned'] },
+  { id: 'aging_unused', label: 'Aging unused', reasons: ['aging_unused'] },
+  { id: 'downvoted', label: 'Downvoted', reasons: ['downvoted'] },
+  { id: 'unusual_length', label: 'Unusual length', reasons: ['short_name', 'long_name'] },
+]
 
 /**
  * Genre-hierarchy row — returned by GET /admin/tags/hierarchy (PSY-311).

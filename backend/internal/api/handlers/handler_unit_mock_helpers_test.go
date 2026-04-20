@@ -3034,6 +3034,7 @@ type mockTagService struct {
 	getTagDetailFn func(uint) (*contracts.TagDetailResponse, error)
 	getLowQualityTagQueueFn func(int, int) (*contracts.LowQualityTagQueueResponse, error)
 	snoozeLowQualityTagFn func(uint, uint) (error)
+	bulkActionLowQualityTagsFn func(string, []uint) (*contracts.BulkLowQualityTagActionResult, error)
 	searchTagsFn func(string, int, string) ([]contracts.TagSearchResult, error)
 	getTrendingTagsFn func(int, string) ([]models.Tag, error)
 	pruneDownvotedTagsFn func() (int64, error)
@@ -3200,6 +3201,12 @@ func (m *mockTagService) SnoozeLowQualityTag(tagID uint, actorUserID uint) (erro
 		return m.snoozeLowQualityTagFn(tagID, actorUserID)
 	}
 	return nil
+}
+func (m *mockTagService) BulkActionLowQualityTags(action string, tagIDs []uint) (*contracts.BulkLowQualityTagActionResult, error) {
+	if m.bulkActionLowQualityTagsFn != nil {
+		return m.bulkActionLowQualityTagsFn(action, tagIDs)
+	}
+	return nil, nil
 }
 func (m *mockTagService) SearchTags(query string, limit int, category string) ([]contracts.TagSearchResult, error) {
 	if m.searchTagsFn != nil {
