@@ -90,10 +90,16 @@ export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityT
     )
   }
 
-  if (tags.length === 0 && !isAuthenticated) {
-    return null
-  }
-
+  // PSY-481: previously this returned null for the (zero tags + logged-out)
+  // case, which hid the entire TAGS section on every untagged entity. The
+  // wrapper now always renders so:
+  //   • logged-out users see a muted "No tags yet." one-liner — they get a
+  //     visible signal that tagging is supported on this entity, and the
+  //     detail-page layout no longer collapses on sparse entities.
+  //   • logged-in users see the same empty-state line plus a
+  //     "+ Add the first tag" CTA that opens the existing add-tag dialog
+  //     (the existing-tag application path works for every tier; only
+  //     creating brand-new tag terms is gated — PSY-483).
   const handleVote = (tag: EntityTag, isUpvote: boolean) => {
     if (!isAuthenticated) return
     const currentVote = tag.user_vote ?? 0
@@ -151,9 +157,27 @@ export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityT
       {addTagDialog}
 
       {tags.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No tags yet. Be the first to add one!
-        </p>
+        // PSY-481 — render an empty-state row that reads as a muted one-liner
+        // for logged-out users and adds a visible "+ Add the first tag" CTA
+        // for logged-in users. The CTA reuses the same Dialog instance as the
+        // chip next to the heading, so there's only ever one Radix portal.
+        <div
+          className="flex flex-wrap items-center gap-2"
+          data-testid="entity-tag-list-empty"
+        >
+          <p className="text-sm text-muted-foreground">No tags yet.</p>
+          {isAuthenticated && (
+            <button
+              onClick={() => setAddDialogOpen(true)}
+              data-testid="entity-tag-list-empty-add-cta"
+              className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              aria-label="Add the first tag"
+            >
+              <Plus className="h-3 w-3" />
+              Add the first tag
+            </button>
+          )}
+        </div>
       ) : (
         <>
           {/* Mobile: first N pills + "Show all" chip that opens a Sheet.
