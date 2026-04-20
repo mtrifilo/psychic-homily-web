@@ -36,8 +36,12 @@ type MockEntityTag = {
   downvotes: number
   wilson_score: number
   user_vote: number
-  added_by_username?: string
-  added_at?: string
+  // PSY-479: attribution fields. `null` is a valid wire value (older seed
+  // rows where the user has no username) and the hover card renders a
+  // "Source: system seed" line in that case.
+  added_by_user_id?: number | null
+  added_by_username?: string | null
+  added_at?: string | null
 }
 type MockEntityTags = { tags: MockEntityTag[] }
 
@@ -780,6 +784,11 @@ describe('EntityTagList tag pill attribution hover card', () => {
     const userLink = within(card).getByRole('link', { name: /@testuser2/ })
     expect(userLink).toHaveAttribute('href', '/users/testuser2')
 
+    // The attribution line uses a stable testid so other features can target
+    // it without coupling to copy.
+    const attribution = within(card).getByTestId('tag-pill-attribution')
+    expect(attribution).toHaveTextContent(/Added by/i)
+
     // Vote counts render with the correct singular/plural agreement.
     expect(card).toHaveTextContent(/3\s+upvotes/)
     // Use a negative lookahead instead of \b — jest-dom normalises whitespace
@@ -809,7 +818,12 @@ describe('EntityTagList tag pill attribution hover card', () => {
     expect(card).toHaveTextContent('@testuser2')
   })
 
-  it('omits the "Added by" line when the backend did not return a username', async () => {
+  // PSY-479: when the backend returns a null/missing username (older seed
+  // rows, accounts with no username), render a "Source: system seed" line
+  // instead of suppressing attribution entirely. This keeps users informed
+  // that *something* applied the tag, even if the responsible account has
+  // no public handle.
+  it('renders "Source: system seed" when added_by_username is missing', async () => {
     const user = userEvent.setup()
     renderWithProviders(
       <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
@@ -822,7 +836,13 @@ describe('EntityTagList tag pill attribution hover card', () => {
     const card = await screen.findByTestId('tag-attribution-card-11')
     expect(card).toBeInTheDocument()
 
-    // No "Added by" copy AND no anonymous/undefined leak.
+    // The attribution testid is always present so other components can rely
+    // on it to assert provenance, regardless of which copy variant rendered.
+    const attribution = within(card).getByTestId('tag-pill-attribution')
+    expect(attribution).toHaveTextContent(/Source: system seed/i)
+
+    // No "Added by" copy AND no anonymous/undefined leak — the seed copy is
+    // the only attribution variant for this case.
     expect(card).not.toHaveTextContent(/Added by/i)
     expect(card).not.toHaveTextContent(/undefined/i)
 
@@ -832,6 +852,47 @@ describe('EntityTagList tag pill attribution hover card', () => {
     expect(card).toHaveTextContent(/0\s+downvotes/)
     const detailLink = within(card).getByRole('link', { name: /view tag details/i })
     expect(detailLink).toHaveAttribute('href', '/tags/noise')
+  })
+
+  // PSY-479: explicitly verify added_by_username: null also renders the seed
+  // fallback (covers the JSON null case we now ship from the backend, which
+  // is distinct from "field missing"). Without this, a regression to
+  // suppressing the line on null could silently slip through.
+  it('renders "Source: system seed" when added_by_username is explicitly null', async () => {
+    currentMockTags = {
+      tags: [
+        {
+          tag_id: 50,
+          name: 'seeded-tag',
+          slug: 'seeded-tag',
+          category: 'genre',
+          is_official: false,
+          upvotes: 0,
+          downvotes: 0,
+          wilson_score: 0,
+          user_vote: 0,
+          // Explicit null — mirrors the backend response where the user has
+          // no username but the entity_tag attribution is otherwise intact.
+          added_by_username: null,
+          added_by_user_id: 99,
+          added_at: new Date().toISOString(),
+        },
+      ],
+    }
+
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    await user.click(
+      within(desktopRow()).getByRole('group', { name: /seeded-tag tag details/i })
+    )
+
+    const card = await screen.findByTestId('tag-attribution-card-50')
+    const attribution = within(card).getByTestId('tag-pill-attribution')
+    expect(attribution).toHaveTextContent(/Source: system seed/i)
+    expect(card).not.toHaveTextContent(/Added by/i)
   })
 
   it('renders relative time alongside the username when added_at is present', async () => {

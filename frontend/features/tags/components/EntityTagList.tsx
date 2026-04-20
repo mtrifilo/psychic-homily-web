@@ -419,26 +419,36 @@ function TagAttributionContent({ tag }: { tag: EntityTag }) {
         )}
       </div>
 
-      {/* Added-by line. Skip entirely when the backend has no username —
-          contributors who tagged anonymously or under a since-deleted account
-          won't leak a dangling "Added by @undefined". */}
-      {tag.added_by_username && (
-        <p className="text-xs text-muted-foreground">
-          Added by{' '}
-          <Link
-            href={`/users/${tag.added_by_username}`}
-            className="text-foreground hover:underline"
-          >
-            @{tag.added_by_username}
-          </Link>
-          {tag.added_at && (
-            <>
-              {' · '}
-              <span>{formatRelativeTime(tag.added_at)}</span>
-            </>
-          )}
-        </p>
-      )}
+      {/* Attribution line (PSY-479). Always render so users understand
+          provenance — even seed/system-applied tags get a visible footnote.
+          - Real user with username  → "Added by @user · 5m ago"
+          - User with null username  → "Source: system seed"
+          The data-testid lets the EntityTagList test suite assert presence
+          without coupling to copy. */}
+      <p
+        className="text-xs text-muted-foreground"
+        data-testid="tag-pill-attribution"
+      >
+        {tag.added_by_username ? (
+          <>
+            Added by{' '}
+            <Link
+              href={`/users/${tag.added_by_username}`}
+              className="text-foreground hover:underline"
+            >
+              @{tag.added_by_username}
+            </Link>
+            {tag.added_at && (
+              <>
+                {' · '}
+                <span>{formatRelativeTime(tag.added_at)}</span>
+              </>
+            )}
+          </>
+        ) : (
+          <>Source: system seed</>
+        )}
+      </p>
 
       <p className="text-xs text-muted-foreground tabular-nums">
         <span className="font-medium text-foreground">{tag.upvotes}</span>{' '}
