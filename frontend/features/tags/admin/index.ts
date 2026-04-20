@@ -1,4 +1,5 @@
 export { TagManagement } from './TagManagement'
+export { AliasListing } from './AliasListing'
 export {
   useCreateTag,
   useUpdateTag,
@@ -6,4 +7,6 @@ export {
   useTagAliases,
   useCreateAlias,
   useDeleteAlias,
+  useAllTagAliases,
+  useBulkImportAliases,
 } from './useAdminTags'
