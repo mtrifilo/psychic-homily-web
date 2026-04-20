@@ -9,6 +9,7 @@ import {
   ReactNode,
 } from 'react'
 import { useProfile, useLogout } from '@/features/auth'
+import type { UserTier } from '@/features/auth'
 
 interface User {
   id: string
@@ -19,6 +20,7 @@ interface User {
   bio?: string
   email_verified: boolean
   is_admin?: boolean
+  user_tier?: UserTier
 }
 
 interface AuthState {
@@ -71,6 +73,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         bio: profileData.user.bio,
         email_verified: profileData.user.email_verified ?? false,
         is_admin: profileData.user.is_admin,
+        user_tier: profileData.user.user_tier as UserTier | undefined,
       }
     }
 

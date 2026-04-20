@@ -51,6 +51,7 @@ const defaultMockSearchTags: MockSearchTags = {
 const mockAddMutate = vi.fn()
 let currentMockTags = mockEntityTags
 let currentMockSearchTags: MockSearchTags = defaultMockSearchTags
+let mockAddMutationError: Error | null = null
 
 vi.mock('../hooks', () => ({
   useEntityTags: () => ({
@@ -60,7 +61,7 @@ vi.mock('../hooks', () => ({
   useAddTagToEntity: () => ({
     mutate: mockAddMutate,
     isPending: false,
-    error: null,
+    error: mockAddMutationError,
   }),
   useRemoveTagFromEntity: () => ({
     mutate: vi.fn(),
@@ -86,6 +87,24 @@ vi.mock('../types', () => ({
   TAG_CATEGORIES: ['genre', 'locale', 'other'],
 }))
 
+// Default auth context: a contributor (can create tags). Individual tests
+// override `mockAuthUser` to exercise the new_user disabled-Create path
+// added in PSY-443.
+type MockAuthUser = { user_tier?: string } | null
+let mockAuthUser: MockAuthUser = { user_tier: 'contributor' }
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({
+    user: mockAuthUser,
+    isAuthenticated: Boolean(mockAuthUser),
+    isLoading: false,
+    error: null,
+    setUser: vi.fn(),
+    setError: vi.fn(),
+    clearError: vi.fn(),
+    logout: vi.fn(),
+  }),
+}))
+
 import { EntityTagList } from './EntityTagList'
 
 describe('EntityTagList add-tag dialog accessibility', () => {
@@ -93,6 +112,8 @@ describe('EntityTagList add-tag dialog accessibility', () => {
     vi.clearAllMocks()
     currentMockTags = mockEntityTags
     currentMockSearchTags = defaultMockSearchTags
+    mockAuthUser = { user_tier: 'contributor' }
+    mockAddMutationError = null
   })
 
   it('renders the Add button when authenticated', () => {
@@ -188,6 +209,8 @@ describe('EntityTagList top-5 cap and Wilson score sorting', () => {
     vi.clearAllMocks()
     currentMockTags = mockManyTags
     currentMockSearchTags = defaultMockSearchTags
+    mockAuthUser = { user_tier: 'contributor' }
+    mockAddMutationError = null
   })
 
   it('shows only top 5 tags by default when more than 5 exist', () => {
@@ -271,6 +294,8 @@ describe('EntityTagList add-tag dialog alias caption', () => {
     vi.clearAllMocks()
     currentMockTags = mockEntityTags
     currentMockSearchTags = defaultMockSearchTags
+    mockAuthUser = { user_tier: 'contributor' }
+    mockAddMutationError = null
   })
 
   async function openDialogAndSearch(queryText: string) {
@@ -379,6 +404,8 @@ describe('EntityTagList add-tag dialog already-applied short-circuit', () => {
     vi.clearAllMocks()
     currentMockTags = mockEntityTags
     currentMockSearchTags = defaultMockSearchTags
+    mockAuthUser = { user_tier: 'contributor' }
+    mockAddMutationError = null
   })
 
   async function openDialogAndSearch(queryText: string) {
@@ -527,5 +554,130 @@ describe('EntityTagList add-tag dialog already-applied short-circuit', () => {
     // The add mutation must not be called — neither as a select nor as a
     // create — because the tag is already applied.
     expect(mockAddMutate).not.toHaveBeenCalled()
+  })
+})
+
+// PSY-443: new_user tier cannot create new tags server-side (backend returns
+// 403 CodeTagCreationForbidden). Mirror that gate client-side with a disabled
+// Create button + tooltip linking to /help/tiers, so users see guidance
+// instead of a dead-end error after clicking.
+describe('EntityTagList add-tag dialog create-tag tier gating', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    currentMockTags = mockEntityTags
+    currentMockSearchTags = { tags: [] }
+  })
+
+  async function openDialogAndSearch(queryText: string) {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+    await user.click(screen.getByRole('button', { name: 'Add tag' }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+    const input = screen.getByPlaceholderText('Search tags or type a new one...')
+    await user.type(input, queryText)
+    return user
+  }
+
+  it('disables the Create button for new_user tier with a tooltip that links to /help/tiers', async () => {
+    mockAuthUser = { user_tier: 'new_user' }
+    const user = await openDialogAndSearch('brand-new-tag')
+
+    await waitFor(() => {
+      expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
+    })
+
+    const disabledButton = screen.getByTestId('tag-create-disabled')
+    expect(disabledButton).toBeDisabled()
+    expect(disabledButton).toHaveAttribute('aria-disabled', 'true')
+
+    // Tooltip fires on hover of the wrapper (span lets a disabled button
+    // still participate in a Radix tooltip).
+    await user.hover(screen.getByTestId('tag-create-disabled-wrapper'))
+
+    await waitFor(() => {
+      const tooltip = screen.getByTestId('tag-create-disabled-tooltip')
+      expect(tooltip).toBeInTheDocument()
+      expect(tooltip).toHaveTextContent(/Reach Contributor tier/i)
+      const learnMore = tooltip.querySelector('a')
+      expect(learnMore).not.toBeNull()
+      expect(learnMore).toHaveAttribute('href', '/help/tiers')
+    })
+
+    expect(mockAddMutate).not.toHaveBeenCalled()
+  })
+
+  it('does not trigger a create via Enter for new_user tier', async () => {
+    mockAuthUser = { user_tier: 'new_user' }
+    const user = await openDialogAndSearch('brand-new-tag')
+
+    await waitFor(() => {
+      expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
+    })
+
+    await user.keyboard('{Enter}')
+    expect(mockAddMutate).not.toHaveBeenCalled()
+  })
+
+  it('renders an enabled Create button for contributor tier', async () => {
+    mockAuthUser = { user_tier: 'contributor' }
+    await openDialogAndSearch('brand-new-tag')
+
+    await waitFor(() => {
+      expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
+    })
+
+    const createButton = screen.getByRole('button', {
+      name: /Create "brand-new-tag"/,
+    })
+    expect(createButton).not.toBeDisabled()
+    expect(
+      screen.queryByTestId('tag-create-disabled')
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders an enabled Create button for trusted_contributor tier', async () => {
+    mockAuthUser = { user_tier: 'trusted_contributor' }
+    await openDialogAndSearch('brand-new-tag')
+
+    await waitFor(() => {
+      expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
+    })
+
+    const createButton = screen.getByRole('button', {
+      name: /Create "brand-new-tag"/,
+    })
+    expect(createButton).not.toBeDisabled()
+  })
+
+  it('appends a "Learn more" link to the 403 error message as defense-in-depth', async () => {
+    // Even if the disabled-button gate is somehow bypassed and the backend
+    // returns the 403, the inline error should still link to the tier docs.
+    mockAuthUser = { user_tier: 'new_user' }
+    mockAddMutationError = new Error(
+      'New users can only apply existing tags. Reach Contributor tier to create new tags.'
+    )
+
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+    await user.click(screen.getByRole('button', { name: 'Add tag' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    const errorText = screen.getByText(
+      /New users can only apply existing tags/i
+    )
+    expect(errorText).toBeInTheDocument()
+
+    const learnMore = errorText.querySelector('a')
+    expect(learnMore).not.toBeNull()
+    expect(learnMore).toHaveAttribute('href', '/help/tiers')
   })
 })
