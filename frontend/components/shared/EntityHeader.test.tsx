@@ -33,8 +33,29 @@ describe('EntityHeader', () => {
 
   it('does not render actions container when actions not provided', () => {
     const { container } = render(<EntityHeader title="Test Album" />)
-    const actionsDiv = container.querySelector('.shrink-0')
+    const actionsDiv = container.querySelector('.sm\\:shrink-0')
     expect(actionsDiv).not.toBeInTheDocument()
+  })
+
+  it('stacks header column vertically on mobile and side-by-side at sm breakpoint', () => {
+    // Structural check: at <sm the outer row is flex-col so the action cluster
+    // drops below the title; at sm+ it becomes flex-row (action cluster sits to the right).
+    const { container } = render(
+      <EntityHeader title="Test Album" actions={<button>Follow</button>} />
+    )
+    const row = container.querySelector('.flex.flex-col.sm\\:flex-row')
+    expect(row).toBeInTheDocument()
+  })
+
+  it('applies sm:shrink-0 (not shrink-0) on actions wrapper so narrow viewports wrap naturally', () => {
+    // Regression guard for PSY-467: shrink-0 at all widths made the action
+    // cluster push the h1 to 0 width on <640px viewports, clipping the title.
+    const { container } = render(
+      <EntityHeader title="Test Album" actions={<button>Follow</button>} />
+    )
+    const actionsDiv = container.querySelector('.sm\\:shrink-0')
+    expect(actionsDiv).toBeInTheDocument()
+    expect(actionsDiv?.className).not.toMatch(/(^|\s)shrink-0(\s|$)/)
   })
 
   it('renders subtitle as ReactNode (JSX)', () => {
