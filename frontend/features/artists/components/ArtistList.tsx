@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useTransition, useRef, useEffect } from 'react'
+import { useCallback, useMemo, useTransition, useRef, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useArtists, useArtistCities } from '../hooks/useArtists'
 import { useProfile, useIsAuthenticated } from '@/features/auth'
@@ -11,6 +11,12 @@ import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
 import { LoadingSpinner, DensityToggle } from '@/components/shared'
 import { useDensity } from '@/lib/hooks/common/useDensity'
 import { Button } from '@/components/ui/button'
+import {
+  TagFacetPanel,
+  TagFacetSheet,
+  parseTagsParam,
+  buildTagsParam,
+} from '@/features/tags'
 
 /** Parse cities param from URL: "Phoenix,AZ|Mesa,AZ" -> CityState[] */
 function parseCitiesParam(param: string | null): CityState[] {
@@ -51,6 +57,12 @@ export function ArtistList() {
     return parseCitiesParam(citiesParam)
   }, [citiesParam])
 
+  // Parse multi-tag from URL (PSY-309)
+  const tagsParam = searchParams.get('tags')
+  const tagMatchParam = searchParams.get('tag_match')
+  const selectedTags = useMemo(() => parseTagsParam(tagsParam), [tagsParam])
+  const tagMatch: 'all' | 'any' = tagMatchParam === 'any' ? 'any' : 'all'
+
   // Read favorites from profile
   const favoriteCities: CityState[] = useMemo(() => {
     const prefs = profileData?.user?.preferences
@@ -77,18 +89,48 @@ export function ArtistList() {
   const { data: citiesData, isLoading: citiesLoading, isFetching: citiesFetching } = useArtistCities()
   const { data, isLoading, isFetching, error, refetch } = useArtists({
     cities: selectedCities.length > 0 ? selectedCities : undefined,
+    tags: selectedTags.length > 0 ? selectedTags : undefined,
+    tagMatch,
   })
 
+  const writeParams = useCallback(
+    (
+      nextCities: CityState[] = selectedCities,
+      nextTags: string[] = selectedTags,
+      nextMatch: 'all' | 'any' = tagMatch
+    ) => {
+      const params = new URLSearchParams()
+      if (nextCities.length > 0) {
+        params.set('cities', buildCitiesParam(nextCities))
+      }
+      if (nextTags.length > 0) {
+        params.set('tags', buildTagsParam(nextTags))
+        if (nextMatch === 'any') params.set('tag_match', 'any')
+      }
+      const queryString = params.toString()
+      startTransition(() => {
+        router.push(queryString ? `/artists?${queryString}` : '/artists', {
+          scroll: false,
+        })
+      })
+    },
+    [selectedCities, selectedTags, tagMatch, router]
+  )
+
   const handleFilterChange = (cities: CityState[]) => {
-    const params = new URLSearchParams()
-    if (cities.length > 0) {
-      params.set('cities', buildCitiesParam(cities))
-    }
-    const queryString = params.toString()
-    startTransition(() => {
-      router.push(queryString ? `/artists?${queryString}` : '/artists')
-    })
+    writeParams(cities, selectedTags, tagMatch)
   }
+
+  const handleTagsChange = useCallback(
+    (nextTags: string[]) => {
+      writeParams(selectedCities, nextTags, tagMatch)
+    },
+    [selectedCities, tagMatch, writeParams]
+  )
+
+  const handleTagsClear = useCallback(() => {
+    writeParams(selectedCities, [], tagMatch)
+  }, [selectedCities, tagMatch, writeParams])
 
   // Only show full spinner on FIRST load (no data yet)
   if ((isLoading && !data) || (citiesLoading && !citiesData)) {
@@ -124,6 +166,8 @@ export function ArtistList() {
   })) ?? []
 
   const artists = data?.artists ?? []
+  const hasTagFilter = selectedTags.length > 0
+  const hasAnyFilter = hasTagFilter || selectedCities.length > 0
 
   return (
     <section className="w-full max-w-6xl">
@@ -145,43 +189,66 @@ export function ArtistList() {
         )}
       </div>
 
-      <div className="flex justify-end mb-4">
+      <div className="flex items-center justify-between mb-4 gap-2">
+        <TagFacetSheet
+          selectedSlugs={selectedTags}
+          onToggle={handleTagsChange}
+          onClear={handleTagsClear}
+          title="Filter artists by tag"
+        />
         <DensityToggle density={density} onDensityChange={setDensity} />
       </div>
 
-      {/* Dim content while fetching, don't hide it */}
-      <div className={isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
-        {artists.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            <p>
-              {selectedCities.length > 0
-                ? 'No artists found in the selected cities.'
-                : 'No artists available at this time.'}
-            </p>
-            {selectedCities.length > 0 && (
-              <button
-                onClick={() => handleFilterChange([])}
-                className="mt-4 text-primary hover:underline"
-              >
-                View all artists
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="@container">
-            <div className={
-              density === 'compact'
-                ? 'flex flex-col gap-px'
-                : density === 'expanded'
-                  ? 'grid grid-cols-1 gap-5'
-                  : 'grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
-            }>
-              {artists.map(artist => (
-                <ArtistCard key={artist.id} artist={artist} density={density} />
-              ))}
+      <div className="flex flex-col gap-6 lg:flex-row">
+        <aside className="hidden lg:block lg:w-64 lg:shrink-0">
+          <TagFacetPanel
+            selectedSlugs={selectedTags}
+            onToggle={handleTagsChange}
+            onClear={handleTagsClear}
+            heading="Filter artists by tag"
+          />
+        </aside>
+
+        <div className={`flex-1 min-w-0 ${isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}`}>
+          <p className="mb-3 text-sm text-muted-foreground" data-testid="artist-count">
+            {artists.length} {artists.length === 1 ? 'artist' : 'artists'}
+            {hasTagFilter && ` matching ${selectedTags.join(', ')}`}
+          </p>
+          {artists.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <p>
+                {hasAnyFilter
+                  ? 'No artists match the current filters.'
+                  : 'No artists available at this time.'}
+              </p>
+              {hasAnyFilter && (
+                <button
+                  onClick={() => {
+                    if (hasTagFilter) handleTagsClear()
+                    if (selectedCities.length > 0) handleFilterChange([])
+                  }}
+                  className="mt-4 text-primary hover:underline"
+                >
+                  Clear filters
+                </button>
+              )}
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="@container">
+              <div className={
+                density === 'compact'
+                  ? 'flex flex-col gap-px'
+                  : density === 'expanded'
+                    ? 'grid grid-cols-1 gap-5'
+                    : 'grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
+              }>
+                {artists.map(artist => (
+                  <ArtistCard key={artist.id} artist={artist} density={density} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </section>
   )

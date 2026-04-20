@@ -25,13 +25,17 @@ interface UseReleasesOptions {
   labelId?: number
   limit?: number
   offset?: number
+  /** Multi-tag filter (PSY-309). Slugs applied with AND by default. */
+  tags?: string[]
+  /** Set to 'any' to switch the tag filter to OR semantics. */
+  tagMatch?: 'all' | 'any'
 }
 
 /**
  * Hook to fetch list of releases with optional filtering, search, sorting, and pagination
  */
 export function useReleases(options: UseReleasesOptions = {}) {
-  const { releaseType, year, artistId, search, sort, labelId, limit, offset } = options
+  const { releaseType, year, artistId, search, sort, labelId, limit, offset, tags, tagMatch } = options
 
   const params = new URLSearchParams()
   if (releaseType) params.set('release_type', releaseType)
@@ -42,6 +46,10 @@ export function useReleases(options: UseReleasesOptions = {}) {
   if (labelId) params.set('label_id', labelId.toString())
   if (limit) params.set('limit', limit.toString())
   if (offset) params.set('offset', offset.toString())
+  if (tags && tags.length > 0) {
+    params.set('tags', tags.join(','))
+    if (tagMatch === 'any') params.set('tag_match', 'any')
+  }
 
   const queryString = params.toString()
   const endpoint = queryString
@@ -50,8 +58,8 @@ export function useReleases(options: UseReleasesOptions = {}) {
 
   return useQuery({
     queryKey: releaseQueryKeys.list(
-      releaseType || year || artistId || search || sort || labelId || limit || offset
-        ? { releaseType, year, artistId, search, sort, labelId, limit, offset }
+      releaseType || year || artistId || search || sort || labelId || limit || offset || (tags && tags.length > 0)
+        ? { releaseType, year, artistId, search, sort, labelId, limit, offset, tags, tagMatch }
         : undefined
     ),
     queryFn: async (): Promise<ReleasesListResponse> => {

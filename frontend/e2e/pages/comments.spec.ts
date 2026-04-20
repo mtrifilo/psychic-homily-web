@@ -135,18 +135,20 @@ test.describe('Comments (general)', () => {
       // comment_vote_service_test.go) so we don't assert on those here.
       await expect(upvoteButton).toHaveClass(/text-primary/, { timeout: 5_000 })
 
-      // Cleanup via direct DELETE. We can't toggle via a second UI click
-      // because the list endpoint doesn't populate user_vote for the
-      // authenticated user (separate backend bug); after onSettled's
-      // refetch, the cached user_vote reverts to null, so the next click
-      // would fire POST (vote) instead of DELETE (unvote). Pulling the
-      // comment ID out of the POST URL sidesteps that for test idempotency.
-      const commentIdMatch = voteResp.url().match(/\/comments\/(\d+)\/vote$/)
-      const commentId = commentIdMatch?.[1]
-      expect(commentId).toBeTruthy()
-      const unvoteResp = await authenticatedPage.request.delete(
-        `/api/comments/${commentId}/vote`
-      )
+      // Cleanup: click the active upvote button to toggle the vote off.
+      // PSY-469 populates `user_vote` on the list refetch, so the cached
+      // state survives and the handler fires DELETE on this second click.
+      // PSY-468's direct-DELETE workaround (which bypassed the UI while
+      // the backend bug was open) is no longer necessary.
+      const [unvoteResp] = await Promise.all([
+        authenticatedPage.waitForResponse(
+          (resp) =>
+            /\/comments\/\d+\/vote$/.test(resp.url()) &&
+            resp.request().method() === 'DELETE',
+          { timeout: 10_000 }
+        ),
+        upvoteButton.click(),
+      ])
       expect(unvoteResp.status()).toBeLessThan(400)
     }
   )

@@ -77,6 +77,13 @@ vi.mock('@/components/shared', () => ({
   ),
 }))
 
+vi.mock('@/features/tags', () => ({
+  TagFacetPanel: () => <div data-testid="tag-facet-panel" />,
+  TagFacetSheet: () => <div data-testid="tag-facet-sheet" />,
+  parseTagsParam: (s: string | null) => (s ? s.split(',').filter(Boolean) : []),
+  buildTagsParam: (slugs: string[]) => slugs.join(','),
+}))
+
 import { ArtistList } from './ArtistList'
 
 function makeArtist(overrides: Partial<ArtistListItem> = {}): ArtistListItem {
@@ -159,7 +166,9 @@ describe('ArtistList', () => {
   })
 
   it('renders filtered empty state when cities selected', () => {
-    mockGet.mockReturnValue('Phoenix,AZ')
+    mockGet.mockImplementation((key: string) =>
+      key === 'cities' ? 'Phoenix,AZ' : null
+    )
     mockUseArtists.mockReturnValue({
       data: { artists: [], count: 0 },
       isLoading: false,
@@ -170,12 +179,14 @@ describe('ArtistList', () => {
 
     renderWithProviders(<ArtistList />)
     expect(
-      screen.getByText('No artists found in the selected cities.')
+      screen.getByText('No artists match the current filters.')
     ).toBeInTheDocument()
   })
 
-  it('shows "View all artists" link when filtered and empty', () => {
-    mockGet.mockReturnValue('Phoenix,AZ')
+  it('shows "Clear filters" link when filtered and empty', () => {
+    mockGet.mockImplementation((key: string) =>
+      key === 'cities' ? 'Phoenix,AZ' : null
+    )
     mockUseArtists.mockReturnValue({
       data: { artists: [], count: 0 },
       isLoading: false,
@@ -185,7 +196,7 @@ describe('ArtistList', () => {
     })
 
     renderWithProviders(<ArtistList />)
-    expect(screen.getByText('View all artists')).toBeInTheDocument()
+    expect(screen.getByText('Clear filters')).toBeInTheDocument()
   })
 
   it('renders artist cards when data available', () => {
@@ -267,7 +278,9 @@ describe('ArtistList', () => {
   })
 
   it('parses cities from URL search params', () => {
-    mockGet.mockReturnValue('Phoenix,AZ|Mesa,AZ')
+    mockGet.mockImplementation((key: string) =>
+      key === 'cities' ? 'Phoenix,AZ|Mesa,AZ' : null
+    )
     mockUseArtistCities.mockReturnValue({
       data: {
         cities: [{ city: 'Phoenix', state: 'AZ', artist_count: 5 }],
@@ -277,21 +290,56 @@ describe('ArtistList', () => {
     })
 
     renderWithProviders(<ArtistList />)
-    // useArtists should be called with the parsed cities
-    expect(mockUseArtists).toHaveBeenCalledWith({
-      cities: [
-        { city: 'Phoenix', state: 'AZ' },
-        { city: 'Mesa', state: 'AZ' },
-      ],
-    })
+    // useArtists should be called with the parsed cities (+ new tag fields)
+    expect(mockUseArtists).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cities: [
+          { city: 'Phoenix', state: 'AZ' },
+          { city: 'Mesa', state: 'AZ' },
+        ],
+      })
+    )
   })
 
   it('passes no cities filter when no search params', () => {
     mockGet.mockReturnValue(null)
 
     renderWithProviders(<ArtistList />)
-    expect(mockUseArtists).toHaveBeenCalledWith({
-      cities: undefined,
+    expect(mockUseArtists).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cities: undefined,
+      })
+    )
+  })
+
+  it('parses tags from URL and passes them to useArtists', () => {
+    mockGet.mockImplementation((key: string) => {
+      if (key === 'tags') return 'post-punk,shoegaze'
+      return null
     })
+
+    renderWithProviders(<ArtistList />)
+    expect(mockUseArtists).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tags: ['post-punk', 'shoegaze'],
+        tagMatch: 'all',
+      })
+    )
+  })
+
+  it('honors tag_match=any in URL', () => {
+    mockGet.mockImplementation((key: string) => {
+      if (key === 'tags') return 'post-punk,shoegaze'
+      if (key === 'tag_match') return 'any'
+      return null
+    })
+
+    renderWithProviders(<ArtistList />)
+    expect(mockUseArtists).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tags: ['post-punk', 'shoegaze'],
+        tagMatch: 'any',
+      })
+    )
   })
 })

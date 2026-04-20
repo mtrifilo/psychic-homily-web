@@ -139,6 +139,9 @@ func (s *VenueService) GetVenues(filters map[string]interface{}) ([]*contracts.V
 	if name, ok := filters["name"].(string); ok && name != "" {
 		query = query.Where("LOWER(name) LIKE LOWER(?)", "%"+name+"%")
 	}
+	if tf, ok := filters["tag_filter"].(TagFilter); ok {
+		query = ApplyTagFilter(query, s.db, models.TagEntityVenue, "venues.id", tf)
+	}
 
 	// Default ordering by name
 	query = query.Order("name ASC")
@@ -503,6 +506,8 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 			query = query.Where("venues.city = ?", filters.City)
 		}
 	}
+	tf := TagFilter{TagSlugs: filters.TagSlugs, MatchAny: filters.TagMatchAny}
+	query = ApplyTagFilter(query, s.db, models.TagEntityVenue, "venues.id", tf)
 
 	// Get total count of matching venues
 	var total int64
@@ -527,6 +532,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 			countQuery = countQuery.Where("city = ?", filters.City)
 		}
 	}
+	countQuery = ApplyTagFilter(countQuery, s.db, models.TagEntityVenue, "venues.id", tf)
 	if err := countQuery.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count venues: %w", err)
 	}

@@ -176,6 +176,12 @@ func (s *ReleaseService) ListReleases(filters contracts.ReleaseListFilters) ([]*
 				Where("artists.name ILIKE ?", searchPattern),
 		)
 	}
+	if len(filters.TagSlugs) > 0 {
+		query = ApplyTagFilter(query, s.db, models.TagEntityRelease, "releases.id", TagFilter{
+			TagSlugs: filters.TagSlugs,
+			MatchAny: filters.TagMatchAny,
+		})
+	}
 
 	// Get total count before pagination
 	var total int64

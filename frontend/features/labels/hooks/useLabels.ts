@@ -23,18 +23,26 @@ interface UseLabelsOptions {
   status?: string
   city?: string
   state?: string
+  /** Multi-tag filter (PSY-309). Slugs applied with AND by default. */
+  tags?: string[]
+  /** Set to 'any' to switch the tag filter to OR semantics. */
+  tagMatch?: 'all' | 'any'
 }
 
 /**
  * Hook to fetch list of labels with optional filtering
  */
 export function useLabels(options: UseLabelsOptions = {}) {
-  const { status, city, state } = options
+  const { status, city, state, tags, tagMatch } = options
 
   const params = new URLSearchParams()
   if (status) params.set('status', status)
   if (city) params.set('city', city)
   if (state) params.set('state', state)
+  if (tags && tags.length > 0) {
+    params.set('tags', tags.join(','))
+    if (tagMatch === 'any') params.set('tag_match', 'any')
+  }
 
   const queryString = params.toString()
   const endpoint = queryString
@@ -43,8 +51,8 @@ export function useLabels(options: UseLabelsOptions = {}) {
 
   return useQuery({
     queryKey: labelQueryKeys.list(
-      status || city || state
-        ? { status, city, state }
+      status || city || state || (tags && tags.length > 0)
+        ? { status, city, state, tags, tagMatch }
         : undefined
     ),
     queryFn: async (): Promise<LabelsListResponse> => {
