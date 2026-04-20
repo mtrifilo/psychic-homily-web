@@ -58,11 +58,13 @@ func (h *VenueHandler) SearchVenuesHandler(ctx context.Context, req *SearchVenue
 
 // ListVenuesRequest represents the request parameters for listing venues
 type ListVenuesRequest struct {
-	State  string `query:"state" doc:"Filter by state" example:"AZ"`
-	City   string `query:"city" doc:"Filter by city" example:"Phoenix"`
-	Cities string `query:"cities" doc:"Pipe-delimited multi-city filter (max 10): Phoenix,AZ|Tucson,AZ" example:"Phoenix,AZ|Tucson,AZ"`
-	Limit  int    `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Maximum number of venues to return"`
-	Offset int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+	State    string `query:"state" doc:"Filter by state" example:"AZ"`
+	City     string `query:"city" doc:"Filter by city" example:"Phoenix"`
+	Cities   string `query:"cities" doc:"Pipe-delimited multi-city filter (max 10): Phoenix,AZ|Tucson,AZ" example:"Phoenix,AZ|Tucson,AZ"`
+	Limit    int    `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Maximum number of venues to return"`
+	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+	Tags     string `query:"tags" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"diy,phoenix"`
+	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 
 // ListVenuesResponse represents the response for the list venues endpoint
@@ -100,6 +102,10 @@ func (h *VenueHandler) ListVenuesHandler(ctx context.Context, req *ListVenuesReq
 	} else {
 		filters.State = req.State
 		filters.City = req.City
+	}
+	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
+		filters.TagSlugs = tf.TagSlugs
+		filters.TagMatchAny = tf.MatchAny
 	}
 
 	limit := req.Limit

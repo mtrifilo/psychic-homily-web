@@ -70,9 +70,11 @@ func (h *ArtistHandler) SearchArtistsHandler(ctx context.Context, req *SearchArt
 
 // ListArtistsRequest represents the request for listing all artists
 type ListArtistsRequest struct {
-	State  string `query:"state" doc:"Filter by state" example:"AZ"`
-	City   string `query:"city" doc:"Filter by city" example:"Phoenix"`
-	Cities string `query:"cities" doc:"Pipe-delimited multi-city filter (max 10): Phoenix,AZ|Mesa,AZ" example:"Phoenix,AZ|Mesa,AZ"`
+	State    string `query:"state" doc:"Filter by state" example:"AZ"`
+	City     string `query:"city" doc:"Filter by city" example:"Phoenix"`
+	Cities   string `query:"cities" doc:"Pipe-delimited multi-city filter (max 10): Phoenix,AZ|Mesa,AZ" example:"Phoenix,AZ|Mesa,AZ"`
+	Tags     string `query:"tags" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR." example:"post-punk,phoenix"`
+	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 
 // ListArtistsResponse represents the response for listing artists
@@ -114,6 +116,9 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 		if req.City != "" {
 			filters["city"] = req.City
 		}
+	}
+	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
+		filters["tag_filter"] = tf
 	}
 
 	artists, err := h.artistService.GetArtistsWithShowCounts(filters)

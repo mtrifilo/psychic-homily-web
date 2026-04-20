@@ -72,6 +72,8 @@ type ListReleasesRequest struct {
 	LabelID     uint   `query:"label_id" required:"false" doc:"Filter by label ID" example:"1"`
 	Limit       int    `query:"limit" required:"false" doc:"Page size (default 50, max 200)" example:"50"`
 	Offset      int    `query:"offset" required:"false" doc:"Pagination offset" example:"0"`
+	Tags        string `query:"tags" required:"false" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"shoegaze,dream-pop"`
+	TagMatch    string `query:"tag_match" required:"false" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 
 // ListReleasesResponse represents the response for listing releases
@@ -95,6 +97,10 @@ func (h *ReleaseHandler) ListReleasesHandler(ctx context.Context, req *ListRelea
 		LabelID:     req.LabelID,
 		Limit:       req.Limit,
 		Offset:      req.Offset,
+	}
+	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
+		filters.TagSlugs = tf.TagSlugs
+		filters.TagMatchAny = tf.MatchAny
 	}
 
 	releases, total, err := h.releaseService.ListReleases(filters)

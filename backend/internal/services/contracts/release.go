@@ -97,6 +97,12 @@ type ReleaseListFilters struct {
 	LabelID     uint
 	Limit       int
 	Offset      int
+	// TagSlugs narrows results to releases tagged with these slugs.
+	// Empty slice means "no tag filter".
+	TagSlugs []string
+	// TagMatchAny switches the tag filter to OR semantics. When false
+	// (default) the release must have every tag in TagSlugs (AND).
+	TagMatchAny bool
 }
 
 // ReleaseListResponse represents a release in list views

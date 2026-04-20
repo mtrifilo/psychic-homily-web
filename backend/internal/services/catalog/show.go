@@ -308,6 +308,9 @@ func (s *ShowService) GetShows(filters map[string]interface{}) ([]*contracts.Sho
 	if toDate, ok := filters["to_date"].(time.Time); ok {
 		query = query.Where("event_date <= ?", toDate.UTC())
 	}
+	if tf, ok := filters["tag_filter"].(TagFilter); ok {
+		query = ApplyTagFilter(query, s.db, models.TagEntityShow, "shows.id", tf)
+	}
 
 	// Default ordering by event date
 	query = query.Order("event_date ASC")
@@ -706,6 +709,12 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 			if filters.State != "" {
 				query = query.Where("state = ?", filters.State)
 			}
+		}
+		if len(filters.TagSlugs) > 0 {
+			query = ApplyTagFilter(query, s.db, models.TagEntityShow, "shows.id", TagFilter{
+				TagSlugs: filters.TagSlugs,
+				MatchAny: filters.TagMatchAny,
+			})
 		}
 	}
 

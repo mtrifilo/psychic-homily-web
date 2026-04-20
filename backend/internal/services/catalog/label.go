@@ -130,6 +130,9 @@ func (s *LabelService) ListLabels(filters map[string]interface{}) ([]*contracts.
 	if state, ok := filters["state"].(string); ok && state != "" {
 		query = query.Where("state = ?", state)
 	}
+	if tf, ok := filters["tag_filter"].(TagFilter); ok {
+		query = ApplyTagFilter(query, s.db, models.TagEntityLabel, "labels.id", tf)
+	}
 
 	// Order by name ASC
 	query = query.Order("name ASC")

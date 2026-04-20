@@ -153,7 +153,14 @@ type UpcomingShowsFilter struct {
 	City   string
 	State  string
 	Cities []CityStateFilter
+	// TagSlugs narrows results to shows tagged with these slugs.
+	// Empty slice means "no tag filter".
+	TagSlugs []string
+	// TagMatchAny switches the tag filter to OR semantics. When false
+	// (default) the shows must have every tag in TagSlugs (AND).
+	TagMatchAny bool
 }
+
 
 // ShowCityResponse represents a city with the count of upcoming shows
 type ShowCityResponse struct {
@@ -327,6 +334,12 @@ type VenueListFilters struct {
 	City     string
 	Cities   []CityStateFilter
 	Verified *bool
+	// TagSlugs narrows results to venues tagged with these slugs.
+	// Empty slice means "no tag filter".
+	TagSlugs []string
+	// TagMatchAny switches the tag filter to OR semantics. When false
+	// (default) the venues must have every tag in TagSlugs (AND).
+	TagMatchAny bool
 }
 
 // VenueShowResponse represents a show in the venue shows endpoint

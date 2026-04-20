@@ -62,9 +62,11 @@ func (h *LabelHandler) SearchLabelsHandler(ctx context.Context, req *SearchLabel
 
 // ListLabelsRequest represents the request for listing labels
 type ListLabelsRequest struct {
-	Status string `query:"status" required:"false" doc:"Filter by status (active, inactive, defunct)" example:"active"`
-	City   string `query:"city" required:"false" doc:"Filter by city" example:"Phoenix"`
-	State  string `query:"state" required:"false" doc:"Filter by state" example:"AZ"`
+	Status   string `query:"status" required:"false" doc:"Filter by status (active, inactive, defunct)" example:"active"`
+	City     string `query:"city" required:"false" doc:"Filter by city" example:"Phoenix"`
+	State    string `query:"state" required:"false" doc:"Filter by state" example:"AZ"`
+	Tags     string `query:"tags" required:"false" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"indie,punk"`
+	TagMatch string `query:"tag_match" required:"false" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 
 // ListLabelsResponse represents the response for listing labels
@@ -87,6 +89,9 @@ func (h *LabelHandler) ListLabelsHandler(ctx context.Context, req *ListLabelsReq
 	}
 	if req.State != "" {
 		filters["state"] = req.State
+	}
+	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
+		filters["tag_filter"] = tf
 	}
 
 	labels, err := h.labelService.ListLabels(filters)

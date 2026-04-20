@@ -133,6 +133,9 @@ func (s *FestivalService) ListFestivals(filters map[string]interface{}) ([]*cont
 	if seriesSlug, ok := filters["series_slug"].(string); ok && seriesSlug != "" {
 		query = query.Where("series_slug = ?", seriesSlug)
 	}
+	if tf, ok := filters["tag_filter"].(TagFilter); ok {
+		query = ApplyTagFilter(query, s.db, models.TagEntityFestival, "festivals.id", tf)
+	}
 
 	// Order by start_date DESC, name ASC
 	query = query.Order("start_date DESC, name ASC")

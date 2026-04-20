@@ -214,6 +214,8 @@ type GetShowsRequest struct {
 	State    string    `query:"state" doc:"Filter by state"`
 	FromDate time.Time `query:"from_date" doc:"Filter shows from this date"`
 	ToDate   time.Time `query:"to_date" doc:"Filter shows until this date"`
+	Tags     string    `query:"tags" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"post-punk,phoenix"`
+	TagMatch string    `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 
 // GetShowsResponse represents the HTTP response for listing shows
@@ -229,6 +231,8 @@ type GetUpcomingShowsRequest struct {
 	City     string `query:"city" doc:"Filter by city name (exact match). Legacy — prefer 'cities' param."`
 	State    string `query:"state" doc:"Filter by state code (exact match, e.g., 'AZ'). Legacy — prefer 'cities' param."`
 	Cities   string `query:"cities" doc:"Filter by multiple cities. Pipe-delimited pairs: 'Phoenix,AZ|Mesa,AZ|Tucson,AZ'. Max 10 cities."`
+	Tags     string `query:"tags" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"post-punk,phoenix"`
+	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 
 // GetShowCitiesRequest represents the HTTP request for listing show cities
@@ -560,6 +564,9 @@ func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest)
 	if !req.ToDate.IsZero() {
 		filters["to_date"] = req.ToDate
 	}
+	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
+		filters["tag_filter"] = tf
+	}
 
 	logger.FromContext(ctx).Debug("shows_list_attempt",
 		"filter_count", len(filters),
@@ -674,6 +681,13 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 			City:  req.City,
 			State: req.State,
 		}
+	}
+	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
+		if filters == nil {
+			filters = &contracts.UpcomingShowsFilter{}
+		}
+		filters.TagSlugs = tf.TagSlugs
+		filters.TagMatchAny = tf.MatchAny
 	}
 
 	logger.FromContext(ctx).Debug("shows_upcoming_attempt",
