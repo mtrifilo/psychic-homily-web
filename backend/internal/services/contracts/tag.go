@@ -184,9 +184,17 @@ type BulkAliasImportResult struct {
 // Populated by the preview endpoint so the admin dialog can confirm before
 // committing. Counts reflect the state at preview time; concurrent writes
 // could make the actual merge differ slightly.
+//
+// MovedUpvotes / MovedDownvotes (PSY-487) split the MovedVotes total by sign
+// so the dialog can render the human-friendly format the moderator spec
+// describes ("Merging will move 1 entity application, 2 upvotes, 0 downvotes,
+// 0 aliases into 'shoegaze'."). MovedVotes is kept for backward compat and
+// always equals MovedUpvotes + MovedDownvotes.
 type MergeTagsPreview struct {
 	MovedEntityTags    int64  `json:"moved_entity_tags"`
 	MovedVotes         int64  `json:"moved_votes"`
+	MovedUpvotes       int64  `json:"moved_upvotes"`
+	MovedDownvotes     int64  `json:"moved_downvotes"`
 	SkippedEntityTags  int64  `json:"skipped_entity_tags"`
 	SkippedVotes       int64  `json:"skipped_votes"`
 	SourceAliasesCount int64  `json:"source_aliases_count"`
@@ -218,6 +226,18 @@ type LowQualityTagQueueItem struct {
 type LowQualityTagQueueResponse struct {
 	Tags  []LowQualityTagQueueItem `json:"tags"`
 	Total int64                    `json:"total"`
+}
+
+// BulkLowQualityTagActionResult summarizes what a bulk action did so the
+// admin UI can surface accurate "snoozed N, M not found" feedback (PSY-487).
+// Action mirrors the verb that was requested ("snooze" / "delete" /
+// "mark_official"), so the same struct can drive both the toast and the
+// audit log entry.
+type BulkLowQualityTagActionResult struct {
+	Action    string `json:"action"`
+	Requested int64  `json:"requested"`
+	Affected  int64  `json:"affected"`
+	NotFound  int64  `json:"not_found"`
 }
 
 // TagServiceInterface defines the contract for tag operations.
@@ -266,6 +286,10 @@ type TagServiceInterface interface {
 	// Low-quality queue (PSY-310)
 	GetLowQualityTagQueue(limit, offset int) (*LowQualityTagQueueResponse, error)
 	SnoozeLowQualityTag(tagID uint, actorUserID uint) error
+
+	// Bulk admin actions on the low-quality queue (PSY-487).
+	// Action verbs: "snooze", "delete", "mark_official".
+	BulkActionLowQualityTags(action string, tagIDs []uint) (*BulkLowQualityTagActionResult, error)
 
 	// Utility
 	SearchTags(query string, limit int, category string) ([]TagSearchResult, error)

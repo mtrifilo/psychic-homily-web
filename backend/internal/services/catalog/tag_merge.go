@@ -48,6 +48,17 @@ func (s *TagService) PreviewMergeTags(sourceID, targetID uint) (*contracts.Merge
 	preview.MovedVotes = movedVotes
 	preview.SkippedVotes = skippedVotes
 
+	// Split moved votes by sign so the merge dialog can show
+	// "N upvotes, M downvotes" (PSY-487). The split mirrors the same conflict
+	// rules used by countVoteMoves — votes that would be skipped because the
+	// target already has a vote from that user on that entity are excluded.
+	movedUp, movedDown, err := countVoteMovesBySign(s.db, source.ID, target.ID)
+	if err != nil {
+		return nil, err
+	}
+	preview.MovedUpvotes = movedUp
+	preview.MovedDownvotes = movedDown
+
 	var aliasCount int64
 	if err := s.db.Model(&models.TagAlias{}).Where("tag_id = ?", source.ID).Count(&aliasCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count source aliases: %w", err)
@@ -55,6 +66,43 @@ func (s *TagService) PreviewMergeTags(sourceID, targetID uint) (*contracts.Merge
 	preview.SourceAliasesCount = aliasCount
 
 	return preview, nil
+}
+
+// countVoteMovesBySign breaks the MovedVotes total into upvotes/downvotes so
+// the merge preview UI can display per-sign counters. Conflict semantics
+// match countVoteMoves: a source vote conflicting with a target vote (same
+// user + entity) is excluded from both buckets — it'll be dropped in favor of
+// the target's existing vote when the merge runs.
+func countVoteMovesBySign(db *gorm.DB, sourceID, targetID uint) (up, down int64, err error) {
+	type signRow struct {
+		Vote  int
+		Count int64
+	}
+	var rows []signRow
+	err = db.Raw(`
+		SELECT src.vote AS vote, COUNT(*) AS count
+		FROM tag_votes src
+		WHERE src.tag_id = ?
+		  AND NOT EXISTS (
+			SELECT 1 FROM tag_votes tgt
+			WHERE tgt.tag_id = ?
+			  AND tgt.entity_type = src.entity_type
+			  AND tgt.entity_id   = src.entity_id
+			  AND tgt.user_id     = src.user_id
+		  )
+		GROUP BY src.vote
+	`, sourceID, targetID).Scan(&rows).Error
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to split vote moves by sign: %w", err)
+	}
+	for _, r := range rows {
+		if r.Vote == 1 {
+			up = r.Count
+		} else if r.Vote == -1 {
+			down = r.Count
+		}
+	}
+	return up, down, nil
 }
 
 // MergeTags moves all entity_tags and tag_votes from source to target, creates

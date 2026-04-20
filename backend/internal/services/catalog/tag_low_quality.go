@@ -31,6 +31,11 @@ const (
 	lowQualityShortNameMax   = 3  // LENGTH(name) < 3 → flagged
 	lowQualityLongNameMin    = 40 // LENGTH(name) > 40 → flagged
 
+	// BulkActionMaxTagIDs caps how many tag IDs the bulk-action endpoint will
+	// accept in one call. Keeps a single accidental "select all" from blocking
+	// the writer for minutes; admins can page through anything larger.
+	BulkActionMaxTagIDs = 200
+
 	// Reason identifiers returned to the frontend so the UI can render
 	// matching pill labels. Keep in sync with the frontend `LOW_QUALITY_REASONS`.
 	LowQualityReasonOrphaned    = "orphaned"
@@ -39,8 +44,15 @@ const (
 	LowQualityReasonShortName   = "short_name"
 	LowQualityReasonLongName    = "long_name"
 
+	// Bulk-action verbs accepted by BulkActionLowQualityTags. Plain strings so
+	// the handler can forward the action to the audit log without translation.
+	BulkActionSnooze       = "snooze"
+	BulkActionDelete       = "delete"
+	BulkActionMarkOfficial = "mark_official"
+
 	// Audit actions
 	AuditActionSnoozeLowQualityTag = "snooze_low_quality_tag"
+	AuditActionBulkLowQualityTags  = "bulk_low_quality_tags"
 )
 
 // GetLowQualityTagQueue returns non-official tags flagged by at least one of
@@ -120,6 +132,103 @@ func (s *TagService) GetLowQualityTagQueue(limit, offset int) (*contracts.LowQua
 		Tags:  items,
 		Total: total,
 	}, nil
+}
+
+// BulkActionLowQualityTags applies one of the supported bulk verbs (snooze,
+// delete, mark_official) to a list of tag IDs in a single statement per verb.
+// Returns per-action counters so the UI can surface partial outcomes ("Snoozed
+// 18, 2 not found") and so the audit log can record real impact.
+//
+// Behavior:
+//   - snooze: sets reviewed_at = now() on every tag whose ID is in the list.
+//   - delete: deletes the tags. FK cascades (entity_tags, tag_votes,
+//     tag_aliases) handle the dependent rows.
+//   - mark_official: sets is_official = true on every tag in the list.
+//
+// IDs that don't exist are silently skipped and counted in NotFound. This
+// lets the UI keep moving even if a row was deleted out from under the admin
+// (concurrent admin actions, or a snooze that already cleared the row).
+//
+// actorUserID is forwarded to the audit log by the caller (handler); the
+// service is decoupled from the audit log service to keep its dependency
+// surface small.
+func (s *TagService) BulkActionLowQualityTags(action string, tagIDs []uint) (*contracts.BulkLowQualityTagActionResult, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	if len(tagIDs) == 0 {
+		return nil, apperrors.ErrTagBulkActionInvalid("tag_ids must not be empty")
+	}
+	if len(tagIDs) > BulkActionMaxTagIDs {
+		return nil, apperrors.ErrTagBulkActionInvalid(
+			fmt.Sprintf("tag_ids exceeds max of %d", BulkActionMaxTagIDs),
+		)
+	}
+
+	// Dedupe — admins may accidentally double-select if the queue re-renders
+	// mid-selection. Cheap and avoids confusing counters.
+	seen := make(map[uint]struct{}, len(tagIDs))
+	unique := make([]uint, 0, len(tagIDs))
+	for _, id := range tagIDs {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	if len(unique) == 0 {
+		return nil, apperrors.ErrTagBulkActionInvalid("tag_ids must contain at least one non-zero ID")
+	}
+
+	result := &contracts.BulkLowQualityTagActionResult{
+		Action:    action,
+		Requested: int64(len(unique)),
+	}
+
+	// Resolve which IDs actually exist before mutating, so we can populate
+	// NotFound accurately even when the underlying op (Update / Delete) is
+	// idempotent for missing rows.
+	var existingIDs []uint
+	if err := s.db.Model(&models.Tag{}).
+		Where("id IN ?", unique).
+		Pluck("id", &existingIDs).Error; err != nil {
+		return nil, fmt.Errorf("failed to resolve tag IDs: %w", err)
+	}
+	result.NotFound = result.Requested - int64(len(existingIDs))
+	if len(existingIDs) == 0 {
+		return result, nil
+	}
+
+	switch action {
+	case BulkActionSnooze:
+		now := time.Now().UTC()
+		res := s.db.Model(&models.Tag{}).Where("id IN ?", existingIDs).Update("reviewed_at", now)
+		if res.Error != nil {
+			return nil, fmt.Errorf("failed to bulk snooze tags: %w", res.Error)
+		}
+		result.Affected = res.RowsAffected
+	case BulkActionDelete:
+		res := s.db.Where("id IN ?", existingIDs).Delete(&models.Tag{})
+		if res.Error != nil {
+			return nil, fmt.Errorf("failed to bulk delete tags: %w", res.Error)
+		}
+		result.Affected = res.RowsAffected
+	case BulkActionMarkOfficial:
+		res := s.db.Model(&models.Tag{}).Where("id IN ?", existingIDs).Update("is_official", true)
+		if res.Error != nil {
+			return nil, fmt.Errorf("failed to bulk mark tags official: %w", res.Error)
+		}
+		result.Affected = res.RowsAffected
+	default:
+		return nil, apperrors.ErrTagBulkActionInvalid(
+			fmt.Sprintf("unknown action %q (allowed: snooze, delete, mark_official)", action),
+		)
+	}
+
+	return result, nil
 }
 
 // SnoozeLowQualityTag marks a tag as reviewed-now so it drops out of the queue

@@ -13,6 +13,8 @@ import type {
   MergeTagsResult,
   LowQualityTagQueueResponse,
   GenreHierarchyResponse,
+  BulkLowQualityAction,
+  BulkLowQualityActionResult,
 } from '../types'
 
 // ──────────────────────────────────────────────
@@ -278,6 +280,31 @@ export function useSnoozeTag() {
     mutationFn: (tagId: number) =>
       apiRequest<void>(API_ENDPOINTS.TAGS.ADMIN_SNOOZE(tagId), {
         method: 'POST',
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags.lowQuality() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
+    },
+  })
+}
+
+interface BulkLowQualityActionInput {
+  action: BulkLowQualityAction
+  tagIds: number[]
+}
+
+/**
+ * Apply a bulk action (snooze/delete/mark_official) to a list of tag IDs from
+ * the low-quality queue (PSY-487). Invalidates the queue + tag lists so the
+ * affected rows drop out and counters refresh on the next render.
+ */
+export function useBulkLowQualityAction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ action, tagIds }: BulkLowQualityActionInput) =>
+      apiRequest<BulkLowQualityActionResult>(API_ENDPOINTS.TAGS.ADMIN_LOW_QUALITY_BULK, {
+        method: 'POST',
+        body: JSON.stringify({ action, tag_ids: tagIds }),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tags.lowQuality() })

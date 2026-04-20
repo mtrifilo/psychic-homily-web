@@ -17,6 +17,7 @@ const (
 	CodeTagMergeAliasConflict    = "TAG_MERGE_ALIAS_CONFLICT"
 	CodeTagHierarchyCycle        = "TAG_HIERARCHY_CYCLE"
 	CodeTagHierarchyNotGenre     = "TAG_HIERARCHY_NOT_GENRE"
+	CodeTagBulkActionInvalid     = "TAG_BULK_ACTION_INVALID"
 )
 
 // TagError represents a tag-related error with additional context.
@@ -138,5 +139,15 @@ func ErrTagHierarchyNotGenre(tagName, category string) *TagError {
 	return &TagError{
 		Code:    CodeTagHierarchyNotGenre,
 		Message: fmt.Sprintf("Tag hierarchy is genre-only; '%s' is category '%s'", tagName, category),
+	}
+}
+
+// ErrTagBulkActionInvalid is returned when the admin bulk-action endpoint is
+// called with an unknown action verb, an empty/oversized tag_ids list, etc.
+// Maps to HTTP 400.
+func ErrTagBulkActionInvalid(reason string) *TagError {
+	return &TagError{
+		Code:    CodeTagBulkActionInvalid,
+		Message: fmt.Sprintf("Invalid bulk action: %s", reason),
 	}
 }
