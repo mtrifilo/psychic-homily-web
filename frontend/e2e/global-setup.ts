@@ -142,6 +142,12 @@ function startBackend(): ChildProcess {
       DISABLE_CLEANUP: '1',
       DISABLE_REMINDERS: '1',
       DISABLE_RELATIONSHIP_DERIVATION: '1',
+      // PSY-432: enable the /admin/test-fixtures/reset endpoint. Guarded by
+      // a default-deny ENVIRONMENT check on the backend — the server
+      // refuses to boot if ENABLE_TEST_FIXTURES=1 and ENVIRONMENT is not
+      // one of {test, ci, development}.
+      ENABLE_TEST_FIXTURES: '1',
+      ENVIRONMENT: 'test',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
