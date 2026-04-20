@@ -21,6 +21,11 @@ export interface EntitySearchResult {
   subtitle: string | null
   entityType: 'artist' | 'venue' | 'release' | 'label' | 'festival' | 'tag'
   href: string
+  /**
+   * Only populated for tag results — surfaces the curated-tag mark in the
+   * Cmd+K palette so users can distinguish official tags at a glance.
+   */
+  isOfficial?: boolean
 }
 
 export interface EntitySearchResults {
@@ -80,6 +85,7 @@ interface TagSearchItem {
   name: string
   category: string
   usage_count: number
+  is_official: boolean
 }
 
 // ============================================================================
@@ -163,6 +169,7 @@ function mapTag(t: TagSearchItem): EntitySearchResult {
     subtitle: category,
     entityType: 'tag',
     href: `/tags/${t.slug}`,
+    isOfficial: t.is_official,
   }
 }
 
