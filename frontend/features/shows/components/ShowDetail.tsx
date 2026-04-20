@@ -249,6 +249,13 @@ export function ShowDetail({ showId }: ShowDetailProps) {
         <CommentThread entityType="show" entityId={show.id} />
       </div>
 
+      {/* PSY-461 / PSY-489: ShowDetail intentionally omits AttributionLine,
+          ContributionPrompt, and RevisionHistory — shows flow through an
+          admin/owner-only edit pathway, not the community suggest-edit
+          pipeline used by the other 5 detail pages. See
+          docs/learnings/entity-detail-layout-migration.md for the design
+          rationale. Do not "align for parity" with the other detail pages. */}
+
       {/* Delete Confirmation Dialog */}
       <DeleteShowDialog
         show={show}
