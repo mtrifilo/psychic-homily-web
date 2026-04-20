@@ -168,6 +168,30 @@ type BulkAliasImportResult struct {
 	Skipped  []BulkAliasImportSkipped `json:"skipped"`
 }
 
+// MergeTagsPreview summarizes what a merge would do, without actually doing it.
+// Populated by the preview endpoint so the admin dialog can confirm before
+// committing. Counts reflect the state at preview time; concurrent writes
+// could make the actual merge differ slightly.
+type MergeTagsPreview struct {
+	MovedEntityTags    int64  `json:"moved_entity_tags"`
+	MovedVotes         int64  `json:"moved_votes"`
+	SkippedEntityTags  int64  `json:"skipped_entity_tags"`
+	SkippedVotes       int64  `json:"skipped_votes"`
+	SourceAliasesCount int64  `json:"source_aliases_count"`
+	SourceName         string `json:"source_name"`
+	TargetName         string `json:"target_name"`
+}
+
+// MergeTagsResult summarizes what happened during a merge.
+type MergeTagsResult struct {
+	MovedEntityTags   int64 `json:"moved_entity_tags"`
+	MovedVotes        int64 `json:"moved_votes"`
+	SkippedEntityTags int64 `json:"skipped_entity_tags"`
+	SkippedVotes      int64 `json:"skipped_votes"`
+	AliasCreated      bool  `json:"alias_created"`
+	MovedAliases      int64 `json:"moved_aliases"`
+}
+
 // TagServiceInterface defines the contract for tag operations.
 type TagServiceInterface interface {
 	// CRUD
@@ -194,6 +218,10 @@ type TagServiceInterface interface {
 	ResolveAlias(alias string) (*models.Tag, error)
 	ListAllAliases(search string, limit, offset int) ([]TagAliasListing, int64, error)
 	BulkImportAliases(items []BulkAliasImportItem) (*BulkAliasImportResult, error)
+
+	// Merge
+	MergeTags(sourceID, targetID uint, actorUserID uint) (*MergeTagsResult, error)
+	PreviewMergeTags(sourceID, targetID uint) (*MergeTagsPreview, error)
 
 	// Tag entities
 	GetTagEntities(tagID uint, entityType string, limit, offset int) ([]TaggedEntityItem, int64, error)
