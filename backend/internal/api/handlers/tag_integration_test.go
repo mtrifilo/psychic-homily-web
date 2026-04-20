@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/suite"
 
@@ -1611,4 +1613,92 @@ func (s *TagHandlerIntegrationSuite) TestMergePreview_NonAdmin() {
 	req := &MergeTagsPreviewRequest{SourceID: "1", TargetID: 2}
 	_, err := s.handler.MergeTagsPreviewHandler(ctx, req)
 	assertHumaError(s.T(), err, 403)
+}
+
+// ============================================================================
+// Low-Quality Tag Queue (PSY-310)
+// ============================================================================
+
+func (s *TagHandlerIntegrationSuite) TestListLowQualityTags_Admin() {
+	admin := createAdminUser(s.deps.db)
+	// Seed an orphaned tag so the queue has content.
+	orphan := &models.Tag{
+		Name:     "orphan",
+		Slug:     "orphan-lq-admin",
+		Category: "other",
+	}
+	s.Require().NoError(s.deps.db.Create(orphan).Error)
+
+	ctx := ctxWithUser(admin)
+	resp, err := s.handler.ListLowQualityTagsHandler(ctx, &ListLowQualityTagsRequest{Limit: 20, Offset: 0})
+	s.Require().NoError(err)
+	s.Require().NotNil(resp.Body)
+	s.Require().Len(resp.Body.Tags, 1)
+	s.Assert().Equal(orphan.ID, resp.Body.Tags[0].ID)
+	s.Assert().Contains(resp.Body.Tags[0].Reasons, "orphaned")
+}
+
+func (s *TagHandlerIntegrationSuite) TestListLowQualityTags_NonAdmin() {
+	user := createTestUser(s.deps.db)
+	ctx := ctxWithUser(user)
+	_, err := s.handler.ListLowQualityTagsHandler(ctx, &ListLowQualityTagsRequest{})
+	assertHumaError(s.T(), err, 403)
+}
+
+func (s *TagHandlerIntegrationSuite) TestListLowQualityTags_Unauthenticated() {
+	_, err := s.handler.ListLowQualityTagsHandler(context.Background(), &ListLowQualityTagsRequest{})
+	assertHumaError(s.T(), err, 401)
+}
+
+func (s *TagHandlerIntegrationSuite) TestSnoozeTag_Admin_WritesAuditLog() {
+	admin := createAdminUser(s.deps.db)
+	tag := &models.Tag{
+		Name:     "to-snooze",
+		Slug:     "to-snooze-lq",
+		Category: "other",
+	}
+	s.Require().NoError(s.deps.db.Create(tag).Error)
+
+	ctx := ctxWithUser(admin)
+	_, err := s.handler.SnoozeTagHandler(ctx, &SnoozeTagRequest{TagID: fmt.Sprintf("%d", tag.ID)})
+	s.Require().NoError(err)
+
+	// reviewed_at should now be set.
+	var refreshed models.Tag
+	s.Require().NoError(s.deps.db.First(&refreshed, tag.ID).Error)
+	s.Require().NotNil(refreshed.ReviewedAt)
+
+	// Audit log fires via goroutine — poll briefly so the goroutine wins.
+	var log models.AuditLog
+	for i := 0; i < 40; i++ {
+		if err := s.deps.db.Where("action = ? AND entity_id = ?", "snooze_low_quality_tag", tag.ID).First(&log).Error; err == nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	s.Require().NotZero(log.ID, "audit log was not written in time")
+	s.Equal("tag", log.EntityType)
+	s.Require().NotNil(log.ActorID)
+	s.Equal(admin.ID, *log.ActorID)
+}
+
+func (s *TagHandlerIntegrationSuite) TestSnoozeTag_NotFound() {
+	admin := createAdminUser(s.deps.db)
+	ctx := ctxWithUser(admin)
+	_, err := s.handler.SnoozeTagHandler(ctx, &SnoozeTagRequest{TagID: "99999"})
+	assertHumaError(s.T(), err, 404)
+}
+
+func (s *TagHandlerIntegrationSuite) TestSnoozeTag_NonAdmin() {
+	user := createTestUser(s.deps.db)
+	ctx := ctxWithUser(user)
+	_, err := s.handler.SnoozeTagHandler(ctx, &SnoozeTagRequest{TagID: "1"})
+	assertHumaError(s.T(), err, 403)
+}
+
+func (s *TagHandlerIntegrationSuite) TestSnoozeTag_InvalidID() {
+	admin := createAdminUser(s.deps.db)
+	ctx := ctxWithUser(admin)
+	_, err := s.handler.SnoozeTagHandler(ctx, &SnoozeTagRequest{TagID: "abc"})
+	assertHumaError(s.T(), err, 400)
 }

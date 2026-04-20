@@ -831,6 +831,9 @@ func setupTagRoutes(rc RouteContext) {
 	// Admin: merge tags (PSY-306).
 	huma.Get(rc.Protected, "/admin/tags/{source_id}/merge-preview", tagHandler.MergeTagsPreviewHandler)
 	huma.Post(rc.Protected, "/admin/tags/{source_id}/merge", tagHandler.MergeTagsHandler)
+	// Admin: low-quality tag review queue (PSY-310).
+	huma.Get(rc.Protected, "/admin/tags/low-quality", tagHandler.ListLowQualityTagsHandler)
+	huma.Post(rc.Protected, "/admin/tags/{tag_id}/snooze", tagHandler.SnoozeTagHandler)
 }
 
 // setupArtistRelationshipRoutes configures artist relationship and similar artist endpoints.

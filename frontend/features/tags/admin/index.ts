@@ -1,5 +1,6 @@
 export { TagManagement } from './TagManagement'
 export { AliasListing } from './AliasListing'
+export { LowQualityTagQueue } from './LowQualityTagQueue'
 export { MergeTagDialog } from './MergeTagDialog'
 export {
   useCreateTag,
@@ -12,4 +13,7 @@ export {
   useBulkImportAliases,
   useMergeTags,
   useMergeTagsPreview,
+  useLowQualityTagQueue,
+  useSnoozeTag,
+  useMarkTagOfficial,
 } from './useAdminTags'

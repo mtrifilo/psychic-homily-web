@@ -883,6 +883,71 @@ func (h *TagHandler) BulkImportAliasesHandler(ctx context.Context, req *BulkImpo
 }
 
 // ============================================================================
+// Low-Quality Tag Queue (admin, PSY-310)
+// ============================================================================
+
+type ListLowQualityTagsRequest struct {
+	Limit  int `query:"limit" required:"false" doc:"Max results (default 20, max 100)" example:"20"`
+	Offset int `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+}
+
+type ListLowQualityTagsResponse struct {
+	Body *contracts.LowQualityTagQueueResponse
+}
+
+func (h *TagHandler) ListLowQualityTagsHandler(ctx context.Context, req *ListLowQualityTagsRequest) (*ListLowQualityTagsResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	if !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	queue, err := h.tagService.GetLowQualityTagQueue(req.Limit, req.Offset)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to load low-quality tag queue")
+	}
+
+	return &ListLowQualityTagsResponse{Body: queue}, nil
+}
+
+type SnoozeTagRequest struct {
+	TagID string `path:"tag_id" doc:"Tag ID" example:"1"`
+}
+
+func (h *TagHandler) SnoozeTagHandler(ctx context.Context, req *SnoozeTagRequest) (*struct{}, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	if !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	id, err := strconv.ParseUint(req.TagID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid tag ID")
+	}
+
+	if err := h.tagService.SnoozeLowQualityTag(uint(id), user.ID); err != nil {
+		mapped := mapTagError(err)
+		if mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error500InternalServerError("Failed to snooze tag")
+	}
+
+	if h.auditLog != nil {
+		go func() {
+			h.auditLog.LogAction(user.ID, "snooze_low_quality_tag", "tag", uint(id), nil)
+		}()
+	}
+
+	return nil, nil
+}
+
+// ============================================================================
 // Helpers
 // ============================================================================
 
