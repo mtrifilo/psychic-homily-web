@@ -2,27 +2,11 @@ import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
 
 test.describe('City filter on shows list', () => {
-  test('city filter combobox and popular cities are visible', async ({ page }) => {
-    await page.goto('/shows')
-
-    // Wait for shows to load first
-    await expect(page.locator('article').first()).toBeVisible({
-      timeout: 10_000,
-    })
-
-    // Combobox trigger should be visible
-    await expect(
-      page.getByTestId('city-filter-combobox')
-    ).toBeVisible({ timeout: 5_000 })
-
-    // Popular cities row should be visible with Phoenix
-    await expect(
-      page.getByTestId('popular-cities')
-    ).toBeVisible()
-    await expect(
-      page.getByRole('button', { name: /Phoenix/i })
-    ).toBeVisible()
-  })
+  // PSY-434 Layer-5 audit: the pure-render "combobox + popular cities
+  // visible" case is already covered by `CityFilters.test.tsx` (`renders
+  // the combobox trigger` at line 28 and `shows popular cities when none
+  // are selected` at line 211). The URL-round-trip assertions below are
+  // genuine E2E (navigation + location + network) and stay.
 
   test('clicking a city in combobox updates URL and filters shows', { tag: '@smoke' }, async ({
     page,
