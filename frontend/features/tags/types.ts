@@ -265,10 +265,14 @@ export interface GenreHierarchyResponse {
 /**
  * Node in the assembled client-side tree. Convenience shape — not a wire type.
  * `depth` is 0 for roots and increments per level; used for indentation.
+ * `parent_name` is denormalized at tree-assembly time so flat-search results
+ * (which strip child links) can still render the `parent › child` breadcrumb
+ * chip beside the tag name without re-querying the source list.
  */
 export interface GenreHierarchyNode extends GenreHierarchyTag {
   depth: number
   children: GenreHierarchyNode[]
+  parent_name?: string | null
 }
 
 export function getCategoryColor(category: string): string {
