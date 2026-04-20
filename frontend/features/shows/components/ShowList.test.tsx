@@ -19,7 +19,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 const mockPush = vi.fn()
 const mockReplace = vi.fn()
 const mockSearchParams = vi.fn(() => ({
-  get: vi.fn(() => null),
+  get: vi.fn((_key: string): string | null => null),
 }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
@@ -126,7 +126,7 @@ describe('ShowList', () => {
       logout: vi.fn(),
     })
     mockSearchParams.mockReturnValue({
-      get: vi.fn(() => null),
+      get: vi.fn((_key: string): string | null => null),
     })
     mockUseShowCities.mockReturnValue({
       data: { cities: [] },

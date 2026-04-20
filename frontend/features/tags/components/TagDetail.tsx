@@ -375,17 +375,18 @@ function TagPill({ tag }: { tag: TagSummary }) {
 function TaggedEntitiesSection({ slug }: { slug: string }) {
   const { data, isLoading } = useTagEntities(slug, { limit: 200 })
 
+  const entities = data?.entities
   const grouped = useMemo(() => {
-    if (!data?.entities) return {}
+    if (!entities) return {}
     const groups: Record<string, TaggedEntityItem[]> = {}
-    for (const entity of data.entities) {
+    for (const entity of entities) {
       if (!groups[entity.entity_type]) {
         groups[entity.entity_type] = []
       }
       groups[entity.entity_type].push(entity)
     }
     return groups
-  }, [data?.entities])
+  }, [entities])
 
   const sortedTypes = useMemo(() => {
     return ENTITY_TYPE_ORDER.filter((t) => grouped[t]?.length)

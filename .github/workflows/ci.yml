@@ -137,6 +137,10 @@ jobs:
         working-directory: ./frontend
         run: bun install --frozen-lockfile
 
+      - name: Typecheck (tsc --noEmit)
+        working-directory: ./frontend
+        run: bun run typecheck
+
       - name: Run unit tests with coverage
         working-directory: ./frontend
         run: bun run test:coverage

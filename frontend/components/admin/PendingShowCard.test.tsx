@@ -41,6 +41,8 @@ function makeShow(overrides: Partial<ShowResponse> = {}): ShowResponse {
         slug: 'headliner',
         name: 'Headliner Band',
         is_headliner: true,
+        set_type: 'headliner',
+        position: 1,
         socials: {},
       },
       {
@@ -48,6 +50,8 @@ function makeShow(overrides: Partial<ShowResponse> = {}): ShowResponse {
         slug: 'opener',
         name: 'Opening Act',
         is_headliner: false,
+        set_type: 'opener',
+        position: 2,
         socials: {},
       },
     ],

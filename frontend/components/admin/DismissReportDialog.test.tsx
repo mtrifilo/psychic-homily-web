@@ -22,7 +22,12 @@ const baseReport: ShowReportResponse = {
   status: 'pending',
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
-  show: { id: 10, title: 'Test Show', slug: 'test-show' },
+  show: {
+    id: 10,
+    title: 'Test Show',
+    slug: 'test-show',
+    event_date: '2025-06-01T00:00:00Z',
+  },
 }
 
 describe('DismissReportDialog', () => {

@@ -60,6 +60,10 @@ function makeArtist(overrides: Partial<ArtistResponse> = {}): ArtistResponse {
     id: 1,
     slug: 'artist-one',
     name: 'Artist One',
+    // Default to a neutral set_type so tests can opt in to headliner status
+    // via `is_headliner: true` or `set_type: 'headliner'` per-case.
+    set_type: 'performer',
+    position: 1,
     socials: {},
     ...overrides,
   }

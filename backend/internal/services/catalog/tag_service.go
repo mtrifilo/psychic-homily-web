@@ -475,9 +475,19 @@ func (s *TagService) ListEntityTags(entityType string, entityID uint, userID uin
 			WilsonScore: wilsonScore(int(upvotes), int(downvotes)),
 		}
 
-		// Resolve username
+		// Attribution (PSY-479): always surface the FK + timestamp so the
+		// frontend can render a provenance line on the hover card. AddedBy
+		// is preloaded above; copy the loaded fields by value so the response
+		// owns its memory and the loop variable can be reused. Username is a
+		// pointer because some legacy/seed users have username=null — let the
+		// frontend distinguish that ("Source: system seed") from a real user.
+		addedByID := et.AddedByUserID
+		resp.AddedByUserID = &addedByID
+		addedAt := et.CreatedAt
+		resp.AddedAt = &addedAt
 		if et.AddedBy.Username != nil && *et.AddedBy.Username != "" {
-			resp.AddedByUsername = *et.AddedBy.Username
+			username := *et.AddedBy.Username
+			resp.AddedByUsername = &username
 		}
 
 		// Include user's vote if authenticated
