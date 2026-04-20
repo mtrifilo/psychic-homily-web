@@ -21,6 +21,16 @@ test.describe('Follow and attendance', () => {
   // run in parallel within this file.
   test.describe.configure({ mode: 'serial' })
 
+  // PSY-465 (temporary — revert after trace capture): override the global
+  // `trace: 'on-first-retry'` config so the FAILING attempt's trace is
+  // captured, not just the clean retry. The flake surfaces only on the
+  // first attempt (cold-load of /artists/[slug] → a child of ArtistDetail
+  // throws → route-level error boundary catches → the test times out).
+  // The retry renders cleanly, so `on-first-retry` captures nothing
+  // useful. Remove this line once the throwing component is identified
+  // and the defensive fix lands.
+  test.use({ trace: 'on' })
+
   // PSY-470: the in-test cleanup at the happy-path tail only runs when the
   // test passes. When a mid-test failure skips it (see PSY-465), the shared
   // reserved artist/show rows leak follower/attendance count into the next
