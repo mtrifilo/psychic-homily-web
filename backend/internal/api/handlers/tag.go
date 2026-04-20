@@ -738,6 +738,95 @@ func (h *TagHandler) ListAllAliasesHandler(ctx context.Context, req *ListAllAlia
 }
 
 // ============================================================================
+// Merge Tags Preview (admin)
+// ============================================================================
+
+type MergeTagsPreviewRequest struct {
+	SourceID string `path:"source_id" doc:"Source tag ID (will be merged away)" example:"1"`
+	TargetID uint   `query:"target_id" doc:"Target tag ID (survives the merge)" example:"2"`
+}
+
+type MergeTagsPreviewResponse struct {
+	Body *contracts.MergeTagsPreview
+}
+
+func (h *TagHandler) MergeTagsPreviewHandler(ctx context.Context, req *MergeTagsPreviewRequest) (*MergeTagsPreviewResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	if !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	sourceID, err := strconv.ParseUint(req.SourceID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid source tag ID")
+	}
+	if req.TargetID == 0 {
+		return nil, huma.Error400BadRequest("target_id is required")
+	}
+
+	preview, err := h.tagService.PreviewMergeTags(uint(sourceID), req.TargetID)
+	if err != nil {
+		mapped := mapTagError(err)
+		if mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error500InternalServerError("Failed to preview merge")
+	}
+
+	return &MergeTagsPreviewResponse{Body: preview}, nil
+}
+
+// ============================================================================
+// Merge Tags (admin)
+// ============================================================================
+
+type MergeTagsRequest struct {
+	SourceID string `path:"source_id" doc:"Source tag ID (will be merged away)" example:"1"`
+	Body     struct {
+		TargetID uint `json:"target_id" doc:"Target tag ID (survives the merge)"`
+	}
+}
+
+type MergeTagsResponse struct {
+	Body *contracts.MergeTagsResult
+}
+
+func (h *TagHandler) MergeTagsHandler(ctx context.Context, req *MergeTagsRequest) (*MergeTagsResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	if !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	sourceID, err := strconv.ParseUint(req.SourceID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid source tag ID")
+	}
+	if req.Body.TargetID == 0 {
+		return nil, huma.Error400BadRequest("target_id is required")
+	}
+
+	result, err := h.tagService.MergeTags(uint(sourceID), req.Body.TargetID, user.ID)
+	if err != nil {
+		mapped := mapTagError(err)
+		if mapped != nil {
+			return nil, mapped
+		}
+		requestID := logger.GetRequestID(ctx)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to merge tags (request_id: %s)", requestID),
+		)
+	}
+
+	return &MergeTagsResponse{Body: result}, nil
+}
+
+// ============================================================================
 // Bulk Import Aliases (admin)
 // ============================================================================
 
@@ -864,6 +953,10 @@ func mapTagError(err error) error {
 			return huma.Error403Forbidden(tagErr.Message)
 		case apperrors.CodeTagNameInvalid:
 			return huma.Error400BadRequest(tagErr.Message)
+		case apperrors.CodeTagMergeInvalid:
+			return huma.Error400BadRequest(tagErr.Message)
+		case apperrors.CodeTagMergeAliasConflict:
+			return huma.Error409Conflict(tagErr.Message)
 		}
 	}
 	return nil

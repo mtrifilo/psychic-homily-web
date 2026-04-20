@@ -13,6 +13,8 @@ const (
 	CodeEntityTagNotFound        = "ENTITY_TAG_NOT_FOUND"
 	CodeTagCreationForbidden     = "TAG_CREATION_FORBIDDEN"
 	CodeTagNameInvalid           = "TAG_NAME_INVALID"
+	CodeTagMergeInvalid          = "TAG_MERGE_INVALID"
+	CodeTagMergeAliasConflict    = "TAG_MERGE_ALIAS_CONFLICT"
 )
 
 // TagError represents a tag-related error with additional context.
@@ -96,5 +98,23 @@ func ErrTagNameInvalid(reason string) *TagError {
 	return &TagError{
 		Code:    CodeTagNameInvalid,
 		Message: fmt.Sprintf("Invalid tag name: %s", reason),
+	}
+}
+
+// ErrTagMergeInvalid creates an error for invalid merge operations
+// (self-merge, merging a tag into one of its aliases, etc.).
+func ErrTagMergeInvalid(reason string) *TagError {
+	return &TagError{
+		Code:    CodeTagMergeInvalid,
+		Message: fmt.Sprintf("Invalid tag merge: %s", reason),
+	}
+}
+
+// ErrTagMergeAliasConflict creates an error when a merge would produce
+// an alias collision that cannot be auto-resolved.
+func ErrTagMergeAliasConflict(alias string, existingTagID uint) *TagError {
+	return &TagError{
+		Code:    CodeTagMergeAliasConflict,
+		Message: fmt.Sprintf("Cannot merge: alias '%s' already points to tag %d", alias, existingTagID),
 	}
 }

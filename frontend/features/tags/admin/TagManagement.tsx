@@ -10,6 +10,7 @@ import {
   Inbox,
   Tags,
   X,
+  GitMerge,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,6 +28,7 @@ import {
 } from '@/components/ui/dialog'
 import { useTags, useTag } from '../hooks'
 import { AliasListing } from './AliasListing'
+import { MergeTagDialog } from './MergeTagDialog'
 import { TagOfficialIndicator } from '../components/TagOfficialIndicator'
 import {
   useCreateTag,
@@ -43,7 +45,7 @@ import {
   type TagCategory,
 } from '../types'
 
-type DialogMode = 'create' | 'edit' | 'delete' | null
+type DialogMode = 'create' | 'edit' | 'delete' | 'merge' | null
 
 // ============================================================================
 // Alias Manager Sub-Component
@@ -569,6 +571,12 @@ export function TagManagement() {
     setSelectedTagName(name)
   }, [])
 
+  const openMerge = useCallback((tagId: number, name: string) => {
+    setDialogMode('merge')
+    setSelectedTagId(tagId)
+    setSelectedTagName(name)
+  }, [])
+
   const closeDialog = useCallback(() => {
     setDialogMode(null)
     setSelectedTagId(null)
@@ -709,14 +717,25 @@ export function TagManagement() {
                     size="sm"
                     onClick={() => openEdit(tag.id)}
                     className="h-8 w-8 p-0"
+                    aria-label={`Edit ${tag.name}`}
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
+                    onClick={() => openMerge(tag.id, tag.name)}
+                    className="h-8 w-8 p-0"
+                    aria-label={`Merge ${tag.name}`}
+                  >
+                    <GitMerge className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => openDelete(tag.id, tag.name)}
                     className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                    aria-label={`Delete ${tag.name}`}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
@@ -770,6 +789,14 @@ export function TagManagement() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Merge Dialog */}
+      <MergeTagDialog
+        open={dialogMode === 'merge'}
+        sourceTagId={dialogMode === 'merge' ? selectedTagId : null}
+        sourceTagName={selectedTagName}
+        onClose={closeDialog}
+      />
 
       {/* Delete Dialog */}
       <Dialog

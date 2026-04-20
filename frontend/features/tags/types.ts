@@ -183,6 +183,27 @@ export interface BulkAliasImportResult {
   skipped: BulkAliasImportSkipped[]
 }
 
+/** Preview of a merge — returned by GET /admin/tags/{source_id}/merge-preview */
+export interface MergeTagsPreview {
+  moved_entity_tags: number
+  moved_votes: number
+  skipped_entity_tags: number
+  skipped_votes: number
+  source_aliases_count: number
+  source_name: string
+  target_name: string
+}
+
+/** Result of a completed merge — returned by POST /admin/tags/{source_id}/merge */
+export interface MergeTagsResult {
+  moved_entity_tags: number
+  moved_votes: number
+  skipped_entity_tags: number
+  skipped_votes: number
+  alias_created: boolean
+  moved_aliases: number
+}
+
 export function getCategoryColor(category: string): string {
   const colors: Record<string, string> = {
     genre: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
