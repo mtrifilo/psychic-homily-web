@@ -10,23 +10,10 @@ test.describe('Favorite venue', () => {
   // Tests share DB state (same user favoriting/unfavoriting the same venue),
   // so they must not run in parallel
   test.describe.configure({ mode: 'serial' })
-  test('favorite button is hidden when not authenticated', async ({
-    page,
-  }) => {
-    await page.goto(RESERVED_VENUE_URL)
 
-    // Wait for venue detail to load
-    await expect(
-      page.getByRole('heading', { level: 1, name: RESERVED_VENUE_NAME })
-    ).toBeVisible({ timeout: 10_000 })
-
-    // Favorite button should NOT be visible when unauthenticated
-    await expect(
-      page.getByRole('button', {
-        name: /add to favorites|remove from favorites/i,
-      })
-    ).not.toBeVisible()
-  })
+  // PSY-434 Layer-5 audit: the unauthenticated "button hidden" case is
+  // already covered by `FavoriteVenueButton.test.tsx:47` ("renders nothing
+  // when not authenticated"). The E2E version was pure duplication at ~7 s.
 
   test('can favorite and unfavorite a venue from detail page', { tag: '@smoke' }, async ({
     authenticatedPage,
