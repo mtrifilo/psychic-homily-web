@@ -112,6 +112,14 @@ export interface EntityTag {
   wilson_score: number
   user_vote?: number | null
   added_by_username?: string
+  /**
+   * UTC timestamp indicating when the tag was applied to the entity. Optional
+   * because the /entities/{type}/{id}/tags endpoint does not currently return
+   * it (PSY-441 limited work to frontend — no API changes). Typed here so the
+   * pill hover card can surface a relative timestamp once the backend exposes
+   * it without a type refactor.
+   */
+  added_at?: string
 }
 
 export interface TagAlias {
