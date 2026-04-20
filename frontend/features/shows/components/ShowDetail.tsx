@@ -149,8 +149,8 @@ export function ShowDetail({ showId }: ShowDetailProps) {
 
       {/* Header */}
       <header className="mb-8">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div className="flex-1 min-w-0">
             {/* Date and Status Badges */}
             <div className="flex items-center gap-2 mb-2">
               <span className="text-lg font-bold text-primary">
@@ -290,11 +290,11 @@ export function ShowDetail({ showId }: ShowDetailProps) {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex flex-col items-end gap-2 shrink-0">
+          <div className="flex flex-col items-start sm:items-end gap-2 sm:shrink-0">
             {/* Attendance (Going/Interested) */}
             <AttendanceButton showId={show.id} compact={false} />
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <SaveButton showId={show.id} variant="outline" size="sm" />
               <AddToCollectionButton
                 entityType="show"

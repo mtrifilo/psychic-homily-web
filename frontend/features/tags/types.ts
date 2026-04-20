@@ -5,6 +5,21 @@ export const TAG_CATEGORIES = [
 ] as const
 export type TagCategory = typeof TAG_CATEGORIES[number]
 
+// Sort options for the tag browse page. Values are the URL-facing slugs;
+// `backend` is the value passed to the /tags `sort` query param.
+export type TagSortOption = 'popularity' | 'alphabetical' | 'newest'
+
+export const TAG_SORT_OPTIONS: { value: TagSortOption; label: string; backend: string }[] = [
+  { value: 'popularity', label: 'Popularity', backend: 'usage' },
+  { value: 'alphabetical', label: 'Alphabetical', backend: 'name' },
+  { value: 'newest', label: 'Newest', backend: 'created' },
+]
+
+export const DEFAULT_TAG_SORT: TagSortOption = 'popularity'
+
+export type TagView = 'grid' | 'cloud'
+export const DEFAULT_TAG_VIEW: TagView = 'grid'
+
 export const TAG_ENTITY_TYPES = [
   'artist', 'release', 'label', 'show', 'venue', 'festival'
 ] as const
@@ -132,6 +147,40 @@ export interface TagEntitiesResponse {
 
 export interface TagAliasesResponse {
   aliases: TagAlias[]
+}
+
+/** Global alias listing row — alias paired with its canonical tag (admin view). */
+export interface TagAliasListing {
+  id: number
+  alias: string
+  tag_id: number
+  tag_name: string
+  tag_slug: string
+  tag_category: string
+  tag_is_official: boolean
+  created_at: string
+}
+
+export interface TagAliasListingResponse {
+  aliases: TagAliasListing[]
+  total: number
+}
+
+export interface BulkAliasImportItem {
+  alias: string
+  canonical: string
+}
+
+export interface BulkAliasImportSkipped {
+  row: number
+  alias: string
+  canonical: string
+  reason: string
+}
+
+export interface BulkAliasImportResult {
+  imported: number
+  skipped: BulkAliasImportSkipped[]
 }
 
 export function getCategoryColor(category: string): string {

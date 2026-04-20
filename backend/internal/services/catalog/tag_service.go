@@ -629,6 +629,161 @@ func (s *TagService) ListAliases(tagID uint) ([]models.TagAlias, error) {
 	return aliases, nil
 }
 
+// ListAllAliases returns aliases across all tags paired with their canonical
+// tag info. Supports a case-insensitive substring search against either the
+// alias text or the canonical tag name. Default limit 50, max 500.
+func (s *TagService) ListAllAliases(search string, limit, offset int) ([]contracts.TagAliasListing, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	query := s.db.
+		Table("tag_aliases AS ta").
+		Joins("JOIN tags AS t ON t.id = ta.tag_id")
+
+	if search != "" {
+		pattern := "%" + strings.ToLower(search) + "%"
+		query = query.Where("LOWER(ta.alias) LIKE ? OR LOWER(t.name) LIKE ?", pattern, pattern)
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count aliases: %w", err)
+	}
+
+	var items []contracts.TagAliasListing
+	err := query.
+		Select(`ta.id AS id,
+			ta.alias AS alias,
+			ta.tag_id AS tag_id,
+			t.name AS tag_name,
+			t.slug AS tag_slug,
+			t.category AS tag_category,
+			t.is_official AS tag_is_official,
+			ta.created_at AS created_at`).
+		Order("ta.alias ASC").
+		Limit(limit).
+		Offset(offset).
+		Scan(&items).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list aliases: %w", err)
+	}
+
+	if items == nil {
+		items = []contracts.TagAliasListing{}
+	}
+	return items, total, nil
+}
+
+// BulkImportAliases imports a list of `{alias, canonical}` pairs in one call.
+// `canonical` is resolved by slug or exact name (case-insensitive). Rows with
+// unknown canonicals, empty fields, or aliases that collide with existing
+// aliases/tag-names are skipped and reported so the admin can see what went
+// wrong. Within the same batch, earlier rows take precedence over later rows
+// that would collide with them.
+func (s *TagService) BulkImportAliases(items []contracts.BulkAliasImportItem) (*contracts.BulkAliasImportResult, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	result := &contracts.BulkAliasImportResult{Skipped: []contracts.BulkAliasImportSkipped{}}
+	seenInBatch := map[string]struct{}{}
+
+	for i, item := range items {
+		row := i + 1
+		alias := strings.TrimSpace(item.Alias)
+		canonical := strings.TrimSpace(item.Canonical)
+
+		if alias == "" || canonical == "" {
+			result.Skipped = append(result.Skipped, contracts.BulkAliasImportSkipped{
+				Row:       row,
+				Alias:     alias,
+				Canonical: canonical,
+				Reason:    "alias and canonical are required",
+			})
+			continue
+		}
+
+		aliasLower := strings.ToLower(alias)
+		if _, dup := seenInBatch[aliasLower]; dup {
+			result.Skipped = append(result.Skipped, contracts.BulkAliasImportSkipped{
+				Row:       row,
+				Alias:     alias,
+				Canonical: canonical,
+				Reason:    "duplicate alias in batch",
+			})
+			continue
+		}
+
+		var tag models.Tag
+		err := s.db.Where("LOWER(slug) = LOWER(?) OR LOWER(name) = LOWER(?)", canonical, canonical).
+			First(&tag).Error
+		if err != nil {
+			if err == gorm.ErrRecordNotFound {
+				result.Skipped = append(result.Skipped, contracts.BulkAliasImportSkipped{
+					Row:       row,
+					Alias:     alias,
+					Canonical: canonical,
+					Reason:    fmt.Sprintf("canonical tag '%s' not found", canonical),
+				})
+				continue
+			}
+			return nil, fmt.Errorf("failed to resolve canonical tag: %w", err)
+		}
+
+		var existingAlias models.TagAlias
+		if err := s.db.Where("LOWER(alias) = LOWER(?)", alias).First(&existingAlias).Error; err == nil {
+			reason := fmt.Sprintf("alias already maps to tag ID %d", existingAlias.TagID)
+			if existingAlias.TagID == tag.ID {
+				reason = "alias already exists for this tag"
+			}
+			result.Skipped = append(result.Skipped, contracts.BulkAliasImportSkipped{
+				Row:       row,
+				Alias:     alias,
+				Canonical: canonical,
+				Reason:    reason,
+			})
+			continue
+		}
+
+		var nameConflict models.Tag
+		if err := s.db.Where("LOWER(name) = LOWER(?)", alias).First(&nameConflict).Error; err == nil {
+			result.Skipped = append(result.Skipped, contracts.BulkAliasImportSkipped{
+				Row:       row,
+				Alias:     alias,
+				Canonical: canonical,
+				Reason:    "alias collides with existing tag name",
+			})
+			continue
+		}
+
+		if err := s.db.Create(&models.TagAlias{TagID: tag.ID, Alias: alias}).Error; err != nil {
+			result.Skipped = append(result.Skipped, contracts.BulkAliasImportSkipped{
+				Row:       row,
+				Alias:     alias,
+				Canonical: canonical,
+				Reason:    fmt.Sprintf("create failed: %v", err),
+			})
+			continue
+		}
+
+		seenInBatch[aliasLower] = struct{}{}
+		result.Imported++
+	}
+
+	return result, nil
+}
+
 // ResolveAlias resolves an alias to its canonical tag.
 func (s *TagService) ResolveAlias(alias string) (*models.Tag, error) {
 	if s.db == nil {

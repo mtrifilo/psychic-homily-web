@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 type TagHandlerIntegrationSuite struct {
@@ -1391,4 +1392,116 @@ func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_VenueType() {
 	s.NoError(err)
 	s.Len(listResp.Body.Tags, 1)
 	s.Equal("intimate", listResp.Body.Tags[0].Name)
+}
+
+// ============================================================================
+// ListAllAliasesHandler + BulkImportAliasesHandler (PSY-307)
+// ============================================================================
+
+func (s *TagHandlerIntegrationSuite) TestListAllAliases_AdminOnly() {
+	user := createTestUser(s.deps.db)
+	ctx := ctxWithUser(user)
+
+	_, err := s.handler.ListAllAliasesHandler(ctx, &ListAllAliasesRequest{})
+	s.Error(err)
+	s.Contains(err.Error(), "Admin")
+}
+
+func (s *TagHandlerIntegrationSuite) TestListAllAliases_Unauthenticated() {
+	_, err := s.handler.ListAllAliasesHandler(s.deps.ctx, &ListAllAliasesRequest{})
+	s.Error(err)
+}
+
+func (s *TagHandlerIntegrationSuite) TestListAllAliases_ReturnsAllWithCanonicalInfo() {
+	admin := createAdminUser(s.deps.db)
+	ctx := ctxWithUser(admin)
+	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+
+	aliasReq := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
+	aliasReq.Body.Alias = "postpunk"
+	_, err := s.handler.CreateAliasHandler(ctx, aliasReq)
+	s.Require().NoError(err)
+
+	resp, err := s.handler.ListAllAliasesHandler(ctx, &ListAllAliasesRequest{})
+	s.NoError(err)
+	s.Equal(int64(1), resp.Body.Total)
+	s.Require().Len(resp.Body.Aliases, 1)
+	s.Equal("postpunk", resp.Body.Aliases[0].Alias)
+	s.Equal("post-punk", resp.Body.Aliases[0].TagName)
+	s.Equal(tag.Body.ID, resp.Body.Aliases[0].TagID)
+}
+
+func (s *TagHandlerIntegrationSuite) TestListAllAliases_SearchFilter() {
+	admin := createAdminUser(s.deps.db)
+	ctx := ctxWithUser(admin)
+	tagA := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tagB := s.createTagViaHandler(admin, "hip-hop", models.TagCategoryGenre)
+
+	aliasReqA := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tagA.Body.ID)}
+	aliasReqA.Body.Alias = "postpunk"
+	_, err := s.handler.CreateAliasHandler(ctx, aliasReqA)
+	s.Require().NoError(err)
+
+	aliasReqB := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tagB.Body.ID)}
+	aliasReqB.Body.Alias = "hiphop"
+	_, err = s.handler.CreateAliasHandler(ctx, aliasReqB)
+	s.Require().NoError(err)
+
+	resp, err := s.handler.ListAllAliasesHandler(ctx, &ListAllAliasesRequest{Search: "hip"})
+	s.NoError(err)
+	s.Equal(int64(1), resp.Body.Total)
+	s.Require().Len(resp.Body.Aliases, 1)
+	s.Equal("hiphop", resp.Body.Aliases[0].Alias)
+}
+
+func (s *TagHandlerIntegrationSuite) TestBulkImportAliases_AdminOnly() {
+	user := createTestUser(s.deps.db)
+	ctx := ctxWithUser(user)
+
+	req := &BulkImportAliasesRequest{}
+	req.Body.Items = []contracts.BulkAliasImportItem{{Alias: "x", Canonical: "y"}}
+	_, err := s.handler.BulkImportAliasesHandler(ctx, req)
+	s.Error(err)
+	s.Contains(err.Error(), "Admin")
+}
+
+func (s *TagHandlerIntegrationSuite) TestBulkImportAliases_EmptyRejected() {
+	admin := createAdminUser(s.deps.db)
+	ctx := ctxWithUser(admin)
+
+	req := &BulkImportAliasesRequest{}
+	_, err := s.handler.BulkImportAliasesHandler(ctx, req)
+	s.Error(err)
+}
+
+func (s *TagHandlerIntegrationSuite) TestBulkImportAliases_TooLargeRejected() {
+	admin := createAdminUser(s.deps.db)
+	ctx := ctxWithUser(admin)
+
+	req := &BulkImportAliasesRequest{}
+	req.Body.Items = make([]contracts.BulkAliasImportItem, maxBulkAliasImportRows+1)
+	for i := range req.Body.Items {
+		req.Body.Items[i] = contracts.BulkAliasImportItem{Alias: fmt.Sprintf("a%d", i), Canonical: "x"}
+	}
+	_, err := s.handler.BulkImportAliasesHandler(ctx, req)
+	s.Error(err)
+	s.Contains(err.Error(), "max")
+}
+
+func (s *TagHandlerIntegrationSuite) TestBulkImportAliases_MixedResultSummary() {
+	admin := createAdminUser(s.deps.db)
+	ctx := ctxWithUser(admin)
+	s.createTagViaHandler(admin, "drum-and-bass", models.TagCategoryGenre)
+
+	req := &BulkImportAliasesRequest{}
+	req.Body.Items = []contracts.BulkAliasImportItem{
+		{Alias: "dnb", Canonical: "drum-and-bass"},
+		{Alias: "foo", Canonical: "nonexistent"},
+	}
+	resp, err := s.handler.BulkImportAliasesHandler(ctx, req)
+	s.NoError(err)
+	s.Equal(1, resp.Body.Imported)
+	s.Require().Len(resp.Body.Skipped, 1)
+	s.Equal(2, resp.Body.Skipped[0].Row)
+	s.Equal("foo", resp.Body.Skipped[0].Alias)
 }

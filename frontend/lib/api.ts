@@ -286,6 +286,8 @@ export const API_ENDPOINTS = {
     ALIASES: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}/aliases`,
     DELETE_ALIAS: (tagId: number, aliasId: number) => `${API_BASE_URL}/tags/${tagId}/aliases/${aliasId}`,
     ENTITIES: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}/entities`,
+    ADMIN_ALIASES_ALL: `${API_BASE_URL}/admin/tags/aliases`,
+    ADMIN_ALIASES_BULK: `${API_BASE_URL}/admin/tags/aliases/bulk`,
   },
 
   // Entity tag endpoints

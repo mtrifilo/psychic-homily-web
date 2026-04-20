@@ -23,6 +23,7 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { useCommandPalette } from '@/lib/hooks/common/useCommandPalette'
 import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
+import { TagOfficialIndicator } from '@/features/tags'
 
 interface RouteItem {
   label: string
@@ -490,8 +491,13 @@ export function CommandPalette() {
                   keywords={[result.name]}
                 >
                   <Icon className="h-4 w-4 text-muted-foreground" />
-                  <div className="flex flex-col gap-0.5 min-w-0">
-                    <span className="truncate">{result.name}</span>
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="inline-flex items-center gap-1.5 truncate">
+                      <span className="truncate">{result.name}</span>
+                      {result.entityType === 'tag' && result.isOfficial && (
+                        <TagOfficialIndicator size="sm" tagName={result.name} />
+                      )}
+                    </span>
                     {result.subtitle && (
                       <span className="text-xs text-muted-foreground truncate">
                         {result.subtitle}

@@ -11,6 +11,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -1279,6 +1280,183 @@ func TestNormalizeTagName(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+// ──────────────────────────────────────────────
+// Global Alias Listing / Bulk Import (PSY-307)
+// ──────────────────────────────────────────────
+
+func (suite *TagServiceIntegrationTestSuite) TestListAllAliases_EmptyReturnsEmptySlice() {
+	items, total, err := suite.tagService.ListAllAliases("", 50, 0)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(int64(0), total)
+	suite.Assert().NotNil(items)
+	suite.Assert().Len(items, 0)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestListAllAliases_ReturnsCanonicalInfo() {
+	tag := suite.createTag("post-punk", "genre")
+	_, err := suite.tagService.CreateAlias(tag.ID, "postpunk")
+	suite.Require().NoError(err)
+
+	items, total, err := suite.tagService.ListAllAliases("", 50, 0)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(int64(1), total)
+	suite.Require().Len(items, 1)
+	suite.Assert().Equal("postpunk", items[0].Alias)
+	suite.Assert().Equal(tag.ID, items[0].TagID)
+	suite.Assert().Equal("post-punk", items[0].TagName)
+	suite.Assert().Equal(tag.Slug, items[0].TagSlug)
+	suite.Assert().Equal("genre", items[0].TagCategory)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestListAllAliases_SearchByAlias() {
+	tagA := suite.createTag("post-punk", "genre")
+	tagB := suite.createTag("hip-hop", "genre")
+	suite.tagService.CreateAlias(tagA.ID, "postpunk")
+	suite.tagService.CreateAlias(tagB.ID, "hiphop")
+
+	items, total, err := suite.tagService.ListAllAliases("post", 50, 0)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(int64(1), total)
+	suite.Require().Len(items, 1)
+	suite.Assert().Equal("postpunk", items[0].Alias)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestListAllAliases_SearchByCanonicalName() {
+	tagA := suite.createTag("post-punk", "genre")
+	tagB := suite.createTag("hip-hop", "genre")
+	suite.tagService.CreateAlias(tagA.ID, "xyz")
+	suite.tagService.CreateAlias(tagB.ID, "abc")
+
+	items, total, err := suite.tagService.ListAllAliases("hip", 50, 0)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(int64(1), total)
+	suite.Require().Len(items, 1)
+	suite.Assert().Equal("abc", items[0].Alias)
+	suite.Assert().Equal("hip-hop", items[0].TagName)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestListAllAliases_Pagination() {
+	tag := suite.createTag("punk", "genre")
+	for _, a := range []string{"a-alias", "b-alias", "c-alias", "d-alias", "e-alias"} {
+		_, err := suite.tagService.CreateAlias(tag.ID, a)
+		suite.Require().NoError(err)
+	}
+
+	items, total, err := suite.tagService.ListAllAliases("", 2, 0)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(int64(5), total)
+	suite.Require().Len(items, 2)
+	suite.Assert().Equal("a-alias", items[0].Alias)
+	suite.Assert().Equal("b-alias", items[1].Alias)
+
+	items2, _, err := suite.tagService.ListAllAliases("", 2, 2)
+	suite.Require().NoError(err)
+	suite.Require().Len(items2, 2)
+	suite.Assert().Equal("c-alias", items2[0].Alias)
+	suite.Assert().Equal("d-alias", items2[1].Alias)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestBulkImportAliases_AllValid() {
+	tagA := suite.createTag("drum-and-bass", "genre")
+	tagB := suite.createTag("hip-hop", "genre")
+
+	items := []contracts.BulkAliasImportItem{
+		{Alias: "dnb", Canonical: "drum-and-bass"},
+		{Alias: "d&b", Canonical: "drum-and-bass"},
+		{Alias: "hiphop", Canonical: "hip-hop"},
+	}
+	result, err := suite.tagService.BulkImportAliases(items)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(3, result.Imported)
+	suite.Assert().Len(result.Skipped, 0)
+
+	aliasesA, _ := suite.tagService.ListAliases(tagA.ID)
+	suite.Assert().Len(aliasesA, 2)
+	aliasesB, _ := suite.tagService.ListAliases(tagB.ID)
+	suite.Assert().Len(aliasesB, 1)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestBulkImportAliases_MixedValidAndInvalid() {
+	suite.createTag("drum-and-bass", "genre")
+
+	items := []contracts.BulkAliasImportItem{
+		{Alias: "dnb", Canonical: "drum-and-bass"},
+		{Alias: "cheddar", Canonical: "nonexistent-genre"},
+		{Alias: "d&b", Canonical: "drum-and-bass"},
+		{Alias: "", Canonical: "drum-and-bass"},
+	}
+	result, err := suite.tagService.BulkImportAliases(items)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(2, result.Imported)
+	suite.Require().Len(result.Skipped, 2)
+	suite.Assert().Equal(2, result.Skipped[0].Row)
+	suite.Assert().Contains(result.Skipped[0].Reason, "nonexistent-genre")
+	suite.Assert().Equal(4, result.Skipped[1].Row)
+	suite.Assert().Contains(result.Skipped[1].Reason, "required")
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestBulkImportAliases_DuplicateInBatch() {
+	suite.createTag("drum-and-bass", "genre")
+
+	items := []contracts.BulkAliasImportItem{
+		{Alias: "dnb", Canonical: "drum-and-bass"},
+		{Alias: "DNB", Canonical: "drum-and-bass"},
+	}
+	result, err := suite.tagService.BulkImportAliases(items)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(1, result.Imported)
+	suite.Require().Len(result.Skipped, 1)
+	suite.Assert().Equal(2, result.Skipped[0].Row)
+	suite.Assert().Contains(result.Skipped[0].Reason, "duplicate alias in batch")
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestBulkImportAliases_AliasAlreadyExists() {
+	tagA := suite.createTag("drum-and-bass", "genre")
+	suite.tagService.CreateAlias(tagA.ID, "dnb")
+
+	items := []contracts.BulkAliasImportItem{
+		{Alias: "dnb", Canonical: "drum-and-bass"},
+	}
+	result, err := suite.tagService.BulkImportAliases(items)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(0, result.Imported)
+	suite.Require().Len(result.Skipped, 1)
+	suite.Assert().Contains(result.Skipped[0].Reason, "alias already exists")
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestBulkImportAliases_CollidesWithTagName() {
+	suite.createTag("punk", "genre")
+	suite.createTag("rock", "genre")
+
+	items := []contracts.BulkAliasImportItem{
+		{Alias: "rock", Canonical: "punk"},
+	}
+	result, err := suite.tagService.BulkImportAliases(items)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(0, result.Imported)
+	suite.Require().Len(result.Skipped, 1)
+	suite.Assert().Contains(result.Skipped[0].Reason, "collides with existing tag name")
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestBulkImportAliases_CanonicalBySlug() {
+	tag := suite.createTag("Drum And Bass", "genre")
+	suite.Assert().Equal("drum-and-bass", tag.Slug)
+
+	items := []contracts.BulkAliasImportItem{
+		{Alias: "dnb", Canonical: "drum-and-bass"},
+	}
+	result, err := suite.tagService.BulkImportAliases(items)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(1, result.Imported)
+}
+
+func (suite *TagServiceIntegrationTestSuite) TestBulkImportAliases_EmptyList() {
+	result, err := suite.tagService.BulkImportAliases([]contracts.BulkAliasImportItem{})
+	suite.Require().NoError(err)
+	suite.Assert().Equal(0, result.Imported)
+	suite.Assert().Len(result.Skipped, 0)
 }
 
 // ──────────────────────────────────────────────

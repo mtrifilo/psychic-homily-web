@@ -3,7 +3,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
-import type { TagDetailResponse, TagAliasesResponse } from '../types'
+import type {
+  TagDetailResponse,
+  TagAliasesResponse,
+  TagAliasListingResponse,
+  BulkAliasImportItem,
+  BulkAliasImportResult,
+} from '../types'
 
 // ──────────────────────────────────────────────
 // Queries
@@ -135,6 +141,48 @@ export function useDeleteAlias() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.tags.detail(variables.tagId),
       })
+    },
+  })
+}
+
+interface ListAllAliasesParams {
+  search?: string
+  limit?: number
+  offset?: number
+}
+
+/** Fetch all aliases across all tags (admin global listing) */
+export function useAllTagAliases(params: ListAllAliasesParams = {}) {
+  const qs = new URLSearchParams()
+  if (params.search) qs.set('search', params.search)
+  if (params.limit !== undefined) qs.set('limit', String(params.limit))
+  if (params.offset !== undefined) qs.set('offset', String(params.offset))
+  const url = `${API_ENDPOINTS.TAGS.ADMIN_ALIASES_ALL}${qs.toString() ? `?${qs.toString()}` : ''}`
+
+  const keyParams: Record<string, unknown> = { ...params }
+
+  return useQuery({
+    queryKey: queryKeys.tags.allAliases(keyParams),
+    queryFn: () => apiRequest<TagAliasListingResponse>(url),
+    staleTime: 30 * 1000,
+  })
+}
+
+/** Bulk import aliases (admin only). Input is already-parsed rows. */
+export function useBulkImportAliases() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (items: BulkAliasImportItem[]) =>
+      apiRequest<BulkAliasImportResult>(
+        API_ENDPOINTS.TAGS.ADMIN_ALIASES_BULK,
+        {
+          method: 'POST',
+          body: JSON.stringify({ items }),
+        }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tags', 'aliases'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
     },
   })
 }

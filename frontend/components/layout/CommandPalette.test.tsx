@@ -35,20 +35,38 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext,
 }))
 
-// Mock the entity search hook to avoid real API calls in basic tests
+// Mock the entity search hook to avoid real API calls in basic tests.
+// `mockEntitySearchResult` lets individual tests seed tag/entity results
+// without refactoring module-level mocks.
+type MockedEntitySearchData = {
+  artists: unknown[]
+  venues: unknown[]
+  releases: unknown[]
+  labels: unknown[]
+  festivals: unknown[]
+  tags: unknown[]
+}
+const emptyEntityData: MockedEntitySearchData = {
+  artists: [],
+  venues: [],
+  releases: [],
+  labels: [],
+  festivals: [],
+  tags: [],
+}
+let mockEntitySearchResult: {
+  data: MockedEntitySearchData
+  isSearching: boolean
+  totalResults: number
+  isFetching: boolean
+} = {
+  data: emptyEntityData,
+  isSearching: false,
+  totalResults: 0,
+  isFetching: false,
+}
 vi.mock('@/lib/hooks/common/useEntitySearch', () => ({
-  useEntitySearch: () => ({
-    data: {
-      artists: [],
-      venues: [],
-      releases: [],
-      labels: [],
-      festivals: [],
-    },
-    isSearching: false,
-    totalResults: 0,
-    isFetching: false,
-  }),
+  useEntitySearch: () => mockEntitySearchResult,
 }))
 
 describe('CommandPalette', () => {
@@ -57,6 +75,12 @@ describe('CommandPalette', () => {
     localStorage.clear()
     mockAuthContext.user = null
     mockAuthContext.isAuthenticated = false
+    mockEntitySearchResult = {
+      data: emptyEntityData,
+      isSearching: false,
+      totalResults: 0,
+      isFetching: false,
+    }
   })
 
   it('should open on Cmd+K', async () => {
@@ -227,5 +251,65 @@ describe('CommandPalette', () => {
     })
 
     expect(screen.getByPlaceholderText('Search entities or go to page...')).toBeInTheDocument()
+  })
+})
+
+describe('CommandPalette — tag row official indicator (PSY-453)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    mockAuthContext.user = null
+    mockAuthContext.isAuthenticated = false
+  })
+
+  it('renders the shared official indicator on official tag rows only', async () => {
+    const user = userEvent.setup()
+    mockEntitySearchResult = {
+      data: {
+        artists: [],
+        venues: [],
+        releases: [],
+        labels: [],
+        festivals: [],
+        tags: [
+          {
+            id: 1,
+            slug: 'shoegaze',
+            name: 'shoegaze',
+            subtitle: 'Genre',
+            entityType: 'tag',
+            href: '/tags/shoegaze',
+            isOfficial: true,
+          },
+          {
+            id: 2,
+            slug: 'dreampop',
+            name: 'dreampop',
+            subtitle: 'Genre',
+            entityType: 'tag',
+            href: '/tags/dreampop',
+            isOfficial: false,
+          },
+        ],
+      },
+      isSearching: false,
+      totalResults: 2,
+      isFetching: false,
+    }
+
+    renderWithProviders(<CommandPalette />)
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+
+    const input = screen.getByPlaceholderText('Search entities or go to page...')
+    await user.type(input, 'sho')
+
+    const markers = screen.getAllByRole('img', { name: 'Official tag' })
+    expect(markers).toHaveLength(1)
+    expect(markers[0]).toHaveAttribute('title', 'shoegaze (Official)')
   })
 })

@@ -10,13 +10,13 @@ import {
   Inbox,
   Tags,
   X,
-  BadgeCheck,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -26,6 +26,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { useTags, useTag } from '../hooks'
+import { AliasListing } from './AliasListing'
+import { TagOfficialIndicator } from '../components/TagOfficialIndicator'
 import {
   useCreateTag,
   useUpdateTag,
@@ -575,7 +577,6 @@ export function TagManagement() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold flex items-center gap-2">
@@ -586,11 +587,21 @@ export function TagManagement() {
             Create, edit, and manage tags and aliases.
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="mr-2 h-4 w-4" />
-          New Tag
-        </Button>
       </div>
+
+      <Tabs defaultValue="tags" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="tags">Tags</TabsTrigger>
+          <TabsTrigger value="aliases">Aliases</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="tags" className="space-y-4">
+          <div className="flex items-center justify-end">
+            <Button onClick={openCreate}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Tag
+            </Button>
+          </div>
 
       {/* Filters */}
       <div className="flex items-center gap-3">
@@ -680,7 +691,7 @@ export function TagManagement() {
                       {getCategoryLabel(tag.category)}
                     </Badge>
                     {tag.is_official && (
-                      <BadgeCheck className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+                      <TagOfficialIndicator size="sm" tagName={tag.name} />
                     )}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
@@ -715,6 +726,12 @@ export function TagManagement() {
           </div>
         </>
       )}
+        </TabsContent>
+
+        <TabsContent value="aliases">
+          <AliasListing />
+        </TabsContent>
+      </Tabs>
 
       {/* Create Dialog */}
       <Dialog

@@ -277,6 +277,7 @@ export const queryKeys = {
     detail: (idOrSlug: string | number) => ['tags', 'detail', String(idOrSlug)] as const,
     enrichedDetail: (idOrSlug: string | number) => ['tags', 'detail', 'enriched', String(idOrSlug)] as const,
     aliases: (tagId: number) => ['tags', 'aliases', tagId] as const,
+    allAliases: (params?: Record<string, unknown>) => ['tags', 'aliases', 'all', params] as const,
     entityTags: (entityType: string, entityId: number) => ['tags', 'entityTags', entityType, entityId] as const,
     tagEntities: (idOrSlug: string | number, params?: Record<string, unknown>) => ['tags', 'tagEntities', String(idOrSlug), params] as const,
   },
