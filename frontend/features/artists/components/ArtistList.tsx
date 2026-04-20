@@ -195,6 +195,7 @@ export function ArtistList() {
           onToggle={handleTagsChange}
           onClear={handleTagsClear}
           title="Filter artists by tag"
+          entityType="artist"
         />
         <DensityToggle density={density} onDensityChange={setDensity} />
       </div>
@@ -206,6 +207,7 @@ export function ArtistList() {
             onToggle={handleTagsChange}
             onClear={handleTagsClear}
             heading="Filter artists by tag"
+            entityType="artist"
           />
         </aside>
 

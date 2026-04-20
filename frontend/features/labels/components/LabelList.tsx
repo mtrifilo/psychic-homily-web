@@ -150,6 +150,7 @@ export function LabelList() {
           onToggle={handleTagsChange}
           onClear={handleTagsClear}
           title="Filter labels by tag"
+          entityType="label"
         />
         <DensityToggle density={density} onDensityChange={setDensity} />
       </div>
@@ -161,6 +162,7 @@ export function LabelList() {
             onToggle={handleTagsChange}
             onClear={handleTagsClear}
             heading="Filter labels by tag"
+            entityType="label"
           />
         </aside>
 

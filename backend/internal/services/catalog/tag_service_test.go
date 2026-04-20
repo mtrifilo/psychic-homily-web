@@ -221,7 +221,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_All() {
 	suite.createTag("jazz", "genre")
 	suite.createTag("1990s", "other")
 
-	tags, total, err := suite.tagService.ListTags("", "", nil, "name", 50, 0)
+	tags, total, err := suite.tagService.ListTags("", "", nil, "name", 50, 0, "")
 	suite.Require().NoError(err)
 	suite.Assert().Equal(int64(3), total)
 	suite.Assert().Len(tags, 3)
@@ -232,7 +232,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_FilterByCategory() {
 	suite.createTag("jazz", "genre")
 	suite.createTag("1990s", "other")
 
-	tags, total, err := suite.tagService.ListTags("genre", "", nil, "name", 50, 0)
+	tags, total, err := suite.tagService.ListTags("genre", "", nil, "name", 50, 0, "")
 	suite.Require().NoError(err)
 	suite.Assert().Equal(int64(2), total)
 	suite.Assert().Len(tags, 2)
@@ -243,7 +243,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_Search() {
 	suite.createTag("post-rock", "genre")
 	suite.createTag("jazz", "genre")
 
-	tags, total, err := suite.tagService.ListTags("", "post", nil, "name", 50, 0)
+	tags, total, err := suite.tagService.ListTags("", "post", nil, "name", 50, 0, "")
 	suite.Require().NoError(err)
 	suite.Assert().Equal(int64(2), total)
 	suite.Assert().Len(tags, 2)
@@ -255,11 +255,148 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_FilterByParent() {
 	// Make post-rock a child of rock
 	suite.tagService.CreateTag("post-rock", nil, &parent.ID, "genre", false, nil)
 
-	tags, total, err := suite.tagService.ListTags("", "", &parent.ID, "name", 50, 0)
+	tags, total, err := suite.tagService.ListTags("", "", &parent.ID, "name", 50, 0, "")
 	suite.Require().NoError(err)
 	suite.Assert().Equal(int64(1), total)
 	suite.Assert().Len(tags, 1)
 	suite.Assert().Equal("post-rock", tags[0].Name)
+}
+
+// TestListTags_EntityTypeScopedCounts verifies PSY-484: when entity_type is
+// supplied, each tag's UsageCount in the response is the number of entity_tags
+// rows for that tag *and* that entity type — not the persisted global count
+// on tags.usage_count. The persisted column is left untouched, so subsequent
+// global queries (e.g. /tags browse) still see the cross-entity total.
+func (suite *TagServiceIntegrationTestSuite) TestListTags_EntityTypeScopedCounts() {
+	user := suite.createTestUser("tagger")
+	punk := suite.createTag("punk", "genre")
+	rock := suite.createTag("rock", "genre")
+
+	// Tag two artists with punk and one venue with rock. After this:
+	//   tag.usage_count: punk=2, rock=1 (global, persisted)
+	//   per-entity-type:
+	//     artist  → punk=2, rock=0
+	//     venue   → punk=0, rock=1
+	//     festival → both 0
+	artist1 := suite.createArtist("Black Flag")
+	artist2 := suite.createArtist("Bad Brains")
+	_, err := suite.tagService.AddTagToEntity(punk.ID, "", "artist", artist1, user.ID, "")
+	suite.Require().NoError(err)
+	_, err = suite.tagService.AddTagToEntity(punk.ID, "", "artist", artist2, user.ID, "")
+	suite.Require().NoError(err)
+
+	venue := &models.Venue{Name: "The Smell", City: "LA", State: "CA"}
+	suite.Require().NoError(suite.db.Create(venue).Error)
+	_, err = suite.tagService.AddTagToEntity(rock.ID, "", "venue", venue.ID, user.ID, "")
+	suite.Require().NoError(err)
+
+	// Sanity: the persisted global counts moved.
+	reloaded, _ := suite.tagService.GetTag(punk.ID)
+	suite.Assert().Equal(2, reloaded.UsageCount)
+	reloaded, _ = suite.tagService.GetTag(rock.ID)
+	suite.Assert().Equal(1, reloaded.UsageCount)
+
+	// artist scope: punk=2, rock=0
+	tags, _, err := suite.tagService.ListTags("", "", nil, "name", 50, 0, "artist")
+	suite.Require().NoError(err)
+	suite.Require().Len(tags, 2)
+	got := map[string]int{}
+	for _, t := range tags {
+		got[t.Name] = t.UsageCount
+	}
+	suite.Assert().Equal(2, got["punk"], "punk should have 2 artist applications")
+	suite.Assert().Equal(0, got["rock"], "rock should have 0 artist applications")
+
+	// venue scope: punk=0, rock=1
+	tags, _, err = suite.tagService.ListTags("", "", nil, "name", 50, 0, "venue")
+	suite.Require().NoError(err)
+	got = map[string]int{}
+	for _, t := range tags {
+		got[t.Name] = t.UsageCount
+	}
+	suite.Assert().Equal(0, got["punk"], "punk should have 0 venue applications")
+	suite.Assert().Equal(1, got["rock"], "rock should have 1 venue application")
+
+	// festival scope: both 0 (no festival tags created)
+	tags, _, err = suite.tagService.ListTags("", "", nil, "name", 50, 0, "festival")
+	suite.Require().NoError(err)
+	for _, t := range tags {
+		suite.Assert().Equal(0, t.UsageCount, "tag %q should have 0 festival applications", t.Name)
+	}
+
+	// Empty entity_type → original global count comes through
+	tags, _, err = suite.tagService.ListTags("", "", nil, "name", 50, 0, "")
+	suite.Require().NoError(err)
+	got = map[string]int{}
+	for _, t := range tags {
+		got[t.Name] = t.UsageCount
+	}
+	suite.Assert().Equal(2, got["punk"])
+	suite.Assert().Equal(1, got["rock"])
+
+	// Persisted tag.usage_count must be unchanged (we never mutate it from
+	// the scoped read path).
+	reloaded, _ = suite.tagService.GetTag(punk.ID)
+	suite.Assert().Equal(2, reloaded.UsageCount)
+}
+
+// TestListTags_EntityTypeScopedSort verifies that sort=usage honours the
+// entity-scoped count when entity_type is set. Without re-sorting, the SQL
+// ordering would still reflect the persisted global usage_count and the most
+// "applicable to this entity" tag would not surface first.
+func (suite *TagServiceIntegrationTestSuite) TestListTags_EntityTypeScopedSort() {
+	user := suite.createTestUser("sorter")
+	punk := suite.createTag("punk", "genre")
+	rock := suite.createTag("rock", "genre")
+
+	// Make rock more globally popular than punk by tagging two festivals
+	// with rock and only one venue with rock.
+	venue := &models.Venue{Name: "Sort Venue", City: "LA", State: "CA"}
+	suite.Require().NoError(suite.db.Create(venue).Error)
+	_, err := suite.tagService.AddTagToEntity(rock.ID, "", "venue", venue.ID, user.ID, "")
+	suite.Require().NoError(err)
+	for i := 0; i < 2; i++ {
+		fest := &models.Festival{
+			Name:        fmt.Sprintf("RockFest %d", i),
+			Slug:        fmt.Sprintf("rockfest-%d-%d", i, time.Now().UnixNano()),
+			SeriesSlug:  "rockfest",
+			EditionYear: 2026 + i,
+			StartDate:   "2026-06-01",
+			EndDate:     "2026-06-03",
+		}
+		suite.Require().NoError(suite.db.Create(fest).Error)
+		_, err := suite.tagService.AddTagToEntity(rock.ID, "", "festival", fest.ID, user.ID, "")
+		suite.Require().NoError(err)
+	}
+	// Tag two venues with punk so punk dominates the venue scope.
+	for i := 0; i < 2; i++ {
+		v := &models.Venue{Name: fmt.Sprintf("PunkVenue %d", i), City: "LA", State: "CA"}
+		suite.Require().NoError(suite.db.Create(v).Error)
+		_, err := suite.tagService.AddTagToEntity(punk.ID, "", "venue", v.ID, user.ID, "")
+		suite.Require().NoError(err)
+	}
+
+	// Global usage: rock=3, punk=2 → rock first when no entity_type.
+	tags, _, err := suite.tagService.ListTags("", "", nil, "usage", 50, 0, "")
+	suite.Require().NoError(err)
+	suite.Require().GreaterOrEqual(len(tags), 2)
+	suite.Assert().Equal("rock", tags[0].Name, "global usage sort should put rock first")
+
+	// Venue scope: punk=2, rock=1 → punk first.
+	tags, _, err = suite.tagService.ListTags("", "", nil, "usage", 50, 0, "venue")
+	suite.Require().NoError(err)
+	suite.Require().GreaterOrEqual(len(tags), 2)
+	suite.Assert().Equal("punk", tags[0].Name, "venue-scoped usage sort should put punk first")
+	suite.Assert().Equal(2, tags[0].UsageCount)
+}
+
+// TestListTags_InvalidEntityType verifies the service rejects unknown
+// entity types so we don't paper over a frontend typo with "all zero counts".
+func (suite *TagServiceIntegrationTestSuite) TestListTags_InvalidEntityType() {
+	suite.createTag("punk", "genre")
+	_, _, err := suite.tagService.ListTags("", "", nil, "name", 50, 0, "user")
+	suite.Assert().Error(err)
+	suite.Assert().Contains(err.Error(), "invalid entity type")
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestUpdateTag_Success() {
@@ -922,7 +1059,7 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_Exi
 	suite.Assert().NotNil(et)
 
 	// Verify only one tag with that name exists
-	tags, total, err := suite.tagService.ListTags("", "ambient", nil, "name", 50, 0)
+	tags, total, err := suite.tagService.ListTags("", "ambient", nil, "name", 50, 0, "")
 	suite.Require().NoError(err)
 	suite.Assert().Equal(int64(1), total)
 	suite.Assert().Len(tags, 1)

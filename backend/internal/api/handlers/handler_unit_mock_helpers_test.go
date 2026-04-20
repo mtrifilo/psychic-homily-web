@@ -3010,7 +3010,7 @@ type mockTagService struct {
 	createTagFn func(string, *string, *uint, string, bool, *uint) (*models.Tag, error)
 	getTagFn func(uint) (*models.Tag, error)
 	getTagBySlugFn func(string) (*models.Tag, error)
-	listTagsFn func(string, string, *uint, string, int, int) ([]models.Tag, int64, error)
+	listTagsFn func(string, string, *uint, string, int, int, string) ([]models.Tag, int64, error)
 	updateTagFn func(uint, *string, *string, *uint, *string, *bool) (*models.Tag, error)
 	deleteTagFn func(uint) (error)
 	addTagToEntityFn func(uint, string, string, uint, uint, string) (*models.EntityTag, error)
@@ -3058,9 +3058,9 @@ func (m *mockTagService) GetTagBySlug(slug string) (*models.Tag, error) {
 	}
 	return nil, nil
 }
-func (m *mockTagService) ListTags(category string, search string, parentID *uint, sort string, limit int, offset int) ([]models.Tag, int64, error) {
+func (m *mockTagService) ListTags(category string, search string, parentID *uint, sort string, limit int, offset int, entityType string) ([]models.Tag, int64, error) {
 	if m.listTagsFn != nil {
-		return m.listTagsFn(category, search, parentID, sort, limit, offset)
+		return m.listTagsFn(category, search, parentID, sort, limit, offset, entityType)
 	}
 	return nil, 0, nil
 }

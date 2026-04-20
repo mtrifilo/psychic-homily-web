@@ -246,7 +246,11 @@ type TagServiceInterface interface {
 	CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool, userID *uint) (*models.Tag, error)
 	GetTag(tagID uint) (*models.Tag, error)
 	GetTagBySlug(slug string) (*models.Tag, error)
-	ListTags(category string, search string, parentID *uint, sort string, limit, offset int) ([]models.Tag, int64, error)
+	// ListTags returns tags with optional filters/sort. When entityType is
+	// non-empty, each returned tag's UsageCount is overridden with the count
+	// of entity_tags rows for that specific entity type (PSY-484). The
+	// persisted tags.usage_count is never mutated.
+	ListTags(category string, search string, parentID *uint, sort string, limit, offset int, entityType string) ([]models.Tag, int64, error)
 	UpdateTag(tagID uint, name *string, description *string, parentID *uint, category *string, isOfficial *bool) (*models.Tag, error)
 	DeleteTag(tagID uint) error
 

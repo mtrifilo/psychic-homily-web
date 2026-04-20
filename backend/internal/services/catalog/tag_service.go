@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"sort"
 	"strings"
 
 	"gorm.io/gorm"
@@ -116,9 +117,21 @@ func (s *TagService) GetTagBySlug(slug string) (*models.Tag, error) {
 }
 
 // ListTags retrieves tags with optional filtering and sorting.
-func (s *TagService) ListTags(category string, search string, parentID *uint, sort string, limit, offset int) ([]models.Tag, int64, error) {
+//
+// When entityType is non-empty, the returned tags' UsageCount is replaced with
+// the count of entity_tags rows for that specific entity type (per PSY-484).
+// The persisted tag.usage_count column on the tags table is NOT mutated — it
+// remains the global "applied across all entity types" count used by /tags
+// browse. Sort by "usage" honours the per-entity-type count when entityType
+// is set so the facet on each browse page lists the most-applicable tags
+// first. entityType is validated against TagEntityTypes; an unknown value
+// returns an error.
+func (s *TagService) ListTags(category string, search string, parentID *uint, sort string, limit, offset int, entityType string) ([]models.Tag, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
+	}
+	if entityType != "" && !models.IsValidTagEntityType(entityType) {
+		return nil, 0, fmt.Errorf("invalid entity type: %s", entityType)
 	}
 
 	query := s.db.Model(&models.Tag{})
@@ -157,7 +170,54 @@ func (s *TagService) ListTags(category string, search string, parentID *uint, so
 		return nil, 0, fmt.Errorf("failed to list tags: %w", err)
 	}
 
+	if entityType != "" && len(tags) > 0 {
+		// Single GROUP BY to fetch per-entity-type counts for the returned page.
+		// Cheap: one indexed scan over (entity_type, tag_id) for at most `limit`
+		// tag IDs. Tags absent from entity_tags for this type get 0.
+		ids := make([]uint, len(tags))
+		for i, t := range tags {
+			ids[i] = t.ID
+		}
+		type countRow struct {
+			TagID uint
+			Count int64
+		}
+		var rows []countRow
+		err := s.db.Table("entity_tags").
+			Select("tag_id, COUNT(*) AS count").
+			Where("entity_type = ? AND tag_id IN ?", entityType, ids).
+			Group("tag_id").
+			Scan(&rows).Error
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to compute per-entity-type tag counts: %w", err)
+		}
+		countByID := make(map[uint]int64, len(rows))
+		for _, r := range rows {
+			countByID[r.TagID] = r.Count
+		}
+		for i := range tags {
+			tags[i].UsageCount = int(countByID[tags[i].ID])
+		}
+		// When sorting by usage, re-order in memory so the entity-scoped count
+		// drives the order (the original SQL sorted by the global usage_count).
+		// Stable secondary sort: name ASC (matches the SQL ORDER BY tiebreaker).
+		if sort == "" || sort == "usage" {
+			sortTagsByUsageDesc(tags)
+		}
+	}
+
 	return tags, total, nil
+}
+
+// sortTagsByUsageDesc sorts in place by UsageCount DESC, name ASC. Used after
+// per-entity-type recount so the displayed order matches the new counts.
+func sortTagsByUsageDesc(tags []models.Tag) {
+	sort.SliceStable(tags, func(i, j int) bool {
+		if tags[i].UsageCount != tags[j].UsageCount {
+			return tags[i].UsageCount > tags[j].UsageCount
+		}
+		return tags[i].Name < tags[j].Name
+	})
 }
 
 // UpdateTag updates a tag's fields.

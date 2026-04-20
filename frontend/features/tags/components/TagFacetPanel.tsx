@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { X, Tag as TagIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -12,7 +12,7 @@ import {
   getCategoryColor,
   getCategoryLabel,
 } from '../types'
-import type { TagCategory, TagListItem } from '../types'
+import type { TagCategory, TagEntityType, TagListItem } from '../types'
 
 const DEFAULT_TAGS_PER_CATEGORY = 20
 
@@ -31,6 +31,15 @@ export interface TagFacetPanelProps {
   hideHeading?: boolean
   /** Tailwind class overrides for the root container. */
   className?: string
+  /**
+   * Entity type the facet is filtering (PSY-484). When provided, the chip
+   * counts reflect tags applied to *this* entity type — so on `/venues` we
+   * show "punk N venues" instead of the misleading global "punk M (across
+   * all entity types)" that was the dogfood bug. Zero-count chips are
+   * hidden by default; a "Show all tags" expander reveals them. Omit on
+   * `/tags` browse where the global count is the right signal.
+   */
+  entityType?: TagEntityType
 }
 
 /**
@@ -38,9 +47,9 @@ export interface TagFacetPanelProps {
  * category (genre / locale / other — the 3 TAG_CATEGORIES in prod)
  * and lets the user toggle chips to combine tags with AND semantics.
  *
- * Data source: `/tags?category={cat}&sort=usage&limit=N` — one query
- * per category via `useTags`. Small number of categories (3) keeps
- * the request count bounded. The panel auto-grows if TAG_CATEGORIES
+ * Data source: `/tags?category={cat}&sort=usage&limit=N&entity_type=…` —
+ * one query per category via `useTags`. Small number of categories (3)
+ * keeps the request count bounded. The panel auto-grows if TAG_CATEGORIES
  * gains more entries.
  */
 export function TagFacetPanel({
@@ -51,9 +60,14 @@ export function TagFacetPanel({
   heading = 'Filter by tags',
   hideHeading = false,
   className,
+  entityType,
 }: TagFacetPanelProps) {
   const selectedSet = useMemo(() => new Set(selectedSlugs), [selectedSlugs])
-
+  // When entity_type is set we hide zero-count chips — they would lie about
+  // the available results. The expander lets curious users still browse the
+  // full vocabulary. Without entity_type (e.g. `/tags` browse) every chip is
+  // a valid destination so we show them all.
+  const [showAll, setShowAll] = useState(false)
   const handleToggle = (slug: string) => {
     if (selectedSet.has(slug)) {
       onToggle(selectedSlugs.filter(s => s !== slug))
@@ -110,8 +124,24 @@ export function TagFacetPanel({
           limit={tagsPerCategory}
           selectedSet={selectedSet}
           onToggle={handleToggle}
+          entityType={entityType}
+          showAll={showAll}
         />
       ))}
+
+      {/* "Show all tags" expander only matters when we're filtering chips */}
+      {entityType && (
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={() => setShowAll(prev => !prev)}
+            className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+            data-testid="tag-facet-show-all"
+          >
+            {showAll ? 'Hide tags with no matches' : 'Show all tags'}
+          </button>
+        </div>
+      )}
     </aside>
   )
 }
@@ -121,6 +151,8 @@ interface CategoryGroupProps {
   limit: number
   selectedSet: Set<string>
   onToggle: (slug: string) => void
+  entityType?: TagEntityType
+  showAll: boolean
 }
 
 function CategoryGroup({
@@ -128,16 +160,31 @@ function CategoryGroup({
   limit,
   selectedSet,
   onToggle,
+  entityType,
+  showAll,
 }: CategoryGroupProps) {
   const { data, isLoading } = useTags({
     category,
     sort: 'usage',
     limit,
+    entity_type: entityType,
   })
-  const tags = data?.tags ?? []
+  const allTags = data?.tags ?? []
+  // When entity_type is set, the API returns per-entity-type counts. Hide
+  // zero-count chips by default so the surface area shrinks to *useful*
+  // filters; the user can expand to see the full vocabulary.
+  // Selected chips stay visible regardless of count so the selection
+  // controls remain reachable even when the user navigates to a different
+  // browse page where the tag has zero matches (preserves clear/toggle UX).
+  const visibleTags =
+    entityType && !showAll
+      ? allTags.filter(
+          tag => tag.usage_count > 0 || selectedSet.has(tag.slug),
+        )
+      : allTags
   const label = getCategoryLabel(category)
 
-  if (!isLoading && tags.length === 0) return null
+  if (!isLoading && visibleTags.length === 0) return null
 
   return (
     <div className="space-y-2" data-testid={`tag-facet-category-${category}`}>
@@ -152,7 +199,7 @@ function CategoryGroup({
         </div>
       ) : (
         <div className="flex flex-wrap gap-1.5">
-          {tags.map(tag => (
+          {visibleTags.map(tag => (
             <TagChip
               key={tag.id}
               tag={tag}
