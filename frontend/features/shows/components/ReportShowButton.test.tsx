@@ -17,7 +17,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
 
-const mockMyShowReport = vi.fn(() => ({
+const mockMyShowReport = vi.fn((..._args: unknown[]) => ({
   data: { report: null },
   isLoading: false,
 }))

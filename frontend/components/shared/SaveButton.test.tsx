@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { SaveButton } from './SaveButton'
 
 const mockToggle = vi.fn()
-const mockUseSaveShowToggle = vi.fn(() => ({
+const mockUseSaveShowToggle = vi.fn((..._args: unknown[]) => ({
   isSaved: false,
   isLoading: false,
   toggle: mockToggle,

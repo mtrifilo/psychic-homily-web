@@ -16,7 +16,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 
 // Mock useFavoriteVenueToggle
 const mockToggle = vi.fn()
-const mockFavoriteHook = vi.fn(() => ({
+const mockFavoriteHook = vi.fn((..._args: unknown[]) => ({
   isFavorited: false,
   isLoading: false,
   toggle: mockToggle,
