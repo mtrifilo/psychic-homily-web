@@ -105,6 +105,8 @@ function makeArtist(overrides: Partial<ArtistResponse> = {}): ArtistResponse {
     name: 'Artist One',
     city: 'Phoenix',
     state: 'AZ',
+    set_type: 'headliner',
+    position: 1,
     socials: {},
     ...overrides,
   }

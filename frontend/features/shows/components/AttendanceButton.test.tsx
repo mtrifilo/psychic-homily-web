@@ -25,7 +25,7 @@ vi.mock('next/navigation', () => ({
 // Mock attendance hooks
 const mockSetAttendanceMutate = vi.fn()
 const mockRemoveAttendanceMutate = vi.fn()
-const mockUseShowAttendance = vi.fn(() => ({ data: undefined }))
+const mockUseShowAttendance = vi.fn((_showId?: number) => ({ data: undefined as unknown }))
 
 vi.mock('../hooks/useAttendance', () => ({
   useShowAttendance: (showId: number) => mockUseShowAttendance(showId),
