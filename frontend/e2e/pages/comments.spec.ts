@@ -209,9 +209,17 @@ test.describe('Comments (general)', () => {
       expect(replyBody.depth).toBeGreaterThan(0)
       expect(replyBody.depth).toBeLessThanOrEqual(2)
 
-      // The reply renders somewhere in the thread. Nesting correctness is
-      // asserted above via replyBody.parent_id + depth invariants — those
-      // come from the backend response and don't depend on UI refetch timing.
+      // The entity-comments list endpoint only returns top-level comments
+      // (backend/internal/services/engagement/comment_service.go:371 filters
+      // `parent_id IS NULL`). Replies come from a per-comment thread query
+      // that's lazy-loaded behind a "Show replies" button — useCommentThread
+      // is gated on loadedThread=true (CommentCard.tsx). Click the button to
+      // trigger the thread fetch, then assert the new reply rendered.
+      // Nesting correctness is already asserted above via replyBody.parent_id
+      // + depth invariants from the backend response.
+      await parentCard
+        .getByRole('button', { name: /show replies/i })
+        .click()
       await expect(thread.getByText(uniqueReply)).toBeVisible({
         timeout: 15_000,
       })
