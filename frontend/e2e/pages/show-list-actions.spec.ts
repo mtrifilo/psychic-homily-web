@@ -77,22 +77,9 @@ test.describe('Show list actions', () => {
     ).toBeVisible({ timeout: 5_000 })
   })
 
-  test('show admin edit controls only for admins', async ({
-    authenticatedPage,
-    adminPage,
-  }) => {
-    await authenticatedPage.goto('/shows')
-    await expect(authenticatedPage.locator('article').first()).toBeVisible({
-      timeout: 10_000,
-    })
-    await expect(
-      authenticatedPage.locator('[title="Edit show"]').first()
-    ).toHaveCount(0)
-
-    await adminPage.goto('/shows')
-    await expect(adminPage.locator('article').first()).toBeVisible({
-      timeout: 10_000,
-    })
-    await expect(adminPage.locator('[title="Edit show"]').first()).toBeVisible()
-  })
+  // PSY-473 / Layer-5 audit item #5: the role-based conditional render
+  // for the admin edit control is already covered by
+  // `features/shows/components/ShowCard.test.tsx:226-234` (both `isAdmin`
+  // branches asserted via `screen.queryByTitle('Edit show')`). The E2E
+  // version spun up two full Playwright contexts for the same assertion.
 })
