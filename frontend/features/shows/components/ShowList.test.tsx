@@ -48,6 +48,14 @@ vi.mock('@/features/auth', () => ({
   useSetFavoriteCities: () => ({ mutate: vi.fn() }),
 }))
 
+// PSY-309: mock tag facet components
+vi.mock('@/features/tags', () => ({
+  TagFacetPanel: () => <div data-testid="tag-facet-panel" />,
+  TagFacetSheet: () => <div data-testid="tag-facet-sheet" />,
+  parseTagsParam: (s: string | null) => (s ? s.split(',').filter(Boolean) : []),
+  buildTagsParam: (slugs: string[]) => slugs.join(','),
+}))
+
 // Mock density hook
 vi.mock('@/lib/hooks/common/useDensity', () => ({
   useDensity: () => ({ density: 'comfortable', setDensity: vi.fn() }),
@@ -215,7 +223,7 @@ describe('ShowList', () => {
 
     it('shows city-specific empty message when cities are filtered', () => {
       mockSearchParams.mockReturnValue({
-        get: vi.fn((key: string) => {
+        get: vi.fn((key: string): string | null => {
           if (key === 'cities') return 'Phoenix,AZ'
           return null
         }),
@@ -228,12 +236,12 @@ describe('ShowList', () => {
         refetch: vi.fn(),
       })
       render(<ShowList />)
-      expect(screen.getByText('No upcoming shows in Phoenix.')).toBeInTheDocument()
+      expect(screen.getByText('No upcoming shows match the current filters.')).toBeInTheDocument()
     })
 
-    it('shows "View all shows" button when filtered to city with no results', () => {
+    it('shows "Clear filters" button when filtered to city with no results', () => {
       mockSearchParams.mockReturnValue({
-        get: vi.fn((key: string) => {
+        get: vi.fn((key: string): string | null => {
           if (key === 'cities') return 'Phoenix,AZ'
           return null
         }),
@@ -246,7 +254,7 @@ describe('ShowList', () => {
         refetch: vi.fn(),
       })
       render(<ShowList />)
-      expect(screen.getByText('View all shows')).toBeInTheDocument()
+      expect(screen.getByText('Clear filters')).toBeInTheDocument()
     })
   })
 

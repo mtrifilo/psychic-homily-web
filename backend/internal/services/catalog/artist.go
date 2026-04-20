@@ -166,6 +166,9 @@ func (s *ArtistService) GetArtists(filters map[string]interface{}) ([]*contracts
 	if name, ok := filters["name"].(string); ok && name != "" {
 		query = query.Where("LOWER(name) LIKE LOWER(?)", "%"+name+"%")
 	}
+	if tf, ok := filters["tag_filter"].(TagFilter); ok {
+		query = ApplyTagFilter(query, s.db, models.TagEntityArtist, "artists.id", tf)
+	}
 
 	// Default ordering by name
 	query = query.Order("name ASC")
@@ -367,6 +370,9 @@ func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{})
 		if city, ok := filters["city"].(string); ok && city != "" {
 			query = query.Where("artists.city = ?", city)
 		}
+	}
+	if tf, ok := filters["tag_filter"].(TagFilter); ok {
+		query = ApplyTagFilter(query, s.db, models.TagEntityArtist, "artists.id", tf)
 	}
 
 	var artistsWithCount []ArtistWithCount

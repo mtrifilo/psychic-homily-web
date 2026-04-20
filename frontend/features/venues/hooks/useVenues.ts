@@ -29,13 +29,17 @@ interface UseVenuesOptions {
   cities?: CityState[]
   limit?: number
   offset?: number
+  /** Multi-tag filter (PSY-309). Slugs applied with AND by default. */
+  tags?: string[]
+  /** Set to 'any' to switch the tag filter to OR semantics. */
+  tagMatch?: 'all' | 'any'
 }
 
 /**
  * Hook to fetch list of venues with show counts
  */
 export const useVenues = (options: UseVenuesOptions = {}) => {
-  const { state, city, cities, limit = 50, offset = 0 } = options
+  const { state, city, cities, limit = 50, offset = 0, tags, tagMatch } = options
 
   // Build query params
   const params = new URLSearchParams()
@@ -48,6 +52,10 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
   }
   if (limit) params.set('limit', limit.toString())
   if (offset) params.set('offset', offset.toString())
+  if (tags && tags.length > 0) {
+    params.set('tags', tags.join(','))
+    if (tagMatch === 'any') params.set('tag_match', 'any')
+  }
 
   const queryString = params.toString()
   const endpoint = queryString
@@ -55,7 +63,15 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
     : venueEndpoints.LIST
 
   return useQuery({
-    queryKey: venueQueryKeys.list({ state, city, cities, limit, offset }),
+    queryKey: venueQueryKeys.list({
+      state,
+      city,
+      cities,
+      limit,
+      offset,
+      tags: tags && tags.length > 0 ? tags : undefined,
+      tagMatch: tagMatch === 'any' ? 'any' : undefined,
+    }),
     queryFn: async (): Promise<VenuesListResponse> => {
       return apiRequest<VenuesListResponse>(endpoint, {
         method: 'GET',

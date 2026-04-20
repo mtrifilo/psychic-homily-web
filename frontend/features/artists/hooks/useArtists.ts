@@ -21,18 +21,26 @@ import type {
 
 interface UseArtistsOptions {
   cities?: CityState[]
+  /** Multi-tag filter (PSY-309). Slugs applied with AND by default. */
+  tags?: string[]
+  /** Set to 'any' to switch the tag filter to OR semantics. */
+  tagMatch?: 'all' | 'any'
 }
 
 /**
- * Hook to fetch list of artists with optional city filtering
+ * Hook to fetch list of artists with optional city and tag filtering
  */
 export function useArtists(options: UseArtistsOptions = {}) {
-  const { cities } = options
+  const { cities, tags, tagMatch } = options
 
   // Build query params
   const params = new URLSearchParams()
   if (cities && cities.length > 0) {
     params.set('cities', cities.map(c => `${c.city},${c.state}`).join('|'))
+  }
+  if (tags && tags.length > 0) {
+    params.set('tags', tags.join(','))
+    if (tagMatch === 'any') params.set('tag_match', 'any')
   }
 
   const queryString = params.toString()
@@ -41,7 +49,11 @@ export function useArtists(options: UseArtistsOptions = {}) {
     : artistEndpoints.LIST
 
   return useQuery({
-    queryKey: artistQueryKeys.list(cities ? { cities } : undefined),
+    queryKey: artistQueryKeys.list({
+      cities: cities ?? undefined,
+      tags: tags && tags.length > 0 ? tags : undefined,
+      tagMatch: tagMatch === 'any' ? 'any' : undefined,
+    } as Record<string, unknown>),
     queryFn: async (): Promise<ArtistsListResponse> => {
       return apiRequest<ArtistsListResponse>(endpoint, {
         method: 'GET',

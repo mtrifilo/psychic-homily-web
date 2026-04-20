@@ -72,6 +72,8 @@ type ListFestivalsRequest struct {
 	Year       int    `query:"year" required:"false" doc:"Filter by edition year" example:"2026"`
 	Status     string `query:"status" required:"false" doc:"Filter by status (announced, confirmed, cancelled, completed)" example:"confirmed"`
 	SeriesSlug string `query:"series_slug" required:"false" doc:"Filter by festival series slug" example:"m3f"`
+	Tags       string `query:"tags" required:"false" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"electronic,festival"`
+	TagMatch   string `query:"tag_match" required:"false" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 
 // ListFestivalsResponse represents the response for listing festivals
@@ -100,6 +102,9 @@ func (h *FestivalHandler) ListFestivalsHandler(ctx context.Context, req *ListFes
 	}
 	if req.SeriesSlug != "" {
 		filters["series_slug"] = req.SeriesSlug
+	}
+	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
+		filters["tag_filter"] = tf
 	}
 
 	festivals, err := h.festivalService.ListFestivals(filters)

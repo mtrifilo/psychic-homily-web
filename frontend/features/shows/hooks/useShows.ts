@@ -21,6 +21,10 @@ interface UseUpcomingShowsOptions {
   state?: string
   /** Multi-city filter (takes priority over city/state) */
   cities?: Array<{ city: string; state: string }>
+  /** Multi-tag filter (PSY-309). Slugs applied with AND by default. */
+  tags?: string[]
+  /** Set to 'any' to switch the tag filter to OR semantics. */
+  tagMatch?: 'all' | 'any'
 }
 
 /**
@@ -34,7 +38,7 @@ function buildCitiesParam(cities: Array<{ city: string; state: string }>): strin
  * Hook to fetch upcoming shows with cursor-based pagination
  */
 export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
-  const { timezone, cursor, limit, city, state, cities } = options
+  const { timezone, cursor, limit, city, state, cities, tags, tagMatch } = options
 
   // Build query params
   const params = new URLSearchParams()
@@ -50,13 +54,27 @@ export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
     if (state) params.set('state', state)
   }
 
+  if (tags && tags.length > 0) {
+    params.set('tags', tags.join(','))
+    if (tagMatch === 'any') params.set('tag_match', 'any')
+  }
+
   const queryString = params.toString()
   const endpoint = queryString
     ? `${showEndpoints.UPCOMING}?${queryString}`
     : showEndpoints.UPCOMING
 
   return useQuery({
-    queryKey: showQueryKeys.list({ timezone, cursor, limit, city, state, cities }),
+    queryKey: showQueryKeys.list({
+      timezone,
+      cursor,
+      limit,
+      city,
+      state,
+      cities,
+      tags: tags && tags.length > 0 ? tags : undefined,
+      tagMatch: tagMatch === 'any' ? 'any' : undefined,
+    }),
     queryFn: async (): Promise<UpcomingShowsResponse> => {
       return apiRequest<UpcomingShowsResponse>(endpoint, {
         method: 'GET',
