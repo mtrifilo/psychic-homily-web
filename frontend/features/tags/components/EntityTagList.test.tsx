@@ -592,10 +592,15 @@ describe('EntityTagList add-tag dialog already-applied short-circuit', () => {
   })
 })
 
-// PSY-443: new_user tier cannot create new tags server-side (backend returns
-// 403 CodeTagCreationForbidden). Mirror that gate client-side with a disabled
-// Create button + tooltip linking to /help/tiers, so users see guidance
-// instead of a dead-end error after clicking.
+// PSY-443 / PSY-483: new_user tier cannot create new tags server-side
+// (backend returns 403 CodeTagCreationForbidden). Mirror that gate client-side.
+//
+// PSY-443 originally rendered a disabled Create button + Radix tooltip, but
+// dogfood (ISSUE-006, April 2026) found the tooltip was effectively invisible
+// — touch users never see hover, and a casual mouse user wouldn't hover a
+// button that already looks dead. PSY-483 replaces the disabled button with
+// inline explanatory prose that's always visible, and removes the
+// silently-disabled affordance entirely.
 describe('EntityTagList add-tag dialog create-tag tier gating', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -617,30 +622,37 @@ describe('EntityTagList add-tag dialog create-tag tier gating', () => {
     return user
   }
 
-  it('disables the Create button for new_user tier with a tooltip that links to /help/tiers', async () => {
+  it('hides the Create button for new_user tier and shows an always-visible tier-gate explanation linking to /help/tiers', async () => {
     mockAuthUser = { user_tier: 'new_user' }
-    const user = await openDialogAndSearch('brand-new-tag')
+    await openDialogAndSearch('brand-new-tag')
 
     await waitFor(() => {
       expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
     })
 
-    const disabledButton = screen.getByTestId('tag-create-disabled')
-    expect(disabledButton).toBeDisabled()
-    expect(disabledButton).toHaveAttribute('aria-disabled', 'true')
+    // No Create affordance at all — neither enabled nor disabled. The old
+    // PSY-443 disabled-button + tooltip wrapper are both gone.
+    expect(
+      screen.queryByRole('button', { name: /Create "brand-new-tag"/ })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('tag-create-disabled')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('tag-create-disabled-wrapper')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('tag-create-disabled-tooltip')
+    ).not.toBeInTheDocument()
 
-    // Tooltip fires on hover of the wrapper (span lets a disabled button
-    // still participate in a Radix tooltip).
-    await user.hover(screen.getByTestId('tag-create-disabled-wrapper'))
+    // Inline prose surfaces the tier gate without requiring hover/touch.
+    const tierGate = screen.getByTestId('tag-create-tier-gate')
+    expect(tierGate).toBeInTheDocument()
+    expect(tierGate).toHaveTextContent(/Contributor tier/i)
 
-    await waitFor(() => {
-      const tooltip = screen.getByTestId('tag-create-disabled-tooltip')
-      expect(tooltip).toBeInTheDocument()
-      expect(tooltip).toHaveTextContent(/Reach Contributor tier/i)
-      const learnMore = tooltip.querySelector('a')
-      expect(learnMore).not.toBeNull()
-      expect(learnMore).toHaveAttribute('href', '/help/tiers')
-    })
+    const learnMore = tierGate.querySelector('a')
+    expect(learnMore).not.toBeNull()
+    expect(learnMore).toHaveAttribute('href', '/help/tiers')
 
     expect(mockAddMutate).not.toHaveBeenCalled()
   })
@@ -657,7 +669,7 @@ describe('EntityTagList add-tag dialog create-tag tier gating', () => {
     expect(mockAddMutate).not.toHaveBeenCalled()
   })
 
-  it('renders an enabled Create button for contributor tier', async () => {
+  it('renders an enabled Create button for contributor tier and no tier-gate prose', async () => {
     mockAuthUser = { user_tier: 'contributor' }
     await openDialogAndSearch('brand-new-tag')
 
@@ -670,7 +682,7 @@ describe('EntityTagList add-tag dialog create-tag tier gating', () => {
     })
     expect(createButton).not.toBeDisabled()
     expect(
-      screen.queryByTestId('tag-create-disabled')
+      screen.queryByTestId('tag-create-tier-gate')
     ).not.toBeInTheDocument()
   })
 
@@ -686,11 +698,14 @@ describe('EntityTagList add-tag dialog create-tag tier gating', () => {
       name: /Create "brand-new-tag"/,
     })
     expect(createButton).not.toBeDisabled()
+    expect(
+      screen.queryByTestId('tag-create-tier-gate')
+    ).not.toBeInTheDocument()
   })
 
   it('appends a "Learn more" link to the 403 error message as defense-in-depth', async () => {
-    // Even if the disabled-button gate is somehow bypassed and the backend
-    // returns the 403, the inline error should still link to the tier docs.
+    // Even if the gate is somehow bypassed and the backend returns the 403,
+    // the inline error should still link to the tier docs.
     mockAuthUser = { user_tier: 'new_user' }
     mockAddMutationError = new Error(
       'New users can only apply existing tags. Reach Contributor tier to create new tags.'
