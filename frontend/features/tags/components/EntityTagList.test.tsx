@@ -11,7 +11,25 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-const mockEntityTags = {
+// Shape mirrors EntityTagsResponse from features/tags/types.ts. Spelled out
+// locally (rather than importing the type) so test fixtures keep working if
+// the module under test is re-exported differently.
+type MockEntityTag = {
+  tag_id: number
+  name: string
+  slug: string
+  category: string
+  is_official: boolean
+  upvotes: number
+  downvotes: number
+  wilson_score: number
+  user_vote: number
+  added_by_username?: string
+  added_at?: string
+}
+type MockEntityTags = { tags: MockEntityTag[] }
+
+const mockEntityTags: MockEntityTags = {
   tags: [
     { tag_id: 1, name: 'rock', slug: 'rock', category: 'genre', is_official: true, upvotes: 3, downvotes: 0, wilson_score: 0.56, user_vote: 0 },
     { tag_id: 2, name: 'indie', slug: 'indie', category: 'genre', is_official: false, upvotes: 1, downvotes: 0, wilson_score: 0.21, user_vote: 0 },
@@ -49,7 +67,7 @@ const defaultMockSearchTags: MockSearchTags = {
 }
 
 const mockAddMutate = vi.fn()
-let currentMockTags = mockEntityTags
+let currentMockTags: MockEntityTags = mockEntityTags
 let currentMockSearchTags: MockSearchTags = defaultMockSearchTags
 let mockAddMutationError: Error | null = null
 
@@ -679,5 +697,173 @@ describe('EntityTagList add-tag dialog create-tag tier gating', () => {
     const learnMore = errorText.querySelector('a')
     expect(learnMore).not.toBeNull()
     expect(learnMore).toHaveAttribute('href', '/help/tiers')
+  })
+})
+
+// PSY-441: tag pill hover card exposes creator attribution (username + when
+// the tag was applied) and vote counts. The card is backed by Radix
+// HoverCard; this suite drives it through the controlled click/keyboard
+// toggle that composes on top of hover — pointer hover is well-covered by
+// Radix's own tests, so we focus on the pieces we added (attribution body
+// rendering, graceful skipping when backend data is missing, vote/link
+// regressions).
+describe('EntityTagList tag pill attribution hover card', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    currentMockTags = {
+      tags: [
+        {
+          tag_id: 10,
+          name: 'post-punk',
+          slug: 'post-punk',
+          category: 'genre',
+          is_official: false,
+          upvotes: 3,
+          downvotes: 1,
+          wilson_score: 0.34,
+          user_vote: 0,
+          added_by_username: 'testuser2',
+        },
+        {
+          tag_id: 11,
+          name: 'noise',
+          slug: 'noise',
+          category: 'genre',
+          is_official: false,
+          upvotes: 0,
+          downvotes: 0,
+          wilson_score: 0,
+          user_vote: 0,
+          // added_by_username deliberately omitted to exercise the skip path
+        },
+      ],
+    }
+    currentMockSearchTags = defaultMockSearchTags
+    mockAuthUser = { user_tier: 'contributor' }
+    mockAddMutationError = null
+  })
+
+  it('opens the attribution card on click and shows username, vote counts, and tag link', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    // The pill wrapper carries the aria-label we wired on the HoverCardTrigger.
+    const trigger = screen.getByRole('group', { name: /post-punk tag details/i })
+    await user.click(trigger)
+
+    const card = await screen.findByTestId('tag-attribution-card-10')
+    expect(card).toBeInTheDocument()
+
+    // Username link points to the user profile slug.
+    const userLink = screen.getByRole('link', { name: /@testuser2/ })
+    expect(userLink).toHaveAttribute('href', '/users/testuser2')
+
+    // Vote counts render with the correct singular/plural agreement.
+    expect(card).toHaveTextContent(/3\s+upvotes/)
+    // Use a negative lookahead instead of \b — jest-dom normalises whitespace
+    // so a trailing "downvote" (singular) is immediately followed by the next
+    // block's "View tag details", not a word boundary.
+    expect(card).toHaveTextContent(/1\s+downvote(?!s)/)
+
+    // The "View tag details" action links to the canonical tag detail page.
+    const detailLink = screen.getByRole('link', { name: /view tag details/i })
+    expect(detailLink).toHaveAttribute('href', '/tags/post-punk')
+  })
+
+  it('opens the attribution card via keyboard (Enter on the focused pill wrapper)', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    const trigger = screen.getByRole('group', { name: /post-punk tag details/i })
+    trigger.focus()
+    expect(trigger).toHaveFocus()
+
+    await user.keyboard('{Enter}')
+
+    const card = await screen.findByTestId('tag-attribution-card-10')
+    expect(card).toBeInTheDocument()
+    expect(card).toHaveTextContent('@testuser2')
+  })
+
+  it('omits the "Added by" line when the backend did not return a username', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    // Open the hover card for the "noise" tag (no added_by_username).
+    const trigger = screen.getByRole('group', { name: /noise tag details/i })
+    await user.click(trigger)
+
+    const card = await screen.findByTestId('tag-attribution-card-11')
+    expect(card).toBeInTheDocument()
+
+    // No "Added by" copy AND no anonymous/undefined leak.
+    expect(card).not.toHaveTextContent(/Added by/i)
+    expect(card).not.toHaveTextContent(/undefined/i)
+
+    // Vote counts + detail link still render — graceful degradation, not a
+    // blank card.
+    expect(card).toHaveTextContent(/0\s+upvotes/)
+    expect(card).toHaveTextContent(/0\s+downvotes/)
+    const detailLink = screen.getByRole('link', { name: /view tag details/i })
+    expect(detailLink).toHaveAttribute('href', '/tags/noise')
+  })
+
+  it('renders relative time alongside the username when added_at is present', async () => {
+    const recent = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    currentMockTags = {
+      tags: [
+        {
+          tag_id: 20,
+          name: 'shoegaze',
+          slug: 'shoegaze',
+          category: 'genre',
+          is_official: false,
+          upvotes: 1,
+          downvotes: 0,
+          wilson_score: 0.2,
+          user_vote: 0,
+          added_by_username: 'testuser3',
+          added_at: recent,
+        },
+      ],
+    }
+
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    await user.click(screen.getByRole('group', { name: /shoegaze tag details/i }))
+
+    const card = await screen.findByTestId('tag-attribution-card-20')
+    // formatRelativeTime output for a timestamp ~5 minutes ago.
+    expect(card).toHaveTextContent(/minutes? ago/i)
+  })
+
+  it('does not regress the inner tag link or vote buttons when the pill is clicked', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+
+    // The inline tag-name link still points to the canonical detail page.
+    const tagLink = screen.getByRole('link', { name: 'post-punk' })
+    expect(tagLink).toHaveAttribute('href', '/tags/post-punk')
+
+    // Vote buttons are still present and independently clickable (the hover
+    // card wrapper guards against its own toggle when a button is clicked,
+    // so the vote mutation still fires).
+    const upvoteButton = screen.getByRole('button', { name: /upvote post-punk/i })
+    await user.click(upvoteButton)
+    // We don't assert on mutate args here — useVoteOnTag is a mocked noop;
+    // the guarantee is that clicking the vote button does not throw, does
+    // not navigate, and doesn't blow up on the stopPropagation handler.
+    expect(upvoteButton).toBeInTheDocument()
   })
 })

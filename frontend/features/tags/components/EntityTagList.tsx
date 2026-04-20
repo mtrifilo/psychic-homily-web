@@ -20,6 +20,12 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from '@/components/ui/hover-card'
+import { formatRelativeTime } from '@/lib/formatRelativeTime'
+import {
   useEntityTags,
   useAddTagToEntity,
   useRemoveTagFromEntity,
@@ -171,65 +177,178 @@ function TagWithVotes({
   const userVote = tag.user_vote ?? 0
   const score = tag.upvotes - tag.downvotes
 
+  // Controlled open state for the attribution hover card. Radix HoverCard
+  // opens on hover and focus out of the box; this state lets us *also* toggle
+  // on click/tap so touch users (where :hover doesn't fire) still have a path
+  // to the attribution info (PSY-441 mobile fallback).
+  const [open, setOpen] = useState(false)
+
+  const handleTriggerClick = (e: React.MouseEvent) => {
+    // Don't toggle the card when the click originated on the inner tag Link
+    // (which navigates) or the vote buttons (which mutate). Those elements
+    // stop propagation via their native semantics / explicit handlers below;
+    // this guard covers any future children we add.
+    const target = e.target as HTMLElement
+    if (target.closest('a, button')) return
+    setOpen(v => !v)
+  }
+
+  const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
+    // Enter/Space on the pill wrapper toggles the card — matches the
+    // mouse-click affordance and keeps keyboard users on par with pointer
+    // users. Radix already opens on focus, so this is an explicit toggle.
+    if (e.key === 'Enter' || e.key === ' ') {
+      // Only handle keystrokes that land on the wrapper itself; inner
+      // focusable elements (the Link, vote buttons) handle their own keys.
+      if (e.target !== e.currentTarget) return
+      e.preventDefault()
+      setOpen(v => !v)
+    }
+  }
+
   return (
-    <div
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs',
-        // Official tags get a distinct primary-accent background that
-        // overrides the per-category color, making curated tags visibly
-        // different at a glance (ISSUE-004 from tags-audit-2).
-        tag.is_official
-          ? 'border-primary/40 bg-primary/10 text-foreground'
-          : getCategoryColor(tag.category)
+    <HoverCard open={open} onOpenChange={setOpen} openDelay={120} closeDelay={80}>
+      <HoverCardTrigger asChild>
+        <div
+          role="group"
+          tabIndex={0}
+          aria-label={`${tag.name} tag details`}
+          onClick={handleTriggerClick}
+          onKeyDown={handleTriggerKeyDown}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background',
+            // Official tags get a distinct primary-accent background that
+            // overrides the per-category color, making curated tags visibly
+            // different at a glance (ISSUE-004 from tags-audit-2).
+            tag.is_official
+              ? 'border-primary/40 bg-primary/10 text-foreground'
+              : getCategoryColor(tag.category)
+          )}
+        >
+          {tag.is_official && (
+            <TagOfficialIndicator size="sm" tagName={tag.name} />
+          )}
+          <Link
+            href={`/tags/${tag.slug}`}
+            className="font-medium hover:underline"
+            title={tag.is_official ? `${tag.name} (Official)` : tag.name}
+          >
+            {tag.name}
+          </Link>
+
+          {(tag.upvotes > 0 || tag.downvotes > 0) && (
+            <span className="text-[10px] opacity-70 tabular-nums">
+              {score >= 0 ? `+${score}` : score}
+            </span>
+          )}
+
+          {isAuthenticated && (
+            <span className="inline-flex items-center gap-0.5 ml-0.5">
+              <button
+                onClick={e => {
+                  e.stopPropagation()
+                  onVote(tag, true)
+                }}
+                className={cn(
+                  'rounded p-0.5 transition-colors',
+                  userVote === 1
+                    ? 'text-green-500'
+                    : 'text-current opacity-40 hover:opacity-100 hover:text-green-500'
+                )}
+                title="Upvote"
+                aria-label={`Upvote ${tag.name}`}
+              >
+                <ThumbsUp className="h-3 w-3" />
+              </button>
+              <button
+                onClick={e => {
+                  e.stopPropagation()
+                  onVote(tag, false)
+                }}
+                className={cn(
+                  'rounded p-0.5 transition-colors',
+                  userVote === -1
+                    ? 'text-red-500'
+                    : 'text-current opacity-40 hover:opacity-100 hover:text-red-500'
+                )}
+                title="Downvote"
+                aria-label={`Downvote ${tag.name}`}
+              >
+                <ThumbsDown className="h-3 w-3" />
+              </button>
+            </span>
+          )}
+        </div>
+      </HoverCardTrigger>
+      <HoverCardContent
+        align="start"
+        side="top"
+        className="w-[280px] text-sm"
+        data-testid={`tag-attribution-card-${tag.tag_id}`}
+      >
+        <TagAttributionContent tag={tag} />
+      </HoverCardContent>
+    </HoverCard>
+  )
+}
+
+// ──────────────────────────────────────────────
+// Attribution hover-card body
+// ──────────────────────────────────────────────
+
+// PSY-441 — surfaces who added the tag + vote counts + a direct link to the
+// tag detail page. Lives as a separate component so the test suite can assert
+// on the rendered content without driving the Radix hover interaction.
+function TagAttributionContent({ tag }: { tag: EntityTag }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5">
+        <Link
+          href={`/tags/${tag.slug}`}
+          className="font-semibold text-foreground hover:underline"
+        >
+          #{tag.name}
+        </Link>
+        {tag.is_official && (
+          <TagOfficialIndicator size="sm" tagName={tag.name} />
+        )}
+      </div>
+
+      {/* Added-by line. Skip entirely when the backend has no username —
+          contributors who tagged anonymously or under a since-deleted account
+          won't leak a dangling "Added by @undefined". */}
+      {tag.added_by_username && (
+        <p className="text-xs text-muted-foreground">
+          Added by{' '}
+          <Link
+            href={`/users/${tag.added_by_username}`}
+            className="text-foreground hover:underline"
+          >
+            @{tag.added_by_username}
+          </Link>
+          {tag.added_at && (
+            <>
+              {' · '}
+              <span>{formatRelativeTime(tag.added_at)}</span>
+            </>
+          )}
+        </p>
       )}
-    >
-      {tag.is_official && (
-        <TagOfficialIndicator size="sm" tagName={tag.name} />
-      )}
+
+      <p className="text-xs text-muted-foreground tabular-nums">
+        <span className="font-medium text-foreground">{tag.upvotes}</span>{' '}
+        {tag.upvotes === 1 ? 'upvote' : 'upvotes'}
+        {' · '}
+        <span className="font-medium text-foreground">{tag.downvotes}</span>{' '}
+        {tag.downvotes === 1 ? 'downvote' : 'downvotes'}
+      </p>
+
       <Link
         href={`/tags/${tag.slug}`}
-        className="font-medium hover:underline"
-        title={tag.is_official ? `${tag.name} (Official)` : tag.name}
+        className="inline-block text-xs text-primary hover:underline"
       >
-        {tag.name}
+        View tag details
       </Link>
-
-      {(tag.upvotes > 0 || tag.downvotes > 0) && (
-        <span className="text-[10px] opacity-70 tabular-nums">
-          {score >= 0 ? `+${score}` : score}
-        </span>
-      )}
-
-      {isAuthenticated && (
-        <span className="inline-flex items-center gap-0.5 ml-0.5">
-          <button
-            onClick={() => onVote(tag, true)}
-            className={cn(
-              'rounded p-0.5 transition-colors',
-              userVote === 1
-                ? 'text-green-500'
-                : 'text-current opacity-40 hover:opacity-100 hover:text-green-500'
-            )}
-            title="Upvote"
-            aria-label={`Upvote ${tag.name}`}
-          >
-            <ThumbsUp className="h-3 w-3" />
-          </button>
-          <button
-            onClick={() => onVote(tag, false)}
-            className={cn(
-              'rounded p-0.5 transition-colors',
-              userVote === -1
-                ? 'text-red-500'
-                : 'text-current opacity-40 hover:opacity-100 hover:text-red-500'
-            )}
-            title="Downvote"
-            aria-label={`Downvote ${tag.name}`}
-          >
-            <ThumbsDown className="h-3 w-3" />
-          </button>
-        </span>
-      )}
     </div>
   )
 }
