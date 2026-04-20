@@ -93,4 +93,68 @@ describe('Breadcrumb', () => {
     expect(links).toHaveLength(1)
     expect(links[0]).toHaveTextContent('Venues')
   })
+
+  // PSY-486: deep breadcrumbs for nested entity hierarchies (genre tags).
+  it('renders intermediate crumbs as links between fallback and current page', () => {
+    render(
+      <Breadcrumb
+        fallback={{ href: '/tags', label: 'Tags' }}
+        intermediate={[{ href: '/tags/post-punk', label: 'post-punk' }]}
+        currentPage="shoegaze"
+      />
+    )
+
+    // Three list items: Tags (link) > post-punk (link) > shoegaze (text)
+    const items = screen.getAllByRole('listitem')
+    expect(items).toHaveLength(3)
+
+    const tagsLink = screen.getByRole('link', { name: 'Tags' })
+    expect(tagsLink).toHaveAttribute('href', '/tags')
+    const parentLink = screen.getByRole('link', { name: 'post-punk' })
+    expect(parentLink).toHaveAttribute('href', '/tags/post-punk')
+
+    // Current page is still plain text.
+    const current = screen.getByText('shoegaze')
+    expect(current.tagName).toBe('SPAN')
+    expect(current.closest('a')).toBeNull()
+
+    // One separator per gap between crumbs.
+    const separators = screen.getAllByText((_, element) =>
+      element?.getAttribute('aria-hidden') === 'true' && element?.textContent === '\u203A'
+    )
+    expect(separators).toHaveLength(2)
+  })
+
+  it('supports multiple intermediate crumbs in order', () => {
+    render(
+      <Breadcrumb
+        fallback={{ href: '/tags', label: 'Tags' }}
+        intermediate={[
+          { href: '/tags/music', label: 'music' },
+          { href: '/tags/post-punk', label: 'post-punk' },
+        ]}
+        currentPage="shoegaze"
+      />
+    )
+
+    const links = screen.getAllByRole('link')
+    expect(links.map(l => l.textContent)).toEqual([
+      'Tags',
+      'music',
+      'post-punk',
+    ])
+  })
+
+  it('falls back to two-level rendering when intermediate is empty', () => {
+    render(
+      <Breadcrumb
+        fallback={{ href: '/tags', label: 'Tags' }}
+        intermediate={[]}
+        currentPage="rock"
+      />
+    )
+
+    const items = screen.getAllByRole('listitem')
+    expect(items).toHaveLength(2)
+  })
 })

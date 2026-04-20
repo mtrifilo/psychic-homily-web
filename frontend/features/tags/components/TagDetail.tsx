@@ -133,11 +133,23 @@ export function TagDetail({ slug }: TagDetailProps) {
   const hasParent = isGenre && Boolean(tag.parent)
   const hasChildren = isGenre && tag.children && tag.children.length > 0
 
+  // Build the parent breadcrumb chain. The detail endpoint exposes only the
+  // direct parent (not the full ancestor chain) — see backend `GetTagDetail`
+  // — so we render at most one intermediate crumb. If we ever expose
+  // ancestors[] we can map them here without changing the Breadcrumb API.
+  // Non-genre categories don't participate in the hierarchy, so skip the
+  // intermediate crumb even if a stray parent_id were ever present.
+  const parentCrumbs =
+    isGenre && tag.parent
+      ? [{ href: `/tags/${tag.parent.slug || tag.parent.id}`, label: tag.parent.name }]
+      : undefined
+
   return (
     <div className="container max-w-4xl mx-auto px-4 py-6">
       {/* Breadcrumb Navigation */}
       <Breadcrumb
         fallback={{ href: '/tags', label: 'Tags' }}
+        intermediate={parentCrumbs}
         currentPage={tag.name}
       />
 

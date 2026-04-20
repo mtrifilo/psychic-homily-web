@@ -45,11 +45,24 @@ vi.mock('@/features/notifications', () => ({
 
 vi.mock('@/components/shared', () => ({
   Breadcrumb: ({
+    fallback,
+    intermediate,
     currentPage,
   }: {
     fallback: { href: string; label: string }
+    intermediate?: { href: string; label: string }[]
     currentPage: string
-  }) => <nav aria-label="Breadcrumb"><span>{currentPage}</span></nav>,
+  }) => (
+    <nav aria-label="Breadcrumb" data-testid="breadcrumb-stub">
+      <a href={fallback.href}>{fallback.label}</a>
+      {(intermediate ?? []).map(c => (
+        <a key={c.href} href={c.href} data-testid="breadcrumb-intermediate">
+          {c.label}
+        </a>
+      ))}
+      <span>{currentPage}</span>
+    </nav>
+  ),
 }))
 
 import { TagDetail } from './TagDetail'
@@ -418,9 +431,17 @@ describe('TagDetail', () => {
 
     renderWithProviders(<TagDetail slug="rock" />)
 
-    expect(screen.getByTestId('tag-hierarchy')).toBeInTheDocument()
+    const hierarchy = screen.getByTestId('tag-hierarchy')
+    expect(hierarchy).toBeInTheDocument()
     expect(screen.getByText('Parent')).toBeInTheDocument()
-    const parentLink = screen.getByRole('link', { name: /Music/ })
+    // Scope to the hierarchy section because PSY-486 also surfaces the
+    // parent in the breadcrumb nav, which means an unscoped lookup matches
+    // two links (breadcrumb intermediate + parent pill).
+    const within = hierarchy.querySelectorAll('a')
+    const parentLink = Array.from(within).find(a =>
+      /Music/.test(a.textContent ?? '')
+    )
+    expect(parentLink).toBeDefined()
     expect(parentLink).toHaveAttribute('href', '/tags/music')
   })
 
@@ -808,6 +829,75 @@ describe('TagDetail', () => {
 
     const jazzElements = screen.getAllByText('Jazz')
     expect(jazzElements.length).toBeGreaterThanOrEqual(2)
+  })
+
+  // PSY-486: when a genre tag has a parent, the breadcrumb chain renders
+  // `Tags > <parent> > <tag>` so visitors can climb the hierarchy.
+  it('includes the parent tag as an intermediate breadcrumb crumb when present', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({
+        name: 'shoegaze',
+        slug: 'shoegaze',
+        category: 'genre',
+        parent: {
+          id: 5,
+          name: 'post-punk',
+          slug: 'post-punk',
+          category: 'genre',
+          is_official: false,
+          usage_count: 12,
+        },
+      }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<TagDetail slug="shoegaze" />)
+
+    const intermediates = screen.getAllByTestId('breadcrumb-intermediate')
+    expect(intermediates).toHaveLength(1)
+    expect(intermediates[0]).toHaveTextContent('post-punk')
+    expect(intermediates[0]).toHaveAttribute('href', '/tags/post-punk')
+  })
+
+  it('omits the intermediate crumb for genre tags with no parent', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({ name: 'rock', category: 'genre' }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<TagDetail slug="rock" />)
+
+    expect(
+      screen.queryByTestId('breadcrumb-intermediate')
+    ).not.toBeInTheDocument()
+  })
+
+  it('does not render parent crumb for non-genre categories even if parent is set', () => {
+    // Defensive: hierarchy is genre-only, so even a stray parent_id on a
+    // locale tag should not produce a misleading breadcrumb chain.
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({
+        category: 'locale',
+        parent: {
+          id: 5,
+          name: 'West Coast',
+          slug: 'west-coast',
+          category: 'locale',
+          is_official: false,
+          usage_count: 1,
+        },
+      }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<TagDetail slug="arizona" />)
+
+    expect(
+      screen.queryByTestId('breadcrumb-intermediate')
+    ).not.toBeInTheDocument()
   })
 
   // ── Tagged Entities (preserved grouped list) ──

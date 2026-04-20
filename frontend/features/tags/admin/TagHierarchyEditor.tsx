@@ -39,13 +39,16 @@ import type { GenreHierarchyNode, GenreHierarchyTag, TagListItem } from '../type
 export function buildHierarchyTree(tags: GenreHierarchyTag[]): GenreHierarchyNode[] {
   const byId = new Map<number, GenreHierarchyNode>()
   for (const t of tags) {
-    byId.set(t.id, { ...t, depth: 0, children: [] })
+    byId.set(t.id, { ...t, depth: 0, children: [], parent_name: null })
   }
   const roots: GenreHierarchyNode[] = []
   for (const node of byId.values()) {
     if (node.parent_id != null && byId.has(node.parent_id)) {
       const parent = byId.get(node.parent_id)!
       parent.children.push(node)
+      // Denormalize the parent name so filter/search rows (which flatten
+      // away the parent context) can still render the breadcrumb chip.
+      node.parent_name = parent.name
     } else {
       roots.push(node)
     }
@@ -308,11 +311,33 @@ interface NodeRowProps {
   expandedIds: Set<number>
   onToggle: (id: number) => void
   onEdit: (node: GenreHierarchyNode) => void
+  /**
+   * When true, render a `parent › ` breadcrumb chip beside the tag name.
+   * The unfiltered tree expresses the parent relationship via indentation,
+   * so we only show the chip when context is lost — i.e., search/filter
+   * mode where matches are flattened to depth 0 without their ancestors.
+   */
+  showParentBreadcrumb?: boolean
+  /**
+   * Override the children count for the badge. When the unfiltered tree is
+   * collapsed back into a flat list (search), the node's `children` array
+   * is stripped to keep the rendered output tidy — but we still want the
+   * "N children" badge to surface, so the caller passes the original count.
+   */
+  childCountOverride?: number
 }
 
-function NodeRow({ node, expandedIds, onToggle, onEdit }: NodeRowProps) {
+function NodeRow({
+  node,
+  expandedIds,
+  onToggle,
+  onEdit,
+  showParentBreadcrumb = false,
+  childCountOverride,
+}: NodeRowProps) {
   const expanded = expandedIds.has(node.id)
   const hasChildren = node.children.length > 0
+  const displayedChildCount = childCountOverride ?? node.children.length
 
   return (
     <>
@@ -355,7 +380,29 @@ function NodeRow({ node, expandedIds, onToggle, onEdit }: NodeRowProps) {
         </button>
 
         <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        {showParentBreadcrumb && node.parent_name && (
+          <span
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+            data-testid="parent-breadcrumb"
+            title={`Parent: ${node.parent_name}`}
+          >
+            <span className="truncate max-w-[140px]">{node.parent_name}</span>
+            <span aria-hidden="true" className="text-muted-foreground/60">
+              &rsaquo;
+            </span>
+          </span>
+        )}
         <span className="flex-1 truncate text-sm font-medium">{node.name}</span>
+        {displayedChildCount > 0 && (
+          <Badge
+            variant="secondary"
+            className="text-[10px] font-normal"
+            data-testid="child-count-badge"
+          >
+            {displayedChildCount}{' '}
+            {displayedChildCount === 1 ? 'child' : 'children'}
+          </Badge>
+        )}
         {node.is_official && (
           <Badge variant="outline" className="text-[10px]">
             official
@@ -405,21 +452,32 @@ export function TagHierarchyEditor() {
 
   // Filtered view: when a search is active, flatten to matching tags so
   // admins can jump to a tag buried deep in the tree. Matches are shown
-  // without their tree context — tradeoff for simplicity.
+  // without their tree context — but we keep `parent_name` populated and
+  // remember the original child count so the rendered row can still
+  // surface the breadcrumb chip and the "N children" badge.
   const filteredRoots = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return roots
-    const matches: GenreHierarchyNode[] = []
+    const matches: Array<GenreHierarchyNode & { _originalChildCount: number }> = []
     const visit = (node: GenreHierarchyNode) => {
       if (node.name.toLowerCase().includes(q)) {
-        // Flatten matches to depth 0 so the list stays readable during search.
-        matches.push({ ...node, depth: 0, children: [] })
+        // Flatten to depth 0 so the list stays readable during search.
+        // Stash the original child count so the badge can still render
+        // on a node whose `children` array is now stripped.
+        matches.push({
+          ...node,
+          depth: 0,
+          children: [],
+          _originalChildCount: node.children.length,
+        })
       }
       for (const c of node.children) visit(c)
     }
     for (const r of roots) visit(r)
     return matches
   }, [search, roots])
+
+  const isFiltered = search.trim().length > 0
 
   const handleToggle = useCallback((id: number) => {
     setExpandedIds(prev => {
@@ -533,15 +591,23 @@ export function TagHierarchyEditor() {
               className="space-y-0.5 rounded-lg border p-1"
               data-testid="hierarchy-tree"
             >
-              {filteredRoots.map(node => (
-                <NodeRow
-                  key={node.id}
-                  node={node}
-                  expandedIds={expandedIds}
-                  onToggle={handleToggle}
-                  onEdit={setEditingTag}
-                />
-              ))}
+              {filteredRoots.map(node => {
+                const childCountOverride = isFiltered
+                  ? (node as GenreHierarchyNode & { _originalChildCount?: number })
+                      ._originalChildCount ?? node.children.length
+                  : undefined
+                return (
+                  <NodeRow
+                    key={node.id}
+                    node={node}
+                    expandedIds={expandedIds}
+                    onToggle={handleToggle}
+                    onEdit={setEditingTag}
+                    showParentBreadcrumb={isFiltered}
+                    childCountOverride={childCountOverride}
+                  />
+                )
+              })}
             </ul>
           )}
         </>
