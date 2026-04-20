@@ -30,7 +30,12 @@ export function ReportShowButton({
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false)
   const [isLoginPromptOpen, setIsLoginPromptOpen] = useState(false)
 
-  const hasReported = myReport?.report !== null
+  // PSY-476: `myReport?.report !== null` is true when the query is still
+  // loading (`myReport` undefined → `undefined !== null` → true), which
+  // flashed the disabled "Reported" state before real data arrived. Gate
+  // on `!isLoading` and use loose `!= null` so both `undefined` and `null`
+  // mean "no existing report".
+  const hasReported = !isLoading && myReport?.report != null
 
   // If user has already reported, show a disabled "Reported" button
   if (isAuthenticated && hasReported) {

@@ -17,6 +17,15 @@ vi.mock('@/lib/queryClient', () => ({
   },
 }))
 
+// PSY-477: useNotificationFilters now gates on isAuthenticated so
+// anonymous visitors of public entity pages don't fire 401 requests.
+// Default the mock to authenticated for all existing behavioral tests;
+// the anonymous case has its own dedicated test below.
+const mockUseAuthContext = vi.fn(() => ({ isAuthenticated: true }))
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => mockUseAuthContext(),
+}))
+
 import {
   useNotificationFilters,
   useNotificationFilterCheck,
@@ -59,6 +68,20 @@ describe('useNotificationFilters', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
+  })
+
+  // PSY-477: the hook is called transitively by NotifyMeButton on public
+  // entity pages (artist / venue / label / festival). Without the auth
+  // gate, every anonymous visit fires a 401'd GET /me/notification-filters.
+  it('does not fire the query when user is unauthenticated', () => {
+    mockUseAuthContext.mockReturnValueOnce({ isAuthenticated: false })
+    mockApiRequest.mockRejectedValue(new Error('should not be called'))
+
+    renderHook(() => useNotificationFilters(), {
+      wrapper: createWrapper(),
+    })
+
+    expect(mockApiRequest).not.toHaveBeenCalled()
   })
 })
 
