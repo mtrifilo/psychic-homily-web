@@ -3022,6 +3022,8 @@ type mockTagService struct {
 	deleteAliasFn func(uint) (error)
 	listAliasesFn func(uint) ([]models.TagAlias, error)
 	resolveAliasFn func(string) (*models.Tag, error)
+	listAllAliasesFn func(string, int, int) ([]contracts.TagAliasListing, int64, error)
+	bulkImportAliasesFn func([]contracts.BulkAliasImportItem) (*contracts.BulkAliasImportResult, error)
 	getTagEntitiesFn func(uint, string, int, int) ([]contracts.TaggedEntityItem, int64, error)
 	getTagDetailFn func(uint) (*contracts.TagDetailResponse, error)
 	searchTagsFn func(string, int, string) ([]contracts.TagSearchResult, error)
@@ -3116,6 +3118,18 @@ func (m *mockTagService) ListAliases(tagID uint) ([]models.TagAlias, error) {
 func (m *mockTagService) ResolveAlias(alias string) (*models.Tag, error) {
 	if m.resolveAliasFn != nil {
 		return m.resolveAliasFn(alias)
+	}
+	return nil, nil
+}
+func (m *mockTagService) ListAllAliases(search string, limit int, offset int) ([]contracts.TagAliasListing, int64, error) {
+	if m.listAllAliasesFn != nil {
+		return m.listAllAliasesFn(search, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *mockTagService) BulkImportAliases(items []contracts.BulkAliasImportItem) (*contracts.BulkAliasImportResult, error) {
+	if m.bulkImportAliasesFn != nil {
+		return m.bulkImportAliasesFn(items)
 	}
 	return nil, nil
 }

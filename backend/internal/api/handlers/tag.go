@@ -701,6 +701,99 @@ func (h *TagHandler) DeleteAliasHandler(ctx context.Context, req *DeleteAliasReq
 }
 
 // ============================================================================
+// List All Aliases (admin)
+// ============================================================================
+
+type ListAllAliasesRequest struct {
+	Search string `query:"search" required:"false" doc:"Search by alias text or canonical tag name"`
+	Limit  int    `query:"limit" required:"false" doc:"Max results (default 50, max 500)" example:"50"`
+	Offset int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+}
+
+type ListAllAliasesResponse struct {
+	Body struct {
+		Aliases []contracts.TagAliasListing `json:"aliases"`
+		Total   int64                       `json:"total"`
+	}
+}
+
+func (h *TagHandler) ListAllAliasesHandler(ctx context.Context, req *ListAllAliasesRequest) (*ListAllAliasesResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	if !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	items, total, err := h.tagService.ListAllAliases(req.Search, req.Limit, req.Offset)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to list aliases")
+	}
+
+	resp := &ListAllAliasesResponse{}
+	resp.Body.Aliases = items
+	resp.Body.Total = total
+	return resp, nil
+}
+
+// ============================================================================
+// Bulk Import Aliases (admin)
+// ============================================================================
+
+// Cap the bulk import payload to keep admin mistakes (e.g. pasting a huge
+// CSV) from becoming a DoS. 2000 rows comfortably covers realistic seeding
+// batches while bounding work per request.
+const maxBulkAliasImportRows = 2000
+
+type BulkImportAliasesRequest struct {
+	Body struct {
+		Items []contracts.BulkAliasImportItem `json:"items" doc:"List of alias,canonical pairs to import"`
+	}
+}
+
+type BulkImportAliasesResponse struct {
+	Body *contracts.BulkAliasImportResult
+}
+
+func (h *TagHandler) BulkImportAliasesHandler(ctx context.Context, req *BulkImportAliasesRequest) (*BulkImportAliasesResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	if !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	if len(req.Body.Items) == 0 {
+		return nil, huma.Error400BadRequest("items is required and must not be empty")
+	}
+	if len(req.Body.Items) > maxBulkAliasImportRows {
+		return nil, huma.Error400BadRequest(
+			fmt.Sprintf("items exceeds max of %d rows", maxBulkAliasImportRows),
+		)
+	}
+
+	result, err := h.tagService.BulkImportAliases(req.Body.Items)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to bulk import aliases")
+	}
+
+	if h.auditLog != nil {
+		imported := result.Imported
+		skipped := len(result.Skipped)
+		go func() {
+			h.auditLog.LogAction(user.ID, "bulk_import_tag_aliases", "tag", 0, map[string]interface{}{
+				"imported": imported,
+				"skipped":  skipped,
+			})
+		}()
+	}
+
+	return &BulkImportAliasesResponse{Body: result}, nil
+}
+
+// ============================================================================
 // Helpers
 // ============================================================================
 

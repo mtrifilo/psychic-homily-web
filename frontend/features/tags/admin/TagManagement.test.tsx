@@ -17,6 +17,8 @@ vi.mock('./useAdminTags', () => ({
   useTagAliases: () => ({ data: { aliases: [] }, isLoading: false }),
   useCreateAlias: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteAlias: () => ({ mutate: vi.fn(), isPending: false }),
+  useAllTagAliases: () => ({ data: { aliases: [], total: 0 }, isLoading: false, error: null }),
+  useBulkImportAliases: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
 import { TagManagement } from './TagManagement'

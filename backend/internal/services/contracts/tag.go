@@ -132,6 +132,42 @@ type TagAliasResponse struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// TagAliasListing represents a global alias listing row, pairing an alias
+// with its canonical tag for the admin-wide alias management UI.
+type TagAliasListing struct {
+	ID             uint      `json:"id"`
+	Alias          string    `json:"alias"`
+	TagID          uint      `json:"tag_id"`
+	TagName        string    `json:"tag_name"`
+	TagSlug        string    `json:"tag_slug"`
+	TagCategory    string    `json:"tag_category"`
+	TagIsOfficial  bool      `json:"tag_is_official"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// BulkAliasImportItem is one row of a bulk alias import request.
+// Admins submit `{alias, canonical}` pairs; canonical can be a tag
+// slug or exact name (case-insensitive match).
+type BulkAliasImportItem struct {
+	Alias     string `json:"alias"`
+	Canonical string `json:"canonical"`
+}
+
+// BulkAliasImportSkipped describes a single row that was rejected
+// during a bulk import so the admin UI can surface per-row errors.
+type BulkAliasImportSkipped struct {
+	Row       int    `json:"row"`
+	Alias     string `json:"alias"`
+	Canonical string `json:"canonical"`
+	Reason    string `json:"reason"`
+}
+
+// BulkAliasImportResult summarizes the outcome of a bulk alias import.
+type BulkAliasImportResult struct {
+	Imported int                      `json:"imported"`
+	Skipped  []BulkAliasImportSkipped `json:"skipped"`
+}
+
 // TagServiceInterface defines the contract for tag operations.
 type TagServiceInterface interface {
 	// CRUD
@@ -156,6 +192,8 @@ type TagServiceInterface interface {
 	DeleteAlias(aliasID uint) error
 	ListAliases(tagID uint) ([]models.TagAlias, error)
 	ResolveAlias(alias string) (*models.Tag, error)
+	ListAllAliases(search string, limit, offset int) ([]TagAliasListing, int64, error)
+	BulkImportAliases(items []BulkAliasImportItem) (*BulkAliasImportResult, error)
 
 	// Tag entities
 	GetTagEntities(tagID uint, entityType string, limit, offset int) ([]TaggedEntityItem, int64, error)
