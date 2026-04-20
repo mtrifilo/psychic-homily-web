@@ -72,11 +72,14 @@ test.describe('Registration', () => {
     // Submit — server will reject the breached password
     await page.getByRole('button', { name: 'Create account' }).click()
 
-    // Error alert should appear with breach message
-    await expect(page.getByRole('alert')).toBeVisible({ timeout: 10_000 })
+    // PSY-474: can't use `page.getByRole('alert')` unscoped — Next.js's
+    // RouteAnnouncer renders a permanent empty `role="alert"` live region
+    // at the page root for route narration, so any form-level alert makes
+    // the selector match 2 elements and trip strict-mode. The text check
+    // below is content-specific and sufficient on its own.
     await expect(
       page.getByText(/password has been exposed in a data breach/i)
-    ).toBeVisible()
+    ).toBeVisible({ timeout: 10_000 })
 
     // Still on /auth
     expect(page.url()).toContain('/auth')

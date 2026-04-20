@@ -41,8 +41,12 @@ test.describe('Login', () => {
     await page.locator('#password').fill('wrong-password-here')
     await page.getByRole('button', { name: 'Sign in', exact: true }).click()
 
-    // Error alert appears
-    await expect(page.getByRole('alert')).toBeVisible({ timeout: 10_000 })
+    // PSY-474: filter by non-empty content to skip Next.js's RouteAnnouncer
+    // (a permanent empty `role="alert"` live region at the page root that
+    // would otherwise trip strict-mode alongside the form error alert).
+    await expect(
+      page.getByRole('alert').filter({ hasText: /.+/ })
+    ).toBeVisible({ timeout: 10_000 })
   })
 
   test('shows validation error for empty password', async ({ page }) => {
