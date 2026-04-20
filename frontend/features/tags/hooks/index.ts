@@ -30,6 +30,16 @@ interface UseTagsParams {
   sort?: string
   limit?: number
   offset?: number
+  /**
+   * Scope per-tag `usage_count` to a single entity type (PSY-484). When set,
+   * each tag in the response reports the number of `entity_tags` rows for
+   * that tag *and* this entity type — not the global cross-entity total.
+   * Used by the browse-page tag facet so the chip on `/venues` shows
+   * "punk N (venues only)" instead of the global N+M+… that misleads users
+   * into clicking chips that produce zero results. The `/tags` browse page
+   * omits this param to keep the global count.
+   */
+  entity_type?: string
 }
 
 /** Fetch tags list with optional filters */
@@ -41,6 +51,7 @@ export function useTags(params?: UseTagsParams) {
   if (params?.sort) searchParams.set('sort', params.sort)
   if (params?.limit) searchParams.set('limit', String(params.limit))
   if (params?.offset) searchParams.set('offset', String(params.offset))
+  if (params?.entity_type) searchParams.set('entity_type', params.entity_type)
 
   const queryString = searchParams.toString()
   const url = queryString

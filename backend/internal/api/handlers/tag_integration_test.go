@@ -502,6 +502,84 @@ func (s *TagHandlerIntegrationSuite) TestListTags_Empty() {
 	s.Empty(resp.Body.Tags)
 }
 
+// TestListTags_EntityTypeScopedFacet verifies PSY-484: callers can scope the
+// usage_count to a single entity type via ?entity_type=. The same tag returns
+// different counts depending on which browse page asked, so the chip on
+// /artists shows "punk N (artists)" and the chip on /venues shows "punk M
+// (venues)" instead of both showing the global N+M+….
+func (s *TagHandlerIntegrationSuite) TestListTags_EntityTypeScopedFacet() {
+	admin := createAdminUser(s.deps.db)
+	createdPunk := s.createTagViaHandler(admin, "punk", models.TagCategoryGenre)
+	createdRock := s.createTagViaHandler(admin, "rock", models.TagCategoryGenre)
+
+	// Apply punk to one artist; apply rock to a venue. After this:
+	//   global: punk=1, rock=1
+	//   artist scope: punk=1, rock=0
+	//   venue scope:  punk=0, rock=1
+	artist := createArtist(s.deps.db, "Black Flag")
+	venue := createVerifiedVenue(s.deps.db, "The Smell", "Los Angeles", "CA")
+
+	addReq := &AddTagToEntityRequest{EntityType: "artist", EntityID: fmt.Sprintf("%d", artist.ID)}
+	addReq.Body.TagID = createdPunk.Body.ID
+	_, err := s.handler.AddTagToEntityHandler(ctxWithUser(admin), addReq)
+	s.Require().NoError(err)
+
+	addReq = &AddTagToEntityRequest{EntityType: "venue", EntityID: fmt.Sprintf("%d", venue.ID)}
+	addReq.Body.TagID = createdRock.Body.ID
+	_, err = s.handler.AddTagToEntityHandler(ctxWithUser(admin), addReq)
+	s.Require().NoError(err)
+
+	// /artists facet — punk should be 1, rock 0.
+	resp, err := s.handler.ListTagsHandler(s.deps.ctx, &ListTagsRequest{EntityType: "artist"})
+	s.Require().NoError(err)
+	s.Require().NotNil(resp)
+	got := map[string]int{}
+	for _, t := range resp.Body.Tags {
+		got[t.Name] = t.UsageCount
+	}
+	s.Equal(1, got["punk"], "/artists facet: punk should reflect 1 artist application")
+	s.Equal(0, got["rock"], "/artists facet: rock should be 0 (no artists tagged rock)")
+
+	// /venues facet — punk should be 0, rock should be 1.
+	resp, err = s.handler.ListTagsHandler(s.deps.ctx, &ListTagsRequest{EntityType: "venue"})
+	s.Require().NoError(err)
+	s.Require().NotNil(resp)
+	got = map[string]int{}
+	for _, t := range resp.Body.Tags {
+		got[t.Name] = t.UsageCount
+	}
+	s.Equal(0, got["punk"], "/venues facet: punk should be 0 (the dogfood-output bug)")
+	s.Equal(1, got["rock"], "/venues facet: rock should reflect 1 venue application")
+
+	// /festivals facet — both should be 0; ensure the count never falls back
+	// to the global persisted value.
+	resp, err = s.handler.ListTagsHandler(s.deps.ctx, &ListTagsRequest{EntityType: "festival"})
+	s.Require().NoError(err)
+	for _, t := range resp.Body.Tags {
+		s.Equal(0, t.UsageCount, "/festivals facet: %q should be 0 (no festivals tagged)", t.Name)
+	}
+
+	// Without entity_type, we get the persisted global counts — same shape
+	// as before PSY-484 so the /tags browse page is unchanged.
+	resp, err = s.handler.ListTagsHandler(s.deps.ctx, &ListTagsRequest{})
+	s.Require().NoError(err)
+	got = map[string]int{}
+	for _, t := range resp.Body.Tags {
+		got[t.Name] = t.UsageCount
+	}
+	s.Equal(1, got["punk"])
+	s.Equal(1, got["rock"])
+}
+
+func (s *TagHandlerIntegrationSuite) TestListTags_InvalidEntityType() {
+	admin := createAdminUser(s.deps.db)
+	s.createTagViaHandler(admin, "punk", models.TagCategoryGenre)
+
+	resp, err := s.handler.ListTagsHandler(s.deps.ctx, &ListTagsRequest{EntityType: "user"})
+	s.Nil(resp)
+	assertHumaError(s.T(), err, 400)
+}
+
 // ============================================================================
 // SearchTagsHandler
 // ============================================================================

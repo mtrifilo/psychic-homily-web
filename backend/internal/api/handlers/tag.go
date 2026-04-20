@@ -40,6 +40,12 @@ type ListTagsRequest struct {
 	Sort     string `query:"sort" required:"false" doc:"Sort by: usage, name, created (default: usage)"`
 	Limit    int    `query:"limit" required:"false" doc:"Max results (default 50)" example:"50"`
 	Offset   int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+	// EntityType scopes the per-tag usage_count in the response to a single
+	// entity type (PSY-484). Used by the browse-page tag facet so the count
+	// next to each chip reflects "tags applied to <this entity type>" rather
+	// than the global cross-entity total. The /tags browse page omits this
+	// param to keep the global count.
+	EntityType string `query:"entity_type" required:"false" doc:"Scope usage_count to a single entity type (artist, release, label, show, venue, festival)"`
 }
 
 type ListTagsResponse struct {
@@ -55,7 +61,11 @@ func (h *TagHandler) ListTagsHandler(ctx context.Context, req *ListTagsRequest) 
 		parentID = &req.ParentID
 	}
 
-	tags, total, err := h.tagService.ListTags(req.Category, req.Search, parentID, req.Sort, req.Limit, req.Offset)
+	if req.EntityType != "" && !models.IsValidTagEntityType(req.EntityType) {
+		return nil, huma.Error400BadRequest("Invalid entity_type")
+	}
+
+	tags, total, err := h.tagService.ListTags(req.Category, req.Search, parentID, req.Sort, req.Limit, req.Offset, req.EntityType)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to list tags")
 	}

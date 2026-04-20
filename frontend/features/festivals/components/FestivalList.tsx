@@ -163,6 +163,7 @@ export function FestivalList() {
           onToggle={handleTagsChange}
           onClear={handleTagsClear}
           title="Filter festivals by tag"
+          entityType="festival"
         />
         <DensityToggle density={density} onDensityChange={setDensity} />
       </div>
@@ -174,6 +175,7 @@ export function FestivalList() {
             onToggle={handleTagsChange}
             onClear={handleTagsClear}
             heading="Filter festivals by tag"
+            entityType="festival"
           />
         </aside>
 

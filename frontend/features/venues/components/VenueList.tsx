@@ -204,6 +204,7 @@ export function VenueList() {
           onToggle={handleTagsChange}
           onClear={handleTagsClear}
           title="Filter venues by tag"
+          entityType="venue"
         />
       </div>
 
@@ -214,6 +215,7 @@ export function VenueList() {
             onToggle={handleTagsChange}
             onClear={handleTagsClear}
             heading="Filter venues by tag"
+            entityType="venue"
           />
         </aside>
 

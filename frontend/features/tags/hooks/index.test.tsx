@@ -102,6 +102,32 @@ describe('useTags', () => {
     expect(url).toContain('limit=10')
     expect(url).toContain('offset=20')
   })
+
+  // PSY-484: browse pages pass entity_type so the per-tag usage_count is
+  // scoped to the current entity. Verify the hook forwards it as a query
+  // string param.
+  it('forwards entity_type to the API', async () => {
+    mockApiRequest.mockResolvedValueOnce({ tags: [], total: 0 })
+
+    const { result } = renderHook(() => useTags({ entity_type: 'venue' }), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest.mock.calls[0][0]).toContain('entity_type=venue')
+  })
+
+  it('omits entity_type when not provided (default global usage_count)', async () => {
+    mockApiRequest.mockResolvedValueOnce({ tags: [], total: 0 })
+
+    const { result } = renderHook(() => useTags({ category: 'genre' }), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const url = mockApiRequest.mock.calls[0][0] as string
+    expect(url).not.toContain('entity_type=')
+  })
 })
 
 describe('useSearchTags', () => {

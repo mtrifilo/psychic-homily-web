@@ -302,6 +302,7 @@ export function ReleaseList() {
             onToggle={handleTagsChange}
             onClear={handleTagsClear}
             title="Filter releases by tag"
+            entityType="release"
           />
           <DensityToggle density={density} onDensityChange={setDensity} />
         </div>
@@ -314,6 +315,7 @@ export function ReleaseList() {
             onToggle={handleTagsChange}
             onClear={handleTagsClear}
             heading="Filter releases by tag"
+            entityType="release"
           />
         </aside>
 
