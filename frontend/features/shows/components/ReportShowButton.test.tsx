@@ -129,4 +129,26 @@ describe('ReportShowButton', () => {
 
     expect(screen.getByRole('button', { name: /Report Issue/ })).toBeDisabled()
   })
+
+  // PSY-476: during the first render of a React Query hook, `data` is
+  // actually `undefined` (not `{report: null}` as the earlier test
+  // implied). The previous `hasReported = myReport?.report !== null`
+  // guard evaluated `undefined !== null` → true and flashed the
+  // "Reported" disabled button before real data arrived.
+  it('does not flash "Reported" when query is loading with undefined data', () => {
+    mockAuthContext.mockReturnValue({
+      user: { id: '1', is_admin: false },
+      isAuthenticated: true,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+    mockMyShowReport.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+    })
+    render(<ReportShowButton showId={1} showTitle="Test Show" />)
+
+    expect(screen.queryByRole('button', { name: /^Reported$/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Report Issue/ })).toBeDisabled()
+  })
 })
