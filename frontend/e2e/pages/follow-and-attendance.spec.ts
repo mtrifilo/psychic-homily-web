@@ -1,4 +1,9 @@
 import { test, expect } from '../fixtures'
+import {
+  resetTestFixtures,
+  lookupWorkerUserId,
+} from '../fixtures/test-fixtures-reset'
+import { USER_COUNT, userAuthFileForWorker } from '../global-setup'
 
 // PSY-457: backfill E2E coverage for follow + going/interested flows.
 // PSY-430: pin to reserved artist + show seeded by setup-db.sh so parallel
@@ -15,6 +20,26 @@ test.describe('Follow and attendance', () => {
   // Tests share DB state with the same per-worker user, so they must not
   // run in parallel within this file.
   test.describe.configure({ mode: 'serial' })
+
+  // PSY-470: the in-test cleanup at the happy-path tail only runs when the
+  // test passes. When a mid-test failure skips it (see PSY-465), the shared
+  // reserved artist/show rows leak follower/attendance count into the next
+  // repeat and cause cascading `followers_count` mismatches across workers.
+  // workerCleanup (PSY-432) only fires on worker teardown, not between
+  // tests. Scope the reset to just `user_bookmarks` — narrower than the
+  // teardown reset so it stays cheap when run per test.
+  let workerUserId: number | null = null
+
+  test.beforeAll(async ({}, testInfo) => {
+    const seededIndex = testInfo.workerIndex % USER_COUNT
+    workerUserId = await lookupWorkerUserId(userAuthFileForWorker(seededIndex))
+  })
+
+  test.afterEach(async () => {
+    if (workerUserId !== null) {
+      await resetTestFixtures(workerUserId, ['user_bookmarks'])
+    }
+  })
 
   test('follow an artist round-trip surfaces in Library', { tag: '@smoke' }, async ({
     authenticatedPage,
