@@ -177,8 +177,8 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
         <div className="order-2 lg:order-1">
           {/* Header */}
           <header className="mb-8">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+              <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h1 className="text-2xl md:text-3xl font-bold leading-8 md:leading-9">{venue.name}</h1>
                   {venue.verified && (
@@ -212,7 +212,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
               </div>
 
               {isAuthenticated && (
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
                   <Button
                     variant="outline"
                     size="sm"
