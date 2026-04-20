@@ -164,57 +164,59 @@ export function useVoteComment() {
         body: JSON.stringify({ direction }),
       }),
     onMutate: async (variables) => {
-      // Optimistic update: adjust vote counts in the cached comment list
+      // `useComments` caches under [...entity(type, id), sort], so the exact
+      // entity key is never populated — only prefix-matching via filters sees
+      // the data. Use getQueriesData/setQueriesData consistently; plain
+      // getQueryData(shortKey) would return undefined and skip the update.
       const queryKey = commentQueryKeys.entity(variables.entityType, variables.entityId)
       await queryClient.cancelQueries({ queryKey })
 
-      const previous = queryClient.getQueryData<CommentListResponse>(queryKey)
+      const snapshot = queryClient.getQueriesData<CommentListResponse>({ queryKey })
 
-      if (previous) {
-        const updateComment = (comment: Comment): Comment => {
-          if (comment.id !== variables.commentId) return comment
+      const updateComment = (comment: Comment): Comment => {
+        if (comment.id !== variables.commentId) return comment
 
-          const prevVote = comment.user_vote ?? null
-          let ups = comment.ups
-          let downs = comment.downs
+        const prevVote = comment.user_vote ?? null
+        let ups = comment.ups
+        let downs = comment.downs
 
-          // Remove previous vote
-          if (prevVote === 1) ups--
-          if (prevVote === -1) downs--
+        // Remove previous vote
+        if (prevVote === 1) ups--
+        if (prevVote === -1) downs--
 
-          // Apply new vote
-          if (variables.direction === 1) ups++
-          if (variables.direction === -1) downs++
+        // Apply new vote
+        if (variables.direction === 1) ups++
+        if (variables.direction === -1) downs++
 
-          return {
-            ...comment,
-            ups,
-            downs,
-            score: ups - downs,
-            user_vote: variables.direction,
-          }
+        return {
+          ...comment,
+          ups,
+          downs,
+          score: ups - downs,
+          user_vote: variables.direction,
         }
-
-        // Update all sort variants of this entity's comments
-        queryClient.setQueriesData<CommentListResponse>(
-          { queryKey },
-          (old) => {
-            if (!old) return old
-            return {
-              ...old,
-              comments: old.comments.map(updateComment),
-            }
-          }
-        )
       }
 
-      return { previous }
+      // Update all sort variants of this entity's comments
+      queryClient.setQueriesData<CommentListResponse>(
+        { queryKey },
+        (old) => {
+          if (!old) return old
+          return {
+            ...old,
+            comments: old.comments.map(updateComment),
+          }
+        }
+      )
+
+      return { snapshot }
     },
-    onError: (_err, variables, context) => {
-      // Roll back on error
-      if (context?.previous) {
-        const queryKey = commentQueryKeys.entity(variables.entityType, variables.entityId)
-        queryClient.setQueryData(queryKey, context.previous)
+    onError: (_err, _variables, context) => {
+      // Restore every cached variant we snapshotted.
+      if (context?.snapshot) {
+        for (const [key, data] of context.snapshot) {
+          queryClient.setQueryData(key, data)
+        }
       }
     },
     onSettled: (_data, _err, variables) => {
@@ -243,46 +245,45 @@ export function useUnvoteComment() {
       const queryKey = commentQueryKeys.entity(variables.entityType, variables.entityId)
       await queryClient.cancelQueries({ queryKey })
 
-      const previous = queryClient.getQueryData<CommentListResponse>(queryKey)
+      const snapshot = queryClient.getQueriesData<CommentListResponse>({ queryKey })
 
-      if (previous) {
-        const updateComment = (comment: Comment): Comment => {
-          if (comment.id !== variables.commentId) return comment
+      const updateComment = (comment: Comment): Comment => {
+        if (comment.id !== variables.commentId) return comment
 
-          const prevVote = comment.user_vote ?? null
-          let ups = comment.ups
-          let downs = comment.downs
+        const prevVote = comment.user_vote ?? null
+        let ups = comment.ups
+        let downs = comment.downs
 
-          if (prevVote === 1) ups--
-          if (prevVote === -1) downs--
+        if (prevVote === 1) ups--
+        if (prevVote === -1) downs--
 
-          return {
-            ...comment,
-            ups,
-            downs,
-            score: ups - downs,
-            user_vote: null,
-          }
+        return {
+          ...comment,
+          ups,
+          downs,
+          score: ups - downs,
+          user_vote: null,
         }
-
-        queryClient.setQueriesData<CommentListResponse>(
-          { queryKey },
-          (old) => {
-            if (!old) return old
-            return {
-              ...old,
-              comments: old.comments.map(updateComment),
-            }
-          }
-        )
       }
 
-      return { previous }
+      queryClient.setQueriesData<CommentListResponse>(
+        { queryKey },
+        (old) => {
+          if (!old) return old
+          return {
+            ...old,
+            comments: old.comments.map(updateComment),
+          }
+        }
+      )
+
+      return { snapshot }
     },
-    onError: (_err, variables, context) => {
-      if (context?.previous) {
-        const queryKey = commentQueryKeys.entity(variables.entityType, variables.entityId)
-        queryClient.setQueryData(queryKey, context.previous)
+    onError: (_err, _variables, context) => {
+      if (context?.snapshot) {
+        for (const [key, data] of context.snapshot) {
+          queryClient.setQueryData(key, data)
+        }
       }
     },
     onSettled: (_data, _err, variables) => {

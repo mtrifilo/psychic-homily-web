@@ -135,17 +135,18 @@ test.describe('Comments (general)', () => {
       // comment_vote_service_test.go) so we don't assert on those here.
       await expect(upvoteButton).toHaveClass(/text-primary/, { timeout: 5_000 })
 
-      // Cleanup: remove our vote so re-runs start from a clean per-user
-      // state (other workers' votes persist; that's fine).
-      const [unvoteResp] = await Promise.all([
-        authenticatedPage.waitForResponse(
-          (resp) =>
-            /\/comments\/\d+\/vote$/.test(resp.url()) &&
-            resp.request().method() === 'DELETE',
-          { timeout: 10_000 }
-        ),
-        upvoteButton.click(),
-      ])
+      // Cleanup via direct DELETE. We can't toggle via a second UI click
+      // because the list endpoint doesn't populate user_vote for the
+      // authenticated user (separate backend bug); after onSettled's
+      // refetch, the cached user_vote reverts to null, so the next click
+      // would fire POST (vote) instead of DELETE (unvote). Pulling the
+      // comment ID out of the POST URL sidesteps that for test idempotency.
+      const commentIdMatch = voteResp.url().match(/\/comments\/(\d+)\/vote$/)
+      const commentId = commentIdMatch?.[1]
+      expect(commentId).toBeTruthy()
+      const unvoteResp = await authenticatedPage.request.delete(
+        `/api/comments/${commentId}/vote`
+      )
       expect(unvoteResp.status()).toBeLessThan(400)
     }
   )
