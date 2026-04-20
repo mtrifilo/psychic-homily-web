@@ -28,7 +28,9 @@ import {
 } from '@/components/ui/dialog'
 import { useTags, useTag } from '../hooks'
 import { AliasListing } from './AliasListing'
+import { LowQualityTagQueue } from './LowQualityTagQueue'
 import { MergeTagDialog } from './MergeTagDialog'
+import { TagHierarchyEditor } from './TagHierarchyEditor'
 import { TagOfficialIndicator } from '../components/TagOfficialIndicator'
 import {
   useCreateTag,
@@ -37,6 +39,7 @@ import {
   useTagAliases,
   useCreateAlias,
   useDeleteAlias,
+  useLowQualityTagQueue,
 } from './useAdminTags'
 import {
   TAG_CATEGORIES,
@@ -46,6 +49,25 @@ import {
 } from '../types'
 
 type DialogMode = 'create' | 'edit' | 'delete' | 'merge' | null
+
+// ============================================================================
+// Needs-Review Tab Badge
+// ============================================================================
+
+function LowQualityBadge() {
+  const { data } = useLowQualityTagQueue({ limit: 1 })
+  const total = data?.total ?? 0
+  if (total === 0) return null
+  return (
+    <Badge
+      variant="secondary"
+      className="h-5 min-w-5 justify-center px-1.5 text-xs"
+      aria-label={`${total} tags need review`}
+    >
+      {total > 99 ? '99+' : total}
+    </Badge>
+  )
+}
 
 // ============================================================================
 // Alias Manager Sub-Component
@@ -601,6 +623,11 @@ export function TagManagement() {
         <TabsList>
           <TabsTrigger value="tags">Tags</TabsTrigger>
           <TabsTrigger value="aliases">Aliases</TabsTrigger>
+          <TabsTrigger value="needs-review" className="gap-2">
+            Needs Review
+            <LowQualityBadge />
+          </TabsTrigger>
+          <TabsTrigger value="hierarchy">Hierarchy</TabsTrigger>
         </TabsList>
 
         <TabsContent value="tags" className="space-y-4">
@@ -749,6 +776,14 @@ export function TagManagement() {
 
         <TabsContent value="aliases">
           <AliasListing />
+        </TabsContent>
+
+        <TabsContent value="needs-review">
+          <LowQualityTagQueue />
+        </TabsContent>
+
+        <TabsContent value="hierarchy">
+          <TagHierarchyEditor />
         </TabsContent>
       </Tabs>
 

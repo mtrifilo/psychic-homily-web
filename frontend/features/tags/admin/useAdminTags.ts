@@ -1,6 +1,6 @@
 'use client'
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
 import type {
@@ -11,6 +11,8 @@ import type {
   BulkAliasImportResult,
   MergeTagsPreview,
   MergeTagsResult,
+  LowQualityTagQueueResponse,
+  GenreHierarchyResponse,
 } from '../types'
 
 // ──────────────────────────────────────────────
@@ -238,6 +240,120 @@ export function useMergeTags() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
       queryClient.invalidateQueries({ queryKey: ['tags', 'aliases'] })
+    },
+  })
+}
+
+// ──────────────────────────────────────────────
+// Low-Quality Tag Queue (PSY-310)
+// ──────────────────────────────────────────────
+
+interface UseLowQualityTagQueueParams {
+  limit?: number
+  offset?: number
+}
+
+/**
+ * Fetch the admin low-quality tag review queue. Short staleTime (30s) so
+ * Ignore/Promote/Delete actions reflect quickly without polling.
+ */
+export function useLowQualityTagQueue(params: UseLowQualityTagQueueParams = {}) {
+  const qs = new URLSearchParams()
+  if (params.limit !== undefined) qs.set('limit', String(params.limit))
+  if (params.offset !== undefined) qs.set('offset', String(params.offset))
+  const url = `${API_ENDPOINTS.TAGS.ADMIN_LOW_QUALITY}${qs.toString() ? `?${qs.toString()}` : ''}`
+
+  return useQuery({
+    queryKey: queryKeys.tags.lowQuality(params as Record<string, unknown>),
+    queryFn: () => apiRequest<LowQualityTagQueueResponse>(url),
+    staleTime: 30 * 1000,
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** Snooze a tag (mark reviewed). Invalidates the queue + tag lists. */
+export function useSnoozeTag() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (tagId: number) =>
+      apiRequest<void>(API_ENDPOINTS.TAGS.ADMIN_SNOOZE(tagId), {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags.lowQuality() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
+    },
+  })
+}
+
+/**
+ * Promote a tag to official by reusing the existing update endpoint
+ * (PUT /tags/{id}) with `is_official: true`. No new backend endpoint needed.
+ */
+export function useMarkTagOfficial() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (tagId: number) =>
+      apiRequest<TagDetailResponse>(API_ENDPOINTS.TAGS.GET(tagId), {
+        method: 'PUT',
+        body: JSON.stringify({ is_official: true }),
+      }),
+    onSuccess: (_data, tagId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags.lowQuality() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags.detail(tagId) })
+    },
+  })
+}
+
+// ──────────────────────────────────────────────
+// Genre hierarchy (PSY-311)
+// ──────────────────────────────────────────────
+
+/**
+ * Fetch all genre tags as a flat list with parent_id (admin only).
+ * The frontend builds the tree client-side. 30-second staleTime keeps
+ * the editor snappy after mutations without thrashing the backend.
+ */
+export function useGenreHierarchy(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.tags.genreHierarchy,
+    queryFn: () =>
+      apiRequest<GenreHierarchyResponse>(API_ENDPOINTS.TAGS.ADMIN_HIERARCHY),
+    enabled: options?.enabled ?? true,
+    staleTime: 30 * 1000,
+  })
+}
+
+interface SetTagParentInput {
+  tagId: number
+  /** Pass null (not undefined) to clear the parent. */
+  parentId: number | null
+}
+
+/**
+ * Set or clear the parent of a genre tag (admin only). Cycle detection and
+ * category enforcement live on the backend; this mutation just surfaces the
+ * error message. Invalidates the genre hierarchy + the affected tag's detail
+ * so the detail page parent/children section stays fresh.
+ */
+export function useSetTagParent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ tagId, parentId }: SetTagParentInput) =>
+      apiRequest<void>(API_ENDPOINTS.TAGS.ADMIN_SET_PARENT(tagId), {
+        method: 'PATCH',
+        body: JSON.stringify({ parent_id: parentId }),
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags.genreHierarchy })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags.all })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tags.detail(variables.tagId),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tags.enrichedDetail(variables.tagId),
+      })
     },
   })
 }

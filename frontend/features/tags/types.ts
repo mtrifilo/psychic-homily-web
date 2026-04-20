@@ -112,6 +112,14 @@ export interface EntityTag {
   wilson_score: number
   user_vote?: number | null
   added_by_username?: string
+  /**
+   * UTC timestamp indicating when the tag was applied to the entity. Optional
+   * because the /entities/{type}/{id}/tags endpoint does not currently return
+   * it (PSY-441 limited work to frontend — no API changes). Typed here so the
+   * pill hover card can surface a relative timestamp once the backend exposes
+   * it without a type refactor.
+   */
+  added_at?: string
 }
 
 export interface TagAlias {
@@ -202,6 +210,65 @@ export interface MergeTagsResult {
   skipped_votes: number
   alias_created: boolean
   moved_aliases: number
+}
+
+/**
+ * Reason identifier for why a tag appeared in the low-quality review queue.
+ * Keep in sync with the backend constants in `tag_low_quality.go`.
+ */
+export type LowQualityReason =
+  | 'orphaned'
+  | 'aging_unused'
+  | 'downvoted'
+  | 'short_name'
+  | 'long_name'
+
+/** One row in the admin low-quality tag review queue (PSY-310). */
+export interface LowQualityTagQueueItem extends TagListItem {
+  upvotes: number
+  downvotes: number
+  reasons: LowQualityReason[]
+}
+
+/** Paginated response for GET /admin/tags/low-quality. */
+export interface LowQualityTagQueueResponse {
+  tags: LowQualityTagQueueItem[]
+  total: number
+}
+
+/** Human-readable labels for the reason pills in the queue UI. */
+export const LOW_QUALITY_REASON_LABELS: Record<LowQualityReason, string> = {
+  orphaned: 'Orphaned',
+  aging_unused: 'Aging unused',
+  downvoted: 'Downvoted',
+  short_name: 'Short name',
+  long_name: 'Long name',
+}
+
+/**
+ * Genre-hierarchy row — returned by GET /admin/tags/hierarchy (PSY-311).
+ * Flat list; the frontend builds the tree client-side from parent_id.
+ */
+export interface GenreHierarchyTag {
+  id: number
+  name: string
+  slug: string
+  parent_id?: number | null
+  usage_count: number
+  is_official: boolean
+}
+
+export interface GenreHierarchyResponse {
+  tags: GenreHierarchyTag[]
+}
+
+/**
+ * Node in the assembled client-side tree. Convenience shape — not a wire type.
+ * `depth` is 0 for roots and increments per level; used for indentation.
+ */
+export interface GenreHierarchyNode extends GenreHierarchyTag {
+  depth: number
+  children: GenreHierarchyNode[]
 }
 
 export function getCategoryColor(category: string): string {

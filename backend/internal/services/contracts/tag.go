@@ -192,6 +192,22 @@ type MergeTagsResult struct {
 	MovedAliases      int64 `json:"moved_aliases"`
 }
 
+// LowQualityTagQueueItem is one row in the admin low-quality-tag review queue.
+// Reasons are human-readable identifiers describing which criteria triggered
+// inclusion ("orphaned", "aging_unused", "downvoted", "short_name", "long_name").
+type LowQualityTagQueueItem struct {
+	TagListItem
+	Upvotes    int64    `json:"upvotes"`
+	Downvotes  int64    `json:"downvotes"`
+	Reasons    []string `json:"reasons"`
+}
+
+// LowQualityTagQueueResponse is the paginated response for the admin queue.
+type LowQualityTagQueueResponse struct {
+	Tags  []LowQualityTagQueueItem `json:"tags"`
+	Total int64                    `json:"total"`
+}
+
 // TagServiceInterface defines the contract for tag operations.
 type TagServiceInterface interface {
 	// CRUD
@@ -223,11 +239,21 @@ type TagServiceInterface interface {
 	MergeTags(sourceID, targetID uint, actorUserID uint) (*MergeTagsResult, error)
 	PreviewMergeTags(sourceID, targetID uint) (*MergeTagsPreview, error)
 
+	// Hierarchy (genre-only)
+	GetTagAncestors(tagID uint) ([]*models.Tag, error)
+	GetTagChildren(tagID uint) ([]*models.Tag, error)
+	GetGenreHierarchy() ([]*models.Tag, error)
+	SetTagParent(tagID uint, parentID *uint, actorUserID uint) error
+
 	// Tag entities
 	GetTagEntities(tagID uint, entityType string, limit, offset int) ([]TaggedEntityItem, int64, error)
 
 	// Tag detail enrichment
 	GetTagDetail(tagID uint) (*TagDetailResponse, error)
+
+	// Low-quality queue (PSY-310)
+	GetLowQualityTagQueue(limit, offset int) (*LowQualityTagQueueResponse, error)
+	SnoozeLowQualityTag(tagID uint, actorUserID uint) error
 
 	// Utility
 	SearchTags(query string, limit int, category string) ([]TagSearchResult, error)

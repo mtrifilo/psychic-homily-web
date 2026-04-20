@@ -190,6 +190,15 @@ func (s *TagService) UpdateTag(tagID uint, name *string, description *string, pa
 		updates["description"] = *description
 	}
 	if parentID != nil {
+		// Hierarchy edits go through the same cycle + category guard that
+		// SetTagParent uses (PSY-311). Keep the check here so any caller
+		// that sets parent_id via generic update can't bypass validation.
+		if tag.Category != models.TagCategoryGenre {
+			return nil, apperrors.ErrTagHierarchyNotGenre(tag.Name, tag.Category)
+		}
+		if err := s.validateTagParent(&tag, parentID); err != nil {
+			return nil, err
+		}
 		updates["parent_id"] = *parentID
 	}
 	if category != nil {

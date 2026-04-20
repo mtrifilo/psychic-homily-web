@@ -291,6 +291,11 @@ export const API_ENDPOINTS = {
     ADMIN_MERGE: (sourceId: number) => `${API_BASE_URL}/admin/tags/${sourceId}/merge`,
     ADMIN_MERGE_PREVIEW: (sourceId: number, targetId: number) =>
       `${API_BASE_URL}/admin/tags/${sourceId}/merge-preview?target_id=${targetId}`,
+    ADMIN_LOW_QUALITY: `${API_BASE_URL}/admin/tags/low-quality`,
+    ADMIN_SNOOZE: (tagId: number) => `${API_BASE_URL}/admin/tags/${tagId}/snooze`,
+    // Admin genre-hierarchy editor (PSY-311).
+    ADMIN_HIERARCHY: `${API_BASE_URL}/admin/tags/hierarchy`,
+    ADMIN_SET_PARENT: (tagId: number) => `${API_BASE_URL}/admin/tags/${tagId}/parent`,
   },
 
   // Entity tag endpoints

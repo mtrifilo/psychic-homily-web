@@ -25,6 +25,11 @@ vi.mock('./useAdminTags', () => ({
   useBulkImportAliases: () => ({ mutate: vi.fn(), isPending: false }),
   useMergeTags: () => ({ mutate: vi.fn(), isPending: false }),
   useMergeTagsPreview: () => ({ data: null, isLoading: false, error: null }),
+  useLowQualityTagQueue: () => ({ data: { tags: [], total: 0 }, isLoading: false, error: null }),
+  useSnoozeTag: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
+  useMarkTagOfficial: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
+  useGenreHierarchy: () => ({ data: { tags: [] }, isLoading: false, error: null }),
+  useSetTagParent: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
 import { TagManagement } from './TagManagement'

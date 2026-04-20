@@ -3026,8 +3026,14 @@ type mockTagService struct {
 	bulkImportAliasesFn func([]contracts.BulkAliasImportItem) (*contracts.BulkAliasImportResult, error)
 	mergeTagsFn func(uint, uint, uint) (*contracts.MergeTagsResult, error)
 	previewMergeTagsFn func(uint, uint) (*contracts.MergeTagsPreview, error)
+	getTagAncestorsFn func(uint) ([]*models.Tag, error)
+	getTagChildrenFn func(uint) ([]*models.Tag, error)
+	getGenreHierarchyFn func() ([]*models.Tag, error)
+	setTagParentFn func(uint, *uint, uint) (error)
 	getTagEntitiesFn func(uint, string, int, int) ([]contracts.TaggedEntityItem, int64, error)
 	getTagDetailFn func(uint) (*contracts.TagDetailResponse, error)
+	getLowQualityTagQueueFn func(int, int) (*contracts.LowQualityTagQueueResponse, error)
+	snoozeLowQualityTagFn func(uint, uint) (error)
 	searchTagsFn func(string, int, string) ([]contracts.TagSearchResult, error)
 	getTrendingTagsFn func(int, string) ([]models.Tag, error)
 	pruneDownvotedTagsFn func() (int64, error)
@@ -3147,6 +3153,30 @@ func (m *mockTagService) PreviewMergeTags(sourceID uint, targetID uint) (*contra
 	}
 	return nil, nil
 }
+func (m *mockTagService) GetTagAncestors(tagID uint) ([]*models.Tag, error) {
+	if m.getTagAncestorsFn != nil {
+		return m.getTagAncestorsFn(tagID)
+	}
+	return nil, nil
+}
+func (m *mockTagService) GetTagChildren(tagID uint) ([]*models.Tag, error) {
+	if m.getTagChildrenFn != nil {
+		return m.getTagChildrenFn(tagID)
+	}
+	return nil, nil
+}
+func (m *mockTagService) GetGenreHierarchy() ([]*models.Tag, error) {
+	if m.getGenreHierarchyFn != nil {
+		return m.getGenreHierarchyFn()
+	}
+	return nil, nil
+}
+func (m *mockTagService) SetTagParent(tagID uint, parentID *uint, actorUserID uint) (error) {
+	if m.setTagParentFn != nil {
+		return m.setTagParentFn(tagID, parentID, actorUserID)
+	}
+	return nil
+}
 func (m *mockTagService) GetTagEntities(tagID uint, entityType string, limit int, offset int) ([]contracts.TaggedEntityItem, int64, error) {
 	if m.getTagEntitiesFn != nil {
 		return m.getTagEntitiesFn(tagID, entityType, limit, offset)
@@ -3158,6 +3188,18 @@ func (m *mockTagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse,
 		return m.getTagDetailFn(tagID)
 	}
 	return nil, nil
+}
+func (m *mockTagService) GetLowQualityTagQueue(limit int, offset int) (*contracts.LowQualityTagQueueResponse, error) {
+	if m.getLowQualityTagQueueFn != nil {
+		return m.getLowQualityTagQueueFn(limit, offset)
+	}
+	return nil, nil
+}
+func (m *mockTagService) SnoozeLowQualityTag(tagID uint, actorUserID uint) (error) {
+	if m.snoozeLowQualityTagFn != nil {
+		return m.snoozeLowQualityTagFn(tagID, actorUserID)
+	}
+	return nil
 }
 func (m *mockTagService) SearchTags(query string, limit int, category string) ([]contracts.TagSearchResult, error) {
 	if m.searchTagsFn != nil {
