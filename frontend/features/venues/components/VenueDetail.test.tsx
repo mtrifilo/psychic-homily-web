@@ -88,6 +88,13 @@ vi.mock('@/components/shared', () => ({
     <div data-testid="entity-description">{description || (canEdit ? 'Add description' : '')}</div>
   ),
   AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
+  EntityHeader: ({ title, subtitle, actions }: { title: string; subtitle?: React.ReactNode; actions?: React.ReactNode }) => (
+    <div>
+      <h1>{title}</h1>
+      {subtitle && <div>{subtitle}</div>}
+      {actions && <div>{actions}</div>}
+    </div>
+  ),
 }))
 
 vi.mock('@/features/notifications', () => ({
