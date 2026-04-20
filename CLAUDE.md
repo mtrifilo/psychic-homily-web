@@ -124,6 +124,7 @@ Global setup starts Docker PostgreSQL (port 5433), runs migrations, seeds data (
 - **Auth fixtures**: `e2e/.auth/user.json`, `e2e/.auth/admin.json`
 - **Error detection**: Auto-fail on console errors/5xx responses (`e2e/fixtures/error-detection.ts`)
 - **API mocking**: `page.route('**/api/...')` intercepts at browser level; use 200+`success:false` (not 5xx) to avoid error fixture
+- **Smoke vs full suite** (PSY-446): `@smoke`-tagged tests gate every PR (`e2e-smoke` CI job, <3 min wall-clock budget). The full sharded suite runs post-merge only (`e2e-tests`, 4 shards). Tag a test `@smoke` when it is the canonical golden path for a persona/flow, cheap (<5s typical), and stable. One smoke per flow is the target — don't tag a second test that exercises the same path. Syntax: `test('name', { tag: '@smoke' }, async ({}) => { ... })`. Rationale + the 2026-04 audit live in `docs/strategy/testing-layers.md`.
 
 ### Discovery App
 

@@ -148,6 +148,56 @@ jobs:
           flags: frontend
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  e2e-smoke:
+    name: E2E Smoke (PR)
+    # PSY-446: fast PR feedback. Runs only `@smoke`-tagged Playwright tests
+    # in a single unsharded run (~17 tests) with a <3 min wall-clock budget.
+    # Reuses the same global-setup as `e2e-tests` (Docker Postgres, migrations,
+    # seed, backend). Branch-protection / required-check config is handled
+    # outside this workflow.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    # Safety net against runaway flake; smoke is expected to finish in ~1–2 min.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: '1.24'
+          cache-dependency-path: backend/go.sum
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        working-directory: ./frontend
+        run: bunx playwright install --with-deps chromium
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get install -y postgresql-client
+
+      - name: Run E2E smoke suite (@smoke)
+        working-directory: ./frontend
+        # `list` reporter gives concise CI output; `html` (written to disk,
+        # never opened) gives a downloadable artifact on failure. 3 workers
+        # matches CI default.
+        run: bunx playwright test --grep @smoke --workers=3 --reporter=list,html
+        env:
+          CI: true
+          PLAYWRIGHT_HTML_OPEN: never
+
+      - name: Upload Playwright HTML report (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-smoke
+          path: frontend/playwright-report/
+          retention-days: 7
+
   e2e-tests:
     name: E2E Tests (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

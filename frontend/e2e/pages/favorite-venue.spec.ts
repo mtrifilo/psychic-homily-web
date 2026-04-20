@@ -28,7 +28,7 @@ test.describe('Favorite venue', () => {
     ).not.toBeVisible()
   })
 
-  test('can favorite and unfavorite a venue from detail page', async ({
+  test('can favorite and unfavorite a venue from detail page', { tag: '@smoke' }, async ({
     authenticatedPage,
   }) => {
     await authenticatedPage.goto(RESERVED_VENUE_URL)

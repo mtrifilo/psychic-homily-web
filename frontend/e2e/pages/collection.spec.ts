@@ -63,7 +63,7 @@ test.describe('Library page (formerly /collection)', () => {
     await authenticatedPage.waitForURL('/library')
   })
 
-  test('shows saved show after saving one', async ({
+  test('shows saved show after saving one', { tag: '@smoke' }, async ({
     authenticatedPage,
   }) => {
     // PSY-430: pin to a reserved show seeded by setup-db.sh so parallel

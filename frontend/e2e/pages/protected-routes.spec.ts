@@ -2,7 +2,7 @@ import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
 
 test.describe('Protected route redirects', () => {
-  test('unauthenticated user is redirected from /library to /auth', async ({
+  test('unauthenticated user is redirected from /library to /auth', { tag: '@smoke' }, async ({
     page,
   }) => {
     // /library is the consolidated auth-gated page (was /collection pre-PSY-275).

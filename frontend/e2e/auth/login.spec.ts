@@ -7,7 +7,7 @@ const TEST_USER = {
 }
 
 test.describe('Login', () => {
-  test('logs in with valid credentials and redirects to home', async ({
+  test('logs in with valid credentials and redirects to home', { tag: '@smoke' }, async ({
     page,
   }) => {
     await page.goto('/auth')
@@ -59,7 +59,7 @@ test.describe('Login', () => {
     expect(page.url()).toContain('/auth')
   })
 
-  test('logout returns to unauthenticated state', async ({ page }) => {
+  test('logout returns to unauthenticated state', { tag: '@smoke' }, async ({ page }) => {
     // Log in first
     await page.goto('/auth')
     await page.getByLabel('Email').fill(TEST_USER.email)
