@@ -153,8 +153,13 @@ export function TagDetail({ slug }: TagDetailProps) {
             <Hash className="h-6 w-6" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-3xl font-bold tracking-tight">{tag.name}</h1>
+            {/* ISSUE-003 (dogfood tags-audit-4): at 375px the h1 + Official
+                badge + NotifyMeButton cluster was clipped ~31px off-screen.
+                flex-wrap + min-w-0 lets the NotifyMeButton break to a new
+                row below the title on narrow viewports; desktop (>=sm)
+                keeps the single-row layout. Same pattern as PSY-467. */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0 mb-1">
+              <h1 className="text-3xl font-bold tracking-tight min-w-0 break-words">{tag.name}</h1>
               {tag.is_official && (
                 <TagOfficialIndicator size="md" tagName={tag.name} />
               )}

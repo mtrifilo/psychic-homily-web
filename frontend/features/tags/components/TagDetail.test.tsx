@@ -769,6 +769,34 @@ describe('TagDetail', () => {
     )
   })
 
+  // PSY-460 / dogfood tags-audit-4 ISSUE-003: at 375px the h1 + Official
+  // badge + NotifyMeButton cluster overflowed the viewport by ~31px,
+  // clipping "Notify me". Fix mirrors the PSY-467 pattern: the cluster
+  // uses flex-wrap + min-w-0 so the NotifyMeButton can break to a new
+  // row under the title on narrow viewports. jsdom can't verify actual
+  // layout, so we assert the structural classes are present — enough to
+  // catch a regression that strips the wrap.
+  it('header cluster allows the NotifyMeButton to wrap on narrow viewports (ISSUE-003)', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({
+        name: 'Shoegaze',
+        is_official: true,
+      }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<TagDetail slug="shoegaze" />)
+
+    const heading = screen.getByRole('heading', { level: 1, name: 'Shoegaze' })
+    const cluster = heading.parentElement as HTMLElement
+    expect(cluster.className).toContain('flex-wrap')
+    expect(cluster.className).toContain('min-w-0')
+    // The heading itself must be allowed to shrink so long tag names break
+    // instead of forcing the whole cluster off-screen.
+    expect(heading.className).toContain('min-w-0')
+  })
+
   it('renders breadcrumb with tag name', () => {
     mockUseTagDetail.mockReturnValue({
       data: makeTagDetail({ name: 'Jazz' }),
