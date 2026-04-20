@@ -96,6 +96,7 @@ See `docs/vision.md` for the full north star, What.cd feature mapping, and entit
 | Agent workflow, Linear, PRs | `docs/agent-workflow.md` |
 | Dogfooding, QA testing | `docs/user-journeys.md` |
 | Testing layers, where new tests go | `docs/strategy/testing-layers.md` |
+| E2E suite ops (time budget, flake policy, cleanup model, profiling) | `docs/strategy/e2e-testing.md` |
 | iOS app | `docs/strategy/ios.md` |
 | Any shipped feature's design rationale | Check `docs/strategy/{feature}.md` — each has a STATUS header |
 
