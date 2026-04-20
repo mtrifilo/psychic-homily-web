@@ -16,17 +16,6 @@ const RESERVED_SHOW_SLUG = 'e2e-attendance-test'
 const RESERVED_SHOW_TITLE = 'E2E [attendance-test]'
 const RESERVED_SHOW_URL = `/shows/${RESERVED_SHOW_SLUG}`
 
-// PSY-465 (temporary — revert after trace capture): override the global
-// `trace: 'on-first-retry'` config at file-level so the FAILING attempt's
-// trace is captured, not just the clean retry. The flake surfaces only on
-// the first attempt (cold-load of /artists/[slug] → a child of
-// ArtistDetail throws → route-level error boundary catches → the test
-// times out). The retry renders cleanly, so `on-first-retry` captures
-// nothing useful. Must be top-level per Playwright; scoped-inside-describe
-// throws "Cannot use({ trace }) in a describe group". Remove this line
-// once the throwing component is identified and the defensive fix lands.
-test.use({ trace: 'on' })
-
 test.describe('Follow and attendance', () => {
   // Tests share DB state with the same per-worker user, so they must not
   // run in parallel within this file.
