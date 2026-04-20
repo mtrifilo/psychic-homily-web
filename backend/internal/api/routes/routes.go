@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/httprate"
 
+	appdb "psychic-homily-backend/db"
 	"psychic-homily-backend/internal/api/handlers"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
@@ -136,6 +137,12 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupCommentVoteRoutes(rc)
 	setupCommentSubscriptionRoutes(rc)
 	setupFieldNoteRoutes(rc)
+
+	// PSY-432: test-fixtures reset endpoint — only registered when the env
+	// flag is set. cmd/server/main.go refuses to boot if the flag is on and
+	// ENVIRONMENT is not one of {test, ci, development}, so reaching this
+	// branch in a non-test env isn't possible.
+	setupTestFixtureRoutes(rc)
 
 	return api
 }
@@ -1167,4 +1174,21 @@ func setupFieldNoteRoutes(rc RouteContext) {
 
 	// Protected: create field note
 	huma.Post(rc.Protected, "/shows/{show_id}/field-notes", fieldNoteHandler.CreateFieldNoteHandler)
+}
+
+// setupTestFixtureRoutes registers the admin-only test-fixtures reset
+// endpoint ONLY when ENABLE_TEST_FIXTURES=1. In any other environment the
+// route is not registered at all — requests return 404, not 403.
+// cmd/server/main.go additionally refuses to boot if the flag is set in a
+// non-allowed ENVIRONMENT (handlers.ValidateTestFixturesEnvironment).
+func setupTestFixtureRoutes(rc RouteContext) {
+	if !handlers.IsTestFixturesEnabled(os.Getenv) {
+		return
+	}
+	database := appdb.GetDB()
+	if database == nil {
+		return
+	}
+	h := handlers.NewTestFixtureHandler(database)
+	huma.Post(rc.Protected, "/admin/test-fixtures/reset", h.Reset)
 }

@@ -2,6 +2,7 @@ import { test as base } from './error-detection'
 import { type Page, type BrowserContext } from '@playwright/test'
 import * as path from 'path'
 import { USER_COUNT, userAuthFileForWorker } from '../global-setup'
+import { resetTestFixtures, lookupWorkerUserId } from './test-fixtures-reset'
 
 const AUTH_DIR = path.resolve(__dirname, '../.auth')
 
@@ -22,14 +23,61 @@ const AUTH_DIR = path.resolve(__dirname, '../.auth')
  * test has already finished by the time Playwright spins up a retry
  * worker, so no two live workers share a user at the same instant.
  *
+ * PSY-432: `workerCleanup` is a worker-scoped fixture whose teardown
+ * calls the admin-only `/admin/test-fixtures/reset` endpoint for this
+ * worker's seeded user. It fires automatically when the worker shuts
+ * down — even after a test crash — so mid-test failures don't poison
+ * later runs. Depending `authenticatedPage` on this fixture wires it
+ * into every mutating test automatically, without `afterEach` boilerplate.
+ *
  * `adminPage` remains a single shared admin — admin tests are rare and
  * low-race-risk.
  */
-export const test = base.extend<{
-  authenticatedPage: Page
-  adminPage: Page
-}>({
-  authenticatedPage: async ({ browser, errors: _errors }, runFixture, testInfo) => {
+export const test = base.extend<
+  { authenticatedPage: Page; adminPage: Page },
+  { workerCleanup: void }
+>({
+  // Worker-scoped (note the `{ scope: 'worker' }` option on the tuple):
+  // the setup looks up the worker user's numeric ID once, then the
+  // teardown calls the reset endpoint when Playwright shuts the worker
+  // down. Runs whether the test passed or failed.
+  //
+  // If the lookup or reset fails we log and continue — we don't want a
+  // cleanup hiccup to mask a real test failure.
+  workerCleanup: [
+    async ({}, use, workerInfo) => {
+      const seededIndex = workerInfo.workerIndex % USER_COUNT
+      const authFile = userAuthFileForWorker(seededIndex)
+
+      let workerUserId: number | null = null
+      try {
+        workerUserId = await lookupWorkerUserId(authFile)
+      } catch (err) {
+        console.warn(
+          `[PSY-432] worker ${workerInfo.workerIndex}: profile lookup failed; skipping cleanup (${(err as Error).message})`,
+        )
+      }
+
+      await use()
+
+      if (workerUserId !== null) {
+        try {
+          await resetTestFixtures(workerUserId)
+        } catch (err) {
+          console.warn(
+            `[PSY-432] worker ${workerInfo.workerIndex}: reset failed (user_id=${workerUserId}): ${(err as Error).message}`,
+          )
+        }
+      }
+    },
+    { scope: 'worker', auto: true },
+  ],
+
+  authenticatedPage: async (
+    { browser, errors: _errors, workerCleanup: _cleanup },
+    runFixture,
+    testInfo,
+  ) => {
     const seededIndex = testInfo.workerIndex % USER_COUNT
     const authFile = userAuthFileForWorker(seededIndex)
     const context: BrowserContext = await browser.newContext({
