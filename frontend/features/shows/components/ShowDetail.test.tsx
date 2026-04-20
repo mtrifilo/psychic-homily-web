@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ShowDetail } from './ShowDetail'
 import type { ShowResponse, ArtistResponse } from '../types'
 
 // Mock AuthContext
@@ -47,15 +46,34 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/shows/test-show',
 }))
 
-// Mock child components
+// Mock child components. We mock EntityDetailLayout to expose slots so tests
+// can reason about the header / content split without pulling in the real
+// Tabs machinery. ShowDetail renders in flat-layout mode (no `tabs` prop).
 vi.mock('@/components/shared', () => ({
   SaveButton: () => <button data-testid="save-button">Save</button>,
   SocialLinks: () => <div data-testid="social-links" />,
   MusicEmbed: () => <div data-testid="music-embed" />,
-  Breadcrumb: ({ fallback, currentPage }: { fallback: { href: string; label: string }; currentPage: string }) => (
-    <nav aria-label="Breadcrumb"><a href={fallback.href}>{fallback.label}</a><span>{currentPage}</span></nav>
-  ),
   AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
+  EntityDetailLayout: ({
+    header,
+    children,
+    fallback,
+    entityName,
+  }: {
+    header: React.ReactNode
+    children: React.ReactNode
+    fallback: { href: string; label: string }
+    entityName: string
+  }) => (
+    <div data-testid="entity-layout">
+      <nav aria-label="Breadcrumb">
+        <a href={fallback.href}>{fallback.label}</a>
+        <span>{entityName}</span>
+      </nav>
+      <div data-testid="header-slot">{header}</div>
+      <div data-testid="content-slot">{children}</div>
+    </div>
+  ),
 }))
 
 vi.mock('@/components/forms', () => ({
@@ -98,6 +116,8 @@ vi.mock('@/features/comments', () => ({
   ),
 }))
 
+import { ShowDetail } from './ShowDetail'
+
 function makeArtist(overrides: Partial<ArtistResponse> = {}): ArtistResponse {
   return {
     id: 1,
@@ -129,7 +149,7 @@ function makeShow(overrides: Partial<ShowResponse> = {}): ShowResponse {
     ],
     artists: [
       makeArtist({ id: 1, name: 'Headliner', slug: 'headliner' }),
-      makeArtist({ id: 2, name: 'Opener', slug: 'opener' }),
+      makeArtist({ id: 2, name: 'Opener', slug: 'opener', set_type: 'opener' }),
     ],
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
@@ -284,6 +304,19 @@ describe('ShowDetail', () => {
     it('renders report button', () => {
       render(<ShowDetail showId="1" />)
       expect(screen.getByTestId('report-button')).toBeInTheDocument()
+    })
+
+    it('renders EntityTagList in the header slot', () => {
+      render(<ShowDetail showId="1" />)
+      const header = screen.getByTestId('header-slot')
+      expect(header).toContainElement(screen.getByTestId('entity-tag-list'))
+    })
+
+    it('renders EntityCollections, FieldNotes, and CommentThread as content siblings', () => {
+      render(<ShowDetail showId="1" />)
+      expect(screen.getByTestId('entity-collections')).toBeInTheDocument()
+      expect(screen.getByTestId('field-notes-section')).toBeInTheDocument()
+      expect(screen.getByTestId('comment-thread')).toBeInTheDocument()
     })
   })
 

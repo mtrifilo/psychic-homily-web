@@ -125,4 +125,42 @@ describe('EntityDetailLayout', () => {
     const tabs = screen.getAllByRole('tab')
     expect(tabs).toHaveLength(4)
   })
+
+  describe('flat (no-tabs) shape', () => {
+    const flatProps = {
+      fallback: { href: '/shows', label: 'Shows' },
+      entityName: 'Test Show',
+      header: <div data-testid="test-header">Test Show</div>,
+      children: <div data-testid="flat-content">Flat content</div>,
+    }
+
+    it('renders without a tablist when tabs are omitted', () => {
+      render(<EntityDetailLayout {...flatProps} />)
+      expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+      expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+    })
+
+    it('renders without a tablist when tabs is an empty array', () => {
+      render(<EntityDetailLayout {...flatProps} tabs={[]} />)
+      expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    })
+
+    it('still renders header, breadcrumb, and children in flat mode', () => {
+      render(<EntityDetailLayout {...flatProps} />)
+      expect(screen.getByTestId('test-header')).toBeInTheDocument()
+      expect(screen.getByRole('navigation', { name: /Breadcrumb/ })).toBeInTheDocument()
+      expect(screen.getByTestId('flat-content')).toBeInTheDocument()
+    })
+
+    it('still renders sidebar in flat mode when provided', () => {
+      render(
+        <EntityDetailLayout
+          {...flatProps}
+          sidebar={<div data-testid="sidebar-content">Sidebar info</div>}
+        />
+      )
+      expect(screen.getByTestId('sidebar-content')).toBeInTheDocument()
+      expect(screen.getByRole('complementary')).toBeInTheDocument()
+    })
+  })
 })

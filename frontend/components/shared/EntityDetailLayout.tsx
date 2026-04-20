@@ -24,26 +24,39 @@ interface EntityDetailLayoutProps {
   backLink?: EntityDetailBackLink
   /** Header content (typically an EntityHeader) */
   header: React.ReactNode
-  /** Tab definitions */
-  tabs: EntityDetailTab[]
-  /** Currently active tab value */
-  activeTab: string
-  /** Callback when tab changes */
-  onTabChange: (value: string) => void
+  /**
+   * Tab definitions. Omit or pass an empty array to render a flat,
+   * single-surface layout (no `<Tabs>` wrapper, no `<TabsList>`).
+   */
+  tabs?: EntityDetailTab[]
+  /** Currently active tab value. Required when `tabs` is non-empty. */
+  activeTab?: string
+  /** Callback when tab changes. Required when `tabs` is non-empty. */
+  onTabChange?: (value: string) => void
   /** Optional sidebar content */
   sidebar?: React.ReactNode
   /**
-   * Tab content area. Should include TabsContent components from @/components/ui/tabs
-   * for each tab value. The layout wraps everything in a Tabs provider.
+   * Main content area. When `tabs` is non-empty, should include TabsContent
+   * components from @/components/ui/tabs for each tab value — the layout
+   * wraps everything in a Tabs provider. When `tabs` is empty/undefined,
+   * children render directly in the main column.
    */
   children: React.ReactNode
   className?: string
 }
 
 /**
- * Reusable entity detail page layout with breadcrumb navigation, header, tabs, and optional sidebar.
+ * Reusable entity detail page layout with breadcrumb navigation, header,
+ * optional tabs, and optional sidebar.
  *
- * Usage:
+ * Two shapes:
+ * - Tabbed (default): pass `tabs`, `activeTab`, `onTabChange`. Children are
+ *   TabsContent panels wrapped in a Tabs provider.
+ * - Flat (single-surface): omit `tabs` (or pass `[]`). No tabs bar is
+ *   rendered and children are laid out directly in the main column. Useful
+ *   for pages like ShowDetail/VenueDetail that have a single content surface.
+ *
+ * Usage (tabbed):
  * ```tsx
  * <EntityDetailLayout
  *   fallback={{ href: '/releases', label: 'Releases' }}
@@ -56,6 +69,18 @@ interface EntityDetailLayoutProps {
  * >
  *   <TabsContent value="overview">...</TabsContent>
  *   <TabsContent value="links">...</TabsContent>
+ * </EntityDetailLayout>
+ * ```
+ *
+ * Usage (flat):
+ * ```tsx
+ * <EntityDetailLayout
+ *   fallback={{ href: '/shows', label: 'Shows' }}
+ *   entityName="Show Title"
+ *   header={<ShowHeader show={show} />}
+ * >
+ *   <ShowSection />
+ *   <AnotherSection />
  * </EntityDetailLayout>
  * ```
  */
@@ -74,6 +99,24 @@ export function EntityDetailLayout({
   // Support deprecated backLink prop as fallback
   const resolvedFallback = fallback ?? (backLink ? { href: backLink.href, label: backLink.label.replace(/^Back to /, '') } : { href: '/', label: 'Home' })
   const resolvedEntityName = entityName ?? ''
+  const hasTabs = !!tabs && tabs.length > 0
+
+  const contentBody = (
+    <div
+      className={cn(
+        'flex flex-col gap-8',
+        sidebar && 'lg:flex-row'
+      )}
+    >
+      {/* Main Content (tab panels when tabbed, otherwise flat children) */}
+      <div className="flex-1 min-w-0">{children}</div>
+
+      {/* Sidebar */}
+      {sidebar && (
+        <aside className="w-full lg:w-80 shrink-0">{sidebar}</aside>
+      )}
+    </div>
+  )
 
   return (
     <div className={cn('container max-w-6xl mx-auto px-4 py-6', className)}>
@@ -83,31 +126,21 @@ export function EntityDetailLayout({
       {/* Header */}
       <header className="mb-6">{header}</header>
 
-      {/* Tabs + Content + Sidebar */}
-      <Tabs value={activeTab} onValueChange={onTabChange}>
-        <TabsList className="mb-6">
-          {tabs.map(tab => (
-            <TabsTrigger key={tab.value} value={tab.value}>
-              {tab.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+      {hasTabs ? (
+        <Tabs value={activeTab} onValueChange={onTabChange}>
+          <TabsList className="mb-6">
+            {tabs!.map(tab => (
+              <TabsTrigger key={tab.value} value={tab.value}>
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
 
-        <div
-          className={cn(
-            'flex flex-col gap-8',
-            sidebar && 'lg:flex-row'
-          )}
-        >
-          {/* Main Content (tab panels) */}
-          <div className="flex-1 min-w-0">{children}</div>
-
-          {/* Sidebar */}
-          {sidebar && (
-            <aside className="w-full lg:w-80 shrink-0">{sidebar}</aside>
-          )}
-        </div>
-      </Tabs>
+          {contentBody}
+        </Tabs>
+      ) : (
+        contentBody
+      )}
     </div>
   )
 }
