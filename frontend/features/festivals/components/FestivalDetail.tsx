@@ -19,7 +19,7 @@ import {
   useFestivalVenues,
   useFestivals,
 } from '../hooks/useFestivals'
-import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton, AddToCollectionButton } from '@/components/shared'
+import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton, AddToCollectionButton, RevisionHistory } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -488,6 +488,15 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
         </div>
       </TabsContent>
     </EntityDetailLayout>
+
+    {/* Revision History */}
+    <div className="mt-0">
+      <RevisionHistory
+        entityType="festival"
+        entityId={festival.id}
+        isAdmin={!!user?.is_admin}
+      />
+    </div>
 
     {/* Discussion */}
     <div className="mt-0 px-4 md:px-0">
