@@ -14,6 +14,12 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import {
   useEntityTags,
   useAddTagToEntity,
   useRemoveTagFromEntity,
@@ -24,6 +30,8 @@ import {
 import { getCategoryColor, TAG_CATEGORIES, getCategoryLabel } from '../types'
 import type { EntityTag, TagListItem } from '../types'
 import { TagOfficialIndicator } from './TagOfficialIndicator'
+import { useAuthContext } from '@/lib/context/AuthContext'
+import { TIERS_HELP_PATH } from '@/lib/tiers'
 
 interface EntityTagListProps {
   entityType: string
@@ -242,6 +250,11 @@ function AddTagForm({
   onSuccess: () => void
 }) {
   const addMutation = useAddTagToEntity()
+  const { user } = useAuthContext()
+  // Only `new_user` tier is blocked from creating new tags server-side
+  // (CodeTagCreationForbidden in backend/internal/errors/tag.go). Mirror the
+  // same gate client-side so users see a tooltip instead of a dead-end 403.
+  const canCreateTags = user?.user_tier !== 'new_user'
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [filterCategory, setFilterCategory] = useState<string>('')
@@ -318,7 +331,7 @@ function AddTagForm({
 
     if (filteredResults.length > 0) {
       handleSelectTag(filteredResults[0])
-    } else if (!searchLoading && !alreadyAppliedMatch) {
+    } else if (!searchLoading && !alreadyAppliedMatch && canCreateTags) {
       handleCreateTag()
     }
   }
@@ -383,6 +396,18 @@ function AddTagForm({
           {addMutation.error instanceof Error
             ? addMutation.error.message
             : 'Failed to add tag'}
+          {addMutation.error instanceof Error &&
+            /Contributor tier/i.test(addMutation.error.message) && (
+              <>
+                {' '}
+                <Link
+                  href={TIERS_HELP_PATH}
+                  className="underline hover:no-underline"
+                >
+                  Learn more
+                </Link>
+              </>
+            )}
         </p>
       )}
 
@@ -456,26 +481,66 @@ function AddTagForm({
                 <select
                   value={createCategory}
                   onChange={e => setCreateCategory(e.target.value)}
-                  className="text-xs rounded border border-input bg-background px-2 py-1"
+                  disabled={!canCreateTags}
+                  className="text-xs rounded border border-input bg-background px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <option value="genre">Genre</option>
                   <option value="locale">Locale</option>
                   <option value="other">Other</option>
                 </select>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleCreateTag}
-                disabled={addMutation.isPending || !searchQuery.trim()}
-              >
-                {addMutation.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                ) : (
-                  <Plus className="h-3.5 w-3.5 mr-1.5" />
-                )}
-                Create &quot;{searchQuery.trim()}&quot;
-              </Button>
+              {canCreateTags ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleCreateTag}
+                  disabled={addMutation.isPending || !searchQuery.trim()}
+                >
+                  {addMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <Plus className="h-3.5 w-3.5 mr-1.5" />
+                  )}
+                  Create &quot;{searchQuery.trim()}&quot;
+                </Button>
+              ) : (
+                <TooltipProvider delayDuration={150}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      {/* span wrapper lets the tooltip fire on a disabled button */}
+                      <span
+                        className="inline-block"
+                        data-testid="tag-create-disabled-wrapper"
+                      >
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled
+                          aria-disabled="true"
+                          data-testid="tag-create-disabled"
+                        >
+                          <Plus className="h-3.5 w-3.5 mr-1.5" />
+                          Create &quot;{searchQuery.trim()}&quot;
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="top"
+                      data-testid="tag-create-disabled-tooltip"
+                    >
+                      <p className="text-xs">
+                        Reach Contributor tier to create new tags.{' '}
+                        <Link
+                          href={TIERS_HELP_PATH}
+                          className="underline"
+                        >
+                          Learn more
+                        </Link>
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
             </div>
           )}
         </div>

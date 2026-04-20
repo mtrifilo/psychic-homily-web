@@ -13,7 +13,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { SettingsPanel } from '@/components/settings'
-import { ContributorProfilePreview, PrivacySettingsPanel, ProfileSectionsEditor } from '@/components/contributor'
+import {
+  ContributorProfilePreview,
+  PrivacySettingsPanel,
+  ProfileSectionsEditor,
+  TierAdvancementCard,
+} from '@/components/contributor'
 
 function ProfileTab() {
   const { user } = useAuthContext()
@@ -69,6 +74,9 @@ function ProfileTab() {
     <div className="space-y-6">
       {/* Contributor profile preview */}
       <ContributorProfilePreview />
+
+      {/* Tier + advancement requirements */}
+      <TierAdvancementCard tier={(user?.user_tier ?? 'new_user')} />
 
       {/* Identity edit form */}
       <Card>
