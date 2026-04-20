@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
-import { Plus, ThumbsUp, ThumbsDown, X, Search, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, ThumbsUp, ThumbsDown, X, Search, Loader2, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,8 +11,13 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import {
   Tooltip,
   TooltipContent,
@@ -45,13 +50,20 @@ interface EntityTagListProps {
   isAuthenticated?: boolean
 }
 
+// Desktop collapses after 5 pills (preserves pre-PSY-460 behavior). Mobile
+// collapses much earlier and defers the rest to a Sheet — 3 pills is the
+// sweet spot at 320-414px where a typical pill (~60-120px wide including
+// vote buttons) plus the "+ Add" and "Show all" chips still fit on one or
+// two rows before the Sheet takes over.
 const DEFAULT_VISIBLE_COUNT = 5
+const MOBILE_VISIBLE_COUNT = 3
 
 export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityTagListProps) {
   const { data, isLoading } = useEntityTags(entityType, entityId)
   const voteMutation = useVoteOnTag()
   const removeVoteMutation = useRemoveTagVote()
   const [addDialogOpen, setAddDialogOpen] = useState(false)
+  const [sheetOpen, setSheetOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
 
   const tags = data?.tags ?? []
@@ -62,9 +74,13 @@ export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityT
     [tags]
   )
 
-  const hasMore = sortedTags.length > DEFAULT_VISIBLE_COUNT
-  const visibleTags = expanded ? sortedTags : sortedTags.slice(0, DEFAULT_VISIBLE_COUNT)
-  const hiddenCount = sortedTags.length - DEFAULT_VISIBLE_COUNT
+  const hasMoreDesktop = sortedTags.length > DEFAULT_VISIBLE_COUNT
+  const desktopVisibleTags = expanded ? sortedTags : sortedTags.slice(0, DEFAULT_VISIBLE_COUNT)
+  const hiddenDesktopCount = sortedTags.length - DEFAULT_VISIBLE_COUNT
+
+  const hasMoreMobile = sortedTags.length > MOBILE_VISIBLE_COUNT
+  const mobileVisibleTags = sortedTags.slice(0, MOBILE_VISIBLE_COUNT)
+  const hiddenMobileCount = sortedTags.length - MOBILE_VISIBLE_COUNT
 
   if (isLoading) {
     return (
@@ -91,72 +107,161 @@ export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityT
     }
   }
 
+  // The Add dialog is rendered once and reused by both the desktop "Add"
+  // chip next to the row heading and the sheet-header "Add" action. Lifting
+  // it out of the trigger tree keeps a single Dialog instance (one piece of
+  // state, one Radix portal) and avoids the "dialog closes when the sheet
+  // closes" problem that happens if the trigger unmounts mid-flow.
+  const addTagDialog = isAuthenticated ? (
+    <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle>Add Tag</DialogTitle>
+        </DialogHeader>
+        <AddTagForm
+          entityType={entityType}
+          entityId={entityId}
+          existingTagIds={tags.map(t => t.tag_id)}
+          onSuccess={() => setAddDialogOpen(false)}
+        />
+      </DialogContent>
+    </Dialog>
+  ) : null
+
+  const addTagButton = isAuthenticated ? (
+    <button
+      onClick={() => setAddDialogOpen(true)}
+      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+      aria-label="Add tag"
+    >
+      <Plus className="h-3 w-3" />
+      Add
+    </button>
+  ) : null
+
   return (
     <div className="py-4">
       <div className="flex items-center gap-2 mb-3">
         <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
           Tags
         </h3>
-        {isAuthenticated && (
-          <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-            <DialogTrigger asChild>
-              <button
-                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                aria-label="Add tag"
-              >
-                <Plus className="h-3 w-3" />
-                Add
-              </button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
-              <DialogHeader>
-                <DialogTitle>Add Tag</DialogTitle>
-              </DialogHeader>
-              <AddTagForm
-                entityType={entityType}
-                entityId={entityId}
-                existingTagIds={tags.map(t => t.tag_id)}
-                onSuccess={() => setAddDialogOpen(false)}
-              />
-            </DialogContent>
-          </Dialog>
-        )}
+        {addTagButton}
       </div>
+
+      {addTagDialog}
 
       {tags.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No tags yet. Be the first to add one!
         </p>
       ) : (
-        <div className="flex flex-wrap gap-2 items-center">
-          {visibleTags.map(tag => (
-            <TagWithVotes
-              key={tag.tag_id}
-              tag={tag}
-              isAuthenticated={isAuthenticated}
-              onVote={handleVote}
-            />
-          ))}
-          {hasMore && (
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              {expanded ? (
-                <>
-                  <ChevronUp className="h-3 w-3" />
-                  Show less
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="h-3 w-3" />
-                  Show {hiddenCount} more
-                </>
-              )}
-            </button>
-          )}
-        </div>
+        <>
+          {/* Mobile: first N pills + "Show all" chip that opens a Sheet.
+              Hidden at >=sm where the desktop top-5 cap takes over. */}
+          <div
+            className="flex flex-wrap gap-2 items-center sm:hidden"
+            data-testid="entity-tag-list-mobile-row"
+          >
+            {mobileVisibleTags.map(tag => (
+              <TagWithVotes
+                key={tag.tag_id}
+                tag={tag}
+                isAuthenticated={isAuthenticated}
+                onVote={handleVote}
+              />
+            ))}
+            {hasMoreMobile && (
+              <button
+                onClick={() => setSheetOpen(true)}
+                data-testid="entity-tag-list-mobile-show-all"
+                className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                aria-label={`Show all ${sortedTags.length} tags`}
+              >
+                <MoreHorizontal className="h-3 w-3" />
+                Show all tags ({hiddenMobileCount} more)
+              </button>
+            )}
+          </div>
+
+          {/* Desktop: unchanged from pre-PSY-460 — top 5 with inline
+              expand/collapse. Hidden on narrow viewports where the Sheet
+              flow takes over. */}
+          <div
+            className="hidden sm:flex flex-wrap gap-2 items-center"
+            data-testid="entity-tag-list-desktop-row"
+          >
+            {desktopVisibleTags.map(tag => (
+              <TagWithVotes
+                key={tag.tag_id}
+                tag={tag}
+                isAuthenticated={isAuthenticated}
+                onVote={handleVote}
+              />
+            ))}
+            {hasMoreDesktop && (
+              <button
+                onClick={() => setExpanded(!expanded)}
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                {expanded ? (
+                  <>
+                    <ChevronUp className="h-3 w-3" />
+                    Show less
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="h-3 w-3" />
+                    Show {hiddenDesktopCount} more
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </>
       )}
+
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent
+          side="bottom"
+          className="max-h-[85vh] overflow-y-auto"
+          data-testid="entity-tag-list-mobile-sheet"
+        >
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-3">
+              <span>All tags ({sortedTags.length})</span>
+              {isAuthenticated && (
+                <button
+                  onClick={() => {
+                    // Close the sheet first so the Add dialog doesn't
+                    // stack a second Radix Portal on top of another
+                    // Portal — keeps focus-trap + overlay behavior clean.
+                    setSheetOpen(false)
+                    setAddDialogOpen(true)
+                  }}
+                  data-testid="entity-tag-list-sheet-add"
+                  className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  aria-label="Add tag"
+                >
+                  <Plus className="h-3 w-3" />
+                  Add
+                </button>
+              )}
+            </SheetTitle>
+          </SheetHeader>
+          <div className="px-4 pb-6 pt-2">
+            <div className="flex flex-wrap gap-2 items-center">
+              {sortedTags.map(tag => (
+                <TagWithVotes
+                  key={tag.tag_id}
+                  tag={tag}
+                  isAuthenticated={isAuthenticated}
+                  onVote={handleVote}
+                />
+              ))}
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

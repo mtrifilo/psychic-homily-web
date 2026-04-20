@@ -1,8 +1,20 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+
+// PSY-460 introduces a mobile "Show all tags" Sheet alongside the existing
+// desktop top-5 cap. Both rows render in the DOM (swapped via Tailwind's
+// `sm:hidden` / `hidden sm:flex` utilities — jsdom does not apply those
+// styles). Existing assertions about "the visible pill row" predate that
+// split and now match elements in both rows. The helper below scopes queries
+// to the desktop row so the original behavior keeps being exercised; mobile-
+// specific assertions go through the `entity-tag-list-mobile-row` /
+// `entity-tag-list-mobile-sheet` testids instead.
+function desktopRow() {
+  return screen.getByTestId('entity-tag-list-desktop-row')
+}
 
 // Mock next/link
 vi.mock('next/link', () => ({
@@ -152,17 +164,19 @@ describe('EntityTagList add-tag dialog accessibility', () => {
     renderWithProviders(
       <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
     )
+    const row = desktopRow()
     // The official tag "rock" should have a title tooltip indicating official status
-    const rockLink = screen.getByRole('link', { name: 'rock' })
+    const rockLink = within(row).getByRole('link', { name: 'rock' })
     expect(rockLink).toHaveAttribute('title', 'rock (Official)')
 
     // The community tag "indie" should have a plain title
-    const indieLink = screen.getByRole('link', { name: 'indie' })
+    const indieLink = within(row).getByRole('link', { name: 'indie' })
     expect(indieLink).toHaveAttribute('title', 'indie')
 
-    // The visible BadgeCheck icon marker is present exactly once (only on
-    // the official tag) so the distinction is not tooltip-only.
-    const officialMarkers = screen.getAllByRole('img', { name: 'Official tag' })
+    // The visible BadgeCheck icon marker is present exactly once within the
+    // desktop row (only on the official tag) so the distinction is not
+    // tooltip-only.
+    const officialMarkers = within(row).getAllByRole('img', { name: 'Official tag' })
     expect(officialMarkers).toHaveLength(1)
 
     // And the official pill wrapper carries the primary-accent background
@@ -236,8 +250,8 @@ describe('EntityTagList top-5 cap and Wilson score sorting', () => {
       <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
     )
 
-    // 7 tags total, only 5 should be visible
-    const tagLinks = screen.getAllByRole('link')
+    // 7 tags total, only 5 should be visible in the desktop row.
+    const tagLinks = within(desktopRow()).getAllByRole('link')
     expect(tagLinks).toHaveLength(5)
   })
 
@@ -246,7 +260,7 @@ describe('EntityTagList top-5 cap and Wilson score sorting', () => {
       <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
     )
 
-    const tagLinks = screen.getAllByRole('link')
+    const tagLinks = within(desktopRow()).getAllByRole('link')
     // Expected order by wilson_score descending: punk(0.62), post-punk(0.60), rock(0.56), shoegaze(0.34), indie(0.21)
     expect(tagLinks[0]).toHaveTextContent('punk')
     expect(tagLinks[1]).toHaveTextContent('post-punk')
@@ -260,7 +274,7 @@ describe('EntityTagList top-5 cap and Wilson score sorting', () => {
       <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
     )
 
-    expect(screen.getByText('Show 2 more')).toBeInTheDocument()
+    expect(within(desktopRow()).getByText('Show 2 more')).toBeInTheDocument()
   })
 
   it('expands to show all tags when "Show N more" is clicked', async () => {
@@ -269,10 +283,10 @@ describe('EntityTagList top-5 cap and Wilson score sorting', () => {
       <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
     )
 
-    await user.click(screen.getByText('Show 2 more'))
+    await user.click(within(desktopRow()).getByText('Show 2 more'))
 
-    // All 7 tags should now be visible
-    const tagLinks = screen.getAllByRole('link')
+    // All 7 tags should now be visible in the desktop row.
+    const tagLinks = within(desktopRow()).getAllByRole('link')
     expect(tagLinks).toHaveLength(7)
   })
 
@@ -282,13 +296,14 @@ describe('EntityTagList top-5 cap and Wilson score sorting', () => {
       <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
     )
 
+    const row = desktopRow()
     // Expand
-    await user.click(screen.getByText('Show 2 more'))
-    expect(screen.getAllByRole('link')).toHaveLength(7)
+    await user.click(within(row).getByText('Show 2 more'))
+    expect(within(row).getAllByRole('link')).toHaveLength(7)
 
     // Collapse
-    await user.click(screen.getByText('Show less'))
-    expect(screen.getAllByRole('link')).toHaveLength(5)
+    await user.click(within(row).getByText('Show less'))
+    expect(within(row).getAllByRole('link')).toHaveLength(5)
   })
 
   it('does not show expand button when 5 or fewer tags exist', () => {
@@ -297,8 +312,10 @@ describe('EntityTagList top-5 cap and Wilson score sorting', () => {
       <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
     )
 
-    expect(screen.queryByText(/Show \d+ more/)).not.toBeInTheDocument()
-    expect(screen.queryByText('Show less')).not.toBeInTheDocument()
+    // Only the desktop cap chip is tested here — the mobile "Show all"
+    // chip has its own suite below.
+    expect(within(desktopRow()).queryByText(/Show \d+ more/)).not.toBeInTheDocument()
+    expect(within(desktopRow()).queryByText('Show less')).not.toBeInTheDocument()
   })
 })
 
@@ -749,15 +766,18 @@ describe('EntityTagList tag pill attribution hover card', () => {
       <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
     )
 
-    // The pill wrapper carries the aria-label we wired on the HoverCardTrigger.
-    const trigger = screen.getByRole('group', { name: /post-punk tag details/i })
+    // Scope to the desktop row: the mobile row renders the same pills, but
+    // only one trigger needs to be exercised to validate the HoverCard.
+    const row = desktopRow()
+    const trigger = within(row).getByRole('group', { name: /post-punk tag details/i })
     await user.click(trigger)
 
     const card = await screen.findByTestId('tag-attribution-card-10')
     expect(card).toBeInTheDocument()
 
-    // Username link points to the user profile slug.
-    const userLink = screen.getByRole('link', { name: /@testuser2/ })
+    // Username link points to the user profile slug. The card is portalled
+    // outside the row so we query at screen scope.
+    const userLink = within(card).getByRole('link', { name: /@testuser2/ })
     expect(userLink).toHaveAttribute('href', '/users/testuser2')
 
     // Vote counts render with the correct singular/plural agreement.
@@ -768,7 +788,7 @@ describe('EntityTagList tag pill attribution hover card', () => {
     expect(card).toHaveTextContent(/1\s+downvote(?!s)/)
 
     // The "View tag details" action links to the canonical tag detail page.
-    const detailLink = screen.getByRole('link', { name: /view tag details/i })
+    const detailLink = within(card).getByRole('link', { name: /view tag details/i })
     expect(detailLink).toHaveAttribute('href', '/tags/post-punk')
   })
 
@@ -778,7 +798,7 @@ describe('EntityTagList tag pill attribution hover card', () => {
       <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
     )
 
-    const trigger = screen.getByRole('group', { name: /post-punk tag details/i })
+    const trigger = within(desktopRow()).getByRole('group', { name: /post-punk tag details/i })
     trigger.focus()
     expect(trigger).toHaveFocus()
 
@@ -796,7 +816,7 @@ describe('EntityTagList tag pill attribution hover card', () => {
     )
 
     // Open the hover card for the "noise" tag (no added_by_username).
-    const trigger = screen.getByRole('group', { name: /noise tag details/i })
+    const trigger = within(desktopRow()).getByRole('group', { name: /noise tag details/i })
     await user.click(trigger)
 
     const card = await screen.findByTestId('tag-attribution-card-11')
@@ -810,7 +830,7 @@ describe('EntityTagList tag pill attribution hover card', () => {
     // blank card.
     expect(card).toHaveTextContent(/0\s+upvotes/)
     expect(card).toHaveTextContent(/0\s+downvotes/)
-    const detailLink = screen.getByRole('link', { name: /view tag details/i })
+    const detailLink = within(card).getByRole('link', { name: /view tag details/i })
     expect(detailLink).toHaveAttribute('href', '/tags/noise')
   })
 
@@ -839,7 +859,9 @@ describe('EntityTagList tag pill attribution hover card', () => {
       <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
     )
 
-    await user.click(screen.getByRole('group', { name: /shoegaze tag details/i }))
+    await user.click(
+      within(desktopRow()).getByRole('group', { name: /shoegaze tag details/i })
+    )
 
     const card = await screen.findByTestId('tag-attribution-card-20')
     // formatRelativeTime output for a timestamp ~5 minutes ago.
@@ -852,18 +874,210 @@ describe('EntityTagList tag pill attribution hover card', () => {
       <EntityTagList entityType="artist" entityId={1} isAuthenticated />
     )
 
+    const row = desktopRow()
     // The inline tag-name link still points to the canonical detail page.
-    const tagLink = screen.getByRole('link', { name: 'post-punk' })
+    const tagLink = within(row).getByRole('link', { name: 'post-punk' })
     expect(tagLink).toHaveAttribute('href', '/tags/post-punk')
 
     // Vote buttons are still present and independently clickable (the hover
     // card wrapper guards against its own toggle when a button is clicked,
     // so the vote mutation still fires).
-    const upvoteButton = screen.getByRole('button', { name: /upvote post-punk/i })
+    const upvoteButton = within(row).getByRole('button', { name: /upvote post-punk/i })
     await user.click(upvoteButton)
     // We don't assert on mutate args here — useVoteOnTag is a mocked noop;
     // the guarantee is that clicking the vote button does not throw, does
     // not navigate, and doesn't blow up on the stopPropagation handler.
     expect(upvoteButton).toBeInTheDocument()
+  })
+})
+
+// PSY-460: narrow viewports collapse the tag row to MOBILE_VISIBLE_COUNT
+// pills + a "Show all tags" chip that opens a bottom-sliding Sheet. The
+// sheet re-renders the full tag list and exposes the add-tag flow in its
+// header. Desktop behavior (top-5 cap + inline "Show N more") is covered
+// above and remains unchanged.
+describe('EntityTagList mobile collapsible Sheet', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    currentMockTags = mockManyTags // 7 tags, above the mobile cap of 3
+    currentMockSearchTags = defaultMockSearchTags
+    mockAuthUser = { user_tier: 'contributor' }
+    mockAddMutationError = null
+  })
+
+  it('renders only the first 3 pills in the mobile row when more than 3 tags exist', () => {
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    const mobileRow = screen.getByTestId('entity-tag-list-mobile-row')
+    const tagLinks = within(mobileRow).getAllByRole('link')
+    expect(tagLinks).toHaveLength(3)
+    // Wilson-score order is preserved: punk(0.62), post-punk(0.60), rock(0.56).
+    expect(tagLinks[0]).toHaveTextContent('punk')
+    expect(tagLinks[1]).toHaveTextContent('post-punk')
+    expect(tagLinks[2]).toHaveTextContent('rock')
+  })
+
+  it('shows a "Show all tags" chip in the mobile row with the hidden count', () => {
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    const trigger = screen.getByTestId('entity-tag-list-mobile-show-all')
+    // 7 total - 3 visible = 4 in the drawer.
+    expect(trigger).toHaveTextContent(/4 more/)
+  })
+
+  it('omits the "Show all" chip when 3 or fewer tags exist', () => {
+    currentMockTags = mockEntityTags // 2 tags
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    expect(
+      screen.queryByTestId('entity-tag-list-mobile-show-all')
+    ).not.toBeInTheDocument()
+  })
+
+  it('opens the Sheet with every tag and the "Add" action in its header', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+
+    await user.click(screen.getByTestId('entity-tag-list-mobile-show-all'))
+
+    const sheet = await screen.findByTestId('entity-tag-list-mobile-sheet')
+    expect(sheet).toBeInTheDocument()
+    // Title surfaces the total count up-front so users know the drawer
+    // contains more than the mobile row exposed.
+    expect(sheet).toHaveTextContent(/All tags \(7\)/)
+
+    // All 7 tag pills are reachable inside the sheet.
+    const tagLinks = within(sheet).getAllByRole('link')
+    expect(tagLinks).toHaveLength(7)
+
+    // The Add-tag action is present in the sheet header — required so mobile
+    // users can still add tags without closing the drawer first.
+    const sheetAdd = within(sheet).getByTestId('entity-tag-list-sheet-add')
+    expect(sheetAdd).toBeInTheDocument()
+  })
+
+  it('renders the vote buttons inside the Sheet when authenticated', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+
+    await user.click(screen.getByTestId('entity-tag-list-mobile-show-all'))
+
+    const sheet = await screen.findByTestId('entity-tag-list-mobile-sheet')
+    // Each of the 7 pills has upvote + downvote buttons, for a total of 14.
+    const upvotes = within(sheet).getAllByRole('button', { name: /upvote /i })
+    const downvotes = within(sheet).getAllByRole('button', { name: /downvote /i })
+    expect(upvotes).toHaveLength(7)
+    expect(downvotes).toHaveLength(7)
+  })
+
+  it('opens the Add-tag dialog when the sheet-header Add action is clicked', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+
+    await user.click(screen.getByTestId('entity-tag-list-mobile-show-all'))
+    const sheet = await screen.findByTestId('entity-tag-list-mobile-sheet')
+    await user.click(within(sheet).getByTestId('entity-tag-list-sheet-add'))
+
+    // The Add Tag dialog opens (closing the Sheet first so Radix portals
+    // do not stack). We match on the dialog title because other tests
+    // already cover the full dialog a11y surface.
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Add Tag')).toBeInTheDocument()
+  })
+
+  it('preserves the official indicator inside the Sheet', async () => {
+    const user = userEvent.setup()
+    // Mix one official tag into the ordered list so the indicator assertion
+    // is meaningful (mockManyTags has all is_official=false by default).
+    currentMockTags = {
+      tags: [
+        ...mockManyTags.tags,
+        {
+          tag_id: 100,
+          name: 'official-tag',
+          slug: 'official-tag',
+          category: 'genre',
+          is_official: true,
+          upvotes: 10,
+          downvotes: 0,
+          wilson_score: 0.91,
+          user_vote: 0,
+        },
+      ],
+    }
+
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    await user.click(screen.getByTestId('entity-tag-list-mobile-show-all'))
+    const sheet = await screen.findByTestId('entity-tag-list-mobile-sheet')
+
+    const officialMarkers = within(sheet).getAllByRole('img', { name: 'Official tag' })
+    expect(officialMarkers).toHaveLength(1)
+    expect(within(sheet).getByRole('link', { name: 'official-tag' })).toHaveAttribute(
+      'title',
+      'official-tag (Official)'
+    )
+  })
+
+  it('opens the attribution hover card inside the Sheet (Radix portal compatibility)', async () => {
+    // Keep one tag with full attribution data so the hover card body has
+    // something to render.
+    currentMockTags = {
+      tags: [
+        {
+          tag_id: 30,
+          name: 'post-punk',
+          slug: 'post-punk',
+          category: 'genre',
+          is_official: false,
+          upvotes: 3,
+          downvotes: 1,
+          wilson_score: 0.34,
+          user_vote: 0,
+          added_by_username: 'testuser',
+        },
+        // Pad with 3 more tags so the "Show all" chip still renders.
+        { tag_id: 31, name: 'a', slug: 'a', category: 'genre', is_official: false, upvotes: 0, downvotes: 0, wilson_score: 0.1, user_vote: 0 },
+        { tag_id: 32, name: 'b', slug: 'b', category: 'genre', is_official: false, upvotes: 0, downvotes: 0, wilson_score: 0.1, user_vote: 0 },
+        { tag_id: 33, name: 'c', slug: 'c', category: 'genre', is_official: false, upvotes: 0, downvotes: 0, wilson_score: 0.1, user_vote: 0 },
+      ],
+    }
+
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    await user.click(screen.getByTestId('entity-tag-list-mobile-show-all'))
+    const sheet = await screen.findByTestId('entity-tag-list-mobile-sheet')
+
+    // Click the pill inside the sheet — Radix HoverCardContent portals to
+    // document.body, not into the sheet container, so we query the card at
+    // screen scope. If Radix portals fought with the Sheet's own portal we'd
+    // either not find the card or get an overlap conflict; either shows up
+    // here as a failure.
+    await user.click(
+      within(sheet).getByRole('group', { name: /post-punk tag details/i })
+    )
+
+    const card = await screen.findByTestId('tag-attribution-card-30')
+    expect(card).toBeInTheDocument()
+    expect(card).toHaveTextContent('@testuser')
   })
 })
