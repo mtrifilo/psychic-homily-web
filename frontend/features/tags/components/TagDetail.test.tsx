@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { TagEnrichedDetailResponse } from '../types'
 
@@ -900,9 +901,9 @@ describe('TagDetail', () => {
     ).not.toBeInTheDocument()
   })
 
-  // ── Tagged Entities (preserved grouped list) ──
+  // ── Tagged Entities (PSY-485 — tabs + entity cards) ──
 
-  it('renders tagged entities grouped by type', () => {
+  it('renders one tab per entity type with non-zero items, hiding empty tabs', () => {
     mockUseTagDetail.mockReturnValue({
       data: makeTagDetail({ usage_count: 3 }),
       isLoading: false,
@@ -911,9 +912,34 @@ describe('TagDetail', () => {
     mockUseTagEntities.mockReturnValue({
       data: {
         entities: [
-          { entity_type: 'artist', entity_id: 1, name: 'Radiohead', slug: 'radiohead' },
-          { entity_type: 'artist', entity_id: 2, name: 'Portishead', slug: 'portishead' },
-          { entity_type: 'venue', entity_id: 10, name: 'The Rebel Lounge', slug: 'the-rebel-lounge' },
+          {
+            entity_type: 'artist',
+            entity_id: 1,
+            name: 'Radiohead',
+            slug: 'radiohead',
+            city: 'Oxford',
+            state: 'UK',
+            upcoming_show_count: 0,
+          },
+          {
+            entity_type: 'artist',
+            entity_id: 2,
+            name: 'Portishead',
+            slug: 'portishead',
+            city: 'Bristol',
+            state: 'UK',
+            upcoming_show_count: 1,
+          },
+          {
+            entity_type: 'venue',
+            entity_id: 10,
+            name: 'The Rebel Lounge',
+            slug: 'the-rebel-lounge',
+            city: 'Phoenix',
+            state: 'AZ',
+            verified: true,
+            upcoming_show_count: 5,
+          },
         ],
         total: 3,
       },
@@ -923,8 +949,16 @@ describe('TagDetail', () => {
     renderWithProviders(<TagDetail slug="rock" />)
 
     expect(screen.getByText('Tagged Entities')).toBeInTheDocument()
-    expect(screen.getAllByText('Artists').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('Venues').length).toBeGreaterThanOrEqual(1)
+    // Tabs render only for entity types with items.
+    expect(screen.getByTestId('tagged-entities-tab-artist')).toBeInTheDocument()
+    expect(screen.getByTestId('tagged-entities-tab-venue')).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('tagged-entities-tab-festival')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('tagged-entities-tab-label')
+    ).not.toBeInTheDocument()
+    // First tab (artist) is active by default — its panel content shows.
     expect(screen.getByRole('link', { name: 'Radiohead' })).toHaveAttribute(
       'href',
       '/artists/radiohead'
@@ -933,10 +967,178 @@ describe('TagDetail', () => {
       'href',
       '/artists/portishead'
     )
-    expect(screen.getByRole('link', { name: 'The Rebel Lounge' })).toHaveAttribute(
+  })
+
+  it('switches the visible card grid when a different tab is activated', async () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({ usage_count: 3 }),
+      isLoading: false,
+      error: null,
+    })
+    mockUseTagEntities.mockReturnValue({
+      data: {
+        entities: [
+          {
+            entity_type: 'artist',
+            entity_id: 1,
+            name: 'Radiohead',
+            slug: 'radiohead',
+            city: 'Oxford',
+            state: 'UK',
+            upcoming_show_count: 0,
+          },
+          {
+            entity_type: 'venue',
+            entity_id: 10,
+            name: 'The Rebel Lounge',
+            slug: 'the-rebel-lounge',
+            city: 'Phoenix',
+            state: 'AZ',
+            verified: true,
+            upcoming_show_count: 5,
+          },
+        ],
+        total: 2,
+      },
+      isLoading: false,
+    })
+
+    const user = userEvent.setup()
+    renderWithProviders(<TagDetail slug="rock" />)
+
+    // Artist tab is active first; venue link must not be visible yet because
+    // Radix Tabs unmounts inactive panel content.
+    expect(
+      screen.queryByRole('link', { name: /The Rebel Lounge/ })
+    ).not.toBeInTheDocument()
+
+    // Switch to Venues tab.
+    await user.click(screen.getByTestId('tagged-entities-tab-venue'))
+
+    // Now the venue card renders inside the active panel.
+    const venueLink = await screen.findByRole('link', {
+      name: /The Rebel Lounge/,
+    })
+    expect(venueLink).toHaveAttribute('href', '/venues/the-rebel-lounge')
+    // And the original artist link is gone — proves the panel switched, not
+    // just that we duplicated it.
+    expect(
+      screen.queryByRole('link', { name: 'Radiohead' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders cards (not bare list items) for tagged entities', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({ usage_count: 1 }),
+      isLoading: false,
+      error: null,
+    })
+    mockUseTagEntities.mockReturnValue({
+      data: {
+        entities: [
+          {
+            entity_type: 'artist',
+            entity_id: 1,
+            name: 'Faetooth',
+            slug: 'faetooth',
+            city: 'Phoenix',
+            state: 'AZ',
+            upcoming_show_count: 3,
+          },
+        ],
+        total: 1,
+      },
+      isLoading: false,
+    })
+
+    renderWithProviders(<TagDetail slug="shoegaze" />)
+
+    // ArtistCard renders an <article> wrapper — that's the
+    // "card not bullet" assertion the dogfood ticket called out.
+    const article = document.querySelector('article')
+    expect(article).toBeInTheDocument()
+    // Card surfaces the location and the upcoming-show count we asked the
+    // backend to populate.
+    expect(screen.getByText('Phoenix, AZ')).toBeInTheDocument()
+    expect(screen.getByText('3 upcoming')).toBeInTheDocument()
+  })
+
+  it('hides Festivals tab on a tag with no festival usage (PSY-485 acceptance)', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({ usage_count: 1 }),
+      isLoading: false,
+      error: null,
+    })
+    mockUseTagEntities.mockReturnValue({
+      data: {
+        entities: [
+          {
+            entity_type: 'artist',
+            entity_id: 1,
+            name: 'Solo Artist',
+            slug: 'solo-artist',
+          },
+        ],
+        total: 1,
+      },
+      isLoading: false,
+    })
+
+    renderWithProviders(<TagDetail slug="rock" />)
+
+    expect(screen.getByTestId('tagged-entities-tab-artist')).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('tagged-entities-tab-festival')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('tagged-entities-tab-show')
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows a Festivals tab on a festival-only tag (PSY-485 multi-venue scenario)', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({ usage_count: 1, name: 'multi-venue' }),
+      isLoading: false,
+      error: null,
+    })
+    mockUseTagEntities.mockReturnValue({
+      data: {
+        entities: [
+          {
+            entity_type: 'festival',
+            entity_id: 7,
+            name: 'M3F',
+            slug: 'm3f-2026',
+            edition_year: 2026,
+            city: 'Phoenix',
+            state: 'AZ',
+            status: 'confirmed',
+            start_date: '2026-03-06',
+            end_date: '2026-03-08',
+            artist_count: 42,
+            venue_count: 3,
+          },
+        ],
+        total: 1,
+      },
+      isLoading: false,
+    })
+
+    renderWithProviders(<TagDetail slug="multi-venue" />)
+
+    expect(
+      screen.getByTestId('tagged-entities-tab-festival')
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('tagged-entities-tab-artist')
+    ).not.toBeInTheDocument()
+    // Festival card surfaces the year + status + lineup count.
+    expect(screen.getByRole('link', { name: 'M3F' })).toHaveAttribute(
       'href',
-      '/venues/the-rebel-lounge'
+      '/festivals/m3f-2026'
     )
+    expect(screen.getByText('Confirmed')).toBeInTheDocument()
+    expect(screen.getByText('42 artists')).toBeInTheDocument()
   })
 
   it('does not render tagged entities section when usage_count is 0', () => {

@@ -150,6 +150,37 @@ export interface TaggedEntityItem {
   entity_id: number
   name: string
   slug: string
+  // PSY-485: optional per-entity-type fields populated by the backend so the
+  // tag detail page can render proper entity cards instead of bare links.
+  // All fields are omitted on entity types where they don't apply.
+  city?: string
+  state?: string
+  // Venue-specific.
+  verified?: boolean
+  // Artist/venue-specific.
+  upcoming_show_count?: number
+  // Festival-specific.
+  edition_year?: number
+  start_date?: string
+  end_date?: string
+  // Status applies to festivals (announced/confirmed/cancelled/completed)
+  // and labels (active/inactive/defunct).
+  status?: string
+  // Counts populated for festivals (artists in lineup) and labels
+  // (artists on roster, releases in catalog).
+  artist_count?: number
+  release_count?: number
+  venue_count?: number
+  // Release-specific.
+  release_type?: string
+  release_year?: number
+  cover_art_url?: string
+  // Show-specific.
+  event_date?: string
+  venue_name?: string
+  venue_slug?: string
+  headliner_name?: string
+  headliner_slug?: string
 }
 
 export interface TagEntitiesResponse {

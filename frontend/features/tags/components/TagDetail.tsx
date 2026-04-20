@@ -1,17 +1,19 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Hash, Loader2, Music, MapPin, Calendar, Disc3, Tag, Tent, Clock } from 'lucide-react'
 import { NotifyMeButton } from '@/features/notifications'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Breadcrumb } from '@/components/shared'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useTagDetail, useTagEntities } from '../hooks'
-import { getCategoryColor, getCategoryLabel, getEntityUrl, getEntityTypePluralLabel } from '../types'
+import { getCategoryColor, getCategoryLabel, getEntityTypePluralLabel } from '../types'
 import type { TaggedEntityItem, TagSummary } from '../types'
 import { TagOfficialIndicator } from './TagOfficialIndicator'
+import { TaggedEntityCard } from './TaggedEntityCards'
 
 interface TagDetailProps {
   slug: string
@@ -381,7 +383,7 @@ function TagPill({ tag }: { tag: TagSummary }) {
 }
 
 // ──────────────────────────────────────────────
-// Tagged entities section (preserved from original implementation)
+// Tagged entities section (PSY-485 — tabs + entity cards)
 // ──────────────────────────────────────────────
 
 function TaggedEntitiesSection({ slug }: { slug: string }) {
@@ -400,9 +402,21 @@ function TaggedEntitiesSection({ slug }: { slug: string }) {
     return groups
   }, [entities])
 
+  // Hide entity types with zero items so a genre-only tag doesn't render an
+  // empty Festivals tab (PSY-485 acceptance criterion).
   const sortedTypes = useMemo(() => {
     return ENTITY_TYPE_ORDER.filter((t) => grouped[t]?.length)
   }, [grouped])
+
+  // Default the active tab to the first non-empty entity type. We can't
+  // recompute this in render because Radix Tabs is a controlled component —
+  // need a real piece of state. The state is initialised lazily so it picks
+  // up the first available type once entities load.
+  const [activeTab, setActiveTab] = useState<string | undefined>(undefined)
+  const effectiveTab =
+    activeTab && sortedTypes.includes(activeTab as (typeof sortedTypes)[number])
+      ? activeTab
+      : sortedTypes[0]
 
   if (isLoading) {
     return (
@@ -419,60 +433,60 @@ function TaggedEntitiesSection({ slug }: { slug: string }) {
   }
 
   return (
-    <section className="border-t border-border/50 pt-6">
+    <section className="border-t border-border/50 pt-6" data-testid="tagged-entities">
       <h2 className="text-lg font-semibold mb-4">Tagged Entities</h2>
 
-      {/* Per-type counts — complements the header breakdown summary */}
-      {sortedTypes.length > 1 && (
-        <div className="flex flex-wrap gap-3 mb-6">
-          {sortedTypes.map((entityType) => {
-            const count = grouped[entityType].length
-            const Icon = ENTITY_TYPE_ICONS[entityType] || Hash
-            return (
-              <div
-                key={entityType}
-                className="inline-flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-1.5 text-sm"
-              >
-                <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="font-medium">{count}</span>
-                <span className="text-muted-foreground">
-                  {count === 1
-                    ? entityType.charAt(0).toUpperCase() + entityType.slice(1)
-                    : getEntityTypePluralLabel(entityType)}
-                </span>
-              </div>
-            )
-          })}
+      <Tabs
+        value={effectiveTab}
+        onValueChange={setActiveTab}
+        className="w-full"
+      >
+        {/* Tabs are scrollable on narrow viewports — six entity types of
+            "Artists/Shows/Venues/..." would push past 375px otherwise. */}
+        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+          <TabsList className="h-auto flex flex-wrap gap-1 bg-muted/40 p-1">
+            {sortedTypes.map((entityType) => {
+              const count = grouped[entityType].length
+              const Icon = ENTITY_TYPE_ICONS[entityType] || Hash
+              return (
+                <TabsTrigger
+                  key={entityType}
+                  value={entityType}
+                  data-testid={`tagged-entities-tab-${entityType}`}
+                  className="gap-1.5"
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  <span>{getEntityTypePluralLabel(entityType)}</span>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {count}
+                  </span>
+                </TabsTrigger>
+              )
+            })}
+          </TabsList>
         </div>
-      )}
 
-      <div className="space-y-6">
         {sortedTypes.map((entityType) => {
           const entities = grouped[entityType]
-          const Icon = ENTITY_TYPE_ICONS[entityType] || Hash
           return (
-            <div key={entityType}>
-              <h3 className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
-                <Icon className="h-4 w-4" />
-                {getEntityTypePluralLabel(entityType)}
-                <span className="text-xs">({entities.length})</span>
-              </h3>
-              <ul className="grid gap-1">
+            <TabsContent
+              key={entityType}
+              value={entityType}
+              data-testid={`tagged-entities-panel-${entityType}`}
+              className="mt-4"
+            >
+              <div className="grid gap-3">
                 {entities.map((entity) => (
-                  <li key={`${entity.entity_type}-${entity.entity_id}`}>
-                    <Link
-                      href={getEntityUrl(entity.entity_type, entity.slug)}
-                      className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors"
-                    >
-                      {entity.name}
-                    </Link>
-                  </li>
+                  <TaggedEntityCard
+                    key={`${entity.entity_type}-${entity.entity_id}`}
+                    item={entity}
+                  />
                 ))}
-              </ul>
-            </div>
+              </div>
+            </TabsContent>
           )
         })}
-      </div>
+      </Tabs>
     </section>
   )
 }

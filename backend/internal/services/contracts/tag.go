@@ -130,11 +130,46 @@ type EntityTagResponse struct {
 }
 
 // TaggedEntityItem represents a single entity tagged with a given tag.
+//
+// PSY-485: extended with optional per-entity-type fields so the tag detail
+// page can render proper entity cards (image/city/upcoming count for
+// artists, verified badge + city for venues, date range/edition for
+// festivals, etc.) instead of bare links. Fields are populated only when
+// applicable to the entity type and otherwise omitted from the response.
 type TaggedEntityItem struct {
 	EntityType string `json:"entity_type"`
 	EntityID   uint   `json:"entity_id"`
 	Name       string `json:"name"`
 	Slug       string `json:"slug"`
+	// Common location (artist, venue, label, festival).
+	City  string `json:"city,omitempty"`
+	State string `json:"state,omitempty"`
+	// Venue-specific.
+	Verified *bool `json:"verified,omitempty"`
+	// Artist/venue-specific.
+	UpcomingShowCount *int `json:"upcoming_show_count,omitempty"`
+	// Festival-specific.
+	EditionYear *int   `json:"edition_year,omitempty"`
+	StartDate   string `json:"start_date,omitempty"`
+	EndDate     string `json:"end_date,omitempty"`
+	// Status applies to festivals (announced/confirmed/cancelled/completed)
+	// and labels (active/inactive/defunct).
+	Status string `json:"status,omitempty"`
+	// Counts populated for festivals (artists in lineup) and labels
+	// (artists on roster, releases in catalog).
+	ArtistCount  *int `json:"artist_count,omitempty"`
+	ReleaseCount *int `json:"release_count,omitempty"`
+	VenueCount   *int `json:"venue_count,omitempty"`
+	// Release-specific.
+	ReleaseType string `json:"release_type,omitempty"`
+	ReleaseYear *int   `json:"release_year,omitempty"`
+	CoverArtURL string `json:"cover_art_url,omitempty"`
+	// Show-specific.
+	EventDate     string `json:"event_date,omitempty"`
+	VenueName     string `json:"venue_name,omitempty"`
+	VenueSlug     string `json:"venue_slug,omitempty"`
+	HeadlinerName string `json:"headliner_name,omitempty"`
+	HeadlinerSlug string `json:"headliner_slug,omitempty"`
 }
 
 // TagAliasResponse represents a tag alias returned to clients.
