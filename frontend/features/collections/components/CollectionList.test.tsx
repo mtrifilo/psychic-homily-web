@@ -59,7 +59,7 @@ vi.mock('@/components/ui/button', () => ({
     disabled?: boolean
     [key: string]: unknown
   }) => (
-    <button onClick={onClick} disabled={disabled} type={props.type as string}>{children}</button>
+    <button onClick={onClick} disabled={disabled} type={props.type as 'button' | 'reset' | 'submit' | undefined}>{children}</button>
   ),
 }))
 

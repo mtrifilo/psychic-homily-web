@@ -315,3 +315,111 @@ func (s *TagLowQualityIntegrationSuite) TestSnoozeLowQualityTag_NotFound() {
 	err := s.tagService.SnoozeLowQualityTag(99999, actor.ID)
 	s.Assert().Error(err)
 }
+
+// ──────────────────────────────────────────────
+// Bulk action (PSY-487)
+// ──────────────────────────────────────────────
+
+func (s *TagLowQualityIntegrationSuite) TestBulkAction_Snooze_HappyPath() {
+	t1 := s.createTagRaw("orphan-bulk-1", tagOpts{usageCount: 0})
+	t2 := s.createTagRaw("orphan-bulk-2", tagOpts{usageCount: 0})
+	t3 := s.createTagRaw("orphan-bulk-3", tagOpts{usageCount: 0})
+
+	res, err := s.tagService.BulkActionLowQualityTags(BulkActionSnooze, []uint{t1.ID, t2.ID, t3.ID})
+	s.Require().NoError(err)
+	s.Require().NotNil(res)
+	s.Assert().Equal(BulkActionSnooze, res.Action)
+	s.Assert().EqualValues(3, res.Requested)
+	s.Assert().EqualValues(3, res.Affected)
+	s.Assert().EqualValues(0, res.NotFound)
+
+	// reviewed_at should now be set on all three.
+	for _, id := range []uint{t1.ID, t2.ID, t3.ID} {
+		var refreshed models.Tag
+		s.Require().NoError(s.db.First(&refreshed, id).Error)
+		s.Require().NotNil(refreshed.ReviewedAt)
+	}
+
+	// Queue should be empty now (snoozed within window).
+	q, err := s.tagService.GetLowQualityTagQueue(20, 0)
+	s.Require().NoError(err)
+	s.Assert().Empty(q.Tags)
+}
+
+func (s *TagLowQualityIntegrationSuite) TestBulkAction_Delete_RemovesTags() {
+	t1 := s.createTagRaw("delete-me-1", tagOpts{usageCount: 0})
+	t2 := s.createTagRaw("delete-me-2", tagOpts{usageCount: 0})
+
+	res, err := s.tagService.BulkActionLowQualityTags(BulkActionDelete, []uint{t1.ID, t2.ID})
+	s.Require().NoError(err)
+	s.Assert().EqualValues(2, res.Affected)
+
+	var count int64
+	s.Require().NoError(s.db.Model(&models.Tag{}).Where("id IN ?", []uint{t1.ID, t2.ID}).Count(&count).Error)
+	s.Assert().EqualValues(0, count)
+}
+
+func (s *TagLowQualityIntegrationSuite) TestBulkAction_MarkOfficial_FlipsFlag() {
+	t1 := s.createTagRaw("promote-1", tagOpts{usageCount: 0})
+	t2 := s.createTagRaw("promote-2", tagOpts{usageCount: 0})
+
+	res, err := s.tagService.BulkActionLowQualityTags(BulkActionMarkOfficial, []uint{t1.ID, t2.ID})
+	s.Require().NoError(err)
+	s.Assert().EqualValues(2, res.Affected)
+
+	for _, id := range []uint{t1.ID, t2.ID} {
+		var refreshed models.Tag
+		s.Require().NoError(s.db.First(&refreshed, id).Error)
+		s.Assert().True(refreshed.IsOfficial)
+	}
+
+	// Queue should be empty (official tags are excluded).
+	q, err := s.tagService.GetLowQualityTagQueue(20, 0)
+	s.Require().NoError(err)
+	s.Assert().Empty(q.Tags)
+}
+
+func (s *TagLowQualityIntegrationSuite) TestBulkAction_NotFoundCounted() {
+	t1 := s.createTagRaw("real-1", tagOpts{usageCount: 0})
+
+	res, err := s.tagService.BulkActionLowQualityTags(BulkActionSnooze, []uint{t1.ID, 999998, 999999})
+	s.Require().NoError(err)
+	s.Assert().EqualValues(3, res.Requested)
+	s.Assert().EqualValues(1, res.Affected)
+	s.Assert().EqualValues(2, res.NotFound)
+}
+
+func (s *TagLowQualityIntegrationSuite) TestBulkAction_DedupesIDs() {
+	t1 := s.createTagRaw("dupe-target", tagOpts{usageCount: 0})
+
+	// Same ID three times — should count as 1 requested, 1 affected.
+	res, err := s.tagService.BulkActionLowQualityTags(BulkActionSnooze, []uint{t1.ID, t1.ID, t1.ID})
+	s.Require().NoError(err)
+	s.Assert().EqualValues(1, res.Requested)
+	s.Assert().EqualValues(1, res.Affected)
+}
+
+func (s *TagLowQualityIntegrationSuite) TestBulkAction_RejectsEmptyIDs() {
+	_, err := s.tagService.BulkActionLowQualityTags(BulkActionSnooze, []uint{})
+	s.Require().Error(err)
+}
+
+func (s *TagLowQualityIntegrationSuite) TestBulkAction_RejectsAllZeroIDs() {
+	_, err := s.tagService.BulkActionLowQualityTags(BulkActionSnooze, []uint{0, 0, 0})
+	s.Require().Error(err)
+}
+
+func (s *TagLowQualityIntegrationSuite) TestBulkAction_RejectsOverLimit() {
+	ids := make([]uint, BulkActionMaxTagIDs+1)
+	for i := range ids {
+		ids[i] = uint(i + 1)
+	}
+	_, err := s.tagService.BulkActionLowQualityTags(BulkActionSnooze, ids)
+	s.Require().Error(err)
+}
+
+func (s *TagLowQualityIntegrationSuite) TestBulkAction_RejectsUnknownAction() {
+	t1 := s.createTagRaw("victim", tagOpts{usageCount: 0})
+	_, err := s.tagService.BulkActionLowQualityTags("nuke-from-orbit", []uint{t1.ID})
+	s.Require().Error(err)
+}

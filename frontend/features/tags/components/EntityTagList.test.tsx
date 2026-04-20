@@ -36,8 +36,12 @@ type MockEntityTag = {
   downvotes: number
   wilson_score: number
   user_vote: number
-  added_by_username?: string
-  added_at?: string
+  // PSY-479: attribution fields. `null` is a valid wire value (older seed
+  // rows where the user has no username) and the hover card renders a
+  // "Source: system seed" line in that case.
+  added_by_user_id?: number | null
+  added_by_username?: string | null
+  added_at?: string | null
 }
 type MockEntityTags = { tags: MockEntityTag[] }
 
@@ -592,10 +596,15 @@ describe('EntityTagList add-tag dialog already-applied short-circuit', () => {
   })
 })
 
-// PSY-443: new_user tier cannot create new tags server-side (backend returns
-// 403 CodeTagCreationForbidden). Mirror that gate client-side with a disabled
-// Create button + tooltip linking to /help/tiers, so users see guidance
-// instead of a dead-end error after clicking.
+// PSY-443 / PSY-483: new_user tier cannot create new tags server-side
+// (backend returns 403 CodeTagCreationForbidden). Mirror that gate client-side.
+//
+// PSY-443 originally rendered a disabled Create button + Radix tooltip, but
+// dogfood (ISSUE-006, April 2026) found the tooltip was effectively invisible
+// — touch users never see hover, and a casual mouse user wouldn't hover a
+// button that already looks dead. PSY-483 replaces the disabled button with
+// inline explanatory prose that's always visible, and removes the
+// silently-disabled affordance entirely.
 describe('EntityTagList add-tag dialog create-tag tier gating', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -617,30 +626,37 @@ describe('EntityTagList add-tag dialog create-tag tier gating', () => {
     return user
   }
 
-  it('disables the Create button for new_user tier with a tooltip that links to /help/tiers', async () => {
+  it('hides the Create button for new_user tier and shows an always-visible tier-gate explanation linking to /help/tiers', async () => {
     mockAuthUser = { user_tier: 'new_user' }
-    const user = await openDialogAndSearch('brand-new-tag')
+    await openDialogAndSearch('brand-new-tag')
 
     await waitFor(() => {
       expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
     })
 
-    const disabledButton = screen.getByTestId('tag-create-disabled')
-    expect(disabledButton).toBeDisabled()
-    expect(disabledButton).toHaveAttribute('aria-disabled', 'true')
+    // No Create affordance at all — neither enabled nor disabled. The old
+    // PSY-443 disabled-button + tooltip wrapper are both gone.
+    expect(
+      screen.queryByRole('button', { name: /Create "brand-new-tag"/ })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('tag-create-disabled')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('tag-create-disabled-wrapper')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('tag-create-disabled-tooltip')
+    ).not.toBeInTheDocument()
 
-    // Tooltip fires on hover of the wrapper (span lets a disabled button
-    // still participate in a Radix tooltip).
-    await user.hover(screen.getByTestId('tag-create-disabled-wrapper'))
+    // Inline prose surfaces the tier gate without requiring hover/touch.
+    const tierGate = screen.getByTestId('tag-create-tier-gate')
+    expect(tierGate).toBeInTheDocument()
+    expect(tierGate).toHaveTextContent(/Contributor tier/i)
 
-    await waitFor(() => {
-      const tooltip = screen.getByTestId('tag-create-disabled-tooltip')
-      expect(tooltip).toBeInTheDocument()
-      expect(tooltip).toHaveTextContent(/Reach Contributor tier/i)
-      const learnMore = tooltip.querySelector('a')
-      expect(learnMore).not.toBeNull()
-      expect(learnMore).toHaveAttribute('href', '/help/tiers')
-    })
+    const learnMore = tierGate.querySelector('a')
+    expect(learnMore).not.toBeNull()
+    expect(learnMore).toHaveAttribute('href', '/help/tiers')
 
     expect(mockAddMutate).not.toHaveBeenCalled()
   })
@@ -657,7 +673,7 @@ describe('EntityTagList add-tag dialog create-tag tier gating', () => {
     expect(mockAddMutate).not.toHaveBeenCalled()
   })
 
-  it('renders an enabled Create button for contributor tier', async () => {
+  it('renders an enabled Create button for contributor tier and no tier-gate prose', async () => {
     mockAuthUser = { user_tier: 'contributor' }
     await openDialogAndSearch('brand-new-tag')
 
@@ -670,7 +686,7 @@ describe('EntityTagList add-tag dialog create-tag tier gating', () => {
     })
     expect(createButton).not.toBeDisabled()
     expect(
-      screen.queryByTestId('tag-create-disabled')
+      screen.queryByTestId('tag-create-tier-gate')
     ).not.toBeInTheDocument()
   })
 
@@ -686,11 +702,14 @@ describe('EntityTagList add-tag dialog create-tag tier gating', () => {
       name: /Create "brand-new-tag"/,
     })
     expect(createButton).not.toBeDisabled()
+    expect(
+      screen.queryByTestId('tag-create-tier-gate')
+    ).not.toBeInTheDocument()
   })
 
   it('appends a "Learn more" link to the 403 error message as defense-in-depth', async () => {
-    // Even if the disabled-button gate is somehow bypassed and the backend
-    // returns the 403, the inline error should still link to the tier docs.
+    // Even if the gate is somehow bypassed and the backend returns the 403,
+    // the inline error should still link to the tier docs.
     mockAuthUser = { user_tier: 'new_user' }
     mockAddMutationError = new Error(
       'New users can only apply existing tags. Reach Contributor tier to create new tags.'
@@ -780,6 +799,11 @@ describe('EntityTagList tag pill attribution hover card', () => {
     const userLink = within(card).getByRole('link', { name: /@testuser2/ })
     expect(userLink).toHaveAttribute('href', '/users/testuser2')
 
+    // The attribution line uses a stable testid so other features can target
+    // it without coupling to copy.
+    const attribution = within(card).getByTestId('tag-pill-attribution')
+    expect(attribution).toHaveTextContent(/Added by/i)
+
     // Vote counts render with the correct singular/plural agreement.
     expect(card).toHaveTextContent(/3\s+upvotes/)
     // Use a negative lookahead instead of \b — jest-dom normalises whitespace
@@ -809,7 +833,12 @@ describe('EntityTagList tag pill attribution hover card', () => {
     expect(card).toHaveTextContent('@testuser2')
   })
 
-  it('omits the "Added by" line when the backend did not return a username', async () => {
+  // PSY-479: when the backend returns a null/missing username (older seed
+  // rows, accounts with no username), render a "Source: system seed" line
+  // instead of suppressing attribution entirely. This keeps users informed
+  // that *something* applied the tag, even if the responsible account has
+  // no public handle.
+  it('renders "Source: system seed" when added_by_username is missing', async () => {
     const user = userEvent.setup()
     renderWithProviders(
       <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
@@ -822,7 +851,13 @@ describe('EntityTagList tag pill attribution hover card', () => {
     const card = await screen.findByTestId('tag-attribution-card-11')
     expect(card).toBeInTheDocument()
 
-    // No "Added by" copy AND no anonymous/undefined leak.
+    // The attribution testid is always present so other components can rely
+    // on it to assert provenance, regardless of which copy variant rendered.
+    const attribution = within(card).getByTestId('tag-pill-attribution')
+    expect(attribution).toHaveTextContent(/Source: system seed/i)
+
+    // No "Added by" copy AND no anonymous/undefined leak — the seed copy is
+    // the only attribution variant for this case.
     expect(card).not.toHaveTextContent(/Added by/i)
     expect(card).not.toHaveTextContent(/undefined/i)
 
@@ -832,6 +867,47 @@ describe('EntityTagList tag pill attribution hover card', () => {
     expect(card).toHaveTextContent(/0\s+downvotes/)
     const detailLink = within(card).getByRole('link', { name: /view tag details/i })
     expect(detailLink).toHaveAttribute('href', '/tags/noise')
+  })
+
+  // PSY-479: explicitly verify added_by_username: null also renders the seed
+  // fallback (covers the JSON null case we now ship from the backend, which
+  // is distinct from "field missing"). Without this, a regression to
+  // suppressing the line on null could silently slip through.
+  it('renders "Source: system seed" when added_by_username is explicitly null', async () => {
+    currentMockTags = {
+      tags: [
+        {
+          tag_id: 50,
+          name: 'seeded-tag',
+          slug: 'seeded-tag',
+          category: 'genre',
+          is_official: false,
+          upvotes: 0,
+          downvotes: 0,
+          wilson_score: 0,
+          user_vote: 0,
+          // Explicit null — mirrors the backend response where the user has
+          // no username but the entity_tag attribution is otherwise intact.
+          added_by_username: null,
+          added_by_user_id: 99,
+          added_at: new Date().toISOString(),
+        },
+      ],
+    }
+
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated={false} />
+    )
+
+    await user.click(
+      within(desktopRow()).getByRole('group', { name: /seeded-tag tag details/i })
+    )
+
+    const card = await screen.findByTestId('tag-attribution-card-50')
+    const attribution = within(card).getByTestId('tag-pill-attribution')
+    expect(attribution).toHaveTextContent(/Source: system seed/i)
+    expect(card).not.toHaveTextContent(/Added by/i)
   })
 
   it('renders relative time alongside the username when added_at is present', async () => {
@@ -1079,5 +1155,100 @@ describe('EntityTagList mobile collapsible Sheet', () => {
     const card = await screen.findByTestId('tag-attribution-card-30')
     expect(card).toBeInTheDocument()
     expect(card).toHaveTextContent('@testuser')
+  })
+})
+
+// PSY-481: zero-tag entities used to render nothing (early-return), which
+// hid the entire TAGS section + add CTA on every untagged entity. The
+// wrapper now always renders so logged-out users see a muted empty-state
+// line and logged-in users get a "+ Add the first tag" CTA — the cheapest
+// possible widening of the contributor funnel on sparse entities.
+describe('EntityTagList zero-tag empty state (PSY-481)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    currentMockTags = { tags: [] }
+    currentMockSearchTags = defaultMockSearchTags
+    mockAuthUser = { user_tier: 'contributor' }
+    mockAddMutationError = null
+  })
+
+  it('renders the TAGS heading + muted empty state for logged-out users (no CTA)', () => {
+    renderWithProviders(
+      <EntityTagList entityType="venue" entityId={1} isAuthenticated={false} />
+    )
+
+    // The heading is now always rendered — confirms the wrapper no longer
+    // disappears on (zero tags + logged-out).
+    expect(
+      screen.getByRole('heading', { level: 3, name: /tags/i })
+    ).toBeInTheDocument()
+
+    // Muted empty-state line is visible.
+    const empty = screen.getByTestId('entity-tag-list-empty')
+    expect(empty).toHaveTextContent('No tags yet.')
+
+    // No add affordance for anonymous visitors — neither the heading-row
+    // chip nor the empty-state CTA.
+    expect(
+      screen.queryByRole('button', { name: 'Add tag' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('entity-tag-list-empty-add-cta')
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders the "+ Add the first tag" CTA for logged-in users on a zero-tag entity', () => {
+    renderWithProviders(
+      <EntityTagList entityType="venue" entityId={1} isAuthenticated />
+    )
+
+    // Heading + muted line still render.
+    expect(
+      screen.getByRole('heading', { level: 3, name: /tags/i })
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('entity-tag-list-empty')).toHaveTextContent(
+      'No tags yet.'
+    )
+
+    // The CTA is visible with both the testid and an accessible aria-label
+    // so the funnel-widening signal can be analytics-tracked separately
+    // from the always-on heading-row "Add" chip.
+    const cta = screen.getByTestId('entity-tag-list-empty-add-cta')
+    expect(cta).toBeInTheDocument()
+    expect(cta).toHaveAttribute('aria-label', 'Add the first tag')
+    expect(cta).toHaveTextContent(/Add the first tag/i)
+  })
+
+  it('opens the add-tag dialog when the "+ Add the first tag" CTA is clicked', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="venue" entityId={1} isAuthenticated />
+    )
+
+    await user.click(screen.getByTestId('entity-tag-list-empty-add-cta'))
+
+    // The same Add Tag dialog instance opens — proves the empty-state CTA
+    // shares the existing portal/state and doesn't fork the dialog tree.
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Add Tag')).toBeInTheDocument()
+  })
+
+  it('does not render the empty-state pill row when at least one tag exists', () => {
+    currentMockTags = mockEntityTags // 2 tags
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+
+    // Empty-state container is suppressed once any tag is applied — keeps
+    // the rich-tag layout untouched on entities like festival viva-phx-2026
+    // and artist faetooth.
+    expect(
+      screen.queryByTestId('entity-tag-list-empty')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('entity-tag-list-empty-add-cta')
+    ).not.toBeInTheDocument()
   })
 })

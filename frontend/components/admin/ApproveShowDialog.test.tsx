@@ -37,6 +37,8 @@ function makeShow(overrides: Partial<ShowResponse> = {}): ShowResponse {
         slug: 'headliner',
         name: 'Headliner Band',
         is_headliner: true,
+        set_type: 'headliner',
+        position: 1,
         socials: {},
       },
     ],

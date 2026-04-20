@@ -864,6 +864,83 @@ func (s *TagHandlerIntegrationSuite) TestListEntityTags_Empty() {
 	s.Empty(resp.Body.Tags)
 }
 
+// PSY-479: ListEntityTags response surfaces attribution fields so the
+// frontend hover card can render "Added by @user" and a relative timestamp.
+// Verifies the handler-level wiring (response body shape) end-to-end.
+func (s *TagHandlerIntegrationSuite) TestListEntityTags_SurfacesAttribution() {
+	admin := createAdminUser(s.deps.db)
+	tag := s.createTagViaHandler(admin, "shoegaze-revival", models.TagCategoryGenre)
+	artist := createArtist(s.deps.db, "Faetooth")
+
+	// Create a user with a username so AddedByUsername is non-nil.
+	user := createTestUser(s.deps.db)
+	username := "testuser2"
+	s.Require().NoError(s.deps.db.Model(user).Update("username", username).Error)
+
+	ctx := ctxWithUser(user)
+	addReq := &AddTagToEntityRequest{
+		EntityType: models.TagEntityArtist,
+		EntityID:   fmt.Sprintf("%d", artist.ID),
+	}
+	addReq.Body.TagID = tag.Body.ID
+	_, err := s.handler.AddTagToEntityHandler(ctx, addReq)
+	s.Require().NoError(err)
+
+	listReq := &ListEntityTagsRequest{
+		EntityType: models.TagEntityArtist,
+		EntityID:   fmt.Sprintf("%d", artist.ID),
+	}
+	resp, err := s.handler.ListEntityTagsHandler(s.deps.ctx, listReq)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Body.Tags, 1)
+
+	got := resp.Body.Tags[0]
+	s.Require().NotNil(got.AddedByUserID)
+	s.Equal(user.ID, *got.AddedByUserID)
+
+	s.Require().NotNil(got.AddedByUsername)
+	s.Equal(username, *got.AddedByUsername)
+
+	s.Require().NotNil(got.AddedAt)
+	s.False(got.AddedAt.IsZero())
+}
+
+// PSY-479: when the user who applied a tag has a null username (older seed
+// rows, accounts that never set one), the response still includes
+// added_by_user_id + added_at. added_by_username comes back as JSON null so
+// the frontend can render "Source: system seed" instead of suppressing the
+// attribution line entirely.
+func (s *TagHandlerIntegrationSuite) TestListEntityTags_AttributionNullUsername() {
+	admin := createAdminUser(s.deps.db)
+	tag := s.createTagViaHandler(admin, "dream-pop", models.TagCategoryGenre)
+	artist := createArtist(s.deps.db, "Cocteau Twins")
+
+	// createTestUser does NOT set Username — mirrors the seed/dogfood case.
+	user := createTestUser(s.deps.db)
+	ctx := ctxWithUser(user)
+	addReq := &AddTagToEntityRequest{
+		EntityType: models.TagEntityArtist,
+		EntityID:   fmt.Sprintf("%d", artist.ID),
+	}
+	addReq.Body.TagID = tag.Body.ID
+	_, err := s.handler.AddTagToEntityHandler(ctx, addReq)
+	s.Require().NoError(err)
+
+	listReq := &ListEntityTagsRequest{
+		EntityType: models.TagEntityArtist,
+		EntityID:   fmt.Sprintf("%d", artist.ID),
+	}
+	resp, err := s.handler.ListEntityTagsHandler(s.deps.ctx, listReq)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Body.Tags, 1)
+
+	got := resp.Body.Tags[0]
+	s.Require().NotNil(got.AddedByUserID)
+	s.Equal(user.ID, *got.AddedByUserID)
+	s.Require().NotNil(got.AddedAt)
+	s.Nil(got.AddedByUsername, "username must be nil so the frontend renders 'Source: system seed'")
+}
+
 func (s *TagHandlerIntegrationSuite) TestListEntityTags_MultipleTags() {
 	admin := createAdminUser(s.deps.db)
 	tag1 := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
@@ -1701,4 +1778,169 @@ func (s *TagHandlerIntegrationSuite) TestSnoozeTag_InvalidID() {
 	ctx := ctxWithUser(admin)
 	_, err := s.handler.SnoozeTagHandler(ctx, &SnoozeTagRequest{TagID: "abc"})
 	assertHumaError(s.T(), err, 400)
+}
+
+// ============================================================================
+// BulkLowQualityTagsHandler (PSY-487)
+// ============================================================================
+
+func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_Snooze_Success() {
+	admin := createAdminUser(s.deps.db)
+	t1 := &models.Tag{Name: "bulk-snooze-1", Slug: "bulk-snooze-1", Category: "other"}
+	t2 := &models.Tag{Name: "bulk-snooze-2", Slug: "bulk-snooze-2", Category: "other"}
+	s.Require().NoError(s.deps.db.Create(t1).Error)
+	s.Require().NoError(s.deps.db.Create(t2).Error)
+
+	req := &BulkLowQualityTagsRequest{}
+	req.Body.Action = "snooze"
+	req.Body.TagIDs = []uint{t1.ID, t2.ID}
+
+	ctx := ctxWithUser(admin)
+	resp, err := s.handler.BulkLowQualityTagsHandler(ctx, req)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp)
+	s.Equal("snooze", resp.Body.Action)
+	s.EqualValues(2, resp.Body.Affected)
+	s.EqualValues(0, resp.Body.NotFound)
+
+	var refreshed models.Tag
+	s.Require().NoError(s.deps.db.First(&refreshed, t1.ID).Error)
+	s.Require().NotNil(refreshed.ReviewedAt)
+}
+
+func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_Delete_Success() {
+	admin := createAdminUser(s.deps.db)
+	t1 := &models.Tag{Name: "bulk-del-1", Slug: "bulk-del-1", Category: "other"}
+	s.Require().NoError(s.deps.db.Create(t1).Error)
+
+	req := &BulkLowQualityTagsRequest{}
+	req.Body.Action = "delete"
+	req.Body.TagIDs = []uint{t1.ID}
+
+	ctx := ctxWithUser(admin)
+	resp, err := s.handler.BulkLowQualityTagsHandler(ctx, req)
+	s.Require().NoError(err)
+	s.EqualValues(1, resp.Body.Affected)
+
+	var count int64
+	s.Require().NoError(s.deps.db.Model(&models.Tag{}).Where("id = ?", t1.ID).Count(&count).Error)
+	s.EqualValues(0, count)
+}
+
+func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_MarkOfficial_Success() {
+	admin := createAdminUser(s.deps.db)
+	t1 := &models.Tag{Name: "bulk-promo-1", Slug: "bulk-promo-1", Category: "other"}
+	s.Require().NoError(s.deps.db.Create(t1).Error)
+
+	req := &BulkLowQualityTagsRequest{}
+	req.Body.Action = "mark_official"
+	req.Body.TagIDs = []uint{t1.ID}
+
+	ctx := ctxWithUser(admin)
+	resp, err := s.handler.BulkLowQualityTagsHandler(ctx, req)
+	s.Require().NoError(err)
+	s.EqualValues(1, resp.Body.Affected)
+
+	var refreshed models.Tag
+	s.Require().NoError(s.deps.db.First(&refreshed, t1.ID).Error)
+	s.True(refreshed.IsOfficial)
+}
+
+func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_MissingAction() {
+	admin := createAdminUser(s.deps.db)
+	req := &BulkLowQualityTagsRequest{}
+	req.Body.TagIDs = []uint{1}
+
+	ctx := ctxWithUser(admin)
+	_, err := s.handler.BulkLowQualityTagsHandler(ctx, req)
+	assertHumaError(s.T(), err, 400)
+}
+
+func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_EmptyIDs() {
+	admin := createAdminUser(s.deps.db)
+	req := &BulkLowQualityTagsRequest{}
+	req.Body.Action = "snooze"
+	req.Body.TagIDs = []uint{}
+
+	ctx := ctxWithUser(admin)
+	_, err := s.handler.BulkLowQualityTagsHandler(ctx, req)
+	assertHumaError(s.T(), err, 400)
+}
+
+func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_UnknownAction() {
+	admin := createAdminUser(s.deps.db)
+	t1 := &models.Tag{Name: "tag-x", Slug: "tag-x-bulk", Category: "other"}
+	s.Require().NoError(s.deps.db.Create(t1).Error)
+
+	req := &BulkLowQualityTagsRequest{}
+	req.Body.Action = "explode"
+	req.Body.TagIDs = []uint{t1.ID}
+
+	ctx := ctxWithUser(admin)
+	_, err := s.handler.BulkLowQualityTagsHandler(ctx, req)
+	assertHumaError(s.T(), err, 400)
+}
+
+func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_NonAdmin() {
+	user := createTestUser(s.deps.db)
+	req := &BulkLowQualityTagsRequest{}
+	req.Body.Action = "snooze"
+	req.Body.TagIDs = []uint{1}
+
+	ctx := ctxWithUser(user)
+	_, err := s.handler.BulkLowQualityTagsHandler(ctx, req)
+	assertHumaError(s.T(), err, 403)
+}
+
+func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_Unauthenticated() {
+	req := &BulkLowQualityTagsRequest{}
+	req.Body.Action = "snooze"
+	req.Body.TagIDs = []uint{1}
+
+	_, err := s.handler.BulkLowQualityTagsHandler(context.Background(), req)
+	assertHumaError(s.T(), err, 401)
+}
+
+func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_NotFoundCounted() {
+	admin := createAdminUser(s.deps.db)
+	t1 := &models.Tag{Name: "real", Slug: "real-bulk", Category: "other"}
+	s.Require().NoError(s.deps.db.Create(t1).Error)
+
+	req := &BulkLowQualityTagsRequest{}
+	req.Body.Action = "snooze"
+	req.Body.TagIDs = []uint{t1.ID, 999998}
+
+	ctx := ctxWithUser(admin)
+	resp, err := s.handler.BulkLowQualityTagsHandler(ctx, req)
+	s.Require().NoError(err)
+	s.EqualValues(2, resp.Body.Requested)
+	s.EqualValues(1, resp.Body.Affected)
+	s.EqualValues(1, resp.Body.NotFound)
+}
+
+func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_WritesAuditLog() {
+	admin := createAdminUser(s.deps.db)
+	t1 := &models.Tag{Name: "audit-target", Slug: "audit-target-bulk", Category: "other"}
+	s.Require().NoError(s.deps.db.Create(t1).Error)
+
+	req := &BulkLowQualityTagsRequest{}
+	req.Body.Action = "snooze"
+	req.Body.TagIDs = []uint{t1.ID}
+
+	ctx := ctxWithUser(admin)
+	_, err := s.handler.BulkLowQualityTagsHandler(ctx, req)
+	s.Require().NoError(err)
+
+	// Audit log fires via goroutine — poll briefly so the goroutine wins.
+	var log models.AuditLog
+	for i := 0; i < 40; i++ {
+		if err := s.deps.db.Where("action = ?", "bulk_low_quality_tags").First(&log).Error; err == nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	s.Require().NotZero(log.ID, "audit log was not written in time")
+	s.Equal("tag", log.EntityType)
+	s.Require().NotNil(log.ActorID)
+	s.Equal(admin.ID, *log.ActorID)
 }

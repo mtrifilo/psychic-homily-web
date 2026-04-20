@@ -2,16 +2,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PrivacySettingsPanel } from './PrivacySettingsPanel'
+import type { PrivacySettings } from '@/features/auth'
 
 // Mock profile data
-const basePrivacySettings = {
-  contributions: 'visible' as const,
-  saved_shows: 'visible' as const,
-  attendance: 'visible' as const,
-  following: 'visible' as const,
-  collections: 'visible' as const,
-  last_active: 'visible' as const,
-  profile_sections: 'visible' as const,
+const basePrivacySettings: PrivacySettings = {
+  contributions: 'visible',
+  saved_shows: 'visible',
+  attendance: 'visible',
+  following: 'visible',
+  collections: 'visible',
+  last_active: 'visible',
+  profile_sections: 'visible',
 }
 
 const baseProfile = {

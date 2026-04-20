@@ -27,7 +27,7 @@ function makeShow(overrides: Partial<ShowResponse> = {}): ShowResponse {
       { id: 1, slug: 'venue', name: 'The Venue', city: 'Phoenix', state: 'AZ', verified: true },
     ],
     artists: [
-      { id: 1, slug: 'artist', name: 'Some Artist', socials: {} },
+      { id: 1, slug: 'artist', name: 'Some Artist', set_type: 'headliner', position: 1, socials: {} },
     ],
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',

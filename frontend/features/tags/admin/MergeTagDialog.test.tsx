@@ -37,6 +37,8 @@ function makePreview(overrides: Partial<MergeTagsPreview> = {}): MergeTagsPrevie
   return {
     moved_entity_tags: 5,
     moved_votes: 3,
+    moved_upvotes: 2,
+    moved_downvotes: 1,
     skipped_entity_tags: 0,
     skipped_votes: 0,
     source_aliases_count: 0,
@@ -111,6 +113,8 @@ describe('MergeTagDialog', () => {
       data: makePreview({
         moved_entity_tags: 5,
         moved_votes: 3,
+        moved_upvotes: 2,
+        moved_downvotes: 1,
         skipped_entity_tags: 1,
         source_aliases_count: 2,
       }),
@@ -135,10 +139,55 @@ describe('MergeTagDialog', () => {
     fireEvent.click(screen.getByText('shoegaze'))
 
     const preview = await screen.findByTestId('merge-preview')
-    expect(preview).toHaveTextContent('5 entity tags')
-    expect(preview).toHaveTextContent('3 votes')
+    // PSY-487 summary line uses an explicit single-sentence format that
+    // breaks votes into upvotes/downvotes and surfaces alias count.
+    const summary = await screen.findByTestId('merge-preview-summary')
+    expect(summary).toHaveTextContent('5 entity applications')
+    expect(summary).toHaveTextContent('2 upvotes')
+    expect(summary).toHaveTextContent('1 downvote')
+    expect(summary).toHaveTextContent('2 aliases')
+    expect(summary).toHaveTextContent(/into "shoegaze"/)
+    // Detail lines stay around for deeper context.
     expect(preview).toHaveTextContent(/1 duplicate entity tag/)
-    expect(preview).toHaveTextContent(/2 existing aliases/)
+  })
+
+  it('summary line uses singular "alias" when source has exactly one alias', async () => {
+    mockUseSearchTags.mockReturnValue({
+      data: { tags: [makeTag({ id: 2, name: 'shoegaze' })] },
+      isLoading: false,
+    })
+    mockUsePreview.mockReturnValue({
+      data: makePreview({
+        moved_entity_tags: 1,
+        moved_votes: 2,
+        moved_upvotes: 2,
+        moved_downvotes: 0,
+        source_aliases_count: 0,
+      }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(
+      <MergeTagDialog
+        open
+        sourceTagId={1}
+        sourceTagName="shoe-gaze"
+        onClose={vi.fn()}
+      />
+    )
+
+    fireEvent.change(screen.getByPlaceholderText(/Type at least 2 characters/), {
+      target: { value: 'shoe' },
+    })
+    await waitFor(() => expect(screen.getByText('shoegaze')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('shoegaze'))
+
+    const summary = await screen.findByTestId('merge-preview-summary')
+    expect(summary).toHaveTextContent('1 entity application')
+    expect(summary).toHaveTextContent('2 upvotes')
+    expect(summary).toHaveTextContent('0 downvotes')
+    expect(summary).toHaveTextContent('0 aliases')
   })
 
   it('calls merge mutation on confirm', async () => {

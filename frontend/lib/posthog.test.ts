@@ -38,7 +38,7 @@ describe('posthog', () => {
   describe('initPostHog', () => {
     it('does not initialize when window is undefined (SSR)', async () => {
       const windowSpy = vi.spyOn(globalThis, 'window', 'get')
-      // @ts-expect-error -- simulating SSR
+      // Simulating SSR where window is undefined.
       windowSpy.mockReturnValue(undefined)
 
       const { initPostHog } = await import('./posthog')

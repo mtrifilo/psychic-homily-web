@@ -834,6 +834,8 @@ func setupTagRoutes(rc RouteContext) {
 	// Admin: low-quality tag review queue (PSY-310).
 	huma.Get(rc.Protected, "/admin/tags/low-quality", tagHandler.ListLowQualityTagsHandler)
 	huma.Post(rc.Protected, "/admin/tags/{tag_id}/snooze", tagHandler.SnoozeTagHandler)
+	// Admin: bulk action on low-quality queue (PSY-487).
+	huma.Post(rc.Protected, "/admin/tags/low-quality/bulk-action", tagHandler.BulkLowQualityTagsHandler)
 	// Admin: genre-hierarchy editor (PSY-311).
 	huma.Get(rc.Protected, "/admin/tags/hierarchy", tagHandler.GetGenreHierarchyHandler)
 	huma.Patch(rc.Protected, "/admin/tags/{tag_id}/parent", tagHandler.SetTagParentHandler)
