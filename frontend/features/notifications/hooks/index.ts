@@ -8,6 +8,7 @@
 
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_BASE_URL } from '@/lib/api'
+import { useAuthContext } from '@/lib/context/AuthContext'
 import { queryKeys } from '@/lib/queryClient'
 import type {
   NotificationFilter,
@@ -34,12 +35,19 @@ const FILTER_ENDPOINTS = {
 
 /** Fetch all notification filters for the current user */
 export function useNotificationFilters() {
+  // PSY-477: gate on auth so anonymous visitors of public entity pages
+  // (artist / venue / label / festival, via NotifyMeButton →
+  // useNotificationFilterCheck → this hook) don't fire a 401'd request.
+  // FilterList on the notification settings page is behind auth anyway,
+  // so this is strictly a no-op there.
+  const { isAuthenticated } = useAuthContext()
   return useQuery({
     queryKey: queryKeys.notificationFilters.all,
     queryFn: () =>
       apiRequest<{ filters: NotificationFilter[] }>(FILTER_ENDPOINTS.LIST),
     staleTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,
+    enabled: isAuthenticated,
   })
 }
 
