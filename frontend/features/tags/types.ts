@@ -212,6 +212,39 @@ export interface MergeTagsResult {
   moved_aliases: number
 }
 
+/**
+ * Reason identifier for why a tag appeared in the low-quality review queue.
+ * Keep in sync with the backend constants in `tag_low_quality.go`.
+ */
+export type LowQualityReason =
+  | 'orphaned'
+  | 'aging_unused'
+  | 'downvoted'
+  | 'short_name'
+  | 'long_name'
+
+/** One row in the admin low-quality tag review queue (PSY-310). */
+export interface LowQualityTagQueueItem extends TagListItem {
+  upvotes: number
+  downvotes: number
+  reasons: LowQualityReason[]
+}
+
+/** Paginated response for GET /admin/tags/low-quality. */
+export interface LowQualityTagQueueResponse {
+  tags: LowQualityTagQueueItem[]
+  total: number
+}
+
+/** Human-readable labels for the reason pills in the queue UI. */
+export const LOW_QUALITY_REASON_LABELS: Record<LowQualityReason, string> = {
+  orphaned: 'Orphaned',
+  aging_unused: 'Aging unused',
+  downvoted: 'Downvoted',
+  short_name: 'Short name',
+  long_name: 'Long name',
+}
+
 export function getCategoryColor(category: string): string {
   const colors: Record<string, string> = {
     genre: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
