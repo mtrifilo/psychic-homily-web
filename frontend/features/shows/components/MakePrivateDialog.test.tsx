@@ -25,7 +25,7 @@ function makeShow(overrides: Partial<ShowResponse> = {}): ShowResponse {
     status: 'approved',
     venues: [],
     artists: [
-      { id: 1, slug: 'artist', name: 'Some Artist', socials: {} },
+      { id: 1, slug: 'artist', name: 'Some Artist', set_type: 'headliner', position: 1, socials: {} },
     ],
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',

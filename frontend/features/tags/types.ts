@@ -111,15 +111,19 @@ export interface EntityTag {
   downvotes: number
   wilson_score: number
   user_vote?: number | null
-  added_by_username?: string
   /**
-   * UTC timestamp indicating when the tag was applied to the entity. Optional
-   * because the /entities/{type}/{id}/tags endpoint does not currently return
-   * it (PSY-441 limited work to frontend — no API changes). Typed here so the
-   * pill hover card can surface a relative timestamp once the backend exposes
-   * it without a type refactor.
+   * Attribution fields (PSY-479). Backend always populates these on
+   * /entities/{type}/{id}/tags responses:
+   * - `added_by_user_id` is the FK on `entity_tags`. Null only for
+   *   pre-attribution legacy rows that don't exist in the current schema.
+   * - `added_by_username` is the resolved username (joined from `users`).
+   *   Null when the user account has no username (older accounts that never
+   *   set one). The hover card renders "Source: system seed" in that case.
+   * - `added_at` is the UTC timestamp the tag was applied.
    */
-  added_at?: string
+  added_by_user_id?: number | null
+  added_by_username?: string | null
+  added_at?: string | null
 }
 
 export interface TagAlias {
@@ -195,6 +199,9 @@ export interface BulkAliasImportResult {
 export interface MergeTagsPreview {
   moved_entity_tags: number
   moved_votes: number
+  /** Up/down split of moved_votes (PSY-487). Always equal to moved_votes when summed. */
+  moved_upvotes: number
+  moved_downvotes: number
   skipped_entity_tags: number
   skipped_votes: number
   source_aliases_count: number
@@ -236,6 +243,20 @@ export interface LowQualityTagQueueResponse {
   total: number
 }
 
+/**
+ * Verb for the bulk-action endpoint on the low-quality queue (PSY-487).
+ * Mirrors the backend constants in `tag_low_quality.go`.
+ */
+export type BulkLowQualityAction = 'snooze' | 'delete' | 'mark_official'
+
+/** Result returned from POST /admin/tags/low-quality/bulk-action. */
+export interface BulkLowQualityActionResult {
+  action: BulkLowQualityAction
+  requested: number
+  affected: number
+  not_found: number
+}
+
 /** Human-readable labels for the reason pills in the queue UI. */
 export const LOW_QUALITY_REASON_LABELS: Record<LowQualityReason, string> = {
   orphaned: 'Orphaned',
@@ -244,6 +265,25 @@ export const LOW_QUALITY_REASON_LABELS: Record<LowQualityReason, string> = {
   short_name: 'Short name',
   long_name: 'Long name',
 }
+
+/**
+ * Filter chip set surfaced above the Needs Review queue (PSY-487).
+ * Order matches the human-friendly read in the spec ("Orphaned, Aging unused,
+ * Downvoted, Unusual length"). Short and long name are merged into a single
+ * "Unusual length" chip — admins don't typically need to distinguish.
+ */
+export interface LowQualitySignalChip {
+  id: string
+  label: string
+  reasons: LowQualityReason[]
+}
+
+export const LOW_QUALITY_SIGNAL_CHIPS: LowQualitySignalChip[] = [
+  { id: 'orphaned', label: 'Orphaned', reasons: ['orphaned'] },
+  { id: 'aging_unused', label: 'Aging unused', reasons: ['aging_unused'] },
+  { id: 'downvoted', label: 'Downvoted', reasons: ['downvoted'] },
+  { id: 'unusual_length', label: 'Unusual length', reasons: ['short_name', 'long_name'] },
+]
 
 /**
  * Genre-hierarchy row — returned by GET /admin/tags/hierarchy (PSY-311).
@@ -265,10 +305,14 @@ export interface GenreHierarchyResponse {
 /**
  * Node in the assembled client-side tree. Convenience shape — not a wire type.
  * `depth` is 0 for roots and increments per level; used for indentation.
+ * `parent_name` is denormalized at tree-assembly time so flat-search results
+ * (which strip child links) can still render the `parent › child` breadcrumb
+ * chip beside the tag name without re-querying the source list.
  */
 export interface GenreHierarchyNode extends GenreHierarchyTag {
   depth: number
   children: GenreHierarchyNode[]
+  parent_name?: string | null
 }
 
 export function getCategoryColor(category: string): string {

@@ -957,6 +957,70 @@ func (h *TagHandler) SnoozeTagHandler(ctx context.Context, req *SnoozeTagRequest
 	return nil, nil
 }
 
+// BulkLowQualityTagsRequest is the request body for the admin bulk-action
+// endpoint. Action verbs: "snooze", "delete", "mark_official". TagIDs is a
+// flat list — the service dedupes and validates length.
+type BulkLowQualityTagsRequest struct {
+	Body struct {
+		Action string `json:"action" doc:"Bulk action verb: snooze, delete, mark_official" example:"snooze"`
+		TagIDs []uint `json:"tag_ids" doc:"Tag IDs to act on" example:"[1,2,3]"`
+	}
+}
+
+type BulkLowQualityTagsResponse struct {
+	Body *contracts.BulkLowQualityTagActionResult
+}
+
+// BulkLowQualityTagsHandler applies a single bulk verb to a list of tag IDs
+// from the low-quality queue (PSY-487). Audit log records the action verb,
+// counters, and tag IDs so the activity is auditable end-to-end.
+func (h *TagHandler) BulkLowQualityTagsHandler(ctx context.Context, req *BulkLowQualityTagsRequest) (*BulkLowQualityTagsResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+	if !user.IsAdmin {
+		return nil, huma.Error403Forbidden("Admin access required")
+	}
+
+	if req.Body.Action == "" {
+		return nil, huma.Error400BadRequest("action is required")
+	}
+	if len(req.Body.TagIDs) == 0 {
+		return nil, huma.Error400BadRequest("tag_ids is required and must not be empty")
+	}
+
+	result, err := h.tagService.BulkActionLowQualityTags(req.Body.Action, req.Body.TagIDs)
+	if err != nil {
+		mapped := mapTagError(err)
+		if mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error500InternalServerError("Failed to apply bulk action")
+	}
+
+	if h.auditLog != nil {
+		// Snapshot for the goroutine — req.Body is owned by Huma and may be
+		// reused once the handler returns.
+		actionCopy := result.Action
+		requested := result.Requested
+		affected := result.Affected
+		notFound := result.NotFound
+		idsCopy := append([]uint(nil), req.Body.TagIDs...)
+		go func() {
+			h.auditLog.LogAction(user.ID, "bulk_low_quality_tags", "tag", 0, map[string]interface{}{
+				"action":    actionCopy,
+				"requested": requested,
+				"affected":  affected,
+				"not_found": notFound,
+				"tag_ids":   idsCopy,
+			})
+		}()
+	}
+
+	return &BulkLowQualityTagsResponse{Body: result}, nil
+}
+
 // ============================================================================
 // Genre hierarchy (admin, PSY-311)
 // ============================================================================
@@ -1130,6 +1194,8 @@ func mapTagError(err error) error {
 		case apperrors.CodeTagHierarchyCycle:
 			return huma.Error400BadRequest(tagErr.Message)
 		case apperrors.CodeTagHierarchyNotGenre:
+			return huma.Error400BadRequest(tagErr.Message)
+		case apperrors.CodeTagBulkActionInvalid:
 			return huma.Error400BadRequest(tagErr.Message)
 		}
 	}

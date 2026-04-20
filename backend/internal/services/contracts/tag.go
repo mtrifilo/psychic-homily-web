@@ -104,17 +104,29 @@ type TagSearchResult struct {
 }
 
 // EntityTagResponse represents a tag applied to an entity with vote info.
+//
+// Attribution fields (PSY-479): AddedByUserID, AddedByUsername, and AddedAt
+// are always populated from the entity_tags row. Both AddedByUserID and
+// AddedAt use pointer types so the JSON encodes null (not the zero value)
+// when an association predates user attribution or the FK has been broken
+// by a soft-delete fixup. AddedByUsername is *string for the same reason —
+// older seed rows can have a valid user_id whose user has username=null
+// (e.g. accounts that never set one). The frontend hover card renders a
+// "Source: system seed" line in those null cases instead of suppressing
+// attribution entirely.
 type EntityTagResponse struct {
-	TagID           uint    `json:"tag_id"`
-	Name            string  `json:"name"`
-	Slug            string  `json:"slug"`
-	Category        string  `json:"category"`
-	IsOfficial      bool    `json:"is_official"`
-	Upvotes         int     `json:"upvotes"`
-	Downvotes       int     `json:"downvotes"`
-	WilsonScore     float64 `json:"wilson_score"`
-	UserVote        *int    `json:"user_vote,omitempty"`
-	AddedByUsername string  `json:"added_by_username,omitempty"`
+	TagID           uint       `json:"tag_id"`
+	Name            string     `json:"name"`
+	Slug            string     `json:"slug"`
+	Category        string     `json:"category"`
+	IsOfficial      bool       `json:"is_official"`
+	Upvotes         int        `json:"upvotes"`
+	Downvotes       int        `json:"downvotes"`
+	WilsonScore     float64    `json:"wilson_score"`
+	UserVote        *int       `json:"user_vote,omitempty"`
+	AddedByUserID   *uint      `json:"added_by_user_id"`
+	AddedByUsername *string    `json:"added_by_username"`
+	AddedAt         *time.Time `json:"added_at"`
 }
 
 // TaggedEntityItem represents a single entity tagged with a given tag.
@@ -172,9 +184,17 @@ type BulkAliasImportResult struct {
 // Populated by the preview endpoint so the admin dialog can confirm before
 // committing. Counts reflect the state at preview time; concurrent writes
 // could make the actual merge differ slightly.
+//
+// MovedUpvotes / MovedDownvotes (PSY-487) split the MovedVotes total by sign
+// so the dialog can render the human-friendly format the moderator spec
+// describes ("Merging will move 1 entity application, 2 upvotes, 0 downvotes,
+// 0 aliases into 'shoegaze'."). MovedVotes is kept for backward compat and
+// always equals MovedUpvotes + MovedDownvotes.
 type MergeTagsPreview struct {
 	MovedEntityTags    int64  `json:"moved_entity_tags"`
 	MovedVotes         int64  `json:"moved_votes"`
+	MovedUpvotes       int64  `json:"moved_upvotes"`
+	MovedDownvotes     int64  `json:"moved_downvotes"`
 	SkippedEntityTags  int64  `json:"skipped_entity_tags"`
 	SkippedVotes       int64  `json:"skipped_votes"`
 	SourceAliasesCount int64  `json:"source_aliases_count"`
@@ -206,6 +226,18 @@ type LowQualityTagQueueItem struct {
 type LowQualityTagQueueResponse struct {
 	Tags  []LowQualityTagQueueItem `json:"tags"`
 	Total int64                    `json:"total"`
+}
+
+// BulkLowQualityTagActionResult summarizes what a bulk action did so the
+// admin UI can surface accurate "snoozed N, M not found" feedback (PSY-487).
+// Action mirrors the verb that was requested ("snooze" / "delete" /
+// "mark_official"), so the same struct can drive both the toast and the
+// audit log entry.
+type BulkLowQualityTagActionResult struct {
+	Action    string `json:"action"`
+	Requested int64  `json:"requested"`
+	Affected  int64  `json:"affected"`
+	NotFound  int64  `json:"not_found"`
 }
 
 // TagServiceInterface defines the contract for tag operations.
@@ -258,6 +290,10 @@ type TagServiceInterface interface {
 	// Low-quality queue (PSY-310)
 	GetLowQualityTagQueue(limit, offset int) (*LowQualityTagQueueResponse, error)
 	SnoozeLowQualityTag(tagID uint, actorUserID uint) error
+
+	// Bulk admin actions on the low-quality queue (PSY-487).
+	// Action verbs: "snooze", "delete", "mark_official".
+	BulkActionLowQualityTags(action string, tagIDs []uint) (*BulkLowQualityTagActionResult, error)
 
 	// Utility
 	SearchTags(query string, limit int, category string) ([]TagSearchResult, error)

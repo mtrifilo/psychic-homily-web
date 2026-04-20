@@ -559,6 +559,62 @@ func (suite *TagServiceIntegrationTestSuite) TestListEntityTags_WithUserVote() {
 	suite.Assert().Equal(1, tags[0].Upvotes)
 }
 
+// PSY-479: ListEntityTags must surface AddedByUserID, AddedByUsername, and
+// AddedAt so the entity tag pill hover card can show "Added by @user · 5m ago".
+// Username is *string so the frontend can distinguish "user has no username"
+// (older accounts that never set one — render "Source: system seed") from a
+// real attribution. AddedByUserID and AddedAt are *time.Time / *uint with
+// no omitempty on the JSON tag, so they always serialize (null vs value)
+// instead of disappearing from the response when zero.
+func (suite *TagServiceIntegrationTestSuite) TestListEntityTags_AttributionWithUsername() {
+	user := suite.createTestUserWithUsername("attributed", "attributed")
+	tag := suite.createTag("noise-rock", "genre")
+	artistID := suite.createArtist("Noise Rock Band")
+
+	beforeAdd := time.Now().Add(-1 * time.Second)
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
+	suite.Require().NoError(err)
+
+	tags, err := suite.tagService.ListEntityTags("artist", artistID, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(tags, 1)
+
+	suite.Require().NotNil(tags[0].AddedByUserID, "AddedByUserID must be populated")
+	suite.Assert().Equal(user.ID, *tags[0].AddedByUserID)
+
+	suite.Require().NotNil(tags[0].AddedByUsername, "AddedByUsername must be populated when user has a username")
+	suite.Assert().Equal("attributed", *tags[0].AddedByUsername)
+
+	suite.Require().NotNil(tags[0].AddedAt, "AddedAt must be populated")
+	suite.Assert().True(tags[0].AddedAt.After(beforeAdd), "AddedAt should reflect when the tag was applied")
+}
+
+// Some users (older accounts, OAuth flows that didn't enforce username) have
+// username=null. ListEntityTags still surfaces AddedByUserID + AddedAt so the
+// frontend can render a "Source: system seed" provenance line; AddedByUsername
+// is null so the frontend doesn't display "Added by @undefined".
+func (suite *TagServiceIntegrationTestSuite) TestListEntityTags_AttributionNullUsername() {
+	// createTestUser does NOT set a username (this matches the seed/fixture
+	// behavior the dogfood report flagged).
+	user := suite.createTestUser("anon")
+	tag := suite.createTag("dream-pop", "genre")
+	artistID := suite.createArtist("Dream Pop Band")
+
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
+	suite.Require().NoError(err)
+
+	tags, err := suite.tagService.ListEntityTags("artist", artistID, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(tags, 1)
+
+	suite.Require().NotNil(tags[0].AddedByUserID, "AddedByUserID is always populated even when username is null")
+	suite.Assert().Equal(user.ID, *tags[0].AddedByUserID)
+
+	suite.Require().NotNil(tags[0].AddedAt, "AddedAt is always populated")
+
+	suite.Assert().Nil(tags[0].AddedByUsername, "AddedByUsername must be nil when the user has no username")
+}
+
 // ──────────────────────────────────────────────
 // Voting Tests
 // ──────────────────────────────────────────────

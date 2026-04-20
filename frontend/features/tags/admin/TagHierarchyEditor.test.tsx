@@ -87,6 +87,22 @@ describe('buildHierarchyTree', () => {
     expect(tree).toHaveLength(2)
     expect(tree.map(t => t.name).sort()).toEqual(['orphan', 'rock'])
   })
+
+  it('denormalizes parent_name onto child nodes for breadcrumb chips', () => {
+    // PSY-486: filter view flattens children to depth 0 and strips
+    // tree context, so the row needs `parent_name` available without
+    // re-walking the tree.
+    const tree = buildHierarchyTree([
+      tag({ id: 1, name: 'post-punk' }),
+      tag({ id: 2, name: 'shoegaze', parent_id: 1 }),
+      tag({ id: 3, name: 'nu-gaze', parent_id: 2 }),
+    ])
+    const root = tree[0]
+    expect(root.parent_name).toBeNull()
+    const shoegaze = root.children[0]
+    expect(shoegaze.parent_name).toBe('post-punk')
+    expect(shoegaze.children[0].parent_name).toBe('shoegaze')
+  })
 })
 
 // ──────────────────────────────────────────────
@@ -345,5 +361,128 @@ describe('TagHierarchyEditor', () => {
 
     renderWithProviders(<TagHierarchyEditor />)
     expect(screen.getByRole('alert')).toHaveTextContent(/boom/)
+  })
+
+  // PSY-486: surface "N children" badge so admins can see hierarchy shape
+  // at a glance without expanding every parent.
+  it('renders a children count badge on rows that have descendants', () => {
+    mockGenreHierarchy.mockReturnValue({
+      data: {
+        tags: [
+          tag({ id: 1, name: 'post-punk' }),
+          tag({ id: 2, name: 'shoegaze', parent_id: 1 }),
+          tag({ id: 3, name: 'no-wave', parent_id: 1 }),
+          tag({ id: 4, name: 'rock' }),
+        ],
+      },
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<TagHierarchyEditor />)
+
+    const rows = screen.getAllByTestId('hierarchy-row')
+    const rowById = (id: number) =>
+      rows.find(r => r.getAttribute('data-tag-id') === String(id))!
+
+    // post-punk has 2 children → badge present, plural label
+    const postPunk = rowById(1)
+    const postPunkBadge = postPunk.querySelector(
+      '[data-testid="child-count-badge"]'
+    )
+    expect(postPunkBadge).not.toBeNull()
+    expect(postPunkBadge).toHaveTextContent('2 children')
+
+    // rock and the leaf children get no badge
+    const rock = rowById(4)
+    expect(
+      rock.querySelector('[data-testid="child-count-badge"]')
+    ).toBeNull()
+    const shoegaze = rowById(2)
+    expect(
+      shoegaze.querySelector('[data-testid="child-count-badge"]')
+    ).toBeNull()
+  })
+
+  it('uses singular "1 child" when a parent has exactly one descendant', () => {
+    mockGenreHierarchy.mockReturnValue({
+      data: {
+        tags: [
+          tag({ id: 1, name: 'post-punk' }),
+          tag({ id: 2, name: 'shoegaze', parent_id: 1 }),
+        ],
+      },
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<TagHierarchyEditor />)
+
+    const rows = screen.getAllByTestId('hierarchy-row')
+    const postPunkBadge = rows
+      .find(r => r.getAttribute('data-tag-id') === '1')!
+      .querySelector('[data-testid="child-count-badge"]')
+    expect(postPunkBadge).toHaveTextContent('1 child')
+  })
+
+  // PSY-486: filter view flattens to depth 0 — show `parent ›` chip so the
+  // admin can still see the tree position of each match.
+  it('renders parent breadcrumb chip and child count on filtered matches', () => {
+    mockGenreHierarchy.mockReturnValue({
+      data: {
+        tags: [
+          tag({ id: 1, name: 'post-punk' }),
+          tag({ id: 2, name: 'shoegaze', parent_id: 1 }),
+          tag({ id: 3, name: 'nu-gaze', parent_id: 2 }),
+        ],
+      },
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<TagHierarchyEditor />)
+
+    // Type a search that only matches the middle child.
+    const filterInput = screen.getByPlaceholderText(/Filter genre tags/i)
+    fireEvent.change(filterInput, { target: { value: 'shoe' } })
+
+    const rows = screen.getAllByTestId('hierarchy-row')
+    expect(rows).toHaveLength(1)
+    const shoegaze = rows[0]
+
+    // Parent breadcrumb chip is now visible beside the name even though
+    // the row is rendered at depth 0.
+    const breadcrumb = shoegaze.querySelector(
+      '[data-testid="parent-breadcrumb"]'
+    )
+    expect(breadcrumb).not.toBeNull()
+    expect(breadcrumb).toHaveTextContent('post-punk')
+
+    // Children count badge survives the flattening — shoegaze owns nu-gaze.
+    const badge = shoegaze.querySelector(
+      '[data-testid="child-count-badge"]'
+    )
+    expect(badge).not.toBeNull()
+    expect(badge).toHaveTextContent('1 child')
+  })
+
+  it('does not render parent breadcrumb chip when not filtering', () => {
+    mockGenreHierarchy.mockReturnValue({
+      data: {
+        tags: [
+          tag({ id: 1, name: 'post-punk' }),
+          tag({ id: 2, name: 'shoegaze', parent_id: 1 }),
+        ],
+      },
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<TagHierarchyEditor />)
+
+    // Tree view: parent context comes from indentation, so the chip is hidden.
+    expect(
+      screen.queryByTestId('parent-breadcrumb')
+    ).not.toBeInTheDocument()
   })
 })
