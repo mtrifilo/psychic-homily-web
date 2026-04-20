@@ -10,6 +10,7 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -31,19 +32,63 @@ type CommentWriter interface {
 	DeleteComment(userID uint, commentID uint, isAdmin bool) error
 }
 
+// CommentVoteReader supplies per-user vote lookups for populating
+// `user_vote` on responses. Nil is acceptable — handlers treat a nil
+// reader or nil user as "anonymous; don't populate".
+type CommentVoteReader interface {
+	GetUserVotesForComments(userID uint, commentIDs []uint) (map[uint]int, error)
+}
+
 // CommentHandler handles comment-related API requests.
 type CommentHandler struct {
 	reader          CommentReader
 	writer          CommentWriter
+	voteReader      CommentVoteReader
 	auditLogService contracts.AuditLogServiceInterface
 }
 
-// NewCommentHandler creates a new CommentHandler.
-func NewCommentHandler(reader CommentReader, writer CommentWriter, auditLogService contracts.AuditLogServiceInterface) *CommentHandler {
+// NewCommentHandler creates a new CommentHandler. voteReader may be nil
+// in tests that don't exercise the authenticated-read path.
+func NewCommentHandler(reader CommentReader, writer CommentWriter, voteReader CommentVoteReader, auditLogService contracts.AuditLogServiceInterface) *CommentHandler {
 	return &CommentHandler{
 		reader:          reader,
 		writer:          writer,
+		voteReader:      voteReader,
 		auditLogService: auditLogService,
+	}
+}
+
+// populateUserVotes mutates the provided responses to set user_vote based
+// on the authenticated user's existing votes. No-op if the user is
+// anonymous, the voteReader is nil, or the response set is empty. Errors
+// from the vote lookup are logged and swallowed — vote state is a
+// decoration, not a critical path.
+func (h *CommentHandler) populateUserVotes(ctx context.Context, user *models.User, responses []*contracts.CommentResponse) {
+	if user == nil || h.voteReader == nil || len(responses) == 0 {
+		return
+	}
+	ids := make([]uint, 0, len(responses))
+	for _, r := range responses {
+		if r != nil {
+			ids = append(ids, r.ID)
+		}
+	}
+	votes, err := h.voteReader.GetUserVotesForComments(user.ID, ids)
+	if err != nil {
+		logger.FromContext(ctx).Warn("failed_to_populate_user_votes",
+			"user_id", user.ID,
+			"error", err.Error(),
+		)
+		return
+	}
+	for _, r := range responses {
+		if r == nil {
+			continue
+		}
+		if dir, ok := votes[r.ID]; ok {
+			d := dir
+			r.UserVote = &d
+		}
 	}
 }
 
@@ -99,6 +144,10 @@ func (h *CommentHandler) ListCommentsHandler(ctx context.Context, req *ListComme
 		return nil, huma.Error500InternalServerError("Failed to fetch comments")
 	}
 
+	// Populate user_vote for the authenticated viewer. Route is on
+	// optionalAuthGroup, so user may be nil for anonymous requests.
+	h.populateUserVotes(ctx, middleware.GetUserFromContext(ctx), result.Comments)
+
 	return &ListCommentsResponse{Body: result}, nil
 }
 
@@ -130,6 +179,8 @@ func (h *CommentHandler) GetCommentHandler(ctx context.Context, req *GetCommentR
 		}
 		return nil, huma.Error500InternalServerError("Failed to fetch comment")
 	}
+
+	h.populateUserVotes(ctx, middleware.GetUserFromContext(ctx), []*contracts.CommentResponse{comment})
 
 	return &GetCommentResponse{Body: comment}, nil
 }
@@ -167,6 +218,8 @@ func (h *CommentHandler) GetThreadHandler(ctx context.Context, req *GetThreadReq
 		}
 		return nil, huma.Error500InternalServerError("Failed to fetch thread")
 	}
+
+	h.populateUserVotes(ctx, middleware.GetUserFromContext(ctx), comments)
 
 	resp := &GetThreadResponse{}
 	resp.Body.Comments = comments

@@ -1107,7 +1107,7 @@ func setupRadioRoutes(rc RouteContext) {
 // Protected routes require authentication.
 // Admin routes require admin privileges.
 func setupCommentRoutes(rc RouteContext) {
-	commentHandler := handlers.NewCommentHandler(rc.SC.Comment, rc.SC.Comment, rc.SC.AuditLog)
+	commentHandler := handlers.NewCommentHandler(rc.SC.Comment, rc.SC.Comment, rc.SC.CommentVote, rc.SC.AuditLog)
 	commentAdminHandler := handlers.NewCommentAdminHandler(rc.SC.Comment, rc.SC.AuditLog)
 
 	// Public: list comments, get comment, get thread
