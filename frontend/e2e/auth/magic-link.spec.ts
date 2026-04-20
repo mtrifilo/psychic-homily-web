@@ -17,7 +17,7 @@ function getUserId(email: string): number {
 }
 
 test.describe('Magic Link Authentication', () => {
-  test('authenticates user with valid magic link', async ({ page }) => {
+  test('authenticates user with valid magic link', { tag: '@smoke' }, async ({ page }) => {
     const userId = getUserId(TEST_USER_EMAIL)
 
     // Generate a valid magic link JWT

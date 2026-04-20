@@ -26,7 +26,7 @@ test.describe('Save/unsave a show', () => {
     ).not.toBeVisible()
   })
 
-  test('can save and unsave a show from detail page', async ({
+  test('can save and unsave a show from detail page', { tag: '@smoke' }, async ({
     authenticatedPage,
   }) => {
     await authenticatedPage.goto(RESERVED_SHOW_URL)

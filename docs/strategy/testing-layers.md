@@ -330,7 +330,7 @@ Nothing was categorized as `→ integration` because the existing specs are all 
 ## Recommended follow-ups
 
 - **PSY-434** (component-migration): the `→ component` rows in the categorization table are the menu. Recommend migrating in **feature-flavored batches** (e.g., all auth→component in one PR, all ai-filler in one PR, all `.tabs switch` tests in one PR) — each batch should delete the E2E spec as its last commit so we never carry both.
-- **PSY-446** (smoke-on-PR): the 13 **Smoke** rows are the starting selection. Budget target: <60 s wall-clock on PR CI. If that's tight, drop down to 6–8 by preferring one smoke per persona (landing, register, login, save-show, favorite-venue, approve-pending-show).
+- **PSY-446** (smoke-on-PR) — **implemented**: 17 tests tagged `@smoke` (12 from this audit's Smoke bucket + 5 from the PSY-455/456/457 backfill specs). Runs on every PR via the `e2e-smoke` CI job (`bunx playwright test --grep @smoke --workers=3`) with a <3 min wall-clock budget; the full sharded suite stays as post-merge signal. `submit-show.spec.ts:34` is deferred with a TODO pending PSY-437 flake resolution.
 - **[backfill candidates]** The "Coverage gaps" list names ~13 shipped features with no E2E. The highest-value backfill candidates (real-user-impact × shipped-but-unverified):
   1. ~~**Collections add-to-collection flow** (PSY-314, shipped, no coverage — PMF-critical feature).~~ Addressed by PSY-455 (`e2e/pages/add-to-collection.spec.ts`, tagged `@smoke`).
   2. ~~**Comments create + reply + vote** (Wave 1–5, shipped, no coverage — community moat).~~ Addressed by PSY-456 (`pages/comments.spec.ts`).
