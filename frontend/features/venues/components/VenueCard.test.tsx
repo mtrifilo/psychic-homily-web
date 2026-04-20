@@ -23,7 +23,7 @@ vi.mock('next/link', () => ({
 }))
 
 // Mock useVenueShows hook
-const mockUseVenueShows = vi.fn(() => ({
+const mockUseVenueShows = vi.fn((..._args: unknown[]) => ({
   data: undefined,
   error: null,
   refetch: vi.fn(),

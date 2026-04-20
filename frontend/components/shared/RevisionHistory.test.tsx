@@ -33,7 +33,7 @@ const mockRevisions: RevisionItem[] = [
   },
 ]
 
-const mockUseEntityRevisions = vi.fn(() => ({
+const mockUseEntityRevisions = vi.fn((..._args: unknown[]) => ({
   data: null as { revisions: RevisionItem[]; total: number } | null,
   isLoading: false,
   error: null as Error | null,

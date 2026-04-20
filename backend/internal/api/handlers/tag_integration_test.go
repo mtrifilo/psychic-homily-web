@@ -864,6 +864,83 @@ func (s *TagHandlerIntegrationSuite) TestListEntityTags_Empty() {
 	s.Empty(resp.Body.Tags)
 }
 
+// PSY-479: ListEntityTags response surfaces attribution fields so the
+// frontend hover card can render "Added by @user" and a relative timestamp.
+// Verifies the handler-level wiring (response body shape) end-to-end.
+func (s *TagHandlerIntegrationSuite) TestListEntityTags_SurfacesAttribution() {
+	admin := createAdminUser(s.deps.db)
+	tag := s.createTagViaHandler(admin, "shoegaze-revival", models.TagCategoryGenre)
+	artist := createArtist(s.deps.db, "Faetooth")
+
+	// Create a user with a username so AddedByUsername is non-nil.
+	user := createTestUser(s.deps.db)
+	username := "testuser2"
+	s.Require().NoError(s.deps.db.Model(user).Update("username", username).Error)
+
+	ctx := ctxWithUser(user)
+	addReq := &AddTagToEntityRequest{
+		EntityType: models.TagEntityArtist,
+		EntityID:   fmt.Sprintf("%d", artist.ID),
+	}
+	addReq.Body.TagID = tag.Body.ID
+	_, err := s.handler.AddTagToEntityHandler(ctx, addReq)
+	s.Require().NoError(err)
+
+	listReq := &ListEntityTagsRequest{
+		EntityType: models.TagEntityArtist,
+		EntityID:   fmt.Sprintf("%d", artist.ID),
+	}
+	resp, err := s.handler.ListEntityTagsHandler(s.deps.ctx, listReq)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Body.Tags, 1)
+
+	got := resp.Body.Tags[0]
+	s.Require().NotNil(got.AddedByUserID)
+	s.Equal(user.ID, *got.AddedByUserID)
+
+	s.Require().NotNil(got.AddedByUsername)
+	s.Equal(username, *got.AddedByUsername)
+
+	s.Require().NotNil(got.AddedAt)
+	s.False(got.AddedAt.IsZero())
+}
+
+// PSY-479: when the user who applied a tag has a null username (older seed
+// rows, accounts that never set one), the response still includes
+// added_by_user_id + added_at. added_by_username comes back as JSON null so
+// the frontend can render "Source: system seed" instead of suppressing the
+// attribution line entirely.
+func (s *TagHandlerIntegrationSuite) TestListEntityTags_AttributionNullUsername() {
+	admin := createAdminUser(s.deps.db)
+	tag := s.createTagViaHandler(admin, "dream-pop", models.TagCategoryGenre)
+	artist := createArtist(s.deps.db, "Cocteau Twins")
+
+	// createTestUser does NOT set Username — mirrors the seed/dogfood case.
+	user := createTestUser(s.deps.db)
+	ctx := ctxWithUser(user)
+	addReq := &AddTagToEntityRequest{
+		EntityType: models.TagEntityArtist,
+		EntityID:   fmt.Sprintf("%d", artist.ID),
+	}
+	addReq.Body.TagID = tag.Body.ID
+	_, err := s.handler.AddTagToEntityHandler(ctx, addReq)
+	s.Require().NoError(err)
+
+	listReq := &ListEntityTagsRequest{
+		EntityType: models.TagEntityArtist,
+		EntityID:   fmt.Sprintf("%d", artist.ID),
+	}
+	resp, err := s.handler.ListEntityTagsHandler(s.deps.ctx, listReq)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Body.Tags, 1)
+
+	got := resp.Body.Tags[0]
+	s.Require().NotNil(got.AddedByUserID)
+	s.Equal(user.ID, *got.AddedByUserID)
+	s.Require().NotNil(got.AddedAt)
+	s.Nil(got.AddedByUsername, "username must be nil so the frontend renders 'Source: system seed'")
+}
+
 func (s *TagHandlerIntegrationSuite) TestListEntityTags_MultipleTags() {
 	admin := createAdminUser(s.deps.db)
 	tag1 := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)

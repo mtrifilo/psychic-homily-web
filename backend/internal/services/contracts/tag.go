@@ -104,17 +104,29 @@ type TagSearchResult struct {
 }
 
 // EntityTagResponse represents a tag applied to an entity with vote info.
+//
+// Attribution fields (PSY-479): AddedByUserID, AddedByUsername, and AddedAt
+// are always populated from the entity_tags row. Both AddedByUserID and
+// AddedAt use pointer types so the JSON encodes null (not the zero value)
+// when an association predates user attribution or the FK has been broken
+// by a soft-delete fixup. AddedByUsername is *string for the same reason —
+// older seed rows can have a valid user_id whose user has username=null
+// (e.g. accounts that never set one). The frontend hover card renders a
+// "Source: system seed" line in those null cases instead of suppressing
+// attribution entirely.
 type EntityTagResponse struct {
-	TagID           uint    `json:"tag_id"`
-	Name            string  `json:"name"`
-	Slug            string  `json:"slug"`
-	Category        string  `json:"category"`
-	IsOfficial      bool    `json:"is_official"`
-	Upvotes         int     `json:"upvotes"`
-	Downvotes       int     `json:"downvotes"`
-	WilsonScore     float64 `json:"wilson_score"`
-	UserVote        *int    `json:"user_vote,omitempty"`
-	AddedByUsername string  `json:"added_by_username,omitempty"`
+	TagID           uint       `json:"tag_id"`
+	Name            string     `json:"name"`
+	Slug            string     `json:"slug"`
+	Category        string     `json:"category"`
+	IsOfficial      bool       `json:"is_official"`
+	Upvotes         int        `json:"upvotes"`
+	Downvotes       int        `json:"downvotes"`
+	WilsonScore     float64    `json:"wilson_score"`
+	UserVote        *int       `json:"user_vote,omitempty"`
+	AddedByUserID   *uint      `json:"added_by_user_id"`
+	AddedByUsername *string    `json:"added_by_username"`
+	AddedAt         *time.Time `json:"added_at"`
 }
 
 // TaggedEntityItem represents a single entity tagged with a given tag.

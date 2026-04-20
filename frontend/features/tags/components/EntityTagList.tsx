@@ -19,12 +19,6 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
@@ -90,10 +84,16 @@ export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityT
     )
   }
 
-  if (tags.length === 0 && !isAuthenticated) {
-    return null
-  }
-
+  // PSY-481: previously this returned null for the (zero tags + logged-out)
+  // case, which hid the entire TAGS section on every untagged entity. The
+  // wrapper now always renders so:
+  //   • logged-out users see a muted "No tags yet." one-liner — they get a
+  //     visible signal that tagging is supported on this entity, and the
+  //     detail-page layout no longer collapses on sparse entities.
+  //   • logged-in users see the same empty-state line plus a
+  //     "+ Add the first tag" CTA that opens the existing add-tag dialog
+  //     (the existing-tag application path works for every tier; only
+  //     creating brand-new tag terms is gated — PSY-483).
   const handleVote = (tag: EntityTag, isUpvote: boolean) => {
     if (!isAuthenticated) return
     const currentVote = tag.user_vote ?? 0
@@ -151,9 +151,27 @@ export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityT
       {addTagDialog}
 
       {tags.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No tags yet. Be the first to add one!
-        </p>
+        // PSY-481 — render an empty-state row that reads as a muted one-liner
+        // for logged-out users and adds a visible "+ Add the first tag" CTA
+        // for logged-in users. The CTA reuses the same Dialog instance as the
+        // chip next to the heading, so there's only ever one Radix portal.
+        <div
+          className="flex flex-wrap items-center gap-2"
+          data-testid="entity-tag-list-empty"
+        >
+          <p className="text-sm text-muted-foreground">No tags yet.</p>
+          {isAuthenticated && (
+            <button
+              onClick={() => setAddDialogOpen(true)}
+              data-testid="entity-tag-list-empty-add-cta"
+              className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              aria-label="Add the first tag"
+            >
+              <Plus className="h-3 w-3" />
+              Add the first tag
+            </button>
+          )}
+        </div>
       ) : (
         <>
           {/* Mobile: first N pills + "Show all" chip that opens a Sheet.
@@ -419,26 +437,36 @@ function TagAttributionContent({ tag }: { tag: EntityTag }) {
         )}
       </div>
 
-      {/* Added-by line. Skip entirely when the backend has no username —
-          contributors who tagged anonymously or under a since-deleted account
-          won't leak a dangling "Added by @undefined". */}
-      {tag.added_by_username && (
-        <p className="text-xs text-muted-foreground">
-          Added by{' '}
-          <Link
-            href={`/users/${tag.added_by_username}`}
-            className="text-foreground hover:underline"
-          >
-            @{tag.added_by_username}
-          </Link>
-          {tag.added_at && (
-            <>
-              {' · '}
-              <span>{formatRelativeTime(tag.added_at)}</span>
-            </>
-          )}
-        </p>
-      )}
+      {/* Attribution line (PSY-479). Always render so users understand
+          provenance — even seed/system-applied tags get a visible footnote.
+          - Real user with username  → "Added by @user · 5m ago"
+          - User with null username  → "Source: system seed"
+          The data-testid lets the EntityTagList test suite assert presence
+          without coupling to copy. */}
+      <p
+        className="text-xs text-muted-foreground"
+        data-testid="tag-pill-attribution"
+      >
+        {tag.added_by_username ? (
+          <>
+            Added by{' '}
+            <Link
+              href={`/users/${tag.added_by_username}`}
+              className="text-foreground hover:underline"
+            >
+              @{tag.added_by_username}
+            </Link>
+            {tag.added_at && (
+              <>
+                {' · '}
+                <span>{formatRelativeTime(tag.added_at)}</span>
+              </>
+            )}
+          </>
+        ) : (
+          <>Source: system seed</>
+        )}
+      </p>
 
       <p className="text-xs text-muted-foreground tabular-nums">
         <span className="font-medium text-foreground">{tag.upvotes}</span>{' '}
@@ -700,70 +728,54 @@ function AddTagForm({
               <p className="text-sm text-muted-foreground mb-2">
                 No matching tags found.
               </p>
-              <div className="flex items-center gap-2 mb-2">
-                <label className="text-xs text-muted-foreground">Category:</label>
-                <select
-                  value={createCategory}
-                  onChange={e => setCreateCategory(e.target.value)}
-                  disabled={!canCreateTags}
-                  className="text-xs rounded border border-input bg-background px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="genre">Genre</option>
-                  <option value="locale">Locale</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
               {canCreateTags ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleCreateTag}
-                  disabled={addMutation.isPending || !searchQuery.trim()}
-                >
-                  {addMutation.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                  ) : (
-                    <Plus className="h-3.5 w-3.5 mr-1.5" />
-                  )}
-                  Create &quot;{searchQuery.trim()}&quot;
-                </Button>
-              ) : (
-                <TooltipProvider delayDuration={150}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      {/* span wrapper lets the tooltip fire on a disabled button */}
-                      <span
-                        className="inline-block"
-                        data-testid="tag-create-disabled-wrapper"
-                      >
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled
-                          aria-disabled="true"
-                          data-testid="tag-create-disabled"
-                        >
-                          <Plus className="h-3.5 w-3.5 mr-1.5" />
-                          Create &quot;{searchQuery.trim()}&quot;
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent
-                      side="top"
-                      data-testid="tag-create-disabled-tooltip"
+                <>
+                  <div className="flex items-center gap-2 mb-2">
+                    <label className="text-xs text-muted-foreground">Category:</label>
+                    <select
+                      value={createCategory}
+                      onChange={e => setCreateCategory(e.target.value)}
+                      className="text-xs rounded border border-input bg-background px-2 py-1"
                     >
-                      <p className="text-xs">
-                        Reach Contributor tier to create new tags.{' '}
-                        <Link
-                          href={TIERS_HELP_PATH}
-                          className="underline"
-                        >
-                          Learn more
-                        </Link>
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                      <option value="genre">Genre</option>
+                      <option value="locale">Locale</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCreateTag}
+                    disabled={addMutation.isPending || !searchQuery.trim()}
+                  >
+                    {addMutation.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    ) : (
+                      <Plus className="h-3.5 w-3.5 mr-1.5" />
+                    )}
+                    Create &quot;{searchQuery.trim()}&quot;
+                  </Button>
+                </>
+              ) : (
+                // PSY-483: don't render a silently-disabled Create button (or
+                // its dead-on-arrival Category dropdown) for users who lack
+                // the tier to create tags. The previous PSY-443 approach
+                // hung the explanation off a Radix tooltip on a disabled
+                // button — invisible to touch users and easy to miss with a
+                // mouse. Replace the whole creation affordance with explicit
+                // prose so the gate is visible without any interaction.
+                <p
+                  className="text-sm text-muted-foreground"
+                  data-testid="tag-create-tier-gate"
+                >
+                  New tags require Contributor tier.{' '}
+                  <Link
+                    href={TIERS_HELP_PATH}
+                    className="underline hover:no-underline"
+                  >
+                    Learn how to become a contributor
+                  </Link>
+                </p>
               )}
             </div>
           )}

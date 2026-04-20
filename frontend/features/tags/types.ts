@@ -111,15 +111,19 @@ export interface EntityTag {
   downvotes: number
   wilson_score: number
   user_vote?: number | null
-  added_by_username?: string
   /**
-   * UTC timestamp indicating when the tag was applied to the entity. Optional
-   * because the /entities/{type}/{id}/tags endpoint does not currently return
-   * it (PSY-441 limited work to frontend — no API changes). Typed here so the
-   * pill hover card can surface a relative timestamp once the backend exposes
-   * it without a type refactor.
+   * Attribution fields (PSY-479). Backend always populates these on
+   * /entities/{type}/{id}/tags responses:
+   * - `added_by_user_id` is the FK on `entity_tags`. Null only for
+   *   pre-attribution legacy rows that don't exist in the current schema.
+   * - `added_by_username` is the resolved username (joined from `users`).
+   *   Null when the user account has no username (older accounts that never
+   *   set one). The hover card renders "Source: system seed" in that case.
+   * - `added_at` is the UTC timestamp the tag was applied.
    */
-  added_at?: string
+  added_by_user_id?: number | null
+  added_by_username?: string | null
+  added_at?: string | null
 }
 
 export interface TagAlias {

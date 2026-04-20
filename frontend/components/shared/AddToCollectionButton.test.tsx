@@ -5,7 +5,13 @@ import userEvent from '@testing-library/user-event'
 import { AddToCollectionButton } from './AddToCollectionButton'
 
 // Mock AuthContext
-const mockAuthContext = vi.fn(() => ({
+interface MockAuthState {
+  user: { id: string } | null
+  isAuthenticated: boolean
+  isLoading: boolean
+  logout: ReturnType<typeof vi.fn>
+}
+const mockAuthContext = vi.fn<() => MockAuthState>(() => ({
   user: { id: '1' },
   isAuthenticated: true,
   isLoading: false,
@@ -177,12 +183,7 @@ describe('AddToCollectionButton', () => {
     // treats the auth hook as a stable slot and can actually see the
     // component body's hook-count change. Without this, the mock calls
     // zero hooks and React has nothing to anchor the comparison.
-    let authState: {
-      user: { id: string } | null
-      isAuthenticated: boolean
-      isLoading: boolean
-      logout: ReturnType<typeof vi.fn>
-    } = {
+    let authState: MockAuthState = {
       user: null,
       isAuthenticated: false,
       isLoading: true,

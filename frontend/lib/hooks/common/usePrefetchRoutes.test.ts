@@ -63,7 +63,6 @@ describe('usePrefetchRoutes', () => {
 
   it('falls back to setTimeout when requestIdleCallback is not available', () => {
     // Remove requestIdleCallback from window
-    // @ts-expect-error - intentionally removing for test
     delete window.requestIdleCallback
 
     vi.useFakeTimers()
