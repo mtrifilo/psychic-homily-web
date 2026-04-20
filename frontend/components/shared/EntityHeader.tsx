@@ -32,7 +32,7 @@ export function EntityHeader({
 }: EntityHeaderProps) {
   return (
     <div className={cn('space-y-2', className)}>
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl md:text-3xl font-bold leading-8 md:leading-9">
             {title}
@@ -44,7 +44,7 @@ export function EntityHeader({
           )}
         </div>
         {actions && (
-          <div className="flex items-center gap-2 shrink-0">{actions}</div>
+          <div className="flex flex-wrap items-center gap-2 sm:shrink-0">{actions}</div>
         )}
       </div>
     </div>
