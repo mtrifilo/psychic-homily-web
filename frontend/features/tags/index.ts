@@ -40,4 +40,9 @@ export {
   useRemoveTagVote,
 } from './hooks'
 
-export { EntityTagList, TagBrowse, TagDetail } from './components'
+export {
+  EntityTagList,
+  TagBrowse,
+  TagDetail,
+  TagOfficialIndicator,
+} from './components'

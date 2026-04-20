@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
-import { Plus, ThumbsUp, ThumbsDown, X, Search, Loader2, BadgeCheck, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, ThumbsUp, ThumbsDown, X, Search, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,6 +23,7 @@ import {
 } from '../hooks'
 import { getCategoryColor, TAG_CATEGORIES, getCategoryLabel } from '../types'
 import type { EntityTag, TagListItem } from '../types'
+import { TagOfficialIndicator } from './TagOfficialIndicator'
 
 interface EntityTagListProps {
   entityType: string
@@ -175,12 +176,7 @@ function TagWithVotes({
       )}
     >
       {tag.is_official && (
-        <span title="Official tag" aria-label="Official tag" role="img">
-          <BadgeCheck
-            className="h-3.5 w-3.5 text-primary shrink-0"
-            aria-hidden="true"
-          />
-        </span>
+        <TagOfficialIndicator size="sm" tagName={tag.name} />
       )}
       <Link
         href={`/tags/${tag.slug}`}

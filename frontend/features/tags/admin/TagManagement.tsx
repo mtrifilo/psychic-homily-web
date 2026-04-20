@@ -10,7 +10,6 @@ import {
   Inbox,
   Tags,
   X,
-  BadgeCheck,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,6 +25,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { useTags, useTag } from '../hooks'
+import { TagOfficialIndicator } from '../components/TagOfficialIndicator'
 import {
   useCreateTag,
   useUpdateTag,
@@ -680,7 +680,7 @@ export function TagManagement() {
                       {getCategoryLabel(tag.category)}
                     </Badge>
                     {tag.is_official && (
-                      <BadgeCheck className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+                      <TagOfficialIndicator size="sm" tagName={tag.name} />
                     )}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">

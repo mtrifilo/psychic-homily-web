@@ -6,12 +6,12 @@ import { ArrowLeft, Hash, Loader2, Music, MapPin, Calendar, Disc3, Tag, Tent, Cl
 import { NotifyMeButton } from '@/features/notifications'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Breadcrumb } from '@/components/shared'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useTagDetail, useTagEntities } from '../hooks'
 import { getCategoryColor, getCategoryLabel, getEntityUrl, getEntityTypePluralLabel } from '../types'
 import type { TaggedEntityItem, TagSummary } from '../types'
+import { TagOfficialIndicator } from './TagOfficialIndicator'
 
 interface TagDetailProps {
   slug: string
@@ -156,7 +156,7 @@ export function TagDetail({ slug }: TagDetailProps) {
             <div className="flex items-center gap-3 mb-1">
               <h1 className="text-3xl font-bold tracking-tight">{tag.name}</h1>
               {tag.is_official && (
-                <Badge variant="secondary">Official</Badge>
+                <TagOfficialIndicator size="md" tagName={tag.name} />
               )}
               <NotifyMeButton entityType="tag" entityId={tag.id} entityName={tag.name} />
             </div>

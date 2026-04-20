@@ -7,10 +7,10 @@ import { useDebounce } from 'use-debounce'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { useTags } from '../hooks'
 import { TAG_CATEGORIES, getCategoryColor, getCategoryLabel } from '../types'
 import type { TagListItem } from '../types'
+import { TagOfficialIndicator } from './TagOfficialIndicator'
 
 const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 300
@@ -182,9 +182,7 @@ function TagCard({ tag }: { tag: TagListItem }) {
             {tag.name}
           </span>
           {tag.is_official && (
-            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
-              Official
-            </Badge>
+            <TagOfficialIndicator size="md" tagName={tag.name} />
           )}
         </div>
         <div className="flex items-center gap-2">
