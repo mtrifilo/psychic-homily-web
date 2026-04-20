@@ -41,36 +41,7 @@ test.describe('Artist detail', () => {
     ).toBeVisible()
   })
 
-  test('shows tabs switch between upcoming and past', async ({ page }) => {
-    await page.goto('/shows')
-    await expect(page.locator('article').first()).toBeVisible({
-      timeout: 10_000,
-    })
-
-    await page
-      .locator('article')
-      .first()
-      .locator('a[href^="/shows/"]')
-      .first()
-      .click()
-    await page.waitForURL(/\/shows\//, { timeout: 10_000 })
-
-    const artistLink = page.locator('a[href^="/artists/"]').first()
-    await expect(artistLink).toBeVisible({ timeout: 10_000 })
-    await artistLink.click()
-    await page.waitForURL(/\/artists\//, { timeout: 10_000 })
-
-    // Upcoming tab should be active by default
-    const upcomingTab = page.getByRole('tab', { name: /upcoming/i })
-    await expect(upcomingTab).toBeVisible({ timeout: 10_000 })
-
-    // Click Past Shows tab
-    const pastTab = page.getByRole('tab', { name: /past shows/i })
-    await pastTab.click()
-    await expect(pastTab).toHaveAttribute('aria-selected', 'true')
-
-    // Click back to Upcoming
-    await upcomingTab.click()
-    await expect(upcomingTab).toHaveAttribute('aria-selected', 'true')
-  })
+  // "shows tabs switch between upcoming and past" moved to a component test
+  // in features/artists/components/ArtistDetail.test.tsx per PSY-472.
+  // See docs/learnings/e2e-layer-5-audit.md item #2.
 })
