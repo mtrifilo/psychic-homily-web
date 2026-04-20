@@ -31,16 +31,22 @@ export function AddToCollectionButton({
   const { isAuthenticated } = useAuthContext()
   const [open, setOpen] = useState(false)
   const [addedMessage, setAddedMessage] = useState<string | null>(null)
+  // Check if entity is already in a collection by looking at its items
+  // (We don't have items in the list response, so we track locally what we just added)
+  // NOTE: hook must be called unconditionally, above the early return below.
+  // Previously this sat after the `!isAuthenticated` early return, so once the
+  // auth profile resolved and `isAuthenticated` flipped false → true, this
+  // hook became the N+1th hook on a render that had only called N hooks
+  // previously. React threw "Rendered more hooks than during the previous
+  // render" and the error boundary rendered 500 for every entity detail
+  // page (PSY-466, same class of bug as PSY-447).
+  const [recentlyAdded, setRecentlyAdded] = useState<Set<string>>(new Set())
   const { data: myCollectionsData, isLoading: collectionsLoading } = useMyCollections()
   const addMutation = useAddCollectionItem()
 
   if (!isAuthenticated) return null
 
   const collections = myCollectionsData?.collections ?? []
-
-  // Check if entity is already in a collection by looking at its items
-  // (We don't have items in the list response, so we track locally what we just added)
-  const [recentlyAdded, setRecentlyAdded] = useState<Set<string>>(new Set())
 
   const handleAdd = (collectionSlug: string, collectionTitle: string) => {
     addMutation.mutate(
