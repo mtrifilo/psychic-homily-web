@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -1071,6 +1072,12 @@ var entityTableMap = map[string]struct {
 }
 
 // GetTagEntities returns entities tagged with a given tag, optionally filtered by entity type.
+//
+// PSY-485: in addition to (entity_type, entity_id, name, slug), this populates
+// per-type fields (city/state, verified, upcoming_show_count, edition_year,
+// release_type, etc.) so the tag detail page can render proper entity cards
+// instead of bare links. Each entity type has its own enrichment query;
+// failures fall back to bare info so we never lose the link.
 func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset int) ([]contracts.TaggedEntityItem, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
@@ -1109,54 +1116,393 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 		byType[et.EntityType] = append(byType[et.EntityType], et.EntityID)
 	}
 
-	// Resolve names and slugs per entity type
-	type entityInfo struct {
+	// Per-type enrichment: builds an index keyed by entityID with all the
+	// optional card fields populated. Each branch swallows query errors and
+	// falls back to bare info so the response is robust if a downstream
+	// table is missing or a JOIN fails.
+	enrichedByType := make(map[string]map[uint]contracts.TaggedEntityItem)
+	for eType, ids := range byType {
+		switch eType {
+		case "artist":
+			enrichedByType[eType] = s.enrichArtists(ids)
+		case "venue":
+			enrichedByType[eType] = s.enrichVenues(ids)
+		case "festival":
+			enrichedByType[eType] = s.enrichFestivals(ids)
+		case "label":
+			enrichedByType[eType] = s.enrichLabels(ids)
+		case "release":
+			enrichedByType[eType] = s.enrichReleases(ids)
+		case "show":
+			enrichedByType[eType] = s.enrichShows(ids)
+		default:
+			enrichedByType[eType] = s.enrichBare(eType, ids)
+		}
+	}
+
+	// Build response in the same order as entityTags (preserves created_at DESC).
+	items := make([]contracts.TaggedEntityItem, 0, len(entityTags))
+	for _, et := range entityTags {
+		item := contracts.TaggedEntityItem{
+			EntityType: et.EntityType,
+			EntityID:   et.EntityID,
+		}
+		if m, ok := enrichedByType[et.EntityType]; ok {
+			if enriched, ok := m[et.EntityID]; ok {
+				// Carry enriched fields, but preserve canonical EntityType / EntityID
+				// from the entity_tags row.
+				enriched.EntityType = et.EntityType
+				enriched.EntityID = et.EntityID
+				item = enriched
+			}
+		}
+		items = append(items, item)
+	}
+
+	return items, total, nil
+}
+
+// enrichBare is a fallback for entity types we don't have a richer query for.
+// It only resolves the name and slug, leaving all other optional fields zero.
+func (s *TagService) enrichBare(entityType string, ids []uint) map[uint]contracts.TaggedEntityItem {
+	out := make(map[uint]contracts.TaggedEntityItem, len(ids))
+	meta, ok := entityTableMap[entityType]
+	if !ok {
+		return out
+	}
+	type row struct {
 		ID   uint
 		Name string
 		Slug string
 	}
-	infoMap := make(map[string]map[uint]entityInfo) // entityType -> entityID -> info
-
-	for eType, ids := range byType {
-		meta, ok := entityTableMap[eType]
-		if !ok {
-			continue
-		}
-
-		var results []entityInfo
-		err := s.db.Raw(
-			fmt.Sprintf("SELECT id, %s AS name, COALESCE(slug, '') AS slug FROM %s WHERE id IN ?", meta.nameCol, meta.table),
-			ids,
-		).Scan(&results).Error
-		if err != nil {
-			continue // skip if table doesn't exist or query fails
-		}
-
-		m := make(map[uint]entityInfo, len(results))
-		for _, r := range results {
-			m[r.ID] = r
-		}
-		infoMap[eType] = m
+	var rows []row
+	if err := s.db.Raw(
+		fmt.Sprintf("SELECT id, %s AS name, COALESCE(slug, '') AS slug FROM %s WHERE id IN ?", meta.nameCol, meta.table),
+		ids,
+	).Scan(&rows).Error; err != nil {
+		return out
 	}
-
-	// Build response
-	items := make([]contracts.TaggedEntityItem, 0, len(entityTags))
-	for _, et := range entityTags {
-		info := entityInfo{}
-		if m, ok := infoMap[et.EntityType]; ok {
-			if i, ok := m[et.EntityID]; ok {
-				info = i
-			}
-		}
-		items = append(items, contracts.TaggedEntityItem{
-			EntityType: et.EntityType,
-			EntityID:   et.EntityID,
-			Name:       info.Name,
-			Slug:       info.Slug,
-		})
+	for _, r := range rows {
+		out[r.ID] = contracts.TaggedEntityItem{Name: r.Name, Slug: r.Slug}
 	}
+	return out
+}
 
-	return items, total, nil
+// enrichArtists adds city/state and an upcoming-show count to each artist row.
+// Upcoming = shows with event_date >= NOW(). Joined via show_artists.
+func (s *TagService) enrichArtists(ids []uint) map[uint]contracts.TaggedEntityItem {
+	out := make(map[uint]contracts.TaggedEntityItem, len(ids))
+	type row struct {
+		ID                uint
+		Name              string
+		Slug              string
+		City              string
+		State             string
+		UpcomingShowCount int
+	}
+	var rows []row
+	err := s.db.Raw(`
+		SELECT a.id,
+		       a.name,
+		       COALESCE(a.slug, '') AS slug,
+		       COALESCE(a.city, '') AS city,
+		       COALESCE(a.state, '') AS state,
+		       COALESCE(c.cnt, 0)::int AS upcoming_show_count
+		FROM artists a
+		LEFT JOIN (
+		    SELECT sa.artist_id, COUNT(DISTINCT s.id) AS cnt
+		    FROM show_artists sa
+		    JOIN shows s ON s.id = sa.show_id
+		    WHERE s.event_date >= NOW()
+		    GROUP BY sa.artist_id
+		) c ON c.artist_id = a.id
+		WHERE a.id IN ?
+	`, ids).Scan(&rows).Error
+	if err != nil {
+		// Fallback: at least name + slug so the link still works.
+		return s.enrichBare("artist", ids)
+	}
+	for _, r := range rows {
+		count := r.UpcomingShowCount
+		out[r.ID] = contracts.TaggedEntityItem{
+			Name:              r.Name,
+			Slug:              r.Slug,
+			City:              r.City,
+			State:             r.State,
+			UpcomingShowCount: &count,
+		}
+	}
+	return out
+}
+
+// enrichVenues adds city/state, the verified flag, and an upcoming-show count.
+func (s *TagService) enrichVenues(ids []uint) map[uint]contracts.TaggedEntityItem {
+	out := make(map[uint]contracts.TaggedEntityItem, len(ids))
+	type row struct {
+		ID                uint
+		Name              string
+		Slug              string
+		City              string
+		State             string
+		Verified          bool
+		UpcomingShowCount int
+	}
+	var rows []row
+	err := s.db.Raw(`
+		SELECT v.id,
+		       v.name,
+		       COALESCE(v.slug, '') AS slug,
+		       COALESCE(v.city, '') AS city,
+		       COALESCE(v.state, '') AS state,
+		       v.verified,
+		       COALESCE(c.cnt, 0)::int AS upcoming_show_count
+		FROM venues v
+		LEFT JOIN (
+		    SELECT sv.venue_id, COUNT(DISTINCT s.id) AS cnt
+		    FROM show_venues sv
+		    JOIN shows s ON s.id = sv.show_id
+		    WHERE s.event_date >= NOW()
+		    GROUP BY sv.venue_id
+		) c ON c.venue_id = v.id
+		WHERE v.id IN ?
+	`, ids).Scan(&rows).Error
+	if err != nil {
+		return s.enrichBare("venue", ids)
+	}
+	for _, r := range rows {
+		verified := r.Verified
+		count := r.UpcomingShowCount
+		out[r.ID] = contracts.TaggedEntityItem{
+			Name:              r.Name,
+			Slug:              r.Slug,
+			City:              r.City,
+			State:             r.State,
+			Verified:          &verified,
+			UpcomingShowCount: &count,
+		}
+	}
+	return out
+}
+
+// enrichFestivals adds edition year, location, status, dates, and counts.
+func (s *TagService) enrichFestivals(ids []uint) map[uint]contracts.TaggedEntityItem {
+	out := make(map[uint]contracts.TaggedEntityItem, len(ids))
+	type row struct {
+		ID          uint
+		Name        string
+		Slug        string
+		EditionYear int
+		City        string
+		State       string
+		Status      string
+		StartDate   time.Time
+		EndDate     time.Time
+		ArtistCount int
+		VenueCount  int
+	}
+	var rows []row
+	err := s.db.Raw(`
+		SELECT f.id,
+		       f.name,
+		       COALESCE(f.slug, '') AS slug,
+		       f.edition_year,
+		       COALESCE(f.city, '') AS city,
+		       COALESCE(f.state, '') AS state,
+		       f.status,
+		       f.start_date,
+		       f.end_date,
+		       COALESCE(ac.cnt, 0)::int AS artist_count,
+		       COALESCE(vc.cnt, 0)::int AS venue_count
+		FROM festivals f
+		LEFT JOIN (
+		    SELECT festival_id, COUNT(*) AS cnt FROM festival_artists GROUP BY festival_id
+		) ac ON ac.festival_id = f.id
+		LEFT JOIN (
+		    SELECT festival_id, COUNT(*) AS cnt FROM festival_venues GROUP BY festival_id
+		) vc ON vc.festival_id = f.id
+		WHERE f.id IN ?
+	`, ids).Scan(&rows).Error
+	if err != nil {
+		return s.enrichBare("festival", ids)
+	}
+	for _, r := range rows {
+		year := r.EditionYear
+		ac := r.ArtistCount
+		vc := r.VenueCount
+		out[r.ID] = contracts.TaggedEntityItem{
+			Name:        r.Name,
+			Slug:        r.Slug,
+			EditionYear: &year,
+			City:        r.City,
+			State:       r.State,
+			Status:      r.Status,
+			StartDate:   r.StartDate.Format("2006-01-02"),
+			EndDate:     r.EndDate.Format("2006-01-02"),
+			ArtistCount: &ac,
+			VenueCount:  &vc,
+		}
+	}
+	return out
+}
+
+// enrichLabels adds location, status, and roster/catalog counts.
+func (s *TagService) enrichLabels(ids []uint) map[uint]contracts.TaggedEntityItem {
+	out := make(map[uint]contracts.TaggedEntityItem, len(ids))
+	type row struct {
+		ID           uint
+		Name         string
+		Slug         string
+		City         string
+		State        string
+		Status       string
+		ArtistCount  int
+		ReleaseCount int
+	}
+	var rows []row
+	err := s.db.Raw(`
+		SELECT l.id,
+		       l.name,
+		       COALESCE(l.slug, '') AS slug,
+		       COALESCE(l.city, '') AS city,
+		       COALESCE(l.state, '') AS state,
+		       l.status,
+		       COALESCE(ac.cnt, 0)::int AS artist_count,
+		       COALESCE(rc.cnt, 0)::int AS release_count
+		FROM labels l
+		LEFT JOIN (
+		    SELECT label_id, COUNT(*) AS cnt FROM artist_labels GROUP BY label_id
+		) ac ON ac.label_id = l.id
+		LEFT JOIN (
+		    SELECT label_id, COUNT(*) AS cnt FROM release_labels GROUP BY label_id
+		) rc ON rc.label_id = l.id
+		WHERE l.id IN ?
+	`, ids).Scan(&rows).Error
+	if err != nil {
+		return s.enrichBare("label", ids)
+	}
+	for _, r := range rows {
+		ac := r.ArtistCount
+		rc := r.ReleaseCount
+		out[r.ID] = contracts.TaggedEntityItem{
+			Name:         r.Name,
+			Slug:         r.Slug,
+			City:         r.City,
+			State:        r.State,
+			Status:       r.Status,
+			ArtistCount:  &ac,
+			ReleaseCount: &rc,
+		}
+	}
+	return out
+}
+
+// enrichReleases adds release type, year, and cover art URL.
+func (s *TagService) enrichReleases(ids []uint) map[uint]contracts.TaggedEntityItem {
+	out := make(map[uint]contracts.TaggedEntityItem, len(ids))
+	type row struct {
+		ID          uint
+		Title       string
+		Slug        string
+		ReleaseType string
+		ReleaseYear *int
+		CoverArtURL *string
+	}
+	var rows []row
+	err := s.db.Raw(`
+		SELECT id,
+		       title,
+		       COALESCE(slug, '') AS slug,
+		       release_type,
+		       release_year,
+		       cover_art_url
+		FROM releases
+		WHERE id IN ?
+	`, ids).Scan(&rows).Error
+	if err != nil {
+		return s.enrichBare("release", ids)
+	}
+	for _, r := range rows {
+		item := contracts.TaggedEntityItem{
+			Name:        r.Title,
+			Slug:        r.Slug,
+			ReleaseType: r.ReleaseType,
+		}
+		if r.ReleaseYear != nil {
+			y := *r.ReleaseYear
+			item.ReleaseYear = &y
+		}
+		if r.CoverArtURL != nil {
+			item.CoverArtURL = *r.CoverArtURL
+		}
+		out[r.ID] = item
+	}
+	return out
+}
+
+// enrichShows adds event_date, the primary venue, and the headliner artist
+// (position = 0 OR set_type = 'headliner'). Falls back to lowest position
+// when no explicit headliner is recorded.
+func (s *TagService) enrichShows(ids []uint) map[uint]contracts.TaggedEntityItem {
+	out := make(map[uint]contracts.TaggedEntityItem, len(ids))
+	type row struct {
+		ID            uint
+		Title         string
+		Slug          string
+		EventDate     time.Time
+		City          string
+		State         string
+		VenueName     string
+		VenueSlug     string
+		HeadlinerName string
+		HeadlinerSlug string
+	}
+	var rows []row
+	err := s.db.Raw(`
+		SELECT s.id,
+		       COALESCE(s.title, '') AS title,
+		       COALESCE(s.slug, '') AS slug,
+		       s.event_date,
+		       COALESCE(s.city, '') AS city,
+		       COALESCE(s.state, '') AS state,
+		       COALESCE(v.name, '') AS venue_name,
+		       COALESCE(v.slug, '') AS venue_slug,
+		       COALESCE(a.name, '') AS headliner_name,
+		       COALESCE(a.slug, '') AS headliner_slug
+		FROM shows s
+		LEFT JOIN LATERAL (
+		    SELECT vv.id, vv.name, vv.slug
+		    FROM show_venues sv
+		    JOIN venues vv ON vv.id = sv.venue_id
+		    WHERE sv.show_id = s.id
+		    LIMIT 1
+		) v ON true
+		LEFT JOIN LATERAL (
+		    SELECT aa.id, aa.name, aa.slug
+		    FROM show_artists sa
+		    JOIN artists aa ON aa.id = sa.artist_id
+		    WHERE sa.show_id = s.id
+		    ORDER BY (sa.set_type = 'headliner') DESC, sa.position ASC
+		    LIMIT 1
+		) a ON true
+		WHERE s.id IN ?
+	`, ids).Scan(&rows).Error
+	if err != nil {
+		return s.enrichBare("show", ids)
+	}
+	for _, r := range rows {
+		out[r.ID] = contracts.TaggedEntityItem{
+			Name:          r.Title,
+			Slug:          r.Slug,
+			EventDate:     r.EventDate.Format(time.RFC3339),
+			City:          r.City,
+			State:         r.State,
+			VenueName:     r.VenueName,
+			VenueSlug:     r.VenueSlug,
+			HeadlinerName: r.HeadlinerName,
+			HeadlinerSlug: r.HeadlinerSlug,
+		}
+	}
+	return out
 }
 
 // ──────────────────────────────────────────────
