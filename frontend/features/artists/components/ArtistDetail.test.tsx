@@ -20,13 +20,10 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-// Mock radix tabs to avoid context requirement
-vi.mock('@/components/ui/tabs', () => ({
-  Tabs: ({ children, ...props }: { children: React.ReactNode; value?: string; onValueChange?: (v: string) => void }) => <div data-testid="tabs-root" {...props}>{children}</div>,
-  TabsList: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  TabsTrigger: ({ children, value }: { children: React.ReactNode; value: string }) => <button data-value={value}>{children}</button>,
-  TabsContent: ({ children, value }: { children: React.ReactNode; value: string }) => <div data-testid={`tabs-content-${value}`}>{children}</div>,
-}))
+// NOTE: `@/components/ui/tabs` is intentionally NOT mocked. The new tab-switch test at
+// the bottom of this file (see "ArtistShowsList tabs (real Radix)") relies on real Radix
+// behavior (aria-selected). The `EntityDetailLayout` mock below wraps children in a real
+// <Tabs> root so the <TabsContent> panels rendered by ArtistDetail still have a provider.
 
 // Mock hooks
 const mockUseArtist = vi.fn()
@@ -115,72 +112,81 @@ vi.mock('@/features/notifications', () => ({
   ),
 }))
 
-vi.mock('@/components/shared', () => ({
-  SocialLinks: () => <div data-testid="social-links">Social Links</div>,
-  MusicEmbed: () => <div data-testid="music-embed">Music Embed</div>,
-  EntityDetailLayout: ({
-    children,
-    sidebar,
-    header,
-    tabs,
-    activeTab,
-    onTabChange,
-    fallback,
-    entityName,
-  }: {
-    children: React.ReactNode
-    sidebar: React.ReactNode
-    header: React.ReactNode
-    tabs: { value: string; label: string }[]
-    activeTab: string
-    onTabChange: (tab: string) => void
-    fallback: { href: string; label: string }
-    entityName: string
-  }) => (
-    <div data-testid="entity-layout">
-      <a href={fallback.href}>{fallback.label}</a>
-      <span data-testid="entity-name">{entityName}</span>
-      <div data-testid="header-slot">{header}</div>
-      <div data-testid="tabs">
-        {tabs.map(tab => (
-          <button
-            key={tab.value}
-            data-testid={`tab-${tab.value}`}
-            onClick={() => onTabChange(tab.value)}
-            data-active={tab.value === activeTab}
-          >
-            {tab.label}
-          </button>
-        ))}
+vi.mock('@/components/shared', async () => {
+  // Import the real Tabs so that the TabsContent children passed to
+  // EntityDetailLayout have a provider in scope.
+  const { Tabs } = await vi.importActual<typeof import('@/components/ui/tabs')>(
+    '@/components/ui/tabs'
+  )
+  return {
+    SocialLinks: () => <div data-testid="social-links">Social Links</div>,
+    MusicEmbed: () => <div data-testid="music-embed">Music Embed</div>,
+    EntityDetailLayout: ({
+      children,
+      sidebar,
+      header,
+      tabs,
+      activeTab,
+      onTabChange,
+      fallback,
+      entityName,
+    }: {
+      children: React.ReactNode
+      sidebar: React.ReactNode
+      header: React.ReactNode
+      tabs: { value: string; label: string }[]
+      activeTab: string
+      onTabChange: (tab: string) => void
+      fallback: { href: string; label: string }
+      entityName: string
+    }) => (
+      <div data-testid="entity-layout">
+        <a href={fallback.href}>{fallback.label}</a>
+        <span data-testid="entity-name">{entityName}</span>
+        <div data-testid="header-slot">{header}</div>
+        <Tabs value={activeTab} onValueChange={onTabChange}>
+          <div data-testid="tabs">
+            {tabs.map(tab => (
+              <button
+                key={tab.value}
+                data-testid={`tab-${tab.value}`}
+                onClick={() => onTabChange(tab.value)}
+                data-active={tab.value === activeTab}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div data-testid="sidebar-slot">{sidebar}</div>
+          <div data-testid="content-slot">{children}</div>
+        </Tabs>
       </div>
-      <div data-testid="sidebar-slot">{sidebar}</div>
-      <div data-testid="content-slot">{children}</div>
-    </div>
-  ),
-  EntityHeader: ({
-    title,
-    subtitle,
-    actions,
-  }: {
-    title: string
-    subtitle?: React.ReactNode
-    actions?: React.ReactNode
-  }) => (
-    <div data-testid="entity-header">
-      <h1>{title}</h1>
-      {subtitle && <div data-testid="subtitle">{subtitle}</div>}
-      {actions && <div data-testid="header-actions">{actions}</div>}
-    </div>
-  ),
-  RevisionHistory: () => <div data-testid="revision-history">Revision History</div>,
-  FollowButton: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
-    <button data-testid="follow-button">Follow {entityType} {entityId}</button>
-  ),
-  EntityDescription: ({ description, canEdit }: { description: string | null | undefined; canEdit: boolean }) => (
-    <div data-testid="entity-description">{description || (canEdit ? 'Add description' : '')}</div>
-  ),
-  AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
-}))
+    ),
+    EntityHeader: ({
+      title,
+      subtitle,
+      actions,
+    }: {
+      title: string
+      subtitle?: React.ReactNode
+      actions?: React.ReactNode
+    }) => (
+      <div data-testid="entity-header">
+        <h1>{title}</h1>
+        {subtitle && <div data-testid="subtitle">{subtitle}</div>}
+        {actions && <div data-testid="header-actions">{actions}</div>}
+      </div>
+    ),
+    RevisionHistory: () => <div data-testid="revision-history">Revision History</div>,
+    FollowButton: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
+      <button data-testid="follow-button">Follow {entityType} {entityId}</button>
+    ),
+    EntityDescription: ({ description, canEdit }: { description: string | null | undefined; canEdit: boolean }) => (
+      <div data-testid="entity-description">{description || (canEdit ? 'Add description' : '')}</div>
+    ),
+    AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
+  }
+})
 
 import { ArtistDetail } from './ArtistDetail'
 
@@ -575,5 +581,38 @@ describe('ArtistDetail', () => {
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
       expect(screen.queryByTestId('subtitle')).not.toBeInTheDocument()
     })
+  })
+})
+
+// Replaces e2e: pages/artist-detail.spec.ts "shows tabs switch between upcoming and past"
+// (moved to a component test per PSY-472, audit doc docs/learnings/e2e-layer-5-audit.md item #2).
+// Renders the real ArtistShowsList (which owns the Upcoming/Past tabs) against real Radix Tabs
+// — the blanket ./ArtistShowsList mock above is bypassed via vi.importActual so the rest of the
+// ArtistDetail suite stays on the fast mocked path.
+describe('ArtistShowsList tabs (real Radix)', () => {
+  it('switches aria-selected between upcoming and past tabs on click', async () => {
+    const user = userEvent.setup()
+    const { ArtistShowsList: RealArtistShowsList } = await vi.importActual<
+      typeof import('./ArtistShowsList')
+    >('./ArtistShowsList')
+
+    renderWithProviders(<RealArtistShowsList artistId={42} />)
+
+    const upcomingTab = screen.getByRole('tab', { name: /upcoming/i })
+    const pastTab = screen.getByRole('tab', { name: /past shows/i })
+
+    // Upcoming tab is selected by default
+    expect(upcomingTab).toHaveAttribute('aria-selected', 'true')
+    expect(pastTab).toHaveAttribute('aria-selected', 'false')
+
+    // Click Past Shows → it becomes selected
+    await user.click(pastTab)
+    expect(pastTab).toHaveAttribute('aria-selected', 'true')
+    expect(upcomingTab).toHaveAttribute('aria-selected', 'false')
+
+    // Click back to Upcoming
+    await user.click(upcomingTab)
+    expect(upcomingTab).toHaveAttribute('aria-selected', 'true')
+    expect(pastTab).toHaveAttribute('aria-selected', 'false')
   })
 })

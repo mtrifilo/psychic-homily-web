@@ -49,12 +49,18 @@ vi.mock('@/lib/queryClient', () => ({
   }),
 }))
 
-// Mock useVenue and useVenueGenres hooks
+// Mock useVenue, useVenueGenres, and useVenueShows hooks
 const mockUseVenue = vi.fn()
 const mockUseVenueGenres = vi.fn(() => ({ data: null }))
+const mockUseVenueShows = vi.fn((_opts: unknown) => ({
+  data: { shows: [], total: 0 } as { shows: unknown[]; total: number },
+  isLoading: false,
+  error: null as Error | null,
+}))
 vi.mock('../hooks/useVenues', () => ({
   useVenue: (opts: unknown) => mockUseVenue(opts),
   useVenueGenres: (id: number) => mockUseVenueGenres(id),
+  useVenueShows: (opts: unknown) => mockUseVenueShows(opts),
 }))
 
 // Mock useVenueEdit hook
@@ -472,5 +478,54 @@ describe('VenueDetail', () => {
       // Only admins see delete
       expect(screen.queryByRole('button', { name: /Delete/ })).not.toBeInTheDocument()
     })
+  })
+})
+
+// Replaces e2e: pages/venue-detail.spec.ts "shows tabs switch between upcoming and past"
+// (moved to a component test per PSY-472, audit doc docs/learnings/e2e-layer-5-audit.md item #2).
+// Renders the real VenueShowsList (which owns the Upcoming/Past tabs) against real Radix Tabs
+// — the blanket ./VenueShowsList mock above is bypassed via vi.importActual so the rest of the
+// VenueDetail suite stays on the fast mocked path.
+describe('VenueShowsList tabs (real Radix)', () => {
+  beforeEach(() => {
+    mockUseVenueShows.mockReturnValue({
+      data: { shows: [], total: 0 },
+      isLoading: false,
+      error: null,
+    })
+  })
+
+  it('switches aria-selected between upcoming and past tabs on click', async () => {
+    const user = userEvent.setup()
+    const { VenueShowsList: RealVenueShowsList } = await vi.importActual<
+      typeof import('./VenueShowsList')
+    >('./VenueShowsList')
+
+    render(
+      <RealVenueShowsList
+        venueId={1}
+        venueSlug="test-venue"
+        venueName="Test Venue"
+        venueCity="Phoenix"
+        venueState="AZ"
+      />
+    )
+
+    const upcomingTab = screen.getByRole('tab', { name: /upcoming/i })
+    const pastTab = screen.getByRole('tab', { name: /past shows/i })
+
+    // Upcoming tab is selected by default
+    expect(upcomingTab).toHaveAttribute('aria-selected', 'true')
+    expect(pastTab).toHaveAttribute('aria-selected', 'false')
+
+    // Click Past Shows → it becomes selected
+    await user.click(pastTab)
+    expect(pastTab).toHaveAttribute('aria-selected', 'true')
+    expect(upcomingTab).toHaveAttribute('aria-selected', 'false')
+
+    // Click back to Upcoming
+    await user.click(upcomingTab)
+    expect(upcomingTab).toHaveAttribute('aria-selected', 'true')
+    expect(pastTab).toHaveAttribute('aria-selected', 'false')
   })
 })
