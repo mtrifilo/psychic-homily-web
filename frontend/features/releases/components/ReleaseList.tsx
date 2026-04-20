@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useTransition } from 'react'
+import { useCallback, useMemo, useState, useEffect, useRef, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useReleases } from '../hooks/useReleases'
@@ -12,6 +12,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { RELEASE_TYPES, RELEASE_TYPE_LABELS, RELEASE_SORT_OPTIONS } from '../types'
 import type { ReleaseType, ReleaseSortOption } from '../types'
+import {
+  TagFacetPanel,
+  TagFacetSheet,
+  parseTagsParam,
+  buildTagsParam,
+} from '@/features/tags'
 
 const PAGE_SIZE = 50
 
@@ -32,6 +38,12 @@ export function ReleaseList() {
   const currentPage = pageParam ? Math.max(1, parseInt(pageParam, 10)) : 1
   const offset = (currentPage - 1) * PAGE_SIZE
 
+  // Parse multi-tag from URL (PSY-309)
+  const tagsParam = searchParams.get('tags')
+  const tagMatchParam = searchParams.get('tag_match')
+  const selectedTags = useMemo(() => parseTagsParam(tagsParam), [tagsParam])
+  const tagMatch: 'all' | 'any' = tagMatchParam === 'any' ? 'any' : 'all'
+
   // Local state for debounced search
   const [searchInput, setSearchInput] = useState(searchParam)
   const [yearInput, setYearInput] = useState(yearParam ?? '')
@@ -49,6 +61,8 @@ export function ReleaseList() {
     search: searchParam || undefined,
     sort: sortParam,
     labelId: labelIdParam ? parseInt(labelIdParam, 10) : undefined,
+    tags: selectedTags.length > 0 ? selectedTags : undefined,
+    tagMatch,
     limit: PAGE_SIZE,
     offset,
   })
@@ -68,6 +82,8 @@ export function ReleaseList() {
     const mergedSort = params.sort !== undefined ? params.sort : sortParam
     const mergedLabelId = params.label_id !== undefined ? params.label_id : labelIdParam
     const mergedPage = params.page !== undefined ? params.page : null // Reset page on filter change unless explicitly set
+    const mergedTags = params.tags !== undefined ? params.tags : (selectedTags.length > 0 ? buildTagsParam(selectedTags) : null)
+    const mergedTagMatch = params.tag_match !== undefined ? params.tag_match : (tagMatch === 'any' ? 'any' : null)
 
     if (mergedType) newParams.set('type', mergedType)
     if (mergedYear) newParams.set('year', mergedYear)
@@ -75,12 +91,27 @@ export function ReleaseList() {
     if (mergedSort && mergedSort !== 'newest') newParams.set('sort', mergedSort)
     if (mergedLabelId) newParams.set('label_id', mergedLabelId)
     if (mergedPage && mergedPage !== '1') newParams.set('page', mergedPage)
+    if (mergedTags) newParams.set('tags', mergedTags)
+    if (mergedTagMatch) newParams.set('tag_match', mergedTagMatch)
 
     const queryString = newParams.toString()
     startTransition(() => {
-      router.push(queryString ? `/releases?${queryString}` : '/releases')
+      router.push(queryString ? `/releases?${queryString}` : '/releases', { scroll: false })
     })
   }
+
+  const handleTagsChange = useCallback((nextTags: string[]) => {
+    updateFilters({
+      tags: nextTags.length > 0 ? buildTagsParam(nextTags) : null,
+      page: null,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typeParam, yearParam, searchParam, sortParam, labelIdParam, tagMatch])
+
+  const handleTagsClear = useCallback(() => {
+    updateFilters({ tags: null, page: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typeParam, yearParam, searchParam, sortParam, labelIdParam])
 
   // Debounced search
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -260,87 +291,102 @@ export function ReleaseList() {
         </div>
       </div>
 
-      {/* Density toggle + result count */}
       <div className="flex items-center justify-between mb-4">
-        <span className="text-sm text-muted-foreground">
+        <span className="text-sm text-muted-foreground" data-testid="release-count">
           {total} {total === 1 ? 'release' : 'releases'}
+          {selectedTags.length > 0 && ` matching ${selectedTags.join(', ')}`}
         </span>
-        <DensityToggle density={density} onDensityChange={setDensity} />
-      </div>
-
-      {/* Release Grid */}
-      <div
-        className={
-          isUpdating
-            ? 'opacity-60 transition-opacity duration-75'
-            : 'transition-opacity duration-75'
-        }
-      >
-        {releases.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            <p>
-              {hasFilters
-                ? 'No releases found matching your filters.'
-                : 'No releases available at this time.'}
-            </p>
-            {hasFilters && (
-              <button
-                onClick={clearFilters}
-                className="mt-4 text-primary hover:underline"
-              >
-                View all releases
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="@container">
-            <div
-              className={
-                density === 'compact'
-                  ? 'flex flex-col gap-px'
-                  : density === 'expanded'
-                    ? 'grid grid-cols-1 gap-5'
-                    : 'grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
-              }
-            >
-              {releases.map(release => (
-                <ReleaseCard
-                  key={release.id}
-                  release={release}
-                  density={density}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-8">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={currentPage <= 1}
-            onClick={() => handlePageChange(currentPage - 1)}
-          >
-            <ChevronLeft className="h-4 w-4 mr-1" />
-            Previous
-          </Button>
-          <span className="text-sm text-muted-foreground px-3">
-            Page {currentPage} of {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={currentPage >= totalPages}
-            onClick={() => handlePageChange(currentPage + 1)}
-          >
-            Next
-            <ChevronRight className="h-4 w-4 ml-1" />
-          </Button>
+        <div className="flex items-center gap-2">
+          <TagFacetSheet
+            selectedSlugs={selectedTags}
+            onToggle={handleTagsChange}
+            onClear={handleTagsClear}
+            title="Filter releases by tag"
+          />
+          <DensityToggle density={density} onDensityChange={setDensity} />
         </div>
-      )}
+      </div>
+
+      <div className="flex flex-col gap-6 lg:flex-row">
+        <aside className="hidden lg:block lg:w-64 lg:shrink-0">
+          <TagFacetPanel
+            selectedSlugs={selectedTags}
+            onToggle={handleTagsChange}
+            onClear={handleTagsClear}
+            heading="Filter releases by tag"
+          />
+        </aside>
+
+        <div className={`flex-1 min-w-0 ${isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}`}>
+          {releases.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <p>
+                {hasFilters || selectedTags.length > 0
+                  ? 'No releases found matching your filters.'
+                  : 'No releases available at this time.'}
+              </p>
+              {(hasFilters || selectedTags.length > 0) && (
+                <button
+                  onClick={() => {
+                    clearFilters()
+                    if (selectedTags.length > 0) handleTagsClear()
+                  }}
+                  className="mt-4 text-primary hover:underline"
+                >
+                  View all releases
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="@container">
+              <div
+                className={
+                  density === 'compact'
+                    ? 'flex flex-col gap-px'
+                    : density === 'expanded'
+                      ? 'grid grid-cols-1 gap-5'
+                      : 'grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
+                }
+              >
+                {releases.map(release => (
+                  <ReleaseCard
+                    key={release.id}
+                    release={release}
+                    density={density}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-8">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage <= 1}
+                onClick={() => handlePageChange(currentPage - 1)}
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Previous
+              </Button>
+              <span className="text-sm text-muted-foreground px-3">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage >= totalPages}
+                onClick={() => handlePageChange(currentPage + 1)}
+              >
+                Next
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
     </section>
   )
 }

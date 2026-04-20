@@ -50,4 +50,13 @@ export {
   TagBrowse,
   TagDetail,
   TagOfficialIndicator,
+  TagFacetPanel,
+  TagFacetSheet,
+  parseTagsParam,
+  buildTagsParam,
+} from './components'
+
+export type {
+  TagFacetPanelProps,
+  TagFacetSheetProps,
 } from './components'

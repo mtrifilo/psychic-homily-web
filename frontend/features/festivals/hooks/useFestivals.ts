@@ -28,13 +28,17 @@ interface UseFestivalsOptions {
   state?: string
   year?: number
   seriesSlug?: string
+  /** Multi-tag filter (PSY-309). Slugs applied with AND by default. */
+  tags?: string[]
+  /** Set to 'any' to switch the tag filter to OR semantics. */
+  tagMatch?: 'all' | 'any'
 }
 
 /**
  * Hook to fetch list of festivals with optional filtering
  */
 export function useFestivals(options: UseFestivalsOptions = {}) {
-  const { status, city, state, year, seriesSlug } = options
+  const { status, city, state, year, seriesSlug, tags, tagMatch } = options
 
   const params = new URLSearchParams()
   if (status) params.set('status', status)
@@ -42,6 +46,10 @@ export function useFestivals(options: UseFestivalsOptions = {}) {
   if (state) params.set('state', state)
   if (year) params.set('year', String(year))
   if (seriesSlug) params.set('series_slug', seriesSlug)
+  if (tags && tags.length > 0) {
+    params.set('tags', tags.join(','))
+    if (tagMatch === 'any') params.set('tag_match', 'any')
+  }
 
   const queryString = params.toString()
   const endpoint = queryString
@@ -50,8 +58,8 @@ export function useFestivals(options: UseFestivalsOptions = {}) {
 
   return useQuery({
     queryKey: festivalQueryKeys.list(
-      status || city || state || year || seriesSlug
-        ? { status, city, state, year, seriesSlug }
+      status || city || state || year || seriesSlug || (tags && tags.length > 0)
+        ? { status, city, state, year, seriesSlug, tags, tagMatch }
         : undefined
     ),
     queryFn: async (): Promise<FestivalsListResponse> => {
