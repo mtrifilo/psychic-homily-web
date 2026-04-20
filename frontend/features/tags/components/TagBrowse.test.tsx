@@ -12,6 +12,16 @@ vi.mock('../hooks', () => ({
   useTags: (...args: unknown[]) => mockUseTags(...args),
 }))
 
+// next/navigation — mutable URLSearchParams so tests can simulate different URLs.
+const mockReplace = vi.fn()
+const mockPush = vi.fn()
+let mockSearchParamsStore = new URLSearchParams()
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: mockReplace, push: mockPush }),
+  useSearchParams: () => mockSearchParamsStore,
+}))
+
 vi.mock('next/link', () => ({
   default: ({
     href,
@@ -28,7 +38,11 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-import { TagBrowse } from './TagBrowse'
+import { TagBrowse, cloudFontSizePx } from './TagBrowse'
+
+function setUrlParams(params: Record<string, string> = {}) {
+  mockSearchParamsStore = new URLSearchParams(params)
+}
 
 function createQueryClient() {
   return new QueryClient({
@@ -62,6 +76,7 @@ function makeTag(overrides: Partial<TagListItem> = {}): TagListItem {
 describe('TagBrowse', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    setUrlParams()
     mockUseTags.mockReturnValue({
       data: { tags: [], total: 0 },
       isLoading: false,
@@ -121,7 +136,7 @@ describe('TagBrowse', () => {
 
   // ── Empty state ──
 
-  it('shows "No tags found" when results are empty', () => {
+  it('shows generic empty copy when no filter is active', () => {
     mockUseTags.mockReturnValue({
       data: { tags: [], total: 0 },
       isLoading: false,
@@ -134,9 +149,25 @@ describe('TagBrowse', () => {
     expect(screen.getByText('No tags found.')).toBeInTheDocument()
   })
 
-  // ── Tag rendering ──
+  it('shows filter-aware empty copy when a category pill is active', async () => {
+    mockUseTags.mockReturnValue({
+      data: { tags: [], total: 0 },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
 
-  it('renders tag cards as links', () => {
+    const user = userEvent.setup()
+    renderWithProviders(<TagBrowse />)
+
+    await user.click(screen.getByRole('button', { name: 'Locale' }))
+
+    expect(screen.getByText('No locale tags yet.')).toBeInTheDocument()
+  })
+
+  // ── Tag rendering (grid) ──
+
+  it('renders tag cards as links in grid view (default)', () => {
     const tags = [
       makeTag({ id: 1, name: 'rock', slug: 'rock' }),
       makeTag({ id: 2, name: 'punk', slug: 'punk', category: 'other' }),
@@ -155,6 +186,9 @@ describe('TagBrowse', () => {
 
     const punkLink = screen.getByRole('link', { name: /punk/ })
     expect(punkLink).toHaveAttribute('href', '/tags/punk')
+
+    // Default view is grid — tag cloud must not be rendered.
+    expect(screen.queryByTestId('tag-cloud')).not.toBeInTheDocument()
   })
 
   it('renders usage count on tag cards', () => {
@@ -239,7 +273,6 @@ describe('TagBrowse', () => {
 
     await user.click(screen.getByText('Genre'))
 
-    // Check that useTags was called with category: 'genre'
     const lastCall = mockUseTags.mock.calls[mockUseTags.mock.calls.length - 1]
     expect(lastCall[0]).toEqual(
       expect.objectContaining({ category: 'genre' })
@@ -252,6 +285,167 @@ describe('TagBrowse', () => {
     renderWithProviders(<TagBrowse />)
 
     expect(screen.getByPlaceholderText('Search tags...')).toBeInTheDocument()
+  })
+
+  // ── Sort dropdown ──
+
+  it('renders all sort options', () => {
+    renderWithProviders(<TagBrowse />)
+
+    const select = screen.getByLabelText('Sort tags') as HTMLSelectElement
+    const values = Array.from(select.options).map(o => o.value)
+    expect(values).toEqual(['popularity', 'alphabetical', 'newest'])
+  })
+
+  it('defaults to popularity sort → calls useTags with backend sort "usage"', () => {
+    renderWithProviders(<TagBrowse />)
+
+    const lastCall = mockUseTags.mock.calls[mockUseTags.mock.calls.length - 1]
+    expect(lastCall[0]).toEqual(
+      expect.objectContaining({ sort: 'usage' })
+    )
+  })
+
+  it('reflects URL sort param ?sort=alphabetical in the select and in the useTags call', () => {
+    setUrlParams({ sort: 'alphabetical' })
+
+    renderWithProviders(<TagBrowse />)
+
+    const select = screen.getByLabelText('Sort tags') as HTMLSelectElement
+    expect(select.value).toBe('alphabetical')
+
+    const lastCall = mockUseTags.mock.calls[mockUseTags.mock.calls.length - 1]
+    expect(lastCall[0]).toEqual(expect.objectContaining({ sort: 'name' }))
+  })
+
+  it('reflects URL sort param ?sort=newest and maps to backend "created"', () => {
+    setUrlParams({ sort: 'newest' })
+
+    renderWithProviders(<TagBrowse />)
+
+    const select = screen.getByLabelText('Sort tags') as HTMLSelectElement
+    expect(select.value).toBe('newest')
+
+    const lastCall = mockUseTags.mock.calls[mockUseTags.mock.calls.length - 1]
+    expect(lastCall[0]).toEqual(expect.objectContaining({ sort: 'created' }))
+  })
+
+  it('selecting a non-default sort pushes it into the URL via router.replace', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<TagBrowse />)
+
+    await user.selectOptions(screen.getByLabelText('Sort tags'), 'alphabetical')
+
+    expect(mockReplace).toHaveBeenCalled()
+    const call = mockReplace.mock.calls[mockReplace.mock.calls.length - 1]
+    expect(call[0]).toBe('/tags?sort=alphabetical')
+  })
+
+  it('selecting the default sort strips ?sort from the URL', async () => {
+    setUrlParams({ sort: 'alphabetical' })
+    const user = userEvent.setup()
+    renderWithProviders(<TagBrowse />)
+
+    await user.selectOptions(screen.getByLabelText('Sort tags'), 'popularity')
+
+    const call = mockReplace.mock.calls[mockReplace.mock.calls.length - 1]
+    expect(call[0]).toBe('/tags')
+  })
+
+  // ── View toggle (grid / cloud) ──
+
+  it('renders the view toggle with grid selected by default', () => {
+    renderWithProviders(<TagBrowse />)
+
+    const grid = screen.getByTestId('view-grid')
+    const cloud = screen.getByTestId('view-cloud')
+
+    expect(grid).toHaveAttribute('aria-checked', 'true')
+    expect(cloud).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('clicking the cloud button pushes ?view=cloud into the URL', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<TagBrowse />)
+
+    await user.click(screen.getByTestId('view-cloud'))
+
+    const call = mockReplace.mock.calls[mockReplace.mock.calls.length - 1]
+    expect(call[0]).toBe('/tags?view=cloud')
+  })
+
+  it('clicking back to grid strips ?view from the URL', async () => {
+    setUrlParams({ view: 'cloud' })
+    const user = userEvent.setup()
+    renderWithProviders(<TagBrowse />)
+
+    await user.click(screen.getByTestId('view-grid'))
+
+    const call = mockReplace.mock.calls[mockReplace.mock.calls.length - 1]
+    expect(call[0]).toBe('/tags')
+  })
+
+  it('toggling cloud view with a non-default sort already in the URL preserves both params', async () => {
+    // Simulate an incoming URL of /tags?sort=newest, then user clicks Cloud.
+    setUrlParams({ sort: 'newest' })
+    const user = userEvent.setup()
+    renderWithProviders(<TagBrowse />)
+
+    await user.click(screen.getByTestId('view-cloud'))
+
+    const call = mockReplace.mock.calls[mockReplace.mock.calls.length - 1]
+    const url = new URL(call[0], 'http://t')
+    expect(url.pathname).toBe('/tags')
+    expect(url.searchParams.get('sort')).toBe('newest')
+    expect(url.searchParams.get('view')).toBe('cloud')
+  })
+
+  // ── Cloud view rendering & log-scale font sizing ──
+
+  it('renders cloud view when ?view=cloud with usage-count-driven font sizes', () => {
+    setUrlParams({ view: 'cloud' })
+    const tags = [
+      makeTag({ id: 1, name: 'tiny', slug: 'tiny', usage_count: 1 }),
+      makeTag({ id: 2, name: 'medium', slug: 'medium', usage_count: 25 }),
+      makeTag({ id: 3, name: 'huge', slug: 'huge', usage_count: 500 }),
+    ]
+    mockUseTags.mockReturnValue({
+      data: { tags, total: 3 },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+
+    renderWithProviders(<TagBrowse />)
+
+    expect(screen.getByTestId('tag-cloud')).toBeInTheDocument()
+
+    const tiny = screen.getByTestId('tag-cloud-item-tiny')
+    const medium = screen.getByTestId('tag-cloud-item-medium')
+    const huge = screen.getByTestId('tag-cloud-item-huge')
+
+    const sizePx = (el: HTMLElement) =>
+      parseFloat((el as HTMLElement).style.fontSize.replace('px', ''))
+
+    expect(sizePx(tiny)).toBeLessThan(sizePx(medium))
+    expect(sizePx(medium)).toBeLessThan(sizePx(huge))
+  })
+
+  it('cloudFontSizePx uses a log scale (compressed relative to linear)', () => {
+    const minU = 1
+    const maxU = 1000
+    const mid = Math.sqrt(minU * maxU) // geometric mid ≈ 31
+    const size = cloudFontSizePx(mid, minU, maxU)
+    // With log scaling, the geometric mean lands near the midpoint of the
+    // font-size range (≈21.5px), not near the low end (≈13px) as linear
+    // scaling would give. Assert it's comfortably above halfway-low.
+    expect(size).toBeGreaterThan(19)
+    expect(size).toBeLessThan(24)
+  })
+
+  it('cloudFontSizePx clamps min and max to the configured range', () => {
+    expect(cloudFontSizePx(1, 1, 1000)).toBeCloseTo(13, 0)
+    expect(cloudFontSizePx(1000, 1, 1000)).toBeCloseTo(30, 0)
   })
 
   // ── Pagination ──
