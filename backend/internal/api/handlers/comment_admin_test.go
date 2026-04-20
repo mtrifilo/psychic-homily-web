@@ -396,7 +396,7 @@ func TestCreateComment_RateLimitError(t *testing.T) {
 			return nil, fmt.Errorf("please wait 60 seconds between comments on the same entity")
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil)
+	h := NewCommentHandler(mock, mock, nil, nil)
 	req := &CreateCommentRequest{EntityType: "show", EntityID: "1"}
 	req.Body.Body = "Hello"
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
@@ -409,7 +409,7 @@ func TestCreateComment_HourlyLimitError(t *testing.T) {
 			return nil, fmt.Errorf("you've reached your hourly comment limit (5/hour for new users)")
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil)
+	h := NewCommentHandler(mock, mock, nil, nil)
 	req := &CreateCommentRequest{EntityType: "show", EntityID: "1"}
 	req.Body.Body = "Hello"
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
