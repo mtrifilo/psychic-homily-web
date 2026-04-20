@@ -30,6 +30,7 @@ import { useTags, useTag } from '../hooks'
 import { AliasListing } from './AliasListing'
 import { LowQualityTagQueue } from './LowQualityTagQueue'
 import { MergeTagDialog } from './MergeTagDialog'
+import { TagHierarchyEditor } from './TagHierarchyEditor'
 import { TagOfficialIndicator } from '../components/TagOfficialIndicator'
 import {
   useCreateTag,
@@ -626,6 +627,7 @@ export function TagManagement() {
             Needs Review
             <LowQualityBadge />
           </TabsTrigger>
+          <TabsTrigger value="hierarchy">Hierarchy</TabsTrigger>
         </TabsList>
 
         <TabsContent value="tags" className="space-y-4">
@@ -778,6 +780,10 @@ export function TagManagement() {
 
         <TabsContent value="needs-review">
           <LowQualityTagQueue />
+        </TabsContent>
+
+        <TabsContent value="hierarchy">
+          <TagHierarchyEditor />
         </TabsContent>
       </Tabs>
 

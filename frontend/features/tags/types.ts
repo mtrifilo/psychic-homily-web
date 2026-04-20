@@ -245,6 +245,32 @@ export const LOW_QUALITY_REASON_LABELS: Record<LowQualityReason, string> = {
   long_name: 'Long name',
 }
 
+/**
+ * Genre-hierarchy row — returned by GET /admin/tags/hierarchy (PSY-311).
+ * Flat list; the frontend builds the tree client-side from parent_id.
+ */
+export interface GenreHierarchyTag {
+  id: number
+  name: string
+  slug: string
+  parent_id?: number | null
+  usage_count: number
+  is_official: boolean
+}
+
+export interface GenreHierarchyResponse {
+  tags: GenreHierarchyTag[]
+}
+
+/**
+ * Node in the assembled client-side tree. Convenience shape — not a wire type.
+ * `depth` is 0 for roots and increments per level; used for indentation.
+ */
+export interface GenreHierarchyNode extends GenreHierarchyTag {
+  depth: number
+  children: GenreHierarchyNode[]
+}
+
 export function getCategoryColor(category: string): string {
   const colors: Record<string, string> = {
     genre: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
