@@ -10,18 +10,21 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
 type LabelHandler struct {
 	labelService    contracts.LabelServiceInterface
 	auditLogService contracts.AuditLogServiceInterface
+	revisionService contracts.RevisionServiceInterface
 }
 
-func NewLabelHandler(labelService contracts.LabelServiceInterface, auditLogService contracts.AuditLogServiceInterface) *LabelHandler {
+func NewLabelHandler(labelService contracts.LabelServiceInterface, auditLogService contracts.AuditLogServiceInterface, revisionService contracts.RevisionServiceInterface) *LabelHandler {
 	return &LabelHandler{
 		labelService:    labelService,
 		auditLogService: auditLogService,
+		revisionService: revisionService,
 	}
 }
 
@@ -255,6 +258,7 @@ type UpdateLabelRequest struct {
 		SoundCloud  *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`
 		Bandcamp    *string `json:"bandcamp,omitempty" required:"false" doc:"Bandcamp URL"`
 		Website     *string `json:"website,omitempty" required:"false" doc:"Website URL"`
+		Summary     *string `json:"summary,omitempty" required:"false" doc:"Revision summary describing the change"`
 	}
 }
 
@@ -276,6 +280,12 @@ func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelR
 	labelID, err := h.resolveLabelID(req.LabelID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Capture old values for revision diff (fire-and-forget safe)
+	var oldLabel *contracts.LabelDetailResponse
+	if h.revisionService != nil {
+		oldLabel, _ = h.labelService.GetLabel(labelID)
 	}
 
 	serviceReq := &contracts.UpdateLabelRequest{
@@ -319,6 +329,25 @@ func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelR
 		}()
 	}
 
+	// Record revision (fire and forget)
+	if h.revisionService != nil && oldLabel != nil {
+		go func() {
+			changes := computeLabelChanges(oldLabel, label)
+			if len(changes) > 0 {
+				summary := ""
+				if req.Body.Summary != nil {
+					summary = *req.Body.Summary
+				}
+				if err := h.revisionService.RecordRevision("label", labelID, user.ID, changes, summary); err != nil {
+					logger.Default().Error("record_label_revision_failed",
+						"label_id", labelID,
+						"error", err.Error(),
+					)
+				}
+			}
+		}()
+	}
+
 	logger.FromContext(ctx).Info("label_updated",
 		"label_id", labelID,
 		"admin_id", user.ID,
@@ -326,6 +355,59 @@ func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelR
 	)
 
 	return &UpdateLabelResponse{Body: label}, nil
+}
+
+// computeLabelChanges compares old and new label detail responses and returns field-level diffs.
+func computeLabelChanges(old, new *contracts.LabelDetailResponse) []models.FieldChange {
+	var changes []models.FieldChange
+
+	if old.Name != new.Name {
+		changes = append(changes, models.FieldChange{Field: "name", OldValue: old.Name, NewValue: new.Name})
+	}
+	if ptrToStr(old.City) != ptrToStr(new.City) {
+		changes = append(changes, models.FieldChange{Field: "city", OldValue: ptrToStr(old.City), NewValue: ptrToStr(new.City)})
+	}
+	if ptrToStr(old.State) != ptrToStr(new.State) {
+		changes = append(changes, models.FieldChange{Field: "state", OldValue: ptrToStr(old.State), NewValue: ptrToStr(new.State)})
+	}
+	if ptrToStr(old.Country) != ptrToStr(new.Country) {
+		changes = append(changes, models.FieldChange{Field: "country", OldValue: ptrToStr(old.Country), NewValue: ptrToStr(new.Country)})
+	}
+	if !intPtrEq(old.FoundedYear, new.FoundedYear) {
+		changes = append(changes, models.FieldChange{Field: "founded_year", OldValue: intPtrVal(old.FoundedYear), NewValue: intPtrVal(new.FoundedYear)})
+	}
+	if old.Status != new.Status {
+		changes = append(changes, models.FieldChange{Field: "status", OldValue: old.Status, NewValue: new.Status})
+	}
+	if ptrToStr(old.Description) != ptrToStr(new.Description) {
+		changes = append(changes, models.FieldChange{Field: "description", OldValue: ptrToStr(old.Description), NewValue: ptrToStr(new.Description)})
+	}
+	if ptrToStr(old.Social.Instagram) != ptrToStr(new.Social.Instagram) {
+		changes = append(changes, models.FieldChange{Field: "instagram", OldValue: ptrToStr(old.Social.Instagram), NewValue: ptrToStr(new.Social.Instagram)})
+	}
+	if ptrToStr(old.Social.Facebook) != ptrToStr(new.Social.Facebook) {
+		changes = append(changes, models.FieldChange{Field: "facebook", OldValue: ptrToStr(old.Social.Facebook), NewValue: ptrToStr(new.Social.Facebook)})
+	}
+	if ptrToStr(old.Social.Twitter) != ptrToStr(new.Social.Twitter) {
+		changes = append(changes, models.FieldChange{Field: "twitter", OldValue: ptrToStr(old.Social.Twitter), NewValue: ptrToStr(new.Social.Twitter)})
+	}
+	if ptrToStr(old.Social.YouTube) != ptrToStr(new.Social.YouTube) {
+		changes = append(changes, models.FieldChange{Field: "youtube", OldValue: ptrToStr(old.Social.YouTube), NewValue: ptrToStr(new.Social.YouTube)})
+	}
+	if ptrToStr(old.Social.Spotify) != ptrToStr(new.Social.Spotify) {
+		changes = append(changes, models.FieldChange{Field: "spotify", OldValue: ptrToStr(old.Social.Spotify), NewValue: ptrToStr(new.Social.Spotify)})
+	}
+	if ptrToStr(old.Social.SoundCloud) != ptrToStr(new.Social.SoundCloud) {
+		changes = append(changes, models.FieldChange{Field: "soundcloud", OldValue: ptrToStr(old.Social.SoundCloud), NewValue: ptrToStr(new.Social.SoundCloud)})
+	}
+	if ptrToStr(old.Social.Bandcamp) != ptrToStr(new.Social.Bandcamp) {
+		changes = append(changes, models.FieldChange{Field: "bandcamp", OldValue: ptrToStr(old.Social.Bandcamp), NewValue: ptrToStr(new.Social.Bandcamp)})
+	}
+	if ptrToStr(old.Social.Website) != ptrToStr(new.Social.Website) {
+		changes = append(changes, models.FieldChange{Field: "website", OldValue: ptrToStr(old.Social.Website), NewValue: ptrToStr(new.Social.Website)})
+	}
+
+	return changes
 }
 
 // ============================================================================

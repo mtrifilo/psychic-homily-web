@@ -374,7 +374,7 @@ func setupReleaseRoutes(rc RouteContext) {
 }
 
 func setupLabelRoutes(rc RouteContext) {
-	labelHandler := handlers.NewLabelHandler(rc.SC.Label, rc.SC.AuditLog)
+	labelHandler := handlers.NewLabelHandler(rc.SC.Label, rc.SC.AuditLog, rc.SC.Revision)
 
 	// Public label endpoints
 	// Note: Static routes must come before parameterized routes
@@ -1021,6 +1021,7 @@ func setupPendingEditRoutes(rc RouteContext) {
 	huma.Put(rc.Protected, "/venues/{entity_id}/suggest-edit", pendingEditHandler.SuggestVenueEditHandler)
 	huma.Put(rc.Protected, "/festivals/{entity_id}/suggest-edit", pendingEditHandler.SuggestFestivalEditHandler)
 	huma.Put(rc.Protected, "/releases/{entity_id}/suggest-edit", pendingEditHandler.SuggestReleaseEditHandler)
+	huma.Put(rc.Protected, "/labels/{entity_id}/suggest-edit", pendingEditHandler.SuggestLabelEditHandler)
 
 	// Protected: user's own pending edits
 	huma.Get(rc.Protected, "/my/pending-edits", pendingEditHandler.GetMyPendingEditsHandler)
@@ -1088,7 +1089,7 @@ func setupLeaderboardRoutes(rc RouteContext) {
 
 // setupDataGapsRoutes configures entity data-gap detection endpoints (protected).
 func setupDataGapsRoutes(rc RouteContext) {
-	dataGapsHandler := handlers.NewDataGapsHandler(rc.SC.Artist, rc.SC.Venue, rc.SC.Festival, rc.SC.Release)
+	dataGapsHandler := handlers.NewDataGapsHandler(rc.SC.Artist, rc.SC.Venue, rc.SC.Festival, rc.SC.Release, rc.SC.Label)
 	huma.Get(rc.Protected, "/entities/{entity_type}/{id_or_slug}/data-gaps", dataGapsHandler.GetDataGapsHandler)
 }
 
