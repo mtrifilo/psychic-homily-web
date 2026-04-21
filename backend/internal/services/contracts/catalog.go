@@ -478,9 +478,15 @@ type SocialResponse struct {
 }
 
 // ArtistWithShowCountResponse includes upcoming show count for an artist.
+//
+// LastShowDate is the most recent past approved show date for the artist.
+// Only populated when the service runs in evergreen mode (e.g. tag-filtered
+// /artists per PSY-495); stays nil on the default activity-gated path since
+// the caller already knows there is at least one upcoming show.
 type ArtistWithShowCountResponse struct {
 	ArtistDetailResponse
-	UpcomingShowCount int `json:"upcoming_show_count"`
+	UpcomingShowCount int        `json:"upcoming_show_count"`
+	LastShowDate      *time.Time `json:"last_show_date,omitempty"`
 }
 
 // ArtistCityResponse represents a city with artist count for filtering

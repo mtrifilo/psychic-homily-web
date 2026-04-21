@@ -119,6 +119,12 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 	}
 	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
 		filters["tag_filter"] = tf
+		// PSY-495 (Bandcamp model): when a tag filter is engaged, drop the
+		// default "has upcoming shows" activity gate so tag pages are
+		// evergreen discovery surfaces. A fan filtering by "punk" wants
+		// every punk-tagged artist — active or not — so the facet-chip
+		// count matches the list result count.
+		filters["skip_active_filter"] = true
 	}
 
 	artists, err := h.artistService.GetArtistsWithShowCounts(filters)
