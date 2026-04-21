@@ -84,7 +84,7 @@ func TestSearchLabels_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	h := NewLabelHandler(mock, nil)
+	h := NewLabelHandler(mock, nil, nil)
 
 	resp, err := h.SearchLabelsHandler(context.Background(), &SearchLabelsRequest{Query: "sub pop"})
 	if err != nil {
@@ -104,7 +104,7 @@ func TestSearchLabels_EmptyQuery(t *testing.T) {
 			return []*contracts.LabelListResponse{}, nil
 		},
 	}
-	h := NewLabelHandler(mock, nil)
+	h := NewLabelHandler(mock, nil, nil)
 
 	resp, err := h.SearchLabelsHandler(context.Background(), &SearchLabelsRequest{Query: ""})
 	if err != nil {
@@ -121,7 +121,7 @@ func TestSearchLabels_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewLabelHandler(mock, nil)
+	h := NewLabelHandler(mock, nil, nil)
 
 	_, err := h.SearchLabelsHandler(context.Background(), &SearchLabelsRequest{Query: "test"})
 	if err == nil {

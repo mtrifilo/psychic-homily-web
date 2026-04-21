@@ -18,7 +18,7 @@ type LabelHandlerIntegrationSuite struct {
 
 func (s *LabelHandlerIntegrationSuite) SetupSuite() {
 	s.deps = setupHandlerIntegrationDeps(s.T())
-	s.handler = NewLabelHandler(s.deps.labelService, s.deps.auditLogService)
+	s.handler = NewLabelHandler(s.deps.labelService, s.deps.auditLogService, nil)
 }
 
 func (s *LabelHandlerIntegrationSuite) TearDownTest() {

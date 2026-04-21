@@ -24,9 +24,10 @@ func TestIsValidPendingEditEntityType(t *testing.T) {
 	assert.True(t, models.IsValidPendingEditEntityType("venue"))
 	assert.True(t, models.IsValidPendingEditEntityType("festival"))
 	assert.True(t, models.IsValidPendingEditEntityType("release"))
+	assert.True(t, models.IsValidPendingEditEntityType("label"))
 	assert.False(t, models.IsValidPendingEditEntityType("show"))
 	assert.False(t, models.IsValidPendingEditEntityType(""))
-	assert.False(t, models.IsValidPendingEditEntityType("label"))
+	assert.False(t, models.IsValidPendingEditEntityType("comment"))
 }
 
 // =============================================================================

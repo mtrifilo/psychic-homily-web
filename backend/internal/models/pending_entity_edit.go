@@ -20,6 +20,7 @@ const (
 	PendingEditEntityVenue    = "venue"
 	PendingEditEntityFestival = "festival"
 	PendingEditEntityRelease  = "release"
+	PendingEditEntityLabel    = "label"
 )
 
 // PendingEntityEdit represents a proposed edit to an entity awaiting review.
@@ -52,6 +53,7 @@ func ValidPendingEditEntityTypes() []string {
 		PendingEditEntityVenue,
 		PendingEditEntityFestival,
 		PendingEditEntityRelease,
+		PendingEditEntityLabel,
 	}
 }
 
