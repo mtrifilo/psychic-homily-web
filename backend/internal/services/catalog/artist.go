@@ -324,31 +324,64 @@ func (s *ArtistService) SearchArtists(query string) ([]*contracts.ArtistDetailRe
 // ArtistWithCount is used internally for querying artists with their show counts
 type ArtistWithCount struct {
 	models.Artist
-	UpcomingShowCount int64 `gorm:"column:upcoming_show_count"`
+	UpcomingShowCount int64      `gorm:"column:upcoming_show_count"`
+	LastShowDate      *time.Time `gorm:"column:last_show_date"`
 }
 
 // contracts.ArtistWithShowCountResponse represents an artist with its upcoming show count
 
-// GetArtistsWithShowCounts retrieves artists that have upcoming approved shows,
-// with their show counts. Results are sorted by show count (descending), then name (ascending).
+// GetArtistsWithShowCounts retrieves artists with their upcoming show counts.
+//
+// By default the result is gated on "has at least one upcoming approved show"
+// (the /artists landing/browse flow). When `skip_active_filter` is set to true
+// in the filters map (PSY-495: tag-filter engaged → Bandcamp-style evergreen
+// discovery), the activity gate is dropped and every matching artist is
+// returned, including those with zero upcoming shows. In that mode we also
+// surface `last_show_date` (most recent past approved show) so cards can
+// render a "no upcoming shows · last show <Mon Year>" affordance instead of
+// looking broken.
+//
+// Sort order: upcoming_show_count DESC, name ASC. Active artists surface
+// first, then alphabetical. Preserved across both gated and evergreen modes.
 func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
+	skipActiveFilter, _ := filters["skip_active_filter"].(bool)
+
 	now := time.Now().UTC()
 
 	// Subquery: count upcoming approved shows per artist
-	subquery := s.db.Table("show_artists").
+	upcomingSubquery := s.db.Table("show_artists").
 		Select("show_artists.artist_id, COUNT(*) as show_count").
 		Joins("JOIN shows ON show_artists.show_id = shows.id").
 		Where("shows.event_date >= ? AND shows.status = ?", now, models.ShowStatusApproved).
 		Group("show_artists.artist_id")
 
-	// Main query: join artists with show counts, only include artists with upcoming shows
-	query := s.db.Table("artists").
-		Select("artists.*, COALESCE(sc.show_count, 0) as upcoming_show_count").
-		Joins("JOIN (?) as sc ON artists.id = sc.artist_id", subquery)
+	var query *gorm.DB
+	if skipActiveFilter {
+		// Evergreen mode: include artists without upcoming shows.
+		// LEFT JOIN on upcoming counts (zero when none), and compute
+		// last past-show date so cards can show "last show <Mon Year>".
+		pastSubquery := s.db.Table("show_artists").
+			Select("show_artists.artist_id, MAX(shows.event_date) as last_show_date").
+			Joins("JOIN shows ON show_artists.show_id = shows.id").
+			Where("shows.event_date < ? AND shows.status = ?", now, models.ShowStatusApproved).
+			Group("show_artists.artist_id")
+
+		query = s.db.Table("artists").
+			Select("artists.*, COALESCE(sc.show_count, 0) as upcoming_show_count, ps.last_show_date as last_show_date").
+			Joins("LEFT JOIN (?) as sc ON artists.id = sc.artist_id", upcomingSubquery).
+			Joins("LEFT JOIN (?) as ps ON artists.id = ps.artist_id", pastSubquery)
+	} else {
+		// Gated mode (default for unfiltered /artists): INNER JOIN so only
+		// artists with upcoming shows are returned. last_show_date is NULL
+		// in this path — the card renders an upcoming count anyway.
+		query = s.db.Table("artists").
+			Select("artists.*, COALESCE(sc.show_count, 0) as upcoming_show_count, NULL as last_show_date").
+			Joins("JOIN (?) as sc ON artists.id = sc.artist_id", upcomingSubquery)
+	}
 
 	// Apply filters
 	if cities, ok := filters["cities"].([]map[string]string); ok && len(cities) > 0 {
@@ -383,10 +416,15 @@ func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{})
 	// Build responses
 	responses := make([]*contracts.ArtistWithShowCountResponse, len(artistsWithCount))
 	for i, ac := range artistsWithCount {
-		responses[i] = &contracts.ArtistWithShowCountResponse{
+		resp := &contracts.ArtistWithShowCountResponse{
 			ArtistDetailResponse: *s.buildArtistResponse(&ac.Artist),
 			UpcomingShowCount:    int(ac.UpcomingShowCount),
 		}
+		if ac.LastShowDate != nil {
+			ts := ac.LastShowDate.UTC()
+			resp.LastShowDate = &ts
+		}
+		responses[i] = resp
 	}
 
 	return responses, nil

@@ -12,6 +12,34 @@ interface ArtistCardProps {
   density?: ArtistCardDensity
 }
 
+// Format an ISO timestamp as "Mon YYYY" for the "last show" hint
+// (e.g. "Mar 2024"). Returns null on unparseable input so the card can
+// gracefully fall back to just "No upcoming shows".
+function formatLastShowMonth(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleString('en-US', { month: 'short', year: 'numeric' })
+}
+
+// Build the "upcoming shows" affordance string. When the artist has upcoming
+// shows, we show the count (current behavior). When the artist has none
+// (PSY-495 Bandcamp model — dormant artists surfaced via tag filter), we
+// show "No upcoming shows" and, if known, the last past-show month so the
+// visitor sees the artist is real, just inactive, not broken.
+function upcomingLabel(artist: ArtistListItem, short: boolean): string {
+  if (artist.upcoming_show_count > 0) {
+    return short
+      ? `${artist.upcoming_show_count} upcoming`
+      : `${artist.upcoming_show_count} upcoming shows`
+  }
+  const lastShow = formatLastShowMonth(artist.last_show_date)
+  if (lastShow) {
+    return `No upcoming shows · last show ${lastShow}`
+  }
+  return 'No upcoming shows'
+}
+
 export function ArtistCard({ artist, density = 'comfortable' }: ArtistCardProps) {
   const hasLocation = artist.city || artist.state
   const location = hasLocation ? getArtistLocation(artist) : null
@@ -29,7 +57,7 @@ export function ArtistCard({ artist, density = 'comfortable' }: ArtistCardProps)
           <span className="text-xs text-muted-foreground shrink-0">{location}</span>
         )}
         <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
-          {artist.upcoming_show_count} upcoming
+          {upcomingLabel(artist, true)}
         </span>
       </article>
     )
@@ -52,7 +80,7 @@ export function ArtistCard({ artist, density = 'comfortable' }: ArtistCardProps)
           )}
           <span className="flex items-center gap-1.5">
             <Music className="h-3.5 w-3.5 shrink-0" />
-            {artist.upcoming_show_count} upcoming shows
+            {upcomingLabel(artist, false)}
           </span>
         </div>
       </article>
@@ -71,7 +99,7 @@ export function ArtistCard({ artist, density = 'comfortable' }: ArtistCardProps)
       <div className="mt-2 space-y-1">
         <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
           <Music className="h-3.5 w-3.5 shrink-0" />
-          <span>{artist.upcoming_show_count} upcoming</span>
+          <span>{upcomingLabel(artist, true)}</span>
         </div>
 
         {hasLocation && (

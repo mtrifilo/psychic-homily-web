@@ -51,10 +51,40 @@ describe('ArtistCard', () => {
     expect(screen.getByText('5 upcoming')).toBeInTheDocument()
   })
 
-  it('renders zero upcoming shows', () => {
-    renderWithProviders(<ArtistCard artist={makeArtist({ upcoming_show_count: 0 })} />)
+  it('renders "No upcoming shows" hint when count is zero and no last-show date (PSY-495)', () => {
+    renderWithProviders(
+      <ArtistCard artist={makeArtist({ upcoming_show_count: 0 })} />
+    )
 
-    expect(screen.getByText('0 upcoming')).toBeInTheDocument()
+    expect(screen.getByText('No upcoming shows')).toBeInTheDocument()
+  })
+
+  it('renders "No upcoming shows · last show Mon YYYY" when last_show_date is known (PSY-495)', () => {
+    renderWithProviders(
+      <ArtistCard
+        artist={makeArtist({
+          upcoming_show_count: 0,
+          last_show_date: '2024-03-15T00:00:00Z',
+        })}
+      />
+    )
+
+    expect(
+      screen.getByText('No upcoming shows · last show Mar 2024')
+    ).toBeInTheDocument()
+  })
+
+  it('falls back to plain "No upcoming shows" when last_show_date is unparseable', () => {
+    renderWithProviders(
+      <ArtistCard
+        artist={makeArtist({
+          upcoming_show_count: 0,
+          last_show_date: 'not-a-date',
+        })}
+      />
+    )
+
+    expect(screen.getByText('No upcoming shows')).toBeInTheDocument()
   })
 
   it('renders location with city and state', () => {
