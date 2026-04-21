@@ -284,3 +284,112 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report/
           retention-days: 7
+
+  # PSY-411: post-merge CI failures on `main` used to silently go
+  # unnoticed — the 000071 duplicate-migration collision lived on main
+  # for 7 hours before anyone saw it. Branch protection gates PR-branch
+  # CI, but the full E2E suite (sharded) only runs post-merge per
+  # PSY-446's smoke/full split, so a merge-commit failure doesn't block
+  # anything and doesn't page anyone.
+  #
+  # This job files a GitHub issue on any main-branch CI failure.
+  # Dedupes against the commit SHA so rerun storms don't spam. No
+  # external config — uses the built-in GITHUB_TOKEN.
+  notify-main-failure:
+    name: Notify on main CI failure
+    # `always()` so this runs even when upstream `needs:` failed — the
+    # whole point. Scoped to main-branch push events (not PRs).
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.migration-lint.result == 'failure' || needs.migration-reversibility.result == 'failure' || needs.backend-tests.result == 'failure' || needs.frontend-unit-tests.result == 'failure' || needs.e2e-tests.result == 'failure' || needs.e2e-report.result == 'failure') }}
+    needs:
+      - migration-lint
+      - migration-reversibility
+      - backend-tests
+      - frontend-unit-tests
+      - e2e-tests
+      - e2e-report
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: File or dedupe tracking issue
+        uses: actions/github-script@v7
+        env:
+          RES_MIGRATION_LINT: ${{ needs.migration-lint.result }}
+          RES_MIGRATION_REVERSIBILITY: ${{ needs.migration-reversibility.result }}
+          RES_BACKEND_TESTS: ${{ needs.backend-tests.result }}
+          RES_FRONTEND_UNIT: ${{ needs.frontend-unit-tests.result }}
+          RES_E2E_TESTS: ${{ needs.e2e-tests.result }}
+          RES_E2E_REPORT: ${{ needs.e2e-report.result }}
+        with:
+          script: |
+            const shortSha = context.sha.substring(0, 7)
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            const commitUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${context.sha}`
+
+            // Dedupe: skip if an open `main-ci-failure` issue already
+            // references this SHA. Catches retries of the same failing run.
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'main-ci-failure',
+              state: 'open',
+              per_page: 50,
+            })
+            if (existing.some(i => i.title.includes(shortSha))) {
+              core.info(`Open issue already references ${shortSha}; skipping.`)
+              return
+            }
+
+            const results = {
+              'Migration Lint': process.env.RES_MIGRATION_LINT,
+              'Migration Reversibility': process.env.RES_MIGRATION_REVERSIBILITY,
+              'Backend Tests': process.env.RES_BACKEND_TESTS,
+              'Frontend Unit Tests': process.env.RES_FRONTEND_UNIT,
+              'E2E Tests (sharded)': process.env.RES_E2E_TESTS,
+              'E2E Merged Report': process.env.RES_E2E_REPORT,
+            }
+            const failed = Object.entries(results)
+              .filter(([_, r]) => r === 'failure')
+              .map(([name]) => name)
+
+            // Fetch commit metadata for author + subject. Nice-to-have —
+            // file the issue even if this call fails.
+            let authorLine = ''
+            let commitSubject = shortSha
+            try {
+              const { data: commit } = await github.rest.repos.getCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: context.sha,
+              })
+              commitSubject = commit.commit.message.split('\n')[0]
+              const login = commit.author && commit.author.login
+              authorLine = login
+                ? `Triggered by: @${login}`
+                : `Commit author: ${commit.commit.author.name}`
+            } catch (err) {
+              core.warning(`Failed to fetch commit metadata: ${err.message}`)
+            }
+
+            const title = `Main CI failed: ${commitSubject.slice(0, 80)} (${shortSha})`
+            const body = [
+              `Post-merge CI on \`main\` failed.`,
+              '',
+              `**Failing jobs:** ${failed.join(', ') || '(none reported as "failure"; check the run directly)'}`,
+              `**Run:** ${runUrl}`,
+              `**Commit:** ${commitUrl}`,
+              authorLine,
+              '',
+              '---',
+              '',
+              'Filed automatically by the `notify-main-failure` job (PSY-411). Close once the root cause is understood (revert, hotfix, or flake). A new issue will file automatically on the next failing run against a different commit.',
+            ].filter(Boolean).join('\n')
+
+            const { data: created } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['main-ci-failure'],
+            })
+            core.info(`Filed issue #${created.number}: ${created.html_url}`)
