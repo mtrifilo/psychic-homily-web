@@ -1,14 +1,12 @@
 'use client'
 
-import { useState, useCallback, useMemo, useTransition, useRef, useEffect } from 'react'
+import { useState, useCallback, useMemo, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useVenues, useVenueCities } from '../hooks/useVenues'
-import { useProfile, useIsAuthenticated } from '@/features/auth'
 import type { VenueWithShowCount } from '../types'
 import { VenueCard } from './VenueCard'
 import { VenueSearch } from './VenueSearch'
 import { CityFilters, type CityWithCount, type CityState } from '@/components/filters'
-import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
 import { LoadingSpinner } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -37,22 +35,17 @@ function buildCitiesParam(cities: CityState[]): string {
   return cities.map(c => `${c.city},${c.state}`).join('|')
 }
 
-/** Compare two city arrays for equality (order-insensitive) */
-function citiesEqual(a: CityState[], b: CityState[]): boolean {
-  if (a.length !== b.length) return false
-  const setA = new Set(a.map(c => `${c.city}|${c.state}`))
-  return b.every(c => setA.has(`${c.city}|${c.state}`))
-}
-
 export function VenueList() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { isAuthenticated } = useIsAuthenticated()
   const [isPending, startTransition] = useTransition()
-  const { data: profileData } = useProfile()
-  const hasAppliedDefaults = useRef(false)
   const [offset, setOffset] = useState(0)
   const [accumulatedVenues, setAccumulatedVenues] = useState<VenueWithShowCount[]>([])
+
+  // PSY-496: city filter is page-scoped — we don't auto-apply the user's
+  // profile-level favorite_cities here. Favorites are shows-centric (the
+  // canonical homepage). Users can still filter by city on /venues manually —
+  // the URL drives state.
 
   // Parse multi-city from URL
   const citiesParam = searchParams.get('cities')
@@ -65,29 +58,6 @@ export function VenueList() {
   const tagMatchParam = searchParams.get('tag_match')
   const selectedTags = useMemo(() => parseTagsParam(tagsParam), [tagsParam])
   const tagMatch: 'all' | 'any' = tagMatchParam === 'any' ? 'any' : 'all'
-
-  // Read favorites from profile
-  const favoriteCities: CityState[] = useMemo(() => {
-    const prefs = profileData?.user?.preferences
-    if (!prefs?.favorite_cities) return []
-    return prefs.favorite_cities
-  }, [profileData?.user?.preferences])
-
-  // Apply favorites as default URL params on initial load (no URL params + not yet applied)
-  useEffect(() => {
-    if (
-      !hasAppliedDefaults.current &&
-      favoriteCities.length > 0 &&
-      !citiesParam
-    ) {
-      hasAppliedDefaults.current = true
-      const params = new URLSearchParams()
-      params.set('cities', buildCitiesParam(favoriteCities))
-      startTransition(() => {
-        router.replace(`/venues?${params.toString()}`, { scroll: false })
-      })
-    }
-  }, [favoriteCities, citiesParam, router])
 
   const { data: citiesData, isLoading: citiesLoading, isFetching: citiesFetching } = useVenueCities()
   const { data, isLoading, isFetching, error, refetch } = useVenues({
@@ -168,9 +138,6 @@ export function VenueList() {
     )
   }
 
-  // Determine if "Save as default" / "Clear defaults" should show
-  const selectionDiffersFromFavorites = !citiesEqual(selectedCities, favoriteCities)
-
   // Map VenueCity to CityWithCount
   const cities: CityWithCount[] = citiesData?.cities?.map(c => ({
     city: c.city,
@@ -187,14 +154,7 @@ export function VenueList() {
             cities={cities}
             selectedCities={selectedCities}
             onFilterChange={handleFilterChange}
-          >
-            {isAuthenticated && selectionDiffersFromFavorites && (
-              <SaveDefaultsButton
-                selectedCities={selectedCities}
-                favoriteCities={favoriteCities}
-              />
-            )}
-          </CityFilters>
+          />
         )}
       </div>
 
