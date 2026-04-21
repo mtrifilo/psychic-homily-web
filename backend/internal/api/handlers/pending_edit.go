@@ -53,6 +53,10 @@ var allowedEditFields = map[string]map[string]bool{
 		"city": true, "state": true, "country": true,
 		"website": true, "ticket_url": true, "flyer_url": true,
 	},
+	"release": {
+		"title": true, "release_year": true, "release_date": true,
+		"release_type": true, "cover_art_url": true, "description": true,
+	},
 }
 
 // canEditDirectly returns true if the user can bypass the pending queue.
@@ -100,6 +104,11 @@ func (h *PendingEditHandler) SuggestVenueEditHandler(ctx context.Context, req *S
 // SuggestFestivalEditHandler handles PUT /festivals/{entity_id}/suggest-edit
 func (h *PendingEditHandler) SuggestFestivalEditHandler(ctx context.Context, req *SuggestEntityEditRequest) (*SuggestEntityEditResponse, error) {
 	return h.suggestEdit(ctx, "festival", req)
+}
+
+// SuggestReleaseEditHandler handles PUT /releases/{entity_id}/suggest-edit
+func (h *PendingEditHandler) SuggestReleaseEditHandler(ctx context.Context, req *SuggestEntityEditRequest) (*SuggestEntityEditResponse, error) {
+	return h.suggestEdit(ctx, "release", req)
 }
 
 // suggestEdit is the shared implementation for all suggest-edit endpoints.
@@ -290,7 +299,7 @@ func (h *PendingEditHandler) CancelMyPendingEditHandler(ctx context.Context, req
 // AdminListPendingEditsRequest is the Huma request for GET /admin/pending-edits
 type AdminListPendingEditsRequest struct {
 	Status     string `query:"status" required:"false" doc:"Filter by status (pending, approved, rejected)"`
-	EntityType string `query:"entity_type" required:"false" doc:"Filter by entity type (artist, venue, festival)"`
+	EntityType string `query:"entity_type" required:"false" doc:"Filter by entity type (artist, venue, festival, release)"`
 	Limit      int    `query:"limit" required:"false" doc:"Max results (default 20, max 100)"`
 	Offset     int    `query:"offset" required:"false" doc:"Offset for pagination"`
 }
@@ -492,7 +501,7 @@ func (h *PendingEditHandler) AdminRejectPendingEditHandler(ctx context.Context, 
 
 // AdminGetEntityPendingEditsRequest is the Huma request for GET /admin/pending-edits/entity/{entity_type}/{entity_id}
 type AdminGetEntityPendingEditsRequest struct {
-	EntityType string `path:"entity_type" doc:"Entity type (artist, venue, festival)"`
+	EntityType string `path:"entity_type" doc:"Entity type (artist, venue, festival, release)"`
 	EntityID   string `path:"entity_id" doc:"Entity ID"`
 }
 

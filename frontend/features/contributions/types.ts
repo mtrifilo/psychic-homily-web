@@ -30,7 +30,7 @@ export interface DataQualityItem {
 
 export type PendingEditStatus = 'pending' | 'approved' | 'rejected'
 
-export type EditableEntityType = 'artist' | 'venue' | 'festival'
+export type EditableEntityType = 'artist' | 'venue' | 'festival' | 'release' | 'label'
 
 export interface FieldChange {
   field: string
@@ -165,5 +165,29 @@ export const EDITABLE_FIELDS: Record<EditableEntityType, EditableField[]> = {
     { key: 'website', label: 'Website', type: 'url', placeholder: 'https://...', group: 'info' },
     { key: 'ticket_url', label: 'Ticket URL', type: 'url', placeholder: 'https://...', group: 'info' },
     { key: 'flyer_url', label: 'Flyer URL', type: 'url', placeholder: 'https://...', group: 'info' },
+  ],
+  release: [
+    { key: 'title', label: 'Title', type: 'text', group: 'info' },
+    { key: 'release_type', label: 'Release Type', type: 'text', placeholder: 'lp, ep, single, compilation, live, remix, demo', group: 'info' },
+    { key: 'release_year', label: 'Release Year', type: 'text', placeholder: '1991', group: 'info' },
+    { key: 'release_date', label: 'Release Date', type: 'text', placeholder: 'YYYY-MM-DD', group: 'info' },
+    { key: 'cover_art_url', label: 'Cover Art URL', type: 'url', placeholder: 'https://...', group: 'info' },
+    { key: 'description', label: 'Description', type: 'textarea', group: 'details' },
+  ],
+  label: [
+    { key: 'name', label: 'Name', type: 'text', group: 'info' },
+    { key: 'founded_year', label: 'Founded Year', type: 'text', placeholder: '1985', group: 'info' },
+    { key: 'city', label: 'City', type: 'text', group: 'info' },
+    { key: 'state', label: 'State', type: 'text', group: 'info' },
+    { key: 'country', label: 'Country', type: 'text', group: 'info' },
+    { key: 'description', label: 'Description', type: 'textarea', group: 'details' },
+    { key: 'instagram', label: 'Instagram', type: 'url', placeholder: 'https://instagram.com/...', group: 'social' },
+    { key: 'facebook', label: 'Facebook', type: 'url', placeholder: 'https://facebook.com/...', group: 'social' },
+    { key: 'twitter', label: 'X / Twitter', type: 'url', placeholder: 'https://x.com/...', group: 'social' },
+    { key: 'youtube', label: 'YouTube', type: 'url', placeholder: 'https://youtube.com/...', group: 'social' },
+    { key: 'spotify', label: 'Spotify', type: 'url', placeholder: 'https://open.spotify.com/...', group: 'social' },
+    { key: 'soundcloud', label: 'SoundCloud', type: 'url', placeholder: 'https://soundcloud.com/...', group: 'social' },
+    { key: 'bandcamp', label: 'Bandcamp', type: 'url', placeholder: 'https://....bandcamp.com', group: 'social' },
+    { key: 'website', label: 'Website', type: 'url', placeholder: 'https://...', group: 'social' },
   ],
 }

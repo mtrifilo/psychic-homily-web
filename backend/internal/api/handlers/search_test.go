@@ -24,7 +24,7 @@ func TestSearchReleases_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	h := NewReleaseHandler(mock, nil, nil)
+	h := NewReleaseHandler(mock, nil, nil, nil)
 
 	resp, err := h.SearchReleasesHandler(context.Background(), &SearchReleasesRequest{Query: "nevermind"})
 	if err != nil {
@@ -44,7 +44,7 @@ func TestSearchReleases_EmptyQuery(t *testing.T) {
 			return []*contracts.ReleaseListResponse{}, nil
 		},
 	}
-	h := NewReleaseHandler(mock, nil, nil)
+	h := NewReleaseHandler(mock, nil, nil, nil)
 
 	resp, err := h.SearchReleasesHandler(context.Background(), &SearchReleasesRequest{Query: ""})
 	if err != nil {
@@ -61,7 +61,7 @@ func TestSearchReleases_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewReleaseHandler(mock, nil, nil)
+	h := NewReleaseHandler(mock, nil, nil, nil)
 
 	_, err := h.SearchReleasesHandler(context.Background(), &SearchReleasesRequest{Query: "test"})
 	if err == nil {

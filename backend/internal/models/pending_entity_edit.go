@@ -19,6 +19,7 @@ const (
 	PendingEditEntityArtist   = "artist"
 	PendingEditEntityVenue    = "venue"
 	PendingEditEntityFestival = "festival"
+	PendingEditEntityRelease  = "release"
 )
 
 // PendingEntityEdit represents a proposed edit to an entity awaiting review.
@@ -46,7 +47,12 @@ func (PendingEntityEdit) TableName() string { return "pending_entity_edits" }
 
 // ValidEntityTypes returns the set of entity types that support pending edits.
 func ValidPendingEditEntityTypes() []string {
-	return []string{PendingEditEntityArtist, PendingEditEntityVenue, PendingEditEntityFestival}
+	return []string{
+		PendingEditEntityArtist,
+		PendingEditEntityVenue,
+		PendingEditEntityFestival,
+		PendingEditEntityRelease,
+	}
 }
 
 // IsValidPendingEditEntityType checks if the given entity type supports pending edits.
