@@ -84,6 +84,15 @@ scripts/test-runner/test-runner
 # Claude Code worktrees
 .claude/worktrees/
 
+# Claude Code runtime state
+.claude/scheduled_tasks.lock
+
+# Local-only skill (not ready to share)
+.claude/skills/psy-ticket/
+
+# Playwright blob-reporter output (CI-only reporter; local artifacts)
+frontend/blob-report/
+
 # Dogfood QA output
 dogfood-output*/
 
