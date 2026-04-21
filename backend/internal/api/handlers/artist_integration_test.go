@@ -157,6 +157,106 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_CityFilter() {
 	s.Equal("Phoenix Band", resp.Body.Artists[0].Name)
 }
 
+// --- ListArtists with Tag Filter (PSY-495) ---
+
+// tagArtist is a low-level helper that tags an existing artist with the given
+// tag slug, creating the tag row and entity_tags row if needed. It does NOT
+// bump tags.usage_count — PSY-495 tests only exercise the tag-filter query
+// path, not the count-rollup trigger.
+func (s *ArtistHandlerIntegrationSuite) tagArtist(artistID uint, tagSlug string) {
+	// upsert tag
+	var tag models.Tag
+	if err := s.deps.db.Where("slug = ?", tagSlug).First(&tag).Error; err != nil {
+		tag = models.Tag{
+			Name:     tagSlug,
+			Slug:     tagSlug,
+			Category: models.TagCategoryGenre,
+		}
+		s.Require().NoError(s.deps.db.Create(&tag).Error)
+	}
+
+	// need an AddedByUserID: grab or create a throwaway user
+	adder := createTestUser(s.deps.db)
+
+	entityTag := models.EntityTag{
+		TagID:         tag.ID,
+		EntityType:    models.TagEntityArtist,
+		EntityID:      artistID,
+		AddedByUserID: adder.ID,
+	}
+	s.Require().NoError(s.deps.db.Create(&entityTag).Error)
+}
+
+// TestListArtists_TagFilter_DropsActivityGate is the PSY-495 contract.
+// Without a tag filter, /artists gates on "has upcoming shows". With a tag
+// filter engaged, we follow the Bandcamp model — every artist tagged `X`
+// surfaces, active or not. Facet-chip count parity is what the fix is for.
+func (s *ArtistHandlerIntegrationSuite) TestListArtists_TagFilter_DropsActivityGate() {
+	// Three artists tagged `punk`: one with an upcoming show, two without
+	activeID := s.createArtistWithUpcomingShow("Punk Active Band")
+	inactiveID1 := s.createArtistViaService("Punk Dormant One")
+	inactiveID2 := s.createArtistViaService("Punk Dormant Two")
+
+	s.tagArtist(activeID, "punk")
+	s.tagArtist(inactiveID1, "punk")
+	s.tagArtist(inactiveID2, "punk")
+
+	// One artist tagged `rock` to make sure the filter actually narrows
+	s.createArtistWithUpcomingShow("Rock Noise")
+
+	// With no tag filter: default activity gate applies → only the active
+	// punk band and the rock band show up (2 total)
+	unfiltered, err := s.handler.ListArtistsHandler(s.deps.ctx, &ListArtistsRequest{})
+	s.Require().NoError(err)
+	s.Equal(2, unfiltered.Body.Count, "unfiltered list should exclude dormant artists")
+
+	// With tags=punk: activity gate drops → all 3 punk-tagged artists
+	// surface regardless of upcoming-show status (facet count parity)
+	req := &ListArtistsRequest{Tags: "punk"}
+	resp, err := s.handler.ListArtistsHandler(s.deps.ctx, req)
+	s.Require().NoError(err)
+	s.Equal(3, resp.Body.Count, "tag-filtered list must return all 3 punk artists")
+
+	// Sort order: upcoming_show_count DESC, then name ASC. The active band
+	// sits first; the two dormant ones follow in alphabetical order.
+	s.Equal("Punk Active Band", resp.Body.Artists[0].Name)
+	s.Equal(1, resp.Body.Artists[0].UpcomingShowCount)
+	s.Equal("Punk Dormant One", resp.Body.Artists[1].Name)
+	s.Equal(0, resp.Body.Artists[1].UpcomingShowCount)
+	s.Equal("Punk Dormant Two", resp.Body.Artists[2].Name)
+	s.Equal(0, resp.Body.Artists[2].UpcomingShowCount)
+}
+
+// TestListArtists_TagFilter_SurfacesLastShowDate verifies that evergreen mode
+// populates `last_show_date` for dormant artists so cards can render a
+// "no upcoming shows · last show <Mon Year>" affordance.
+func (s *ArtistHandlerIntegrationSuite) TestListArtists_TagFilter_SurfacesLastShowDate() {
+	dormantID := s.createArtistViaService("Old Shoegaze Band")
+	// Give the dormant artist a past approved show 400 days ago
+	user := createTestUser(s.deps.db)
+	venue := createVerifiedVenue(s.deps.db, "Past Venue", "Phoenix", "AZ")
+	pastShow := &models.Show{
+		Title:       "Past Gig",
+		EventDate:   time.Now().UTC().AddDate(0, 0, -400),
+		City:        stringPtr("Phoenix"),
+		State:       stringPtr("AZ"),
+		Status:      models.ShowStatusApproved,
+		SubmittedBy: &user.ID,
+	}
+	s.deps.db.Create(pastShow)
+	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", pastShow.ID, venue.ID)
+	s.deps.db.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", pastShow.ID, dormantID)
+
+	s.tagArtist(dormantID, "shoegaze")
+
+	resp, err := s.handler.ListArtistsHandler(s.deps.ctx, &ListArtistsRequest{Tags: "shoegaze"})
+	s.Require().NoError(err)
+	s.Equal(1, resp.Body.Count)
+	s.Equal("Old Shoegaze Band", resp.Body.Artists[0].Name)
+	s.Equal(0, resp.Body.Artists[0].UpcomingShowCount)
+	s.Require().NotNil(resp.Body.Artists[0].LastShowDate, "last_show_date should populate for dormant artists in evergreen mode")
+}
+
 // --- GetArtistHandler ---
 
 func (s *ArtistHandlerIntegrationSuite) TestGetArtist_ByID() {

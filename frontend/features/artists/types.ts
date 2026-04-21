@@ -56,6 +56,14 @@ export interface ArtistCitiesResponse {
 
 export interface ArtistListItem extends Artist {
   upcoming_show_count: number
+  /**
+   * Most recent past approved show date (ISO string). Only populated when the
+   * backend is running in evergreen mode — i.e. when the list was requested
+   * with a tag filter (PSY-495 Bandcamp model). Undefined on the default
+   * activity-gated /artists landing because those artists always have at
+   * least one upcoming show.
+   */
+  last_show_date?: string | null
 }
 
 export interface ArtistsListResponse {

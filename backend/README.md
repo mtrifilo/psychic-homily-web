@@ -124,6 +124,7 @@ The database connection is configured for Docker networking (`db:5432`) when run
 ## Test-only env flags
 
 - **`ENABLE_TEST_FIXTURES=1`** (PSY-432): registers the admin-only `POST /admin/test-fixtures/reset` endpoint used by Playwright worker teardown to wipe a test user's mutable rows. The server **refuses to boot** with this flag set unless `ENVIRONMENT` is `test`, `ci`, or `development` (default-deny — any other value including unset, `production`, `staging`, `preview` causes startup to fail). The endpoint itself also requires an admin JWT, the `X-Test-Fixtures: 1` header, and a target user whose email ends in `@test.local`. Local dev normally leaves this flag unset; E2E global-setup enables it when spawning its private backend.
+- **`DISABLE_AUTH_RATE_LIMITS=1`** (PSY-475): replaces the IP-scoped auth (10/min) + passkey (20/min) rate limiters with no-op middleware. Same default-deny `ENVIRONMENT` gate — startup panics if the flag is on in `production`/`staging`/`preview`/unset. Exists because all parallel Playwright workers share `127.0.0.1`, exhausting the per-IP budget and intermittently flaking `register.spec.ts` + `magic-link.spec.ts`. Production + staging keep the limiters; only test-env skips them.
 
 ## Deployment commands to run
 
