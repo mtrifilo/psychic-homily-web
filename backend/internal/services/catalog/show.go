@@ -309,7 +309,14 @@ func (s *ShowService) GetShows(filters map[string]interface{}) ([]*contracts.Sho
 		query = query.Where("event_date <= ?", toDate.UTC())
 	}
 	if tf, ok := filters["tag_filter"].(TagFilter); ok {
-		query = ApplyTagFilter(query, s.db, models.TagEntityShow, "shows.id", tf)
+		// PSY-499: Shows are not directly tagged with genre/locale tags — they
+		// inherit meaning from the billed artists. Filter shows whose lineup
+		// includes artists matching the tag filter.
+		query = ApplyTransitiveArtistTagFilter(
+			query, s.db,
+			"show_artists", "show_id", "artist_id",
+			"shows.id", tf,
+		)
 	}
 
 	// Default ordering by event date
@@ -711,10 +718,18 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 			}
 		}
 		if len(filters.TagSlugs) > 0 {
-			query = ApplyTagFilter(query, s.db, models.TagEntityShow, "shows.id", TagFilter{
-				TagSlugs: filters.TagSlugs,
-				MatchAny: filters.TagMatchAny,
-			})
+			// PSY-499: Transitive artist-based tag filtering — shows match when
+			// any billed artist has the tag. Direct `entity_type='show'` tags
+			// are ignored because shows are not directly tagged with genres.
+			query = ApplyTransitiveArtistTagFilter(
+				query, s.db,
+				"show_artists", "show_id", "artist_id",
+				"shows.id",
+				TagFilter{
+					TagSlugs: filters.TagSlugs,
+					MatchAny: filters.TagMatchAny,
+				},
+			)
 		}
 	}
 

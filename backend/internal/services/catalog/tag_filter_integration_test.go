@@ -221,6 +221,12 @@ func (s *TagFilterIntegrationTestSuite) TestArtists_UnknownTagReturnsEmpty() {
 
 // ──────────────────────────────────────────────
 // Show tests (GetShows / GetUpcomingShows)
+//
+// PSY-499: Shows are filtered transitively via billed artist tags — direct
+// `entity_type='show'` tags are no longer honored by the filter because
+// nobody manually tags shows with genres. Each test seeds an artist (tagged
+// on the `artist` entity type) and a show that includes that artist on the
+// bill via `show_artists`, then asserts the filter finds the show.
 // ──────────────────────────────────────────────
 
 func (s *TagFilterIntegrationTestSuite) seedShow(title string, eventDate time.Time) uint {
@@ -234,12 +240,37 @@ func (s *TagFilterIntegrationTestSuite) seedShow(title string, eventDate time.Ti
 	return show.ID
 }
 
-func (s *TagFilterIntegrationTestSuite) TestShows_GetShows_AND() {
+// seedArtist creates an artist with a unique slug. Used to build a show
+// lineup whose tags drive the transitive filter.
+func (s *TagFilterIntegrationTestSuite) seedArtist(name string) uint {
+	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
+	a := &models.Artist{Name: name, Slug: &slug}
+	s.Require().NoError(s.db.Create(a).Error)
+	return a.ID
+}
+
+// addArtistToShow attaches an artist to a show's lineup with the given bill
+// position (0 = headliner).
+func (s *TagFilterIntegrationTestSuite) addArtistToShow(showID, artistID uint, position int) {
+	s.Require().NoError(s.db.Create(&models.ShowArtist{
+		ShowID: showID, ArtistID: artistID, Position: position,
+	}).Error)
+}
+
+func (s *TagFilterIntegrationTestSuite) TestShows_GetShows_AND_Transitive() {
+	// Show A: lineup collectively covers both tags (post-punk + phoenix)
+	// Show B: lineup only covers post-punk
 	sA := s.seedShow("A", time.Now().Add(24*time.Hour).UTC())
 	sB := s.seedShow("B", time.Now().Add(24*time.Hour).UTC())
-	s.tag("show", sA, "post-punk")
-	s.tag("show", sA, "phoenix")
-	s.tag("show", sB, "post-punk")
+	aPP := s.seedArtist("ArtistPP")
+	aPhx := s.seedArtist("ArtistPhx")
+	aPPOnly := s.seedArtist("ArtistPPOnly")
+	s.addArtistToShow(sA, aPP, 0)
+	s.addArtistToShow(sA, aPhx, 1)
+	s.addArtistToShow(sB, aPPOnly, 0)
+	s.tag("artist", aPP, "post-punk")
+	s.tag("artist", aPhx, "phoenix")
+	s.tag("artist", aPPOnly, "post-punk")
 
 	resp, err := s.showService.GetShows(map[string]interface{}{
 		"tag_filter": TagFilter{TagSlugs: []string{"post-punk", "phoenix"}},
@@ -249,12 +280,20 @@ func (s *TagFilterIntegrationTestSuite) TestShows_GetShows_AND() {
 	s.Equal("A", resp[0].Title)
 }
 
-func (s *TagFilterIntegrationTestSuite) TestShows_GetUpcomingShows_AND() {
+func (s *TagFilterIntegrationTestSuite) TestShows_GetUpcomingShows_AND_Transitive() {
+	// Show Upcoming-A: lineup covers both post-punk + shoegaze
+	// Show Upcoming-B: lineup only covers post-punk
 	sA := s.seedShow("Upcoming-A", time.Now().Add(2*24*time.Hour).UTC())
 	sB := s.seedShow("Upcoming-B", time.Now().Add(2*24*time.Hour).UTC())
-	s.tag("show", sA, "post-punk")
-	s.tag("show", sA, "shoegaze")
-	s.tag("show", sB, "post-punk")
+	aPP := s.seedArtist("UPP")
+	aSG := s.seedArtist("USG")
+	aPPOnly := s.seedArtist("UPPOnly")
+	s.addArtistToShow(sA, aPP, 0)
+	s.addArtistToShow(sA, aSG, 1)
+	s.addArtistToShow(sB, aPPOnly, 0)
+	s.tag("artist", aPP, "post-punk")
+	s.tag("artist", aSG, "shoegaze")
+	s.tag("artist", aPPOnly, "post-punk")
 
 	resp, _, err := s.showService.GetUpcomingShows("UTC", "", 50, false, &contracts.UpcomingShowsFilter{
 		TagSlugs: []string{"post-punk", "shoegaze"},
@@ -264,13 +303,19 @@ func (s *TagFilterIntegrationTestSuite) TestShows_GetUpcomingShows_AND() {
 	s.Equal("Upcoming-A", resp[0].Title)
 }
 
-func (s *TagFilterIntegrationTestSuite) TestShows_GetUpcomingShows_OR() {
+func (s *TagFilterIntegrationTestSuite) TestShows_GetUpcomingShows_OR_Transitive() {
+	// Shows A + B both have one matching artist each; C has none.
 	sA := s.seedShow("OR-A", time.Now().Add(2*24*time.Hour).UTC())
 	sB := s.seedShow("OR-B", time.Now().Add(2*24*time.Hour).UTC())
 	sC := s.seedShow("OR-C", time.Now().Add(2*24*time.Hour).UTC())
-	s.tag("show", sA, "post-punk")
-	s.tag("show", sB, "shoegaze")
-	_ = sC
+	aPP := s.seedArtist("ORPP")
+	aSG := s.seedArtist("ORSG")
+	aNone := s.seedArtist("ORNone")
+	s.addArtistToShow(sA, aPP, 0)
+	s.addArtistToShow(sB, aSG, 0)
+	s.addArtistToShow(sC, aNone, 0)
+	s.tag("artist", aPP, "post-punk")
+	s.tag("artist", aSG, "shoegaze")
 
 	resp, _, err := s.showService.GetUpcomingShows("UTC", "", 50, false, &contracts.UpcomingShowsFilter{
 		TagSlugs:    []string{"post-punk", "shoegaze"},
@@ -278,6 +323,83 @@ func (s *TagFilterIntegrationTestSuite) TestShows_GetUpcomingShows_OR() {
 	})
 	s.Require().NoError(err)
 	s.Require().Len(resp, 2)
+}
+
+// TestShows_SingleTag_Transitive is the canonical PSY-499 scenario: a single
+// genre tag on an artist surfaces every show that artist is billed on, even
+// when the show itself has no direct `entity_type='show'` tag. This mirrors
+// the dogfood repro: `/shows?tags=shoegaze` should return the 3 Faetooth
+// shows when Faetooth (an artist) is tagged `shoegaze`.
+func (s *TagFilterIntegrationTestSuite) TestShows_SingleTag_Transitive() {
+	sA := s.seedShow("Shoegaze-A", time.Now().Add(2*24*time.Hour).UTC())
+	sB := s.seedShow("Shoegaze-B", time.Now().Add(3*24*time.Hour).UTC())
+	sC := s.seedShow("Shoegaze-C", time.Now().Add(4*24*time.Hour).UTC())
+	sX := s.seedShow("Other-X", time.Now().Add(2*24*time.Hour).UTC())
+	faetooth := s.seedArtist("Faetooth")
+	other := s.seedArtist("Other")
+	s.addArtistToShow(sA, faetooth, 0)
+	s.addArtistToShow(sB, faetooth, 0)
+	s.addArtistToShow(sC, faetooth, 0)
+	s.addArtistToShow(sX, other, 0)
+	s.tag("artist", faetooth, "shoegaze")
+	// Intentionally do NOT tag show X directly with anything; filter should
+	// still exclude it because the transitive filter ignores show-level tags.
+
+	resp, _, err := s.showService.GetUpcomingShows("UTC", "", 50, false, &contracts.UpcomingShowsFilter{
+		TagSlugs: []string{"shoegaze"},
+	})
+	s.Require().NoError(err)
+	s.Require().Len(resp, 3)
+	titles := map[string]bool{}
+	for _, r := range resp {
+		titles[r.Title] = true
+	}
+	s.True(titles["Shoegaze-A"])
+	s.True(titles["Shoegaze-B"])
+	s.True(titles["Shoegaze-C"])
+}
+
+// TestShows_DirectTagNotSufficient verifies the semantics flip: directly
+// tagging a show with `entity_type='show'` is intentionally a no-op for the
+// filter (PSY-499). Direct show-level tags coexist harmlessly but don't
+// drive discovery — only lineup artist tags do.
+func (s *TagFilterIntegrationTestSuite) TestShows_DirectTagNotSufficient() {
+	sA := s.seedShow("Direct-Only", time.Now().Add(2*24*time.Hour).UTC())
+	// Tag the show directly but give it no tagged artists on the lineup.
+	aUntagged := s.seedArtist("Untagged")
+	s.addArtistToShow(sA, aUntagged, 0)
+	s.tag("show", sA, "shoegaze")
+
+	resp, _, err := s.showService.GetUpcomingShows("UTC", "", 50, false, &contracts.UpcomingShowsFilter{
+		TagSlugs: []string{"shoegaze"},
+	})
+	s.Require().NoError(err)
+	s.Len(resp, 0)
+}
+
+// TestShows_DistinctShowIDs verifies the DISTINCT dedup when a show has
+// multiple matching lineup artists. Without DISTINCT the subquery would
+// return duplicates, but the outer `IN (?)` clause ignores them — this test
+// still asserts a single response row to catch any future refactor that
+// accidentally joins duplicates back in via e.g. a LEFT JOIN.
+func (s *TagFilterIntegrationTestSuite) TestShows_DistinctShowIDs() {
+	sA := s.seedShow("Multi-Shoegaze", time.Now().Add(2*24*time.Hour).UTC())
+	a1 := s.seedArtist("SG1")
+	a2 := s.seedArtist("SG2")
+	a3 := s.seedArtist("SG3")
+	s.addArtistToShow(sA, a1, 0)
+	s.addArtistToShow(sA, a2, 1)
+	s.addArtistToShow(sA, a3, 2)
+	s.tag("artist", a1, "shoegaze")
+	s.tag("artist", a2, "shoegaze")
+	s.tag("artist", a3, "shoegaze")
+
+	resp, _, err := s.showService.GetUpcomingShows("UTC", "", 50, false, &contracts.UpcomingShowsFilter{
+		TagSlugs: []string{"shoegaze"},
+	})
+	s.Require().NoError(err)
+	s.Require().Len(resp, 1)
+	s.Equal("Multi-Shoegaze", resp[0].Title)
 }
 
 // ──────────────────────────────────────────────
@@ -427,12 +549,27 @@ func (s *TagFilterIntegrationTestSuite) seedFestival(name string) uint {
 	return f.ID
 }
 
-func (s *TagFilterIntegrationTestSuite) TestFestivals_AND() {
+// addArtistToFestival attaches an artist to a festival's lineup.
+func (s *TagFilterIntegrationTestSuite) addArtistToFestival(festivalID, artistID uint) {
+	s.Require().NoError(s.db.Create(&models.FestivalArtist{
+		FestivalID: festivalID, ArtistID: artistID,
+	}).Error)
+}
+
+// PSY-499: Festivals filter transitively through `festival_artists`, mirroring
+// the show↔artist pattern.
+func (s *TagFilterIntegrationTestSuite) TestFestivals_AND_Transitive() {
 	f1 := s.seedFestival("Fest1")
 	f2 := s.seedFestival("Fest2")
-	s.tag("festival", f1, "electronic")
-	s.tag("festival", f1, "phoenix")
-	s.tag("festival", f2, "electronic")
+	aElec := s.seedArtist("FElec")
+	aPhx := s.seedArtist("FPhx")
+	aElecOnly := s.seedArtist("FElecOnly")
+	s.addArtistToFestival(f1, aElec)
+	s.addArtistToFestival(f1, aPhx)
+	s.addArtistToFestival(f2, aElecOnly)
+	s.tag("artist", aElec, "electronic")
+	s.tag("artist", aPhx, "phoenix")
+	s.tag("artist", aElecOnly, "electronic")
 
 	out, err := s.festivalService.ListFestivals(map[string]interface{}{
 		"tag_filter": TagFilter{TagSlugs: []string{"electronic", "phoenix"}},
@@ -442,17 +579,160 @@ func (s *TagFilterIntegrationTestSuite) TestFestivals_AND() {
 	s.Equal("Fest1", out[0].Name)
 }
 
-func (s *TagFilterIntegrationTestSuite) TestFestivals_OR() {
+func (s *TagFilterIntegrationTestSuite) TestFestivals_OR_Transitive() {
 	f1 := s.seedFestival("Fest1")
 	f2 := s.seedFestival("Fest2")
 	f3 := s.seedFestival("Fest3")
-	s.tag("festival", f1, "electronic")
-	s.tag("festival", f2, "shoegaze")
-	_ = f3
+	aElec := s.seedArtist("OElec")
+	aSG := s.seedArtist("OSG")
+	aNone := s.seedArtist("ONone")
+	s.addArtistToFestival(f1, aElec)
+	s.addArtistToFestival(f2, aSG)
+	s.addArtistToFestival(f3, aNone)
+	s.tag("artist", aElec, "electronic")
+	s.tag("artist", aSG, "shoegaze")
 
 	out, err := s.festivalService.ListFestivals(map[string]interface{}{
 		"tag_filter": TagFilter{TagSlugs: []string{"electronic", "shoegaze"}, MatchAny: true},
 	})
 	s.Require().NoError(err)
 	s.Len(out, 2)
+}
+
+// TestFestivals_SingleTag_Transitive is the canonical PSY-499 scenario for
+// festivals: an artist tagged `shoegaze` surfaces every festival that artist
+// is on the lineup of, even when no festival is directly tagged.
+func (s *TagFilterIntegrationTestSuite) TestFestivals_SingleTag_Transitive() {
+	f1 := s.seedFestival("SG-Fest1")
+	f2 := s.seedFestival("SG-Fest2")
+	f3 := s.seedFestival("Other-Fest")
+	headliner := s.seedArtist("SGHeadliner")
+	other := s.seedArtist("Unrelated")
+	s.addArtistToFestival(f1, headliner)
+	s.addArtistToFestival(f2, headliner)
+	s.addArtistToFestival(f3, other)
+	s.tag("artist", headliner, "shoegaze")
+
+	out, err := s.festivalService.ListFestivals(map[string]interface{}{
+		"tag_filter": TagFilter{TagSlugs: []string{"shoegaze"}},
+	})
+	s.Require().NoError(err)
+	s.Require().Len(out, 2)
+}
+
+// ──────────────────────────────────────────────
+// Tag facet count (PSY-499): `/tags?entity_type=show|festival` counts must
+// reflect transitive usage — "3 shows have a shoegaze-tagged artist" — not
+// the direct-tag count which is always zero at our data volumes.
+// ──────────────────────────────────────────────
+
+// TestListTags_ShowEntityType_Transitive verifies that when the tags
+// endpoint is scoped to `entity_type=show`, each tag's usage_count reflects
+// the number of distinct shows whose lineup includes an artist with that
+// tag. Shows with a direct `entity_type='show'` tag row do not contribute.
+func (s *TagFilterIntegrationTestSuite) TestListTags_ShowEntityType_Transitive() {
+	// 2 shoegaze shows (same artist, 2 shows), 1 post-punk show,
+	// 1 "other" show that only has a direct show-level tag (must NOT count).
+	sA := s.seedShow("SG-A", time.Now().Add(24*time.Hour).UTC())
+	sB := s.seedShow("SG-B", time.Now().Add(48*time.Hour).UTC())
+	sC := s.seedShow("PP-C", time.Now().Add(72*time.Hour).UTC())
+	sD := s.seedShow("Direct-Only", time.Now().Add(96*time.Hour).UTC())
+
+	sgArtist := s.seedArtist("SGArtist")
+	ppArtist := s.seedArtist("PPArtist")
+	untagged := s.seedArtist("Untagged")
+	s.addArtistToShow(sA, sgArtist, 0)
+	s.addArtistToShow(sB, sgArtist, 0)
+	s.addArtistToShow(sC, ppArtist, 0)
+	s.addArtistToShow(sD, untagged, 0)
+
+	s.tag("artist", sgArtist, "shoegaze")
+	s.tag("artist", ppArtist, "post-punk")
+	// Direct show-level tag: legacy/possible admin action. Must be ignored.
+	s.tag("show", sD, "shoegaze")
+
+	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, models.TagEntityShow)
+	s.Require().NoError(err)
+	counts := map[string]int{}
+	for _, t := range tags {
+		counts[t.Slug] = t.UsageCount
+	}
+	s.Equal(2, counts["shoegaze"], "shoegaze shows count (transitive via lineup)")
+	s.Equal(1, counts["post-punk"], "post-punk shows count (transitive via lineup)")
+	s.Equal(0, counts["phoenix"], "unused tag should be 0")
+	s.Equal(0, counts["electronic"], "unused tag should be 0")
+}
+
+// TestListTags_ShowEntityType_MultipleArtistsSameShow verifies that a show
+// with multiple artists sharing the same tag still counts once for that
+// tag — DISTINCT dedup is preserved in the facet count.
+func (s *TagFilterIntegrationTestSuite) TestListTags_ShowEntityType_MultipleArtistsSameShow() {
+	sA := s.seedShow("Multi", time.Now().Add(24*time.Hour).UTC())
+	a1 := s.seedArtist("a1")
+	a2 := s.seedArtist("a2")
+	a3 := s.seedArtist("a3")
+	s.addArtistToShow(sA, a1, 0)
+	s.addArtistToShow(sA, a2, 1)
+	s.addArtistToShow(sA, a3, 2)
+	s.tag("artist", a1, "shoegaze")
+	s.tag("artist", a2, "shoegaze")
+	s.tag("artist", a3, "shoegaze")
+
+	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, models.TagEntityShow)
+	s.Require().NoError(err)
+	var shoegazeCount int
+	for _, t := range tags {
+		if t.Slug == "shoegaze" {
+			shoegazeCount = t.UsageCount
+		}
+	}
+	s.Equal(1, shoegazeCount, "show with 3 shoegaze artists should count once")
+}
+
+// TestListTags_FestivalEntityType_Transitive mirrors the show test for
+// festivals: `/tags?entity_type=festival` facet counts reflect lineup-based
+// transitive usage.
+func (s *TagFilterIntegrationTestSuite) TestListTags_FestivalEntityType_Transitive() {
+	f1 := s.seedFestival("FacetFest1")
+	f2 := s.seedFestival("FacetFest2")
+	f3 := s.seedFestival("DirectOnlyFest")
+	elecArtist := s.seedArtist("ElecArtist")
+	sgArtist := s.seedArtist("FSGArtist")
+	untagged := s.seedArtist("FUntagged")
+	s.addArtistToFestival(f1, elecArtist)
+	s.addArtistToFestival(f2, elecArtist)
+	s.addArtistToFestival(f3, untagged)
+	s.tag("artist", elecArtist, "electronic")
+	s.tag("artist", sgArtist, "shoegaze") // unattached — inflates nothing
+	// Direct festival tag, should NOT count.
+	s.tag("festival", f3, "electronic")
+
+	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, models.TagEntityFestival)
+	s.Require().NoError(err)
+	counts := map[string]int{}
+	for _, t := range tags {
+		counts[t.Slug] = t.UsageCount
+	}
+	s.Equal(2, counts["electronic"], "electronic festivals (transitive via lineup)")
+	s.Equal(0, counts["shoegaze"], "shoegaze artist not on any festival lineup")
+}
+
+// TestListTags_ArtistEntityType_DirectCount verifies that non-show/festival
+// entity types still use the direct `entity_tags` count — only show/festival
+// are transitive.
+func (s *TagFilterIntegrationTestSuite) TestListTags_ArtistEntityType_DirectCount() {
+	a1 := s.seedArtist("A1")
+	a2 := s.seedArtist("A2")
+	s.tag("artist", a1, "post-punk")
+	s.tag("artist", a2, "post-punk")
+
+	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, models.TagEntityArtist)
+	s.Require().NoError(err)
+	var ppCount int
+	for _, t := range tags {
+		if t.Slug == "post-punk" {
+			ppCount = t.UsageCount
+		}
+	}
+	s.Equal(2, ppCount, "artist count is direct, not transitive")
 }

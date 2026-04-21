@@ -255,4 +255,79 @@ describe('TagFacetPanel', () => {
     expect(shoegaze).toBeInTheDocument()
     expect(shoegaze).toHaveAttribute('aria-pressed', 'true')
   })
+
+  // PSY-499: transitive filter info tooltip. Only rendered for show/festival
+  // because those are the container entity types whose genre meaning comes
+  // from their lineup artists — direct-tag pages (artist, venue, label,
+  // release) don't need the explainer.
+  it('renders the transitive-filter info tooltip trigger for show entityType', () => {
+    renderWithProviders(
+      <TagFacetPanel
+        selectedSlugs={[]}
+        onToggle={() => {}}
+        onClear={() => {}}
+        entityType="show"
+      />
+    )
+    const info = screen.getByTestId('tag-facet-transitive-info')
+    expect(info).toBeInTheDocument()
+    expect(info).toHaveAttribute('aria-label', 'How tag filtering works')
+  })
+
+  it('renders the transitive-filter info tooltip trigger for festival entityType', () => {
+    renderWithProviders(
+      <TagFacetPanel
+        selectedSlugs={[]}
+        onToggle={() => {}}
+        onClear={() => {}}
+        entityType="festival"
+      />
+    )
+    expect(screen.getByTestId('tag-facet-transitive-info')).toBeInTheDocument()
+  })
+
+  it('omits the transitive tooltip on direct-tag entity types', () => {
+    renderWithProviders(
+      <TagFacetPanel
+        selectedSlugs={[]}
+        onToggle={() => {}}
+        onClear={() => {}}
+        entityType="artist"
+      />
+    )
+    expect(
+      screen.queryByTestId('tag-facet-transitive-info')
+    ).not.toBeInTheDocument()
+  })
+
+  it('omits the transitive tooltip when no entityType is provided', () => {
+    renderWithProviders(
+      <TagFacetPanel
+        selectedSlugs={[]}
+        onToggle={() => {}}
+        onClear={() => {}}
+      />
+    )
+    expect(
+      screen.queryByTestId('tag-facet-transitive-info')
+    ).not.toBeInTheDocument()
+  })
+
+  it('omits the transitive tooltip when the heading is hidden (sheet mode)', () => {
+    renderWithProviders(
+      <TagFacetPanel
+        selectedSlugs={[]}
+        onToggle={() => {}}
+        onClear={() => {}}
+        entityType="show"
+        hideHeading
+      />
+    )
+    // Sheet mode lifts the heading to a SheetTitle; the tooltip lives with
+    // the heading so it goes away too. (The sheet's own title handles mobile
+    // discovery if a mobile tooltip is added later.)
+    expect(
+      screen.queryByTestId('tag-facet-transitive-info')
+    ).not.toBeInTheDocument()
+  })
 })
