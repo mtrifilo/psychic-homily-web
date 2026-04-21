@@ -1252,3 +1252,260 @@ describe('EntityTagList zero-tag empty state (PSY-481)', () => {
     ).not.toBeInTheDocument()
   })
 })
+
+// PSY-498: tag pills on coarse-pointer (touch) devices used to single-tap
+// navigate straight to /tags/<slug>, skipping the attribution hover card
+// entirely — so mobile users never saw per-application attribution that
+// PSY-479 surfaced. The two-tap pattern (Twitter/X-style) keeps desktop
+// hover+click untouched while adding: tap 1 → open card, tap 2 → navigate.
+describe('EntityTagList tag pill two-tap on touch devices (PSY-498)', () => {
+  // Helper: flip `window.matchMedia('(pointer: coarse)')` so the hook's
+  // first-render + subsequent reads report a touch device. Other queries
+  // (e.g. `prefers-reduced-motion`) keep matching `false`, matching the
+  // default setup.ts behavior.
+  function setCoarsePointer(isCoarse: boolean) {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query === '(pointer: coarse)' ? isCoarse : false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    currentMockTags = {
+      tags: [
+        {
+          tag_id: 77,
+          name: 'shoegaze',
+          slug: 'shoegaze',
+          category: 'genre',
+          is_official: false,
+          upvotes: 2,
+          downvotes: 0,
+          wilson_score: 0.3,
+          user_vote: 0,
+          added_by_username: 'testuser',
+          added_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        },
+      ],
+    }
+    currentMockSearchTags = defaultMockSearchTags
+    mockAuthUser = { user_tier: 'contributor' }
+    mockAddMutationError = null
+    // Reset to the default (non-touch) matchMedia behavior unless a test
+    // opts into coarse pointer. The global `afterEach` in test/setup.ts
+    // already restores matchMedia when the test file exits; this keeps
+    // each individual case hermetic.
+    setCoarsePointer(false)
+  })
+
+  it('opens the card on the first tap and navigates only on the second tap', async () => {
+    setCoarsePointer(true)
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+
+    const row = desktopRow()
+    const tagLink = within(row).getByRole('link', { name: 'shoegaze' })
+
+    // The wrapper's click handler runs during the bubbling phase BEFORE the
+    // event reaches document.body, so a document-level listener observes the
+    // final `defaultPrevented` state post-wrapper-handling. An anchor-local
+    // listener would see the state BEFORE the wrapper runs (target-phase →
+    // bubble up to wrapper → bubble up to document), which is why we attach
+    // here instead of on the link itself.
+    const observations: boolean[] = []
+    const docListener = (e: Event) => {
+      if (e.target instanceof HTMLElement && e.target.closest('a[href^="/tags/"]')) {
+        observations.push(e.defaultPrevented)
+      }
+    }
+    document.addEventListener('click', docListener)
+
+    try {
+      // Card is not open yet.
+      expect(
+        screen.queryByTestId('tag-attribution-card-77')
+      ).not.toBeInTheDocument()
+
+      // Tap 1: opens the card, link navigation is suppressed.
+      await user.click(tagLink)
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('tag-attribution-card-77')
+        ).toBeInTheDocument()
+      })
+      expect(observations[0]).toBe(true)
+
+      // Tap 2: card is already open + flagged tap-opened; let the link run.
+      await user.click(tagLink)
+      expect(observations[1]).toBe(false)
+      expect(observations).toHaveLength(2)
+    } finally {
+      document.removeEventListener('click', docListener)
+    }
+  })
+
+  it('keeps desktop click-through untouched (pointer: fine → single click navigates)', async () => {
+    setCoarsePointer(false)
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+
+    const tagLink = within(desktopRow()).getByRole('link', { name: 'shoegaze' })
+
+    let defaultPrevented: boolean | null = null
+    const docListener = (e: Event) => {
+      if (e.target instanceof HTMLElement && e.target.closest('a[href^="/tags/"]')) {
+        defaultPrevented = e.defaultPrevented
+      }
+    }
+    document.addEventListener('click', docListener)
+
+    try {
+      await user.click(tagLink)
+      // On a fine-pointer device a single click must navigate — the wrapper
+      // MUST NOT call preventDefault. If this ever flips back to true, the
+      // desktop path has regressed.
+      expect(defaultPrevented).toBe(false)
+    } finally {
+      document.removeEventListener('click', docListener)
+    }
+  })
+
+  it('moves the vote buttons from next-to-pill into the attribution card on touch devices', async () => {
+    setCoarsePointer(true)
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+
+    // The inline (next-to-pill) vote buttons are hidden on touch — the card
+    // is the single vote affordance. The pill wrapper only exposes the tag
+    // name link.
+    const row = desktopRow()
+    expect(
+      within(row).queryByRole('button', { name: /upvote shoegaze/i })
+    ).not.toBeInTheDocument()
+    expect(
+      within(row).queryByRole('button', { name: /downvote shoegaze/i })
+    ).not.toBeInTheDocument()
+
+    // Open the card via the first tap and confirm the vote actions + View
+    // link land inside it.
+    await user.click(within(row).getByRole('group', { name: /shoegaze tag details/i }))
+
+    const card = await screen.findByTestId('tag-attribution-card-77')
+    const voteActions = within(card).getByTestId('tag-pill-card-vote-actions-77')
+    expect(voteActions).toBeInTheDocument()
+    expect(
+      within(voteActions).getByRole('button', { name: /upvote shoegaze/i })
+    ).toBeInTheDocument()
+    expect(
+      within(voteActions).getByRole('button', { name: /downvote shoegaze/i })
+    ).toBeInTheDocument()
+
+    // Attribution + "View tag details" link remain alongside the vote
+    // actions so mobile users get the full surface in one card.
+    expect(within(card).getByTestId('tag-pill-attribution')).toHaveTextContent(
+      /Added by/i
+    )
+    expect(
+      within(card).getByRole('link', { name: /view tag details/i })
+    ).toHaveAttribute('href', '/tags/shoegaze')
+  })
+
+  it('keeps vote buttons inline (next to the pill) and out of the card on desktop', async () => {
+    setCoarsePointer(false)
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+
+    const row = desktopRow()
+    // Inline vote buttons render for an authenticated fine-pointer user.
+    expect(
+      within(row).getByRole('button', { name: /upvote shoegaze/i })
+    ).toBeInTheDocument()
+
+    // The card still opens (via the wrapper click on empty pill space),
+    // but it must NOT duplicate the vote actions — that renders the bigger,
+    // touch-optimized pair only on coarse pointers.
+    await user.click(within(row).getByRole('group', { name: /shoegaze tag details/i }))
+    const card = await screen.findByTestId('tag-attribution-card-77')
+    expect(
+      within(card).queryByTestId('tag-pill-card-vote-actions-77')
+    ).not.toBeInTheDocument()
+  })
+
+  it('resets the two-tap flag when the card closes (dismiss → fresh two-tap cycle)', async () => {
+    setCoarsePointer(true)
+    const user = userEvent.setup()
+    renderWithProviders(
+      <EntityTagList entityType="artist" entityId={1} isAuthenticated />
+    )
+
+    const row = desktopRow()
+    const tagLink = within(row).getByRole('link', { name: 'shoegaze' })
+
+    const defaultPreventedObservations: boolean[] = []
+    const docListener = (e: Event) => {
+      if (e.target instanceof HTMLElement && e.target.closest('a[href^="/tags/"]')) {
+        defaultPreventedObservations.push(e.defaultPrevented)
+      }
+    }
+    document.addEventListener('click', docListener)
+
+    try {
+      // Tap 1: open the card.
+      await user.click(tagLink)
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('tag-attribution-card-77')
+        ).toBeInTheDocument()
+      })
+
+      // Dismiss the card by clicking outside. Radix's HoverCard listens for
+      // pointer-down outside the trigger + content and fires
+      // onOpenChange(false) — our handleOpenChange clears the tap-opened
+      // ref in that branch. We use a click on document.body because Escape
+      // on jsdom + Radix HoverCard is inconsistent across environments;
+      // outside-click is the more reliable dismiss trigger.
+      await user.click(document.body)
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId('tag-attribution-card-77')
+        ).not.toBeInTheDocument()
+      })
+
+      // Tap 3 (counts as a fresh "tap 1"): should re-open the card — NOT
+      // navigate. If the flag wasn't reset, the stale `open=false` +
+      // `tapOpenedRef=true` combo could let navigation through on the next
+      // tap of the new cycle.
+      await user.click(tagLink)
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('tag-attribution-card-77')
+        ).toBeInTheDocument()
+      })
+
+      // Only the two link taps were observed (the outside-click landed on
+      // document.body, not an anchor). Both suppressed because each was a
+      // fresh first-tap of its cycle.
+      expect(defaultPreventedObservations).toEqual([true, true])
+    } finally {
+      document.removeEventListener('click', docListener)
+    }
+  })
+})
