@@ -30,7 +30,7 @@ export interface DataQualityItem {
 
 export type PendingEditStatus = 'pending' | 'approved' | 'rejected'
 
-export type EditableEntityType = 'artist' | 'venue' | 'festival'
+export type EditableEntityType = 'artist' | 'venue' | 'festival' | 'release'
 
 export interface FieldChange {
   field: string
@@ -165,5 +165,13 @@ export const EDITABLE_FIELDS: Record<EditableEntityType, EditableField[]> = {
     { key: 'website', label: 'Website', type: 'url', placeholder: 'https://...', group: 'info' },
     { key: 'ticket_url', label: 'Ticket URL', type: 'url', placeholder: 'https://...', group: 'info' },
     { key: 'flyer_url', label: 'Flyer URL', type: 'url', placeholder: 'https://...', group: 'info' },
+  ],
+  release: [
+    { key: 'title', label: 'Title', type: 'text', group: 'info' },
+    { key: 'release_type', label: 'Release Type', type: 'text', placeholder: 'lp, ep, single, compilation, live, remix, demo', group: 'info' },
+    { key: 'release_year', label: 'Release Year', type: 'text', placeholder: 'YYYY', group: 'info' },
+    { key: 'release_date', label: 'Release Date', type: 'text', placeholder: 'YYYY-MM-DD', group: 'info' },
+    { key: 'cover_art_url', label: 'Cover Art URL', type: 'url', placeholder: 'https://...', group: 'details' },
+    { key: 'description', label: 'Description', type: 'textarea', group: 'details' },
   ],
 }

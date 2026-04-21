@@ -17,7 +17,7 @@ import (
 // ============================================================================
 
 func testDataGapsHandler() *DataGapsHandler {
-	return NewDataGapsHandler(&mockArtistService{}, &mockVenueService{}, &mockFestivalService{})
+	return NewDataGapsHandler(&mockArtistService{}, &mockVenueService{}, &mockFestivalService{}, &mockReleaseService{})
 }
 
 func dataGapsCtxWithUser() context.Context {
@@ -44,6 +44,7 @@ func TestDataGapsHandler_Artist_WithMissingFields(t *testing.T) {
 		},
 		&mockVenueService{},
 		&mockFestivalService{},
+		&mockReleaseService{},
 	)
 
 	resp, err := h.GetDataGapsHandler(dataGapsCtxWithUser(), &GetDataGapsRequest{
@@ -97,6 +98,7 @@ func TestDataGapsHandler_Artist_Complete(t *testing.T) {
 		},
 		&mockVenueService{},
 		&mockFestivalService{},
+		&mockReleaseService{},
 	)
 
 	resp, err := h.GetDataGapsHandler(dataGapsCtxWithUser(), &GetDataGapsRequest{
@@ -132,6 +134,7 @@ func TestDataGapsHandler_Venue_WithMissingFields(t *testing.T) {
 			},
 		},
 		&mockFestivalService{},
+		&mockReleaseService{},
 	)
 
 	resp, err := h.GetDataGapsHandler(dataGapsCtxWithUser(), &GetDataGapsRequest{
@@ -170,6 +173,7 @@ func TestDataGapsHandler_Festival_WithMissingFields(t *testing.T) {
 				}, nil
 			},
 		},
+		&mockReleaseService{},
 	)
 
 	resp, err := h.GetDataGapsHandler(dataGapsCtxWithUser(), &GetDataGapsRequest{
@@ -213,6 +217,7 @@ func TestDataGapsHandler_NotFound(t *testing.T) {
 				return nil, apperrors.ErrFestivalNotFound(0)
 			},
 		},
+		&mockReleaseService{},
 	)
 
 	tests := []struct {
@@ -265,6 +270,7 @@ func TestDataGapsHandler_ServiceError(t *testing.T) {
 		},
 		&mockVenueService{},
 		&mockFestivalService{},
+		&mockReleaseService{},
 	)
 
 	_, err := h.GetDataGapsHandler(dataGapsCtxWithUser(), &GetDataGapsRequest{
@@ -291,6 +297,7 @@ func TestDataGapsHandler_NumericID(t *testing.T) {
 		},
 		&mockVenueService{},
 		&mockFestivalService{},
+		&mockReleaseService{},
 	)
 
 	resp, err := h.GetDataGapsHandler(dataGapsCtxWithUser(), &GetDataGapsRequest{
@@ -323,6 +330,7 @@ func TestDataGapsHandler_EmptyStringNotAGap(t *testing.T) {
 		},
 		&mockVenueService{},
 		&mockFestivalService{},
+		&mockReleaseService{},
 	)
 
 	resp, err := h.GetDataGapsHandler(dataGapsCtxWithUser(), &GetDataGapsRequest{

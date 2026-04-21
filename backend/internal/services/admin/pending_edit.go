@@ -485,6 +485,17 @@ func (s *PendingEditService) resolveEntityInfo(entityType string, entityID uint)
 				url = fmt.Sprintf("%s/festivals/%s", s.frontendURL, festival.Slug)
 			}
 		}
+	case "release":
+		var release struct {
+			Title string
+			Slug  *string
+		}
+		if err := s.db.Table("releases").Select("title, slug").Where("id = ?", entityID).Scan(&release).Error; err == nil {
+			name = release.Title
+			if release.Slug != nil && *release.Slug != "" {
+				url = fmt.Sprintf("%s/releases/%s", s.frontendURL, *release.Slug)
+			}
+		}
 	}
 
 	return name, url

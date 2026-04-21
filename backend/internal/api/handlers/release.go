@@ -10,6 +10,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -17,13 +18,15 @@ type ReleaseHandler struct {
 	releaseService  contracts.ReleaseServiceInterface
 	artistService   contracts.ArtistServiceInterface
 	auditLogService contracts.AuditLogServiceInterface
+	revisionService contracts.RevisionServiceInterface
 }
 
-func NewReleaseHandler(releaseService contracts.ReleaseServiceInterface, artistService contracts.ArtistServiceInterface, auditLogService contracts.AuditLogServiceInterface) *ReleaseHandler {
+func NewReleaseHandler(releaseService contracts.ReleaseServiceInterface, artistService contracts.ArtistServiceInterface, auditLogService contracts.AuditLogServiceInterface, revisionService contracts.RevisionServiceInterface) *ReleaseHandler {
 	return &ReleaseHandler{
 		releaseService:  releaseService,
 		artistService:   artistService,
 		auditLogService: auditLogService,
+		revisionService: revisionService,
 	}
 }
 
@@ -276,6 +279,7 @@ type UpdateReleaseRequest struct {
 		ReleaseDate *string `json:"release_date,omitempty" required:"false" doc:"Release date (YYYY-MM-DD)"`
 		CoverArtURL *string `json:"cover_art_url,omitempty" required:"false" doc:"Cover art URL"`
 		Description *string `json:"description,omitempty" required:"false" doc:"Description"`
+		Summary     *string `json:"summary,omitempty" required:"false" doc:"Reason for the edit (recorded in revision history)"`
 	}
 }
 
@@ -297,6 +301,12 @@ func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateRe
 	releaseID, err := h.resolveReleaseID(req.ReleaseID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Snapshot the pre-update release so we can diff for the revision log
+	var oldRelease *contracts.ReleaseDetailResponse
+	if h.revisionService != nil {
+		oldRelease, _ = h.releaseService.GetRelease(releaseID)
 	}
 
 	serviceReq := &contracts.UpdateReleaseRequest{
@@ -331,6 +341,25 @@ func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateRe
 		}()
 	}
 
+	// Record revision (fire and forget)
+	if h.revisionService != nil && oldRelease != nil {
+		go func() {
+			changes := computeReleaseChanges(oldRelease, release)
+			if len(changes) > 0 {
+				summary := ""
+				if req.Body.Summary != nil {
+					summary = *req.Body.Summary
+				}
+				if err := h.revisionService.RecordRevision("release", releaseID, user.ID, changes, summary); err != nil {
+					logger.Default().Error("record_release_revision_failed",
+						"release_id", releaseID,
+						"error", err.Error(),
+					)
+				}
+			}
+		}()
+	}
+
 	logger.FromContext(ctx).Info("release_updated",
 		"release_id", releaseID,
 		"admin_id", user.ID,
@@ -338,6 +367,40 @@ func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateRe
 	)
 
 	return &UpdateReleaseResponse{Body: release}, nil
+}
+
+// computeReleaseChanges compares old and new release detail responses and returns field-level diffs.
+func computeReleaseChanges(old, new *contracts.ReleaseDetailResponse) []models.FieldChange {
+	var changes []models.FieldChange
+
+	if old.Title != new.Title {
+		changes = append(changes, models.FieldChange{Field: "title", OldValue: old.Title, NewValue: new.Title})
+	}
+	if old.ReleaseType != new.ReleaseType {
+		changes = append(changes, models.FieldChange{Field: "release_type", OldValue: old.ReleaseType, NewValue: new.ReleaseType})
+	}
+	if intPtrToStr(old.ReleaseYear) != intPtrToStr(new.ReleaseYear) {
+		changes = append(changes, models.FieldChange{Field: "release_year", OldValue: old.ReleaseYear, NewValue: new.ReleaseYear})
+	}
+	if ptrToStr(old.ReleaseDate) != ptrToStr(new.ReleaseDate) {
+		changes = append(changes, models.FieldChange{Field: "release_date", OldValue: ptrToStr(old.ReleaseDate), NewValue: ptrToStr(new.ReleaseDate)})
+	}
+	if ptrToStr(old.CoverArtURL) != ptrToStr(new.CoverArtURL) {
+		changes = append(changes, models.FieldChange{Field: "cover_art_url", OldValue: ptrToStr(old.CoverArtURL), NewValue: ptrToStr(new.CoverArtURL)})
+	}
+	if ptrToStr(old.Description) != ptrToStr(new.Description) {
+		changes = append(changes, models.FieldChange{Field: "description", OldValue: ptrToStr(old.Description), NewValue: ptrToStr(new.Description)})
+	}
+
+	return changes
+}
+
+// intPtrToStr returns "" for nil, else the int formatted as a decimal string. Used only for equality comparison.
+func intPtrToStr(i *int) string {
+	if i == nil {
+		return ""
+	}
+	return strconv.Itoa(*i)
 }
 
 // ============================================================================

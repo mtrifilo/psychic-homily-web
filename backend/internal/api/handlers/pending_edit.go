@@ -53,6 +53,10 @@ var allowedEditFields = map[string]map[string]bool{
 		"city": true, "state": true, "country": true,
 		"website": true, "ticket_url": true, "flyer_url": true,
 	},
+	"release": {
+		"title": true, "release_type": true, "release_year": true,
+		"release_date": true, "cover_art_url": true, "description": true,
+	},
 }
 
 // canEditDirectly returns true if the user can bypass the pending queue.
@@ -100,6 +104,11 @@ func (h *PendingEditHandler) SuggestVenueEditHandler(ctx context.Context, req *S
 // SuggestFestivalEditHandler handles PUT /festivals/{entity_id}/suggest-edit
 func (h *PendingEditHandler) SuggestFestivalEditHandler(ctx context.Context, req *SuggestEntityEditRequest) (*SuggestEntityEditResponse, error) {
 	return h.suggestEdit(ctx, "festival", req)
+}
+
+// SuggestReleaseEditHandler handles PUT /releases/{entity_id}/suggest-edit
+func (h *PendingEditHandler) SuggestReleaseEditHandler(ctx context.Context, req *SuggestEntityEditRequest) (*SuggestEntityEditResponse, error) {
+	return h.suggestEdit(ctx, "release", req)
 }
 
 // suggestEdit is the shared implementation for all suggest-edit endpoints.
