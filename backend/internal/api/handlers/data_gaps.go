@@ -25,6 +25,7 @@ type DataGapsHandler struct {
 	artistService   contracts.ArtistServiceInterface
 	venueService    contracts.VenueServiceInterface
 	festivalService contracts.FestivalServiceInterface
+	releaseService  contracts.ReleaseServiceInterface
 }
 
 // NewDataGapsHandler creates a new data gaps handler.
@@ -32,17 +33,19 @@ func NewDataGapsHandler(
 	artistService contracts.ArtistServiceInterface,
 	venueService contracts.VenueServiceInterface,
 	festivalService contracts.FestivalServiceInterface,
+	releaseService contracts.ReleaseServiceInterface,
 ) *DataGapsHandler {
 	return &DataGapsHandler{
 		artistService:   artistService,
 		venueService:    venueService,
 		festivalService: festivalService,
+		releaseService:  releaseService,
 	}
 }
 
 // GetDataGapsRequest is the Huma request for GET /entities/{entity_type}/{id_or_slug}/data-gaps
 type GetDataGapsRequest struct {
-	EntityType string `path:"entity_type" doc:"Entity type: artist, venue, or festival" example:"artist"`
+	EntityType string `path:"entity_type" doc:"Entity type: artist, venue, festival, or release" example:"artist"`
 	IDOrSlug   string `path:"id_or_slug" doc:"Entity ID or slug" example:"the-national"`
 }
 
@@ -71,8 +74,10 @@ func (h *DataGapsHandler) GetDataGapsHandler(ctx context.Context, req *GetDataGa
 		gaps, err = h.getVenueGaps(req.IDOrSlug)
 	case "festival":
 		gaps, err = h.getFestivalGaps(req.IDOrSlug)
+	case "release":
+		gaps, err = h.getReleaseGaps(req.IDOrSlug)
 	default:
-		return nil, huma.Error400BadRequest("Invalid entity type: must be artist, venue, or festival")
+		return nil, huma.Error400BadRequest("Invalid entity type: must be artist, venue, festival, or release")
 	}
 
 	if err != nil {
@@ -80,6 +85,7 @@ func (h *DataGapsHandler) GetDataGapsHandler(ctx context.Context, req *GetDataGa
 		var artistErr *apperrors.ArtistError
 		var venueErr *apperrors.VenueError
 		var festivalErr *apperrors.FestivalError
+		var releaseErr *apperrors.ReleaseError
 		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
 			return nil, huma.Error404NotFound("Artist not found")
 		}
@@ -88,6 +94,9 @@ func (h *DataGapsHandler) GetDataGapsHandler(ctx context.Context, req *GetDataGa
 		}
 		if errors.As(err, &festivalErr) && festivalErr.Code == apperrors.CodeFestivalNotFound {
 			return nil, huma.Error404NotFound("Festival not found")
+		}
+		if errors.As(err, &releaseErr) && releaseErr.Code == apperrors.CodeReleaseNotFound {
+			return nil, huma.Error404NotFound("Release not found")
 		}
 		logger.FromContext(ctx).Error("data_gaps_fetch_failed",
 			"entity_type", req.EntityType,
@@ -201,6 +210,39 @@ func (h *DataGapsHandler) getFestivalGaps(idOrSlug string) ([]DataGap, error) {
 	}
 	if isEmptyPtr(festival.Description) {
 		gaps = append(gaps, DataGap{Field: "description", Label: "Description", Priority: 3})
+	}
+
+	return gaps, nil
+}
+
+// getReleaseGaps fetches a release and returns missing fields as data gaps.
+func (h *DataGapsHandler) getReleaseGaps(idOrSlug string) ([]DataGap, error) {
+	var release *contracts.ReleaseDetailResponse
+	var err error
+
+	if id, parseErr := strconv.ParseUint(idOrSlug, 10, 32); parseErr == nil {
+		release, err = h.releaseService.GetRelease(uint(id))
+	} else {
+		release, err = h.releaseService.GetReleaseBySlug(idOrSlug)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var gaps []DataGap
+
+	// Cover art — most visible gap
+	if isEmptyPtr(release.CoverArtURL) {
+		gaps = append(gaps, DataGap{Field: "cover_art_url", Label: "Cover Art", Priority: 1})
+	}
+	if release.ReleaseYear == nil {
+		gaps = append(gaps, DataGap{Field: "release_year", Label: "Release Year", Priority: 2})
+	}
+	if isEmptyPtr(release.ReleaseDate) {
+		gaps = append(gaps, DataGap{Field: "release_date", Label: "Release Date", Priority: 3})
+	}
+	if isEmptyPtr(release.Description) {
+		gaps = append(gaps, DataGap{Field: "description", Label: "Description", Priority: 4})
 	}
 
 	return gaps, nil

@@ -17,7 +17,7 @@ type ReleaseHandlerIntegrationSuite struct {
 
 func (s *ReleaseHandlerIntegrationSuite) SetupSuite() {
 	s.deps = setupHandlerIntegrationDeps(s.T())
-	s.handler = NewReleaseHandler(s.deps.releaseService, s.deps.artistService, s.deps.auditLogService)
+	s.handler = NewReleaseHandler(s.deps.releaseService, s.deps.artistService, s.deps.auditLogService, nil)
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TearDownTest() {
