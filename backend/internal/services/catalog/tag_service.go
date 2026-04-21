@@ -172,29 +172,13 @@ func (s *TagService) ListTags(category string, search string, parentID *uint, so
 	}
 
 	if entityType != "" && len(tags) > 0 {
-		// Single GROUP BY to fetch per-entity-type counts for the returned page.
-		// Cheap: one indexed scan over (entity_type, tag_id) for at most `limit`
-		// tag IDs. Tags absent from entity_tags for this type get 0.
 		ids := make([]uint, len(tags))
 		for i, t := range tags {
 			ids[i] = t.ID
 		}
-		type countRow struct {
-			TagID uint
-			Count int64
-		}
-		var rows []countRow
-		err := s.db.Table("entity_tags").
-			Select("tag_id, COUNT(*) AS count").
-			Where("entity_type = ? AND tag_id IN ?", entityType, ids).
-			Group("tag_id").
-			Scan(&rows).Error
+		countByID, err := s.computeEntityTypeTagCounts(entityType, ids)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to compute per-entity-type tag counts: %w", err)
-		}
-		countByID := make(map[uint]int64, len(rows))
-		for _, r := range rows {
-			countByID[r.TagID] = r.Count
 		}
 		for i := range tags {
 			tags[i].UsageCount = int(countByID[tags[i].ID])
@@ -208,6 +192,46 @@ func (s *TagService) ListTags(category string, search string, parentID *uint, so
 	}
 
 	return tags, total, nil
+}
+
+// computeEntityTypeTagCounts returns a map of tag_id → usage count scoped to
+// the given entity type, for the provided tag IDs.
+//
+// For most entity types this is the direct count of `entity_tags` rows where
+// `entity_type = ? AND tag_id IN (?)`. For `show` and `festival` the count
+// is computed *transitively* through the lineup (PSY-499): a show matches a
+// tag when any billed artist has it, even though no show is directly tagged
+// with genre/locale tags. This keeps the facet count honest ("shoegaze: 3
+// shows" instead of the misleading "0" when 3 shows have shoegaze-tagged
+// artists on the bill).
+//
+// Tags absent from the relevant tables get 0 (missing from the returned map).
+func (s *TagService) computeEntityTypeTagCounts(entityType string, tagIDs []uint) (map[uint]int64, error) {
+	switch entityType {
+	case models.TagEntityShow:
+		return CountTransitiveArtistTagUsage(s.db, "show_artists", "show_id", "artist_id", tagIDs)
+	case models.TagEntityFestival:
+		return CountTransitiveArtistTagUsage(s.db, "festival_artists", "festival_id", "artist_id", tagIDs)
+	}
+	// Default: direct count against entity_tags for the given entity type.
+	type countRow struct {
+		TagID uint
+		Count int64
+	}
+	var rows []countRow
+	err := s.db.Table("entity_tags").
+		Select("tag_id, COUNT(*) AS count").
+		Where("entity_type = ? AND tag_id IN ?", entityType, tagIDs).
+		Group("tag_id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uint]int64, len(rows))
+	for _, r := range rows {
+		out[r.TagID] = r.Count
+	}
+	return out, nil
 }
 
 // sortTagsByUsageDesc sorts in place by UsageCount DESC, name ASC. Used after

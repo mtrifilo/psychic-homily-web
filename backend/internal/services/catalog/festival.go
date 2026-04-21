@@ -134,7 +134,16 @@ func (s *FestivalService) ListFestivals(filters map[string]interface{}) ([]*cont
 		query = query.Where("series_slug = ?", seriesSlug)
 	}
 	if tf, ok := filters["tag_filter"].(TagFilter); ok {
-		query = ApplyTagFilter(query, s.db, models.TagEntityFestival, "festivals.id", tf)
+		// PSY-499: Festivals are not directly tagged with genre/locale tags —
+		// they inherit meaning from the lineup artists. Filter festivals whose
+		// lineup includes artists matching the tag filter. This is scoped to
+		// tag-filter query building only; the default activity-gate filter
+		// (PSY-495) is untouched.
+		query = ApplyTransitiveArtistTagFilter(
+			query, s.db,
+			"festival_artists", "festival_id", "artist_id",
+			"festivals.id", tf,
+		)
 	}
 
 	// Order by start_date DESC, name ASC
