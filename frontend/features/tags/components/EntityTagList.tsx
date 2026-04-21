@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import Link from 'next/link'
 import { Plus, ThumbsUp, ThumbsDown, X, Search, Loader2, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -285,6 +285,56 @@ export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityT
 }
 
 // ──────────────────────────────────────────────
+// Touch / coarse-pointer detection
+// ──────────────────────────────────────────────
+
+// PSY-498: mobile browsers don't fire :hover, so a simple <a> pill tap
+// navigates away before the user ever sees the attribution hover card.
+// We switch to a Twitter/X-style two-tap pattern on coarse pointers:
+//   tap 1 → open the card (preventDefault the link)
+//   tap 2 → navigate (let the link run)
+//
+// This hook lives here (rather than in lib/) because it has exactly one
+// caller. SSR-safe: the server snapshot is always `false` so the server HTML
+// matches; after hydration the hook reads the live MediaQueryList via
+// `useSyncExternalStore`, which also wires up the change listener and cleans
+// it up on unmount without the "setState inside an effect" double-render.
+function subscribeCoarsePointer(onChange: () => void): () => void {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return () => {}
+  }
+  const mq = window.matchMedia('(pointer: coarse)')
+  // Older Safari versions only ship addListener/removeListener; prefer the
+  // modern API when available so we don't trigger deprecation warnings in
+  // evergreen browsers.
+  if (typeof mq.addEventListener === 'function') {
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }
+  mq.addListener(onChange)
+  return () => mq.removeListener(onChange)
+}
+
+function getCoarsePointerSnapshot(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false
+  }
+  return window.matchMedia('(pointer: coarse)').matches
+}
+
+function getCoarsePointerServerSnapshot(): boolean {
+  return false
+}
+
+function useIsCoarsePointer(): boolean {
+  return useSyncExternalStore(
+    subscribeCoarsePointer,
+    getCoarsePointerSnapshot,
+    getCoarsePointerServerSnapshot
+  )
+}
+
+// ──────────────────────────────────────────────
 // Tag pill with voting
 // ──────────────────────────────────────────────
 
@@ -299,6 +349,7 @@ function TagWithVotes({
 }) {
   const userVote = tag.user_vote ?? 0
   const score = tag.upvotes - tag.downvotes
+  const isCoarsePointer = useIsCoarsePointer()
 
   // Controlled open state for the attribution hover card. Radix HoverCard
   // opens on hover and focus out of the box; this state lets us *also* toggle
@@ -306,12 +357,85 @@ function TagWithVotes({
   // to the attribution info (PSY-441 mobile fallback).
   const [open, setOpen] = useState(false)
 
+  // Ref to the pill wrapper — used by the HoverCardContent's
+  // `onPointerDownOutside` to distinguish "user tapped somewhere truly
+  // outside" (should dismiss) from "user tapped the pill itself" (that's
+  // the second tap of the two-tap sequence, should not dismiss).
+  const triggerRef = useRef<HTMLDivElement | null>(null)
+
+  // PSY-498: tracks whether we're mid-way through a touch two-tap sequence
+  // on this pill. Lives in a ref (not state) so it doesn't participate in
+  // React's render cycle — touch tap 1 sets it, tap 2 reads-and-clears it
+  // synchronously in the same click handler. Explicit dismissals (Escape,
+  // click outside the pill + card, focus-outside) clear it via
+  // `handleCardDismiss` below.
+  const tapOpenedRef = useRef(false)
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen)
+  }
+
+  // Explicit dismissal (Escape key, click outside the trigger+content, or
+  // focus moved outside) — the two-tap cycle is abandoned and the next tap
+  // on the pill must re-open the card, not navigate.
+  const handleCardDismiss = () => {
+    tapOpenedRef.current = false
+  }
+
+  // PSY-498: the Radix DismissableLayer that backs HoverCardContent treats
+  // the trigger as "outside" the content, so tapping the trigger while the
+  // card is open would normally dismiss it (closing the card before our own
+  // click handler runs, breaking the two-tap flow). Intercept the outside-
+  // pointerdown: if it originated on OUR trigger, cancel the dismiss by
+  // preventDefault-ing the Radix event. Genuine outside taps keep dismissing
+  // the card — and also clear the two-tap ref via handleCardDismiss.
+  const handlePointerDownOutside = (event: {
+    detail: { originalEvent: PointerEvent }
+    preventDefault: () => void
+  }) => {
+    const tapTarget = event.detail.originalEvent.target as Node | null
+    if (tapTarget && triggerRef.current?.contains(tapTarget)) {
+      event.preventDefault()
+      return
+    }
+    handleCardDismiss()
+  }
+
   const handleTriggerClick = (e: React.MouseEvent) => {
-    // Don't toggle the card when the click originated on the inner tag Link
-    // (which navigates) or the vote buttons (which mutate). Those elements
-    // stop propagation via their native semantics / explicit handlers below;
-    // this guard covers any future children we add.
     const target = e.target as HTMLElement
+    const anchor = target.closest('a')
+
+    // PSY-498: touch-device two-tap. First tap on a pill — including a tap
+    // that landed on the inner link — opens the card and suppresses
+    // navigation. Second tap on the link (flagged as tap-opened in this
+    // cycle) is allowed through and navigates as normal.
+    if (isCoarsePointer && anchor && anchor.getAttribute('href')?.startsWith('/tags/')) {
+      if (tapOpenedRef.current) {
+        // Commit tap: let the link navigate. Do NOT preventDefault. Reset
+        // the flag so a future tap starts a fresh cycle.
+        tapOpenedRef.current = false
+        return
+      }
+      e.preventDefault()
+      tapOpenedRef.current = true
+      setOpen(true)
+      return
+    }
+
+    // Touch taps that land on the pill padding (outside the link) also
+    // count as "tap 1" of the two-tap cycle: they open the card AND arm
+    // the commit flag, so a subsequent link tap navigates without a third
+    // interaction. Without this, tapping pill padding first and then the
+    // link would require a third tap to commit.
+    if (isCoarsePointer && !target.closest('a, button')) {
+      tapOpenedRef.current = true
+      setOpen(true)
+      return
+    }
+
+    // Desktop + any click that originated on an inner button (votes) or on
+    // a non-pill anchor keeps the pre-PSY-498 behavior: don't toggle the
+    // card, let the child handle the click.
     if (target.closest('a, button')) return
     setOpen(v => !v)
   }
@@ -329,10 +453,16 @@ function TagWithVotes({
     }
   }
 
+  // Whether the inline (next-to-pill) vote buttons render. On touch devices
+  // we move them into the hover card so the pill itself stays a clean tap
+  // target and the card becomes the single action surface for the pill.
+  const showInlineVotes = isAuthenticated && !isCoarsePointer
+
   return (
-    <HoverCard open={open} onOpenChange={setOpen} openDelay={120} closeDelay={80}>
+    <HoverCard open={open} onOpenChange={handleOpenChange} openDelay={120} closeDelay={80}>
       <HoverCardTrigger asChild>
         <div
+          ref={triggerRef}
           role="group"
           tabIndex={0}
           aria-label={`${tag.name} tag details`}
@@ -365,7 +495,7 @@ function TagWithVotes({
             </span>
           )}
 
-          {isAuthenticated && (
+          {showInlineVotes && (
             <span className="inline-flex items-center gap-0.5 ml-0.5">
               <button
                 onClick={e => {
@@ -408,8 +538,26 @@ function TagWithVotes({
         side="top"
         className="w-[280px] text-sm"
         data-testid={`tag-attribution-card-${tag.tag_id}`}
+        // PSY-498: reset the two-tap cycle when the user explicitly
+        // dismisses — Escape or focus moved outside. Pointer-down-outside
+        // has an extra branch to keep the second tap on our own trigger
+        // from getting eaten by Radix's dismissable layer (see
+        // handlePointerDownOutside).
+        onEscapeKeyDown={handleCardDismiss}
+        onPointerDownOutside={handlePointerDownOutside}
+        onFocusOutside={handleCardDismiss}
       >
-        <TagAttributionContent tag={tag} />
+        <TagAttributionContent
+          tag={tag}
+          // PSY-498: on coarse-pointer devices we surface vote buttons inside
+          // the card (they don't render next-to-pill). Passing the handler +
+          // the user's current vote lets the card render a full-sized, tap-
+          // friendly Upvote/Downvote pair without the pill itself competing
+          // for the tap target.
+          showVoteActions={Boolean(isAuthenticated && isCoarsePointer)}
+          userVote={userVote}
+          onVote={onVote}
+        />
       </HoverCardContent>
     </HoverCard>
   )
@@ -422,7 +570,20 @@ function TagWithVotes({
 // PSY-441 — surfaces who added the tag + vote counts + a direct link to the
 // tag detail page. Lives as a separate component so the test suite can assert
 // on the rendered content without driving the Radix hover interaction.
-function TagAttributionContent({ tag }: { tag: EntityTag }) {
+//
+// PSY-498 — on coarse-pointer devices the pill's inline vote buttons migrate
+// into the card (see `showVoteActions`) so the pill stays a clean tap target.
+function TagAttributionContent({
+  tag,
+  showVoteActions = false,
+  userVote = 0,
+  onVote,
+}: {
+  tag: EntityTag
+  showVoteActions?: boolean
+  userVote?: number
+  onVote?: (tag: EntityTag, isUpvote: boolean) => void
+}) {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
@@ -475,6 +636,47 @@ function TagAttributionContent({ tag }: { tag: EntityTag }) {
         <span className="font-medium text-foreground">{tag.downvotes}</span>{' '}
         {tag.downvotes === 1 ? 'downvote' : 'downvotes'}
       </p>
+
+      {showVoteActions && onVote && (
+        // PSY-498: touch-only vote controls. On coarse-pointer devices the
+        // inline next-to-pill vote buttons disappear, so the card is the only
+        // vote affordance. Buttons are full-width tap targets (44px tall via
+        // padding) to comply with WCAG touch-target guidance, and labelled
+        // with the tag name so screen readers can disambiguate between pills.
+        <div
+          className="flex items-stretch gap-2 pt-1"
+          data-testid={`tag-pill-card-vote-actions-${tag.tag_id}`}
+        >
+          <button
+            onClick={() => onVote(tag, true)}
+            className={cn(
+              'flex-1 inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium transition-colors',
+              userVote === 1
+                ? 'border-green-500/40 bg-green-500/10 text-green-600'
+                : 'border-input text-muted-foreground hover:text-green-600 hover:border-green-500/40'
+            )}
+            aria-label={`Upvote ${tag.name}`}
+            aria-pressed={userVote === 1}
+          >
+            <ThumbsUp className="h-3.5 w-3.5" />
+            Upvote
+          </button>
+          <button
+            onClick={() => onVote(tag, false)}
+            className={cn(
+              'flex-1 inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium transition-colors',
+              userVote === -1
+                ? 'border-red-500/40 bg-red-500/10 text-red-600'
+                : 'border-input text-muted-foreground hover:text-red-600 hover:border-red-500/40'
+            )}
+            aria-label={`Downvote ${tag.name}`}
+            aria-pressed={userVote === -1}
+          >
+            <ThumbsDown className="h-3.5 w-3.5" />
+            Downvote
+          </button>
+        </div>
+      )}
 
       <Link
         href={`/tags/${tag.slug}`}
