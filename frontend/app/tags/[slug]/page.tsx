@@ -1,5 +1,6 @@
 import { Suspense } from 'react'
 import type { Metadata } from 'next'
+import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
 import { TagDetail } from '@/features/tags/components'
@@ -26,6 +27,10 @@ interface TagSummaryForMetadata {
  * GET /tags/{slug} endpoint (not /tags/{slug}/detail) because we only need
  * name + usage_count for the title/description; the enriched detail call has
  * extra cost for content the client component will fetch anyway. (PSY-485)
+ *
+ * Returns null for 404s (expected for invalid slugs) — the page component
+ * uses that signal to call `notFound()` and return a hard HTTP 404 instead
+ * of a soft-404 (PSY-497).
  */
 async function getTagForMetadata(
   slug: string
@@ -85,9 +90,13 @@ export async function generateMetadata({
     }
   }
 
+  // Missing tag: the page component will call `notFound()` and Next.js will
+  // render `app/tags/[slug]/not-found.tsx`, which owns its own metadata.
+  // Returning a generic "Tag" title here would show briefly before the
+  // not-found page mounts, so use the explicit not-found title instead.
   return {
-    title: 'Tag',
-    description: 'Browse entities by tag on Psychic Homily',
+    title: 'Tag not found',
+    description: 'The tag you are looking for does not exist.',
   }
 }
 
@@ -101,6 +110,22 @@ function TagLoadingFallback() {
 
 export default async function TagDetailPage({ params }: TagPageProps) {
   const { slug } = await params
+
+  // Server-side existence check: if the backend doesn't know this slug, call
+  // `notFound()` so Next.js returns HTTP 404 and renders the route's
+  // `not-found.tsx`. Without this, the client component would render a
+  // friendly "Tag Not Found" page but the response status stays 200 — a
+  // soft-404 that poisons SEO, monitoring, and crawlers (PSY-497).
+  //
+  // We rely on `getTagForMetadata` (already called during metadata
+  // generation) — but Next.js doesn't memoize across `generateMetadata` and
+  // the page component, so this second fetch is unavoidable. It hits
+  // `revalidate: 3600` cache in practice.
+  const tag = await getTagForMetadata(slug)
+  if (!tag) {
+    notFound()
+  }
+
   return (
     <Suspense fallback={<TagLoadingFallback />}>
       <TagDetail slug={slug} />
