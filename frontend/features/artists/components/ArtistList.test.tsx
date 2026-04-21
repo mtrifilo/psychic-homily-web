@@ -28,19 +28,6 @@ vi.mock('@/lib/hooks/common/useDensity', () => ({
   useDensity: (key: string) => mockUseDensity(key),
 }))
 
-// Mock auth hooks
-const mockUseProfile = vi.fn()
-const mockUseIsAuthenticated = vi.fn()
-vi.mock('@/features/auth', () => ({
-  useProfile: () => mockUseProfile(),
-  useIsAuthenticated: () => mockUseIsAuthenticated(),
-}))
-
-// Mock SaveDefaultsButton
-vi.mock('@/components/filters/SaveDefaultsButton', () => ({
-  SaveDefaultsButton: () => <div data-testid="save-defaults-button">SaveDefaultsButton</div>,
-}))
-
 // Mock child components that are complex
 vi.mock('./ArtistSearch', () => ({
   ArtistSearch: () => <div data-testid="artist-search">ArtistSearch</div>,
@@ -50,12 +37,10 @@ vi.mock('@/components/filters', () => ({
   CityFilters: ({
     onFilterChange,
     selectedCities,
-    children,
   }: {
     onFilterChange: (cities: { city: string; state: string }[]) => void
     selectedCities: { city: string; state: string }[]
     cities: unknown[]
-    children?: React.ReactNode
   }) => (
     <div data-testid="city-filters">
       <span data-testid="selected-count">{selectedCities.length}</span>
@@ -65,7 +50,6 @@ vi.mock('@/components/filters', () => ({
       >
         Clear
       </button>
-      {children}
     </div>
   ),
 }))
@@ -116,8 +100,6 @@ describe('ArtistList', () => {
     vi.clearAllMocks()
     mockGet.mockReturnValue(null)
     mockUseDensity.mockReturnValue({ density: 'comfortable', setDensity: vi.fn() })
-    mockUseProfile.mockReturnValue({ data: null })
-    mockUseIsAuthenticated.mockReturnValue({ isAuthenticated: false })
     mockUseArtistCities.mockReturnValue({
       data: { cities: [] },
       isLoading: false,
@@ -341,5 +323,45 @@ describe('ArtistList', () => {
         tagMatch: 'any',
       })
     )
+  })
+
+  // PSY-496: city filter must be page-scoped. Arriving at /artists from
+  // another entity page (e.g. /shows) without a `cities` URL param should
+  // render the unfiltered list. The shared city filter had been auto-applying
+  // the user's profile favorite_cities on mount, which made users land on
+  // /artists?cities=Phoenix%2CAZ after clicking the sidebar link — most
+  // artists have city: null, so the list rendered "0 artists".
+  describe('PSY-496: city filter is page-scoped (no cross-page persistence)', () => {
+    it('does not call router.replace to append cities param on mount (no URL param)', () => {
+      // Simulate cross-page navigation: arriving at /artists with no cities
+      // URL param. Even if the user previously selected Phoenix on /shows,
+      // /artists should render unfiltered and NOT mutate the URL.
+      mockGet.mockReturnValue(null)
+
+      renderWithProviders(<ArtistList />)
+
+      expect(mockReplace).not.toHaveBeenCalled()
+      expect(mockUseArtists).toHaveBeenCalledWith(
+        expect.objectContaining({ cities: undefined })
+      )
+    })
+
+    it('respects an explicit cities URL param (still supports direct/bookmark nav)', () => {
+      // Manual/bookmark nav: /artists?cities=Phoenix,AZ must still filter.
+      mockGet.mockImplementation((key: string) =>
+        key === 'cities' ? 'Phoenix,AZ' : null
+      )
+
+      renderWithProviders(<ArtistList />)
+
+      // URL must not be mutated by the component.
+      expect(mockReplace).not.toHaveBeenCalled()
+      // Filter drives the list as expected.
+      expect(mockUseArtists).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cities: [{ city: 'Phoenix', state: 'AZ' }],
+        })
+      )
+    })
   })
 })
