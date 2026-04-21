@@ -14,12 +14,7 @@ export type {
   VenueShowsResponse,
   VenueCity,
   VenueCitiesResponse,
-  VenueEditStatus,
   VenueEditRequest,
-  PendingVenueEdit,
-  UpdateVenueResponse,
-  MyPendingEditResponse,
-  PendingVenueEditsResponse,
   UnverifiedVenue,
   UnverifiedVenuesResponse,
   FavoriteVenueResponse,
@@ -48,8 +43,6 @@ export { useVenueSearch } from './hooks'
 
 export {
   useVenueUpdate,
-  useMyPendingVenueEdit,
-  useCancelPendingVenueEdit,
   useVenueDelete,
 } from './hooks'
 

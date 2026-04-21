@@ -39,7 +39,9 @@ func (s *AdminStatsService) GetDashboardStats() (*contracts.AdminDashboardStats,
 	if err := s.db.Model(&models.Show{}).Where("status = ?", models.ShowStatusPending).Count(&stats.PendingShows).Error; err != nil {
 		return nil, err
 	}
-	if err := s.db.Model(&models.PendingVenueEdit{}).Where("status = ?", "pending").Count(&stats.PendingVenueEdits).Error; err != nil {
+	if err := s.db.Model(&models.PendingEntityEdit{}).
+		Where("status = ? AND entity_type = ?", models.PendingEditStatusPending, models.PendingEditEntityVenue).
+		Count(&stats.PendingVenueEdits).Error; err != nil {
 		return nil, err
 	}
 	if err := s.db.Model(&models.ShowReport{}).Where("status = ?", models.ShowReportStatusPending).Count(&stats.PendingReports).Error; err != nil {
@@ -316,18 +318,9 @@ func (s *AdminStatsService) resolveEntitySlug(entityType string, entityID uint) 
 			return ""
 		}
 		slug = show.Slug
-	case "venue", "venue_edit":
+	case "venue":
 		var venue models.Venue
-		venueID := entityID
-		// For venue_edit, the entityID is the edit ID, try to resolve the venue
-		if entityType == "venue_edit" {
-			var edit models.PendingVenueEdit
-			if err := s.db.Select("venue_id").First(&edit, entityID).Error; err != nil {
-				return ""
-			}
-			venueID = edit.VenueID
-		}
-		if err := s.db.Select("slug").First(&venue, venueID).Error; err != nil {
+		if err := s.db.Select("slug").First(&venue, entityID).Error; err != nil {
 			return ""
 		}
 		slug = venue.Slug

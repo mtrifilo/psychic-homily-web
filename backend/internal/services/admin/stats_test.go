@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -37,10 +38,10 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TearDownSuite() {
 func (suite *AdminStatsServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
+	_, _ = sqlDB.Exec("DELETE FROM pending_entity_edits")
 	_, _ = sqlDB.Exec("DELETE FROM audit_logs")
 	_, _ = sqlDB.Exec("DELETE FROM artist_reports")
 	_, _ = sqlDB.Exec("DELETE FROM show_reports")
-	_, _ = sqlDB.Exec("DELETE FROM pending_venue_edits")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
@@ -179,10 +180,14 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_Pendin
 	user := suite.createUser("user@test.com")
 	venue := suite.createVenue("Test Venue", "NYC", "NY", true)
 
-	edit := &models.PendingVenueEdit{
-		VenueID:     venue.ID,
-		SubmittedBy: user.ID,
-		Status:      models.VenueEditStatusPending,
+	changesJSON := json.RawMessage(`[{"field":"name","old_value":"Test Venue","new_value":"New Venue"}]`)
+	edit := &models.PendingEntityEdit{
+		EntityType:   models.PendingEditEntityVenue,
+		EntityID:     venue.ID,
+		SubmittedBy:  user.ID,
+		FieldChanges: &changesJSON,
+		Summary:      "test",
+		Status:       models.PendingEditStatusPending,
 	}
 	err := suite.db.Create(edit).Error
 	suite.Require().NoError(err)
@@ -396,33 +401,6 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_ActorN
 	suite.Equal("cooluser", feed.Events[0].ActorName)
 }
 
-func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_VenueEditSlugResolution() {
-	user := suite.createUser("admin@test.com")
-	slug := "test-venue"
-	venue := &models.Venue{Name: "Test Venue", City: "NYC", State: "NY", Slug: &slug}
-	err := suite.db.Create(venue).Error
-	suite.Require().NoError(err)
-
-	edit := &models.PendingVenueEdit{
-		VenueID:     venue.ID,
-		SubmittedBy: user.ID,
-		Status:      models.VenueEditStatusPending,
-	}
-	err = suite.db.Create(edit).Error
-	suite.Require().NoError(err)
-
-	suite.createAuditLog(user.ID, "approve_venue_edit", "venue_edit", edit.ID)
-
-	feed, err := suite.service.GetRecentActivity()
-	suite.Require().NoError(err)
-	suite.Require().Len(feed.Events, 1)
-
-	event := feed.Events[0]
-	suite.Equal("venue_edit_approved", event.EventType)
-	suite.Equal("venue", event.EntityType)
-	suite.Equal("test-venue", event.EntitySlug)
-}
-
 func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_UnknownActionFallback() {
 	user := suite.createUser("admin@test.com")
 	suite.createAuditLog(user.ID, "some_new_action", "widget", 42)
@@ -482,11 +460,15 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_FullSc
 	suite.createShow("Pending Show", models.ShowStatusPending)
 	suite.createShowWithTime("Old Show", models.ShowStatusApproved, time.Now().AddDate(0, 0, -10))
 
-	// Pending venue edit
-	edit := &models.PendingVenueEdit{
-		VenueID:     venue.ID,
-		SubmittedBy: user.ID,
-		Status:      models.VenueEditStatusPending,
+	// Pending venue edit (via unified pending_entity_edits)
+	changesJSON := json.RawMessage(`[{"field":"name","old_value":"","new_value":"X"}]`)
+	edit := &models.PendingEntityEdit{
+		EntityType:   models.PendingEditEntityVenue,
+		EntityID:     venue.ID,
+		SubmittedBy:  user.ID,
+		FieldChanges: &changesJSON,
+		Summary:      "test",
+		Status:       models.PendingEditStatusPending,
 	}
 	suite.db.Create(edit)
 

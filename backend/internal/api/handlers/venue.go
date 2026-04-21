@@ -370,27 +370,20 @@ type UpdateVenueRequest struct {
 	}
 }
 
-// UpdateVenueResponse represents the HTTP response for updating a venue
-// Can return either updated venue (admin) or pending edit info (non-admin)
+// UpdateVenueResponse represents the HTTP response for updating a venue.
 type UpdateVenueResponse struct {
-	Body struct {
-		Venue       *contracts.VenueDetailResponse       `json:"venue,omitempty" doc:"Updated venue (admin only)"`
-		PendingEdit *contracts.PendingVenueEditResponse  `json:"pending_edit,omitempty" doc:"Pending edit info (non-admin)"`
-		Status      string                              `json:"status" doc:"Result status: updated or pending"`
-		Message     string                              `json:"message" doc:"Human-readable message"`
-	}
+	Body *contracts.VenueDetailResponse
 }
 
-// UpdateVenueHandler handles PUT /venues/{venue_id}
-// Admin: Updates venue directly
-// Non-admin: Creates pending edit if user is the venue owner
+// UpdateVenueHandler handles PUT /venues/{venue_id} — admin-only direct update.
+// Non-admin users (including venue submitters) go through PUT /venues/{id}/suggest-edit,
+// which routes through the unified pending_entity_edits queue.
 func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueRequest) (*UpdateVenueResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Get authenticated user
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse venue ID
@@ -399,347 +392,115 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		return nil, huma.Error400BadRequest("Invalid venue ID")
 	}
 
-	// Get the venue to check ownership
-	venue, err := h.venueService.GetVenueModel(uint(venueID))
+	// Validate required fields aren't being set to empty strings
+	if req.Body.Name != nil && *req.Body.Name == "" {
+		return nil, huma.Error422UnprocessableEntity("Venue name cannot be empty")
+	}
+	if req.Body.City != nil && *req.Body.City == "" {
+		return nil, huma.Error422UnprocessableEntity("City cannot be empty")
+	}
+	if req.Body.State != nil && *req.Body.State == "" {
+		return nil, huma.Error422UnprocessableEntity("State cannot be empty")
+	}
+	if req.Body.Description != nil && len(*req.Body.Description) > 5000 {
+		return nil, huma.Error422UnprocessableEntity("Description must be 5000 characters or fewer")
+	}
+
+	logger.FromContext(ctx).Info("admin_venue_update",
+		"venue_id", venueID,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	// Capture old values for revision diff (fire-and-forget safe)
+	var oldVenue *contracts.VenueDetailResponse
+	if h.revisionService != nil {
+		oldVenue, _ = h.venueService.GetVenue(uint(venueID))
+	}
+
+	updates := make(map[string]interface{})
+	if req.Body.Name != nil {
+		updates["name"] = *req.Body.Name
+	}
+	if req.Body.Address != nil {
+		updates["address"] = *req.Body.Address
+	}
+	if req.Body.City != nil {
+		updates["city"] = *req.Body.City
+	}
+	if req.Body.State != nil {
+		updates["state"] = *req.Body.State
+	}
+	if req.Body.Country != nil {
+		updates["country"] = *req.Body.Country
+	}
+	if req.Body.Zipcode != nil {
+		updates["zipcode"] = *req.Body.Zipcode
+	}
+	if req.Body.Instagram != nil {
+		updates["instagram"] = *req.Body.Instagram
+	}
+	if req.Body.Facebook != nil {
+		updates["facebook"] = *req.Body.Facebook
+	}
+	if req.Body.Twitter != nil {
+		updates["twitter"] = *req.Body.Twitter
+	}
+	if req.Body.YouTube != nil {
+		updates["youtube"] = *req.Body.YouTube
+	}
+	if req.Body.Spotify != nil {
+		updates["spotify"] = *req.Body.Spotify
+	}
+	if req.Body.SoundCloud != nil {
+		updates["soundcloud"] = *req.Body.SoundCloud
+	}
+	if req.Body.Bandcamp != nil {
+		updates["bandcamp"] = *req.Body.Bandcamp
+	}
+	if req.Body.Website != nil {
+		updates["website"] = *req.Body.Website
+	}
+	if req.Body.Description != nil {
+		updates["description"] = nilIfEmpty(*req.Body.Description)
+	}
+
+	updatedVenue, err := h.venueService.UpdateVenue(uint(venueID), updates)
 	if err != nil {
 		var venueErr *apperrors.VenueError
 		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {
 			return nil, huma.Error404NotFound("Venue not found")
 		}
-		return nil, huma.Error500InternalServerError(
-			fmt.Sprintf("Failed to get venue (request_id: %s)", requestID),
-		)
-	}
-
-	// Build edit request
-	editReq := &contracts.VenueEditRequest{
-		Name:        req.Body.Name,
-		Address:     req.Body.Address,
-		City:        req.Body.City,
-		State:       req.Body.State,
-		Country:     req.Body.Country,
-		Zipcode:     req.Body.Zipcode,
-		Instagram:   req.Body.Instagram,
-		Facebook:    req.Body.Facebook,
-		Twitter:     req.Body.Twitter,
-		YouTube:     req.Body.YouTube,
-		Spotify:     req.Body.Spotify,
-		SoundCloud:  req.Body.SoundCloud,
-		Bandcamp:    req.Body.Bandcamp,
-		Website:     req.Body.Website,
-		Description: req.Body.Description,
-	}
-
-	// Validate required fields aren't being set to empty strings
-	if editReq.Name != nil && *editReq.Name == "" {
-		return nil, huma.Error422UnprocessableEntity("Venue name cannot be empty")
-	}
-	if editReq.City != nil && *editReq.City == "" {
-		return nil, huma.Error422UnprocessableEntity("City cannot be empty")
-	}
-	if editReq.State != nil && *editReq.State == "" {
-		return nil, huma.Error422UnprocessableEntity("State cannot be empty")
-	}
-	// Validate description length if provided
-	if editReq.Description != nil && len(*editReq.Description) > 5000 {
-		return nil, huma.Error422UnprocessableEntity("Description must be 5000 characters or fewer")
-	}
-
-	// Admin flow: direct update
-	if user.IsAdmin {
-		logger.FromContext(ctx).Info("admin_venue_update",
+		logger.FromContext(ctx).Error("admin_venue_update_failed",
 			"venue_id", venueID,
-			"admin_id", user.ID,
+			"error", err.Error(),
 			"request_id", requestID,
 		)
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Failed to update venue (request_id: %s)", requestID),
+		)
+	}
 
-		// Capture old values for revision diff (fire-and-forget safe)
-		var oldVenue *contracts.VenueDetailResponse
-		if h.revisionService != nil {
-			oldVenue, _ = h.venueService.GetVenue(uint(venueID))
-		}
-
-		// Build updates map
-		updates := make(map[string]interface{})
-		if editReq.Name != nil {
-			updates["name"] = *editReq.Name
-		}
-		if editReq.Address != nil {
-			updates["address"] = *editReq.Address
-		}
-		if editReq.City != nil {
-			updates["city"] = *editReq.City
-		}
-		if editReq.State != nil {
-			updates["state"] = *editReq.State
-		}
-		if editReq.Country != nil {
-			updates["country"] = *editReq.Country
-		}
-		if editReq.Zipcode != nil {
-			updates["zipcode"] = *editReq.Zipcode
-		}
-		if editReq.Instagram != nil {
-			updates["instagram"] = *editReq.Instagram
-		}
-		if editReq.Facebook != nil {
-			updates["facebook"] = *editReq.Facebook
-		}
-		if editReq.Twitter != nil {
-			updates["twitter"] = *editReq.Twitter
-		}
-		if editReq.YouTube != nil {
-			updates["youtube"] = *editReq.YouTube
-		}
-		if editReq.Spotify != nil {
-			updates["spotify"] = *editReq.Spotify
-		}
-		if editReq.SoundCloud != nil {
-			updates["soundcloud"] = *editReq.SoundCloud
-		}
-		if editReq.Bandcamp != nil {
-			updates["bandcamp"] = *editReq.Bandcamp
-		}
-		if editReq.Website != nil {
-			updates["website"] = *editReq.Website
-		}
-		if editReq.Description != nil {
-			updates["description"] = nilIfEmpty(*editReq.Description)
-		}
-
-		updatedVenue, err := h.venueService.UpdateVenue(uint(venueID), updates)
-		if err != nil {
-			logger.FromContext(ctx).Error("admin_venue_update_failed",
-				"venue_id", venueID,
-				"error", err.Error(),
-				"request_id", requestID,
-			)
-			return nil, huma.Error422UnprocessableEntity(
-				fmt.Sprintf("Failed to update venue (request_id: %s)", requestID),
-			)
-		}
-
-		// Record revision (fire and forget)
-		if h.revisionService != nil && oldVenue != nil {
-			go func() {
-				changes := computeVenueChanges(oldVenue, updatedVenue)
-				if len(changes) > 0 {
-					summary := ""
-					if req.Body.Summary != nil {
-						summary = *req.Body.Summary
-					}
-					if err := h.revisionService.RecordRevision("venue", uint(venueID), user.ID, changes, summary); err != nil {
-						logger.Default().Error("record_venue_revision_failed",
-							"venue_id", venueID,
-							"error", err.Error(),
-						)
-					}
+	// Record revision (fire and forget)
+	if h.revisionService != nil && oldVenue != nil {
+		go func() {
+			changes := computeVenueChanges(oldVenue, updatedVenue)
+			if len(changes) > 0 {
+				summary := ""
+				if req.Body.Summary != nil {
+					summary = *req.Body.Summary
 				}
-			}()
-		}
-
-		return &UpdateVenueResponse{
-			Body: struct {
-				Venue       *contracts.VenueDetailResponse       `json:"venue,omitempty" doc:"Updated venue (admin only)"`
-				PendingEdit *contracts.PendingVenueEditResponse  `json:"pending_edit,omitempty" doc:"Pending edit info (non-admin)"`
-				Status      string                              `json:"status" doc:"Result status: updated or pending"`
-				Message     string                              `json:"message" doc:"Human-readable message"`
-			}{
-				Venue:   updatedVenue,
-				Status:  "updated",
-				Message: "Venue updated successfully",
-			},
-		}, nil
+				if err := h.revisionService.RecordRevision("venue", uint(venueID), user.ID, changes, summary); err != nil {
+					logger.Default().Error("record_venue_revision_failed",
+						"venue_id", venueID,
+						"error", err.Error(),
+					)
+				}
+			}
+		}()
 	}
 
-	// Non-admin flow: check ownership and create pending edit
-	// Only allow edits if user is the venue owner (submitted_by matches)
-	if venue.SubmittedBy == nil || *venue.SubmittedBy != user.ID {
-		logger.FromContext(ctx).Warn("venue_edit_forbidden",
-			"venue_id", venueID,
-			"user_id", user.ID,
-			"venue_submitted_by", venue.SubmittedBy,
-			"request_id", requestID,
-		)
-		return nil, huma.Error403Forbidden("You can only edit venues you submitted")
-	}
-
-	logger.FromContext(ctx).Info("user_venue_edit_request",
-		"venue_id", venueID,
-		"user_id", user.ID,
-		"request_id", requestID,
-	)
-
-	// Create pending edit
-	pendingEdit, err := h.venueService.CreatePendingVenueEdit(uint(venueID), user.ID, editReq)
-	if err != nil {
-		logger.FromContext(ctx).Error("user_venue_edit_failed",
-			"venue_id", venueID,
-			"user_id", user.ID,
-			"error", err.Error(),
-			"request_id", requestID,
-		)
-
-		// Check for conflict error (existing pending edit)
-		var venueErr *apperrors.VenueError
-		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenuePendingEditExists {
-			return nil, huma.Error409Conflict("You already have a pending edit for this venue")
-		}
-
-		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to create pending edit (request_id: %s)", requestID),
-		)
-	}
-
-	// Send Discord notification for pending venue edit
-	submitterEmail := ""
-	if user.Email != nil {
-		submitterEmail = *user.Email
-	}
-	venueName := ""
-	if pendingEdit.Venue != nil {
-		venueName = pendingEdit.Venue.Name
-	}
-	h.discordService.NotifyPendingVenueEdit(pendingEdit.ID, pendingEdit.VenueID, venueName, submitterEmail)
-
-	return &UpdateVenueResponse{
-		Body: struct {
-			Venue       *contracts.VenueDetailResponse       `json:"venue,omitempty" doc:"Updated venue (admin only)"`
-			PendingEdit *contracts.PendingVenueEditResponse  `json:"pending_edit,omitempty" doc:"Pending edit info (non-admin)"`
-			Status      string                              `json:"status" doc:"Result status: updated or pending"`
-			Message     string                              `json:"message" doc:"Human-readable message"`
-		}{
-			PendingEdit: pendingEdit,
-			Status:      "pending",
-			Message:     "Your edit has been submitted for review",
-		},
-	}, nil
-}
-
-// GetMyPendingEditRequest represents the request for getting user's pending edit
-type GetMyPendingEditRequest struct {
-	VenueID string `path:"venue_id" validate:"required" doc:"Venue ID"`
-}
-
-// GetMyPendingEditResponse represents the response for user's pending edit
-type GetMyPendingEditResponse struct {
-	Body struct {
-		PendingEdit *contracts.PendingVenueEditResponse `json:"pending_edit" doc:"User's pending edit for this venue, null if none"`
-	}
-}
-
-// GetMyPendingEditHandler handles GET /venues/{venue_id}/my-pending-edit
-func (h *VenueHandler) GetMyPendingEditHandler(ctx context.Context, req *GetMyPendingEditRequest) (*GetMyPendingEditResponse, error) {
-	requestID := logger.GetRequestID(ctx)
-
-	// Get authenticated user
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-
-	// Parse venue ID
-	venueID, err := strconv.ParseUint(req.VenueID, 10, 32)
-	if err != nil {
-		return nil, huma.Error400BadRequest("Invalid venue ID")
-	}
-
-	pendingEdit, err := h.venueService.GetPendingEditForVenue(uint(venueID), user.ID)
-	if err != nil {
-		logger.FromContext(ctx).Error("get_pending_edit_failed",
-			"venue_id", venueID,
-			"user_id", user.ID,
-			"error", err.Error(),
-			"request_id", requestID,
-		)
-		return nil, huma.Error500InternalServerError(
-			fmt.Sprintf("Failed to get pending edit (request_id: %s)", requestID),
-		)
-	}
-
-	return &GetMyPendingEditResponse{
-		Body: struct {
-			PendingEdit *contracts.PendingVenueEditResponse `json:"pending_edit" doc:"User's pending edit for this venue, null if none"`
-		}{
-			PendingEdit: pendingEdit,
-		},
-	}, nil
-}
-
-// CancelMyPendingEditRequest represents the request for canceling user's pending edit
-type CancelMyPendingEditRequest struct {
-	VenueID string `path:"venue_id" validate:"required" doc:"Venue ID"`
-}
-
-// CancelMyPendingEditResponse represents the response for canceling pending edit
-type CancelMyPendingEditResponse struct {
-	Body struct {
-		Message string `json:"message" doc:"Success message"`
-	}
-}
-
-// CancelMyPendingEditHandler handles DELETE /venues/{venue_id}/my-pending-edit
-func (h *VenueHandler) CancelMyPendingEditHandler(ctx context.Context, req *CancelMyPendingEditRequest) (*CancelMyPendingEditResponse, error) {
-	requestID := logger.GetRequestID(ctx)
-
-	// Get authenticated user
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-
-	// Parse venue ID
-	venueID, err := strconv.ParseUint(req.VenueID, 10, 32)
-	if err != nil {
-		return nil, huma.Error400BadRequest("Invalid venue ID")
-	}
-
-	// First get the pending edit to get its ID
-	pendingEdit, err := h.venueService.GetPendingEditForVenue(uint(venueID), user.ID)
-	if err != nil {
-		logger.FromContext(ctx).Error("get_pending_edit_for_cancel_failed",
-			"venue_id", venueID,
-			"user_id", user.ID,
-			"error", err.Error(),
-			"request_id", requestID,
-		)
-		return nil, huma.Error500InternalServerError(
-			fmt.Sprintf("Failed to get pending edit (request_id: %s)", requestID),
-		)
-	}
-
-	if pendingEdit == nil {
-		return nil, huma.Error404NotFound("No pending edit found for this venue")
-	}
-
-	// Cancel the pending edit
-	if err := h.venueService.CancelPendingVenueEdit(pendingEdit.ID, user.ID); err != nil {
-		logger.FromContext(ctx).Error("cancel_pending_edit_failed",
-			"venue_id", venueID,
-			"edit_id", pendingEdit.ID,
-			"user_id", user.ID,
-			"error", err.Error(),
-			"request_id", requestID,
-		)
-		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to cancel pending edit (request_id: %s)", requestID),
-		)
-	}
-
-	logger.FromContext(ctx).Info("pending_edit_cancelled",
-		"venue_id", venueID,
-		"edit_id", pendingEdit.ID,
-		"user_id", user.ID,
-		"request_id", requestID,
-	)
-
-	return &CancelMyPendingEditResponse{
-		Body: struct {
-			Message string `json:"message" doc:"Success message"`
-		}{
-			Message: "Pending edit cancelled successfully",
-		},
-	}, nil
+	return &UpdateVenueResponse{Body: updatedVenue}, nil
 }
 
 // ============================================================================

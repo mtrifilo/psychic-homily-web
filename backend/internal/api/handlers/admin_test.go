@@ -89,18 +89,6 @@ func TestAdminHandler_RequiresAdmin(t *testing.T) {
 			_, err := venueH.GetUnverifiedVenuesHandler(ctx, &GetUnverifiedVenuesRequest{})
 			return err
 		}},
-		{"GetPendingVenueEdits", func(ctx context.Context) error {
-			_, err := venueH.GetPendingVenueEditsHandler(ctx, &GetPendingVenueEditsRequest{})
-			return err
-		}},
-		{"ApproveVenueEdit", func(ctx context.Context) error {
-			_, err := venueH.ApproveVenueEditHandler(ctx, &ApproveVenueEditRequest{})
-			return err
-		}},
-		{"RejectVenueEdit", func(ctx context.Context) error {
-			_, err := venueH.RejectVenueEditHandler(ctx, &RejectVenueEditRequest{})
-			return err
-		}},
 		{"ImportShowPreview", func(ctx context.Context) error {
 			_, err := showH.ImportShowPreviewHandler(ctx, &ImportShowPreviewRequest{})
 			return err
@@ -230,34 +218,6 @@ func TestVerifyVenueHandler_InvalidID(t *testing.T) {
 	req := &VerifyVenueRequest{VenueID: "abc"}
 
 	_, err := h.VerifyVenueHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
-}
-
-// ApproveVenueEditHandler — invalid edit ID
-func TestApproveVenueEditHandler_InvalidID(t *testing.T) {
-	h := testAdminVenueHandler()
-	req := &ApproveVenueEditRequest{EditID: "abc"}
-
-	_, err := h.ApproveVenueEditHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
-}
-
-// RejectVenueEditHandler — invalid edit ID
-func TestRejectVenueEditHandler_InvalidID(t *testing.T) {
-	h := testAdminVenueHandler()
-	req := &RejectVenueEditRequest{EditID: "abc"}
-
-	_, err := h.RejectVenueEditHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
-}
-
-// RejectVenueEditHandler — empty reason
-func TestRejectVenueEditHandler_EmptyReason(t *testing.T) {
-	h := testAdminVenueHandler()
-	req := &RejectVenueEditRequest{EditID: "1"}
-	// Body.Reason is empty
-
-	_, err := h.RejectVenueEditHandler(adminCtx(), req)
 	assertHumaError(t, err, 400)
 }
 
@@ -603,40 +563,6 @@ func TestGetUnverifiedVenuesHandler_ServiceError(t *testing.T) {
 	assertHumaError(t, err, 500)
 }
 
-func TestGetPendingVenueEditsHandler_Success(t *testing.T) {
-	h := adminVenueHandler(func(ah *AdminVenueHandler) {
-		ah.venueService = &mockVenueService{
-			getPendingVenueEditsFn: func(limit, offset int) ([]*contracts.PendingVenueEditResponse, int64, error) {
-				if limit != 50 {
-					t.Errorf("expected limit=50, got %d", limit)
-				}
-				if offset != 0 {
-					t.Errorf("expected offset=0, got %d", offset)
-				}
-				return []*contracts.PendingVenueEditResponse{{}}, 1, nil
-			},
-		}
-	})
-	resp, err := h.GetPendingVenueEditsHandler(adminCtx(), &GetPendingVenueEditsRequest{Limit: 50})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Total != 1 {
-		t.Errorf("expected total=1, got %d", resp.Body.Total)
-	}
-}
-
-func TestGetPendingVenueEditsHandler_ServiceError(t *testing.T) {
-	h := adminVenueHandler(func(ah *AdminVenueHandler) {
-		ah.venueService = &mockVenueService{
-			getPendingVenueEditsFn: func(_, _ int) ([]*contracts.PendingVenueEditResponse, int64, error) {
-				return nil, 0, fmt.Errorf("db error")
-			},
-		}
-	})
-	_, err := h.GetPendingVenueEditsHandler(adminCtx(), &GetPendingVenueEditsRequest{Limit: 50})
-	assertHumaError(t, err, 500)
-}
 
 func TestGetAdminShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
@@ -1021,103 +947,6 @@ func TestVerifyVenueHandler_ServiceError(t *testing.T) {
 	assertHumaError(t, err, 422)
 }
 
-func TestApproveVenueEditHandler_Success(t *testing.T) {
-	var auditCalled bool
-	h := adminVenueHandler(func(ah *AdminVenueHandler) {
-		ah.venueService = &mockVenueService{
-			approveVenueEditFn: func(editID, adminID uint) (*contracts.VenueDetailResponse, error) {
-				if editID != 1 {
-					t.Errorf("expected editID=1, got %d", editID)
-				}
-				if adminID != 1 {
-					t.Errorf("expected adminID=1, got %d", adminID)
-				}
-				return &contracts.VenueDetailResponse{ID: 5}, nil
-			},
-		}
-		ah.auditLogService = &mockAuditLogService{
-			logActionFn: func(_ uint, action string, _ string, _ uint, _ map[string]interface{}) {
-				auditCalled = true
-				if action != "approve_venue_edit" {
-					t.Errorf("expected action='approve_venue_edit', got %q", action)
-				}
-			},
-		}
-	})
-	resp, err := h.ApproveVenueEditHandler(adminCtx(), &ApproveVenueEditRequest{EditID: "1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.ID != 5 {
-		t.Errorf("expected venue ID=5, got %d", resp.Body.ID)
-	}
-	if !auditCalled {
-		t.Error("expected audit log to be called")
-	}
-}
-
-func TestApproveVenueEditHandler_ServiceError(t *testing.T) {
-	h := adminVenueHandler(func(ah *AdminVenueHandler) {
-		ah.venueService = &mockVenueService{
-			approveVenueEditFn: func(_, _ uint) (*contracts.VenueDetailResponse, error) {
-				return nil, fmt.Errorf("edit not found")
-			},
-		}
-	})
-	_, err := h.ApproveVenueEditHandler(adminCtx(), &ApproveVenueEditRequest{EditID: "1"})
-	assertHumaError(t, err, 422)
-}
-
-func TestRejectVenueEditHandler_Success(t *testing.T) {
-	var auditCalled bool
-	h := adminVenueHandler(func(ah *AdminVenueHandler) {
-		ah.venueService = &mockVenueService{
-			rejectVenueEditFn: func(editID, adminID uint, reason string) (*contracts.PendingVenueEditResponse, error) {
-				if editID != 1 {
-					t.Errorf("expected editID=1, got %d", editID)
-				}
-				if adminID != 1 {
-					t.Errorf("expected adminID=1, got %d", adminID)
-				}
-				if reason != "wrong info" {
-					t.Errorf("expected reason='wrong info', got %q", reason)
-				}
-				return &contracts.PendingVenueEditResponse{}, nil
-			},
-		}
-		ah.auditLogService = &mockAuditLogService{
-			logActionFn: func(_ uint, action string, _ string, _ uint, _ map[string]interface{}) {
-				auditCalled = true
-				if action != "reject_venue_edit" {
-					t.Errorf("expected action='reject_venue_edit', got %q", action)
-				}
-			},
-		}
-	})
-	req := &RejectVenueEditRequest{EditID: "1"}
-	req.Body.Reason = "wrong info"
-	_, err := h.RejectVenueEditHandler(adminCtx(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !auditCalled {
-		t.Error("expected audit log to be called")
-	}
-}
-
-func TestRejectVenueEditHandler_ServiceError(t *testing.T) {
-	h := adminVenueHandler(func(ah *AdminVenueHandler) {
-		ah.venueService = &mockVenueService{
-			rejectVenueEditFn: func(_, _ uint, _ string) (*contracts.PendingVenueEditResponse, error) {
-				return nil, fmt.Errorf("not found")
-			},
-		}
-	})
-	req := &RejectVenueEditRequest{EditID: "1"}
-	req.Body.Reason = "wrong"
-	_, err := h.RejectVenueEditHandler(adminCtx(), req)
-	assertHumaError(t, err, 422)
-}
 
 func TestCreateAPITokenHandler_Success(t *testing.T) {
 	h := adminTokenHandler(func(ah *AdminTokenHandler) {
@@ -2134,42 +1963,6 @@ func TestGetUnverifiedVenuesHandler_LimitClamping(t *testing.T) {
 	}
 }
 
-func TestGetPendingVenueEditsHandler_LimitClamping(t *testing.T) {
-	var capturedLimit, capturedOffset int
-	h := adminVenueHandler(func(ah *AdminVenueHandler) {
-		ah.venueService = &mockVenueService{
-			getPendingVenueEditsFn: func(limit, offset int) ([]*contracts.PendingVenueEditResponse, int64, error) {
-				capturedLimit = limit
-				capturedOffset = offset
-				return []*contracts.PendingVenueEditResponse{}, 0, nil
-			},
-		}
-	})
-
-	_, err := h.GetPendingVenueEditsHandler(adminCtx(), &GetPendingVenueEditsRequest{Limit: -5})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if capturedLimit != 50 {
-		t.Errorf("expected limit=50, got %d", capturedLimit)
-	}
-
-	_, err = h.GetPendingVenueEditsHandler(adminCtx(), &GetPendingVenueEditsRequest{Limit: 150})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if capturedLimit != 100 {
-		t.Errorf("expected limit=100, got %d", capturedLimit)
-	}
-
-	_, err = h.GetPendingVenueEditsHandler(adminCtx(), &GetPendingVenueEditsRequest{Limit: 50, Offset: -99})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if capturedOffset != 0 {
-		t.Errorf("expected offset=0, got %d", capturedOffset)
-	}
-}
 
 // ============================================================================
 // User handler limit clamping tests (admin_users.go)

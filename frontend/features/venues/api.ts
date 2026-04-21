@@ -21,8 +21,6 @@ export const venueEndpoints = {
   GENRES: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}/genres`,
   UPDATE: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
   DELETE: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
-  MY_PENDING_EDIT: (venueIdOrSlug: string | number) =>
-    `${API_BASE_URL}/venues/${venueIdOrSlug}/my-pending-edit`,
 } as const
 
 // ============================================================================
@@ -39,6 +37,4 @@ export const venueQueryKeys = {
     ['venues', 'search', query.toLowerCase()] as const,
   shows: (venueIdOrSlug: string | number) => ['venues', 'shows', String(venueIdOrSlug)] as const,
   genres: (venueIdOrSlug: string | number) => ['venues', 'genres', String(venueIdOrSlug)] as const,
-  myPendingEdit: (venueIdOrSlug: string | number) =>
-    ['venues', 'myPendingEdit', String(venueIdOrSlug)] as const,
 } as const

@@ -4,8 +4,6 @@ package contracts
 
 import (
 	"time"
-
-	"psychic-homily-backend/internal/models"
 )
 
 // ──────────────────────────────────────────────
@@ -359,61 +357,6 @@ type VenueCityResponse struct {
 	City       string `json:"city"`
 	State      string `json:"state"`
 	VenueCount int    `json:"venue_count"`
-}
-
-// VenueEditRequest represents the data for updating a venue
-type VenueEditRequest struct {
-	Name        *string `json:"name"`
-	Address     *string `json:"address"`
-	City        *string `json:"city"`
-	State       *string `json:"state"`
-	Country     *string `json:"country"`
-	Zipcode     *string `json:"zipcode"`
-	Instagram   *string `json:"instagram"`
-	Facebook    *string `json:"facebook"`
-	Twitter     *string `json:"twitter"`
-	YouTube     *string `json:"youtube"`
-	Spotify     *string `json:"spotify"`
-	SoundCloud  *string `json:"soundcloud"`
-	Bandcamp    *string `json:"bandcamp"`
-	Website     *string `json:"website"`
-	Description *string `json:"description"`
-}
-
-// PendingVenueEditResponse represents a pending venue edit returned to clients
-type PendingVenueEditResponse struct {
-	ID          uint                    `json:"id"`
-	VenueID     uint                    `json:"venue_id"`
-	SubmittedBy uint                    `json:"submitted_by"`
-	Status      models.VenueEditStatus  `json:"status"`
-
-	// Proposed changes
-	Name       *string `json:"name,omitempty"`
-	Address    *string `json:"address,omitempty"`
-	City       *string `json:"city,omitempty"`
-	State      *string `json:"state,omitempty"`
-	Zipcode    *string `json:"zipcode,omitempty"`
-	Instagram  *string `json:"instagram,omitempty"`
-	Facebook   *string `json:"facebook,omitempty"`
-	Twitter    *string `json:"twitter,omitempty"`
-	YouTube    *string `json:"youtube,omitempty"`
-	Spotify    *string `json:"spotify,omitempty"`
-	SoundCloud *string `json:"soundcloud,omitempty"`
-	Bandcamp   *string `json:"bandcamp,omitempty"`
-	Website    *string `json:"website,omitempty"`
-
-	// Workflow fields
-	RejectionReason *string    `json:"rejection_reason,omitempty"`
-	ReviewedBy      *uint      `json:"reviewed_by,omitempty"`
-	ReviewedAt      *time.Time `json:"reviewed_at,omitempty"`
-
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-
-	// Embedded venue info for context
-	Venue         *VenueDetailResponse `json:"venue,omitempty"`
-	SubmitterName *string              `json:"submitter_name,omitempty"`
-	ReviewerName  *string              `json:"reviewer_name,omitempty"`
 }
 
 // UnverifiedVenueResponse represents an unverified venue for admin review

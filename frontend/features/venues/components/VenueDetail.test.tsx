@@ -41,7 +41,6 @@ vi.mock('@/lib/queryClient', () => ({
     venues: {
       detail: (id: string) => ['venues', 'detail', id],
       shows: (id: number | string) => ['venues', 'shows', id],
-      myPendingEdit: (id: number) => ['venues', 'myPendingEdit', id],
     },
   },
   createInvalidateQueries: () => ({
@@ -66,8 +65,6 @@ vi.mock('../hooks/useVenues', () => ({
 // Mock useVenueEdit hook
 vi.mock('../hooks/useVenueEdit', () => ({
   useVenueUpdate: () => ({ mutate: vi.fn(), isPending: false }),
-  useMyPendingVenueEdit: () => ({ data: null }),
-  useCancelPendingVenueEdit: () => ({ mutate: vi.fn() }),
   useVenueDelete: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 

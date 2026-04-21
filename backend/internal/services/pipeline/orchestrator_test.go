@@ -193,27 +193,6 @@ func (s *stubVenueService) GetShowsForVenue(venueID uint, timezone string, limit
 func (s *stubVenueService) GetVenueCities() ([]*contracts.VenueCityResponse, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) CreatePendingVenueEdit(venueID uint, userID uint, req *contracts.VenueEditRequest) (*contracts.PendingVenueEditResponse, error) {
-	panic("not implemented")
-}
-func (s *stubVenueService) GetPendingEditForVenue(venueID uint, userID uint) (*contracts.PendingVenueEditResponse, error) {
-	panic("not implemented")
-}
-func (s *stubVenueService) GetPendingVenueEdits(limit, offset int) ([]*contracts.PendingVenueEditResponse, int64, error) {
-	panic("not implemented")
-}
-func (s *stubVenueService) GetPendingVenueEdit(editID uint) (*contracts.PendingVenueEditResponse, error) {
-	panic("not implemented")
-}
-func (s *stubVenueService) ApproveVenueEdit(editID uint, reviewerID uint) (*contracts.VenueDetailResponse, error) {
-	panic("not implemented")
-}
-func (s *stubVenueService) RejectVenueEdit(editID uint, reviewerID uint, reason string) (*contracts.PendingVenueEditResponse, error) {
-	panic("not implemented")
-}
-func (s *stubVenueService) CancelPendingVenueEdit(editID uint, userID uint) error {
-	panic("not implemented")
-}
 func (s *stubVenueService) GetVenueModel(venueID uint) (*models.Venue, error) {
 	if s.getVenueModelFn != nil {
 		return s.getVenueModelFn(venueID)

@@ -168,15 +168,14 @@ func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_AdminDirectUpdate() {
 	resp, err := s.handler.UpdateVenueHandler(ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
-	s.Equal("updated", resp.Body.Status)
-	s.NotNil(resp.Body.Venue)
-	s.Equal("Valley Bar Updated", resp.Body.Venue.Name)
+	s.NotNil(resp.Body)
+	s.Equal("Valley Bar Updated", resp.Body.Name)
 }
 
-func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_NonAdminCreatesPendingEdit() {
+func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_NonAdminForbidden() {
 	user := createTestUser(s.deps.db)
-
-	// Create venue submitted by user
+	// Even the venue submitter gets 403 on direct PUT now; non-admins must use
+	// PUT /venues/{id}/suggest-edit (handled by PendingEditHandler).
 	venue := &models.Venue{
 		Name:        "My Venue",
 		City:        "Phoenix",
@@ -185,22 +184,6 @@ func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_NonAdminCreatesPendingEdi
 		SubmittedBy: &user.ID,
 	}
 	s.deps.db.Create(venue)
-
-	ctx := ctxWithUser(user)
-	newName := "My Venue Updated"
-	req := &UpdateVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
-	req.Body.Name = &newName
-
-	resp, err := s.handler.UpdateVenueHandler(ctx, req)
-	s.NoError(err)
-	s.NotNil(resp)
-	s.Equal("pending", resp.Body.Status)
-	s.NotNil(resp.Body.PendingEdit)
-}
-
-func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_NonOwnerForbidden() {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ") // no SubmittedBy
 
 	ctx := ctxWithUser(user)
 	newName := "Changed Name"
@@ -276,47 +259,3 @@ func (s *VenueHandlerIntegrationSuite) TestDeleteVenue_NotFound() {
 	s.Error(err)
 }
 
-// --- GetMyPendingEditHandler ---
-
-func (s *VenueHandlerIntegrationSuite) TestGetMyPendingEdit_None() {
-	user := createTestUser(s.deps.db)
-	venue := &models.Venue{
-		Name:        "My Venue",
-		City:        "Phoenix",
-		State:       "AZ",
-		SubmittedBy: &user.ID,
-	}
-	s.deps.db.Create(venue)
-
-	ctx := ctxWithUser(user)
-	req := &GetMyPendingEditRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
-	resp, err := s.handler.GetMyPendingEditHandler(ctx, req)
-	s.NoError(err)
-	s.Nil(resp.Body.PendingEdit)
-}
-
-func (s *VenueHandlerIntegrationSuite) TestGetMyPendingEdit_Exists() {
-	user := createTestUser(s.deps.db)
-	venue := &models.Venue{
-		Name:        "My Venue",
-		City:        "Phoenix",
-		State:       "AZ",
-		Verified:    true,
-		SubmittedBy: &user.ID,
-	}
-	s.deps.db.Create(venue)
-
-	// Create pending edit
-	ctx := ctxWithUser(user)
-	newName := "Updated Name"
-	updateReq := &UpdateVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
-	updateReq.Body.Name = &newName
-	_, err := s.handler.UpdateVenueHandler(ctx, updateReq)
-	s.NoError(err)
-
-	// Check pending edit exists
-	getReq := &GetMyPendingEditRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
-	resp, err := s.handler.GetMyPendingEditHandler(ctx, getReq)
-	s.NoError(err)
-	s.NotNil(resp.Body.PendingEdit)
-}

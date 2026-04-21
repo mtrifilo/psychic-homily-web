@@ -6,9 +6,8 @@ import (
 
 // Venue error codes
 const (
-	CodeVenueNotFound         = "VENUE_NOT_FOUND"
-	CodeVenueHasShows         = "VENUE_HAS_SHOWS"
-	CodeVenuePendingEditExists = "VENUE_PENDING_EDIT_EXISTS"
+	CodeVenueNotFound = "VENUE_NOT_FOUND"
+	CodeVenueHasShows = "VENUE_HAS_SHOWS"
 )
 
 // VenueError represents a venue-related error with additional context.
@@ -51,11 +50,3 @@ func ErrVenueHasShows(venueID uint, count int64) *VenueError {
 	}
 }
 
-// ErrVenuePendingEditExists creates a pending-edit-exists error.
-func ErrVenuePendingEditExists(venueID uint) *VenueError {
-	return &VenueError{
-		Code:    CodeVenuePendingEditExists,
-		Message: "You already have a pending edit for this venue",
-		VenueID: venueID,
-	}
-}

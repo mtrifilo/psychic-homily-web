@@ -99,7 +99,6 @@ func cleanupTables(db *gorm.DB) {
 	_, _ = sqlDB.Exec("DELETE FROM artist_reports")
 	_, _ = sqlDB.Exec("DELETE FROM show_reports")
 	_, _ = sqlDB.Exec("DELETE FROM user_bookmarks")
-	_, _ = sqlDB.Exec("DELETE FROM pending_venue_edits")
 	_, _ = sqlDB.Exec("DELETE FROM festival_artists")
 	_, _ = sqlDB.Exec("DELETE FROM festival_venues")
 	_, _ = sqlDB.Exec("DELETE FROM festivals")

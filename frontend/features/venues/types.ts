@@ -112,10 +112,9 @@ export const getVenueLocation = (venue: Venue): string => {
 /**
  * Status of a pending venue edit
  */
-export type VenueEditStatus = 'pending' | 'approved' | 'rejected'
-
 /**
- * Request to update a venue
+ * Request body for PUT /venues/{id} (admin-only direct update).
+ * Non-admin users go through the unified suggest-edit flow instead.
  */
 export interface VenueEditRequest {
   name?: string
@@ -132,69 +131,6 @@ export interface VenueEditRequest {
   soundcloud?: string
   bandcamp?: string
   website?: string
-}
-
-/**
- * Pending venue edit awaiting admin approval
- */
-export interface PendingVenueEdit {
-  id: number
-  venue_id: number
-  submitted_by: number
-  status: VenueEditStatus
-
-  // Proposed changes
-  name?: string | null
-  address?: string | null
-  city?: string | null
-  state?: string | null
-  zipcode?: string | null
-  instagram?: string | null
-  facebook?: string | null
-  twitter?: string | null
-  youtube?: string | null
-  spotify?: string | null
-  soundcloud?: string | null
-  bandcamp?: string | null
-  website?: string | null
-
-  // Workflow fields
-  rejection_reason?: string | null
-  reviewed_by?: number | null
-  reviewed_at?: string | null
-
-  created_at: string
-  updated_at: string
-
-  // Embedded venue info
-  venue?: Venue
-  submitter_name?: string
-  reviewer_name?: string
-}
-
-/**
- * Response from updating a venue (admin or non-admin)
- */
-export interface UpdateVenueResponse {
-  venue?: Venue
-  pending_edit?: PendingVenueEdit
-  status: 'updated' | 'pending'
-  message: string
-}
-
-/**
- * Response for getting user's pending edit
- */
-export interface MyPendingEditResponse {
-  pending_edit: PendingVenueEdit | null
-}
-
-/**
- * Response for admin listing pending venue edits
- */
-export interface PendingVenueEditsResponse {
-  edits: PendingVenueEdit[]
-  total: number
 }
 
 // ============================================================================

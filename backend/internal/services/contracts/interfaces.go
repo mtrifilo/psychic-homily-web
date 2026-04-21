@@ -82,13 +82,6 @@ type VenueServiceInterface interface {
 	GetUpcomingShowsForVenue(venueID uint, timezone string, limit int) ([]*VenueShowResponse, int64, error)
 	GetShowsForVenue(venueID uint, timezone string, limit int, timeFilter string) ([]*VenueShowResponse, int64, error)
 	GetVenueCities() ([]*VenueCityResponse, error)
-	CreatePendingVenueEdit(venueID uint, userID uint, req *VenueEditRequest) (*PendingVenueEditResponse, error)
-	GetPendingEditForVenue(venueID uint, userID uint) (*PendingVenueEditResponse, error)
-	GetPendingVenueEdits(limit, offset int) ([]*PendingVenueEditResponse, int64, error)
-	GetPendingVenueEdit(editID uint) (*PendingVenueEditResponse, error)
-	ApproveVenueEdit(editID uint, reviewerID uint) (*VenueDetailResponse, error)
-	RejectVenueEdit(editID uint, reviewerID uint, reason string) (*PendingVenueEditResponse, error)
-	CancelPendingVenueEdit(editID uint, userID uint) error
 	GetVenueModel(venueID uint) (*models.Venue, error)
 	GetUnverifiedVenues(limit, offset int) ([]*UnverifiedVenueResponse, int64, error)
 	GetVenueGenreProfile(venueID uint) ([]GenreCount, error)
@@ -268,7 +261,6 @@ type DiscordServiceInterface interface {
 	NotifyShowReport(report *models.ShowReport, reporterEmail string)
 	NotifyArtistReport(report *models.ArtistReport, reporterEmail string)
 	NotifyNewVenue(venueID uint, venueName, city, state string, address *string, submitterEmail string)
-	NotifyPendingVenueEdit(editID, venueID uint, venueName, submitterEmail string)
 }
 
 // PasswordValidatorInterface defines the contract for password validation operations.

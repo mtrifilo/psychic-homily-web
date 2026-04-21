@@ -68,7 +68,6 @@ var testFixturesAllowlistContractSkips = map[string]string{
 
 	// Content creation not exercised by the mutating E2E flows we care about.
 	"pending_entity_edits":  "entity-edit drawer has its own moderation tests with explicit cleanup",
-	"pending_venue_edits":   "legacy venue-edit queue; separate moderation tests handle cleanup",
 	"entity_reports":        "report flow has its own tests with explicit cleanup",
 	"artist_reports":        "report flow has its own tests with explicit cleanup",
 	"show_reports":          "report flow has its own tests with explicit cleanup",

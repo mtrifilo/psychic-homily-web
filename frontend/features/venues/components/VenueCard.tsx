@@ -36,11 +36,9 @@ export function VenueCard({ venue }: VenueCardProps) {
   const queryClient = useQueryClient()
   const invalidateQueries = createInvalidateQueries(queryClient)
 
-  // User can edit if they're an admin OR if they submitted the venue
-  const canEdit =
-    isAuthenticated &&
-    (user?.is_admin ||
-      (venue.submitted_by != null && venue.submitted_by === Number(user?.id)))
+  // PSY-503: direct edit is admin-only. Non-admin venue submitters can still
+  // suggest edits via the EntityEditDrawer on VenueDetail (unified queue).
+  const canEdit = isAuthenticated && !!user?.is_admin
 
   const { data, error, refetch } = useVenueShows({
     venueId: venue.id,

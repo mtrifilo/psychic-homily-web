@@ -1154,7 +1154,6 @@ type mockDiscordService struct {
 	notifyShowReportFn func(*models.ShowReport, string)
 	notifyArtistReportFn func(*models.ArtistReport, string)
 	notifyNewVenueFn func(uint, string, string, string, *string, string)
-	notifyPendingVenueEditFn func(uint, uint, string, string)
 }
 
 func (m *mockDiscordService) IsConfigured() (bool) {
@@ -1201,11 +1200,6 @@ func (m *mockDiscordService) NotifyArtistReport(report *models.ArtistReport, rep
 func (m *mockDiscordService) NotifyNewVenue(venueID uint, venueName string, city string, state string, address *string, submitterEmail string) {
 	if m.notifyNewVenueFn != nil {
 		m.notifyNewVenueFn(venueID, venueName, city, state, address, submitterEmail)
-	}
-}
-func (m *mockDiscordService) NotifyPendingVenueEdit(editID uint, venueID uint, venueName string, submitterEmail string) {
-	if m.notifyPendingVenueEditFn != nil {
-		m.notifyPendingVenueEditFn(editID, venueID, venueName, submitterEmail)
 	}
 }
 
@@ -3498,13 +3492,6 @@ type mockVenueService struct {
 	getUpcomingShowsForVenueFn func(uint, string, int) ([]*contracts.VenueShowResponse, int64, error)
 	getShowsForVenueFn func(uint, string, int, string) ([]*contracts.VenueShowResponse, int64, error)
 	getVenueCitiesFn func() ([]*contracts.VenueCityResponse, error)
-	createPendingVenueEditFn func(uint, uint, *contracts.VenueEditRequest) (*contracts.PendingVenueEditResponse, error)
-	getPendingEditForVenueFn func(uint, uint) (*contracts.PendingVenueEditResponse, error)
-	getPendingVenueEditsFn func(int, int) ([]*contracts.PendingVenueEditResponse, int64, error)
-	getPendingVenueEditFn func(uint) (*contracts.PendingVenueEditResponse, error)
-	approveVenueEditFn func(uint, uint) (*contracts.VenueDetailResponse, error)
-	rejectVenueEditFn func(uint, uint, string) (*contracts.PendingVenueEditResponse, error)
-	cancelPendingVenueEditFn func(uint, uint) (error)
 	getVenueModelFn func(uint) (*models.Venue, error)
 	getUnverifiedVenuesFn func(int, int) ([]*contracts.UnverifiedVenueResponse, int64, error)
 	getVenueGenreProfileFn func(uint) ([]contracts.GenreCount, error)
@@ -3587,48 +3574,6 @@ func (m *mockVenueService) GetVenueCities() ([]*contracts.VenueCityResponse, err
 		return m.getVenueCitiesFn()
 	}
 	return nil, nil
-}
-func (m *mockVenueService) CreatePendingVenueEdit(venueID uint, userID uint, req *contracts.VenueEditRequest) (*contracts.PendingVenueEditResponse, error) {
-	if m.createPendingVenueEditFn != nil {
-		return m.createPendingVenueEditFn(venueID, userID, req)
-	}
-	return nil, nil
-}
-func (m *mockVenueService) GetPendingEditForVenue(venueID uint, userID uint) (*contracts.PendingVenueEditResponse, error) {
-	if m.getPendingEditForVenueFn != nil {
-		return m.getPendingEditForVenueFn(venueID, userID)
-	}
-	return nil, nil
-}
-func (m *mockVenueService) GetPendingVenueEdits(limit int, offset int) ([]*contracts.PendingVenueEditResponse, int64, error) {
-	if m.getPendingVenueEditsFn != nil {
-		return m.getPendingVenueEditsFn(limit, offset)
-	}
-	return nil, 0, nil
-}
-func (m *mockVenueService) GetPendingVenueEdit(editID uint) (*contracts.PendingVenueEditResponse, error) {
-	if m.getPendingVenueEditFn != nil {
-		return m.getPendingVenueEditFn(editID)
-	}
-	return nil, nil
-}
-func (m *mockVenueService) ApproveVenueEdit(editID uint, reviewerID uint) (*contracts.VenueDetailResponse, error) {
-	if m.approveVenueEditFn != nil {
-		return m.approveVenueEditFn(editID, reviewerID)
-	}
-	return nil, nil
-}
-func (m *mockVenueService) RejectVenueEdit(editID uint, reviewerID uint, reason string) (*contracts.PendingVenueEditResponse, error) {
-	if m.rejectVenueEditFn != nil {
-		return m.rejectVenueEditFn(editID, reviewerID, reason)
-	}
-	return nil, nil
-}
-func (m *mockVenueService) CancelPendingVenueEdit(editID uint, userID uint) (error) {
-	if m.cancelPendingVenueEditFn != nil {
-		return m.cancelPendingVenueEditFn(editID, userID)
-	}
-	return nil
 }
 func (m *mockVenueService) GetVenueModel(venueID uint) (*models.Venue, error) {
 	if m.getVenueModelFn != nil {
