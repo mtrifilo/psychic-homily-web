@@ -158,12 +158,23 @@ func setupAuthRoutes(rc RouteContext) {
 	// - Credential stuffing
 	// - Email bombing via magic links
 	// - Spam account creation
-	authRateLimiter := httprate.Limit(
-		10,              // requests
-		1*time.Minute,   // per duration
-		httprate.WithKeyFuncs(httprate.KeyByIP),
-		httprate.WithLimitHandler(rateLimitHandler),
-	)
+	//
+	// PSY-475: replaced with a no-op when DISABLE_AUTH_RATE_LIMITS=1 in a
+	// whitelisted ENVIRONMENT. All E2E workers share 127.0.0.1, so the
+	// 10/min budget got exhausted and broke register/magic-link tests on
+	// shard 3. Default-deny env check in cmd/server/main.go refuses to
+	// boot with the flag set anywhere other than test/ci/development.
+	var authRateLimiter func(http.Handler) http.Handler
+	if IsAuthRateLimitDisabled(os.Getenv) {
+		authRateLimiter = noopRateLimiter()
+	} else {
+		authRateLimiter = httprate.Limit(
+			10,              // requests
+			1*time.Minute,   // per duration
+			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithLimitHandler(rateLimitHandler),
+		)
+	}
 
 	// Rate-limited OAuth routes
 	rc.Router.Group(func(r chi.Router) {
@@ -223,13 +234,19 @@ func setupPasskeyRoutes(rc RouteContext) {
 	passkeyHandler := handlers.NewPasskeyHandler(rc.SC.WebAuthn, rc.SC.JWT, rc.SC.User, rc.Cfg)
 
 	// Create rate limiter for passkey endpoints: 20 requests per minute per IP
-	// Slightly more lenient than auth due to multi-step WebAuthn flow
-	passkeyRateLimiter := httprate.Limit(
-		20,              // requests
-		1*time.Minute,   // per duration
-		httprate.WithKeyFuncs(httprate.KeyByIP),
-		httprate.WithLimitHandler(rateLimitHandler),
-	)
+	// Slightly more lenient than auth due to multi-step WebAuthn flow.
+	// PSY-475: same env-flagged no-op gate as the auth limiter.
+	var passkeyRateLimiter func(http.Handler) http.Handler
+	if IsAuthRateLimitDisabled(os.Getenv) {
+		passkeyRateLimiter = noopRateLimiter()
+	} else {
+		passkeyRateLimiter = httprate.Limit(
+			20,              // requests
+			1*time.Minute,   // per duration
+			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithLimitHandler(rateLimitHandler),
+		)
+	}
 
 	// Rate-limited public passkey endpoints
 	rc.Router.Group(func(r chi.Router) {
