@@ -2,9 +2,11 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Loader2,
   Disc3,
+  Edit2,
   ExternalLink,
   Music,
   Calendar,
@@ -20,7 +22,7 @@ import {
   RevisionHistory,
   AddToCollectionButton,
 } from '@/components/shared'
-import { AttributionLine } from '@/features/contributions'
+import { AttributionLine, ContributionPrompt, EntityEditDrawer } from '@/features/contributions'
 import { EntityTagList } from '@/features/tags'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
@@ -28,6 +30,7 @@ import { CommentThread } from '@/features/comments'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { queryKeys } from '@/lib/queryClient'
 import { getReleaseTypeLabel } from '../types'
 
 /** Known platform display info */
@@ -63,8 +66,16 @@ interface ReleaseDetailProps {
 
 export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
   const { data: release, isLoading, error } = useRelease({ idOrSlug })
-  const { isAuthenticated } = useIsAuthenticated()
+  const { user, isAuthenticated } = useIsAuthenticated()
+  const queryClient = useQueryClient()
+  const canEditDirectly = isAuthenticated && (
+    user?.is_admin ||
+    user?.user_tier === 'trusted_contributor' ||
+    user?.user_tier === 'local_ambassador'
+  )
   const [activeTab, setActiveTab] = useState('overview')
+  const [isEditing, setIsEditing] = useState(false)
+  const [editFocusField, setEditFocusField] = useState<string | undefined>()
 
   if (isLoading) {
     return (
@@ -242,7 +253,20 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
                 </>
               }
               actions={
-                <AddToCollectionButton entityType="release" entityId={release.id} entityName={release.title} />
+                <div className="flex items-center gap-2">
+                  {isAuthenticated && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setIsEditing(true)}
+                      className="text-muted-foreground hover:text-foreground"
+                      title={canEditDirectly ? 'Edit' : 'Suggest Edit'}
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <AddToCollectionButton entityType="release" entityId={release.id} entityName={release.title} />
+                </div>
               }
             />
             <AttributionLine entityType="release" entityId={release.id} />
@@ -250,6 +274,16 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
               entityType="release"
               entityId={release.id}
               isAuthenticated={isAuthenticated}
+            />
+            <ContributionPrompt
+              entityType="release"
+              entityId={release.id}
+              entitySlug={release.slug}
+              isAuthenticated={!!isAuthenticated}
+              onEditClick={(focusField) => {
+                setEditFocusField(focusField)
+                setIsEditing(true)
+              }}
             />
           </>
         }
@@ -360,6 +394,28 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
       <div className="mt-0 px-4 md:px-0">
         <CommentThread entityType="release" entityId={release.id} />
       </div>
+
+      {/* Edit Drawer (all authenticated users) */}
+      {isAuthenticated && (
+        <EntityEditDrawer
+          open={isEditing}
+          onOpenChange={(open) => {
+            setIsEditing(open)
+            if (!open) setEditFocusField(undefined)
+          }}
+          entityType="release"
+          entityId={release.id}
+          entityName={release.title}
+          entity={release as unknown as Record<string, unknown>}
+          canEditDirectly={!!canEditDirectly}
+          focusField={editFocusField}
+          onSuccess={() => {
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.releases.detail(idOrSlug),
+            })
+          }}
+        />
+      )}
     </>
   )
 }
