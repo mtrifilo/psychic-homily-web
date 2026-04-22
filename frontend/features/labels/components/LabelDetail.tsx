@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Loader2,
   Tag,
@@ -10,17 +11,20 @@ import {
   Users,
   Disc3,
   Music,
+  Edit2,
 } from 'lucide-react'
 import { useLabel, useLabelRoster, useLabelCatalog } from '../hooks/useLabels'
-import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton, AddToCollectionButton } from '@/components/shared'
+import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton, AddToCollectionButton, RevisionHistory } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
 import { CommentThread } from '@/features/comments'
 import { EntityTagList } from '@/features/tags'
 import { NotifyMeButton } from '@/features/notifications'
 import { useIsAuthenticated } from '@/features/auth'
+import { AttributionLine, ContributionPrompt, EntityEditDrawer } from '@/features/contributions'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { queryKeys } from '@/lib/queryClient'
 import {
   getLabelStatusLabel,
   getLabelStatusVariant,
@@ -34,7 +38,13 @@ interface LabelDetailProps {
 
 export function LabelDetail({ idOrSlug }: LabelDetailProps) {
   const { data: label, isLoading, error } = useLabel({ idOrSlug })
-  const { isAuthenticated } = useIsAuthenticated()
+  const { user, isAuthenticated } = useIsAuthenticated()
+  const queryClient = useQueryClient()
+  const canEditDirectly = isAuthenticated && (
+    user?.is_admin ||
+    user?.user_tier === 'trusted_contributor' ||
+    user?.user_tier === 'local_ambassador'
+  )
   const { data: rosterData, isLoading: rosterLoading } = useLabelRoster({
     labelIdOrSlug: idOrSlug,
     enabled: !!label,
@@ -44,6 +54,8 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
     enabled: !!label,
   })
   const [activeTab, setActiveTab] = useState('overview')
+  const [isEditing, setIsEditing] = useState(false)
+  const [editFocusField, setEditFocusField] = useState<string | undefined>()
 
   if (isLoading) {
     return (
@@ -205,16 +217,38 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
             }
             actions={
               <div className="flex items-center gap-2">
+                {isAuthenticated && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsEditing(true)}
+                    className="text-muted-foreground hover:text-foreground"
+                    title={canEditDirectly ? 'Edit' : 'Suggest Edit'}
+                  >
+                    <Edit2 className="h-4 w-4" />
+                  </Button>
+                )}
                 <NotifyMeButton entityType="label" entityId={label.id} entityName={label.name} />
                 <FollowButton entityType="labels" entityId={label.id} />
                 <AddToCollectionButton entityType="label" entityId={label.id} entityName={label.name} />
               </div>
             }
           />
+          <AttributionLine entityType="label" entityId={label.id} />
           <EntityTagList
             entityType="label"
             entityId={label.id}
             isAuthenticated={isAuthenticated}
+          />
+          <ContributionPrompt
+            entityType="label"
+            entityId={label.id}
+            entitySlug={label.slug}
+            isAuthenticated={!!isAuthenticated}
+            onEditClick={(focusField) => {
+              setEditFocusField(focusField)
+              setIsEditing(true)
+            }}
           />
         </>
       }
@@ -351,10 +385,37 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
       </TabsContent>
     </EntityDetailLayout>
 
+    {/* Revision History */}
+    <div className="mt-0">
+      <RevisionHistory entityType="label" entityId={label.id} />
+    </div>
+
     {/* Discussion */}
     <div className="mt-0 px-4 md:px-0">
       <CommentThread entityType="label" entityId={label.id} />
     </div>
+
+    {/* Edit Drawer (all authenticated users) */}
+    {isAuthenticated && (
+      <EntityEditDrawer
+        open={isEditing}
+        onOpenChange={(open) => {
+          setIsEditing(open)
+          if (!open) setEditFocusField(undefined)
+        }}
+        entityType="label"
+        entityId={label.id}
+        entityName={label.name}
+        entity={label as unknown as Record<string, unknown>}
+        canEditDirectly={!!canEditDirectly}
+        focusField={editFocusField}
+        onSuccess={() => {
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.labels.detail(idOrSlug),
+          })
+        }}
+      />
+    )}
   </>
   )
 }
