@@ -305,7 +305,7 @@ describe('VenueCard', () => {
       expect(screen.getByTitle('Delete venue')).toBeInTheDocument()
     })
 
-    it('shows edit/delete buttons for venue owner', () => {
+    it('hides edit button for non-admin venue owner (PSY-503: direct edit is admin-only; owners suggest via VenueDetail drawer)', () => {
       mockAuthContext.mockReturnValue({
         user: { id: '42', is_admin: false },
         isAuthenticated: true,
@@ -313,8 +313,8 @@ describe('VenueCard', () => {
         logout: vi.fn(),
       })
       render(<VenueCard venue={makeVenue({ submitted_by: 42 })} />)
-      expect(screen.getByTitle('Edit venue')).toBeInTheDocument()
-      expect(screen.getByTitle('Delete venue')).toBeInTheDocument()
+      expect(screen.queryByTitle('Edit venue')).not.toBeInTheDocument()
+      expect(screen.queryByTitle('Delete venue')).not.toBeInTheDocument()
     })
 
     it('opens edit form when edit button clicked', async () => {

@@ -38,60 +38,35 @@ func TestAdminCreateVenueHandler_NonAdmin(t *testing.T) {
 	assertHumaError(t, err, 403)
 }
 
-// --- UpdateVenueHandler ---
+// --- UpdateVenueHandler (admin-only post-PSY-503) ---
 
 func TestUpdateVenueHandler_NoAuth(t *testing.T) {
 	h := testVenueHandler()
 	req := &UpdateVenueRequest{VenueID: "1"}
 
+	// Admin-only handler: unauthenticated requests get 403 (requireAdmin
+	// collapses "no user" and "non-admin" into the same response).
 	_, err := h.UpdateVenueHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	assertHumaError(t, err, 403)
+}
+
+func TestUpdateVenueHandler_NonAdmin(t *testing.T) {
+	h := testVenueHandler()
+	// Even a venue submitter can't direct-update via this endpoint; they
+	// must use PUT /venues/{id}/suggest-edit through SuggestVenueEditHandler.
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	req := &UpdateVenueRequest{VenueID: "1"}
+
+	_, err := h.UpdateVenueHandler(ctx, req)
+	assertHumaError(t, err, 403)
 }
 
 func TestUpdateVenueHandler_InvalidID(t *testing.T) {
 	h := testVenueHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &UpdateVenueRequest{VenueID: "abc"}
 
 	_, err := h.UpdateVenueHandler(ctx, req)
-	assertHumaError(t, err, 400)
-}
-
-// --- GetMyPendingEditHandler ---
-
-func TestGetMyPendingEditHandler_NoAuth(t *testing.T) {
-	h := testVenueHandler()
-	req := &GetMyPendingEditRequest{VenueID: "1"}
-
-	_, err := h.GetMyPendingEditHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
-}
-
-func TestGetMyPendingEditHandler_InvalidID(t *testing.T) {
-	h := testVenueHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
-	req := &GetMyPendingEditRequest{VenueID: "abc"}
-
-	_, err := h.GetMyPendingEditHandler(ctx, req)
-	assertHumaError(t, err, 400)
-}
-
-// --- CancelMyPendingEditHandler ---
-
-func TestCancelMyPendingEditHandler_NoAuth(t *testing.T) {
-	h := testVenueHandler()
-	req := &CancelMyPendingEditRequest{VenueID: "1"}
-
-	_, err := h.CancelMyPendingEditHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
-}
-
-func TestCancelMyPendingEditHandler_InvalidID(t *testing.T) {
-	h := testVenueHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
-	req := &CancelMyPendingEditRequest{VenueID: "abc"}
-
-	_, err := h.CancelMyPendingEditHandler(ctx, req)
 	assertHumaError(t, err, 400)
 }
 
@@ -153,12 +128,12 @@ func TestGetVenueHandler_OverflowID(t *testing.T) {
 
 func TestUpdateVenueHandler_ZeroID(t *testing.T) {
 	mock := &mockVenueService{
-		getVenueModelFn: func(venueID uint) (*models.Venue, error) {
+		updateVenueFn: func(venueID uint, _ map[string]interface{}) (*contracts.VenueDetailResponse, error) {
 			return nil, apperrors.ErrVenueNotFound(venueID)
 		},
 	}
 	h := NewVenueHandler(mock, nil, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
 	_, err := h.UpdateVenueHandler(ctx, &UpdateVenueRequest{VenueID: "0"})
 	assertHumaError(t, err, 404)
 }

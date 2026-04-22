@@ -347,33 +347,6 @@ func (s *DiscordService) NotifyNewVenue(venueID uint, venueName, city, state str
 	go s.sendWebhook(embed)
 }
 
-// NotifyPendingVenueEdit sends a notification when a user submits a venue edit for review
-func (s *DiscordService) NotifyPendingVenueEdit(editID, venueID uint, venueName, submitterEmail string) {
-	if !s.IsConfigured() {
-		return
-	}
-
-	fields := []DiscordEmbedField{
-		{Name: "Venue ID", Value: fmt.Sprintf("%d", venueID), Inline: true},
-		{Name: "Edit ID", Value: fmt.Sprintf("%d", editID), Inline: true},
-		{Name: "Submitted By", Value: HashEmail(submitterEmail), Inline: true},
-	}
-
-	// Add action link
-	actions := fmt.Sprintf("[Review Venue Edits](%s/admin?tab=venue-edits)", s.frontendURL)
-	fields = append(fields, DiscordEmbedField{Name: "Actions", Value: actions, Inline: false})
-
-	embed := DiscordEmbed{
-		Title:       fmt.Sprintf("Venue Edit: %s", venueName),
-		Description: "Pending review",
-		Color:       ColorPurple,
-		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		Fields:      fields,
-	}
-
-	go s.sendWebhook(embed)
-}
-
 // sendWebhook sends an embed to the Discord webhook (fire-and-forget)
 func (s *DiscordService) sendWebhook(embed DiscordEmbed) {
 	payload := DiscordWebhookPayload{

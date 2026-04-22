@@ -4,14 +4,12 @@ import { useState, useEffect } from 'react'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
 import {
-  Loader2,
   Edit2,
   AlertCircle,
   CheckCircle2,
-  Clock,
-  X,
+  Loader2,
 } from 'lucide-react'
-import { useVenueUpdate, useMyPendingVenueEdit, useCancelPendingVenueEdit } from '@/features/venues'
+import { useVenueUpdate } from '@/features/venues'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { VenueWithShowCount, Venue } from '@/features/venues'
 import { detectVenueChanges, type VenueEditFormValues } from './venue-edit-utils'
@@ -54,6 +52,8 @@ interface VenueEditFormProps {
   onSuccess?: () => void
 }
 
+// PSY-503: This form is now admin-only. Non-admin edits go through the
+// unified suggest-edit flow (EntityEditDrawer / useSuggestEdit).
 export function VenueEditForm({
   venue,
   open,
@@ -62,7 +62,6 @@ export function VenueEditForm({
 }: VenueEditFormProps) {
   const { user } = useAuthContext()
   const updateMutation = useVenueUpdate()
-  const cancelMutation = useCancelPendingVenueEdit()
   const [showSuccess, setShowSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -72,12 +71,6 @@ export function VenueEditForm({
   }
 
   const isAdmin = user?.is_admin ?? false
-
-  // Fetch user's pending edit if they're not an admin
-  const { data: pendingEditData, isLoading: isPendingEditLoading } =
-    useMyPendingVenueEdit(venue.id, open && !isAdmin)
-
-  const hasPendingEdit = pendingEditData?.pending_edit != null
 
   // Initialize form with venue data
   const initialValues: FormValues = {
@@ -111,7 +104,7 @@ export function VenueEditForm({
       updateMutation.mutate(
         { venueId: venue.id, data: changes },
         {
-          onSuccess: response => {
+          onSuccess: () => {
             setShowSuccess(true)
             setTimeout(() => {
               resetDialogState()
@@ -146,114 +139,10 @@ export function VenueEditForm({
     onOpenChange(nextOpen)
   }
 
-  const handleCancelPendingEdit = () => {
-    cancelMutation.mutate(venue.id, {
-      onSuccess: () => {
-        // The query will be invalidated automatically
-      },
-    })
-  }
-
-  // Show pending edit status for non-admins
-  if (!isAdmin && hasPendingEdit && pendingEditData?.pending_edit) {
-    const pendingEdit = pendingEditData.pending_edit
-    return (
-      <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-amber-500" />
-              Pending Edit
-            </DialogTitle>
-            <DialogDescription>
-              You have a pending edit for this venue awaiting admin review.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            <Alert>
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                Your changes have been submitted and are awaiting admin
-                approval. The venue will be updated once approved.
-              </AlertDescription>
-            </Alert>
-
-            <div className="rounded-lg border border-border bg-muted/50 p-4">
-              <p className="text-sm font-medium mb-2">Proposed Changes:</p>
-              <ul className="space-y-1 text-sm text-muted-foreground">
-                {pendingEdit.name && (
-                  <li>
-                    <span className="font-medium">Name:</span> {pendingEdit.name}
-                  </li>
-                )}
-                {pendingEdit.address && (
-                  <li>
-                    <span className="font-medium">Address:</span>{' '}
-                    {pendingEdit.address}
-                  </li>
-                )}
-                {pendingEdit.city && (
-                  <li>
-                    <span className="font-medium">City:</span> {pendingEdit.city}
-                  </li>
-                )}
-                {pendingEdit.state && (
-                  <li>
-                    <span className="font-medium">State:</span>{' '}
-                    {pendingEdit.state}
-                  </li>
-                )}
-                {pendingEdit.website && (
-                  <li>
-                    <span className="font-medium">Website:</span>{' '}
-                    {pendingEdit.website}
-                  </li>
-                )}
-              </ul>
-              <p className="text-xs text-muted-foreground mt-2">
-                Submitted:{' '}
-                {new Date(pendingEdit.created_at).toLocaleDateString()}
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={handleCancelPendingEdit}
-              disabled={cancelMutation.isPending}
-            >
-              {cancelMutation.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Canceling...
-                </>
-              ) : (
-                <>
-                  <X className="h-4 w-4 mr-2" />
-                  Cancel Edit
-                </>
-              )}
-            </Button>
-            <Button onClick={() => handleDialogOpenChange(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    )
-  }
-
-  // Loading state
-  if (!isAdmin && isPendingEditLoading) {
-    return (
-      <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-        <DialogContent className="sm:max-w-lg">
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin" />
-          </div>
-        </DialogContent>
-      </Dialog>
-    )
+  // Non-admins should not see this form. Guard here as a safety net;
+  // VenueCard.canEdit should already hide the trigger for non-admins.
+  if (!isAdmin) {
+    return null
   }
 
   return (
@@ -265,28 +154,15 @@ export function VenueEditForm({
             Edit Venue
           </DialogTitle>
           <DialogDescription>
-            {isAdmin
-              ? 'Make changes to this venue. Changes will be applied immediately.'
-              : 'Submit changes for admin review. Your changes will be visible after approval.'}
+            Make changes to this venue. Changes will be applied immediately.
           </DialogDescription>
         </DialogHeader>
-
-        {!isAdmin && (
-          <Alert className="mb-4">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              Changes will be submitted for admin review before being applied.
-            </AlertDescription>
-          </Alert>
-        )}
 
         {showSuccess && (
           <Alert className="mb-4 border-green-500 bg-green-50 dark:bg-green-950">
             <CheckCircle2 className="h-4 w-4 text-green-600" />
             <AlertDescription className="text-green-600">
-              {isAdmin
-                ? 'Venue updated successfully!'
-                : 'Your changes have been submitted for review!'}
+              Venue updated successfully!
             </AlertDescription>
           </Alert>
         )}
@@ -498,12 +374,10 @@ export function VenueEditForm({
               {updateMutation.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  {isAdmin ? 'Saving...' : 'Submitting...'}
+                  Saving...
                 </>
-              ) : isAdmin ? (
-                'Save Changes'
               ) : (
-                'Submit for Review'
+                'Save Changes'
               )}
             </Button>
           </DialogFooter>

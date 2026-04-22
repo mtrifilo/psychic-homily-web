@@ -641,38 +641,6 @@ func TestNotifyNewVenue_CityOnly(t *testing.T) {
 	}
 }
 
-func TestNotifyPendingVenueEdit_Success(t *testing.T) {
-	svc, payloads, _ := setupDiscordTest(t)
-
-	svc.NotifyPendingVenueEdit(100, 50, "Updated Venue", "editor@test.com")
-
-	raw := waitForPayload(t, payloads)
-	payload := parseWebhookPayload(t, raw)
-	assert.Contains(t, payload.Embeds[0].Title, "Updated Venue")
-	assert.Equal(t, "Pending review", payload.Embeds[0].Description)
-	assert.Equal(t, ColorPurple, payload.Embeds[0].Color)
-	// Check fields
-	var venueID, editID string
-	for _, f := range payload.Embeds[0].Fields {
-		if f.Name == "Venue ID" {
-			venueID = f.Value
-		}
-		if f.Name == "Edit ID" {
-			editID = f.Value
-		}
-	}
-	assert.Equal(t, "50", venueID)
-	assert.Equal(t, "100", editID)
-}
-
-func TestNotifyPendingVenueEdit_NotConfigured(t *testing.T) {
-	svc := &DiscordService{enabled: false}
-	payloads := make(chan []byte, 1)
-
-	svc.NotifyPendingVenueEdit(1, 1, "V", "x@y.com")
-	assertNoPayload(t, payloads)
-}
-
 // =============================================================================
 // NotifyArtistReport
 // =============================================================================

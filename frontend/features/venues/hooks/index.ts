@@ -11,7 +11,5 @@ export { useVenueSearch } from './useVenueSearch'
 
 export {
   useVenueUpdate,
-  useMyPendingVenueEdit,
-  useCancelPendingVenueEdit,
   useVenueDelete,
 } from './useVenueEdit'

@@ -439,8 +439,6 @@ func setupVenueRoutes(rc RouteContext) {
 	huma.Post(rc.Protected, "/admin/venues", venueHandler.AdminCreateVenueHandler)
 	huma.Put(rc.Protected, "/venues/{venue_id}", venueHandler.UpdateVenueHandler)
 	huma.Delete(rc.Protected, "/venues/{venue_id}", venueHandler.DeleteVenueHandler)
-	huma.Get(rc.Protected, "/venues/{venue_id}/my-pending-edit", venueHandler.GetMyPendingEditHandler)
-	huma.Delete(rc.Protected, "/venues/{venue_id}/my-pending-edit", venueHandler.CancelMyPendingEditHandler)
 }
 
 // setupCalendarRoutes configures calendar feed and token management endpoints
@@ -583,11 +581,6 @@ func setupAdminRoutes(rc RouteContext) {
 	// Admin venue management endpoints
 	huma.Get(rc.Protected, "/admin/venues/unverified", venueHandler.GetUnverifiedVenuesHandler)
 	huma.Post(rc.Protected, "/admin/venues/{venue_id}/verify", venueHandler.VerifyVenueHandler)
-
-	// Admin pending venue edit endpoints
-	huma.Get(rc.Protected, "/admin/venues/pending-edits", venueHandler.GetPendingVenueEditsHandler)
-	huma.Post(rc.Protected, "/admin/venues/pending-edits/{edit_id}/approve", venueHandler.ApproveVenueEditHandler)
-	huma.Post(rc.Protected, "/admin/venues/pending-edits/{edit_id}/reject", venueHandler.RejectVenueEditHandler)
 
 	// Admin artist management endpoints
 	huma.Patch(rc.Protected, "/admin/artists/{artist_id}/bandcamp", artistHandler.UpdateArtistBandcampHandler)

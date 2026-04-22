@@ -276,7 +276,9 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 	// Count submissions from entity tables
 	s.db.Model(&models.Show{}).Where("submitted_by = ?", userID).Count(&stats.ShowsSubmitted)
 	s.db.Model(&models.Venue{}).Where("submitted_by = ?", userID).Count(&stats.VenuesSubmitted)
-	s.db.Table("pending_venue_edits").Where("submitted_by = ?", userID).Count(&stats.VenueEditsSubmitted)
+	s.db.Table("pending_entity_edits").
+		Where("submitted_by = ? AND entity_type = ?", userID, models.PendingEditEntityVenue).
+		Count(&stats.VenueEditsSubmitted)
 
 	// Count actions from audit_log grouped by action
 	type actionCount struct {
@@ -392,12 +394,16 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 	auditQuery := `SELECT id, action, entity_type, entity_id, metadata, created_at, 'audit_log' as source FROM audit_logs WHERE actor_id = ?`
 	showQuery := `SELECT id, 'submit_show' as action, 'show' as entity_type, id as entity_id, NULL as metadata, created_at, 'submission' as source FROM shows WHERE submitted_by = ?`
 	venueQuery := `SELECT id, 'submit_venue' as action, 'venue' as entity_type, id as entity_id, NULL as metadata, created_at, 'submission' as source FROM venues WHERE submitted_by = ?`
-	venueEditQuery := `SELECT id, 'submit_venue_edit' as action, 'venue_edit' as entity_type, venue_id as entity_id, NULL as metadata, created_at, 'submission' as source FROM pending_venue_edits WHERE submitted_by = ?`
+	// Suggested edits pulled from the unified pending_entity_edits table (PSY-503
+	// retired the legacy pending_venue_edits queue). The source entity_type is
+	// normalized back to "{type}_edit" so the activity UI keeps a distinct
+	// event icon for edits vs. submissions.
+	entityEditQuery := `SELECT id, 'submit_' || entity_type || '_edit' as action, entity_type || '_edit' as entity_type, entity_id as entity_id, NULL as metadata, created_at, 'submission' as source FROM pending_entity_edits WHERE submitted_by = ?`
 
 	args := []interface{}{userID, userID, userID, userID}
 
 	unionSQL := fmt.Sprintf("(%s) UNION ALL (%s) UNION ALL (%s) UNION ALL (%s)",
-		auditQuery, showQuery, venueQuery, venueEditQuery)
+		auditQuery, showQuery, venueQuery, entityEditQuery)
 
 	entityFilter := ""
 	if entityType != "" {

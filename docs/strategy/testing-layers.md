@@ -189,9 +189,9 @@ Journeys are grouped by persona. Each row is a journey a user must be able to co
 | View pending shows | `/admin/pending-shows` lists seeded pending shows | E2E (pending-shows.spec.ts) | E2E (stays) | Admin auth + real data; worth keeping. |
 | Approve a pending show | Approve dialog + result | E2E (pending-shows.spec.ts:32) | E2E (stays) | State transition end-to-end. |
 | Reject a pending show with reason | Reject dialog + required reason + result | E2E (pending-shows.spec.ts:71) | E2E (stays) | State transition end-to-end. |
-| View pending venue edits | `/admin/venue-edits` lists edits | E2E (venue-edits.spec.ts) | E2E (stays) | Admin + diff rendering. |
-| Approve a venue edit | Approve dialog + result | E2E (venue-edits.spec.ts:24) | E2E (stays) | State transition. |
-| Reject a venue edit with reason | Reject dialog + result | E2E (venue-edits.spec.ts:58) | E2E (stays) | State transition. |
+| ~~View pending venue edits~~ | ~~`/admin/venue-edits`~~ | ~~E2E (venue-edits.spec.ts)~~ | Removed (PSY-503) | Legacy route retired; venue edits moderated via unified `/admin/pending-edits`. |
+| ~~Approve a venue edit~~ (legacy route) | — | — | Removed (PSY-503) | Covered by unified pending-edits moderation (see `admin/pending-edits.spec.ts` if/when added). |
+| ~~Reject a venue edit with reason~~ (legacy route) | — | — | Removed (PSY-503) | See above. |
 | View unverified venues | `/admin/unverified-venues` lists venues | E2E (verify-venue.spec.ts) | E2E (stays) | Admin auth. |
 | Verify a venue | Verify dialog + result | E2E (verify-venue.spec.ts:29) | E2E (stays) | State transition. |
 | Batch approve/reject shows (PSY-81) | Multi-select + bulk action | uncovered | E2E (stays) | Shipped feature; missing smoke. |
@@ -241,9 +241,7 @@ Sorted by file. Timings from PSY-417 (top-20 only); others marked "not profiled"
 | admin/pending-shows.spec.ts:6 | displays pending shows for admin review | not profiled | Stays | Admin-auth gated + server-seeded list; real DB read. |
 | admin/pending-shows.spec.ts:32 | can approve a pending show | not profiled | Smoke | State transition across admin workflow — flagship smoke for admin path. |
 | admin/pending-shows.spec.ts:71 | can reject a pending show with reason | not profiled | Stays | Same transition class; keep under full admin suite. |
-| admin/venue-edits.spec.ts:6 | displays pending venue edits | not profiled | Stays | Admin-auth + ChangeDiff render from real data. |
-| admin/venue-edits.spec.ts:24 | can approve a venue edit | not profiled | Stays | State transition end-to-end. |
-| admin/venue-edits.spec.ts:58 | can reject a venue edit with reason | not profiled | Stays | State transition end-to-end. |
+| ~~admin/venue-edits.spec.ts~~ | legacy pending_venue_edits queue | — | Removed (PSY-503) | Spec deleted with the `/admin/venue-edits` route; venue edits now flow through unified `/admin/pending-edits`. |
 | admin/verify-venue.spec.ts:6 | displays unverified venues list | not profiled | Stays | Admin-auth list render. |
 | admin/verify-venue.spec.ts:29 | can verify an unverified venue | not profiled | Stays | State transition. |
 | auth/login.spec.ts:10 | logs in with valid credentials and redirects to home | not profiled | Smoke | Core auth smoke; real cookie round-trip. |

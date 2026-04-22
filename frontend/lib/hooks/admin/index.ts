@@ -53,10 +53,6 @@ export {
 export { useAdminUsers } from './useAdminUsers'
 
 export {
-  usePendingVenueEdits,
-} from './useAdminVenueEdits'
-
-export {
   type FieldChange,
   type PendingEditResponse,
   type PendingEditsListResponse,

@@ -112,7 +112,6 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TearDownTest() {
 	suite.Require().NoError(err)
 	_, _ = sqlDB.Exec("DELETE FROM user_profile_sections")
 	_, _ = sqlDB.Exec("DELETE FROM audit_logs")
-	_, _ = sqlDB.Exec("DELETE FROM pending_venue_edits")
 	_, _ = sqlDB.Exec("DELETE FROM pending_entity_edits")
 	_, _ = sqlDB.Exec("DELETE FROM tag_votes")
 	_, _ = sqlDB.Exec("DELETE FROM entity_tags")

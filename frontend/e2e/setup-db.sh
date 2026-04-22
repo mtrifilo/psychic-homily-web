@@ -517,8 +517,6 @@ DECLARE
   v_id INTEGER;
   a_id INTEGER;
   s_id INTEGER;
-  venue1_id INTEGER;
-  venue2_id INTEGER;
   worker_user RECORD;
 BEGIN
   -- Get test user ID
@@ -561,17 +559,9 @@ BEGIN
     false, NOW(), NOW(), 'e2e-unverified-venue'
   );
 
-  -- 3) Two pending venue edits against existing venues
-  SELECT id INTO venue1_id FROM venues WHERE verified = true ORDER BY id LIMIT 1;
-  SELECT id INTO venue2_id FROM venues WHERE verified = true AND id != venue1_id ORDER BY id LIMIT 1;
-
-  -- Edit 1: propose address + website change (for approve test)
-  INSERT INTO pending_venue_edits (venue_id, submitted_by, address, website, status, created_at, updated_at)
-  VALUES (venue1_id, test_user_id, '123 Updated Address', 'https://updated-venue.example.com', 'pending', NOW(), NOW());
-
-  -- Edit 2: propose name change (for reject test)
-  INSERT INTO pending_venue_edits (venue_id, submitted_by, name, status, created_at, updated_at)
-  VALUES (venue2_id, test_user_id, 'Renamed Venue E2E', 'pending', NOW(), NOW());
+  -- 3) (PSY-503) Legacy pending_venue_edits seed removed. Venue edits now
+  -- flow through pending_entity_edits; the deleted admin/venue-edits.spec.ts
+  -- was the only consumer of this seed.
 
   -- 4) Approved show submitted by each worker-user (for "my submissions" test).
   -- PSY-431: one submission per worker-user so my-submissions.spec.ts works

@@ -136,8 +136,6 @@ func (s *stubDiscordService) NotifyArtistReport(report *models.ArtistReport, rep
 }
 func (s *stubDiscordService) NotifyNewVenue(venueID uint, venueName, city, state string, address *string, submitterEmail string) {
 }
-func (s *stubDiscordService) NotifyPendingVenueEdit(editID, venueID uint, venueName, submitterEmail string) {
-}
 
 // ── Tests ──────────────────────────────────────────────────────────────
 

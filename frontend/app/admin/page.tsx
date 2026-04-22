@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Shield, ShieldCheck, MapPin, Loader2, Upload, BadgeCheck, Flag, ScrollText, Users, LayoutDashboard, Clock, Disc3, Tag, Tags, Tent, Workflow, Library, Music, ClipboardCheck, BarChart3, Radio, ChevronLeft, ChevronRight } from 'lucide-react'
-import { usePendingVenueEdits } from '@/lib/hooks/admin/useAdminVenueEdits'
 import { useUnverifiedVenues } from '@/lib/hooks/admin/useAdminVenues'
 import { usePendingReports } from '@/lib/hooks/admin/useAdminReports'
 import { usePendingArtistReports } from '@/lib/hooks/admin/useAdminArtistReports'
@@ -26,14 +25,6 @@ const ShowImportPanel = dynamic(
     ),
   }
 )
-
-const VenueEditsPage = dynamic(() => import('./venue-edits/page'), {
-  loading: () => (
-    <div className="flex items-center justify-center py-12">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-    </div>
-  ),
-})
 
 const UnverifiedVenuesPage = dynamic(() => import('./unverified-venues/page'), {
   loading: () => (
@@ -178,7 +169,7 @@ const CollectionManagementComponent = dynamic(
 )
 
 const VALID_TABS = [
-  'dashboard', 'moderation', 'pending-shows', 'pending-venue-edits', 'unverified-venues',
+  'dashboard', 'moderation', 'pending-shows', 'unverified-venues',
   'reports', 'import-show', 'releases', 'labels', 'festivals', 'pipeline',
   'collections', 'tags', 'data-quality', 'analytics', 'artists-admin', 'radio',
   'users', 'audit-log',
@@ -315,9 +306,6 @@ function AdminPageContent() {
     data: pendingShowsData,
   } = usePendingShows({ enabled: isAdmin })
   const {
-    data: venueEditsData,
-  } = usePendingVenueEdits()
-  const {
     data: unverifiedVenuesData,
   } = useUnverifiedVenues({ enabled: isAdmin })
   const {
@@ -385,16 +373,6 @@ function AdminPageContent() {
                 pendingShowsData.total > 0 && (
                   <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-medium text-white">
                     {pendingShowsData.total}
-                  </span>
-                )}
-            </TabsTrigger>
-            <TabsTrigger value="pending-venue-edits" className="gap-2">
-              <MapPin className="h-4 w-4" />
-              Venue Edits
-              {venueEditsData?.total !== undefined &&
-                venueEditsData.total > 0 && (
-                  <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-medium text-white">
-                    {venueEditsData.total}
                   </span>
                 )}
             </TabsTrigger>
@@ -481,10 +459,6 @@ function AdminPageContent() {
 
           <TabsContent value="pending-shows" className="space-y-4" data-testid="admin-tab-pending-shows">
             <PendingShowsPage />
-          </TabsContent>
-
-          <TabsContent value="pending-venue-edits" className="space-y-4" data-testid="admin-tab-pending-venue-edits">
-            <VenueEditsPage />
           </TabsContent>
 
           <TabsContent value="unverified-venues" className="space-y-4" data-testid="admin-tab-unverified-venues">
