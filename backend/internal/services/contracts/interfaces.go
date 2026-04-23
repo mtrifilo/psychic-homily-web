@@ -226,6 +226,7 @@ type UserServiceInterface interface {
 	GetFavoriteCities(userID uint) ([]models.FavoriteCity, error)
 	SetFavoriteCities(userID uint, cities []models.FavoriteCity) error
 	SetShowReminders(userID uint, enabled bool) error
+	SetDefaultReplyPermission(userID uint, permission string) error
 }
 
 // EmailServiceInterface defines the contract for email operations.

@@ -1624,3 +1624,53 @@ func (suite *UserServiceIntegrationTestSuite) TestListUsers_WithAuthMethods() {
 // =============================================================================
 
 // Note: stringPtr helper function is defined in auth_test.go
+
+// =============================================================================
+// PSY-296: SetDefaultReplyPermission
+// =============================================================================
+
+func TestUserService_SetDefaultReplyPermission_NilDB(t *testing.T) {
+	s := &UserService{db: nil}
+	err := s.SetDefaultReplyPermission(1, "anyone")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "database not initialized")
+}
+
+func TestUserService_SetDefaultReplyPermission_InvalidValue(t *testing.T) {
+	s := &UserService{db: &gorm.DB{}}
+	err := s.SetDefaultReplyPermission(1, "banana")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid reply_permission")
+}
+
+func (suite *UserServiceIntegrationTestSuite) TestSetDefaultReplyPermission_CreatesRowWhenMissing() {
+	user, err := suite.userService.CreateUserWithPassword(
+		"rp-prefs-create@example.com", "Pass123!", "RP", "Prefs",
+	)
+	suite.Require().NoError(err)
+
+	// No preferences row yet — call should upsert.
+	err = suite.userService.SetDefaultReplyPermission(user.ID, "followers")
+	suite.Require().NoError(err)
+
+	var prefs models.UserPreferences
+	err = suite.db.Where("user_id = ?", user.ID).First(&prefs).Error
+	suite.Require().NoError(err)
+	suite.Equal("followers", prefs.DefaultReplyPermission)
+}
+
+func (suite *UserServiceIntegrationTestSuite) TestSetDefaultReplyPermission_UpdatesExisting() {
+	user, err := suite.userService.CreateUserWithPassword(
+		"rp-prefs-update@example.com", "Pass123!", "RP", "Prefs",
+	)
+	suite.Require().NoError(err)
+
+	// CreateUserWithPassword auto-creates a preferences row. Set it once to
+	// establish a baseline, then update.
+	suite.Require().NoError(suite.userService.SetDefaultReplyPermission(user.ID, "followers"))
+	suite.Require().NoError(suite.userService.SetDefaultReplyPermission(user.ID, "author_only"))
+
+	var reload models.UserPreferences
+	suite.Require().NoError(suite.db.Where("user_id = ?", user.ID).First(&reload).Error)
+	suite.Equal("author_only", reload.DefaultReplyPermission)
+}

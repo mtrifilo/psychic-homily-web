@@ -88,6 +88,10 @@ type UserPreferences struct {
 
 	// Relationships
 	User User `json:"-" gorm:"foreignKey:UserID"`
+
+	// PSY-296: Default reply permission applied to new top-level comments.
+	// Valid values: 'anyone' (default), 'followers', 'author_only'.
+	DefaultReplyPermission string `json:"default_reply_permission" gorm:"column:default_reply_permission;not null;default:'anyone'"`
 }
 
 // TableName specifies the table name for UserPreferences

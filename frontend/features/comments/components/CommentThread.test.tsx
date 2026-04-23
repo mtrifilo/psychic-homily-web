@@ -15,6 +15,7 @@ vi.mock('../hooks', () => ({
   useCreateComment: () => mockUseCreateComment(),
   useReplyToComment: () => defaultMutationReturn,
   useUpdateComment: () => defaultMutationReturn,
+  useUpdateReplyPermission: () => defaultMutationReturn,
   useDeleteComment: () => defaultMutationReturn,
   useVoteComment: () => defaultMutationReturn,
   useUnvoteComment: () => defaultMutationReturn,

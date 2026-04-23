@@ -90,6 +90,8 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	userPrefsHandler := handlers.NewUserPreferencesHandler(sc.User, cfg.JWT.SecretKey)
 	huma.Put(protectedGroup, "/auth/preferences/favorite-cities", userPrefsHandler.SetFavoriteCitiesHandler)
 	huma.Patch(protectedGroup, "/auth/preferences/show-reminders", userPrefsHandler.SetShowRemindersHandler)
+	// PSY-296: default reply permission applied to new top-level comments.
+	huma.Patch(protectedGroup, "/auth/preferences/default-reply-permission", userPrefsHandler.SetDefaultReplyPermissionHandler)
 
 	// Public unsubscribe endpoint (HMAC-signed, no auth required)
 	huma.Post(api, "/auth/unsubscribe/show-reminders", userPrefsHandler.UnsubscribeShowRemindersHandler)
@@ -1156,6 +1158,8 @@ func setupCommentRoutes(rc RouteContext) {
 	huma.Post(rc.Protected, "/comments/{comment_id}/replies", commentHandler.CreateReplyHandler)
 	huma.Put(rc.Protected, "/comments/{comment_id}", commentHandler.UpdateCommentHandler)
 	huma.Delete(rc.Protected, "/comments/{comment_id}", commentHandler.DeleteCommentHandler)
+	// PSY-296: owner-only reply-permission toggle.
+	huma.Put(rc.Protected, "/comments/{comment_id}/reply-permission", commentHandler.UpdateReplyPermissionHandler)
 
 	// Admin: comment moderation
 	// NOTE: literal paths MUST be registered before parameterized paths to avoid
