@@ -795,15 +795,16 @@ func setupTagRoutes(rc RouteContext) {
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))
 	huma.Get(optionalAuthGroup, "/entities/{entity_type}/{entity_id}/tags", tagHandler.ListEntityTagsHandler)
 
-	// Rate-limited tag creation: 20 requests per hour per IP
-	// Prevents spamming entities with tags
+	// Rate-limited tag creation: 20 requests per hour per IP.
+	// Admins bypass the limit (PSY-345) so bulk-tagging sessions don't
+	// collide with a limiter meant for anonymous/IP-level abuse.
 	rc.Router.Group(func(r chi.Router) {
-		r.Use(httprate.Limit(
+		r.Use(middleware.SkipRateLimitForAdmin(rc.SC.JWT, httprate.Limit(
 			middleware.TagCreateRequestsPerHour,
 			time.Hour,
 			httprate.WithKeyFuncs(httprate.KeyByIP),
 			httprate.WithLimitHandler(rateLimitHandler),
-		))
+		)))
 		tagCreateAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Tag Create", "1.0.0"))
 		tagCreateAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
 		tagCreateAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
@@ -813,15 +814,15 @@ func setupTagRoutes(rc RouteContext) {
 	// Protected: remove tag (no additional rate limiting needed)
 	huma.Delete(rc.Protected, "/entities/{entity_type}/{entity_id}/tags/{tag_id}", tagHandler.RemoveTagFromEntityHandler)
 
-	// Rate-limited tag voting: 30 requests per minute per IP
-	// Prevents rapid vote manipulation
+	// Rate-limited tag voting: 30 requests per minute per IP.
+	// Admins bypass the limit (PSY-345) for the same reason as tag creation.
 	rc.Router.Group(func(r chi.Router) {
-		r.Use(httprate.Limit(
+		r.Use(middleware.SkipRateLimitForAdmin(rc.SC.JWT, httprate.Limit(
 			middleware.TagVoteRequestsPerMinute,
 			time.Minute,
 			httprate.WithKeyFuncs(httprate.KeyByIP),
 			httprate.WithLimitHandler(rateLimitHandler),
-		))
+		)))
 		tagVoteAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Tag Vote", "1.0.0"))
 		tagVoteAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
 		tagVoteAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
