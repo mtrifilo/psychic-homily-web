@@ -95,6 +95,20 @@ const nextConfig: NextConfig = {
               "default-src 'self'",
               "script-src 'self' 'unsafe-inline' https://vercel.live https://us-assets.i.posthog.com",
               "style-src 'self' 'unsafe-inline'",
+              // img-src permits any HTTPS source so release cover art, station
+              // logos, venue photos, and other user-contributed URLs render
+              // without rebuilding an allowlist each time we add a source.
+              // Widened from a specific domain list in PSY-333. Trade-offs:
+              //   • Any HTTPS host can serve images, so a compromised CDN
+              //     could surface unexpected content — acceptable given we
+              //     link out to community-editable URLs anyway.
+              //   • Referrer leakage to third-party CDNs is mitigated at the
+              //     document level by Referrer-Policy:
+              //     strict-origin-when-cross-origin (set above), which only
+              //     sends the origin — not the specific page — cross-origin.
+              //   • A per-image referrerpolicy="no-referrer" sweep would
+              //     tighten this further but is a code-wide change; revisit
+              //     if a specific leakage surface warrants it.
               "img-src 'self' data: blob: https:",
               "font-src 'self'",
               "worker-src 'self' blob:",
