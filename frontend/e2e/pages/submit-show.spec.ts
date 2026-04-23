@@ -2,6 +2,16 @@ import { test, expect } from '../fixtures'
 import { test as unauthTest } from '../fixtures/error-detection'
 
 test.describe('Submit a show', () => {
+  // PSY-507: retries off. The mutating test below creates a real `shows`
+  // row before its UI assertion runs; when PSY-437's Valley Bar autocomplete
+  // flake trips the UI check, Playwright's default 2 CI retries resubmit the
+  // same (headliner, venue, date) and the backend's duplicate-headliner guard
+  // rejects them, turning a transient frontend flake into a hard failure.
+  // `cleanBetweenRetries` (below) would normally reset between attempts, but
+  // while PSY-437 is open we prefer to surface the real flake rate rather
+  // than mask it with retries. Remove this line when PSY-437 lands.
+  test.describe.configure({ retries: 0 })
+
   test('displays submission form for verified user', async ({
     authenticatedPage,
   }) => {
@@ -37,6 +47,7 @@ test.describe('Submit a show', () => {
   // deferred to keep PR CI green. Track in PSY-437.
   test('can submit a show with existing venue', async ({
     authenticatedPage,
+    cleanBetweenRetries: _cleanup,
   }) => {
     await authenticatedPage.goto('/submissions')
 

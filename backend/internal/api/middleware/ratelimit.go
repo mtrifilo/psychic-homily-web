@@ -2,11 +2,13 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/httprate"
 
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/services/auth"
 )
 
 // Rate limit configurations for different endpoint types
@@ -101,6 +103,61 @@ func RateLimitTagVoteEndpoints() func(http.Handler) http.Handler {
 		httprate.WithKeyFuncs(httprate.KeyByIP),
 		httprate.WithLimitHandler(RateLimitExceededHandler),
 	)
+}
+
+// SkipRateLimitForAdmin wraps a rate-limit middleware so authenticated admins
+// bypass the per-IP limiter. Non-admin requests — including unauthenticated
+// traffic — still hit the underlying limiter.
+//
+// PSY-345: admins doing bulk contributor work (e.g. tagging sessions) hit the
+// 20/hour tag-create and 30/minute tag-vote limits against their own IP. This
+// lets us keep the abuse-prevention limits tight for anonymous/IP-level
+// traffic while not blocking the people running the site.
+func SkipRateLimitForAdmin(jwtService *auth.JWTService, limiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		limited := limiter(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isAdminTokenRequest(jwtService, r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			limited.ServeHTTP(w, r)
+		})
+	}
+}
+
+// isAdminTokenRequest returns true when the request carries a valid JWT whose
+// user has IsAdmin=true. Any failure (missing token, invalid token, non-admin
+// user) returns false — the caller applies the rate limit in those cases.
+func isAdminTokenRequest(jwtService *auth.JWTService, r *http.Request) bool {
+	if jwtService == nil {
+		return false
+	}
+	token := extractJWT(r)
+	if token == "" {
+		return false
+	}
+	user, err := jwtService.ValidateToken(token)
+	if err != nil || user == nil {
+		return false
+	}
+	return user.IsAdmin
+}
+
+// extractJWT reads the JWT from either the Authorization header or the
+// auth_token cookie, matching the logic in JWTMiddleware. Returns empty
+// string when no token is present.
+func extractJWT(r *http.Request) string {
+	if authHeader := r.Header.Get("Authorization"); authHeader != "" {
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 && parts[0] == "Bearer" {
+			return parts[1]
+		}
+	}
+	if cookie, err := r.Cookie("auth_token"); err == nil {
+		return cookie.Value
+	}
+	return ""
 }
 
 // RateLimitExceededHandler handles rate limit exceeded responses

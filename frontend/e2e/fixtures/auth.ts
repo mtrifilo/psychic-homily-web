@@ -30,11 +30,18 @@ const AUTH_DIR = path.resolve(__dirname, '../.auth')
  * later runs. Depending `authenticatedPage` on this fixture wires it
  * into every mutating test automatically, without `afterEach` boilerplate.
  *
+ * PSY-507: `cleanBetweenRetries` is a test-scoped opt-in fixture whose
+ * teardown fires the same reset between each attempt, including between
+ * Playwright retries. Worker-scoped `workerCleanup` does not cover this
+ * case — it only runs at worker teardown, so a test that fails partway
+ * through on retry N finds leftover state from retry N-1 still in the
+ * DB. See docs/strategy/e2e-testing.md for when to opt in.
+ *
  * `adminPage` remains a single shared admin — admin tests are rare and
  * low-race-risk.
  */
 export const test = base.extend<
-  { authenticatedPage: Page; adminPage: Page },
+  { authenticatedPage: Page; adminPage: Page; cleanBetweenRetries: void },
   { workerCleanup: void }
 >({
   // Worker-scoped (note the `{ scope: 'worker' }` option on the tuple):
@@ -86,6 +93,37 @@ export const test = base.extend<
     const page = await context.newPage()
     await runFixture(page)
     await context.close()
+  },
+
+  // PSY-507: test-scoped cleanup. Opt-in via destructuring in the test
+  // signature (`async ({ authenticatedPage, cleanBetweenRetries: _ }) => …`).
+  // Fires `/admin/test-fixtures/reset` at test teardown, so retries of a
+  // failing mutating test start from a clean slate instead of compounding
+  // state across attempts. Reuses the PSY-432 allowlist scopes verbatim.
+  cleanBetweenRetries: async ({}, use, testInfo) => {
+    const seededIndex = testInfo.workerIndex % USER_COUNT
+    const authFile = userAuthFileForWorker(seededIndex)
+
+    let workerUserId: number | null = null
+    try {
+      workerUserId = await lookupWorkerUserId(authFile)
+    } catch (err) {
+      console.warn(
+        `[PSY-507] cleanBetweenRetries: profile lookup failed; skipping cleanup (${(err as Error).message})`,
+      )
+    }
+
+    await use()
+
+    if (workerUserId !== null) {
+      try {
+        await resetTestFixtures(workerUserId)
+      } catch (err) {
+        console.warn(
+          `[PSY-507] cleanBetweenRetries: reset failed (user_id=${workerUserId}): ${(err as Error).message}`,
+        )
+      }
+    }
   },
 
   adminPage: async ({ browser, errors: _errors }, runFixture) => {

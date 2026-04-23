@@ -462,8 +462,8 @@ BEGIN
   IF wfmu_id IS NOT NULL THEN
     INSERT INTO radio_shows (station_id, name, slug, host_name, description, schedule_display, archive_url, external_id, is_active, created_at, updated_at)
     VALUES
-      (wfmu_id, 'Trouble', 'trouble-wfmu', 'Doug Schulkind', 'Eclectic freeform with soul, jazz, and international.', 'Wednesdays 10 AM-1 PM ET', 'https://wfmu.org/playlists/DS', 'DS', true, NOW(), NOW()),
-      (wfmu_id, 'The Best Show', 'the-best-show-wfmu', 'Tom Scharpling', 'Comedy and music variety show.', 'Tuesdays 9 PM-12 AM ET', 'https://wfmu.org/playlists/TS', 'TS', true, NOW(), NOW())
+      (wfmu_id, 'Give The Drummer Some', 'give-the-drummer-some-wfmu', 'Doug Schulkind', 'Freeform radio spanning jazz, soul, gospel, country, and global grooves.', 'Fridays 9 AM-Noon ET', 'https://wfmu.org/playlists/DS', 'DS', true, NOW(), NOW()),
+      (wfmu_id, 'Bodega Pop', 'bodega-pop-wfmu', 'Gary Sullivan', 'Global pop, regional hits, and bodega-aisle rarities.', 'Wednesdays (weekly)', 'https://wfmu.org/playlists/PG', 'PG', true, NOW(), NOW())
     ON CONFLICT DO NOTHING;
   END IF;
 
@@ -471,7 +471,7 @@ BEGIN
     INSERT INTO radio_shows (station_id, name, slug, host_name, description, schedule_display, archive_url, external_id, is_active, created_at, updated_at)
     VALUES
       (nts_id, 'Floating Points', 'floating-points-nts', 'Floating Points', 'Jazz, electronic, ambient, and world music.', 'Monthly', 'https://www.nts.live/shows/floating-points', 'floating-points', true, NOW(), NOW()),
-      (nts_id, 'Charlie Bones', 'charlie-bones-nts', 'Charlie Bones', 'Eclectic morning show with jazz, soul, funk.', 'Weekdays 10 AM-1 PM GMT', 'https://www.nts.live/shows/charlie-bones', 'charlie-bones', true, NOW(), NOW())
+      (nts_id, 'The Do!! You!!! Breakfast Show w/ Charlie Bones', 'charlie-bones-nts', 'Charlie Bones', 'Eclectic morning show with jazz, soul, funk.', 'Weekdays 10 AM-1 PM GMT', 'https://www.nts.live/shows/the-do-you-breakfast-show', 'the-do-you-breakfast-show', true, NOW(), NOW())
     ON CONFLICT DO NOTHING;
   END IF;
 END $$;
