@@ -75,6 +75,33 @@ The teardown runs even after a test crash, so mid-test failures don't leak into 
 
 Out-of-scope for this endpoint (tests handle these via direct DELETE calls, which is working and should stay): `comments`, `comment_votes`, `field_notes`. If you add a new mutating flow whose table isn't covered, extend the allowlist in `backend/internal/api/handlers/test_fixtures.go` OR add it to the skip map in `test_fixtures_allowlist_test.go` with a justifying comment — the contract test will fail CI on drift.
 
+### Between-retry cleanup (PSY-507)
+
+`workerCleanup` is worker-scoped — it fires at worker teardown, **not** between Playwright retries. In CI (`retries: 2` in `playwright.config.ts`), a mutating test that creates backend state and then fails its UI assertion will re-submit the same state on each retry and hit any uniqueness constraint, turning a transient UI flake into a hard failure.
+
+Concrete example (the one that motivated this section): `submit-show.spec.ts` submits `(headliner, venue, date)`; a flaky Valley Bar autocomplete (PSY-437) sometimes stops the "Show Submitted!" toast from rendering. The backend's `checkDuplicateHeadlinerConflicts` then rejects retries 1–2 because the row from attempt 0 is still in `shows`.
+
+The fix is an **opt-in** test-scoped fixture, `cleanBetweenRetries` (`e2e/fixtures/auth.ts`). Tests declare it in their destructuring:
+
+```ts
+test('can submit a show', async ({
+  authenticatedPage,
+  cleanBetweenRetries: _cleanup,
+}) => { … })
+```
+
+The fixture's teardown calls `/admin/test-fixtures/reset` after each attempt, so the next retry starts clean. Overhead: one admin-authed POST (~100–300ms) per mutating test. Worth it; read-only tests pay nothing because they don't opt in.
+
+**When to opt in:**
+- The test creates any row that the PSY-432 allowlist already cleans (`shows where status='pending'`, collections, bookmarks, etc.).
+- The backend has a uniqueness constraint that the same test could violate if run twice without reset.
+
+**When not:** read-only tests, or tests whose written state is in a table the allowlist doesn't cover (extend the allowlist first).
+
+### Surgical `retries: 0` for tests with known flakes
+
+If a test is known to flake for reasons we're still diagnosing (see `TODO(PSY-xxx)` in the spec), add `test.describe.configure({ retries: 0 })` at the describe level. Retries are a flake suppressor; they mask the real failure rate we need to measure the flake. Remove the line when the underlying ticket lands.
+
 ## When to add a new E2E test
 
 Before adding, check [`testing-layers.md`](testing-layers.md)'s decision tree. Short version:

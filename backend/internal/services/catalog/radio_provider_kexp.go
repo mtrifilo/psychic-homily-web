@@ -104,11 +104,12 @@ func (p *KEXPProvider) DiscoverShows() ([]RadioShowImport, error) {
 				}
 			}
 
-			// Build archive URL from program name.
-			// KEXP website uses /shows/{Name-With-Hyphens}/ (case-sensitive).
-			archiveURL := fmt.Sprintf("https://www.kexp.org/shows/%s/",
-				strings.ReplaceAll(prog.Name, " ", "-"))
-			show.ArchiveURL = &archiveURL
+			// PSY-405: intentionally leave ArchiveURL nil for discovered shows.
+			// KEXP's per-show URL casing is not derivable from the API name
+			// (e.g. "90.TEEN" → /shows/90.-teen/, "Astral Plane" → lowercased
+			// /shows/astral-plane/). Any fabricated URL is wrong for roughly
+			// 20 of 26 active programs. Admins set the canonical archive URL
+			// via the edit drawer; the 6 seed-level shows already have one.
 
 			allShows = append(allShows, show)
 		}
