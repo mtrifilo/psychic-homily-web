@@ -807,6 +807,7 @@ type mockCommentAdminService struct {
 	listPendingCommentsFn func(int, int) ([]*contracts.CommentResponse, int64, error)
 	approveCommentFn func(uint, uint) (error)
 	rejectCommentFn func(uint, uint, string) (error)
+	getCommentEditHistoryFn func(uint, uint) (*contracts.CommentEditHistoryResponse, error)
 }
 
 func (m *mockCommentAdminService) HideComment(adminUserID uint, commentID uint, reason string) (error) {
@@ -838,6 +839,12 @@ func (m *mockCommentAdminService) RejectComment(adminUserID uint, commentID uint
 		return m.rejectCommentFn(adminUserID, commentID, reason)
 	}
 	return nil
+}
+func (m *mockCommentAdminService) GetCommentEditHistory(requesterID uint, commentID uint) (*contracts.CommentEditHistoryResponse, error) {
+	if m.getCommentEditHistoryFn != nil {
+		return m.getCommentEditHistoryFn(requesterID, commentID)
+	}
+	return nil, nil
 }
 
 // ============================================================================

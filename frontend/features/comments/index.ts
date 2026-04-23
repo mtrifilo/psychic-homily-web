@@ -34,4 +34,6 @@ export {
   FieldNoteForm,
   FieldNoteCard,
   FieldNotesSection,
+  CommentEditHistory,
+  EditHistoryBody,
 } from './components'

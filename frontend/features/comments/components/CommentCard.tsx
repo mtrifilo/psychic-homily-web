@@ -1,12 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronUp, ChevronDown, MessageSquare, Pencil, Trash2, ChevronRight, Flag } from 'lucide-react'
+import { ChevronUp, ChevronDown, MessageSquare, Pencil, Trash2, ChevronRight, Flag, History } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CommentForm } from './CommentForm'
+import { CommentEditHistory } from './CommentEditHistory'
 import { ReportEntityDialog } from '@/features/contributions'
 import {
   useReplyToComment,
@@ -35,6 +36,7 @@ export function CommentCard({
   const { user, isAuthenticated } = useAuthContext()
   const currentUserId = user?.id ? Number(user.id) : null
   const isOwner = currentUserId === comment.user_id
+  const isAdmin = Boolean(user?.is_admin)
 
   const [isReplying, setIsReplying] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -42,6 +44,9 @@ export function CommentCard({
   const [showReplies, setShowReplies] = useState(true)
   const [loadedThread, setLoadedThread] = useState(false)
   const [isReportOpen, setIsReportOpen] = useState(false)
+  // PSY-297: admin edit history viewer. Gated by is_admin and only fetched
+  // when the dialog is opened (hook is `enabled` on open).
+  const [isEditHistoryOpen, setIsEditHistoryOpen] = useState(false)
 
   const replyMutation = useReplyToComment()
   const updateMutation = useUpdateComment()
@@ -240,6 +245,27 @@ export function CommentCard({
         </div>
       )}
 
+      {/* PSY-297: Admin-only edit history trigger.
+          Kept in its own section (below the public/owner action row) so the
+          admin affordance is visually separated from the standard comment
+          controls. Only rendered when (a) the viewer is an admin and
+          (b) the comment has at least one recorded edit. */}
+      {!isEditing && isAdmin && comment.edit_count > 0 && (
+        <div className="mt-1 pt-1 border-t border-border/40 flex items-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={() => setIsEditHistoryOpen(true)}
+            data-testid="admin-edit-history-button"
+            aria-label="View edit history"
+          >
+            <History className="h-3 w-3 mr-1" />
+            Edit history ({comment.edit_count})
+          </Button>
+        </div>
+      )}
+
       {/* Inline reply form */}
       {isReplying && (
         <div className="mt-3 ml-4">
@@ -302,6 +328,17 @@ export function CommentCard({
           entityType="comment"
           entityId={comment.id}
           entityName={`Comment by ${comment.author_name}`}
+        />
+      )}
+
+      {/* PSY-297: Admin edit history dialog. Mounted on-demand (only when an
+          admin has clicked the trigger) so we don't fetch history for every
+          comment on the page. */}
+      {isAdmin && isEditHistoryOpen && (
+        <CommentEditHistory
+          open={isEditHistoryOpen}
+          onOpenChange={setIsEditHistoryOpen}
+          commentId={comment.id}
         />
       )}
     </div>

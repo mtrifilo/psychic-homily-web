@@ -102,10 +102,14 @@ func (Comment) TableName() string {
 
 // CommentEdit represents a historical edit of a comment (append-only)
 type CommentEdit struct {
-	ID        uint      `gorm:"primaryKey;column:id"`
-	CommentID uint      `gorm:"not null;column:comment_id"`
-	OldBody   string    `gorm:"not null;column:old_body"`
-	EditedAt  time.Time `gorm:"not null;column:edited_at"`
+	ID           uint      `gorm:"primaryKey;column:id"`
+	CommentID    uint      `gorm:"not null;column:comment_id"`
+	OldBody      string    `gorm:"not null;column:old_body"`
+	EditedAt     time.Time `gorm:"not null;column:edited_at"`
+	EditorUserID *uint     `gorm:"column:editor_user_id"`
+
+	// Relationships (for preloading the editor in admin viewer)
+	Editor *User `gorm:"foreignKey:EditorUserID"`
 }
 
 // TableName specifies the table name for CommentEdit

@@ -93,12 +93,15 @@ export {
 export {
   type PendingComment,
   type PendingCommentsResponse,
+  type CommentEditHistoryEntry,
+  type CommentEditHistoryResponse,
   adminCommentQueryKeys,
   useAdminPendingComments,
   useAdminApproveComment,
   useAdminRejectComment,
   useAdminHideComment,
   useAdminRestoreComment,
+  useAdminCommentEditHistory,
 } from './useAdminComments'
 
 export {

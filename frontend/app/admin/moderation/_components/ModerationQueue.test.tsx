@@ -93,6 +93,14 @@ vi.mock('@/lib/hooks/admin/useAdminComments', () => ({
   useAdminApproveComment: () => mockUseAdminApproveComment(),
   useAdminRejectComment: () => mockUseAdminRejectComment(),
   useAdminHideComment: () => mockUseAdminHideComment(),
+  useAdminCommentEditHistory: () => ({ data: undefined, isLoading: false, error: null }),
+}))
+
+// PSY-297: stub the edit-history dialog so the badge interaction test doesn't
+// depend on Radix Dialog or the query client.
+vi.mock('@/features/comments', () => ({
+  CommentEditHistory: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="stub-edit-history-dialog" /> : null,
 }))
 
 describe('ModerationQueue', () => {
@@ -230,5 +238,43 @@ describe('ModerationQueue', () => {
     expect(screen.getByText('Report')).toBeInTheDocument()
     expect(screen.getByTestId('pending-comment-card')).toBeInTheDocument()
     expect(screen.getByText('3 items pending review')).toBeInTheDocument()
+  })
+
+  // ─── PSY-297: edit history badge on pending comment cards ─────────────────
+
+  it('does NOT render the edit-count badge when the pending comment has no edits', () => {
+    setDefaultMocks({
+      comments: [{ ...mockPendingComment, edit_count: 0 }],
+    })
+
+    render(<ModerationQueue />)
+
+    expect(
+      screen.queryByTestId('pending-comment-edit-badge')
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders the edit-count badge with a pluralized label when the pending comment was edited', () => {
+    setDefaultMocks({
+      comments: [{ ...mockPendingComment, edit_count: 3 }],
+    })
+
+    render(<ModerationQueue />)
+
+    const badge = screen.getByTestId('pending-comment-edit-badge')
+    expect(badge).toBeInTheDocument()
+    expect(badge).toHaveTextContent('3 edits')
+  })
+
+  it('uses the singular form when the pending comment was edited exactly once', () => {
+    setDefaultMocks({
+      comments: [{ ...mockPendingComment, edit_count: 1 }],
+    })
+
+    render(<ModerationQueue />)
+
+    expect(screen.getByTestId('pending-comment-edit-badge')).toHaveTextContent(
+      '1 edit'
+    )
   })
 })

@@ -1165,6 +1165,8 @@ func setupCommentRoutes(rc RouteContext) {
 	huma.Post(rc.Protected, "/admin/comments/{comment_id}/restore", commentAdminHandler.AdminRestoreCommentHandler)
 	huma.Post(rc.Protected, "/admin/comments/{comment_id}/approve", commentAdminHandler.AdminApproveCommentHandler)
 	huma.Post(rc.Protected, "/admin/comments/{comment_id}/reject", commentAdminHandler.AdminRejectCommentHandler)
+	// Admin: edit history viewer (PSY-297)
+	huma.Get(rc.Protected, "/admin/comments/{comment_id}/edits", commentAdminHandler.AdminGetCommentEditHistoryHandler)
 }
 
 // setupCommentVoteRoutes configures comment voting endpoints.
