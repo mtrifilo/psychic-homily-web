@@ -996,6 +996,16 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 			ArchiveURL:      "https://wfmu.org/playlists/SV",
 			ExternalID:      "SV",
 		},
+		{
+			StationSlug:     "wfmu",
+			Name:            "Three Chord Monte",
+			Slug:            "three-chord-monte-wfmu",
+			HostName:        "Joe Belock",
+			Description:     "Garage, punk, and power pop from longtime WFMU DJ Joe Belock.",
+			ScheduleDisplay: "Mondays 12 PM-3 PM ET",
+			ArchiveURL:      "https://wfmu.org/playlists/TM",
+			ExternalID:      "TM",
+		},
 
 		// NTS shows
 		{
@@ -1017,6 +1027,19 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 			ScheduleDisplay: "Weekdays 10 AM-1 PM GMT",
 			ArchiveURL:      "https://www.nts.live/shows/the-do-you-breakfast-show",
 			ExternalID:      "the-do-you-breakfast-show",
+		},
+		{
+			StationSlug:     "nts-radio",
+			Name:            "The NTS Breakfast Show",
+			Slug:            "breakfast-show-nts",
+			// HostName intentionally empty: rotating residents (Louise Chen,
+			// Flo, Zakia, Coco María, and others). Empty string → NULL via
+			// the `if s.HostName != ""` guard below.
+			HostName:        "",
+			Description:     "Daily morning show on NTS, rotating through residents including Louise Chen, Flo, Zakia, Coco María, and others.",
+			ScheduleDisplay: "Weekdays, mornings GMT",
+			ArchiveURL:      "https://www.nts.live/shows/breakfast",
+			ExternalID:      "breakfast",
 		},
 		{
 			StationSlug:     "nts-radio",
