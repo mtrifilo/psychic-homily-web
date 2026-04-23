@@ -209,14 +209,14 @@ func TestKEXPProvider_DiscoverShows(t *testing.T) {
 	assert.Equal(t, "Wake up with KEXP", *shows[0].Description)
 	assert.Equal(t, "https://kexp.org/morning.jpg", *shows[0].ImageURL)
 	assert.Equal(t, "John Richards", *shows[0].HostName)
-	require.NotNil(t, shows[0].ArchiveURL)
-	assert.Equal(t, "https://www.kexp.org/shows/The-Morning-Show/", *shows[0].ArchiveURL)
+	// PSY-405: DiscoverShows no longer fabricates an archive URL — KEXP's
+	// per-show URL casing isn't derivable from the API name.
+	assert.Nil(t, shows[0].ArchiveURL)
 
 	assert.Equal(t, "43", shows[1].ExternalID)
 	assert.Equal(t, "The Midday Show", shows[1].Name)
 	assert.Equal(t, "Cheryl Waters", *shows[1].HostName)
-	require.NotNil(t, shows[1].ArchiveURL)
-	assert.Equal(t, "https://www.kexp.org/shows/The-Midday-Show/", *shows[1].ArchiveURL)
+	assert.Nil(t, shows[1].ArchiveURL)
 }
 
 func TestKEXPProvider_DiscoverShows_Pagination(t *testing.T) {
