@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/go-chi/httprate"
 )
 
 func TestRateLimitExceededHandler_StatusCode(t *testing.T) {
@@ -95,5 +98,80 @@ func TestRateLimitTagVoteEndpoints_ReturnsMiddleware(t *testing.T) {
 	mw := RateLimitTagVoteEndpoints()
 	if mw == nil {
 		t.Fatal("RateLimitTagVoteEndpoints() returned nil")
+	}
+}
+
+// PSY-345: nil JWTService should fall through to the underlying limiter for
+// every request. Non-admin/unauthenticated paths get rate-limited as before.
+func TestSkipRateLimitForAdmin_NilJWTServiceLimitsEveryRequest(t *testing.T) {
+	// 1 request / minute limiter, easy to saturate within the test.
+	base := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP))
+	mw := SkipRateLimitForAdmin(nil, base)
+
+	hits := 0
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// First request passes
+	req1 := httptest.NewRequest(http.MethodPost, "/tag", nil)
+	req1.RemoteAddr = "1.2.3.4:1000"
+	rr1 := httptest.NewRecorder()
+	handler.ServeHTTP(rr1, req1)
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("first request: status = %d, want 200", rr1.Code)
+	}
+
+	// Second request from the same IP hits the limiter
+	req2 := httptest.NewRequest(http.MethodPost, "/tag", nil)
+	req2.RemoteAddr = "1.2.3.4:1001"
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusTooManyRequests {
+		t.Errorf("second request: status = %d, want 429 (limiter should apply when JWTService is nil)", rr2.Code)
+	}
+	if hits != 1 {
+		t.Errorf("handler hits = %d, want 1 (second call should be short-circuited by limiter)", hits)
+	}
+}
+
+// PSY-345: extractJWT picks up the Bearer header when present, falls back to
+// the auth_token cookie, and returns empty string otherwise.
+func TestExtractJWT_PrefersAuthorizationHeader(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer header-token")
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "cookie-token"})
+
+	got := extractJWT(req)
+	if got != "header-token" {
+		t.Errorf("extractJWT = %q, want %q (header takes precedence)", got, "header-token")
+	}
+}
+
+func TestExtractJWT_FallsBackToCookie(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "cookie-token"})
+
+	got := extractJWT(req)
+	if got != "cookie-token" {
+		t.Errorf("extractJWT = %q, want %q", got, "cookie-token")
+	}
+}
+
+func TestExtractJWT_EmptyWhenNoToken(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	if got := extractJWT(req); got != "" {
+		t.Errorf("extractJWT = %q, want empty string", got)
+	}
+}
+
+func TestExtractJWT_IgnoresNonBearerAuthHeader(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	// Basic auth, not Bearer — should not be treated as a JWT.
+	req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
+
+	if got := extractJWT(req); got != "" {
+		t.Errorf("extractJWT = %q, want empty string for non-Bearer header", got)
 	}
 }
