@@ -96,6 +96,27 @@ jobs:
           fi
           echo "OK: schema_migrations.version=$ACTUAL matches newest migration file"
 
+      # PSY-413: `CREATE INDEX CONCURRENTLY` inside a multi-statement migration
+      # silently fails (golang-migrate wraps multi-statement files in a
+      # transaction, and CONCURRENTLY can't run in one). Our convention is
+      # "one CONCURRENTLY statement per file" — see docs/strategy/migrations.md.
+      # This step catches any future regression where the index stops being
+      # created (e.g. if someone accidentally merges the CONCURRENTLY stmt
+      # into a larger migration file). The `schema_migrations` assertion
+      # above would still pass in that scenario because `IF NOT EXISTS`
+      # swallows the error.
+      - name: Assert CONCURRENTLY migration created its index
+        run: |
+          ACTUAL=$(PGPASSWORD=test psql -h localhost -U test -d test -tAc \
+                   "SELECT indexname FROM pg_indexes WHERE indexname = 'idx_shows_duplicate_of_show_id';")
+          if [ "$ACTUAL" != "idx_shows_duplicate_of_show_id" ]; then
+            echo "ERROR: idx_shows_duplicate_of_show_id missing after migrate up"
+            echo "Migration 000027 uses CREATE INDEX CONCURRENTLY. Check that the"
+            echo "statement is the only statement in its migration file."
+            exit 1
+          fi
+          echo "OK: CONCURRENTLY index idx_shows_duplicate_of_show_id exists"
+
   backend-tests:
     name: Backend Tests
     runs-on: ubuntu-latest
