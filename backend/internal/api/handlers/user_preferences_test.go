@@ -190,3 +190,167 @@ func TestUnsubscribeShowRemindersHandler_ServiceError(t *testing.T) {
 func computeTestUnsubscribeSig(uid uint, secret string) string {
 	return engagement.ComputeUnsubscribeSignature(uid, secret)
 }
+
+// ──────────────────────────────────────────────
+// PSY-289: comment-notifications preference + unsubscribe handlers
+// ──────────────────────────────────────────────
+
+func TestSetCommentNotificationsHandler_NoAuth(t *testing.T) {
+	h := NewUserPreferencesHandler(&mockUserService{}, "secret")
+	req := &SetCommentNotificationsRequest{}
+	enabled := false
+	req.Body.NotifyOnMention = &enabled
+	_, err := h.SetCommentNotificationsHandler(context.Background(), req)
+	assertHumaError(t, err, 401)
+}
+
+func TestSetCommentNotificationsHandler_NoFieldsBadRequest(t *testing.T) {
+	h := NewUserPreferencesHandler(&mockUserService{}, "secret")
+	ctx := ctxWithUser(&models.User{ID: 1})
+	req := &SetCommentNotificationsRequest{}
+	_, err := h.SetCommentNotificationsHandler(ctx, req)
+	assertHumaError(t, err, 400)
+}
+
+func TestSetCommentNotificationsHandler_Success(t *testing.T) {
+	var commentEnabled, mentionEnabled *bool
+	mock := &mockUserService{
+		setNotifyOnCommentSubscriptionFn: func(userID uint, enabled bool) error {
+			e := enabled
+			commentEnabled = &e
+			return nil
+		},
+		setNotifyOnMentionFn: func(userID uint, enabled bool) error {
+			e := enabled
+			mentionEnabled = &e
+			return nil
+		},
+		getUserByIDFn: func(uid uint) (*models.User, error) {
+			return &models.User{
+				ID: uid,
+				Preferences: &models.UserPreferences{
+					UserID:                      uid,
+					NotifyOnCommentSubscription: false,
+					NotifyOnMention:             true,
+				},
+			}, nil
+		},
+	}
+	h := NewUserPreferencesHandler(mock, "secret")
+	ctx := ctxWithUser(&models.User{ID: 1})
+
+	no := false
+	yes := true
+	req := &SetCommentNotificationsRequest{}
+	req.Body.NotifyOnCommentSubscription = &no
+	req.Body.NotifyOnMention = &yes
+
+	resp, err := h.SetCommentNotificationsHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Fatal("expected success=true")
+	}
+	if commentEnabled == nil || *commentEnabled {
+		t.Fatalf("expected SetNotifyOnCommentSubscription(false); got %v", commentEnabled)
+	}
+	if mentionEnabled == nil || !*mentionEnabled {
+		t.Fatalf("expected SetNotifyOnMention(true); got %v", mentionEnabled)
+	}
+	// Response mirrors DB state via GetUserByID.
+	if resp.Body.NotifyOnCommentSubscription {
+		t.Fatal("expected response to reflect DB state (false)")
+	}
+	if !resp.Body.NotifyOnMention {
+		t.Fatal("expected response to reflect DB state (true)")
+	}
+}
+
+func TestUnsubscribeCommentSubscriptionHandler_InvalidSignature(t *testing.T) {
+	h := NewUserPreferencesHandler(&mockUserService{}, "secret")
+	req := &UnsubscribeCommentSubscriptionRequest{}
+	req.Body.UID = 1
+	req.Body.EntityType = "artist"
+	req.Body.EntityID = 1
+	req.Body.Sig = "nope"
+	_, err := h.UnsubscribeCommentSubscriptionHandler(context.Background(), req)
+	assertHumaError(t, err, 403)
+}
+
+func TestUnsubscribeCommentSubscriptionHandler_Success(t *testing.T) {
+	secret := "hmac-secret"
+	uid := uint(7)
+	entityType := "release"
+	entityID := uint(999)
+	sig := engagement.ComputeCommentSubscriptionUnsubscribeSignature(uid, entityType, entityID, secret)
+
+	var called bool
+	var receivedEnabled *bool
+	mock := &mockUserService{
+		setNotifyOnCommentSubscriptionFn: func(userID uint, enabled bool) error {
+			called = true
+			e := enabled
+			receivedEnabled = &e
+			return nil
+		},
+	}
+	h := NewUserPreferencesHandler(mock, secret)
+	req := &UnsubscribeCommentSubscriptionRequest{}
+	req.Body.UID = uid
+	req.Body.EntityType = entityType
+	req.Body.EntityID = entityID
+	req.Body.Sig = sig
+
+	resp, err := h.UnsubscribeCommentSubscriptionHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Fatal("expected success=true")
+	}
+	if !called || receivedEnabled == nil || *receivedEnabled {
+		t.Fatalf("expected SetNotifyOnCommentSubscription(false); called=%v got=%v", called, receivedEnabled)
+	}
+}
+
+func TestUnsubscribeMentionHandler_InvalidSignature(t *testing.T) {
+	h := NewUserPreferencesHandler(&mockUserService{}, "secret")
+	req := &UnsubscribeMentionRequest{}
+	req.Body.UID = 1
+	req.Body.Sig = "bad"
+	_, err := h.UnsubscribeMentionHandler(context.Background(), req)
+	assertHumaError(t, err, 403)
+}
+
+func TestUnsubscribeMentionHandler_Success(t *testing.T) {
+	secret := "hmac-secret"
+	uid := uint(8)
+	sig := engagement.ComputeMentionUnsubscribeSignature(uid, secret)
+
+	var called bool
+	mock := &mockUserService{
+		setNotifyOnMentionFn: func(userID uint, enabled bool) error {
+			if enabled {
+				t.Fatalf("expected enabled=false, got true")
+			}
+			called = true
+			return nil
+		},
+	}
+	h := NewUserPreferencesHandler(mock, secret)
+	req := &UnsubscribeMentionRequest{}
+	req.Body.UID = uid
+	req.Body.Sig = sig
+
+	resp, err := h.UnsubscribeMentionHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Fatal("expected success=true")
+	}
+	if !called {
+		t.Fatal("expected SetNotifyOnMention to be called")
+	}
+}

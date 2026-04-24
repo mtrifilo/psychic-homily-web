@@ -27,9 +27,19 @@ const (
 type ReplyPermission string
 
 const (
-	ReplyPermissionAnyone    ReplyPermission = "anyone"
+	ReplyPermissionAnyone     ReplyPermission = "anyone"
+	ReplyPermissionFollowers  ReplyPermission = "followers"
 	ReplyPermissionAuthorOnly ReplyPermission = "author_only"
 )
+
+// IsValidReplyPermission reports whether v is a recognized ReplyPermission value.
+func IsValidReplyPermission(v string) bool {
+	switch ReplyPermission(v) {
+	case ReplyPermissionAnyone, ReplyPermissionFollowers, ReplyPermissionAuthorOnly:
+		return true
+	}
+	return false
+}
 
 // CommentEntityType represents the valid entity types for comments
 type CommentEntityType string
@@ -102,10 +112,14 @@ func (Comment) TableName() string {
 
 // CommentEdit represents a historical edit of a comment (append-only)
 type CommentEdit struct {
-	ID        uint      `gorm:"primaryKey;column:id"`
-	CommentID uint      `gorm:"not null;column:comment_id"`
-	OldBody   string    `gorm:"not null;column:old_body"`
-	EditedAt  time.Time `gorm:"not null;column:edited_at"`
+	ID           uint      `gorm:"primaryKey;column:id"`
+	CommentID    uint      `gorm:"not null;column:comment_id"`
+	OldBody      string    `gorm:"not null;column:old_body"`
+	EditedAt     time.Time `gorm:"not null;column:edited_at"`
+	EditorUserID *uint     `gorm:"column:editor_user_id"`
+
+	// Relationships (for preloading the editor in admin viewer)
+	Editor *User `gorm:"foreignKey:EditorUserID"`
 }
 
 // TableName specifies the table name for CommentEdit
@@ -129,10 +143,11 @@ func (CommentVote) TableName() string {
 
 // CommentSubscription tracks a user's subscription to comment threads on an entity.
 type CommentSubscription struct {
-	UserID       uint      `gorm:"primaryKey;column:user_id"`
-	EntityType   string    `gorm:"primaryKey;column:entity_type"`
-	EntityID     uint      `gorm:"primaryKey;column:entity_id"`
-	SubscribedAt time.Time `gorm:"not null;column:subscribed_at"`
+	UserID         uint       `gorm:"primaryKey;column:user_id"`
+	EntityType     string     `gorm:"primaryKey;column:entity_type"`
+	EntityID       uint       `gorm:"primaryKey;column:entity_id"`
+	SubscribedAt   time.Time  `gorm:"not null;column:subscribed_at"`
+	LastNotifiedAt *time.Time `gorm:"column:last_notified_at"`
 }
 
 // TableName specifies the table name for CommentSubscription

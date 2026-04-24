@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useComments, useCreateComment } from '../hooks'
 import { CommentForm } from './CommentForm'
 import { CommentCard } from './CommentCard'
-import type { Comment } from '../types'
+import type { Comment, ReplyPermission } from '../types'
 
 interface CommentThreadProps {
   entityType: string
@@ -42,8 +42,8 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
     return acc
   }, {})
 
-  const handleCreate = (body: string) => {
-    createMutation.mutate({ entityType, entityId, body })
+  const handleCreate = (body: string, replyPermission?: ReplyPermission) => {
+    createMutation.mutate({ entityType, entityId, body, replyPermission })
   }
 
   return (
@@ -85,6 +85,7 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
             onSubmit={handleCreate}
             placeholder="Share your thoughts..."
             isPending={createMutation.isPending}
+            allowReplyPermission
           />
         </div>
       ) : (

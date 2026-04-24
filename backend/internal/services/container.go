@@ -42,6 +42,7 @@ type ServiceContainer struct {
 	Comment             *engagement.CommentService
 	CommentVote         *engagement.CommentVoteService
 	CommentSubscription *engagement.CommentSubscriptionService
+	CommentNotification *engagement.CommentNotificationService
 	Follow             *engagement.FollowService
 	FavoriteVenue      *engagement.FavoriteVenueService
 	Festival               *catalog.FestivalService
@@ -134,6 +135,12 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	radioSvc := catalog.NewRadioService(database)
 	artistRelSvc := catalog.NewArtistRelationshipService(database)
 
+	// PSY-289: wire the comment notifier into the comment service so new
+	// comments fan out notification emails fire-and-forget.
+	commentSvc := engagement.NewCommentService(database)
+	commentNotificationSvc := engagement.NewCommentNotificationService(database, email, cfg.JWT.SecretKey, cfg.Email.FrontendURL)
+	commentSvc.SetNotifier(commentNotificationSvc)
+
 	return &ServiceContainer{
 		// DB-only leaf services
 		AdminStats:         adminsvc.NewAdminStatsService(database),
@@ -155,9 +162,10 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		ArtistRelationship: artistRelSvc,
 		Scene:              catalog.NewSceneService(database),
 		Attendance:         engagement.NewAttendanceService(database),
-		Comment:             engagement.NewCommentService(database),
+		Comment:             commentSvc,
 		CommentVote:         engagement.NewCommentVoteService(database),
 		CommentSubscription: engagement.NewCommentSubscriptionService(database),
+		CommentNotification: commentNotificationSvc,
 		Follow:             engagement.NewFollowService(database),
 		FavoriteVenue:      engagement.NewFavoriteVenueService(database),
 		Festival:               catalog.NewFestivalService(database),

@@ -58,6 +58,7 @@ interface UserPreferencesData {
   timezone?: string
   language?: string
   favorite_cities?: FavoriteCity[]
+  default_reply_permission?: string
 }
 
 interface UserProfile {

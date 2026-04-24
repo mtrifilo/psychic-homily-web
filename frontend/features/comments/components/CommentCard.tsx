@@ -1,22 +1,29 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronUp, ChevronDown, MessageSquare, Pencil, Trash2, ChevronRight, Flag } from 'lucide-react'
+import { ChevronUp, ChevronDown, MessageSquare, Pencil, Trash2, ChevronRight, Flag, History, Lock } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CommentForm } from './CommentForm'
+import { CommentEditHistory } from './CommentEditHistory'
+import { ReplyPermissionSelect } from './ReplyPermissionSelect'
 import { ReportEntityDialog } from '@/features/contributions'
 import {
   useReplyToComment,
   useUpdateComment,
+  useUpdateReplyPermission,
   useDeleteComment,
   useVoteComment,
   useUnvoteComment,
   useCommentThread,
 } from '../hooks'
-import type { Comment } from '../types'
+import {
+  REPLY_PERMISSION_BADGE_LABELS,
+  type Comment,
+  type ReplyPermission,
+} from '../types'
 
 interface CommentCardProps {
   comment: Comment
@@ -35,6 +42,7 @@ export function CommentCard({
   const { user, isAuthenticated } = useAuthContext()
   const currentUserId = user?.id ? Number(user.id) : null
   const isOwner = currentUserId === comment.user_id
+  const isAdmin = Boolean(user?.is_admin)
 
   const [isReplying, setIsReplying] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -42,9 +50,13 @@ export function CommentCard({
   const [showReplies, setShowReplies] = useState(true)
   const [loadedThread, setLoadedThread] = useState(false)
   const [isReportOpen, setIsReportOpen] = useState(false)
+  // PSY-297: admin edit history viewer. Gated by is_admin and only fetched
+  // when the dialog is opened (hook is `enabled` on open).
+  const [isEditHistoryOpen, setIsEditHistoryOpen] = useState(false)
 
   const replyMutation = useReplyToComment()
   const updateMutation = useUpdateComment()
+  const updateReplyPermissionMutation = useUpdateReplyPermission()
   const deleteMutation = useDeleteComment()
   const voteMutation = useVoteComment()
   const unvoteMutation = useUnvoteComment()
@@ -66,11 +78,28 @@ export function CommentCard({
     }
   }
 
-  const handleReply = (body: string) => {
+  const handleReply = (body: string, replyPermission?: ReplyPermission) => {
     replyMutation.mutate(
-      { commentId: comment.id, body, entityType, entityId },
+      {
+        commentId: comment.id,
+        body,
+        entityType,
+        entityId,
+        replyPermission,
+      },
       { onSuccess: () => setIsReplying(false) }
     )
+  }
+
+  // PSY-296: owner changes who can reply to this comment.
+  const handleChangeReplyPermission = (next: ReplyPermission) => {
+    if (next === comment.reply_permission) return
+    updateReplyPermissionMutation.mutate({
+      commentId: comment.id,
+      permission: next,
+      entityType,
+      entityId,
+    })
   }
 
   const handleEdit = (body: string) => {
@@ -111,6 +140,21 @@ export function CommentCard({
             Edited
           </Badge>
         )}
+        {/* PSY-296 start: reply-permission badge (only for non-default values). */}
+        {comment.reply_permission !== 'anyone' &&
+          REPLY_PERMISSION_BADGE_LABELS[
+            comment.reply_permission as ReplyPermission
+          ] && (
+            <Badge
+              variant="outline"
+              className="text-[10px] px-1.5 py-0 gap-1"
+              data-testid="reply-permission-badge"
+            >
+              <Lock className="h-2.5 w-2.5" />
+              {REPLY_PERMISSION_BADGE_LABELS[comment.reply_permission as ReplyPermission]}
+            </Badge>
+          )}
+        {/* PSY-296 end */}
       </div>
 
       {/* Body */}
@@ -161,18 +205,23 @@ export function CommentCard({
             <ChevronDown className="h-4 w-4" />
           </Button>
 
-          {/* Reply button (hidden at depth >= 2) */}
-          {isAuthenticated && comment.depth < 2 && comment.reply_permission !== 'author_only' && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs text-muted-foreground"
-              onClick={() => setIsReplying(!isReplying)}
-            >
-              <MessageSquare className="h-3.5 w-3.5 mr-1" />
-              Reply
-            </Button>
-          )}
+          {/* Reply button (hidden at depth >= 2). PSY-296: for
+              author_only we hide the button for non-authors; for followers
+              we show the button and let the server reject with 403 (the
+              frontend has no public is-following check yet). */}
+          {isAuthenticated &&
+            comment.depth < 2 &&
+            (comment.reply_permission !== 'author_only' || isOwner) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-muted-foreground"
+                onClick={() => setIsReplying(!isReplying)}
+              >
+                <MessageSquare className="h-3.5 w-3.5 mr-1" />
+                Reply
+              </Button>
+            )}
 
           {/* Edit button (own comments) */}
           {isOwner && (
@@ -237,6 +286,40 @@ export function CommentCard({
               Report
             </Button>
           )}
+          {/* PSY-296 start: owner-only reply-permission control. */}
+          {isOwner && (
+            <label className="flex items-center gap-1 text-xs text-muted-foreground ml-1">
+              <span className="sr-only">Who can reply</span>
+              <ReplyPermissionSelect
+                value={comment.reply_permission as ReplyPermission}
+                onChange={handleChangeReplyPermission}
+                disabled={updateReplyPermissionMutation.isPending}
+                ariaLabel="Who can reply"
+              />
+            </label>
+          )}
+          {/* PSY-296 end */}
+        </div>
+      )}
+
+      {/* PSY-297: Admin-only edit history trigger.
+          Kept in its own section (below the public/owner action row) so the
+          admin affordance is visually separated from the standard comment
+          controls. Only rendered when (a) the viewer is an admin and
+          (b) the comment has at least one recorded edit. */}
+      {!isEditing && isAdmin && comment.edit_count > 0 && (
+        <div className="mt-1 pt-1 border-t border-border/40 flex items-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={() => setIsEditHistoryOpen(true)}
+            data-testid="admin-edit-history-button"
+            aria-label="View edit history"
+          >
+            <History className="h-3 w-3 mr-1" />
+            Edit history ({comment.edit_count})
+          </Button>
         </div>
       )}
 
@@ -302,6 +385,17 @@ export function CommentCard({
           entityType="comment"
           entityId={comment.id}
           entityName={`Comment by ${comment.author_name}`}
+        />
+      )}
+
+      {/* PSY-297: Admin edit history dialog. Mounted on-demand (only when an
+          admin has clicked the trigger) so we don't fetch history for every
+          comment on the page. */}
+      {isAdmin && isEditHistoryOpen && (
+        <CommentEditHistory
+          open={isEditHistoryOpen}
+          onOpenChange={setIsEditHistoryOpen}
+          commentId={comment.id}
         />
       )}
     </div>

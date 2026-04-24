@@ -105,6 +105,7 @@ type CommentServiceInterface interface {
 	ListCommentsForEntity(entityType string, entityID uint, filters CommentListFilters) (*CommentListResponse, error)
 	GetThread(rootID uint) ([]*CommentResponse, error)
 	UpdateComment(userID uint, commentID uint, req *UpdateCommentRequest) (*CommentResponse, error)
+	UpdateReplyPermission(userID uint, commentID uint, permission string) (*CommentResponse, error)
 	DeleteComment(userID uint, commentID uint, isAdmin bool) error
 }
 
@@ -116,6 +117,25 @@ type FieldNoteServiceInterface interface {
 // ──────────────────────────────────────────────
 // Comment admin service interface
 // ──────────────────────────────────────────────
+
+// CommentEditHistoryEntry represents a single historical edit of a comment.
+type CommentEditHistoryEntry struct {
+	ID             uint      `json:"id"`
+	CommentID      uint      `json:"comment_id"`
+	OldBody        string    `json:"old_body"`
+	EditedAt       time.Time `json:"edited_at"`
+	EditorUserID   *uint     `json:"editor_user_id,omitempty"`
+	EditorName     string    `json:"editor_name,omitempty"`
+	EditorUsername string    `json:"editor_username,omitempty"`
+}
+
+// CommentEditHistoryResponse wraps the current comment body plus its edit history.
+// Entries are ordered oldest-first for chronological walkback.
+type CommentEditHistoryResponse struct {
+	CommentID   uint                      `json:"comment_id"`
+	CurrentBody string                    `json:"current_body"`
+	Edits       []CommentEditHistoryEntry `json:"edits"`
+}
 
 // CommentAdminServiceInterface defines the contract for comment moderation operations.
 type CommentAdminServiceInterface interface {
@@ -133,6 +153,10 @@ type CommentAdminServiceInterface interface {
 
 	// RejectComment rejects a pending comment (sets visibility to hidden_by_mod).
 	RejectComment(adminUserID uint, commentID uint, reason string) error
+
+	// GetCommentEditHistory returns the chronological edit history for a comment.
+	// Admin-only: returns an "admin access required" error for non-admin requesters.
+	GetCommentEditHistory(requesterID uint, commentID uint) (*CommentEditHistoryResponse, error)
 }
 
 // CommentVoteResponse contains vote counts and the current user's vote.

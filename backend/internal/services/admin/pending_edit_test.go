@@ -94,6 +94,12 @@ func (m *mockEmailServiceForPendingEdit) SendEditRejectedEmail(toEmail, username
 	})
 	return m.editRejectedErr
 }
+func (m *mockEmailServiceForPendingEdit) SendCommentNotification(_, _, _, _, _, _, _ string) error {
+	return nil
+}
+func (m *mockEmailServiceForPendingEdit) SendMentionNotification(_, _, _, _, _, _, _ string) error {
+	return nil
+}
 
 type PendingEditServiceIntegrationTestSuite struct {
 	suite.Suite

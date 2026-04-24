@@ -1107,6 +1107,91 @@ func (s *UserService) SetShowReminders(userID uint, enabled bool) error {
 	return nil
 }
 
+// SetDefaultReplyPermission sets the user's default reply_permission value
+// applied to new top-level comments. PSY-296.
+func (s *UserService) SetDefaultReplyPermission(userID uint, permission string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	if !models.IsValidReplyPermission(permission) {
+		return fmt.Errorf("invalid reply_permission: %s", permission)
+	}
+
+	result := s.db.Model(&models.UserPreferences{}).
+		Where("user_id = ?", userID).
+		Update("default_reply_permission", permission)
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to update default reply permission: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		prefs := &models.UserPreferences{
+			UserID:                 userID,
+			DefaultReplyPermission: permission,
+		}
+		if err := s.db.Create(prefs).Error; err != nil {
+			return fmt.Errorf("failed to create user preferences: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// SetNotifyOnCommentSubscription toggles the comment-subscription email
+// preference. PSY-289. Always-upsert semantics: if a preferences row doesn't
+// yet exist, one is created with the passed value plus the other comment
+// notification pref defaulted to true.
+func (s *UserService) SetNotifyOnCommentSubscription(userID uint, enabled bool) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	return s.setCommentNotificationPref(userID, map[string]interface{}{
+		"notify_on_comment_subscription": enabled,
+	})
+}
+
+// SetNotifyOnMention toggles the mention-notification email preference.
+// PSY-289. Upserts — see SetNotifyOnCommentSubscription.
+func (s *UserService) SetNotifyOnMention(userID uint, enabled bool) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	return s.setCommentNotificationPref(userID, map[string]interface{}{
+		"notify_on_mention": enabled,
+	})
+}
+
+// setCommentNotificationPref updates one or both of the PSY-289 preference
+// flags on the user_preferences row, creating the row if it doesn't exist.
+func (s *UserService) setCommentNotificationPref(userID uint, updates map[string]interface{}) error {
+	result := s.db.Model(&models.UserPreferences{}).
+		Where("user_id = ?", userID).
+		Updates(updates)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update notification preferences: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		// No preferences row yet — create one. Both prefs default to TRUE,
+		// then apply the incoming override(s).
+		prefs := &models.UserPreferences{
+			UserID:                      userID,
+			NotifyOnCommentSubscription: true,
+			NotifyOnMention:             true,
+		}
+		if v, ok := updates["notify_on_comment_subscription"].(bool); ok {
+			prefs.NotifyOnCommentSubscription = v
+		}
+		if v, ok := updates["notify_on_mention"].(bool); ok {
+			prefs.NotifyOnMention = v
+		}
+		if err := s.db.Create(prefs).Error; err != nil {
+			return fmt.Errorf("failed to create user preferences: %w", err)
+		}
+	}
+	return nil
+}
+
 // GetOAuthAccounts returns all OAuth accounts linked to a user
 func (s *UserService) GetOAuthAccounts(userID uint) ([]models.OAuthAccount, error) {
 	var accounts []models.OAuthAccount

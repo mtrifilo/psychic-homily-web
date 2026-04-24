@@ -12,6 +12,7 @@ import {
   ChevronRight,
   ExternalLink,
   MessageSquare,
+  History,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -32,6 +33,7 @@ import {
   useAdminRejectComment,
   useAdminHideComment,
 } from '@/lib/hooks/admin/useAdminComments'
+import { CommentEditHistory } from '@/features/comments'
 import type { PendingEditResponse } from '@/lib/hooks/admin/useAdminPendingEdits'
 import type { EntityReportResponse } from '@/lib/hooks/admin/useAdminEntityReports'
 import type { PendingComment } from '@/lib/hooks/admin/useAdminComments'
@@ -418,6 +420,8 @@ function EntityReportCard({ report }: { report: EntityReportResponse }) {
 function PendingCommentCard({ comment }: { comment: PendingComment }) {
   const [rejecting, setRejecting] = useState(false)
   const [rejectionReason, setRejectionReason] = useState('')
+  // PSY-297: edit history viewer, opened on demand
+  const [isEditHistoryOpen, setIsEditHistoryOpen] = useState(false)
 
   const approveMutation = useAdminApproveComment()
   const rejectMutation = useAdminRejectComment()
@@ -437,6 +441,8 @@ function PendingCommentCard({ comment }: { comment: PendingComment }) {
   }, [rejectMutation, comment.id, rejectionReason])
 
   const entityUrl = getEntityUrl(comment.entity_type, comment.entity_id)
+  const editCount = comment.edit_count ?? 0
+  const hasEdits = editCount > 0
 
   return (
     <Card className="overflow-hidden" data-testid="pending-comment-card">
@@ -469,12 +475,26 @@ function PendingCommentCard({ comment }: { comment: PendingComment }) {
         </div>
 
         {/* Meta */}
-        <div className="mt-2 text-sm text-muted-foreground">
+        <div className="mt-2 text-sm text-muted-foreground flex items-center flex-wrap gap-2">
           <span>by {comment.author_name || `User #${comment.user_id}`}</span>
           {comment.trust_tier && (
-            <Badge variant="outline" className="ml-2 text-[10px] px-1.5 py-0">
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
               {comment.trust_tier}
             </Badge>
+          )}
+          {/* PSY-297: edit count badge + click-to-view-history.
+              Only rendered when the comment has at least one recorded edit. */}
+          {hasEdits && (
+            <button
+              type="button"
+              onClick={() => setIsEditHistoryOpen(true)}
+              className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
+              data-testid="pending-comment-edit-badge"
+              aria-label={`View edit history (${editCount} edit${editCount !== 1 ? 's' : ''})`}
+            >
+              <History className="h-3 w-3" />
+              {editCount} edit{editCount !== 1 ? 's' : ''}
+            </button>
           )}
         </div>
 
@@ -484,6 +504,15 @@ function PendingCommentCard({ comment }: { comment: PendingComment }) {
           dangerouslySetInnerHTML={{ __html: comment.body_html }}
           data-testid="comment-body"
         />
+
+        {/* PSY-297: edit history dialog, mounted on demand. */}
+        {isEditHistoryOpen && (
+          <CommentEditHistory
+            open={isEditHistoryOpen}
+            onOpenChange={setIsEditHistoryOpen}
+            commentId={comment.id}
+          />
+        )}
 
         {/* Rejection reason input */}
         {rejecting && (

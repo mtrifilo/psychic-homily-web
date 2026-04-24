@@ -35,7 +35,7 @@ describe('CommentForm', () => {
     })
     fireEvent.click(screen.getByTestId('comment-submit'))
 
-    expect(handleSubmit).toHaveBeenCalledWith('Great show!')
+    expect(handleSubmit).toHaveBeenCalledWith('Great show!', undefined)
     expect(screen.getByTestId('comment-textarea')).toHaveValue('')
   })
 
@@ -49,7 +49,7 @@ describe('CommentForm', () => {
 
     fireEvent.click(screen.getByTestId('comment-submit'))
 
-    expect(handleSubmit).toHaveBeenCalledWith('Original text')
+    expect(handleSubmit).toHaveBeenCalledWith('Original text', undefined)
     // In edit mode, should NOT clear the textarea
     expect(screen.getByTestId('comment-textarea')).toHaveValue('Original text')
   })

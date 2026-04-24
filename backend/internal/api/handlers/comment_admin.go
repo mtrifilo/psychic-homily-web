@@ -23,6 +23,7 @@ type CommentAdmin interface {
 	ListPendingComments(limit, offset int) ([]*contracts.CommentResponse, int64, error)
 	ApproveComment(adminUserID uint, commentID uint) error
 	RejectComment(adminUserID uint, commentID uint, reason string) error
+	GetCommentEditHistory(requesterID uint, commentID uint) (*contracts.CommentEditHistoryResponse, error)
 }
 
 // CommentAdminHandler handles admin comment moderation API requests.
@@ -281,4 +282,48 @@ func (h *CommentAdminHandler) AdminRejectCommentHandler(ctx context.Context, req
 	}
 
 	return nil, nil
+}
+
+// ============================================================================
+// Admin: Get Comment Edit History — GET /admin/comments/{comment_id}/edits
+// ============================================================================
+
+// AdminGetCommentEditHistoryRequest represents the request for fetching a comment's edit history.
+type AdminGetCommentEditHistoryRequest struct {
+	CommentID string `path:"comment_id" doc:"Comment ID" example:"1"`
+}
+
+// AdminGetCommentEditHistoryResponse represents the response for fetching a comment's edit history.
+type AdminGetCommentEditHistoryResponse struct {
+	Body contracts.CommentEditHistoryResponse
+}
+
+// AdminGetCommentEditHistoryHandler handles GET /admin/comments/{comment_id}/edits.
+// Returns the chronological edit history (oldest first) plus the current body.
+func (h *CommentAdminHandler) AdminGetCommentEditHistoryHandler(ctx context.Context, req *AdminGetCommentEditHistoryRequest) (*AdminGetCommentEditHistoryResponse, error) {
+	user, err := requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	commentID, err := strconv.ParseUint(req.CommentID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid comment ID")
+	}
+
+	history, err := h.admin.GetCommentEditHistory(user.ID, uint(commentID))
+	if err != nil {
+		if strings.Contains(err.Error(), "admin access required") {
+			return nil, huma.Error403Forbidden("Admin access required")
+		}
+		if strings.Contains(err.Error(), "not found") {
+			return nil, huma.Error404NotFound("Comment not found")
+		}
+		requestID := logger.GetRequestID(ctx)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to load comment edit history (request_id: %s)", requestID),
+		)
+	}
+
+	return &AdminGetCommentEditHistoryResponse{Body: *history}, nil
 }
