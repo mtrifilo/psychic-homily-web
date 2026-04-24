@@ -226,7 +226,11 @@ type UserServiceInterface interface {
 	GetFavoriteCities(userID uint) ([]models.FavoriteCity, error)
 	SetFavoriteCities(userID uint, cities []models.FavoriteCity) error
 	SetShowReminders(userID uint, enabled bool) error
+	// PSY-296: default reply permission applied to new top-level comments.
 	SetDefaultReplyPermission(userID uint, permission string) error
+	// PSY-289: comment + mention notification preference toggles.
+	SetNotifyOnCommentSubscription(userID uint, enabled bool) error
+	SetNotifyOnMention(userID uint, enabled bool) error
 }
 
 // EmailServiceInterface defines the contract for email operations.
@@ -242,6 +246,9 @@ type EmailServiceInterface interface {
 	SendTierDemotionWarningEmail(toEmail, username, currentTier string, currentRate float64, threshold float64) error
 	SendEditApprovedEmail(toEmail, username, entityType, entityName, entityURL string) error
 	SendEditRejectedEmail(toEmail, username, entityType, entityName, rejectionReason string) error
+	// PSY-289: comment + mention notifications.
+	SendCommentNotification(toEmail, commenterName, entityType, entityName, commentExcerpt, entityURL, unsubscribeURL string) error
+	SendMentionNotification(toEmail, mentionerName, entityType, entityName, commentExcerpt, commentURL, unsubscribeURL string) error
 }
 
 // ReminderServiceInterface defines the contract for the show reminder background service.

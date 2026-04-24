@@ -151,6 +151,14 @@ func (n *nilDBUserService) SetDefaultReplyPermission(userID uint, permission str
 	return fmt.Errorf("database not initialized")
 }
 
+func (n *nilDBUserService) SetNotifyOnCommentSubscription(userID uint, enabled bool) error {
+	return fmt.Errorf("database not initialized")
+}
+
+func (n *nilDBUserService) SetNotifyOnMention(userID uint, enabled bool) error {
+	return fmt.Errorf("database not initialized")
+}
+
 // newNilDBUserService returns a UserServiceInterface that returns
 // "database not initialized" for every DB-dependent method.
 func newNilDBUserService() contracts.UserServiceInterface {

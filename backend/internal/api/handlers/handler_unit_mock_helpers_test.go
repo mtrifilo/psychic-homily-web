@@ -1262,6 +1262,8 @@ type mockEmailService struct {
 	sendTierDemotionWarningEmailFn func(string, string, string, float64, float64) (error)
 	sendEditApprovedEmailFn func(string, string, string, string, string) (error)
 	sendEditRejectedEmailFn func(string, string, string, string, string) (error)
+	sendCommentNotificationFn func(string, string, string, string, string, string, string) (error)
+	sendMentionNotificationFn func(string, string, string, string, string, string, string) (error)
 }
 
 func (m *mockEmailService) IsConfigured() (bool) {
@@ -1327,6 +1329,18 @@ func (m *mockEmailService) SendEditApprovedEmail(toEmail string, username string
 func (m *mockEmailService) SendEditRejectedEmail(toEmail string, username string, entityType string, entityName string, rejectionReason string) (error) {
 	if m.sendEditRejectedEmailFn != nil {
 		return m.sendEditRejectedEmailFn(toEmail, username, entityType, entityName, rejectionReason)
+	}
+	return nil
+}
+func (m *mockEmailService) SendCommentNotification(toEmail string, commenterName string, entityType string, entityName string, commentExcerpt string, entityURL string, unsubscribeURL string) (error) {
+	if m.sendCommentNotificationFn != nil {
+		return m.sendCommentNotificationFn(toEmail, commenterName, entityType, entityName, commentExcerpt, entityURL, unsubscribeURL)
+	}
+	return nil
+}
+func (m *mockEmailService) SendMentionNotification(toEmail string, mentionerName string, entityType string, entityName string, commentExcerpt string, commentURL string, unsubscribeURL string) (error) {
+	if m.sendMentionNotificationFn != nil {
+		return m.sendMentionNotificationFn(toEmail, mentionerName, entityType, entityName, commentExcerpt, commentURL, unsubscribeURL)
 	}
 	return nil
 }
@@ -3269,6 +3283,8 @@ type mockUserService struct {
 	setFavoriteCitiesFn func(uint, []models.FavoriteCity) (error)
 	setShowRemindersFn func(uint, bool) (error)
 	setDefaultReplyPermissionFn func(uint, string) (error)
+	setNotifyOnCommentSubscriptionFn func(uint, bool) (error)
+	setNotifyOnMentionFn func(uint, bool) (error)
 }
 
 func (m *mockUserService) ListUsers(limit int, offset int, filters contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
@@ -3484,6 +3500,18 @@ func (m *mockUserService) SetShowReminders(userID uint, enabled bool) (error) {
 func (m *mockUserService) SetDefaultReplyPermission(userID uint, permission string) (error) {
 	if m.setDefaultReplyPermissionFn != nil {
 		return m.setDefaultReplyPermissionFn(userID, permission)
+	}
+	return nil
+}
+func (m *mockUserService) SetNotifyOnCommentSubscription(userID uint, enabled bool) (error) {
+	if m.setNotifyOnCommentSubscriptionFn != nil {
+		return m.setNotifyOnCommentSubscriptionFn(userID, enabled)
+	}
+	return nil
+}
+func (m *mockUserService) SetNotifyOnMention(userID uint, enabled bool) (error) {
+	if m.setNotifyOnMentionFn != nil {
+		return m.setNotifyOnMentionFn(userID, enabled)
 	}
 	return nil
 }
