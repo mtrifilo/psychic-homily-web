@@ -88,6 +88,12 @@ type UserPreferences struct {
 
 	// Relationships
 	User User `json:"-" gorm:"foreignKey:UserID"`
+
+	// PSY-289: comment subscription + mention notification preferences.
+	// Appended at the end so parallel agents touching this struct append
+	// their own fields cleanly without merge conflicts.
+	NotifyOnCommentSubscription bool `json:"notify_on_comment_subscription" gorm:"column:notify_on_comment_subscription;not null;default:true"`
+	NotifyOnMention             bool `json:"notify_on_mention" gorm:"column:notify_on_mention;not null;default:true"`
 }
 
 // TableName specifies the table name for UserPreferences

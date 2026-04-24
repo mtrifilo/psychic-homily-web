@@ -20,11 +20,33 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
+// commentNotifier is the subset of CommentNotificationService that CommentService
+// needs to fan out fire-and-forget notifications. Declared here (not imported)
+// to avoid an import cycle — the notification service lives in the same
+// package but conceptually wraps CommentService.
+type commentNotifier interface {
+	NotifySubscribers(commentID uint) error
+	NotifyMentioned(commentID uint) error
+}
+
 // CommentService implements CommentServiceInterface for comment CRUD and threading.
 type CommentService struct {
 	db       *gorm.DB
 	md       goldmark.Markdown
 	sanitize *bluemonday.Policy
+	// notifier is optional — tests often leave it nil. Production wires it
+	// via SetNotifier() after both services are constructed.
+	notifier commentNotifier
+}
+
+// SetNotifier wires the comment notification service (PSY-289). Optional —
+// when nil, CreateComment skips the fire-and-forget notification fan-out.
+// This exists as a setter (rather than a constructor arg) to avoid a
+// circular dependency: CommentNotificationService and CommentService both
+// live in this package but the notifier needs comment data loaded by the
+// service itself.
+func (s *CommentService) SetNotifier(n commentNotifier) {
+	s.notifier = n
 }
 
 // NewCommentService creates a new CommentService.
@@ -322,6 +344,24 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 	// Reload with user info
 	if err := s.db.Preload("User").First(comment, comment.ID).Error; err != nil {
 		return nil, fmt.Errorf("failed to reload comment: %w", err)
+	}
+
+	// PSY-289: fire-and-forget notification fan-out. Only for visible
+	// comments — pending_review comments should not trigger emails until
+	// approved. Added at the END of the function so parallel agents working
+	// on the top of this method (e.g. reply-permission gate) don't conflict.
+	if s.notifier != nil && comment.Visibility == models.CommentVisibilityVisible {
+		commentID := comment.ID
+		go func() {
+			if nErr := s.notifier.NotifySubscribers(commentID); nErr != nil {
+				log.Printf("warning: comment notification (subscribers) failed for comment %d: %v", commentID, nErr)
+			}
+		}()
+		go func() {
+			if nErr := s.notifier.NotifyMentioned(commentID); nErr != nil {
+				log.Printf("warning: comment notification (mentions) failed for comment %d: %v", commentID, nErr)
+			}
+		}()
 	}
 
 	return commentToResponse(comment), nil
