@@ -20,11 +20,41 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
+// FollowChecker is the minimal FollowService surface that CommentService
+// needs to enforce follower-only reply permissions. Kept as a local
+// interface so tests can swap in a fake.
+type FollowChecker interface {
+	IsFollowing(userID uint, entityType string, entityID uint) (bool, error)
+}
+
+// commentNotifier is the subset of CommentNotificationService that CommentService
+// needs to fan out fire-and-forget notifications. Declared here (not imported)
+// to avoid an import cycle — the notification service lives in the same
+// package but conceptually wraps CommentService.
+type commentNotifier interface {
+	NotifySubscribers(commentID uint) error
+	NotifyMentioned(commentID uint) error
+}
+
 // CommentService implements CommentServiceInterface for comment CRUD and threading.
 type CommentService struct {
-	db       *gorm.DB
-	md       goldmark.Markdown
-	sanitize *bluemonday.Policy
+	db            *gorm.DB
+	md            goldmark.Markdown
+	sanitize      *bluemonday.Policy
+	followChecker FollowChecker
+	// notifier is optional — tests often leave it nil. Production wires it
+	// via SetNotifier() after both services are constructed.
+	notifier commentNotifier
+}
+
+// SetNotifier wires the comment notification service (PSY-289). Optional —
+// when nil, CreateComment skips the fire-and-forget notification fan-out.
+// This exists as a setter (rather than a constructor arg) to avoid a
+// circular dependency: CommentNotificationService and CommentService both
+// live in this package but the notifier needs comment data loaded by the
+// service itself.
+func (s *CommentService) SetNotifier(n commentNotifier) {
+	s.notifier = n
 }
 
 // NewCommentService creates a new CommentService.
@@ -43,11 +73,23 @@ func NewCommentService(db *gorm.DB) *CommentService {
 	policy.RequireNoFollowOnLinks(true)
 	policy.AddTargetBlankToFullyQualifiedLinks(true)
 
-	return &CommentService{
+	svc := &CommentService{
 		db:       db,
 		md:       goldmark.New(),
 		sanitize: policy,
 	}
+	// Default FollowChecker is a FollowService bound to the same DB. Tests
+	// that construct CommentService without a DB get a nil checker; the
+	// check is re-guarded at call sites.
+	if db != nil {
+		svc.followChecker = NewFollowService(db)
+	}
+	return svc
+}
+
+// SetFollowChecker overrides the follow checker. Used in tests.
+func (s *CommentService) SetFollowChecker(fc FollowChecker) {
+	s.followChecker = fc
 }
 
 // renderMarkdown converts markdown body to sanitized HTML.
@@ -173,6 +215,47 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 		return nil, errors.New("database not initialized")
 	}
 
+	// PSY-296: Reply-permission gate. When creating a reply (parent_id set),
+	// enforce the parent comment's reply_permission before doing any other
+	// work. This is deliberately at the top of the function to minimize
+	// merge conflict with sibling PRs touching the tail of CreateComment.
+	if req.ParentID != nil && *req.ParentID > 0 {
+		var parentPerm models.Comment
+		if err := s.db.Select("id, user_id, reply_permission").
+			First(&parentPerm, *req.ParentID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, errors.New("parent comment not found")
+			}
+			return nil, fmt.Errorf("failed to load parent comment: %w", err)
+		}
+		switch parentPerm.ReplyPermission {
+		case models.ReplyPermissionAuthorOnly:
+			if parentPerm.UserID != userID {
+				return nil, errors.New("replies to this comment are disabled")
+			}
+		case models.ReplyPermissionFollowers:
+			// Author can always reply to their own comment; otherwise the
+			// replier must follow the parent author.
+			if parentPerm.UserID != userID {
+				if s.followChecker == nil {
+					return nil, errors.New("follow state unavailable; cannot verify followers-only reply permission")
+				}
+				isFollowing, err := s.followChecker.IsFollowing(userID, FollowEntityUser, parentPerm.UserID)
+				if err != nil {
+					return nil, fmt.Errorf("failed to check follower status: %w", err)
+				}
+				if !isFollowing {
+					return nil, errors.New("only followers of the author can reply to this comment")
+				}
+			}
+		case models.ReplyPermissionAnyone, "":
+			// allow
+		default:
+			// Unrecognized value stored on the parent — fail closed to be safe.
+			return nil, fmt.Errorf("unsupported reply_permission on parent: %s", parentPerm.ReplyPermission)
+		}
+	}
+
 	// Validate body length
 	body := strings.TrimSpace(req.Body)
 	if len(body) < models.MinCommentBodyLength {
@@ -240,10 +323,26 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 		kind = models.CommentKindFieldNote
 	}
 
-	// Determine reply permission
+	// Determine reply permission.
+	// Precedence:
+	//  1. Explicit value on the request (validated).
+	//  2. Per-user default preference (top-level comments only).
+	//  3. Fallback: 'anyone'.
 	replyPerm := models.ReplyPermissionAnyone
-	if req.ReplyPermission == string(models.ReplyPermissionAuthorOnly) {
-		replyPerm = models.ReplyPermissionAuthorOnly
+	if req.ReplyPermission != "" {
+		if !models.IsValidReplyPermission(req.ReplyPermission) {
+			return nil, fmt.Errorf("invalid reply_permission: %s", req.ReplyPermission)
+		}
+		replyPerm = models.ReplyPermission(req.ReplyPermission)
+	} else if req.ParentID == nil || *req.ParentID == 0 {
+		// Top-level comment: apply the user's default preference if set.
+		var prefs models.UserPreferences
+		if err := s.db.Where("user_id = ?", userID).First(&prefs).Error; err == nil {
+			if prefs.DefaultReplyPermission != "" && models.IsValidReplyPermission(prefs.DefaultReplyPermission) {
+				replyPerm = models.ReplyPermission(prefs.DefaultReplyPermission)
+			}
+		}
+		// gorm.ErrRecordNotFound is fine — user has no prefs row yet.
 	}
 
 	// Threading: handle parent_id
@@ -322,6 +421,24 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 	// Reload with user info
 	if err := s.db.Preload("User").First(comment, comment.ID).Error; err != nil {
 		return nil, fmt.Errorf("failed to reload comment: %w", err)
+	}
+
+	// PSY-289: fire-and-forget notification fan-out. Only for visible
+	// comments — pending_review comments should not trigger emails until
+	// approved. Added at the END of the function so parallel agents working
+	// on the top of this method (e.g. reply-permission gate) don't conflict.
+	if s.notifier != nil && comment.Visibility == models.CommentVisibilityVisible {
+		commentID := comment.ID
+		go func() {
+			if nErr := s.notifier.NotifySubscribers(commentID); nErr != nil {
+				log.Printf("warning: comment notification (subscribers) failed for comment %d: %v", commentID, nErr)
+			}
+		}()
+		go func() {
+			if nErr := s.notifier.NotifyMentioned(commentID); nErr != nil {
+				log.Printf("warning: comment notification (mentions) failed for comment %d: %v", commentID, nErr)
+			}
+		}()
 	}
 
 	return commentToResponse(comment), nil
@@ -457,6 +574,8 @@ func (s *CommentService) GetThread(rootID uint) ([]*contracts.CommentResponse, e
 }
 
 // UpdateComment updates a comment's body. Only the author can update their own comment.
+// Writes the prior body to comment_edits (with the editor's user ID) and bumps the
+// edit counter — all in a single transaction so the edit log and body update are atomic.
 func (s *CommentService) UpdateComment(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
 	if s.db == nil {
 		return nil, errors.New("database not initialized")
@@ -484,33 +603,149 @@ func (s *CommentService) UpdateComment(userID uint, commentID uint, req *contrac
 		return nil, errors.New("only the comment author can edit this comment")
 	}
 
-	// Store old body in comment_edits (append-only edit history)
-	edit := &models.CommentEdit{
-		CommentID: comment.ID,
-		OldBody:   comment.Body,
-		EditedAt:  time.Now(),
-	}
-	if err := s.db.Create(edit).Error; err != nil {
-		return nil, fmt.Errorf("failed to save edit history: %w", err)
-	}
-
-	// Update the comment
 	bodyHTML := s.renderMarkdown(body)
-	if err := s.db.Model(&comment).Updates(map[string]interface{}{
-		"body":       body,
-		"body_html":  bodyHTML,
-		"edit_count": gorm.Expr("edit_count + 1"),
-		"updated_at": time.Now(),
-	}).Error; err != nil {
-		return nil, fmt.Errorf("failed to update comment: %w", err)
+	now := time.Now()
+
+	// Wrap the edit log write + body update in a single transaction so a partial
+	// failure can't leave an orphaned comment_edits row (or vice versa).
+	editorID := userID
+	txErr := s.db.Transaction(func(tx *gorm.DB) error {
+		// Append old body to comment_edits before we overwrite it.
+		edit := &models.CommentEdit{
+			CommentID:    comment.ID,
+			OldBody:      comment.Body,
+			EditedAt:     now,
+			EditorUserID: &editorID,
+		}
+		if err := tx.Create(edit).Error; err != nil {
+			return fmt.Errorf("failed to save edit history: %w", err)
+		}
+
+		// Update the comment body and bump edit_count/updated_at.
+		if err := tx.Model(&comment).Updates(map[string]interface{}{
+			"body":       body,
+			"body_html":  bodyHTML,
+			"edit_count": gorm.Expr("edit_count + 1"),
+			"updated_at": now,
+		}).Error; err != nil {
+			return fmt.Errorf("failed to update comment: %w", err)
+		}
+		return nil
+	})
+	if txErr != nil {
+		return nil, txErr
 	}
 
-	// Reload with user info
+	// Reload with user info (outside the transaction; read-only)
 	if err := s.db.Preload("User").First(&comment, commentID).Error; err != nil {
 		return nil, fmt.Errorf("failed to reload comment: %w", err)
 	}
 
 	return commentToResponse(&comment), nil
+}
+
+// UpdateReplyPermission changes who can reply to a comment. Only the
+// author of the comment may change this setting.
+//
+// PSY-296. `permission` must be one of {anyone, followers, author_only}.
+func (s *CommentService) UpdateReplyPermission(userID uint, commentID uint, permission string) (*contracts.CommentResponse, error) {
+	if s.db == nil {
+		return nil, errors.New("database not initialized")
+	}
+	if !models.IsValidReplyPermission(permission) {
+		return nil, fmt.Errorf("invalid reply_permission: %s", permission)
+	}
+
+	var comment models.Comment
+	if err := s.db.First(&comment, commentID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("comment not found")
+		}
+		return nil, fmt.Errorf("failed to fetch comment: %w", err)
+	}
+	if comment.UserID != userID {
+		return nil, errors.New("only the comment author can change reply permission")
+	}
+
+	if err := s.db.Model(&comment).Updates(map[string]interface{}{
+		"reply_permission": permission,
+		"updated_at":       time.Now(),
+	}).Error; err != nil {
+		return nil, fmt.Errorf("failed to update reply permission: %w", err)
+	}
+
+	if err := s.db.Preload("User").First(&comment, commentID).Error; err != nil {
+		return nil, fmt.Errorf("failed to reload comment: %w", err)
+	}
+	return commentToResponse(&comment), nil
+}
+
+// GetCommentEditHistory returns the chronological edit history for a comment.
+// Admin-only: returns "admin access required" for non-admin requesters. Entries
+// are ordered by edited_at ASC (oldest first) so a viewer can walk forward from
+// the original body to the current one. The current body is included separately.
+func (s *CommentService) GetCommentEditHistory(requesterID uint, commentID uint) (*contracts.CommentEditHistoryResponse, error) {
+	if s.db == nil {
+		return nil, errors.New("database not initialized")
+	}
+
+	// Gate on admin. We do this in the service so the handler doesn't need to
+	// double-check, and so any future internal callers inherit the same gate.
+	var requester models.User
+	if err := s.db.First(&requester, requesterID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("admin access required")
+		}
+		return nil, fmt.Errorf("failed to look up requester: %w", err)
+	}
+	if !requester.IsAdmin {
+		return nil, errors.New("admin access required")
+	}
+
+	// Fetch the comment (we need the current body + to verify it exists).
+	var comment models.Comment
+	if err := s.db.First(&comment, commentID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("comment not found")
+		}
+		return nil, fmt.Errorf("failed to fetch comment: %w", err)
+	}
+
+	// Fetch edits oldest-first, preloading the editor so we can include display info.
+	var edits []models.CommentEdit
+	if err := s.db.Preload("Editor").
+		Where("comment_id = ?", commentID).
+		Order("edited_at ASC, id ASC").
+		Find(&edits).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch edit history: %w", err)
+	}
+
+	entries := make([]contracts.CommentEditHistoryEntry, len(edits))
+	for i := range edits {
+		e := &edits[i]
+		entry := contracts.CommentEditHistoryEntry{
+			ID:           e.ID,
+			CommentID:    e.CommentID,
+			OldBody:      e.OldBody,
+			EditedAt:     e.EditedAt,
+			EditorUserID: e.EditorUserID,
+		}
+		if e.Editor != nil && e.Editor.ID != 0 {
+			if e.Editor.Username != nil {
+				entry.EditorUsername = *e.Editor.Username
+			}
+			if e.Editor.FirstName != nil {
+				entry.EditorName = *e.Editor.FirstName
+			}
+		}
+		entries[i] = entry
+	}
+
+	return &contracts.CommentEditHistoryResponse{
+		CommentID:   comment.ID,
+		CurrentBody: comment.Body,
+		Edits:       entries,
+	}, nil
 }
 
 // DeleteComment performs a soft delete by setting visibility.

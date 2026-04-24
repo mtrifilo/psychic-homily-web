@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -175,6 +176,258 @@ func (h *UserPreferencesHandler) UnsubscribeShowRemindersHandler(ctx context.Con
 		}{
 			Success: true,
 			Message: "Show reminders disabled",
+		},
+	}, nil
+}
+
+// ===========================================================================
+// PSY-296: default reply permission
+// ===========================================================================
+
+// SetDefaultReplyPermissionRequest updates the user's default reply permission.
+type SetDefaultReplyPermissionRequest struct {
+	Body struct {
+		Permission string `json:"permission" doc:"Default reply permission: anyone, followers, or author_only" example:"anyone"`
+	}
+}
+
+// SetDefaultReplyPermissionResponse returns the new default value.
+type SetDefaultReplyPermissionResponse struct {
+	Body struct {
+		Success                bool   `json:"success"`
+		DefaultReplyPermission string `json:"default_reply_permission"`
+	}
+}
+
+// SetDefaultReplyPermissionHandler handles PATCH /auth/preferences/default-reply-permission.
+func (h *UserPreferencesHandler) SetDefaultReplyPermissionHandler(ctx context.Context, req *SetDefaultReplyPermissionRequest) (*SetDefaultReplyPermissionResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	perm := req.Body.Permission
+	if !models.IsValidReplyPermission(perm) {
+		return nil, huma.Error400BadRequest(
+			fmt.Sprintf("invalid reply_permission: %q (want anyone, followers, or author_only)", perm),
+		)
+	}
+
+	if err := h.userService.SetDefaultReplyPermission(user.ID, perm); err != nil {
+		logger.FromContext(ctx).Error("set_default_reply_permission_failed",
+			"error", err.Error(),
+			"user_id", user.ID,
+		)
+		if strings.Contains(err.Error(), "invalid reply_permission") {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Failed to update default reply permission: %s", err.Error()),
+		)
+	}
+
+	logger.FromContext(ctx).Info("set_default_reply_permission_success",
+		"user_id", user.ID,
+		"permission", perm,
+	)
+
+	return &SetDefaultReplyPermissionResponse{
+		Body: struct {
+			Success                bool   `json:"success"`
+			DefaultReplyPermission string `json:"default_reply_permission"`
+		}{
+			Success:                true,
+			DefaultReplyPermission: perm,
+		},
+	}, nil
+}
+
+// ──────────────────────────────────────────────
+// PSY-289: comment + mention notification preferences
+// ──────────────────────────────────────────────
+
+// SetCommentNotificationsRequest toggles the two PSY-289 email preferences.
+// Both fields are pointers so a caller can update one without touching the
+// other; Huma's default-required rule applies to non-nil fields only when
+// explicitly marked optional — these use `required:"false"` to opt out.
+type SetCommentNotificationsRequest struct {
+	Body struct {
+		NotifyOnCommentSubscription *bool `json:"notify_on_comment_subscription,omitempty" required:"false" doc:"Receive emails when new comments appear on entities you're subscribed to"`
+		NotifyOnMention             *bool `json:"notify_on_mention,omitempty" required:"false" doc:"Receive emails when someone @mentions you in a comment"`
+	}
+}
+
+// SetCommentNotificationsResponse reports the resulting preference state.
+type SetCommentNotificationsResponse struct {
+	Body struct {
+		Success                     bool `json:"success"`
+		NotifyOnCommentSubscription bool `json:"notify_on_comment_subscription"`
+		NotifyOnMention             bool `json:"notify_on_mention"`
+	}
+}
+
+// SetCommentNotificationsHandler handles PATCH /auth/preferences/comment-notifications.
+// Sends one update per non-nil field, then reloads the current state.
+func (h *UserPreferencesHandler) SetCommentNotificationsHandler(ctx context.Context, req *SetCommentNotificationsRequest) (*SetCommentNotificationsResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	if req.Body.NotifyOnCommentSubscription == nil && req.Body.NotifyOnMention == nil {
+		return nil, huma.Error400BadRequest("No preferences provided")
+	}
+
+	if req.Body.NotifyOnCommentSubscription != nil {
+		if err := h.userService.SetNotifyOnCommentSubscription(user.ID, *req.Body.NotifyOnCommentSubscription); err != nil {
+			logger.FromContext(ctx).Error("set_notify_on_comment_subscription_failed",
+				"error", err.Error(),
+				"user_id", user.ID,
+			)
+			return nil, huma.Error500InternalServerError(
+				fmt.Sprintf("Failed to update preference: %s", err.Error()),
+			)
+		}
+	}
+	if req.Body.NotifyOnMention != nil {
+		if err := h.userService.SetNotifyOnMention(user.ID, *req.Body.NotifyOnMention); err != nil {
+			logger.FromContext(ctx).Error("set_notify_on_mention_failed",
+				"error", err.Error(),
+				"user_id", user.ID,
+			)
+			return nil, huma.Error500InternalServerError(
+				fmt.Sprintf("Failed to update preference: %s", err.Error()),
+			)
+		}
+	}
+
+	// Reload current state from DB (authoritative).
+	refreshed, err := h.userService.GetUserByID(user.ID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to reload user")
+	}
+	resp := &SetCommentNotificationsResponse{}
+	resp.Body.Success = true
+	if refreshed.Preferences != nil {
+		resp.Body.NotifyOnCommentSubscription = refreshed.Preferences.NotifyOnCommentSubscription
+		resp.Body.NotifyOnMention = refreshed.Preferences.NotifyOnMention
+	} else {
+		// No prefs row — return the defaults we requested.
+		if req.Body.NotifyOnCommentSubscription != nil {
+			resp.Body.NotifyOnCommentSubscription = *req.Body.NotifyOnCommentSubscription
+		} else {
+			resp.Body.NotifyOnCommentSubscription = true
+		}
+		if req.Body.NotifyOnMention != nil {
+			resp.Body.NotifyOnMention = *req.Body.NotifyOnMention
+		} else {
+			resp.Body.NotifyOnMention = true
+		}
+	}
+	return resp, nil
+}
+
+// UnsubscribeCommentSubscriptionRequest is the public one-click unsubscribe
+// payload sent from the email "Unsubscribe" link. All fields required.
+type UnsubscribeCommentSubscriptionRequest struct {
+	Body struct {
+		UID        uint   `json:"uid" doc:"User ID"`
+		EntityType string `json:"entity_type" doc:"Entity type the user was subscribed to"`
+		EntityID   uint   `json:"entity_id" doc:"Entity ID the user was subscribed to"`
+		Sig        string `json:"sig" doc:"HMAC signature"`
+	}
+}
+
+// UnsubscribeCommentSubscriptionResponse is the confirmation shape.
+type UnsubscribeCommentSubscriptionResponse struct {
+	Body struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+}
+
+// UnsubscribeCommentSubscriptionHandler handles POST /unsubscribe/comment-subscription.
+// Verifies HMAC then flips the user's notify_on_comment_subscription preference
+// to false. Public endpoint — no auth required.
+//
+// Note: the unsubscribe is account-wide (flips the preference flag), not
+// per-entity. That matches the ticket ("flip the relevant preference off")
+// and What.cd behavior. We still bind the signature to (user, entity_type,
+// entity_id) so a link leaked from one email can't be mutated to target
+// other users or resources.
+func (h *UserPreferencesHandler) UnsubscribeCommentSubscriptionHandler(ctx context.Context, req *UnsubscribeCommentSubscriptionRequest) (*UnsubscribeCommentSubscriptionResponse, error) {
+	if !engagement.VerifyCommentSubscriptionUnsubscribeSignature(
+		req.Body.UID, req.Body.EntityType, req.Body.EntityID, req.Body.Sig, h.jwtSecret,
+	) {
+		return nil, huma.Error403Forbidden("Invalid unsubscribe link")
+	}
+
+	if err := h.userService.SetNotifyOnCommentSubscription(req.Body.UID, false); err != nil {
+		logger.FromContext(ctx).Error("unsubscribe_comment_subscription_failed",
+			"error", err.Error(),
+			"user_id", req.Body.UID,
+		)
+		return nil, huma.Error500InternalServerError("Failed to unsubscribe")
+	}
+
+	logger.FromContext(ctx).Info("unsubscribe_comment_subscription_success",
+		"user_id", req.Body.UID,
+	)
+
+	return &UnsubscribeCommentSubscriptionResponse{
+		Body: struct {
+			Success bool   `json:"success"`
+			Message string `json:"message"`
+		}{
+			Success: true,
+			Message: "Comment notifications disabled",
+		},
+	}, nil
+}
+
+// UnsubscribeMentionRequest is the public one-click unsubscribe payload for
+// mention emails.
+type UnsubscribeMentionRequest struct {
+	Body struct {
+		UID uint   `json:"uid" doc:"User ID"`
+		Sig string `json:"sig" doc:"HMAC signature"`
+	}
+}
+
+// UnsubscribeMentionResponse is the confirmation shape.
+type UnsubscribeMentionResponse struct {
+	Body struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+}
+
+// UnsubscribeMentionHandler handles POST /unsubscribe/mention. Flips the
+// user's notify_on_mention preference to false. Public — HMAC-signed.
+func (h *UserPreferencesHandler) UnsubscribeMentionHandler(ctx context.Context, req *UnsubscribeMentionRequest) (*UnsubscribeMentionResponse, error) {
+	if !engagement.VerifyMentionUnsubscribeSignature(req.Body.UID, req.Body.Sig, h.jwtSecret) {
+		return nil, huma.Error403Forbidden("Invalid unsubscribe link")
+	}
+
+	if err := h.userService.SetNotifyOnMention(req.Body.UID, false); err != nil {
+		logger.FromContext(ctx).Error("unsubscribe_mention_failed",
+			"error", err.Error(),
+			"user_id", req.Body.UID,
+		)
+		return nil, huma.Error500InternalServerError("Failed to unsubscribe")
+	}
+
+	logger.FromContext(ctx).Info("unsubscribe_mention_success",
+		"user_id", req.Body.UID,
+	)
+
+	return &UnsubscribeMentionResponse{
+		Body: struct {
+			Success bool   `json:"success"`
+			Message string `json:"message"`
+		}{
+			Success: true,
+			Message: "Mention notifications disabled",
 		},
 	}, nil
 }

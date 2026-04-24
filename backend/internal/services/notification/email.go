@@ -620,6 +620,144 @@ func (s *EmailService) SendEditApprovedEmail(toEmail, username, entityType, enti
 	return nil
 }
 
+// SendCommentNotification sends a notification when a new comment is posted on an
+// entity the recipient is subscribed to. commenterName is the display name of the
+// author (falls back to username or "A contributor" upstream — this fn just renders).
+func (s *EmailService) SendCommentNotification(toEmail, commenterName, entityType, entityName, commentExcerpt, entityURL, unsubscribeURL string) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service is not configured")
+	}
+
+	if commenterName == "" {
+		commenterName = "A contributor"
+	}
+
+	// Capitalize first letter of entity type for the subject (e.g. "artist" -> "Artist").
+	entityTypeTitle := entityType
+	if entityTypeTitle != "" {
+		entityTypeTitle = strings.ToUpper(entityTypeTitle[:1]) + entityTypeTitle[1:]
+	}
+
+	subject := fmt.Sprintf("New comment on %s", entityName)
+
+	html := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
+    </div>
+
+    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
+        <h2 style="margin-top: 0; color: #1a1a1a;">New comment on %s</h2>
+        <p style="font-size: 15px; color: #444;"><strong>%s</strong> commented on the %s <strong>%s</strong>:</p>
+        <blockquote style="border-left: 4px solid #f97316; padding-left: 16px; margin: 16px 0; color: #555; font-style: italic;">%s</blockquote>
+        <p style="text-align: center; margin: 30px 0;">
+            <a href="%s" style="display: inline-block; background: #f97316; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600;">View Discussion</a>
+        </p>
+    </div>
+
+    <div style="text-align: center; font-size: 12px; color: #999;">
+        <p>You're receiving this because you're subscribed to %s on %s.</p>
+        <p>Don't want these notifications? <a href="%s" style="color: #666;">Unsubscribe</a></p>
+    </div>
+</body>
+</html>
+`, entityName, commenterName, entityType, entityName, commentExcerpt, entityURL, entityTypeTitle, entityName, unsubscribeURL)
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: subject,
+		Html:    html,
+		Headers: map[string]string{
+			"List-Unsubscribe":      fmt.Sprintf("<%s>", unsubscribeURL),
+			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+		},
+	}
+
+	_, err := s.client.Emails.Send(params)
+	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "email")
+			scope.SetTag("email_type", "comment_notification")
+			sentry.CaptureException(err)
+		})
+		return fmt.Errorf("failed to send comment notification email: %w", err)
+	}
+
+	return nil
+}
+
+// SendMentionNotification sends a notification when the recipient is @-mentioned
+// in a comment. commentURL anchors to the specific comment on the entity page.
+func (s *EmailService) SendMentionNotification(toEmail, mentionerName, entityType, entityName, commentExcerpt, commentURL, unsubscribeURL string) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service is not configured")
+	}
+
+	if mentionerName == "" {
+		mentionerName = "Someone"
+	}
+
+	subject := fmt.Sprintf("%s mentioned you in a comment on %s", mentionerName, entityName)
+
+	html := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
+    </div>
+
+    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
+        <h2 style="margin-top: 0; color: #1a1a1a;">You were mentioned</h2>
+        <p style="font-size: 15px; color: #444;"><strong>%s</strong> mentioned you in a comment on the %s <strong>%s</strong>:</p>
+        <blockquote style="border-left: 4px solid #f97316; padding-left: 16px; margin: 16px 0; color: #555; font-style: italic;">%s</blockquote>
+        <p style="text-align: center; margin: 30px 0;">
+            <a href="%s" style="display: inline-block; background: #f97316; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600;">Reply</a>
+        </p>
+    </div>
+
+    <div style="text-align: center; font-size: 12px; color: #999;">
+        <p>Don't want mention notifications? <a href="%s" style="color: #666;">Unsubscribe</a></p>
+    </div>
+</body>
+</html>
+`, mentionerName, entityType, entityName, commentExcerpt, commentURL, unsubscribeURL)
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: subject,
+		Html:    html,
+		Headers: map[string]string{
+			"List-Unsubscribe":      fmt.Sprintf("<%s>", unsubscribeURL),
+			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+		},
+	}
+
+	_, err := s.client.Emails.Send(params)
+	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "email")
+			scope.SetTag("email_type", "mention_notification")
+			sentry.CaptureException(err)
+		})
+		return fmt.Errorf("failed to send mention notification email: %w", err)
+	}
+
+	return nil
+}
+
 // SendEditRejectedEmail sends a notification when a user's pending edit is rejected.
 func (s *EmailService) SendEditRejectedEmail(toEmail, username, entityType, entityName, rejectionReason string) error {
 	if !s.IsConfigured() {

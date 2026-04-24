@@ -191,6 +191,12 @@ func (m *mockReminderEmailService) SendTierDemotionWarningEmail(_, _, _ string, 
 }
 func (m *mockReminderEmailService) SendEditApprovedEmail(_, _, _, _, _ string) error { return nil }
 func (m *mockReminderEmailService) SendEditRejectedEmail(_, _, _, _, _ string) error { return nil }
+func (m *mockReminderEmailService) SendCommentNotification(_, _, _, _, _, _, _ string) error {
+	return nil
+}
+func (m *mockReminderEmailService) SendMentionNotification(_, _, _, _, _, _, _ string) error {
+	return nil
+}
 
 // ReminderServiceIntegrationTestSuite tests the reminder service with a real database
 type ReminderServiceIntegrationTestSuite struct {

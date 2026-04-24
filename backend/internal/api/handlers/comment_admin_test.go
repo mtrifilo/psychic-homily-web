@@ -415,3 +415,91 @@ func TestCreateComment_HourlyLimitError(t *testing.T) {
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
 	assertHumaError(t, err, 429)
 }
+
+// ============================================================================
+// Tests: Admin Get Comment Edit History — Auth & Response (PSY-297)
+// ============================================================================
+
+func TestAdminGetCommentEditHistory_RequiresAdmin(t *testing.T) {
+	h := testCommentAdminHandler()
+
+	t.Run("NoUser", func(t *testing.T) {
+		_, err := h.AdminGetCommentEditHistoryHandler(context.Background(), &AdminGetCommentEditHistoryRequest{CommentID: "1"})
+		assertHumaError(t, err, 403)
+	})
+	t.Run("NonAdmin", func(t *testing.T) {
+		_, err := h.AdminGetCommentEditHistoryHandler(commentAdminUserCtx(), &AdminGetCommentEditHistoryRequest{CommentID: "1"})
+		assertHumaError(t, err, 403)
+	})
+}
+
+func TestAdminGetCommentEditHistory_InvalidID(t *testing.T) {
+	h := testCommentAdminHandler()
+	_, err := h.AdminGetCommentEditHistoryHandler(commentAdminAdminCtx(), &AdminGetCommentEditHistoryRequest{CommentID: "not-a-number"})
+	assertHumaError(t, err, 400)
+}
+
+func TestAdminGetCommentEditHistory_NotFound(t *testing.T) {
+	h := NewCommentAdminHandler(
+		&mockCommentAdminService{
+			getCommentEditHistoryFn: func(requesterID, commentID uint) (*contracts.CommentEditHistoryResponse, error) {
+				return nil, fmt.Errorf("comment not found")
+			},
+		},
+		nil,
+	)
+	_, err := h.AdminGetCommentEditHistoryHandler(commentAdminAdminCtx(), &AdminGetCommentEditHistoryRequest{CommentID: "99"})
+	assertHumaError(t, err, 404)
+}
+
+func TestAdminGetCommentEditHistory_ServiceAdminRejection(t *testing.T) {
+	// Service should be able to bubble up an admin-access error and we map it to 403.
+	h := NewCommentAdminHandler(
+		&mockCommentAdminService{
+			getCommentEditHistoryFn: func(requesterID, commentID uint) (*contracts.CommentEditHistoryResponse, error) {
+				return nil, fmt.Errorf("admin access required")
+			},
+		},
+		nil,
+	)
+	_, err := h.AdminGetCommentEditHistoryHandler(commentAdminAdminCtx(), &AdminGetCommentEditHistoryRequest{CommentID: "5"})
+	assertHumaError(t, err, 403)
+}
+
+func TestAdminGetCommentEditHistory_Success(t *testing.T) {
+	editorID := uint(42)
+	h := NewCommentAdminHandler(
+		&mockCommentAdminService{
+			getCommentEditHistoryFn: func(requesterID, commentID uint) (*contracts.CommentEditHistoryResponse, error) {
+				if requesterID != 1 || commentID != 7 {
+					t.Errorf("unexpected params: requester=%d, comment=%d", requesterID, commentID)
+				}
+				return &contracts.CommentEditHistoryResponse{
+					CommentID:   7,
+					CurrentBody: "third",
+					Edits: []contracts.CommentEditHistoryEntry{
+						{ID: 1, CommentID: 7, OldBody: "first", EditedAt: time.Now().Add(-2 * time.Hour), EditorUserID: &editorID, EditorUsername: "author"},
+						{ID: 2, CommentID: 7, OldBody: "second", EditedAt: time.Now().Add(-1 * time.Hour), EditorUserID: &editorID, EditorUsername: "author"},
+					},
+				}, nil
+			},
+		},
+		nil,
+	)
+	resp, err := h.AdminGetCommentEditHistoryHandler(commentAdminAdminCtx(), &AdminGetCommentEditHistoryRequest{CommentID: "7"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.CommentID != 7 {
+		t.Errorf("expected comment_id=7, got %d", resp.Body.CommentID)
+	}
+	if resp.Body.CurrentBody != "third" {
+		t.Errorf("expected current_body=third, got %s", resp.Body.CurrentBody)
+	}
+	if len(resp.Body.Edits) != 2 {
+		t.Errorf("expected 2 edits, got %d", len(resp.Body.Edits))
+	}
+	if resp.Body.Edits[0].OldBody != "first" {
+		t.Errorf("expected oldest entry first, got %q", resp.Body.Edits[0].OldBody)
+	}
+}

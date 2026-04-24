@@ -738,3 +738,139 @@ func TestDeleteComment_ServiceError(t *testing.T) {
 	_, err := h.DeleteCommentHandler(commentUserCtx(), &DeleteCommentRequest{CommentID: "1"})
 	assertHumaError(t, err, 500)
 }
+
+// ============================================================================
+// Tests: UpdateReplyPermission — PSY-296
+// ============================================================================
+
+func TestUpdateReplyPermission_NoUser(t *testing.T) {
+	h := testCommentHandler()
+	req := &UpdateReplyPermissionRequest{CommentID: "1"}
+	req.Body.Permission = "anyone"
+	_, err := h.UpdateReplyPermissionHandler(context.Background(), req)
+	assertHumaError(t, err, 401)
+}
+
+func TestUpdateReplyPermission_InvalidID(t *testing.T) {
+	h := testCommentHandler()
+	req := &UpdateReplyPermissionRequest{CommentID: "abc"}
+	req.Body.Permission = "anyone"
+	_, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
+	assertHumaError(t, err, 400)
+}
+
+func TestUpdateReplyPermission_EmptyPermission(t *testing.T) {
+	h := testCommentHandler()
+	req := &UpdateReplyPermissionRequest{CommentID: "1"}
+	req.Body.Permission = "   "
+	_, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
+	assertHumaError(t, err, 400)
+}
+
+func TestUpdateReplyPermission_InvalidEnum(t *testing.T) {
+	mock := &mockCommentService{
+		updateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
+			return nil, fmt.Errorf("invalid reply_permission: %s", permission)
+		},
+	}
+	h := NewCommentHandler(mock, mock, nil, nil)
+	req := &UpdateReplyPermissionRequest{CommentID: "1"}
+	req.Body.Permission = "banana"
+	_, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
+	assertHumaError(t, err, 400)
+}
+
+func TestUpdateReplyPermission_Forbidden(t *testing.T) {
+	mock := &mockCommentService{
+		updateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
+			return nil, fmt.Errorf("only the comment author can change reply permission")
+		},
+	}
+	h := NewCommentHandler(mock, mock, nil, nil)
+	req := &UpdateReplyPermissionRequest{CommentID: "1"}
+	req.Body.Permission = "author_only"
+	_, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
+	assertHumaError(t, err, 403)
+}
+
+func TestUpdateReplyPermission_NotFound(t *testing.T) {
+	mock := &mockCommentService{
+		updateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
+			return nil, fmt.Errorf("comment not found")
+		},
+	}
+	h := NewCommentHandler(mock, mock, nil, nil)
+	req := &UpdateReplyPermissionRequest{CommentID: "99"}
+	req.Body.Permission = "followers"
+	_, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
+	assertHumaError(t, err, 404)
+}
+
+func TestUpdateReplyPermission_Success(t *testing.T) {
+	updated := makeCommentResponse(1, "show", 5, 10)
+	updated.ReplyPermission = "followers"
+	mock := &mockCommentService{
+		updateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
+			if userID != 10 {
+				t.Errorf("expected userID=10, got %d", userID)
+			}
+			if commentID != 1 {
+				t.Errorf("expected commentID=1, got %d", commentID)
+			}
+			if permission != "followers" {
+				t.Errorf("expected permission=followers, got %q", permission)
+			}
+			return updated, nil
+		},
+	}
+	h := NewCommentHandler(mock, mock, nil, &mockAuditLogService{})
+	req := &UpdateReplyPermissionRequest{CommentID: "1"}
+	req.Body.Permission = "followers"
+	resp, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.ReplyPermission != "followers" {
+		t.Errorf("expected reply_permission=followers, got %q", resp.Body.ReplyPermission)
+	}
+}
+
+// ============================================================================
+// Tests: CreateReply — reply-gate error propagation (PSY-296)
+// ============================================================================
+
+func TestCreateReply_RepliesDisabled(t *testing.T) {
+	reader := &mockCommentService{
+		getCommentFn: func(id uint) (*contracts.CommentResponse, error) {
+			return makeCommentResponse(id, "show", 5, 99), nil
+		},
+	}
+	writer := &mockCommentService{
+		createCommentFn: func(uid uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+			return nil, fmt.Errorf("replies to this comment are disabled")
+		},
+	}
+	h := NewCommentHandler(reader, writer, nil, nil)
+	req := &CreateReplyRequest{CommentID: "1"}
+	req.Body.Body = "trying to reply"
+	_, err := h.CreateReplyHandler(commentUserCtx(), req)
+	assertHumaError(t, err, 403)
+}
+
+func TestCreateReply_FollowersOnlyRejected(t *testing.T) {
+	reader := &mockCommentService{
+		getCommentFn: func(id uint) (*contracts.CommentResponse, error) {
+			return makeCommentResponse(id, "show", 5, 99), nil
+		},
+	}
+	writer := &mockCommentService{
+		createCommentFn: func(uid uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+			return nil, fmt.Errorf("only followers of the author can reply to this comment")
+		},
+	}
+	h := NewCommentHandler(reader, writer, nil, nil)
+	req := &CreateReplyRequest{CommentID: "1"}
+	req.Body.Body = "trying to reply"
+	_, err := h.CreateReplyHandler(commentUserCtx(), req)
+	assertHumaError(t, err, 403)
+}

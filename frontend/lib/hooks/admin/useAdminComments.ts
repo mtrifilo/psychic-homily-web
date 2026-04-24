@@ -26,6 +26,7 @@ export interface PendingComment {
   depth: number
   visibility: string
   trust_tier?: string
+  edit_count?: number
   created_at: string
   updated_at: string
 }
@@ -35,12 +36,30 @@ export interface PendingCommentsResponse {
   total: number
 }
 
+export interface CommentEditHistoryEntry {
+  id: number
+  comment_id: number
+  old_body: string
+  edited_at: string
+  editor_user_id?: number | null
+  editor_name?: string
+  editor_username?: string
+}
+
+export interface CommentEditHistoryResponse {
+  comment_id: number
+  current_body: string
+  edits: CommentEditHistoryEntry[]
+}
+
 // ─── Query Keys ─────────────────────────────────────────────────────────────
 
 export const adminCommentQueryKeys = {
   all: ['admin', 'comments'] as const,
   pending: (params?: Record<string, unknown>) =>
     ['admin', 'comments', 'pending', params] as const,
+  edits: (commentId: number) =>
+    ['admin', 'comments', 'edits', commentId] as const,
 }
 
 // ─── Endpoints ──────────────────────────────────────────────────────────────
@@ -51,6 +70,7 @@ const ADMIN_COMMENT_ENDPOINTS = {
   REJECT: (id: number) => `${API_BASE_URL}/admin/comments/${id}/reject`,
   HIDE: (id: number) => `${API_BASE_URL}/admin/comments/${id}/hide`,
   RESTORE: (id: number) => `${API_BASE_URL}/admin/comments/${id}/restore`,
+  EDITS: (id: number) => `${API_BASE_URL}/admin/comments/${id}/edits`,
 }
 
 // ─── Hooks ───────────────────────────────────────────────────────────────────
@@ -164,5 +184,28 @@ export function useAdminRestoreComment() {
       queryClient.invalidateQueries({ queryKey: adminCommentQueryKeys.all })
       queryClient.invalidateQueries({ queryKey: commentQueryKeys.all })
     },
+  })
+}
+
+/**
+ * Hook to fetch the edit history for a single comment. Admin-only (PSY-297).
+ * Entries are returned oldest-first.
+ *
+ * @param commentId - The comment whose history to load.
+ * @param enabled - When false (default), the query is not fired. Flip to true
+ *                  when a viewer (modal/drawer) is opened so we don't
+ *                  prefetch edit history for every comment on a page.
+ */
+export function useAdminCommentEditHistory(commentId: number, enabled = false) {
+  return useQuery({
+    queryKey: adminCommentQueryKeys.edits(commentId),
+    queryFn: async (): Promise<CommentEditHistoryResponse> => {
+      return apiRequest<CommentEditHistoryResponse>(
+        ADMIN_COMMENT_ENDPOINTS.EDITS(commentId),
+        { method: 'GET' }
+      )
+    },
+    enabled: enabled && commentId > 0,
+    staleTime: 60 * 1000,
   })
 }

@@ -25,6 +25,14 @@ export const commentEndpoints = {
     `${API_BASE_URL}/comments/${commentId}/vote`,
   THREAD: (commentId: number) =>
     `${API_BASE_URL}/comments/${commentId}/thread`,
+  // PSY-296: owner-only reply-permission toggle.
+  REPLY_PERMISSION: (commentId: number) =>
+    `${API_BASE_URL}/comments/${commentId}/reply-permission`,
+} as const
+
+// PSY-296: preferences endpoint for default reply permission.
+export const commentPreferencesEndpoints = {
+  DEFAULT_REPLY_PERMISSION: `${API_BASE_URL}/auth/preferences/default-reply-permission`,
 } as const
 
 export const fieldNoteEndpoints = {

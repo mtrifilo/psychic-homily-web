@@ -771,3 +771,9 @@ func (m *mockEmailService) SendTierDemotionWarningEmail(_, _, _ string, _, _ flo
 }
 func (m *mockEmailService) SendEditApprovedEmail(_, _, _, _, _ string) error { return nil }
 func (m *mockEmailService) SendEditRejectedEmail(_, _, _, _, _ string) error { return nil }
+func (m *mockEmailService) SendCommentNotification(_, _, _, _, _, _, _ string) error {
+	return nil
+}
+func (m *mockEmailService) SendMentionNotification(_, _, _, _, _, _, _ string) error {
+	return nil
+}

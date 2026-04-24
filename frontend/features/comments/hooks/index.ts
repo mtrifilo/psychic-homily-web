@@ -2,8 +2,21 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
-import { commentEndpoints, commentQueryKeys, fieldNoteEndpoints, fieldNoteQueryKeys } from '../api'
-import type { Comment, CommentListResponse, CommentThreadResponse, CreateFieldNoteInput } from '../types'
+import { queryKeys } from '@/lib/queryClient'
+import {
+  commentEndpoints,
+  commentQueryKeys,
+  commentPreferencesEndpoints,
+  fieldNoteEndpoints,
+  fieldNoteQueryKeys,
+} from '../api'
+import type {
+  Comment,
+  CommentListResponse,
+  CommentThreadResponse,
+  CreateFieldNoteInput,
+  ReplyPermission,
+} from '../types'
 
 // ============================================================================
 // Queries
@@ -54,14 +67,20 @@ export function useCreateComment() {
       entityType,
       entityId,
       body,
+      replyPermission,
     }: {
       entityType: string
       entityId: number
       body: string
+      replyPermission?: ReplyPermission
     }) =>
       apiRequest<Comment>(commentEndpoints.CREATE(entityType, entityId), {
         method: 'POST',
-        body: JSON.stringify({ body }),
+        body: JSON.stringify(
+          replyPermission
+            ? { body, reply_permission: replyPermission }
+            : { body }
+        ),
       }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
@@ -78,15 +97,21 @@ export function useReplyToComment() {
     mutationFn: ({
       commentId,
       body,
+      replyPermission,
     }: {
       commentId: number
       body: string
       entityType: string
       entityId: number
+      replyPermission?: ReplyPermission
     }) =>
       apiRequest<Comment>(commentEndpoints.REPLY(commentId), {
         method: 'POST',
-        body: JSON.stringify({ body }),
+        body: JSON.stringify(
+          replyPermission
+            ? { body, reply_permission: replyPermission }
+            : { body }
+        ),
       }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
@@ -95,6 +120,54 @@ export function useReplyToComment() {
       queryClient.invalidateQueries({
         queryKey: commentQueryKeys.thread(variables.commentId),
       })
+    },
+  })
+}
+
+// PSY-296: owner-only mutation to change a comment's reply permission.
+export function useUpdateReplyPermission() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      commentId,
+      permission,
+    }: {
+      commentId: number
+      permission: ReplyPermission
+      entityType: string
+      entityId: number
+    }) =>
+      apiRequest<Comment>(commentEndpoints.REPLY_PERMISSION(commentId), {
+        method: 'PUT',
+        body: JSON.stringify({ permission }),
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
+      })
+      queryClient.invalidateQueries({
+        queryKey: commentQueryKeys.thread(variables.commentId),
+      })
+    },
+  })
+}
+
+// PSY-296: mutation to update the user's default reply permission.
+export function useSetDefaultReplyPermission() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (permission: ReplyPermission) =>
+      apiRequest<{ success: boolean; default_reply_permission: string }>(
+        commentPreferencesEndpoints.DEFAULT_REPLY_PERMISSION,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ permission }),
+        }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.auth.profile })
     },
   })
 }
