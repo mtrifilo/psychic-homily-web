@@ -12,6 +12,7 @@ import (
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/seeddata"
 	"psychic-homily-backend/internal/utils"
 
 	"github.com/goccy/go-yaml"
@@ -783,89 +784,14 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 	return labelsCreated, releasesCreated
 }
 
-// seedRadioStation describes a radio station to seed
-type seedRadioStation struct {
-	Name           string
-	Slug           string
-	Description    string
-	City           string
-	State          string
-	Country        string
-	Timezone       string
-	StreamURL      string
-	Website        string
-	DonationURL    string
-	BroadcastType  string
-	FrequencyMHz   float64
-	PlaylistSource string
-}
-
-// seedRadioShow describes a radio show to seed
-type seedRadioShow struct {
-	StationSlug     string
-	Name            string
-	Slug            string
-	HostName        string
-	Description     string
-	ScheduleDisplay string
-	ArchiveURL      string
-	ExternalID      string
-}
-
 // seedRadioStationsAndShows creates radio stations and shows with archive URLs.
+// The data source is backend/internal/seeddata/radio.go — the same package
+// that backs cmd/gen-e2e-seed, so prod/stage/dev/E2E cannot drift.
 func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 	fmt.Println("Seeding radio stations...")
 
-	stations := []seedRadioStation{
-		{
-			Name:           "KEXP",
-			Slug:           "kexp",
-			Description:    "KEXP is a listener-supported, non-commercial radio station in Seattle, Washington, known for championing independent and emerging artists across all genres.",
-			City:           "Seattle",
-			State:          "WA",
-			Country:        "US",
-			Timezone:       "America/Los_Angeles",
-			StreamURL:      "https://kexp.streamguys1.com/kexp160.aac",
-			Website:        "https://www.kexp.org",
-			DonationURL:    "https://www.kexp.org/donate/",
-			BroadcastType:  "both",
-			FrequencyMHz:   90.3,
-			PlaylistSource: "kexp_api",
-		},
-		{
-			Name:           "WFMU",
-			Slug:           "wfmu",
-			Description:    "WFMU is the longest-running freeform radio station in the United States, broadcasting from Jersey City, New Jersey. Known for its eclectic, unconstrained programming.",
-			City:           "Jersey City",
-			State:          "NJ",
-			Country:        "US",
-			Timezone:       "America/New_York",
-			StreamURL:      "https://stream0.wfmu.org/freeform-128k",
-			Website:        "https://wfmu.org",
-			DonationURL:    "https://wfmu.org/marathon/",
-			BroadcastType:  "both",
-			FrequencyMHz:   91.1,
-			PlaylistSource: "wfmu_scrape",
-		},
-		{
-			Name:           "NTS Radio",
-			Slug:           "nts-radio",
-			Description:    "NTS is an online radio station based in London, broadcasting 24/7 across two channels with shows from over 500 residents worldwide.",
-			City:           "London",
-			State:          "",
-			Country:        "GB",
-			Timezone:       "Europe/London",
-			StreamURL:      "https://stream-relay-geo.ntslive.net/stream",
-			Website:        "https://www.nts.live",
-			DonationURL:    "https://www.nts.live/supporters",
-			BroadcastType:  "internet",
-			FrequencyMHz:   0,
-			PlaylistSource: "nts_api",
-		},
-	}
-
 	var stationsCreated int
-	for _, s := range stations {
+	for _, s := range seeddata.RadioStations {
 		var existing models.RadioStation
 		if database.Where("slug = ?", s.Slug).First(&existing).Error == nil {
 			continue
@@ -898,163 +824,12 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 		}
 		stationsCreated++
 	}
-	fmt.Printf("✅ Processed %d radio stations (%d created)\n", len(stations), stationsCreated)
+	fmt.Printf("✅ Processed %d radio stations (%d created)\n", len(seeddata.RadioStations), stationsCreated)
 
 	fmt.Println("Seeding radio shows with archive URLs...")
 
-	shows := []seedRadioShow{
-		// KEXP shows
-		{
-			StationSlug:     "kexp",
-			Name:            "The Morning Show",
-			Slug:            "the-morning-show",
-			HostName:        "John Richards",
-			Description:     "KEXP's flagship morning program featuring a hand-picked mix of new and classic tracks.",
-			ScheduleDisplay: "Weekdays 6-10 AM PT",
-			ArchiveURL:      "https://www.kexp.org/shows/the-morning-show/",
-			ExternalID:      "16",
-		},
-		{
-			StationSlug:     "kexp",
-			Name:            "The Midday Show",
-			Slug:            "the-midday-show",
-			HostName:        "Cheryl Waters",
-			Description:     "A mid-day mix of new music discoveries and deep cuts.",
-			ScheduleDisplay: "Weekdays 10 AM-2 PM PT",
-			ArchiveURL:      "https://www.kexp.org/shows/the-midday-show/",
-			ExternalID:      "15",
-		},
-		{
-			StationSlug:     "kexp",
-			Name:            "The Afternoon Show",
-			Slug:            "the-afternoon-show",
-			HostName:        "Larry Mizell, Jr.",
-			Description:     "KEXP afternoon programming with a mix of established and emerging artists.",
-			ScheduleDisplay: "Weekdays 2-6 PM PT",
-			ArchiveURL:      "https://www.kexp.org/shows/the-afternoon-show/",
-			ExternalID:      "14",
-		},
-		{
-			StationSlug:     "kexp",
-			Name:            "Audioasis",
-			Slug:            "audioasis",
-			HostName:        "Kennady Quille",
-			Description:     "KEXP's long-running Northwest music show spotlighting artists from the Pacific Northwest.",
-			ScheduleDisplay: "Saturdays 6-9 PM PT",
-			ArchiveURL:      "https://www.kexp.org/shows/Audioasis/",
-			ExternalID:      "1",
-		},
-		{
-			StationSlug:     "kexp",
-			Name:            "El Sonido",
-			Slug:            "el-sonido",
-			HostName:        "Albina Cabrera, Goyri",
-			Description:     "A trip around the diverse world of Latin music and culture.",
-			ScheduleDisplay: "Saturdays 9 PM-12 AM PT",
-			ArchiveURL:      "https://www.kexp.org/shows/El-Sonido/",
-			ExternalID:      "2",
-		},
-		{
-			StationSlug:     "kexp",
-			Name:            "Midnight in a Perfect World",
-			Slug:            "midnight-in-a-perfect-world",
-			HostName:        "",
-			Description:     "Late-night electronic music exploring ambient, house, techno, and experimental sounds.",
-			ScheduleDisplay: "Saturdays 12-3 AM PT",
-			ArchiveURL:      "https://www.kexp.org/shows/Midnight-in-a-Perfect-World/",
-			ExternalID:      "5",
-		},
-
-		// WFMU shows
-		{
-			StationSlug:     "wfmu",
-			Name:            "Give The Drummer Some",
-			Slug:            "give-the-drummer-some-wfmu",
-			HostName:        "Doug Schulkind",
-			Description:     "Freeform radio spanning jazz, soul, gospel, country, and global grooves, from longtime WFMU DJ Doug Schulkind.",
-			ScheduleDisplay: "Fridays 9 AM-Noon ET",
-			ArchiveURL:      "https://wfmu.org/playlists/DS",
-			ExternalID:      "DS",
-		},
-		{
-			StationSlug:     "wfmu",
-			Name:            "Bodega Pop",
-			Slug:            "bodega-pop-wfmu",
-			HostName:        "Gary Sullivan",
-			Description:     "Global pop, regional hits, and bodega-aisle rarities.",
-			ScheduleDisplay: "Wednesdays (weekly)",
-			ArchiveURL:      "https://wfmu.org/playlists/PG",
-			ExternalID:      "PG",
-		},
-		{
-			StationSlug:     "wfmu",
-			Name:            "Downtown Soulville",
-			Slug:            "downtown-soulville-wfmu",
-			HostName:        "Mr. Fine Wine",
-			Description:     "Deep soul, Northern soul, sweet soul, and classic R&B from the 1950s through 1970s.",
-			ScheduleDisplay: "Saturdays 6-9 PM ET",
-			ArchiveURL:      "https://wfmu.org/playlists/SV",
-			ExternalID:      "SV",
-		},
-		{
-			StationSlug:     "wfmu",
-			Name:            "Three Chord Monte",
-			Slug:            "three-chord-monte-wfmu",
-			HostName:        "Joe Belock",
-			Description:     "Garage, punk, and power pop from longtime WFMU DJ Joe Belock.",
-			ScheduleDisplay: "Mondays 12 PM-3 PM ET",
-			ArchiveURL:      "https://wfmu.org/playlists/TM",
-			ExternalID:      "TM",
-		},
-
-		// NTS shows
-		{
-			StationSlug:     "nts-radio",
-			Name:            "Floating Points",
-			Slug:            "floating-points-nts",
-			HostName:        "Floating Points",
-			Description:     "Eclectic selections spanning jazz, electronic, ambient, and world music from producer Floating Points.",
-			ScheduleDisplay: "Monthly",
-			ArchiveURL:      "https://www.nts.live/shows/floating-points",
-			ExternalID:      "floating-points",
-		},
-		{
-			StationSlug:     "nts-radio",
-			Name:            "The Do!! You!!! Breakfast Show w/ Charlie Bones",
-			Slug:            "charlie-bones-nts",
-			HostName:        "Charlie Bones",
-			Description:     "An eclectic morning show blending jazz, soul, funk, and left-field selections.",
-			ScheduleDisplay: "Weekdays 10 AM-1 PM GMT",
-			ArchiveURL:      "https://www.nts.live/shows/the-do-you-breakfast-show",
-			ExternalID:      "the-do-you-breakfast-show",
-		},
-		{
-			StationSlug:     "nts-radio",
-			Name:            "The NTS Breakfast Show",
-			Slug:            "breakfast-show-nts",
-			// HostName intentionally empty: rotating residents (Louise Chen,
-			// Flo, Zakia, Coco María, and others). Empty string → NULL via
-			// the `if s.HostName != ""` guard below.
-			HostName:        "",
-			Description:     "Daily morning show on NTS, rotating through residents including Louise Chen, Flo, Zakia, Coco María, and others.",
-			ScheduleDisplay: "Weekdays, mornings GMT",
-			ArchiveURL:      "https://www.nts.live/shows/breakfast",
-			ExternalID:      "breakfast",
-		},
-		{
-			StationSlug:     "nts-radio",
-			Name:            "Anu",
-			Slug:            "anu-nts",
-			HostName:        "Anu",
-			Description:     "A mix of left-field club, electronic, and experimental sounds.",
-			ScheduleDisplay: "Monthly",
-			ArchiveURL:      "https://www.nts.live/shows/anu",
-			ExternalID:      "anu",
-		},
-	}
-
 	var radioShowsCreated int
-	for _, s := range shows {
+	for _, s := range seeddata.RadioShows {
 		// Find the parent station
 		var station models.RadioStation
 		if err := database.Where("slug = ?", s.StationSlug).First(&station).Error; err != nil {
@@ -1089,7 +864,7 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 		radioShowsCreated++
 		fmt.Printf("  ✅ %s on %s (archive: %s)\n", s.Name, s.StationSlug, s.ArchiveURL)
 	}
-	fmt.Printf("✅ Processed %d radio shows (%d created)\n", len(shows), radioShowsCreated)
+	fmt.Printf("✅ Processed %d radio shows (%d created)\n", len(seeddata.RadioShows), radioShowsCreated)
 
 	return stationsCreated, radioShowsCreated
 }

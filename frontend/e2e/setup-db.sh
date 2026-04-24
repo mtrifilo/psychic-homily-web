@@ -429,53 +429,12 @@ WHERE email LIKE 'e2e-user%@test.local'
 ON CONFLICT (user_id) DO NOTHING;
 SQL
 
-echo "==> Seeding radio stations and shows..."
-psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
--- Radio stations: KEXP, WFMU, NTS
-INSERT INTO radio_stations (name, slug, description, city, state, country, timezone, stream_url, website, donation_url, broadcast_type, frequency_mhz, playlist_source, is_active, created_at, updated_at)
-VALUES
-  ('KEXP', 'kexp', 'Listener-supported non-commercial radio in Seattle, championing independent and emerging artists.', 'Seattle', 'WA', 'US', 'America/Los_Angeles', 'https://kexp.streamguys1.com/kexp160.aac', 'https://www.kexp.org', 'https://www.kexp.org/donate/', 'both', 90.3, 'kexp_api', true, NOW(), NOW()),
-  ('WFMU', 'wfmu', 'The longest-running freeform radio station in the United States, broadcasting from Jersey City.', 'Jersey City', 'NJ', 'US', 'America/New_York', 'https://stream0.wfmu.org/freeform-128k', 'https://wfmu.org', 'https://wfmu.org/marathon/', 'both', 91.1, 'wfmu_scrape', true, NOW(), NOW()),
-  ('NTS Radio', 'nts-radio', 'Online radio station based in London, broadcasting 24/7 across two channels.', 'London', '', 'GB', 'Europe/London', 'https://stream-relay-geo.ntslive.net/stream', 'https://www.nts.live', 'https://www.nts.live/supporters', 'internet', NULL, 'nts_api', true, NOW(), NOW())
-ON CONFLICT DO NOTHING;
-
--- Radio shows with archive URLs
-DO $$
-DECLARE
-  kexp_id INTEGER;
-  wfmu_id INTEGER;
-  nts_id INTEGER;
-BEGIN
-  SELECT id INTO kexp_id FROM radio_stations WHERE slug = 'kexp';
-  SELECT id INTO wfmu_id FROM radio_stations WHERE slug = 'wfmu';
-  SELECT id INTO nts_id FROM radio_stations WHERE slug = 'nts-radio';
-
-  IF kexp_id IS NOT NULL THEN
-    INSERT INTO radio_shows (station_id, name, slug, host_name, description, schedule_display, archive_url, external_id, is_active, created_at, updated_at)
-    VALUES
-      (kexp_id, 'The Morning Show', 'the-morning-show', 'John Richards', 'KEXP flagship morning program.', 'Weekdays 6-10 AM PT', 'https://www.kexp.org/shows/the-morning-show/', '1', true, NOW(), NOW()),
-      (kexp_id, 'The Midday Show', 'the-midday-show', 'Cheryl Waters', 'Mid-day new music discoveries and deep cuts.', 'Weekdays 10 AM-2 PM PT', 'https://www.kexp.org/shows/the-midday-show/', '2', true, NOW(), NOW()),
-      (kexp_id, 'Audioasis', 'audioasis', 'Kennady Quille', 'Northwest music show.', 'Saturdays 6-9 PM PT', 'https://www.kexp.org/shows/Audioasis/', '4', true, NOW(), NOW())
-    ON CONFLICT DO NOTHING;
-  END IF;
-
-  IF wfmu_id IS NOT NULL THEN
-    INSERT INTO radio_shows (station_id, name, slug, host_name, description, schedule_display, archive_url, external_id, is_active, created_at, updated_at)
-    VALUES
-      (wfmu_id, 'Give The Drummer Some', 'give-the-drummer-some-wfmu', 'Doug Schulkind', 'Freeform radio spanning jazz, soul, gospel, country, and global grooves.', 'Fridays 9 AM-Noon ET', 'https://wfmu.org/playlists/DS', 'DS', true, NOW(), NOW()),
-      (wfmu_id, 'Bodega Pop', 'bodega-pop-wfmu', 'Gary Sullivan', 'Global pop, regional hits, and bodega-aisle rarities.', 'Wednesdays (weekly)', 'https://wfmu.org/playlists/PG', 'PG', true, NOW(), NOW())
-    ON CONFLICT DO NOTHING;
-  END IF;
-
-  IF nts_id IS NOT NULL THEN
-    INSERT INTO radio_shows (station_id, name, slug, host_name, description, schedule_display, archive_url, external_id, is_active, created_at, updated_at)
-    VALUES
-      (nts_id, 'Floating Points', 'floating-points-nts', 'Floating Points', 'Jazz, electronic, ambient, and world music.', 'Monthly', 'https://www.nts.live/shows/floating-points', 'floating-points', true, NOW(), NOW()),
-      (nts_id, 'The Do!! You!!! Breakfast Show w/ Charlie Bones', 'charlie-bones-nts', 'Charlie Bones', 'Eclectic morning show with jazz, soul, funk.', 'Weekdays 10 AM-1 PM GMT', 'https://www.nts.live/shows/the-do-you-breakfast-show', 'the-do-you-breakfast-show', true, NOW(), NOW())
-    ON CONFLICT DO NOTHING;
-  END IF;
-END $$;
-SQL
+echo "==> Seeding radio stations and shows (generated from backend/internal/seeddata/radio.go)..."
+# PSY-414: single source of truth in backend/internal/seeddata/radio.go,
+# rendered to SQL by cmd/gen-e2e-seed. cmd/seed (for local dev / stage)
+# and this pipe (for E2E) both consume the same Go data, so drift is not
+# possible. See docs/strategy/migrations.md.
+go run ./cmd/gen-e2e-seed | psql -v ON_ERROR_STOP=1 "$E2E_DB_URL"
 
 echo "==> Seeding reserved per-worker collections (PSY-455)..."
 psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
