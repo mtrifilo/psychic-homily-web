@@ -83,6 +83,21 @@ if ! docker compose -p "$PROJECT_NAME" -f "backend/docker-compose.stage.yml" --e
     exit 1
 fi
 
+# PSY-414: seed reference data (radio stations/shows, etc.) via the Go seed
+# CLI. The canonical source is backend/internal/seeddata/; this replaces
+# data-only migrations (see docs/strategy/migrations.md). cmd/seed is
+# idempotent — re-running against an already-seeded DB is a no-op.
+echo "🌱 Seeding stage reference data..."
+if command -v go >/dev/null 2>&1; then
+    if ! (cd backend && NODE_ENV=stage go run ./cmd/seed); then
+        echo "⚠️  Stage seed failed (non-fatal); continuing deploy."
+        echo "   Run 'cd backend && NODE_ENV=stage go run ./cmd/seed' manually after deploy to retry."
+    fi
+else
+    echo "⚠️  Go not found on deploy host; skipping seed."
+    echo "   Run 'cd backend && NODE_ENV=stage go run ./cmd/seed' from a host with Go installed."
+fi
+
 # Deploy new binary alongside old one
 echo "📦 Deploying new stage binary..."
 
