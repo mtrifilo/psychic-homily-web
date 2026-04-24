@@ -20,6 +20,7 @@ const defaultMutationReturn = { mutate: vi.fn(), isPending: false }
 vi.mock('../hooks', () => ({
   useReplyToComment: () => defaultMutationReturn,
   useUpdateComment: () => defaultMutationReturn,
+  useUpdateReplyPermission: () => defaultMutationReturn,
   useDeleteComment: () => defaultMutationReturn,
   useVoteComment: () => defaultMutationReturn,
   useUnvoteComment: () => defaultMutationReturn,

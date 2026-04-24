@@ -29,6 +29,7 @@ type CommentReader interface {
 type CommentWriter interface {
 	CreateComment(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error)
 	UpdateComment(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error)
+	UpdateReplyPermission(userID uint, commentID uint, permission string) (*contracts.CommentResponse, error)
 	DeleteComment(userID uint, commentID uint, isAdmin bool) error
 }
 
@@ -273,6 +274,9 @@ func (h *CommentHandler) CreateCommentHandler(ctx context.Context, req *CreateCo
 		if strings.Contains(err.Error(), "unsupported entity type") {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
+		if strings.Contains(err.Error(), "invalid reply_permission") {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
 		if strings.Contains(err.Error(), "not found") {
 			return nil, huma.Error404NotFound(err.Error())
 		}
@@ -357,11 +361,23 @@ func (h *CommentHandler) CreateReplyHandler(ctx context.Context, req *CreateRepl
 		if strings.Contains(err.Error(), "maximum reply depth") {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
+		if strings.Contains(err.Error(), "invalid reply_permission") ||
+			strings.Contains(err.Error(), "unsupported reply_permission") {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+		// PSY-296: reply-permission gate rejections.
+		if strings.Contains(err.Error(), "replies to this comment are disabled") ||
+			strings.Contains(err.Error(), "only followers of the author can reply") {
+			return nil, huma.Error403Forbidden(err.Error())
+		}
 		if strings.Contains(err.Error(), "body is required") || strings.Contains(err.Error(), "exceeds maximum length") {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
 		if strings.Contains(err.Error(), "parent comment belongs to a different entity") {
 			return nil, huma.Error400BadRequest(err.Error())
+		}
+		if strings.Contains(err.Error(), "parent comment not found") {
+			return nil, huma.Error404NotFound(err.Error())
 		}
 		if strings.Contains(err.Error(), "please wait") || strings.Contains(err.Error(), "hourly comment limit") {
 			return nil, huma.Error429TooManyRequests(err.Error())
@@ -447,6 +463,68 @@ func (h *CommentHandler) UpdateCommentHandler(ctx context.Context, req *UpdateCo
 	}
 
 	return &UpdateCommentResponse{Body: comment}, nil
+}
+
+// ============================================================================
+// Update Reply Permission (protected, owner-only) — PSY-296
+// ============================================================================
+
+// UpdateReplyPermissionRequest represents the request to change a comment's reply permission.
+type UpdateReplyPermissionRequest struct {
+	CommentID string `path:"comment_id" doc:"Comment ID" example:"1"`
+	Body      struct {
+		Permission string `json:"permission" doc:"Reply permission: anyone, followers, or author_only" example:"followers"`
+	}
+}
+
+// UpdateReplyPermissionResponse wraps the updated comment.
+type UpdateReplyPermissionResponse struct {
+	Body *contracts.CommentResponse
+}
+
+// UpdateReplyPermissionHandler handles PUT /comments/{comment_id}/reply-permission
+func (h *CommentHandler) UpdateReplyPermissionHandler(ctx context.Context, req *UpdateReplyPermissionRequest) (*UpdateReplyPermissionResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	commentID, err := strconv.ParseUint(req.CommentID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid comment ID")
+	}
+
+	perm := strings.TrimSpace(req.Body.Permission)
+	if perm == "" {
+		return nil, huma.Error400BadRequest("permission is required")
+	}
+
+	comment, err := h.writer.UpdateReplyPermission(user.ID, uint(commentID), perm)
+	if err != nil {
+		if strings.Contains(err.Error(), "invalid reply_permission") {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+		if strings.Contains(err.Error(), "not found") {
+			return nil, huma.Error404NotFound("Comment not found")
+		}
+		if strings.Contains(err.Error(), "only the comment author") {
+			return nil, huma.Error403Forbidden("Only the comment author can change reply permission")
+		}
+		requestID := logger.GetRequestID(ctx)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to update reply permission (request_id: %s)", requestID),
+		)
+	}
+
+	if h.auditLogService != nil {
+		go func() {
+			h.auditLogService.LogAction(user.ID, "update_reply_permission", "comment", uint(commentID), map[string]interface{}{
+				"permission": perm,
+			})
+		}()
+	}
+
+	return &UpdateReplyPermissionResponse{Body: comment}, nil
 }
 
 // ============================================================================

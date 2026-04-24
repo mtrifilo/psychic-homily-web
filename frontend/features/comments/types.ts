@@ -1,3 +1,25 @@
+// PSY-296: permissioned reply gating.
+export type ReplyPermission = 'anyone' | 'followers' | 'author_only'
+
+export const REPLY_PERMISSION_VALUES: ReplyPermission[] = [
+  'anyone',
+  'followers',
+  'author_only',
+]
+
+// User-facing labels for reply_permission values.
+export const REPLY_PERMISSION_LABELS: Record<ReplyPermission, string> = {
+  anyone: 'Everyone',
+  followers: 'Followers only',
+  author_only: 'Replies disabled',
+}
+
+export const REPLY_PERMISSION_BADGE_LABELS: Record<ReplyPermission, string> = {
+  anyone: '',
+  followers: 'Followers-only replies',
+  author_only: 'Replies disabled',
+}
+
 export interface Comment {
   id: number
   entity_type: string

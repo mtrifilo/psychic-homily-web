@@ -1,7 +1,13 @@
 // Public API for the comments feature module
 
 // API (endpoints + query keys)
-export { commentEndpoints, commentQueryKeys, fieldNoteEndpoints, fieldNoteQueryKeys } from './api'
+export {
+  commentEndpoints,
+  commentQueryKeys,
+  commentPreferencesEndpoints,
+  fieldNoteEndpoints,
+  fieldNoteQueryKeys,
+} from './api'
 
 // Types
 export type {
@@ -10,6 +16,12 @@ export type {
   CommentThreadResponse,
   FieldNoteStructuredData,
   CreateFieldNoteInput,
+  ReplyPermission,
+} from './types'
+export {
+  REPLY_PERMISSION_VALUES,
+  REPLY_PERMISSION_LABELS,
+  REPLY_PERMISSION_BADGE_LABELS,
 } from './types'
 
 // Hooks
@@ -19,6 +31,8 @@ export {
   useCreateComment,
   useReplyToComment,
   useUpdateComment,
+  useUpdateReplyPermission,
+  useSetDefaultReplyPermission,
   useDeleteComment,
   useVoteComment,
   useUnvoteComment,
@@ -36,4 +50,5 @@ export {
   FieldNotesSection,
   CommentEditHistory,
   EditHistoryBody,
+  ReplyPermissionSelect,
 } from './components'

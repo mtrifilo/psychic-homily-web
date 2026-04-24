@@ -105,6 +105,7 @@ type CommentServiceInterface interface {
 	ListCommentsForEntity(entityType string, entityID uint, filters CommentListFilters) (*CommentListResponse, error)
 	GetThread(rootID uint) ([]*CommentResponse, error)
 	UpdateComment(userID uint, commentID uint, req *UpdateCommentRequest) (*CommentResponse, error)
+	UpdateReplyPermission(userID uint, commentID uint, permission string) (*CommentResponse, error)
 	DeleteComment(userID uint, commentID uint, isAdmin bool) error
 }
 

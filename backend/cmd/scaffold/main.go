@@ -15,9 +15,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"text/template"
+	"time"
 	"unicode"
 )
 
@@ -53,7 +53,7 @@ type EntityDef struct {
 	NameField *FieldDef // the "name" field if present
 
 	// Migration
-	MigrationNum string // e.g. "000058"
+	MigrationNum string // e.g. "20260423143022" (UTC timestamp per docs/strategy/migrations.md)
 }
 
 func main() {
@@ -109,12 +109,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Detect next migration number
-	migNum, err := detectNextMigrationNumber(filepath.Join(projectRoot, "backend", "db", "migrations"))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error detecting migration number: %v\n", err)
-		os.Exit(1)
-	}
+	// Next migration version is a fresh UTC timestamp (see docs/strategy/migrations.md).
+	migNum := nextMigrationVersion()
 
 	// Build entity definition
 	entity := buildEntityDef(entityName, fields, migNum)
@@ -401,26 +397,12 @@ func detectProjectRoot() (string, error) {
 	return "", fmt.Errorf("could not find project root (expected backend/go.mod and frontend/package.json)")
 }
 
-// detectNextMigrationNumber scans the migrations directory for the highest number
-func detectNextMigrationNumber(migrationsDir string) (string, error) {
-	entries, err := os.ReadDir(migrationsDir)
-	if err != nil {
-		return "", fmt.Errorf("could not read migrations directory %s: %w", migrationsDir, err)
-	}
-
-	maxNum := 0
-	for _, entry := range entries {
-		name := entry.Name()
-		if len(name) >= 6 {
-			numStr := name[:6]
-			num, err := strconv.Atoi(numStr)
-			if err == nil && num > maxNum {
-				maxNum = num
-			}
-		}
-	}
-
-	return fmt.Sprintf("%06d", maxNum+1), nil
+// nextMigrationVersion returns a UTC timestamp suitable for a new migration
+// filename. Format: YYYYMMDDhhmmss. See docs/strategy/migrations.md for the
+// versioning convention; existing sequential migrations (000001-000077) stay
+// as-is and coexist with timestamp versions in schema_migrations.
+func nextMigrationVersion() string {
+	return time.Now().UTC().Format("20060102150405")
 }
 
 type generatedFile struct {
