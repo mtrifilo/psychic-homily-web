@@ -850,6 +850,7 @@ type mockCommentService struct {
 	listCommentsForEntityFn func(string, uint, contracts.CommentListFilters) (*contracts.CommentListResponse, error)
 	getThreadFn func(uint) ([]*contracts.CommentResponse, error)
 	updateCommentFn func(uint, uint, *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error)
+	updateReplyPermissionFn func(uint, uint, string) (*contracts.CommentResponse, error)
 	deleteCommentFn func(uint, uint, bool) (error)
 }
 
@@ -880,6 +881,12 @@ func (m *mockCommentService) GetThread(rootID uint) ([]*contracts.CommentRespons
 func (m *mockCommentService) UpdateComment(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
 	if m.updateCommentFn != nil {
 		return m.updateCommentFn(userID, commentID, req)
+	}
+	return nil, nil
+}
+func (m *mockCommentService) UpdateReplyPermission(userID uint, commentID uint, permission string) (*contracts.CommentResponse, error) {
+	if m.updateReplyPermissionFn != nil {
+		return m.updateReplyPermissionFn(userID, commentID, permission)
 	}
 	return nil, nil
 }
@@ -3275,6 +3282,7 @@ type mockUserService struct {
 	getFavoriteCitiesFn func(uint) ([]models.FavoriteCity, error)
 	setFavoriteCitiesFn func(uint, []models.FavoriteCity) (error)
 	setShowRemindersFn func(uint, bool) (error)
+	setDefaultReplyPermissionFn func(uint, string) (error)
 	setNotifyOnCommentSubscriptionFn func(uint, bool) (error)
 	setNotifyOnMentionFn func(uint, bool) (error)
 }
@@ -3486,6 +3494,12 @@ func (m *mockUserService) SetFavoriteCities(userID uint, cities []models.Favorit
 func (m *mockUserService) SetShowReminders(userID uint, enabled bool) (error) {
 	if m.setShowRemindersFn != nil {
 		return m.setShowRemindersFn(userID, enabled)
+	}
+	return nil
+}
+func (m *mockUserService) SetDefaultReplyPermission(userID uint, permission string) (error) {
+	if m.setDefaultReplyPermissionFn != nil {
+		return m.setDefaultReplyPermissionFn(userID, permission)
 	}
 	return nil
 }

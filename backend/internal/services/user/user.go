@@ -1107,6 +1107,37 @@ func (s *UserService) SetShowReminders(userID uint, enabled bool) error {
 	return nil
 }
 
+// SetDefaultReplyPermission sets the user's default reply_permission value
+// applied to new top-level comments. PSY-296.
+func (s *UserService) SetDefaultReplyPermission(userID uint, permission string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	if !models.IsValidReplyPermission(permission) {
+		return fmt.Errorf("invalid reply_permission: %s", permission)
+	}
+
+	result := s.db.Model(&models.UserPreferences{}).
+		Where("user_id = ?", userID).
+		Update("default_reply_permission", permission)
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to update default reply permission: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		prefs := &models.UserPreferences{
+			UserID:                 userID,
+			DefaultReplyPermission: permission,
+		}
+		if err := s.db.Create(prefs).Error; err != nil {
+			return fmt.Errorf("failed to create user preferences: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // SetNotifyOnCommentSubscription toggles the comment-subscription email
 // preference. PSY-289. Always-upsert semantics: if a preferences row doesn't
 // yet exist, one is created with the passed value plus the other comment

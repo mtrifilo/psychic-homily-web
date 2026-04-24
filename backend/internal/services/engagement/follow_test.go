@@ -17,6 +17,12 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
+// PSY-296: ensure "user" is accepted as a valid follow entity type.
+func TestFollowService_UserEntityTypeAccepted(t *testing.T) {
+	assert.True(t, validFollowEntityTypes[FollowEntityUser])
+	assert.Equal(t, "user", FollowEntityUser)
+}
+
 func TestFollowService_InvalidEntityType(t *testing.T) {
 	svc := &FollowService{db: &gorm.DB{}}
 

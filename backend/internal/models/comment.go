@@ -27,9 +27,19 @@ const (
 type ReplyPermission string
 
 const (
-	ReplyPermissionAnyone    ReplyPermission = "anyone"
+	ReplyPermissionAnyone     ReplyPermission = "anyone"
+	ReplyPermissionFollowers  ReplyPermission = "followers"
 	ReplyPermissionAuthorOnly ReplyPermission = "author_only"
 )
+
+// IsValidReplyPermission reports whether v is a recognized ReplyPermission value.
+func IsValidReplyPermission(v string) bool {
+	switch ReplyPermission(v) {
+	case ReplyPermissionAnyone, ReplyPermissionFollowers, ReplyPermissionAuthorOnly:
+		return true
+	}
+	return false
+}
 
 // CommentEntityType represents the valid entity types for comments
 type CommentEntityType string

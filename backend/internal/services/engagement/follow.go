@@ -11,6 +11,12 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
+// FollowEntityUser is a pseudo-entity type used for user-to-user follow
+// checks (e.g., comment reply-permission gating). It shares the
+// user_bookmarks table but targets the users(id) space rather than an
+// entity table.
+const FollowEntityUser = "user"
+
 // validFollowEntityTypes lists entity types that support following.
 // Shows use going/interested (attendance) instead of follow.
 var validFollowEntityTypes = map[string]bool{
@@ -18,6 +24,7 @@ var validFollowEntityTypes = map[string]bool{
 	string(models.BookmarkEntityVenue):    true,
 	string(models.BookmarkEntityLabel):    true,
 	string(models.BookmarkEntityFestival): true,
+	FollowEntityUser:                      true,
 }
 
 // FollowService handles follow/unfollow operations on entities.

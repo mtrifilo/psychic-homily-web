@@ -226,6 +226,8 @@ type UserServiceInterface interface {
 	GetFavoriteCities(userID uint) ([]models.FavoriteCity, error)
 	SetFavoriteCities(userID uint, cities []models.FavoriteCity) error
 	SetShowReminders(userID uint, enabled bool) error
+	// PSY-296: default reply permission applied to new top-level comments.
+	SetDefaultReplyPermission(userID uint, permission string) error
 	// PSY-289: comment + mention notification preference toggles.
 	SetNotifyOnCommentSubscription(userID uint, enabled bool) error
 	SetNotifyOnMention(userID uint, enabled bool) error

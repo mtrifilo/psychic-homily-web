@@ -147,6 +147,10 @@ func (n *nilDBUserService) SetShowReminders(userID uint, enabled bool) error {
 	return fmt.Errorf("database not initialized")
 }
 
+func (n *nilDBUserService) SetDefaultReplyPermission(userID uint, permission string) error {
+	return fmt.Errorf("database not initialized")
+}
+
 func (n *nilDBUserService) SetNotifyOnCommentSubscription(userID uint, enabled bool) error {
 	return fmt.Errorf("database not initialized")
 }

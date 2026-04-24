@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -175,6 +176,68 @@ func (h *UserPreferencesHandler) UnsubscribeShowRemindersHandler(ctx context.Con
 		}{
 			Success: true,
 			Message: "Show reminders disabled",
+		},
+	}, nil
+}
+
+// ===========================================================================
+// PSY-296: default reply permission
+// ===========================================================================
+
+// SetDefaultReplyPermissionRequest updates the user's default reply permission.
+type SetDefaultReplyPermissionRequest struct {
+	Body struct {
+		Permission string `json:"permission" doc:"Default reply permission: anyone, followers, or author_only" example:"anyone"`
+	}
+}
+
+// SetDefaultReplyPermissionResponse returns the new default value.
+type SetDefaultReplyPermissionResponse struct {
+	Body struct {
+		Success                bool   `json:"success"`
+		DefaultReplyPermission string `json:"default_reply_permission"`
+	}
+}
+
+// SetDefaultReplyPermissionHandler handles PATCH /auth/preferences/default-reply-permission.
+func (h *UserPreferencesHandler) SetDefaultReplyPermissionHandler(ctx context.Context, req *SetDefaultReplyPermissionRequest) (*SetDefaultReplyPermissionResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	perm := req.Body.Permission
+	if !models.IsValidReplyPermission(perm) {
+		return nil, huma.Error400BadRequest(
+			fmt.Sprintf("invalid reply_permission: %q (want anyone, followers, or author_only)", perm),
+		)
+	}
+
+	if err := h.userService.SetDefaultReplyPermission(user.ID, perm); err != nil {
+		logger.FromContext(ctx).Error("set_default_reply_permission_failed",
+			"error", err.Error(),
+			"user_id", user.ID,
+		)
+		if strings.Contains(err.Error(), "invalid reply_permission") {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Failed to update default reply permission: %s", err.Error()),
+		)
+	}
+
+	logger.FromContext(ctx).Info("set_default_reply_permission_success",
+		"user_id", user.ID,
+		"permission", perm,
+	)
+
+	return &SetDefaultReplyPermissionResponse{
+		Body: struct {
+			Success                bool   `json:"success"`
+			DefaultReplyPermission string `json:"default_reply_permission"`
+		}{
+			Success:                true,
+			DefaultReplyPermission: perm,
 		},
 	}, nil
 }

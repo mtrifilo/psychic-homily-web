@@ -89,9 +89,11 @@ type UserPreferences struct {
 	// Relationships
 	User User `json:"-" gorm:"foreignKey:UserID"`
 
+	// PSY-296: Default reply permission applied to new top-level comments.
+	// Valid values: 'anyone' (default), 'followers', 'author_only'.
+	DefaultReplyPermission string `json:"default_reply_permission" gorm:"column:default_reply_permission;not null;default:'anyone'"`
+
 	// PSY-289: comment subscription + mention notification preferences.
-	// Appended at the end so parallel agents touching this struct append
-	// their own fields cleanly without merge conflicts.
 	NotifyOnCommentSubscription bool `json:"notify_on_comment_subscription" gorm:"column:notify_on_comment_subscription;not null;default:true"`
 	NotifyOnMention             bool `json:"notify_on_mention" gorm:"column:notify_on_mention;not null;default:true"`
 }
