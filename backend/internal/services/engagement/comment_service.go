@@ -574,6 +574,8 @@ func (s *CommentService) GetThread(rootID uint) ([]*contracts.CommentResponse, e
 }
 
 // UpdateComment updates a comment's body. Only the author can update their own comment.
+// Writes the prior body to comment_edits (with the editor's user ID) and bumps the
+// edit counter — all in a single transaction so the edit log and body update are atomic.
 func (s *CommentService) UpdateComment(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
 	if s.db == nil {
 		return nil, errors.New("database not initialized")
@@ -601,28 +603,40 @@ func (s *CommentService) UpdateComment(userID uint, commentID uint, req *contrac
 		return nil, errors.New("only the comment author can edit this comment")
 	}
 
-	// Store old body in comment_edits (append-only edit history)
-	edit := &models.CommentEdit{
-		CommentID: comment.ID,
-		OldBody:   comment.Body,
-		EditedAt:  time.Now(),
-	}
-	if err := s.db.Create(edit).Error; err != nil {
-		return nil, fmt.Errorf("failed to save edit history: %w", err)
-	}
-
-	// Update the comment
 	bodyHTML := s.renderMarkdown(body)
-	if err := s.db.Model(&comment).Updates(map[string]interface{}{
-		"body":       body,
-		"body_html":  bodyHTML,
-		"edit_count": gorm.Expr("edit_count + 1"),
-		"updated_at": time.Now(),
-	}).Error; err != nil {
-		return nil, fmt.Errorf("failed to update comment: %w", err)
+	now := time.Now()
+
+	// Wrap the edit log write + body update in a single transaction so a partial
+	// failure can't leave an orphaned comment_edits row (or vice versa).
+	editorID := userID
+	txErr := s.db.Transaction(func(tx *gorm.DB) error {
+		// Append old body to comment_edits before we overwrite it.
+		edit := &models.CommentEdit{
+			CommentID:    comment.ID,
+			OldBody:      comment.Body,
+			EditedAt:     now,
+			EditorUserID: &editorID,
+		}
+		if err := tx.Create(edit).Error; err != nil {
+			return fmt.Errorf("failed to save edit history: %w", err)
+		}
+
+		// Update the comment body and bump edit_count/updated_at.
+		if err := tx.Model(&comment).Updates(map[string]interface{}{
+			"body":       body,
+			"body_html":  bodyHTML,
+			"edit_count": gorm.Expr("edit_count + 1"),
+			"updated_at": now,
+		}).Error; err != nil {
+			return fmt.Errorf("failed to update comment: %w", err)
+		}
+		return nil
+	})
+	if txErr != nil {
+		return nil, txErr
 	}
 
-	// Reload with user info
+	// Reload with user info (outside the transaction; read-only)
 	if err := s.db.Preload("User").First(&comment, commentID).Error; err != nil {
 		return nil, fmt.Errorf("failed to reload comment: %w", err)
 	}
@@ -664,6 +678,74 @@ func (s *CommentService) UpdateReplyPermission(userID uint, commentID uint, perm
 		return nil, fmt.Errorf("failed to reload comment: %w", err)
 	}
 	return commentToResponse(&comment), nil
+}
+
+// GetCommentEditHistory returns the chronological edit history for a comment.
+// Admin-only: returns "admin access required" for non-admin requesters. Entries
+// are ordered by edited_at ASC (oldest first) so a viewer can walk forward from
+// the original body to the current one. The current body is included separately.
+func (s *CommentService) GetCommentEditHistory(requesterID uint, commentID uint) (*contracts.CommentEditHistoryResponse, error) {
+	if s.db == nil {
+		return nil, errors.New("database not initialized")
+	}
+
+	// Gate on admin. We do this in the service so the handler doesn't need to
+	// double-check, and so any future internal callers inherit the same gate.
+	var requester models.User
+	if err := s.db.First(&requester, requesterID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("admin access required")
+		}
+		return nil, fmt.Errorf("failed to look up requester: %w", err)
+	}
+	if !requester.IsAdmin {
+		return nil, errors.New("admin access required")
+	}
+
+	// Fetch the comment (we need the current body + to verify it exists).
+	var comment models.Comment
+	if err := s.db.First(&comment, commentID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("comment not found")
+		}
+		return nil, fmt.Errorf("failed to fetch comment: %w", err)
+	}
+
+	// Fetch edits oldest-first, preloading the editor so we can include display info.
+	var edits []models.CommentEdit
+	if err := s.db.Preload("Editor").
+		Where("comment_id = ?", commentID).
+		Order("edited_at ASC, id ASC").
+		Find(&edits).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch edit history: %w", err)
+	}
+
+	entries := make([]contracts.CommentEditHistoryEntry, len(edits))
+	for i := range edits {
+		e := &edits[i]
+		entry := contracts.CommentEditHistoryEntry{
+			ID:           e.ID,
+			CommentID:    e.CommentID,
+			OldBody:      e.OldBody,
+			EditedAt:     e.EditedAt,
+			EditorUserID: e.EditorUserID,
+		}
+		if e.Editor != nil && e.Editor.ID != 0 {
+			if e.Editor.Username != nil {
+				entry.EditorUsername = *e.Editor.Username
+			}
+			if e.Editor.FirstName != nil {
+				entry.EditorName = *e.Editor.FirstName
+			}
+		}
+		entries[i] = entry
+	}
+
+	return &contracts.CommentEditHistoryResponse{
+		CommentID:   comment.ID,
+		CurrentBody: comment.Body,
+		Edits:       entries,
+	}, nil
 }
 
 // DeleteComment performs a soft delete by setting visibility.

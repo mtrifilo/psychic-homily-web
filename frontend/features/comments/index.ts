@@ -48,5 +48,7 @@ export {
   FieldNoteForm,
   FieldNoteCard,
   FieldNotesSection,
+  CommentEditHistory,
+  EditHistoryBody,
   ReplyPermissionSelect,
 } from './components'
