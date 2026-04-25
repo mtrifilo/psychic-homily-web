@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import type { ArtistGraph } from '../types'
@@ -108,8 +108,62 @@ vi.mock('./ArtistGraph', () => ({
 
 import { RelatedArtists } from './RelatedArtists'
 
+// PSY-511: RelatedArtists now defers the View Map button + graph until
+// ResizeObserver reports a real container width (>= 640px). The shared
+// ResizeObserver mock in test/setup.ts never fires its callback, so we
+// override it locally with one that synchronously reports a configurable
+// width. Each test sets the width via setMockContainerWidth() before
+// rendering; the default (1024) is wide enough that the View Map button
+// renders, matching desktop behaviour.
+let mockContainerWidth = 1024
+
+function setMockContainerWidth(width: number) {
+  mockContainerWidth = width
+}
+
+class ImmediateResizeObserver {
+  private callback: ResizeObserverCallback
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback
+  }
+  observe(target: Element): void {
+    // Fire synchronously so the component's useEffect picks up the
+    // measured width on first commit, rather than waiting on a real
+    // browser layout pass.
+    this.callback(
+      [
+        {
+          target,
+          contentRect: { width: mockContainerWidth } as DOMRectReadOnly,
+        } as ResizeObserverEntry,
+      ],
+      this as unknown as ResizeObserver
+    )
+  }
+  unobserve(): void {}
+  disconnect(): void {}
+}
 
 describe('RelatedArtists', () => {
+  // The shared ResizeObserver mock in test/setup.ts is defined with
+  // `writable: true` (and no `configurable`), so re-assignment works
+  // even though Object.defineProperty does not. We swap it back to the
+  // original after the suite so neighbouring tests aren't affected.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const originalResizeObserver = (window as any).ResizeObserver
+
+  beforeEach(() => {
+    setMockContainerWidth(1024)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).ResizeObserver = ImmediateResizeObserver
+  })
+
+  afterEach(() => {
+    setMockContainerWidth(1024)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).ResizeObserver = originalResizeObserver
+  })
+
   it('renders the section header', () => {
     renderWithProviders(
       <RelatedArtists artistId={1} artistSlug="gatecreeper" />
@@ -165,7 +219,11 @@ describe('RelatedArtists', () => {
 
   it('shows empty state with suggest button when no relationships exist', async () => {
     const hooks = await import('../hooks/useArtistGraph')
-    vi.mocked(hooks.useArtistGraph).mockReturnValueOnce({
+    // mockReturnValue (not Once): the synchronous ResizeObserver causes
+    // a re-render after the initial commit, so the hook is called more
+    // than once per test — Once would let the second render fall back
+    // to the populated default mock and break the assertion.
+    vi.mocked(hooks.useArtistGraph).mockReturnValue({
       data: {
         center: { id: 1, name: 'Lonely', slug: 'lonely', upcoming_show_count: 0 },
         nodes: [],
@@ -183,11 +241,18 @@ describe('RelatedArtists', () => {
     expect(screen.getByText('No similar artists yet. Be the first to suggest one!')).toBeInTheDocument()
     // Should show the suggest button for authenticated users
     expect(screen.getByText('Suggest similar artist')).toBeInTheDocument()
+
+    // Restore the default for subsequent tests in this suite.
+    vi.mocked(hooks.useArtistGraph).mockReturnValue({
+      data: mockGraphData,
+      isLoading: false,
+      error: null,
+    } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
   })
 
   it('hides section while loading', async () => {
     const hooks = await import('../hooks/useArtistGraph')
-    vi.mocked(hooks.useArtistGraph).mockReturnValueOnce({
+    vi.mocked(hooks.useArtistGraph).mockReturnValue({
       data: undefined,
       isLoading: true,
       error: null,
@@ -197,5 +262,35 @@ describe('RelatedArtists', () => {
       <RelatedArtists artistId={1} artistSlug="loading-artist" />
     )
     expect(container.children.length).toBe(0)
+
+    // Restore the default for subsequent tests in this suite.
+    vi.mocked(hooks.useArtistGraph).mockReturnValue({
+      data: mockGraphData,
+      isLoading: false,
+      error: null,
+    } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+  })
+
+  // PSY-511: below 640px (Tailwind `sm`) the graph is unusable on a
+  // phone. Hide the View Map button entirely — the list view is the
+  // only surface, no "best viewed on desktop" nag.
+  it('hides the View Map button on narrow viewports (< 640px)', () => {
+    setMockContainerWidth(375)
+    renderWithProviders(
+      <RelatedArtists artistId={1} artistSlug="gatecreeper" />
+    )
+    // List view (artists by name) still renders.
+    expect(screen.getByText('Frozen Soul')).toBeInTheDocument()
+    // View Map button is gated off.
+    expect(screen.queryByText('View Map')).not.toBeInTheDocument()
+    expect(screen.queryByText('Hide Map')).not.toBeInTheDocument()
+  })
+
+  it('shows the View Map button at exactly the 640px breakpoint', () => {
+    setMockContainerWidth(640)
+    renderWithProviders(
+      <RelatedArtists artistId={1} artistSlug="gatecreeper" />
+    )
+    expect(screen.getByText('View Map')).toBeInTheDocument()
   })
 })

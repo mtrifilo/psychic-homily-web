@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Loader2 } from 'lucide-react'
+import { useReducedMotion } from '../hooks/useReducedMotion'
 import type { ArtistGraph as ArtistGraphData, ArtistGraphNode, ArtistGraphLink } from '../types'
 
 function GraphSkeleton() {
@@ -165,8 +166,10 @@ interface ArtistGraphProps {
 export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: ArtistGraphProps) {
   const router = useRouter()
   const graphRef = useRef<any>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
+  const containerRef = useRef<HTMLDivElement>(null)
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
+  const reducedMotion = useReducedMotion()
 
   const graphHeight = containerWidth < 768 ? 350 : 500
 
@@ -246,6 +249,32 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
       }
     }
   }, [graphData])
+
+  // Accessibility: the rendered <canvas> is a visual enhancement; the
+  // <RelatedArtists> list view is the keyboard/screen-reader counterpart
+  // with proper <Link> semantics. We expose the canvas as an image with a
+  // descriptive label so assistive tech announces it sensibly and points
+  // users to the accessible list below.
+  useEffect(() => {
+    if (!containerRef.current) return
+    const canvas = containerRef.current.querySelector('canvas')
+    if (!canvas) return
+    canvas.setAttribute('role', 'img')
+    canvas.setAttribute(
+      'aria-label',
+      `Artist relationship graph for ${data.center.name}. Use the Related Artists list below to navigate.`
+    )
+  }, [data.center.name])
+
+  // Reduced-motion: pause the continuous force simulation after the
+  // initial layout settles so motion-sensitive users get a static
+  // snapshot. Tap, pinch zoom, and pan are unaffected — only the
+  // background tick animation stops.
+  useEffect(() => {
+    if (reducedMotion && graphRef.current) {
+      graphRef.current.pauseAnimation()
+    }
+  }, [reducedMotion])
 
   const handleNodeClick = useCallback(
     (node: GraphNode) => {
@@ -370,7 +399,10 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
   const linkLabel = useCallback((link: GraphLink) => buildLinkLabel(link), [])
 
   return (
-    <div className="relative rounded-lg border border-border/50 overflow-hidden bg-background">
+    <div
+      ref={containerRef}
+      className="relative rounded-lg border border-border/50 overflow-hidden bg-background"
+    >
       <ForceGraph2D
         ref={graphRef}
         graphData={graphData}
