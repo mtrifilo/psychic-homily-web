@@ -41,7 +41,10 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
   const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set(ALL_TYPES))
   const [showSuggest, setShowSuggest] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
-  const [containerWidth, setContainerWidth] = useState(800)
+  // Defer the graph render until ResizeObserver reports a real width.
+  // Initialising to a hard-coded value caused the canvas to render at
+  // the wrong size on first paint; null + a measured update is the fix.
+  const [containerWidth, setContainerWidth] = useState<number | null>(null)
 
   // Measure container width for graph
   useEffect(() => {
@@ -128,13 +131,20 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
     })
 
   const hasEnoughForGraph = data.nodes.length >= 3
+  // Mobile gating: below the Tailwind `sm` breakpoint (640px) the graph
+  // is unusable on a phone, so we hide the View Map button entirely and
+  // let the list view be the only surface — no "best viewed on desktop"
+  // nag. `containerWidth === null` (pre-measurement) also gates off so
+  // we never flash the button before we know the viewport width.
+  const graphAvailable =
+    hasEnoughForGraph && containerWidth !== null && containerWidth >= 640
 
   return (
     <div ref={containerRef} className="mt-8 px-4 md:px-0">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Related Artists</h2>
         <div className="flex items-center gap-2">
-          {hasEnoughForGraph && (
+          {graphAvailable && (
             <Button
               variant={showGraph ? 'default' : 'outline'}
               size="sm"
@@ -148,7 +158,7 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
       </div>
 
       {/* Graph View */}
-      {showGraph && hasEnoughForGraph && (
+      {showGraph && graphAvailable && (
         <div className="mb-6">
           {/* Type Filter Toggles */}
           <div className="flex flex-wrap gap-1.5 mb-3">
@@ -176,7 +186,8 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
           <ArtistGraphVisualization
             data={data}
             activeTypes={activeTypes}
-            containerWidth={containerWidth}
+            // Safe non-null: graphAvailable requires containerWidth !== null
+            containerWidth={containerWidth!}
           />
         </div>
       )}

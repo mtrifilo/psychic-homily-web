@@ -17,3 +17,5 @@ export {
   useArtistRelationshipVote,
   useCreateArtistRelationship,
 } from './useArtistGraph'
+
+export { useReducedMotion } from './useReducedMotion'
