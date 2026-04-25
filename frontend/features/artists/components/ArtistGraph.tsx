@@ -24,6 +24,12 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
 })
 
 // Edge type colors
+//
+// PSY-363: festival_cobill (vermillion #D55E00) was added to the existing 6
+// after running the same colorblind audit method PSY-362 used (Brettel/Vienot
+// CVD matrices, RGB Euclidean threshold of 30). Worst-case distance against
+// any existing color is 98.2 vs member_of under deuteranopia — well above the
+// threshold. Full audit results in docs/learnings/graph-colorblind-audit.md.
 const EDGE_COLORS: Record<string, string> = {
   similar: '#a1a1aa',              // zinc-400 (neutral)
   shared_bills: '#60a5fa',         // blue-400
@@ -31,6 +37,7 @@ const EDGE_COLORS: Record<string, string> = {
   side_project: '#4ade80',         // green-400
   member_of: '#fbbf24',            // amber-400
   radio_cooccurrence: '#2dd4bf',   // teal-400
+  festival_cobill: '#D55E00',      // vermillion (Okabe-Ito)
 }
 
 const EDGE_LABELS: Record<string, string> = {
@@ -40,6 +47,7 @@ const EDGE_LABELS: Record<string, string> = {
   side_project: 'Side Project',
   member_of: 'Member Of',
   radio_cooccurrence: 'Radio Co-occurrence',
+  festival_cobill: 'Festival co-lineup',
 }
 
 // Convert API data to graph format needed by react-force-graph-2d
@@ -63,6 +71,60 @@ interface GraphLink {
   votes_down: number
   detail?: Record<string, unknown>
   isCrossConnection: boolean
+}
+
+// PSY-363 — Helpers for pulling values out of the `detail` JSONB blob
+// returned by the backend. Loosely-typed because the column is JSONB
+// and the shape varies per edge type.
+function detailNumber(detail: Record<string, unknown> | undefined, key: string): number | undefined {
+  if (!detail) return undefined
+  const v = detail[key]
+  if (typeof v === 'number') return v
+  if (typeof v === 'string') {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : undefined
+  }
+  return undefined
+}
+
+function detailString(detail: Record<string, unknown> | undefined, key: string): string | undefined {
+  if (!detail) return undefined
+  const v = detail[key]
+  return typeof v === 'string' && v.length > 0 ? v : undefined
+}
+
+// buildLinkLabel produces the hover-tooltip text for an edge. It is
+// edge-type aware so each signal can surface its raw underlying data.
+// Exported so the format of each edge type's tooltip can be unit tested.
+//
+// PSY-363: festival_cobill case. Examples of expected output:
+//   "3 shared festivals: ACL, Coachella, Lollapalooza (last: 2025)"
+//   "3 shared festivals (last: 2025)"          (when names sparse)
+//   "3 shared festivals"                        (when both names + year sparse)
+//   "Festival co-lineup"                        (when count missing too)
+//
+// Other edge types fall back to the static EDGE_LABELS map. PSY-362 will
+// expand each case with full underlying-signal text for similar /
+// shared_bills / shared_label / radio_cooccurrence; this ticket only
+// adds the festival_cobill case.
+export function buildLinkLabel(link: Pick<GraphLink, 'type' | 'detail'>): string {
+  switch (link.type) {
+    case 'festival_cobill': {
+      const count = detailNumber(link.detail, 'count')
+      const names = detailString(link.detail, 'festival_names')
+      const year = detailNumber(link.detail, 'most_recent_year')
+      if (count === undefined) {
+        return EDGE_LABELS.festival_cobill ?? 'Festival co-lineup'
+      }
+      const noun = count === 1 ? 'festival' : 'festivals'
+      const headline = names
+        ? `${count} shared ${noun}: ${names}`
+        : `${count} shared ${noun}`
+      return year !== undefined ? `${headline} (last: ${year})` : headline
+    }
+    default:
+      return EDGE_LABELS[link.type] ?? link.type
+  }
 }
 
 interface ArtistGraphProps {
@@ -271,6 +333,12 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
       if (link.type === 'radio_cooccurrence') {
         return Math.max(1, link.score * 3)
       }
+      // PSY-363: festival_cobill has magnitude (count of shared festivals,
+      // recency-weighted), so weight encodes signal strength like the other
+      // count-based edges.
+      if (link.type === 'festival_cobill') {
+        return Math.max(1, link.score * 3)
+      }
       return 1
     },
     []
@@ -281,8 +349,23 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
       if (link.type === 'shared_label') return [5, 5]
       if (link.type === 'side_project' || link.type === 'member_of') return [2, 4]
       if (link.type === 'radio_cooccurrence') return [8, 3]
+      // PSY-363: long-dash pattern for festival_cobill. Color (vermillion)
+      // is sufficiently distinct under all 3 CVD types per the audit, but
+      // the dash provides redundant encoding (WCAG 2.2 §1.4.1).
+      if (link.type === 'festival_cobill') return [10, 4]
       return []
     },
+    []
+  )
+
+  // PSY-363: hover tooltip for edges. Pulls underlying signal data out of
+  // the loosely-typed `detail` JSONB so users can see *why* an edge exists.
+  // When PSY-362 lands it will introduce a richer top-level helper that
+  // covers every edge type; for now this only handles festival_cobill,
+  // which is what this ticket adds. Other types fall back to the static
+  // EDGE_LABELS string.
+  const linkLabel = useCallback(
+    (link: GraphLink) => buildLinkLabel(link),
     []
   )
 
@@ -314,6 +397,7 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
         linkColor={linkColor}
         linkWidth={linkWidth}
         linkLineDash={linkLineDash}
+        linkLabel={linkLabel}
         linkDirectionalParticles={0}
         cooldownTicks={100}
         d3AlphaDecay={0.04}
@@ -354,7 +438,12 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
               className="w-4 h-0.5 rounded-full"
               style={{
                 backgroundColor: EDGE_COLORS[type] || '#71717a',
-                borderStyle: type === 'shared_label' ? 'dashed' : type === 'side_project' || type === 'member_of' ? 'dotted' : 'solid',
+                borderStyle:
+                  type === 'shared_label' || type === 'festival_cobill'
+                    ? 'dashed'
+                    : type === 'side_project' || type === 'member_of'
+                      ? 'dotted'
+                      : 'solid',
               }}
             />
             <span className="text-muted-foreground">{EDGE_LABELS[type] || type}</span>
