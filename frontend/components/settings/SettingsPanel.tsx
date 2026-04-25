@@ -26,6 +26,7 @@ import { OAuthAccounts } from '@/components/settings/oauth-accounts'
 import { APITokenManagement } from '@/components/settings/api-token-management'
 import { FavoriteCitiesSettings } from '@/components/settings/favorite-cities'
 import { NotificationSettings } from '@/components/settings/notification-settings'
+import { ReplyPermissionSettings } from '@/components/settings/reply-permission-settings'
 
 export function SettingsPanel() {
   const { user } = useAuthContext()
@@ -105,6 +106,9 @@ export function SettingsPanel() {
 
       {/* Notification Settings */}
       <NotificationSettings />
+
+      {/* Default Reply Permission (PSY-296) */}
+      <ReplyPermissionSettings />
 
       {/* Email Verification Section */}
       <Card>
