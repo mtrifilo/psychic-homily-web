@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,6 +16,13 @@ const (
 	kexpUserAgent      = "PsychicHomily/1.0 (radio-playlist-indexer)"
 	kexpDefaultTimeout = 30 * time.Second
 	kexpRateLimit      = 1 * time.Second
+	// kexpHostMapBroadcastSampleSize is the number of recent broadcasts the
+	// provider walks to build the program_id → host_name map used by
+	// DiscoverShows. KEXP's /v2/programs/ endpoint does NOT carry host info,
+	// so we derive it from the most recent broadcasts (where each show has a
+	// resolved `host_names` array). 1000 broadcasts spans ~166 days at 6
+	// shows/day, which covers every actively-aired program with margin.
+	kexpHostMapBroadcastSampleSize = 1000
 )
 
 // KEXPProvider implements RadioPlaylistProvider for KEXP's v2 REST API.
@@ -53,14 +61,27 @@ func (p *KEXPProvider) Close() {
 }
 
 // DiscoverShows returns all KEXP programs (shows).
+//
+// PSY-509: KEXP's /v2/programs/ endpoint does NOT include host info on the
+// program object — there are no `host_ids` or `host_names` fields. To attach
+// host_name to each program we walk a slice of the most recent /v2/shows/
+// (broadcast-level) records and build a program_id → host_names map; each
+// broadcast carries a resolved `host_names` array. Host-map fetch failures
+// are non-fatal: programs are still returned, just without host_name.
 func (p *KEXPProvider) DiscoverShows() ([]RadioShowImport, error) {
 	var allShows []RadioShowImport
 
-	// Fetch all hosts for name mapping
-	hosts, err := p.fetchAllHosts()
+	// Build program_id → host_name map from recent broadcasts.
+	// Errors are logged and treated as non-fatal so program discovery still
+	// works even if the host-mapping lookup fails.
+	hostMap, err := p.fetchProgramHostNames()
 	if err != nil {
-		// Non-fatal: host names will be nil
-		hosts = make(map[int]string)
+		slog.Warn("kexp: failed to build program→host map; host_name will be nil for discovered shows",
+			"error", err,
+		)
+		hostMap = make(map[int]string)
+	} else if len(hostMap) == 0 {
+		slog.Warn("kexp: program→host map is empty after fetching broadcasts; host_name will be nil for discovered shows")
 	}
 
 	url := fmt.Sprintf("%s/v2/programs/?limit=100", p.baseURL)
@@ -90,18 +111,12 @@ func (p *KEXPProvider) DiscoverShows() ([]RadioShowImport, error) {
 				img := prog.ImageURI
 				show.ImageURL = &img
 			}
-			// Map host IDs to names
-			if len(prog.HostIDs) > 0 {
-				var hostNames []string
-				for _, hid := range prog.HostIDs {
-					if name, ok := hosts[hid]; ok {
-						hostNames = append(hostNames, name)
-					}
-				}
-				if len(hostNames) > 0 {
-					joined := strings.Join(hostNames, ", ")
-					show.HostName = &joined
-				}
+			// Attach host_name from broadcast-derived map. Programs that have
+			// not aired in the broadcast sample window will have no entry —
+			// that's fine, host_name stays nil and admins can fill it in.
+			if name, ok := hostMap[prog.ID]; ok && name != "" {
+				n := name
+				show.HostName = &n
 			}
 
 			// PSY-405: intentionally leave ArchiveURL nil for discovered shows.
@@ -306,32 +321,91 @@ func (p *KEXPProvider) doGet(url string) ([]byte, error) {
 	return body, nil
 }
 
-// fetchAllHosts fetches all KEXP hosts and returns a map of ID → display name.
-func (p *KEXPProvider) fetchAllHosts() (map[int]string, error) {
-	hosts := make(map[int]string)
-	url := fmt.Sprintf("%s/v2/hosts/?limit=100", p.baseURL)
+// fetchProgramHostNames builds a program_id → host_name map by walking the
+// most recent broadcasts on /v2/shows/.
+//
+// PSY-509: KEXP's /v2/programs/ endpoint omits host info entirely (no
+// host_ids, no host_names). The /v2/shows/ endpoint, however, includes a
+// resolved `host_names` array on every broadcast. Sampling the most-recent
+// broadcasts and keeping the first host_names seen per program gives us a
+// best-effort mapping for every actively-aired program in O(1) batches of
+// API calls.
+//
+// Returns a partial map plus an error if pagination fails; caller is
+// expected to log and continue with the (possibly empty) partial map.
+func (p *KEXPProvider) fetchProgramHostNames() (map[int]string, error) {
+	hostMap := make(map[int]string)
 
-	for url != "" {
+	pageLimit := 100
+	if kexpHostMapBroadcastSampleSize < pageLimit {
+		pageLimit = kexpHostMapBroadcastSampleSize
+	}
+
+	url := fmt.Sprintf("%s/v2/shows/?ordering=-start_time&limit=%d", p.baseURL, pageLimit)
+	pagesFetched := 0
+	totalSeen := 0
+
+	for url != "" && totalSeen < kexpHostMapBroadcastSampleSize {
 		<-p.rateLimiter.C
 
 		resp, err := p.doGet(url)
 		if err != nil {
-			return hosts, fmt.Errorf("fetching hosts: %w", err)
+			slog.Warn("kexp: error fetching shows for host map",
+				"error", err,
+				"pages_fetched", pagesFetched,
+				"programs_resolved", len(hostMap),
+			)
+			return hostMap, fmt.Errorf("fetching shows for host map: %w", err)
 		}
 
-		var page kexpHostsResponse
+		var page kexpShowListingsResponse
 		if err := json.Unmarshal(resp, &page); err != nil {
-			return hosts, fmt.Errorf("parsing hosts response: %w", err)
+			slog.Warn("kexp: error parsing shows response for host map",
+				"error", err,
+				"pages_fetched", pagesFetched,
+				"programs_resolved", len(hostMap),
+			)
+			return hostMap, fmt.Errorf("parsing shows response for host map: %w", err)
 		}
 
-		for _, h := range page.Results {
-			hosts[h.ID] = h.Name
+		pagesFetched++
+		for _, sh := range page.Results {
+			totalSeen++
+			if sh.Program == 0 {
+				continue
+			}
+			// Skip if we already have this program — keeps the most recent
+			// host attribution because results are ordered by -start_time.
+			if _, ok := hostMap[sh.Program]; ok {
+				continue
+			}
+			if len(sh.HostNames) == 0 {
+				continue
+			}
+			// Some KEXP broadcasts (overnight automation, "Guest DJ" filler)
+			// have empty-string entries — filter those out.
+			var clean []string
+			for _, n := range sh.HostNames {
+				if n != "" {
+					clean = append(clean, n)
+				}
+			}
+			if len(clean) == 0 {
+				continue
+			}
+			hostMap[sh.Program] = strings.Join(clean, ", ")
 		}
 
 		url = page.Next
 	}
 
-	return hosts, nil
+	slog.Info("kexp: built program→host map from recent broadcasts",
+		"pages_fetched", pagesFetched,
+		"broadcasts_scanned", totalSeen,
+		"programs_resolved", len(hostMap),
+	)
+
+	return hostMap, nil
 }
 
 // parseKEXPEpisode converts a KEXP show (broadcast) into our episode import DTO.
@@ -463,18 +537,26 @@ type kexpProgram struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	ImageURI    string `json:"image_uri"`
-	HostIDs     []int  `json:"host_ids"`
-	IsActive    bool   `json:"is_active"`
+	// PSY-509: KEXP's /v2/programs/ endpoint does NOT carry host info on
+	// programs (no host_ids, no host_names). Host attribution is derived
+	// from the broadcast-level /v2/shows/ endpoint via fetchProgramHostNames.
+	IsActive bool `json:"is_active"`
 }
 
-type kexpHostsResponse struct {
+// kexpShowListing models the broadcast-level /v2/shows/ response used by
+// fetchProgramHostNames. Note this differs from kexpShow (used by
+// FetchNewEpisodes/FetchPlaylist): the listing uses the API's actual field
+// names (`program`, `host_names`) instead of the legacy `program_id` /
+// id-based shape that the older code paths assume.
+type kexpShowListingsResponse struct {
 	kexpPaginatedResponse
-	Results []kexpHost `json:"results"`
+	Results []kexpShowListing `json:"results"`
 }
 
-type kexpHost struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
+type kexpShowListing struct {
+	ID        int      `json:"id"`
+	Program   int      `json:"program"`
+	HostNames []string `json:"host_names"`
 }
 
 type kexpShowsResponse struct {
