@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -275,6 +276,61 @@ func (s *ArtistRelationshipService) GetUserVote(artistA, artistB uint, relType s
 // Graph
 // ──────────────────────────────────────────────
 
+// festivalCobillType is the edge type identifier for the query-time
+// festival co-lineup signal (PSY-363). It is *not* a stored relationship
+// row in artist_relationships — the edges are derived at query time via
+// JOIN on festival_artists. Defined here (rather than in the models
+// package) on purpose, so it cannot be accidentally written to the table.
+const festivalCobillType = "festival_cobill"
+
+// festivalCobillTopN is the normalisation cap for the festival co-bill
+// score. With min(count/N, 1.0), three shared festivals = max signal.
+// Festivals are sparser than shared shows (most artists have 1-3 festival
+// appearances), so this is intentionally lower than the shared_bills cap
+// of 10 set in similar-artists.md.
+const festivalCobillTopN = 3.0
+
+// festivalCobillRecencyBoostYears: if MAX(festivals.start_date) is within
+// this many years of "now", apply the same 1.2x recency boost shared_bills
+// uses (see DeriveSharedBills). Festivals are annual, so the equivalent of
+// shared_bills' "<3 months" window is "<2 years" here.
+const festivalCobillRecencyBoostYears = 2
+
+// festivalCobillRecencyBoost is the multiplier applied to the score when
+// the most recent shared festival is within the recency window.
+const festivalCobillRecencyBoost = 1.2
+
+// festivalCobillCenterLimit caps the number of festival_cobill edges
+// derived from the center artist. Matches the 30-edge cap used elsewhere
+// in GetArtistGraph so the default 30-node budget is respected.
+const festivalCobillCenterLimit = 30
+
+// festivalCobillTopFestivalNames is the number of representative festival
+// names to surface in the edge's `detail` JSONB for tooltip rendering.
+const festivalCobillTopFestivalNames = 3
+
+// festivalCobillRow is the result of the festival co-occurrence query.
+// We capture both the canonical pair (artistA<artistB), the count, and
+// the start date of the most recent shared festival (for recency-weighted
+// scoring + tooltip).
+type festivalCobillRow struct {
+	ArtistA          uint
+	ArtistB          uint
+	SharedCount      int
+	MostRecentStart  *time.Time
+	MostRecentYear   *int
+}
+
+// festivalNameRow is one festival name for a given artist pair, used to
+// fetch the top-N festivals by recency for the tooltip detail.
+type festivalNameRow struct {
+	ArtistA      uint
+	ArtistB      uint
+	FestivalName string
+	StartDate    time.Time
+	EditionYear  int
+}
+
 // GetArtistGraph returns the relationship graph for an artist (depth 1).
 // types filters by relationship type; empty slice means all types.
 // userID > 0 includes user vote data; 0 means no user context.
@@ -324,31 +380,62 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 		Links: []contracts.ArtistGraphLink{},
 	}
 
-	// 2. Get all relationships for this artist (depth 1)
-	query := s.db.Model(&models.ArtistRelationship{}).
-		Where("source_artist_id = ? OR target_artist_id = ?", artistID, artistID)
-
-	if len(types) > 0 {
-		query = query.Where("relationship_type IN ?", types)
-	}
-
-	query = query.Order("score DESC").Limit(30)
+	// 2. Get all stored relationships for this artist (depth 1)
+	// Note: festival_cobill is NOT a stored type — it is filtered out of
+	// this query and computed separately from festival_artists below.
+	storedTypes := filterOutQueryTimeTypes(types)
+	wantFestivalCobill := isQueryTimeTypeRequested(types, festivalCobillType)
 
 	var rels []models.ArtistRelationship
-	if err := query.Find(&rels).Error; err != nil {
-		return nil, fmt.Errorf("failed to get relationships: %w", err)
+	// If types was non-empty AND every requested type was a query-time
+	// derived type, storedTypes will be empty here — skip the stored-rels
+	// query entirely. Otherwise (empty input = "all types", or any stored
+	// type requested) run the normal query.
+	if len(types) == 0 || len(storedTypes) > 0 {
+		query := s.db.Model(&models.ArtistRelationship{}).
+			Where("source_artist_id = ? OR target_artist_id = ?", artistID, artistID)
+
+		if len(storedTypes) > 0 {
+			query = query.Where("relationship_type IN ?", storedTypes)
+		}
+
+		query = query.Order("score DESC").Limit(30)
+
+		if err := query.Find(&rels).Error; err != nil {
+			return nil, fmt.Errorf("failed to get relationships: %w", err)
+		}
 	}
 
-	if len(rels) == 0 {
+	// 2b. Compute query-time festival_cobill center edges (PSY-363).
+	// These are derived from festival_artists at request time; no stored
+	// row is read or written. Skipped when the type filter excludes it.
+	var festivalCobillLinks []contracts.ArtistGraphLink
+	if wantFestivalCobill {
+		links, err := s.computeFestivalCobillCenterEdges(artistID, festivalCobillCenterLimit)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute festival co-lineup edges: %w", err)
+		}
+		festivalCobillLinks = links
+	}
+
+	if len(rels) == 0 && len(festivalCobillLinks) == 0 {
 		return graph, nil
 	}
 
-	// Collect related artist IDs
+	// Collect related artist IDs from BOTH stored relationships and the
+	// query-time festival_cobill edges.
 	relatedIDSet := make(map[uint]bool)
 	for _, rel := range rels {
 		otherID := rel.TargetArtistID
 		if otherID == artistID {
 			otherID = rel.SourceArtistID
+		}
+		relatedIDSet[otherID] = true
+	}
+	for _, link := range festivalCobillLinks {
+		otherID := link.TargetID
+		if otherID == artistID {
+			otherID = link.SourceID
 		}
 		relatedIDSet[otherID] = true
 	}
@@ -437,14 +524,17 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 		})
 	}
 
+	// 6b. Append the query-time festival_cobill center edges (PSY-363).
+	graph.Links = append(graph.Links, festivalCobillLinks...)
+
 	// 7. Get cross-connections between related artists
 	if len(relatedIDs) > 1 {
 		var crossRels []models.ArtistRelationship
 		crossQuery := s.db.Model(&models.ArtistRelationship{}).
 			Where("source_artist_id IN ? AND target_artist_id IN ?", relatedIDs, relatedIDs)
 
-		if len(types) > 0 {
-			crossQuery = crossQuery.Where("relationship_type IN ?", types)
+		if len(storedTypes) > 0 {
+			crossQuery = crossQuery.Where("relationship_type IN ?", storedTypes)
 		}
 
 		if err := crossQuery.Find(&crossRels).Error; err == nil {
@@ -465,6 +555,15 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 					VotesDown: downvotes,
 					Detail:    detail,
 				})
+			}
+		}
+
+		// 7b. Festival co-lineup cross-edges between related artists (PSY-363).
+		// Same query-time JOIN, scoped to the related-artist pool.
+		if wantFestivalCobill {
+			crossLinks, err := s.computeFestivalCobillCrossEdges(artistID, relatedIDs)
+			if err == nil {
+				graph.Links = append(graph.Links, crossLinks...)
 			}
 		}
 	}
@@ -656,6 +755,411 @@ func (s *ArtistRelationshipService) DeriveSharedLabels(minLabels int) (int64, er
 	}
 
 	return upserted, nil
+}
+
+// ──────────────────────────────────────────────
+// Festival co-lineup (PSY-363) — query-time derivation
+// ──────────────────────────────────────────────
+
+// queryTimeRelationshipTypes is the set of edge types that are computed
+// at query time (no stored row in artist_relationships). Centralised so
+// future query-time signals (PSY-365 venue co-bill, etc.) can extend it.
+var queryTimeRelationshipTypes = map[string]struct{}{
+	festivalCobillType: {},
+}
+
+// filterOutQueryTimeTypes returns a copy of `types` with any query-time
+// edge types removed. Used when building the stored-relationship query
+// so we never search for a non-stored type in the artist_relationships
+// table. If `types` is empty (meaning "all types"), returns an empty
+// slice — the caller should treat that as "no filter on stored types".
+func filterOutQueryTimeTypes(types []string) []string {
+	if len(types) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(types))
+	for _, t := range types {
+		if _, ok := queryTimeRelationshipTypes[t]; ok {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+// isQueryTimeTypeRequested returns true when `target` is a query-time
+// edge type AND either (a) the filter is empty (=all types) or (b) the
+// filter explicitly contains `target`.
+func isQueryTimeTypeRequested(types []string, target string) bool {
+	if _, ok := queryTimeRelationshipTypes[target]; !ok {
+		return false
+	}
+	if len(types) == 0 {
+		return true
+	}
+	for _, t := range types {
+		if t == target {
+			return true
+		}
+	}
+	return false
+}
+
+// computeFestivalCobillCenterEdges derives festival co-lineup edges
+// between the center artist and every other artist who has shared at
+// least one festival appearance with them. Returns up to `limit` edges
+// ordered by (shared_count DESC, most_recent_start DESC).
+//
+// Score formula:
+//
+//	base    = min(shared_count / festivalCobillTopN, 1.0)
+//	final   = min(base * festivalCobillRecencyBoost, 1.0)   if most-recent shared festival is within
+//	                                                         festivalCobillRecencyBoostYears years of now
+//	final   = base                                           otherwise
+//
+// `detail` JSONB shape:
+//
+//	{
+//	  "festival_names":   "ACL, Coachella, Lollapalooza",   // top N by recency
+//	  "count":            3,                                // total shared festivals
+//	  "most_recent_year": 2025                              // EXTRACT(YEAR FROM MAX(start_date))
+//	}
+//
+// `most_recent_year` may be null when the festival start_date is missing
+// (defensive — start_date is NOT NULL per the schema, but we don't crash
+// the request if a row violates that for any reason).
+func (s *ArtistRelationshipService) computeFestivalCobillCenterEdges(centerID uint, limit int) ([]contracts.ArtistGraphLink, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	if limit <= 0 {
+		limit = festivalCobillCenterLimit
+	}
+
+	rows, err := s.queryFestivalCobillRows(centerID, nil, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+
+	// Collect (artistA, artistB) pairs to fetch their representative
+	// festival names in a single batch query.
+	pairs := make([]festivalCobillRow, 0, len(rows))
+	for _, r := range rows {
+		pairs = append(pairs, r)
+	}
+	nameMap, err := s.queryFestivalCobillNames(pairs)
+	if err != nil {
+		// Tooltip names are best-effort — log nothing, return whatever we have.
+		nameMap = nil
+	}
+
+	now := time.Now()
+	links := make([]contracts.ArtistGraphLink, 0, len(rows))
+	for _, r := range rows {
+		score := festivalCobillScore(r.SharedCount, r.MostRecentStart, now)
+
+		// Build representative names: prefer "top-N by recency" if we got
+		// it, otherwise leave empty so the FE falls back to count-only text.
+		var festivalNames string
+		if nameMap != nil {
+			key := pairKey(r.ArtistA, r.ArtistB)
+			festivalNames = strings.Join(nameMap[key], ", ")
+		}
+
+		detail := map[string]interface{}{
+			"festival_names": festivalNames,
+			"count":          r.SharedCount,
+		}
+		if r.MostRecentYear != nil {
+			detail["most_recent_year"] = *r.MostRecentYear
+		} else {
+			detail["most_recent_year"] = nil
+		}
+
+		links = append(links, contracts.ArtistGraphLink{
+			SourceID: r.ArtistA,
+			TargetID: r.ArtistB,
+			Type:     festivalCobillType,
+			Score:    score,
+			Detail:   detail,
+		})
+	}
+
+	return links, nil
+}
+
+// computeFestivalCobillCrossEdges derives festival co-lineup edges
+// between pairs of related artists (excluding the center). Used to fill
+// in cross-connections in the graph so the layout has structure.
+//
+// `centerID` is excluded from both ends of returned edges to avoid
+// duplicating center→related edges already produced by
+// computeFestivalCobillCenterEdges.
+func (s *ArtistRelationshipService) computeFestivalCobillCrossEdges(centerID uint, relatedIDs []uint) ([]contracts.ArtistGraphLink, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	if len(relatedIDs) < 2 {
+		return nil, nil
+	}
+
+	// No top-N cap on cross-edges — they are already bounded by the
+	// (relatedIDs × relatedIDs) Cartesian space. The 30-node ceiling on
+	// relatedIDs keeps the absolute count <= ~435 in the worst case.
+	rows, err := s.queryFestivalCobillRows(0, relatedIDs, 0)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+
+	// Filter out any pair that touches the center artist. The center
+	// edges are produced by the dedicated path and we don't want them
+	// duplicated here.
+	filtered := rows[:0]
+	for _, r := range rows {
+		if r.ArtistA == centerID || r.ArtistB == centerID {
+			continue
+		}
+		filtered = append(filtered, r)
+	}
+	if len(filtered) == 0 {
+		return nil, nil
+	}
+
+	nameMap, err := s.queryFestivalCobillNames(filtered)
+	if err != nil {
+		nameMap = nil
+	}
+
+	now := time.Now()
+	links := make([]contracts.ArtistGraphLink, 0, len(filtered))
+	for _, r := range filtered {
+		score := festivalCobillScore(r.SharedCount, r.MostRecentStart, now)
+
+		var festivalNames string
+		if nameMap != nil {
+			festivalNames = strings.Join(nameMap[pairKey(r.ArtistA, r.ArtistB)], ", ")
+		}
+
+		detail := map[string]interface{}{
+			"festival_names": festivalNames,
+			"count":          r.SharedCount,
+		}
+		if r.MostRecentYear != nil {
+			detail["most_recent_year"] = *r.MostRecentYear
+		} else {
+			detail["most_recent_year"] = nil
+		}
+
+		links = append(links, contracts.ArtistGraphLink{
+			SourceID: r.ArtistA,
+			TargetID: r.ArtistB,
+			Type:     festivalCobillType,
+			Score:    score,
+			Detail:   detail,
+		})
+	}
+
+	return links, nil
+}
+
+// queryFestivalCobillRows runs the JOIN that aggregates festival
+// co-occurrences into (artistA, artistB, count, most_recent_start) rows.
+// One of (centerID, relatedIDs) selects the scope:
+//   - centerID > 0, relatedIDs nil/empty: center edges. Pairs are
+//     (centerID, otherID) with no canonical-order requirement; rows are
+//     normalised so ArtistA = centerID, ArtistB = the other artist.
+//   - centerID == 0, relatedIDs non-empty: cross edges. Pairs use the
+//     fa1.artist_id < fa2.artist_id canonical ordering and rows are
+//     restricted to pairs where both ends are in relatedIDs.
+//
+// `limit > 0` applies a LIMIT clause; `limit == 0` means no limit.
+func (s *ArtistRelationshipService) queryFestivalCobillRows(
+	centerID uint,
+	relatedIDs []uint,
+	limit int,
+) ([]festivalCobillRow, error) {
+	if centerID == 0 && len(relatedIDs) == 0 {
+		return nil, nil
+	}
+
+	var rows []festivalCobillRow
+
+	if centerID > 0 {
+		// Center mode: every artist who has shared at least one festival
+		// with `centerID`. fa1 is anchored to the center; fa2 is the
+		// other artist. We project fa1.artist_id as ArtistA so the
+		// normalised pair always has the center on the SourceID side.
+		err := s.db.Raw(`
+			SELECT
+				CAST(? AS BIGINT) AS artist_a,
+				fa2.artist_id AS artist_b,
+				COUNT(DISTINCT fa1.festival_id) AS shared_count,
+				MAX(f.start_date) AS most_recent_start,
+				MAX(EXTRACT(YEAR FROM f.start_date))::int AS most_recent_year
+			FROM festival_artists fa1
+			JOIN festival_artists fa2 ON fa1.festival_id = fa2.festival_id
+				AND fa2.artist_id <> fa1.artist_id
+			JOIN festivals f ON f.id = fa1.festival_id
+			WHERE fa1.artist_id = ?
+			GROUP BY fa2.artist_id
+			HAVING COUNT(DISTINCT fa1.festival_id) >= 1
+			ORDER BY shared_count DESC, most_recent_start DESC
+			LIMIT ?
+		`, centerID, centerID, limit).Scan(&rows).Error
+		if err != nil {
+			return nil, fmt.Errorf("failed to query festival co-lineup (center): %w", err)
+		}
+		return rows, nil
+	}
+
+	// Cross-edge mode. Canonical ordering enforced via fa1.artist_id <
+	// fa2.artist_id.
+	query := s.db.Raw(`
+		SELECT
+			fa1.artist_id AS artist_a,
+			fa2.artist_id AS artist_b,
+			COUNT(DISTINCT fa1.festival_id) AS shared_count,
+			MAX(f.start_date) AS most_recent_start,
+			MAX(EXTRACT(YEAR FROM f.start_date))::int AS most_recent_year
+		FROM festival_artists fa1
+		JOIN festival_artists fa2 ON fa1.festival_id = fa2.festival_id
+			AND fa1.artist_id < fa2.artist_id
+		JOIN festivals f ON f.id = fa1.festival_id
+		WHERE fa1.artist_id IN ? AND fa2.artist_id IN ?
+		GROUP BY fa1.artist_id, fa2.artist_id
+		HAVING COUNT(DISTINCT fa1.festival_id) >= 1
+		ORDER BY shared_count DESC, most_recent_start DESC
+	`, relatedIDs, relatedIDs)
+
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to query festival co-lineup (cross): %w", err)
+	}
+	return rows, nil
+}
+
+// queryFestivalCobillNames fetches the top-N festival names by recency
+// (start_date DESC) for each (artistA, artistB) pair in `pairs`. Used to
+// populate the `festival_names` field in the edge's `detail` JSONB.
+//
+// Returns a map keyed by pairKey(artistA, artistB) to a slice of festival
+// names sorted most-recent-first. The slice has at most
+// festivalCobillTopFestivalNames entries.
+func (s *ArtistRelationshipService) queryFestivalCobillNames(pairs []festivalCobillRow) (map[string][]string, error) {
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+
+	// Build a UNION ALL of (artistA, artistB) literal pairs so a single
+	// query can return names for all pairs. Postgres tolerates the OR-of-
+	// pair-pairs form, which is simpler in GORM than building a temp
+	// table.
+	allArtistIDs := make(map[uint]struct{})
+	for _, p := range pairs {
+		allArtistIDs[p.ArtistA] = struct{}{}
+		allArtistIDs[p.ArtistB] = struct{}{}
+	}
+	idList := make([]uint, 0, len(allArtistIDs))
+	for id := range allArtistIDs {
+		idList = append(idList, id)
+	}
+
+	// Fetch every shared festival between any two artists in idList,
+	// then filter in Go to the exact pairs we care about. Cheaper than
+	// emitting `pairs` parameters in SQL when len(pairs) is large.
+	type nameRow struct {
+		ArtistA      uint
+		ArtistB      uint
+		FestivalName string
+		StartDate    time.Time
+		EditionYear  int
+	}
+	var results []nameRow
+	err := s.db.Raw(`
+		SELECT
+			fa1.artist_id AS artist_a,
+			fa2.artist_id AS artist_b,
+			f.name AS festival_name,
+			f.start_date AS start_date,
+			f.edition_year AS edition_year
+		FROM festival_artists fa1
+		JOIN festival_artists fa2 ON fa1.festival_id = fa2.festival_id
+			AND fa1.artist_id < fa2.artist_id
+		JOIN festivals f ON f.id = fa1.festival_id
+		WHERE fa1.artist_id IN ? AND fa2.artist_id IN ?
+		ORDER BY f.start_date DESC, f.edition_year DESC
+	`, idList, idList).Scan(&results).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to query festival names: %w", err)
+	}
+
+	// Build the requested set of pair keys, both orientations, so we can
+	// match the canonical (a < b) projection coming back from the query.
+	wanted := make(map[string]struct{}, len(pairs))
+	for _, p := range pairs {
+		a, b := p.ArtistA, p.ArtistB
+		if a > b {
+			a, b = b, a
+		}
+		wanted[pairKey(a, b)] = struct{}{}
+	}
+
+	out := make(map[string][]string, len(pairs))
+	for _, r := range results {
+		canonKey := pairKey(r.ArtistA, r.ArtistB)
+		if _, ok := wanted[canonKey]; !ok {
+			continue
+		}
+		// Map back to BOTH orientations so callers can use whichever
+		// convention they project on (center mode = (centerID, other);
+		// cross mode = (a < b)).
+		canonOut := canonKey
+		if len(out[canonOut]) >= festivalCobillTopFestivalNames {
+			continue
+		}
+		out[canonOut] = append(out[canonOut], r.FestivalName)
+	}
+
+	// Mirror the canonical-ordered keys to the alternative orientation
+	// so center-mode lookups (where ArtistA = centerID, which may be the
+	// larger id) still hit a key.
+	mirrored := make(map[string][]string, len(out)*2)
+	for k, v := range out {
+		mirrored[k] = v
+		// keys are "a-b" with a<b; also store "b-a"
+		var a, b uint
+		fmt.Sscanf(k, "%d-%d", &a, &b)
+		mirrored[fmt.Sprintf("%d-%d", b, a)] = v
+	}
+	return mirrored, nil
+}
+
+// festivalCobillScore computes the [0,1] score for a festival co-lineup
+// edge from the shared count and most-recent shared-festival date.
+func festivalCobillScore(sharedCount int, mostRecentStart *time.Time, now time.Time) float64 {
+	if sharedCount <= 0 {
+		return 0
+	}
+	base := math.Min(float64(sharedCount)/festivalCobillTopN, 1.0)
+	if mostRecentStart != nil {
+		yearsSince := now.Sub(*mostRecentStart).Hours() / (24 * 365.25)
+		if yearsSince < float64(festivalCobillRecencyBoostYears) {
+			base = math.Min(base*festivalCobillRecencyBoost, 1.0)
+		}
+	}
+	return base
+}
+
+// pairKey builds the map key used to associate a (artistA, artistB) pair
+// with its representative festival names. Format: "artistA-artistB".
+func pairKey(a, b uint) string {
+	return fmt.Sprintf("%d-%d", a, b)
 }
 
 // ──────────────────────────────────────────────

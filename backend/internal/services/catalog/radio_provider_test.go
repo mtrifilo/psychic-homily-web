@@ -157,19 +157,43 @@ func TestParseKEXPEpisode_NoEndTime(t *testing.T) {
 func TestKEXPProvider_DiscoverShows(t *testing.T) {
 	mux := http.NewServeMux()
 
-	// Mock hosts endpoint
-	mux.HandleFunc("/v2/hosts/", func(w http.ResponseWriter, r *http.Request) {
+	// PSY-509: KEXP's /v2/programs/ endpoint does NOT carry host info on
+	// programs. DiscoverShows derives host attribution from /v2/shows/
+	// (broadcast level), where each broadcast has a resolved host_names
+	// array. The shows handler must come BEFORE the programs handler so the
+	// most-specific path matches first in net/http's mux.
+	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"next":  nil,
-			"count": 2,
+			"count": 3,
 			"results": []map[string]interface{}{
-				{"id": 1, "name": "John Richards"},
-				{"id": 2, "name": "Cheryl Waters"},
+				{
+					"id":         1001,
+					"program":    42,
+					"host_names": []string{"John Richards"},
+					"start_time": "2026-04-22T06:00:00-07:00",
+				},
+				{
+					"id":         1002,
+					"program":    43,
+					"host_names": []string{"Cheryl Waters"},
+					"start_time": "2026-04-22T10:00:00-07:00",
+				},
+				// Older broadcast for program 42 with a different host —
+				// should be ignored because we already have the most-recent
+				// attribution.
+				{
+					"id":         900,
+					"program":    42,
+					"host_names": []string{"Substitute DJ"},
+					"start_time": "2026-04-21T06:00:00-07:00",
+				},
 			},
 		})
 	})
 
-	// Mock programs endpoint
+	// Mock programs endpoint — note: the real API does NOT return
+	// host_ids/host_names on programs, so the test omits those fields.
 	mux.HandleFunc("/v2/programs/", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"next":  nil,
@@ -180,13 +204,11 @@ func TestKEXPProvider_DiscoverShows(t *testing.T) {
 					"name":        "The Morning Show",
 					"description": "Wake up with KEXP",
 					"image_uri":   "https://kexp.org/morning.jpg",
-					"host_ids":    []int{1},
 					"is_active":   true,
 				},
 				{
 					"id":        43,
 					"name":      "The Midday Show",
-					"host_ids":  []int{2},
 					"is_active": true,
 				},
 			},
@@ -208,6 +230,7 @@ func TestKEXPProvider_DiscoverShows(t *testing.T) {
 	assert.Equal(t, "The Morning Show", shows[0].Name)
 	assert.Equal(t, "Wake up with KEXP", *shows[0].Description)
 	assert.Equal(t, "https://kexp.org/morning.jpg", *shows[0].ImageURL)
+	require.NotNil(t, shows[0].HostName, "PSY-509: host_name must be populated from broadcast-derived map")
 	assert.Equal(t, "John Richards", *shows[0].HostName)
 	// PSY-405: DiscoverShows no longer fabricates an archive URL — KEXP's
 	// per-show URL casing isn't derivable from the API name.
@@ -215,6 +238,7 @@ func TestKEXPProvider_DiscoverShows(t *testing.T) {
 
 	assert.Equal(t, "43", shows[1].ExternalID)
 	assert.Equal(t, "The Midday Show", shows[1].Name)
+	require.NotNil(t, shows[1].HostName)
 	assert.Equal(t, "Cheryl Waters", *shows[1].HostName)
 	assert.Nil(t, shows[1].ArchiveURL)
 }
@@ -223,7 +247,9 @@ func TestKEXPProvider_DiscoverShows_Pagination(t *testing.T) {
 	callCount := 0
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/v2/hosts/", func(w http.ResponseWriter, r *http.Request) {
+	// PSY-509: empty broadcast slice — exercise the warn-log "empty map"
+	// branch alongside paginated programs.
+	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 0, "results": []interface{}{},
 		})
@@ -237,7 +263,7 @@ func TestKEXPProvider_DiscoverShows_Pagination(t *testing.T) {
 				"next":  fmt.Sprintf("%s/v2/programs/?offset=1", server.URL),
 				"count": 2,
 				"results": []map[string]interface{}{
-					{"id": 1, "name": "Show One", "host_ids": []int{}},
+					{"id": 1, "name": "Show One"},
 				},
 			})
 		} else {
@@ -245,7 +271,7 @@ func TestKEXPProvider_DiscoverShows_Pagination(t *testing.T) {
 				"next":  nil,
 				"count": 2,
 				"results": []map[string]interface{}{
-					{"id": 2, "name": "Show Two", "host_ids": []int{}},
+					{"id": 2, "name": "Show Two"},
 				},
 			})
 		}
@@ -264,6 +290,11 @@ func TestKEXPProvider_DiscoverShows_Pagination(t *testing.T) {
 	assert.Equal(t, "Show One", shows[0].Name)
 	assert.Equal(t, "Show Two", shows[1].Name)
 	assert.Equal(t, 2, callCount) // Two program pages fetched
+	// With an empty broadcast slice the host map is empty — programs come
+	// through with host_name nil, which is the documented graceful
+	// degradation when the broadcast endpoint can't be queried.
+	assert.Nil(t, shows[0].HostName)
+	assert.Nil(t, shows[1].HostName)
 }
 
 func TestKEXPProvider_FetchNewEpisodes(t *testing.T) {
@@ -605,8 +636,9 @@ func TestKEXPProvider_FetchPlaylist_Pagination(t *testing.T) {
 
 func TestKEXPProvider_HTTPError(t *testing.T) {
 	mux := http.NewServeMux()
-	// Hosts can succeed (non-fatal)
-	mux.HandleFunc("/v2/hosts/", func(w http.ResponseWriter, r *http.Request) {
+	// PSY-509: shows endpoint (used to build the host map) succeeds —
+	// host-map failures are non-fatal so we must isolate the programs error.
+	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 0, "results": []interface{}{},
 		})
@@ -627,6 +659,156 @@ func TestKEXPProvider_HTTPError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "500")
+}
+
+// TestKEXPProvider_DiscoverShows_HostMapNonFatal asserts that when the
+// /v2/shows/ host-map fetch fails, DiscoverShows still returns programs
+// successfully (just with host_name nil). This is the regression-guard
+// for PSY-509 in the failure direction: the bug was that programs were
+// returned without host_name even when the live API was healthy. We must
+// also make sure programs ARE returned when the host-map endpoint itself
+// errors out — host attribution is best-effort, not load-bearing.
+func TestKEXPProvider_DiscoverShows_HostMapNonFatal(t *testing.T) {
+	mux := http.NewServeMux()
+	// /v2/shows/ returns 500 — host map fetch fails.
+	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("upstream broken"))
+	})
+	// Programs endpoint healthy.
+	mux.HandleFunc("/v2/programs/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"next": nil, "count": 1,
+			"results": []map[string]interface{}{
+				{"id": 99, "name": "Show With No Host Yet"},
+			},
+		})
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	provider := NewKEXPProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	shows, err := provider.DiscoverShows()
+	require.NoError(t, err, "host-map fetch failure must NOT fail DiscoverShows")
+	assert.Len(t, shows, 1)
+	assert.Equal(t, "Show With No Host Yet", shows[0].Name)
+	assert.Nil(t, shows[0].HostName, "host_name nil is the graceful-degradation outcome")
+}
+
+// TestKEXPProvider_DiscoverShows_HostMappingIntegration is the PSY-509
+// regression test: it asserts that a program with at least one matching
+// recent broadcast (carrying host_names) results in a populated
+// RadioShowImport.HostName. It also covers the multi-host join, the
+// empty-string filter, and the "first broadcast wins per program"
+// ordering invariant.
+func TestKEXPProvider_DiscoverShows_HostMappingIntegration(t *testing.T) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
+		// Results are returned in -start_time order, matching how the
+		// real API responds when ordering=-start_time is requested.
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"next": nil, "count": 6,
+			"results": []map[string]interface{}{
+				// Most recent: program 100 hosted by two co-DJs.
+				{
+					"id":         5001,
+					"program":    100,
+					"host_names": []string{"Albina Cabrera", "Goyri"},
+					"start_time": "2026-04-22T21:00:00-07:00",
+				},
+				// Program 200 — single host.
+				{
+					"id":         5000,
+					"program":    200,
+					"host_names": []string{"Larry Mizell, Jr."},
+					"start_time": "2026-04-22T14:00:00-07:00",
+				},
+				// Older broadcast for program 100 with a different host —
+				// must NOT overwrite the first-seen attribution.
+				{
+					"id":         4999,
+					"program":    100,
+					"host_names": []string{"Substitute DJ"},
+					"start_time": "2026-04-21T21:00:00-07:00",
+				},
+				// Program 300 with empty-string host (overnight automation).
+				{
+					"id":         4998,
+					"program":    300,
+					"host_names": []string{""},
+					"start_time": "2026-04-21T03:00:00-07:00",
+				},
+				// Program 400 has no host_names field at all.
+				{
+					"id":         4997,
+					"program":    400,
+					"start_time": "2026-04-21T01:00:00-07:00",
+				},
+				// Program 500 with mixed empty + valid — the filter keeps
+				// only the non-empty entries.
+				{
+					"id":         4996,
+					"program":    500,
+					"host_names": []string{"", "Cheryl Waters", ""},
+					"start_time": "2026-04-20T10:00:00-07:00",
+				},
+			},
+		})
+	})
+
+	mux.HandleFunc("/v2/programs/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"next": nil, "count": 5,
+			"results": []map[string]interface{}{
+				{"id": 100, "name": "El Sonido"},
+				{"id": 200, "name": "The Afternoon Show"},
+				{"id": 300, "name": "Overnight Automation"},
+				{"id": 400, "name": "No Hosts Listed"},
+				{"id": 500, "name": "The Midday Show"},
+			},
+		})
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	provider := NewKEXPProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	shows, err := provider.DiscoverShows()
+	require.NoError(t, err)
+	require.Len(t, shows, 5)
+
+	byID := map[string]RadioShowImport{}
+	for _, s := range shows {
+		byID[s.ExternalID] = s
+	}
+
+	// Multi-host program — joined with ", ".
+	require.NotNil(t, byID["100"].HostName, "multi-host program must have HostName")
+	assert.Equal(t, "Albina Cabrera, Goyri", *byID["100"].HostName,
+		"multiple host_names must be joined with ', ' and reflect the most recent broadcast")
+
+	// Single-host program.
+	require.NotNil(t, byID["200"].HostName)
+	assert.Equal(t, "Larry Mizell, Jr.", *byID["200"].HostName)
+
+	// Empty-string-only host_names → no attribution.
+	assert.Nil(t, byID["300"].HostName,
+		"all-empty host_names must filter out and leave HostName nil")
+
+	// Missing host_names entirely → no attribution.
+	assert.Nil(t, byID["400"].HostName,
+		"missing host_names array must leave HostName nil")
+
+	// Mixed empty + valid → only non-empty kept.
+	require.NotNil(t, byID["500"].HostName)
+	assert.Equal(t, "Cheryl Waters", *byID["500"].HostName,
+		"empty-string host entries must be filtered before joining")
 }
 
 // =============================================================================
@@ -892,27 +1074,23 @@ func (suite *RadioImportIntegrationTestSuite) TestImportStation_Success() {
 	mux := http.NewServeMux()
 	var server *httptest.Server
 
-	// Mock hosts
-	mux.HandleFunc("/v2/hosts/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"next": nil, "count": 1,
-			"results": []map[string]interface{}{
-				{"id": 1, "name": "John Richards"},
-			},
-		})
-	})
-
 	// Mock programs
 	mux.HandleFunc("/v2/programs/", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 1,
 			"results": []map[string]interface{}{
-				{"id": 42, "name": "The Morning Show", "host_ids": []int{1}},
+				{"id": 42, "name": "The Morning Show"},
 			},
 		})
 	})
 
-	// Mock shows (episodes) — handles both list and detail-by-ID requests.
+	// Mock shows (episodes) — handles three callers:
+	//   1. PSY-509 host map: /v2/shows/?ordering=-start_time — must include
+	//      a `host_names` array on each result so DiscoverShows can attach
+	//      the host_name to program 42.
+	//   2. Detail-by-ID: /v2/shows/100/ used by FetchPlaylist.
+	//   3. List with program_id filter: /v2/shows/?program_id=... used by
+	//      FetchNewEpisodes.
 	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
 		// Detail-by-ID: /v2/shows/100/ used by FetchPlaylist.
 		if r.URL.Path == "/v2/shows/100/" {
@@ -925,14 +1103,19 @@ func (suite *RadioImportIntegrationTestSuite) TestImportStation_Success() {
 			})
 			return
 		}
-		// List: /v2/shows/?program_id=... used by FetchNewEpisodes.
+		// List endpoint serves both the PSY-509 host-map fetch and the
+		// FetchNewEpisodes filter. The host-map fetch wants `program` +
+		// `host_names`; FetchNewEpisodes wants `program_id` + start_time.
+		// Including both keys on the same record satisfies both readers.
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 1,
 			"results": []map[string]interface{}{
 				{
 					"id":           100,
+					"program":      42,
 					"program_id":   42,
 					"program_name": "The Morning Show",
+					"host_names":   []string{"John Richards"},
 					"start_time":   "2026-01-15T06:00:00-08:00",
 					"end_time":     "2026-01-15T10:00:00-08:00",
 				},

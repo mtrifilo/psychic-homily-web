@@ -37,9 +37,11 @@ const RELATIONSHIP_BADGES: Record<string, { label: string; className: string }> 
   side_project: { label: 'Side Project', className: 'bg-green-900/30 text-green-300 border-green-700/50' },
   member_of: { label: 'Member Of', className: 'bg-amber-900/30 text-amber-300 border-amber-700/50' },
   radio_cooccurrence: { label: 'Radio Co-occurrence', className: 'bg-teal-900/30 text-teal-300 border-teal-700/50' },
+  // PSY-363: festival_cobill — vermillion-ish styling for the list badge.
+  festival_cobill: { label: 'Festival co-lineup', className: 'bg-orange-900/30 text-orange-300 border-orange-700/50' },
 }
 
-const ALL_TYPES = ['similar', 'shared_bills', 'shared_label', 'side_project', 'member_of', 'radio_cooccurrence']
+const ALL_TYPES = ['similar', 'shared_bills', 'shared_label', 'side_project', 'member_of', 'radio_cooccurrence', 'festival_cobill']
 
 // PSY-361: URL query param that encodes the currently re-centered artist's
 // slug. Absent means the route's original artist is the center. Stored as a
@@ -654,6 +656,8 @@ function RelatedArtistRow({
   const similarLink = links.find(l => l.type === 'similar')
   const sharedBillsLink = links.find(l => l.type === 'shared_bills')
   const radioLink = links.find(l => l.type === 'radio_cooccurrence')
+  // PSY-363: festival co-lineup link, used in the score-display sub-line.
+  const festivalCobillLink = links.find(l => l.type === 'festival_cobill')
 
   // Format score display
   const getScoreDisplay = () => {
@@ -677,6 +681,13 @@ function RelatedArtistRow({
           ? ` across ${stationCount} stations`
           : ''
         parts.push(`${coCount}x on radio${stationPart}`)
+      }
+    }
+    if (festivalCobillLink && festivalCobillLink.detail) {
+      const detail = festivalCobillLink.detail as Record<string, unknown>
+      const count = detail.count
+      if (count) {
+        parts.push(`${count} shared ${Number(count) === 1 ? 'festival' : 'festivals'}`)
       }
     }
     return parts.join(' · ')

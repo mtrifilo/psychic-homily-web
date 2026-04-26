@@ -93,7 +93,7 @@ const nextConfig: NextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' https://vercel.live https://us-assets.i.posthog.com",
+              "script-src 'self' 'unsafe-inline' https://vercel.live https://va.vercel-scripts.com https://us-assets.i.posthog.com",
               "style-src 'self' 'unsafe-inline'",
               // img-src permits any HTTPS source so release cover art, station
               // logos, venue photos, and other user-contributed URLs render
