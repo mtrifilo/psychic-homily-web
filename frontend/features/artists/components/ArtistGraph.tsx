@@ -32,6 +32,9 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
 // shared_bills vs radio_cooccurrence at d=35.3 (protanopia), which is also dash-differentiated
 // (solid vs dashed-8-3) for redundancy. Full audit: docs/learnings/graph-colorblind-audit.md.
 //
+// PSY-363: festival_cobill (#D55E00 vermillion, Okabe-Ito) was added under the same audit method;
+// worst-case distance vs any existing color is 98.2 (vs member_of, deuteranopia) — well above threshold.
+//
 // WCAG 2.2 §1.4.1 ("Use of Color"): we never rely on color alone — every edge type has a
 // dash pattern (solid / dashed / dotted) and many also have weight scaling, so information
 // is conveyed through at least two channels.
@@ -42,6 +45,7 @@ const EDGE_COLORS: Record<string, string> = {
   side_project: '#4ade80',         // green-400
   member_of: '#fbbf24',            // amber-400
   radio_cooccurrence: '#2dd4bf',   // teal-400
+  festival_cobill: '#D55E00',      // vermillion (Okabe-Ito)
 }
 
 const EDGE_LABELS: Record<string, string> = {
@@ -51,6 +55,7 @@ const EDGE_LABELS: Record<string, string> = {
   side_project: 'Side Project',
   member_of: 'Member Of',
   radio_cooccurrence: 'Radio Co-occurrence',
+  festival_cobill: 'Festival co-lineup',
 }
 
 // Convert API data to graph format needed by react-force-graph-2d
@@ -152,6 +157,19 @@ export function buildLinkLabel(link: Pick<GraphLink, 'type' | 'score' | 'votes_u
       return 'Side project'
     case 'member_of':
       return 'Member of'
+    case 'festival_cobill': {
+      const count = detailNumber(detail, 'count')
+      const names = detailString(detail, 'festival_names')
+      const year = detailNumber(detail, 'most_recent_year')
+      if (count === undefined) {
+        return EDGE_LABELS.festival_cobill ?? 'Festival co-lineup'
+      }
+      const noun = count === 1 ? 'festival' : 'festivals'
+      const headline = names
+        ? `${count} shared ${noun}: ${names}`
+        : `${count} shared ${noun}`
+      return year !== undefined ? `${headline} (last: ${year})` : headline
+    }
     default:
       return EDGE_LABELS[link.type] ?? link.type
   }
@@ -352,13 +370,15 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
     []
   )
 
-  // PSY-362: Stroke weight encoding per edge type.
+  // PSY-362 + PSY-363: Stroke weight encoding per edge type.
   //
   //   similar              — magnitude (Wilson similarity score). Scaled.
   //   shared_bills         — magnitude (recency-weighted shared-show count). Scaled.
   //   radio_cooccurrence   — magnitude (cross-station-weighted co-occurrence). Scaled.
   //   shared_label         — magnitude (count of shared labels, normalized to [0,1] in
   //                          the deriver, capped at 5+ shared labels = 1.0). Scaled.
+  //   festival_cobill      — magnitude (recency-weighted shared-festival count, capped at
+  //                          3+ shared festivals = 1.0 in the deriver). Scaled.
   //   side_project         — BINARY fact ("X is a side project of Y"). Intentionally uniform —
   //                          a side project either exists or does not, there is no magnitude.
   //   member_of            — BINARY fact ("X is a member of Y"). Intentionally uniform — same
@@ -370,6 +390,7 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
         case 'shared_bills':
         case 'shared_label':
         case 'radio_cooccurrence':
+        case 'festival_cobill':
           return Math.max(1, link.score * 3)
         case 'side_project':
         case 'member_of':
@@ -387,6 +408,10 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
       if (link.type === 'shared_label') return [5, 5]
       if (link.type === 'side_project' || link.type === 'member_of') return [2, 4]
       if (link.type === 'radio_cooccurrence') return [8, 3]
+      // PSY-363: long-dash pattern for festival_cobill. Color (vermillion)
+      // is sufficiently distinct under all 3 CVD types per the audit, but
+      // the dash provides redundant encoding (WCAG 2.2 §1.4.1).
+      if (link.type === 'festival_cobill') return [10, 4]
       return []
     },
     []
@@ -467,7 +492,12 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
               className="w-4 h-0.5 rounded-full"
               style={{
                 backgroundColor: EDGE_COLORS[type] || '#71717a',
-                borderStyle: type === 'shared_label' ? 'dashed' : type === 'side_project' || type === 'member_of' ? 'dotted' : 'solid',
+                borderStyle:
+                  type === 'shared_label' || type === 'festival_cobill'
+                    ? 'dashed'
+                    : type === 'side_project' || type === 'member_of'
+                      ? 'dotted'
+                      : 'solid',
               }}
             />
             <span className="text-muted-foreground">{EDGE_LABELS[type] || type}</span>
