@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useRef, useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { Loader2 } from 'lucide-react'
 import { useReducedMotion } from '../hooks/useReducedMotion'
@@ -179,10 +179,86 @@ interface ArtistGraphProps {
   data: ArtistGraphData
   activeTypes: Set<string>
   containerWidth: number
+  /**
+   * PSY-361: Re-center handler. Called when the user clicks a non-center
+   * node. The parent owns the traversal state + URL sync; this component
+   * just emits the click. Receives both id and slug so the parent doesn't
+   * need a separate slug→id resolution step on click.
+   */
+  onRecenter?: (node: { id: number; slug: string; name: string }) => void
+  /**
+   * PSY-361: When true, an overlay spinner is shown over the graph while
+   * the parent fetches the new center's payload. We deliberately do NOT
+   * unmount the canvas — that would cause the simulation-mid-tick stutter
+   * called out in the prior-art doc (§4.2). Instead we keep the previous
+   * frame visible behind the overlay so the transition feels continuous.
+   */
+  isRecentering?: boolean
 }
 
-export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: ArtistGraphProps) {
-  const router = useRouter()
+// PSY-361: Hover/long-press tooltip for non-center nodes. Extracted as its
+// own component so the "View artist page →" link can be unit-tested
+// independently of the canvas-based ForceGraph2D wrapper.
+//
+// Pointer-events grammar:
+//   - Outer wrapper: pointer-events-none — the tooltip is just a visual
+//     hint and must not steal hover/click events from the canvas
+//     underneath (otherwise the cursor sliding from a node onto the
+//     tooltip would dismiss the tooltip and break re-center clicks on
+//     adjacent nodes).
+//   - Link inside: pointer-events-auto — selectively re-enables the
+//     escape hatch to the full artist detail page. Works on desktop
+//     (hover surfaces tooltip, click goes through) and mobile
+//     (long-press surfaces tooltip per PSY-369 grammar, tap goes
+//     through).
+export interface ArtistNodeTooltipProps {
+  node: {
+    name: string
+    slug: string
+    city?: string
+    state?: string
+    upcoming_show_count: number
+  }
+  position: { x: number; y: number }
+}
+
+export function ArtistNodeTooltip({ node, position }: ArtistNodeTooltipProps) {
+  return (
+    <div
+      className="fixed z-50 px-3 py-2 text-xs rounded-md bg-popover border border-border shadow-lg text-popover-foreground pointer-events-none"
+      style={{
+        left: position.x + 12,
+        top: position.y - 10,
+      }}
+    >
+      <div className="font-medium text-sm">{node.name}</div>
+      {(node.city || node.state) && (
+        <div className="text-muted-foreground">
+          {[node.city, node.state].filter(Boolean).join(', ')}
+        </div>
+      )}
+      {node.upcoming_show_count > 0 && (
+        <div className="mt-1 text-green-400">
+          {node.upcoming_show_count} upcoming {node.upcoming_show_count === 1 ? 'show' : 'shows'}
+        </div>
+      )}
+      <Link
+        href={`/artists/${node.slug}`}
+        className="mt-1.5 inline-block text-primary hover:underline pointer-events-auto"
+      >
+        View artist page &rarr;
+      </Link>
+    </div>
+  )
+}
+
+export function ArtistGraphVisualization({
+  data,
+  activeTypes,
+  containerWidth,
+  onRecenter,
+  isRecentering = false,
+}: ArtistGraphProps) {
   const graphRef = useRef<any>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
   const containerRef = useRef<HTMLDivElement>(null)
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
@@ -294,11 +370,32 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
     }
   }, [reducedMotion])
 
+  // PSY-361: re-frame the viewport after each new center's data lands so
+  // the layout is properly centered + scaled. The 500ms transition is
+  // smooth without being sluggish; 40px padding matches the canvas border.
+  // Keyed on `data.center.id` so this fires once per re-center, not on
+  // every filter toggle (filter changes preserve framing intentionally).
+  useEffect(() => {
+    if (!graphRef.current) return
+    // Wait for the simulation to seat the nodes before measuring; without
+    // a delay the bounding box is computed before forces have moved
+    // anything, so the zoom-to-fit fires on stale positions.
+    const timer = setTimeout(() => {
+      graphRef.current?.zoomToFit(500, 40)
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [data.center.id])
+
+  // PSY-361: clicking a non-center node re-centers the graph instead of
+  // navigating to the artist's full page. The "View artist page →" link
+  // inside the hover/long-press tooltip is the explicit nav escape.
+  // Clicking the center node is a no-op — there's nothing to re-center to.
   const handleNodeClick = useCallback(
     (node: GraphNode) => {
-      router.push(`/artists/${node.slug}`)
+      if (node.isCenter) return
+      onRecenter?.({ id: node.id, slug: node.slug, name: node.name })
     },
-    [router]
+    [onRecenter]
   )
 
   const handleNodeHover = useCallback(
@@ -446,6 +543,10 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
         }}
         onNodeClick={handleNodeClick}
         onNodeHover={handleNodeHover}
+        // PSY-361 / PSY-369 spike: disable node drag to remove the
+        // tap-vs-drag ambiguity on touch devices. Tap = re-center,
+        // long-press = tooltip; nothing for drag to do.
+        enableNodeDrag={false}
         linkSource="source"
         linkTarget="target"
         linkColor={linkColor}
@@ -461,26 +562,24 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
         backgroundColor="transparent"
       />
 
-      {/* Tooltip */}
       {hoveredNode && !hoveredNode.isCenter && (
+        <ArtistNodeTooltip node={hoveredNode} position={tooltipPos} />
+      )}
+
+      {/* PSY-361: re-center loading overlay. Sits above the canvas without
+          unmounting it — the previous frame stays visible underneath so
+          the transition feels continuous. The simulation itself is paused
+          by the parent (it stops dispatching new graph data while the
+          query is in flight); we just visually attribute the wait. */}
+      {isRecentering && (
         <div
-          className="fixed z-50 px-3 py-2 text-xs rounded-md bg-popover border border-border shadow-lg text-popover-foreground pointer-events-none"
-          style={{
-            left: tooltipPos.x + 12,
-            top: tooltipPos.y - 10,
-          }}
+          className="absolute inset-0 z-40 flex items-center justify-center bg-background/40 backdrop-blur-[1px]"
+          aria-hidden="true"
         >
-          <div className="font-medium text-sm">{hoveredNode.name}</div>
-          {(hoveredNode.city || hoveredNode.state) && (
-            <div className="text-muted-foreground">
-              {[hoveredNode.city, hoveredNode.state].filter(Boolean).join(', ')}
-            </div>
-          )}
-          {hoveredNode.upcoming_show_count > 0 && (
-            <div className="mt-1 text-green-400">
-              {hoveredNode.upcoming_show_count} upcoming {hoveredNode.upcoming_show_count === 1 ? 'show' : 'shows'}
-            </div>
-          )}
+          <div className="flex items-center gap-2 px-3 py-2 text-xs rounded-md bg-popover border border-border shadow-md">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <span>Re-centering...</span>
+          </div>
         </div>
       )}
 
