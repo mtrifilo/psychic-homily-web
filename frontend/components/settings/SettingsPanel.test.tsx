@@ -93,6 +93,12 @@ vi.mock('@/components/settings/notification-settings', () => ({
   ),
 }))
 
+vi.mock('@/components/settings/reply-permission-settings', () => ({
+  ReplyPermissionSettings: () => (
+    <div data-testid="reply-permission-settings">ReplyPermissionSettings</div>
+  ),
+}))
+
 // --- Tests ---
 
 describe('SettingsPanel', () => {
@@ -134,6 +140,11 @@ describe('SettingsPanel', () => {
   it('renders NotificationSettings component', () => {
     renderWithProviders(<SettingsPanel />)
     expect(screen.getByTestId('notification-settings')).toBeInTheDocument()
+  })
+
+  it('renders ReplyPermissionSettings component', () => {
+    renderWithProviders(<SettingsPanel />)
+    expect(screen.getByTestId('reply-permission-settings')).toBeInTheDocument()
   })
 
   it('renders OAuthAccounts component', () => {
