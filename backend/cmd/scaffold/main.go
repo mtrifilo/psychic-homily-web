@@ -53,7 +53,7 @@ type EntityDef struct {
 	NameField *FieldDef // the "name" field if present
 
 	// Migration
-	MigrationNum string // e.g. "20260423143022" (UTC timestamp per docs/strategy/migrations.md)
+	MigrationNum string // e.g. "20260423143022" (UTC timestamp per docs/runbooks/migrations.md)
 }
 
 func main() {
@@ -109,7 +109,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Next migration version is a fresh UTC timestamp (see docs/strategy/migrations.md).
+	// Next migration version is a fresh UTC timestamp (see docs/runbooks/migrations.md).
 	migNum := nextMigrationVersion()
 
 	// Build entity definition
@@ -398,7 +398,7 @@ func detectProjectRoot() (string, error) {
 }
 
 // nextMigrationVersion returns a UTC timestamp suitable for a new migration
-// filename. Format: YYYYMMDDhhmmss. See docs/strategy/migrations.md for the
+// filename. Format: YYYYMMDDhhmmss. See docs/runbooks/migrations.md for the
 // versioning convention; existing sequential migrations (000001-000077) stay
 // as-is and coexist with timestamp versions in schema_migrations.
 func nextMigrationVersion() string {

@@ -486,7 +486,7 @@ describe('VenueDetail', () => {
 })
 
 // Replaces e2e: pages/venue-detail.spec.ts "shows tabs switch between upcoming and past"
-// (moved to a component test per PSY-472, audit doc docs/learnings/e2e-layer-5-audit.md item #2).
+// (moved to a component test per PSY-472, audit doc docs/research/e2e-layer-5-audit.md item #2).
 // Renders the real VenueShowsList (which owns the Upcoming/Past tabs) against real Radix Tabs
 // — the blanket ./VenueShowsList mock above is bypassed via vi.importActual so the rest of the
 // VenueDetail suite stays on the fast mocked path.

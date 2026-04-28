@@ -112,6 +112,12 @@ vi.mock('@/features/notifications', () => ({
   ),
 }))
 
+// PSY-364: ArtistDetail now mounts <BillComposition>, which fires its own fetch.
+// Stub it out so this suite doesn't need to set up bill-composition fixtures.
+vi.mock('./BillComposition', () => ({
+  BillComposition: () => null,
+}))
+
 vi.mock('@/components/shared', async () => {
   // Import the real Tabs so that the TabsContent children passed to
   // EntityDetailLayout have a provider in scope.
@@ -585,7 +591,7 @@ describe('ArtistDetail', () => {
 })
 
 // Replaces e2e: pages/artist-detail.spec.ts "shows tabs switch between upcoming and past"
-// (moved to a component test per PSY-472, audit doc docs/learnings/e2e-layer-5-audit.md item #2).
+// (moved to a component test per PSY-472, audit doc docs/research/e2e-layer-5-audit.md item #2).
 // Renders the real ArtistShowsList (which owns the Upcoming/Past tabs) against real Radix Tabs
 // — the blanket ./ArtistShowsList mock above is bypassed via vi.importActual so the rest of the
 // ArtistDetail suite stays on the fast mocked path.

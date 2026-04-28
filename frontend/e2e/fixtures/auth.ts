@@ -35,7 +35,7 @@ const AUTH_DIR = path.resolve(__dirname, '../.auth')
  * Playwright retries. Worker-scoped `workerCleanup` does not cover this
  * case — it only runs at worker teardown, so a test that fails partway
  * through on retry N finds leftover state from retry N-1 still in the
- * DB. See docs/strategy/e2e-testing.md for when to opt in.
+ * DB. See docs/runbooks/e2e-testing.md for when to opt in.
  *
  * `adminPage` remains a single shared admin — admin tests are rare and
  * low-race-risk.

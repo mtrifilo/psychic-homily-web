@@ -79,6 +79,40 @@ func (h *ArtistRelationshipHandler) GetArtistGraphHandler(ctx context.Context, r
 	return resp, nil
 }
 
+// ============================================================================
+// Get Artist Bill Composition (PSY-364, public)
+// ============================================================================
+
+type GetArtistBillCompositionRequest struct {
+	ArtistID string `path:"artist_id" doc:"Artist ID" example:"1"`
+	Months   int    `query:"months" required:"false" doc:"Time window in months (0 = all-time, max 24)"`
+}
+
+type GetArtistBillCompositionResponse struct {
+	Body contracts.ArtistBillComposition
+}
+
+func (h *ArtistRelationshipHandler) GetArtistBillCompositionHandler(ctx context.Context, req *GetArtistBillCompositionRequest) (*GetArtistBillCompositionResponse, error) {
+	id, err := strconv.ParseUint(req.ArtistID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid artist ID")
+	}
+
+	if req.Months < 0 {
+		return nil, huma.Error400BadRequest("months must be >= 0")
+	}
+
+	bc, err := h.relService.GetArtistBillComposition(uint(id), req.Months)
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "artist not found") {
+			return nil, huma.Error404NotFound("Artist not found")
+		}
+		return nil, huma.Error500InternalServerError("Failed to get bill composition")
+	}
+
+	return &GetArtistBillCompositionResponse{Body: *bc}, nil
+}
+
 // splitAndTrim splits a comma-separated string and trims whitespace from each element.
 func splitAndTrim(s string) []string {
 	parts := make([]string, 0)
