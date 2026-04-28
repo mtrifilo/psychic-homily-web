@@ -24,6 +24,9 @@ const baseCollection: Collection = {
   title: 'Arizona Indie Essentials',
   slug: 'arizona-indie-essentials',
   description: 'The best indie bands from AZ',
+  // PSY-349: server provides server-rendered + sanitized HTML alongside raw
+  // markdown. Tests use realistic <p>-wrapped output that goldmark would emit.
+  description_html: '<p>The best indie bands from AZ</p>',
   is_public: true,
   collaborative: false,
   is_featured: false,
@@ -53,7 +56,14 @@ describe('CollectionCard', () => {
   })
 
   it('does not render description when absent', () => {
-    const collection = { ...baseCollection, description: null as unknown as string }
+    // PSY-349: card renders description_html (server-sanitized), so an empty
+    // description_html means nothing is rendered even if `description` has
+    // legacy raw content.
+    const collection = {
+      ...baseCollection,
+      description: '',
+      description_html: '',
+    }
     render(<CollectionCard collection={collection} />)
 
     expect(screen.queryByText('The best indie bands from AZ')).not.toBeInTheDocument()

@@ -1,5 +1,13 @@
 // Collection types — aligned with backend contracts/collection.go response types.
 
+/**
+ * Maximum length, in characters, for collection description and per-item notes.
+ * Mirrors backend `contracts.MaxCollectionDescriptionLength` /
+ * `MaxCollectionItemNotesLength`, both aliased to `models.MaxCommentBodyLength`.
+ * Update both sides together if the comment limit ever changes (PSY-349).
+ */
+export const MAX_COLLECTION_MARKDOWN_LENGTH = 10000
+
 export const COLLECTION_ENTITY_TYPES = [
   'artist',
   'release',
@@ -11,12 +19,21 @@ export const COLLECTION_ENTITY_TYPES = [
 
 export type CollectionEntityType = (typeof COLLECTION_ENTITY_TYPES)[number]
 
-/** Collection list item (returned by list endpoints, without items array) */
+/**
+ * Collection list item (returned by list endpoints, without items array).
+ *
+ * `description` is the raw markdown source (used to re-populate the editor on
+ * Edit). `description_html` is the server-rendered + sanitized HTML produced
+ * by goldmark + bluemonday — same allowlist as comments and field notes.
+ * Render `description_html` with `dangerouslySetInnerHTML` for display; never
+ * render `description` raw (it may contain markdown markers but is safe text).
+ */
 export interface Collection {
   id: number
   title: string
   slug: string
   description: string
+  description_html?: string
   creator_id: number
   creator_name: string
   collaborative: boolean
@@ -37,7 +54,13 @@ export interface CollectionDetail extends Collection {
   is_subscribed: boolean
 }
 
-/** A single item within a collection */
+/**
+ * A single item within a collection.
+ *
+ * `notes` is the raw markdown source. `notes_html` is the server-rendered +
+ * sanitized HTML for display. Render via `dangerouslySetInnerHTML`; the
+ * sanitizer strips <script>, raw HTML, images, etc. (same policy as comments).
+ */
 export interface CollectionItem {
   id: number
   entity_type: string
@@ -48,6 +71,7 @@ export interface CollectionItem {
   added_by_user_id: number
   added_by_name: string
   notes?: string | null
+  notes_html?: string
   created_at: string
 }
 
