@@ -85,7 +85,7 @@ fi
 
 # PSY-414: seed reference data (radio stations/shows, etc.) via the Go seed
 # CLI. The canonical source is backend/internal/seeddata/; this replaces
-# data-only migrations (see docs/strategy/migrations.md). cmd/seed is
+# data-only migrations (see docs/runbooks/migrations.md). cmd/seed is
 # idempotent — re-running against an already-seeded DB is a no-op.
 echo "🌱 Seeding stage reference data..."
 if command -v go >/dev/null 2>&1; then

@@ -43,9 +43,10 @@ type handlerIntegrationDeps struct {
 	festivalService       *catalog.FestivalService
 	labelService          *catalog.LabelService
 	releaseService        *catalog.ReleaseService
-	collectionService     *services.CollectionService
-	requestService        *services.RequestService
-	tagService            *catalog.TagService
+	collectionService          *services.CollectionService
+	requestService             *services.RequestService
+	tagService                 *catalog.TagService
+	artistRelationshipService  *catalog.ArtistRelationshipService
 }
 
 func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
@@ -79,9 +80,10 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		festivalService:       catalog.NewFestivalService(db),
 		labelService:          catalog.NewLabelService(db),
 		releaseService:        catalog.NewReleaseService(db),
-		collectionService:     services.NewCollectionService(db),
-		requestService:        services.NewRequestService(db),
-		tagService:            catalog.NewTagService(db),
+		collectionService:         services.NewCollectionService(db),
+		requestService:            services.NewRequestService(db),
+		tagService:                catalog.NewTagService(db),
+		artistRelationshipService: catalog.NewArtistRelationshipService(db),
 	}
 
 	return deps

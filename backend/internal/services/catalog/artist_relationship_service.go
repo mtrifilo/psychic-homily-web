@@ -489,6 +489,370 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 }
 
 // ──────────────────────────────────────────────
+// Bill composition (PSY-364)
+// ──────────────────────────────────────────────
+
+const (
+	billCompositionMinShows  = 3  // hide section entirely below this many shows
+	billCompositionTopRows   = 10 // top N for opens-with / closes-with tables
+	billCompositionMaxNodes  = 30 // mini-graph node cap (matches GetArtistGraph)
+	billCompositionMaxMonths = 24 // bound on time filter
+)
+
+// billStatsRow is the shape of the stats query.
+type billStatsRow struct {
+	TotalShows     int
+	HeadlinerCount int
+	OpenerCount    int
+}
+
+// billCoBillRow is the shape of the co-bill aggregation query, one row per
+// (co-artist, role pair).
+type billCoBillRow struct {
+	CoArtistID  uint
+	ARole       string // 'headliner' | 'opener'
+	CoRole      string
+	SharedCount int
+	LastShared  time.Time
+}
+
+// GetArtistBillComposition returns an artist's bill-slot stats and top co-bill artists,
+// optionally filtered to the last `months` months (months=0 means all-time).
+//
+// The endpoint mirrors the shape of GetArtistGraph but is derived live from show_artists
+// rather than the stored ArtistRelationship rows — bill-slot data isn't a stored relationship
+// type. is_headliner is derived (position = 0 OR set_type = 'headliner') consistent with
+// the rest of the codebase (see discovery.go logic).
+func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, months int) (*contracts.ArtistBillComposition, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	if months < 0 {
+		months = 0
+	}
+	if months > billCompositionMaxMonths {
+		months = billCompositionMaxMonths
+	}
+
+	// 1. Center artist
+	var centerArtist models.Artist
+	if err := s.db.First(&centerArtist, artistID).Error; err != nil {
+		return nil, fmt.Errorf("artist not found: %w", err)
+	}
+
+	centerNode := buildArtistGraphNode(centerArtist, 0)
+
+	result := &contracts.ArtistBillComposition{
+		Artist:           centerNode,
+		Stats:            contracts.BillStats{},
+		OpensWith:        []contracts.BillCoArtist{},
+		ClosesWith:       []contracts.BillCoArtist{},
+		Graph:            contracts.ArtistGraph{Center: centerNode, Nodes: []contracts.ArtistGraphNode{}, Links: []contracts.ArtistGraphLink{}},
+		TimeFilterMonths: months,
+	}
+
+	// 2. Stats query — counts headliner vs opener slots over the time window.
+	statsSQL := `
+		SELECT
+			COUNT(DISTINCT sa.show_id) AS total_shows,
+			COALESCE(SUM(CASE WHEN (sa.position = 0 OR sa.set_type = 'headliner') THEN 1 ELSE 0 END), 0) AS headliner_count,
+			COALESCE(SUM(CASE WHEN NOT (sa.position = 0 OR sa.set_type = 'headliner') THEN 1 ELSE 0 END), 0) AS opener_count
+		FROM show_artists sa
+		JOIN shows s ON s.id = sa.show_id
+		WHERE sa.artist_id = ? AND s.status = 'approved'
+		  AND (? = 0 OR s.event_date >= NOW() - make_interval(months => ?))
+	`
+
+	var statsRow billStatsRow
+	if err := s.db.Raw(statsSQL, artistID, months, months).Scan(&statsRow).Error; err != nil {
+		return nil, fmt.Errorf("failed to query bill stats: %w", err)
+	}
+
+	result.Stats = contracts.BillStats{
+		TotalShows:     statsRow.TotalShows,
+		HeadlinerCount: statsRow.HeadlinerCount,
+		OpenerCount:    statsRow.OpenerCount,
+	}
+
+	// Below-threshold short-circuit: stats are populated, everything else stays empty.
+	if statsRow.TotalShows < billCompositionMinShows {
+		result.BelowThreshold = true
+		return result, nil
+	}
+
+	// 3. Co-bill aggregation — one row per (co-artist, A's role, co's role).
+	coBillSQL := `
+		SELECT
+			sa2.artist_id AS co_artist_id,
+			CASE WHEN (sa1.position = 0 OR sa1.set_type = 'headliner') THEN 'headliner' ELSE 'opener' END AS a_role,
+			CASE WHEN (sa2.position = 0 OR sa2.set_type = 'headliner') THEN 'headliner' ELSE 'opener' END AS co_role,
+			COUNT(DISTINCT sa1.show_id) AS shared_count,
+			MAX(s.event_date) AS last_shared
+		FROM show_artists sa1
+		JOIN show_artists sa2 ON sa2.show_id = sa1.show_id AND sa2.artist_id != sa1.artist_id
+		JOIN shows s ON s.id = sa1.show_id
+		WHERE sa1.artist_id = ? AND s.status = 'approved'
+		  AND (? = 0 OR s.event_date >= NOW() - make_interval(months => ?))
+		GROUP BY sa2.artist_id, a_role, co_role
+		ORDER BY shared_count DESC
+	`
+
+	var coBillRows []billCoBillRow
+	if err := s.db.Raw(coBillSQL, artistID, months, months).Scan(&coBillRows).Error; err != nil {
+		return nil, fmt.Errorf("failed to query co-bills: %w", err)
+	}
+
+	if len(coBillRows) == 0 {
+		return result, nil
+	}
+
+	// 4. Bucket rows + collect unique co-artist IDs (ordered by best shared_count first).
+	opensWithBest := make(map[uint]*opensClosesEntry)  // co_role='opener', a_role='headliner'
+	closesWithBest := make(map[uint]*opensClosesEntry) // co_role='headliner', a_role='opener'
+
+	graphLinkAgg := make(map[uint]struct {
+		count int
+		last  time.Time
+	}) // per co-artist, total shared count for the mini-graph
+	graphOrder := make([]uint, 0, len(coBillRows))
+	graphSeen := make(map[uint]bool)
+
+	for _, r := range coBillRows {
+		// Tables: only asymmetric pairs.
+		if r.ARole == "headliner" && r.CoRole == "opener" {
+			if cur, ok := opensWithBest[r.CoArtistID]; !ok || r.SharedCount > cur.sharedCount {
+				opensWithBest[r.CoArtistID] = &opensClosesEntry{coID: r.CoArtistID, sharedCount: r.SharedCount, lastShared: r.LastShared}
+			}
+		} else if r.ARole == "opener" && r.CoRole == "headliner" {
+			if cur, ok := closesWithBest[r.CoArtistID]; !ok || r.SharedCount > cur.sharedCount {
+				closesWithBest[r.CoArtistID] = &opensClosesEntry{coID: r.CoArtistID, sharedCount: r.SharedCount, lastShared: r.LastShared}
+			}
+		}
+
+		// Graph: include every role-pair, summed.
+		agg := graphLinkAgg[r.CoArtistID]
+		agg.count += r.SharedCount
+		if r.LastShared.After(agg.last) {
+			agg.last = r.LastShared
+		}
+		graphLinkAgg[r.CoArtistID] = agg
+
+		if !graphSeen[r.CoArtistID] {
+			graphSeen[r.CoArtistID] = true
+			graphOrder = append(graphOrder, r.CoArtistID)
+		}
+	}
+
+	// 5. Cap graph to top N by total shared_count.
+	graphIDs := make([]uint, 0, billCompositionMaxNodes)
+	{
+		sorted := make([]uint, len(graphOrder))
+		copy(sorted, graphOrder)
+		// Sort by count desc; ties keep insertion order (already by SharedCount desc from SQL).
+		for i := 1; i < len(sorted); i++ {
+			for j := i; j > 0 && graphLinkAgg[sorted[j]].count > graphLinkAgg[sorted[j-1]].count; j-- {
+				sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
+			}
+		}
+		if len(sorted) > billCompositionMaxNodes {
+			sorted = sorted[:billCompositionMaxNodes]
+		}
+		graphIDs = sorted
+	}
+
+	// 6. Fetch co-artist details + upcoming-show counts for the union of all referenced IDs.
+	relevantIDs := make(map[uint]bool, len(graphIDs)+len(opensWithBest)+len(closesWithBest))
+	for _, id := range graphIDs {
+		relevantIDs[id] = true
+	}
+	for id := range opensWithBest {
+		relevantIDs[id] = true
+	}
+	for id := range closesWithBest {
+		relevantIDs[id] = true
+	}
+
+	idList := make([]uint, 0, len(relevantIDs))
+	for id := range relevantIDs {
+		idList = append(idList, id)
+	}
+
+	var coArtists []models.Artist
+	if err := s.db.Where("id IN ?", idList).Find(&coArtists).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch co-artist details: %w", err)
+	}
+
+	artistByID := make(map[uint]models.Artist, len(coArtists))
+	for _, a := range coArtists {
+		artistByID[a.ID] = a
+	}
+
+	// Upcoming-show counts batched (mirrors GetArtistGraph:372–388).
+	type showCountRow struct {
+		ArtistID  uint
+		ShowCount int64
+	}
+	var showCounts []showCountRow
+	s.db.Table("show_artists").
+		Select("show_artists.artist_id, COUNT(DISTINCT shows.id) as show_count").
+		Joins("JOIN shows ON shows.id = show_artists.show_id").
+		Where("show_artists.artist_id IN ? AND shows.status = 'approved' AND shows.event_date > NOW()", idList).
+		Group("show_artists.artist_id").
+		Scan(&showCounts)
+	upcomingByID := make(map[uint]int, len(showCounts))
+	for _, sc := range showCounts {
+		upcomingByID[sc.ArtistID] = int(sc.ShowCount)
+	}
+
+	// 7. Build OpensWith and ClosesWith lists, top N each.
+	result.OpensWith = sortAndCapCoArtists(opensWithBest, artistByID, upcomingByID, billCompositionTopRows)
+	result.ClosesWith = sortAndCapCoArtists(closesWithBest, artistByID, upcomingByID, billCompositionTopRows)
+
+	// 8. Build mini-graph nodes + links (center → co-artist as shared_bills).
+	for _, id := range graphIDs {
+		a, ok := artistByID[id]
+		if !ok {
+			continue
+		}
+		result.Graph.Nodes = append(result.Graph.Nodes, buildArtistGraphNode(a, upcomingByID[id]))
+
+		agg := graphLinkAgg[id]
+		score := math.Min(float64(agg.count)/10.0, 1.0)
+		detail := map[string]interface{}{
+			"shared_count": agg.count,
+			"last_shared":  agg.last.Format("2006-01-02"),
+		}
+		result.Graph.Links = append(result.Graph.Links, contracts.ArtistGraphLink{
+			SourceID: artistID,
+			TargetID: id,
+			Type:     models.RelationshipTypeSharedBills,
+			Score:    score,
+			Detail:   detail,
+		})
+	}
+
+	// 9. Cross-connections: shared_bills among the top graph artists, derived live
+	//    from show_artists (parallels DeriveSharedBills but scoped to a fixed ID set).
+	if len(graphIDs) > 1 {
+		crossSQL := `
+			SELECT
+				sa1.artist_id AS artist_a,
+				sa2.artist_id AS artist_b,
+				COUNT(DISTINCT sa1.show_id) AS shared_count,
+				MAX(s.event_date) AS last_shared
+			FROM show_artists sa1
+			JOIN show_artists sa2 ON sa1.show_id = sa2.show_id AND sa1.artist_id < sa2.artist_id
+			JOIN shows s ON s.id = sa1.show_id
+			WHERE sa1.artist_id IN ? AND sa2.artist_id IN ? AND s.status = 'approved'
+			  AND (? = 0 OR s.event_date >= NOW() - make_interval(months => ?))
+			GROUP BY sa1.artist_id, sa2.artist_id
+			HAVING COUNT(DISTINCT sa1.show_id) >= 1
+		`
+		var crossRows []sharedBillRow
+		if err := s.db.Raw(crossSQL, graphIDs, graphIDs, months, months).Scan(&crossRows).Error; err == nil {
+			for _, r := range crossRows {
+				score := math.Min(float64(r.SharedCount)/10.0, 1.0)
+				detail := map[string]interface{}{
+					"shared_count": r.SharedCount,
+					"last_shared":  r.LastShared.Format("2006-01-02"),
+				}
+				result.Graph.Links = append(result.Graph.Links, contracts.ArtistGraphLink{
+					SourceID: r.ArtistA,
+					TargetID: r.ArtistB,
+					Type:     models.RelationshipTypeSharedBills,
+					Score:    score,
+					Detail:   detail,
+				})
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// buildArtistGraphNode constructs the standard ArtistGraphNode from a model + a precomputed
+// upcoming-show count (callers are responsible for the count query so they can batch it).
+func buildArtistGraphNode(a models.Artist, upcomingShowCount int) contracts.ArtistGraphNode {
+	slug := ""
+	if a.Slug != nil {
+		slug = *a.Slug
+	}
+	city := ""
+	if a.City != nil {
+		city = *a.City
+	}
+	state := ""
+	if a.State != nil {
+		state = *a.State
+	}
+	return contracts.ArtistGraphNode{
+		ID:                a.ID,
+		Name:              a.Name,
+		Slug:              slug,
+		City:              city,
+		State:             state,
+		UpcomingShowCount: upcomingShowCount,
+	}
+}
+
+// sortAndCapCoArtists turns a map of best-per-co-artist entries into a sorted top-N list
+// of BillCoArtist rows. Sort key: shared_count desc, then last_shared desc.
+func sortAndCapCoArtists(
+	best map[uint]*opensClosesEntry,
+	artistByID map[uint]models.Artist,
+	upcomingByID map[uint]int,
+	cap int,
+) []contracts.BillCoArtist {
+	if len(best) == 0 {
+		return []contracts.BillCoArtist{}
+	}
+
+	entries := make([]*opensClosesEntry, 0, len(best))
+	for _, e := range best {
+		entries = append(entries, e)
+	}
+
+	// Insertion sort — small N (<=30 distinct co-artists); avoids a sort.Slice import.
+	for i := 1; i < len(entries); i++ {
+		for j := i; j > 0; j-- {
+			a, b := entries[j], entries[j-1]
+			better := a.sharedCount > b.sharedCount || (a.sharedCount == b.sharedCount && a.lastShared.After(b.lastShared))
+			if !better {
+				break
+			}
+			entries[j], entries[j-1] = b, a
+		}
+	}
+
+	if len(entries) > cap {
+		entries = entries[:cap]
+	}
+
+	out := make([]contracts.BillCoArtist, 0, len(entries))
+	for _, e := range entries {
+		a, ok := artistByID[e.coID]
+		if !ok {
+			continue
+		}
+		out = append(out, contracts.BillCoArtist{
+			Artist:      buildArtistGraphNode(a, upcomingByID[e.coID]),
+			SharedCount: e.sharedCount,
+			LastShared:  e.lastShared.Format("2006-01-02"),
+		})
+	}
+	return out
+}
+
+// opensClosesEntry is one (co-artist, best shared_count, last_shared) row used
+// internally by GetArtistBillComposition + sortAndCapCoArtists.
+type opensClosesEntry struct {
+	coID        uint
+	sharedCount int
+	lastShared  time.Time
+}
+
+// ──────────────────────────────────────────────
 // Auto-derivation
 // ──────────────────────────────────────────────
 

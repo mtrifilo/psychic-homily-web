@@ -30,7 +30,7 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
 // and Tritanopia transformation matrices using a 30-unit RGB Euclidean threshold. All 15
 // pairs pass the threshold under all 3 vision types. Closest pair under any simulator is
 // shared_bills vs radio_cooccurrence at d=35.3 (protanopia), which is also dash-differentiated
-// (solid vs dashed-8-3) for redundancy. Full audit: docs/learnings/graph-colorblind-audit.md.
+// (solid vs dashed-8-3) for redundancy. Full audit: docs/research/graph-colorblind-audit.md.
 //
 // WCAG 2.2 §1.4.1 ("Use of Color"): we never rely on color alone — every edge type has a
 // dash pattern (solid / dashed / dotted) and many also have weight scaling, so information

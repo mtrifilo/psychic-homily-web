@@ -43,5 +43,5 @@ test.describe('Venue detail', () => {
 
   // "shows tabs switch between upcoming and past" moved to a component test
   // in features/venues/components/VenueDetail.test.tsx per PSY-472.
-  // See docs/learnings/e2e-layer-5-audit.md item #2.
+  // See docs/research/e2e-layer-5-audit.md item #2.
 })

@@ -43,6 +43,7 @@ import { CommentThread } from '@/features/comments'
 import { NotifyMeButton } from '@/features/notifications'
 import { ArtistShowsList } from './ArtistShowsList'
 import { RelatedArtists } from './RelatedArtists'
+import { BillComposition } from './BillComposition'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -1039,6 +1040,9 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           <LabelsTab artistIdOrSlug={artistId} />
         </TabsContent>
       </EntityDetailLayout>
+
+      {/* Bill Composition (PSY-364) */}
+      <BillComposition artistId={artist.id} />
 
       {/* Related Artists */}
       <RelatedArtists artistId={artist.id} artistSlug={artist.slug} />
