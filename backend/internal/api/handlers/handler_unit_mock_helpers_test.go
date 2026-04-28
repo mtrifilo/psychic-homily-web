@@ -669,6 +669,7 @@ func (m *mockChartsService) GetChartsOverview() (*contracts.ChartsOverview, erro
 
 type mockCollectionService struct {
 	createCollectionFn func(uint, *contracts.CreateCollectionRequest) (*contracts.CollectionDetailResponse, error)
+	cloneCollectionFn func(string, uint) (*contracts.CollectionDetailResponse, error)
 	getBySlugFn func(string, uint) (*contracts.CollectionDetailResponse, error)
 	listCollectionsFn func(contracts.CollectionFilters, int, int) ([]*contracts.CollectionListResponse, int64, error)
 	updateCollectionFn func(string, uint, bool, *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, error)
@@ -691,6 +692,12 @@ type mockCollectionService struct {
 func (m *mockCollectionService) CreateCollection(creatorID uint, req *contracts.CreateCollectionRequest) (*contracts.CollectionDetailResponse, error) {
 	if m.createCollectionFn != nil {
 		return m.createCollectionFn(creatorID, req)
+	}
+	return nil, nil
+}
+func (m *mockCollectionService) CloneCollection(srcSlug string, callerID uint) (*contracts.CollectionDetailResponse, error) {
+	if m.cloneCollectionFn != nil {
+		return m.cloneCollectionFn(srcSlug, callerID)
 	}
 	return nil, nil
 }

@@ -153,6 +153,38 @@ export function useUpdateCollection() {
   })
 }
 
+/**
+ * Clone (fork) an existing collection. PSY-351.
+ *
+ * The new collection is owned by the authenticated caller, copies the
+ * source's items + notes + positions, and carries `forked_from_collection_id`
+ * back to the source so the detail page can render inline attribution.
+ */
+export function useCloneCollection() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ slug }: { slug: string }) =>
+      apiRequest<CollectionDetail>(API_ENDPOINTS.COLLECTIONS.CLONE(slug), {
+        method: 'POST',
+      }),
+    onSuccess: (newCollection, variables) => {
+      // The original collection's `forks_count` just incremented; the
+      // user's collection list gained an entry.
+      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.collections.my })
+      // Source detail (if cached) needs the bumped forks_count.
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.collections.detail(variables.slug),
+      })
+      // Pre-warm the new collection in cache so navigation is instant.
+      queryClient.setQueryData(
+        queryKeys.collections.detail(newCollection.slug),
+        newCollection
+      )
+    },
+  })
+}
+
 /** Delete a collection */
 export function useDeleteCollection() {
   const queryClient = useQueryClient()

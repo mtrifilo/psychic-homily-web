@@ -258,6 +258,8 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/collections/${slug}/items/reorder`,
     SUBSCRIBE: (slug: string) => `${API_BASE_URL}/collections/${slug}/subscribe`,
     FEATURE: (slug: string) => `${API_BASE_URL}/collections/${slug}/feature`,
+    // PSY-351: clone/fork an existing public collection.
+    CLONE: (slug: string) => `${API_BASE_URL}/collections/${slug}/clone`,
     MY: `${API_BASE_URL}/auth/collections`,
     ENTITY: (entityType: string, entityId: number) =>
       `${API_BASE_URL}/collections/entity/${entityType}/${entityId}`,

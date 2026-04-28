@@ -11,6 +11,20 @@ export const COLLECTION_ENTITY_TYPES = [
 
 export type CollectionEntityType = (typeof COLLECTION_ENTITY_TYPES)[number]
 
+/**
+ * Minimal source-collection snapshot returned alongside a forked
+ * collection so the frontend can render inline attribution. Always nil
+ * when the source has been deleted (FK was set to NULL by ON DELETE
+ * SET NULL on the backend). PSY-351.
+ */
+export interface ForkedFromInfo {
+  id: number
+  title: string
+  slug: string
+  creator_id: number
+  creator_name: string
+}
+
 /** Collection list item (returned by list endpoints, without items array) */
 export interface Collection {
   id: number
@@ -26,6 +40,13 @@ export interface Collection {
   item_count: number
   subscriber_count: number
   contributor_count: number
+  /** Public fork count — number of collections that cloned this one. PSY-351. */
+  forks_count: number
+  /**
+   * Set when this collection was created via clone. May be set even when
+   * `forked_from` is absent (the source was deleted post-fork). PSY-351.
+   */
+  forked_from_collection_id?: number | null
   entity_type_counts?: Record<string, number> | null
   created_at: string
   updated_at: string
@@ -35,6 +56,11 @@ export interface Collection {
 export interface CollectionDetail extends Collection {
   items: CollectionItem[]
   is_subscribed: boolean
+  /**
+   * Source-collection snapshot for inline attribution. Absent when the
+   * collection wasn't forked OR when the source was deleted. PSY-351.
+   */
+  forked_from?: ForkedFromInfo | null
 }
 
 /** A single item within a collection */

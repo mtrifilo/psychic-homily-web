@@ -700,11 +700,14 @@ func setupCollectionRoutes(rc RouteContext) {
 	huma.Post(rc.Protected, "/collections", collectionHandler.CreateCollectionHandler)
 	huma.Put(rc.Protected, "/collections/{slug}", collectionHandler.UpdateCollectionHandler)
 	huma.Delete(rc.Protected, "/collections/{slug}", collectionHandler.DeleteCollectionHandler)
+	// Clone/fork (PSY-351). Auth required, no trust-tier gate.
+	huma.Post(rc.Protected, "/collections/{slug}/clone", collectionHandler.CloneCollectionHandler)
 
 	// Protected collection endpoints — legacy /crates/ paths (backward compat)
 	huma.Post(rc.Protected, "/crates", collectionHandler.CreateCollectionHandler)
 	huma.Put(rc.Protected, "/crates/{slug}", collectionHandler.UpdateCollectionHandler)
 	huma.Delete(rc.Protected, "/crates/{slug}", collectionHandler.DeleteCollectionHandler)
+	huma.Post(rc.Protected, "/crates/{slug}/clone", collectionHandler.CloneCollectionHandler)
 
 	// Collection item management — canonical /collections/ paths
 	huma.Post(rc.Protected, "/collections/{slug}/items", collectionHandler.AddItemHandler)
