@@ -871,6 +871,7 @@ func setupArtistRelationshipRoutes(rc RouteContext) {
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))
 	huma.Get(optionalAuthGroup, "/artists/{artist_id}/related", relHandler.GetRelatedArtistsHandler)
 	huma.Get(optionalAuthGroup, "/artists/{artist_id}/graph", relHandler.GetArtistGraphHandler)
+	huma.Get(optionalAuthGroup, "/artists/{artist_id}/bill-composition", relHandler.GetArtistBillCompositionHandler)
 
 	// Protected: create relationships and vote
 	huma.Post(rc.Protected, "/artists/relationships", relHandler.CreateRelationshipHandler)

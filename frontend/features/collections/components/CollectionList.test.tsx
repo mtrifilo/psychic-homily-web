@@ -127,6 +127,7 @@ function makeCollection(overrides: Partial<Collection> = {}): Collection {
     collaborative: false,
     is_public: true,
     is_featured: false,
+    display_mode: 'unranked',
     item_count: 5,
     subscriber_count: 3,
     contributor_count: 1,

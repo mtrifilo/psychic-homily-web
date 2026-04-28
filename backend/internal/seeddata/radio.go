@@ -11,7 +11,7 @@
 // The goal is one source of truth for seed data so the drift that caused
 // PSY-385 (radio seed split across the migration + the Go seed CLI) cannot
 // repeat. New radio stations and shows are added here, not in new SQL
-// migrations. See docs/strategy/migrations.md for the full rule.
+// migrations. See docs/runbooks/migrations.md for the full rule.
 package seeddata
 
 // RadioStation is the canonical description of a radio station to seed.

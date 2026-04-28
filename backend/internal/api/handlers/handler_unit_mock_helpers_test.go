@@ -174,6 +174,7 @@ type mockArtistRelationshipService struct {
 	getRelatedArtistsFn func(uint, string, int) ([]contracts.RelatedArtistResponse, error)
 	deleteRelationshipFn func(uint, uint, string) (error)
 	getArtistGraphFn func(uint, []string, uint) (*contracts.ArtistGraph, error)
+	getArtistBillCompositionFn func(uint, int) (*contracts.ArtistBillComposition, error)
 	voteFn func(uint, uint, string, uint, bool) (error)
 	removeVoteFn func(uint, uint, string, uint) (error)
 	getUserVoteFn func(uint, uint, string, uint) (*models.ArtistRelationshipVote, error)
@@ -208,6 +209,12 @@ func (m *mockArtistRelationshipService) DeleteRelationship(artistA uint, artistB
 func (m *mockArtistRelationshipService) GetArtistGraph(artistID uint, types []string, userID uint) (*contracts.ArtistGraph, error) {
 	if m.getArtistGraphFn != nil {
 		return m.getArtistGraphFn(artistID, types, userID)
+	}
+	return nil, nil
+}
+func (m *mockArtistRelationshipService) GetArtistBillComposition(artistID uint, months int) (*contracts.ArtistBillComposition, error) {
+	if m.getArtistBillCompositionFn != nil {
+		return m.getArtistBillCompositionFn(artistID, months)
 	}
 	return nil, nil
 }

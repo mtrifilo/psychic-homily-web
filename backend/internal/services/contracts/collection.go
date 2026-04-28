@@ -13,6 +13,7 @@ type CreateCollectionRequest struct {
 	Collaborative bool    `json:"collaborative"`
 	CoverImageURL *string `json:"cover_image_url"`
 	IsPublic      bool    `json:"is_public"`
+	DisplayMode   *string `json:"display_mode"`
 }
 
 // UpdateCollectionRequest represents the data that can be updated on a collection
@@ -22,6 +23,7 @@ type UpdateCollectionRequest struct {
 	Collaborative *bool   `json:"collaborative"`
 	CoverImageURL *string `json:"cover_image_url"`
 	IsPublic      *bool   `json:"is_public"`
+	DisplayMode   *string `json:"display_mode"`
 }
 
 // AddCollectionItemRequest represents the data needed to add an item to a collection
@@ -63,6 +65,7 @@ type CollectionDetailResponse struct {
 	CoverImageURL    *string                  `json:"cover_image_url"`
 	IsPublic         bool                     `json:"is_public"`
 	IsFeatured       bool                     `json:"is_featured"`
+	DisplayMode      string                   `json:"display_mode"`
 	ItemCount        int                      `json:"item_count"`
 	SubscriberCount  int                      `json:"subscriber_count"`
 	ContributorCount int                      `json:"contributor_count"`
@@ -107,6 +110,7 @@ type CollectionListResponse struct {
 	CoverImageURL    *string        `json:"cover_image_url"`
 	IsPublic         bool           `json:"is_public"`
 	IsFeatured       bool           `json:"is_featured"`
+	DisplayMode      string         `json:"display_mode"`
 	ItemCount        int            `json:"item_count"`
 	SubscriberCount  int            `json:"subscriber_count"`
 	ContributorCount int            `json:"contributor_count"`

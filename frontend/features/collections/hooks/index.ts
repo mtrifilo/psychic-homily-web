@@ -9,7 +9,12 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
-import type { Collection, CollectionDetail, CollectionStats } from '../types'
+import type {
+  Collection,
+  CollectionDetail,
+  CollectionDisplayMode,
+  CollectionStats,
+} from '../types'
 
 // ──────────────────────────────────────────────
 // Queries
@@ -113,6 +118,7 @@ export function useCreateCollection() {
       description?: string
       is_public: boolean
       collaborative: boolean
+      display_mode?: CollectionDisplayMode
     }) =>
       apiRequest<CollectionDetail>(API_ENDPOINTS.COLLECTIONS.LIST, {
         method: 'POST',
@@ -138,6 +144,7 @@ export function useUpdateCollection() {
       description?: string
       is_public?: boolean
       collaborative?: boolean
+      display_mode?: CollectionDisplayMode
     }) =>
       apiRequest<CollectionDetail>(API_ENDPOINTS.COLLECTIONS.DETAIL(slug), {
         method: 'PUT',

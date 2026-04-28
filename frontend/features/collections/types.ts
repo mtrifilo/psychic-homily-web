@@ -25,6 +25,14 @@ export interface ForkedFromInfo {
   creator_name: string
 }
 
+/**
+ * Display mode for a collection.
+ * - 'ranked'   → numbered positions, drag-to-reorder
+ * - 'unranked' → flat grid/list, no numbers (default)
+ */
+export const COLLECTION_DISPLAY_MODES = ['ranked', 'unranked'] as const
+export type CollectionDisplayMode = (typeof COLLECTION_DISPLAY_MODES)[number]
+
 /** Collection list item (returned by list endpoints, without items array) */
 export interface Collection {
   id: number
@@ -37,6 +45,7 @@ export interface Collection {
   cover_image_url?: string | null
   is_public: boolean
   is_featured: boolean
+  display_mode: CollectionDisplayMode
   item_count: number
   subscriber_count: number
   contributor_count: number

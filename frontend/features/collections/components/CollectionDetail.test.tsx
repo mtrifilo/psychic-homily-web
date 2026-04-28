@@ -62,6 +62,8 @@ const mockDeleteMutation = vi.fn(() => ({
   isError: false,
   error: null,
 }))
+const mockReorderMutate = vi.fn()
+const mockUpdateMutate = vi.fn()
 // PSY-351: clone mutation mock — `mutate` invokes the success callback
 // directly so we can assert the post-clone navigation deterministically
 // without spinning up a real React Query client.
@@ -76,7 +78,7 @@ const mockCloneMutation = vi.fn(() => ({
 vi.mock('../hooks', () => ({
   useCollection: (...args: unknown[]) => mockCollection(...args),
   useUpdateCollection: () => ({
-    mutate: vi.fn(),
+    mutate: mockUpdateMutate,
     isPending: false,
     error: null,
   }),
@@ -91,7 +93,7 @@ vi.mock('../hooks', () => ({
     isPending: false,
   }),
   useReorderCollectionItems: () => ({
-    mutate: vi.fn(),
+    mutate: mockReorderMutate,
     isPending: false,
   }),
   useUpdateCollectionItem: () => ({
@@ -142,6 +144,7 @@ function makeCollection(
     cover_image_url: null,
     creator_id: 1,
     creator_name: 'testuser',
+    display_mode: 'unranked',
     item_count: 0,
     subscriber_count: 0,
     contributor_count: 0,
@@ -546,6 +549,227 @@ describe('CollectionDetail', () => {
       expect(mockPush).toHaveBeenCalledWith(
         '/collections/test-collection-fork'
       )
+    })
+  })
+
+  // ──────────────────────────────────────────────
+  // PSY-348: ranked vs. unranked display mode
+  // ──────────────────────────────────────────────
+
+  describe('display mode', () => {
+    const sampleItems = [
+      {
+        id: 11,
+        entity_type: 'artist',
+        entity_id: 101,
+        entity_name: 'First Artist',
+        entity_slug: 'first-artist',
+        position: 0,
+        added_by_user_id: 1,
+        added_by_name: 'testuser',
+        notes: null,
+        created_at: '2025-01-01T00:00:00Z',
+      },
+      {
+        id: 12,
+        entity_type: 'artist',
+        entity_id: 102,
+        entity_name: 'Second Artist',
+        entity_slug: 'second-artist',
+        position: 1,
+        added_by_user_id: 1,
+        added_by_name: 'testuser',
+        notes: null,
+        created_at: '2025-01-01T00:00:00Z',
+      },
+      {
+        id: 13,
+        entity_type: 'artist',
+        entity_id: 103,
+        entity_name: 'Third Artist',
+        entity_slug: 'third-artist',
+        position: 2,
+        added_by_user_id: 1,
+        added_by_name: 'testuser',
+        notes: null,
+        created_at: '2025-01-01T00:00:00Z',
+      },
+    ]
+
+    it('does NOT render position numbers in unranked mode', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ display_mode: 'unranked', items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      // Numbered positions absent
+      expect(screen.queryByText('1')).not.toBeInTheDocument()
+      expect(screen.queryByText('2')).not.toBeInTheDocument()
+      // No drag handle
+      expect(screen.queryAllByTestId('drag-handle')).toHaveLength(0)
+      // Items still rendered
+      expect(screen.getByText('First Artist')).toBeInTheDocument()
+      expect(screen.getByText('Second Artist')).toBeInTheDocument()
+    })
+
+    it('renders numbered positions and drag handles in ranked mode', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ display_mode: 'ranked', items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      // Numbered positions visible
+      expect(screen.getByText('1')).toBeInTheDocument()
+      expect(screen.getByText('2')).toBeInTheDocument()
+      expect(screen.getByText('3')).toBeInTheDocument()
+      // Drag handles visible (one per item) — only when ranked + creator
+      expect(screen.getAllByTestId('drag-handle')).toHaveLength(3)
+    })
+
+    it('does NOT render drag handles in ranked mode for non-creator', () => {
+      // Logged-in user is not the creator
+      mockAuthContext.mockReturnValue({
+        user: { id: '999' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          display_mode: 'ranked',
+          items: sampleItems,
+          creator_id: 1,
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      // Numbered positions still visible (everyone sees the ranking)
+      expect(screen.getByText('1')).toBeInTheDocument()
+      // ...but no drag handle for non-creators
+      expect(screen.queryAllByTestId('drag-handle')).toHaveLength(0)
+    })
+
+    it('keyboard fallback: Move down sends correct reorder payload', async () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ display_mode: 'ranked', items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      const user = userEvent.setup()
+      render(<CollectionDetail slug="test-collection" />)
+
+      // First Move down button (corresponds to index 0 → swap with index 1)
+      const moveDownButtons = screen.getAllByRole('button', { name: 'Move down' })
+      await user.click(moveDownButtons[0])
+
+      expect(mockReorderMutate).toHaveBeenCalledWith({
+        slug: 'test-collection',
+        items: [
+          { item_id: 12, position: 0 },
+          { item_id: 11, position: 1 },
+          { item_id: 13, position: 2 },
+        ],
+      })
+    })
+
+    it('keyboard fallback: Move up sends correct reorder payload', async () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ display_mode: 'ranked', items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      const user = userEvent.setup()
+      render(<CollectionDetail slug="test-collection" />)
+
+      // Last Move up button corresponds to index 2 → swap with index 1
+      const moveUpButtons = screen.getAllByRole('button', { name: 'Move up' })
+      await user.click(moveUpButtons[moveUpButtons.length - 1])
+
+      expect(mockReorderMutate).toHaveBeenCalledWith({
+        slug: 'test-collection',
+        items: [
+          { item_id: 11, position: 0 },
+          { item_id: 13, position: 1 },
+          { item_id: 12, position: 2 },
+        ],
+      })
+    })
+
+    it('keyboard fallback: Move up disabled on first item', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ display_mode: 'ranked', items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+      const moveUpButtons = screen.getAllByRole('button', { name: 'Move up' })
+      expect(moveUpButtons[0]).toBeDisabled()
+    })
+
+    it('keyboard fallback: Move down disabled on last item', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ display_mode: 'ranked', items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+      const moveDownButtons = screen.getAllByRole('button', { name: 'Move down' })
+      expect(moveDownButtons[moveDownButtons.length - 1]).toBeDisabled()
+    })
+
+    it('edit form: toggling display mode sends display_mode in update payload', async () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ display_mode: 'unranked' }),
+        isLoading: false,
+        error: null,
+      })
+      const user = userEvent.setup()
+      render(<CollectionDetail slug="test-collection" />)
+
+      // Enter edit mode
+      await user.click(screen.getByRole('button', { name: /Edit/i }))
+
+      // Toggle to ranked. Locate by input value attribute since both radios
+      // share an accessible-name prefix ("Ranked" matches "Unranked" too).
+      const radios = screen.getAllByRole('radio') as HTMLInputElement[]
+      const rankedRadio = radios.find((r) => r.value === 'ranked')!
+      await user.click(rankedRadio)
+      expect(rankedRadio).toBeChecked()
+
+      // Save
+      await user.click(screen.getByRole('button', { name: /Save/i }))
+
+      expect(mockUpdateMutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          slug: 'test-collection',
+          display_mode: 'ranked',
+        }),
+        expect.any(Object)
+      )
+    })
+
+    it('edit form: defaults to current display_mode (ranked)', async () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ display_mode: 'ranked' }),
+        isLoading: false,
+        error: null,
+      })
+      const user = userEvent.setup()
+      render(<CollectionDetail slug="test-collection" />)
+
+      await user.click(screen.getByRole('button', { name: /Edit/i }))
+
+      const radios = screen.getAllByRole('radio') as HTMLInputElement[]
+      const rankedRadio = radios.find((r) => r.value === 'ranked')!
+      const unrankedRadio = radios.find((r) => r.value === 'unranked')!
+      expect(rankedRadio).toBeChecked()
+      expect(unrankedRadio).not.toBeChecked()
     })
   })
 })

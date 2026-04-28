@@ -189,6 +189,45 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_Creator
 	suite.Equal("alexrocks", resp.CreatorName)
 }
 
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_DefaultDisplayModeUnranked() {
+	user := suite.createTestUser("DefaultModeCreator")
+	resp := suite.createBasicCollection(user, "Default Mode")
+	suite.Equal(models.CollectionDisplayModeUnranked, resp.DisplayMode)
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_OptInRankedMode() {
+	user := suite.createTestUser("RankedCreator")
+	mode := models.CollectionDisplayModeRanked
+	req := &contracts.CreateCollectionRequest{
+		Title:       "Top Albums of 2026",
+		IsPublic:    true,
+		DisplayMode: &mode,
+	}
+
+	resp, err := suite.collectionService.CreateCollection(user.ID, req)
+
+	suite.Require().NoError(err)
+	suite.Equal(models.CollectionDisplayModeRanked, resp.DisplayMode)
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_InvalidDisplayMode() {
+	user := suite.createTestUser("InvalidModeCreator")
+	bogus := "best-of"
+	req := &contracts.CreateCollectionRequest{
+		Title:       "Bogus Mode",
+		IsPublic:    true,
+		DisplayMode: &bogus,
+	}
+
+	resp, err := suite.collectionService.CreateCollection(user.ID, req)
+
+	suite.Require().Error(err)
+	suite.Nil(resp)
+	var collErr *apperrors.CollectionError
+	suite.ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionInvalidRequest, collErr.Code)
+}
+
 // =============================================================================
 // Group 2: GetBySlug
 // =============================================================================
@@ -451,6 +490,52 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_NoChang
 
 	suite.Require().NoError(err)
 	suite.Equal("Stable Collection", resp.Title)
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_DisplayModeToggle() {
+	user := suite.createTestUser("ToggleUpdater")
+	created := suite.createBasicCollection(user, "Toggle Mode")
+
+	// Add an item so we can verify positions survive the mode flip.
+	artist := suite.createTestArtist("Toggle Artist")
+	_, err := suite.collectionService.AddItem(created.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
+	})
+	suite.Require().NoError(err)
+
+	// Default → ranked
+	mode := models.CollectionDisplayModeRanked
+	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+		DisplayMode: &mode,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(models.CollectionDisplayModeRanked, resp.DisplayMode)
+	suite.Equal(1, resp.ItemCount, "items should survive mode toggle")
+
+	// Ranked → unranked (data preserved)
+	mode = models.CollectionDisplayModeUnranked
+	resp, err = suite.collectionService.UpdateCollection(resp.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+		DisplayMode: &mode,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(models.CollectionDisplayModeUnranked, resp.DisplayMode)
+	suite.Equal(1, resp.ItemCount, "items should survive mode toggle")
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_InvalidDisplayMode() {
+	user := suite.createTestUser("BadModeUpdater")
+	created := suite.createBasicCollection(user, "Bad Mode")
+
+	bogus := "ranked-by-vibes"
+	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+		DisplayMode: &bogus,
+	})
+
+	suite.Require().Error(err)
+	suite.Nil(resp)
+	var collErr *apperrors.CollectionError
+	suite.ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionInvalidRequest, collErr.Code)
 }
 
 // =============================================================================
