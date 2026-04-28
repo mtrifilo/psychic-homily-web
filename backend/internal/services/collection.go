@@ -49,6 +49,16 @@ func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.Crea
 		description = *req.Description
 	}
 
+	displayMode := models.CollectionDisplayModeUnranked
+	if req.DisplayMode != nil && *req.DisplayMode != "" {
+		if !models.IsValidCollectionDisplayMode(*req.DisplayMode) {
+			return nil, apperrors.ErrCollectionInvalidRequest(
+				fmt.Sprintf("display_mode must be 'ranked' or 'unranked', got %q", *req.DisplayMode),
+			)
+		}
+		displayMode = *req.DisplayMode
+	}
+
 	collection := &models.Collection{
 		Title:         req.Title,
 		Slug:          slug,
@@ -58,6 +68,7 @@ func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.Crea
 		CoverImageURL: req.CoverImageURL,
 		IsPublic:      true,
 		IsFeatured:    false,
+		DisplayMode:   displayMode,
 	}
 
 	if err := s.db.Create(collection).Error; err != nil {
@@ -154,6 +165,7 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		CoverImageURL:    collection.CoverImageURL,
 		IsPublic:         collection.IsPublic,
 		IsFeatured:       collection.IsFeatured,
+		DisplayMode:      collection.DisplayMode,
 		ItemCount:        len(itemResponses),
 		SubscriberCount:  int(subscriberCount),
 		ContributorCount: int(contributorCount),
@@ -254,6 +266,7 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 			CoverImageURL:    c.CoverImageURL,
 			IsPublic:         c.IsPublic,
 			IsFeatured:       c.IsFeatured,
+			DisplayMode:      c.DisplayMode,
 			ItemCount:        itemCounts[c.ID],
 			SubscriberCount:  subscriberCounts[c.ID],
 			ContributorCount: contributorCounts[c.ID],
@@ -310,6 +323,14 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 	}
 	if req.IsPublic != nil {
 		updates["is_public"] = *req.IsPublic
+	}
+	if req.DisplayMode != nil {
+		if !models.IsValidCollectionDisplayMode(*req.DisplayMode) {
+			return nil, apperrors.ErrCollectionInvalidRequest(
+				fmt.Sprintf("display_mode must be 'ranked' or 'unranked', got %q", *req.DisplayMode),
+			)
+		}
+		updates["display_mode"] = *req.DisplayMode
 	}
 
 	if len(updates) > 0 {
@@ -756,6 +777,7 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 			CoverImageURL:    c.CoverImageURL,
 			IsPublic:         c.IsPublic,
 			IsFeatured:       c.IsFeatured,
+			DisplayMode:      c.DisplayMode,
 			ItemCount:        itemCounts[c.ID],
 			SubscriberCount:  subscriberCounts[c.ID],
 			ContributorCount: contributorCounts[c.ID],
@@ -828,6 +850,7 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 			CoverImageURL:    c.CoverImageURL,
 			IsPublic:         c.IsPublic,
 			IsFeatured:       c.IsFeatured,
+			DisplayMode:      c.DisplayMode,
 			ItemCount:        itemCounts[c.ID],
 			SubscriberCount:  subscriberCounts[c.ID],
 			ContributorCount: contributorCounts[c.ID],
@@ -897,6 +920,7 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 			CoverImageURL:    c.CoverImageURL,
 			IsPublic:         c.IsPublic,
 			IsFeatured:       c.IsFeatured,
+			DisplayMode:      c.DisplayMode,
 			ItemCount:        itemCounts[c.ID],
 			SubscriberCount:  subscriberCounts[c.ID],
 			ContributorCount: contributorCounts[c.ID],
