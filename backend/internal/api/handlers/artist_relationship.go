@@ -36,7 +36,7 @@ func NewArtistRelationshipHandler(
 
 type GetArtistGraphRequest struct {
 	ArtistID string `path:"artist_id" doc:"Artist ID" example:"1"`
-	Types    string `query:"types" required:"false" doc:"Comma-separated relationship types to include (similar,shared_bills,shared_label,side_project,member_of)"`
+	Types    string `query:"types" required:"false" doc:"Comma-separated relationship types to include (similar,shared_bills,shared_label,side_project,member_of,radio_cooccurrence,festival_cobill)"`
 }
 
 type GetArtistGraphResponse struct {

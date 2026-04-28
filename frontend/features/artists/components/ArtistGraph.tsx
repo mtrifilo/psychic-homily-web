@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useRef, useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { Loader2 } from 'lucide-react'
 import { useReducedMotion } from '../hooks/useReducedMotion'
@@ -32,6 +32,9 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
 // shared_bills vs radio_cooccurrence at d=35.3 (protanopia), which is also dash-differentiated
 // (solid vs dashed-8-3) for redundancy. Full audit: docs/research/graph-colorblind-audit.md.
 //
+// PSY-363: festival_cobill (#D55E00 vermillion, Okabe-Ito) was added under the same audit method;
+// worst-case distance vs any existing color is 98.2 (vs member_of, deuteranopia) — well above threshold.
+//
 // WCAG 2.2 §1.4.1 ("Use of Color"): we never rely on color alone — every edge type has a
 // dash pattern (solid / dashed / dotted) and many also have weight scaling, so information
 // is conveyed through at least two channels.
@@ -42,6 +45,7 @@ const EDGE_COLORS: Record<string, string> = {
   side_project: '#4ade80',         // green-400
   member_of: '#fbbf24',            // amber-400
   radio_cooccurrence: '#2dd4bf',   // teal-400
+  festival_cobill: '#D55E00',      // vermillion (Okabe-Ito)
 }
 
 const EDGE_LABELS: Record<string, string> = {
@@ -51,6 +55,7 @@ const EDGE_LABELS: Record<string, string> = {
   side_project: 'Side Project',
   member_of: 'Member Of',
   radio_cooccurrence: 'Radio Co-occurrence',
+  festival_cobill: 'Festival co-lineup',
 }
 
 // Convert API data to graph format needed by react-force-graph-2d
@@ -152,6 +157,19 @@ export function buildLinkLabel(link: Pick<GraphLink, 'type' | 'score' | 'votes_u
       return 'Side project'
     case 'member_of':
       return 'Member of'
+    case 'festival_cobill': {
+      const count = detailNumber(detail, 'count')
+      const names = detailString(detail, 'festival_names')
+      const year = detailNumber(detail, 'most_recent_year')
+      if (count === undefined) {
+        return EDGE_LABELS.festival_cobill ?? 'Festival co-lineup'
+      }
+      const noun = count === 1 ? 'festival' : 'festivals'
+      const headline = names
+        ? `${count} shared ${noun}: ${names}`
+        : `${count} shared ${noun}`
+      return year !== undefined ? `${headline} (last: ${year})` : headline
+    }
     default:
       return EDGE_LABELS[link.type] ?? link.type
   }
@@ -161,10 +179,86 @@ interface ArtistGraphProps {
   data: ArtistGraphData
   activeTypes: Set<string>
   containerWidth: number
+  /**
+   * PSY-361: Re-center handler. Called when the user clicks a non-center
+   * node. The parent owns the traversal state + URL sync; this component
+   * just emits the click. Receives both id and slug so the parent doesn't
+   * need a separate slug→id resolution step on click.
+   */
+  onRecenter?: (node: { id: number; slug: string; name: string }) => void
+  /**
+   * PSY-361: When true, an overlay spinner is shown over the graph while
+   * the parent fetches the new center's payload. We deliberately do NOT
+   * unmount the canvas — that would cause the simulation-mid-tick stutter
+   * called out in the prior-art doc (§4.2). Instead we keep the previous
+   * frame visible behind the overlay so the transition feels continuous.
+   */
+  isRecentering?: boolean
 }
 
-export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: ArtistGraphProps) {
-  const router = useRouter()
+// PSY-361: Hover/long-press tooltip for non-center nodes. Extracted as its
+// own component so the "View artist page →" link can be unit-tested
+// independently of the canvas-based ForceGraph2D wrapper.
+//
+// Pointer-events grammar:
+//   - Outer wrapper: pointer-events-none — the tooltip is just a visual
+//     hint and must not steal hover/click events from the canvas
+//     underneath (otherwise the cursor sliding from a node onto the
+//     tooltip would dismiss the tooltip and break re-center clicks on
+//     adjacent nodes).
+//   - Link inside: pointer-events-auto — selectively re-enables the
+//     escape hatch to the full artist detail page. Works on desktop
+//     (hover surfaces tooltip, click goes through) and mobile
+//     (long-press surfaces tooltip per PSY-369 grammar, tap goes
+//     through).
+export interface ArtistNodeTooltipProps {
+  node: {
+    name: string
+    slug: string
+    city?: string
+    state?: string
+    upcoming_show_count: number
+  }
+  position: { x: number; y: number }
+}
+
+export function ArtistNodeTooltip({ node, position }: ArtistNodeTooltipProps) {
+  return (
+    <div
+      className="fixed z-50 px-3 py-2 text-xs rounded-md bg-popover border border-border shadow-lg text-popover-foreground pointer-events-none"
+      style={{
+        left: position.x + 12,
+        top: position.y - 10,
+      }}
+    >
+      <div className="font-medium text-sm">{node.name}</div>
+      {(node.city || node.state) && (
+        <div className="text-muted-foreground">
+          {[node.city, node.state].filter(Boolean).join(', ')}
+        </div>
+      )}
+      {node.upcoming_show_count > 0 && (
+        <div className="mt-1 text-green-400">
+          {node.upcoming_show_count} upcoming {node.upcoming_show_count === 1 ? 'show' : 'shows'}
+        </div>
+      )}
+      <Link
+        href={`/artists/${node.slug}`}
+        className="mt-1.5 inline-block text-primary hover:underline pointer-events-auto"
+      >
+        View artist page &rarr;
+      </Link>
+    </div>
+  )
+}
+
+export function ArtistGraphVisualization({
+  data,
+  activeTypes,
+  containerWidth,
+  onRecenter,
+  isRecentering = false,
+}: ArtistGraphProps) {
   const graphRef = useRef<any>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
   const containerRef = useRef<HTMLDivElement>(null)
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
@@ -276,11 +370,32 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
     }
   }, [reducedMotion])
 
+  // PSY-361: re-frame the viewport after each new center's data lands so
+  // the layout is properly centered + scaled. The 500ms transition is
+  // smooth without being sluggish; 40px padding matches the canvas border.
+  // Keyed on `data.center.id` so this fires once per re-center, not on
+  // every filter toggle (filter changes preserve framing intentionally).
+  useEffect(() => {
+    if (!graphRef.current) return
+    // Wait for the simulation to seat the nodes before measuring; without
+    // a delay the bounding box is computed before forces have moved
+    // anything, so the zoom-to-fit fires on stale positions.
+    const timer = setTimeout(() => {
+      graphRef.current?.zoomToFit(500, 40)
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [data.center.id])
+
+  // PSY-361: clicking a non-center node re-centers the graph instead of
+  // navigating to the artist's full page. The "View artist page →" link
+  // inside the hover/long-press tooltip is the explicit nav escape.
+  // Clicking the center node is a no-op — there's nothing to re-center to.
   const handleNodeClick = useCallback(
     (node: GraphNode) => {
-      router.push(`/artists/${node.slug}`)
+      if (node.isCenter) return
+      onRecenter?.({ id: node.id, slug: node.slug, name: node.name })
     },
-    [router]
+    [onRecenter]
   )
 
   const handleNodeHover = useCallback(
@@ -352,13 +467,15 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
     []
   )
 
-  // PSY-362: Stroke weight encoding per edge type.
+  // PSY-362 + PSY-363: Stroke weight encoding per edge type.
   //
   //   similar              — magnitude (Wilson similarity score). Scaled.
   //   shared_bills         — magnitude (recency-weighted shared-show count). Scaled.
   //   radio_cooccurrence   — magnitude (cross-station-weighted co-occurrence). Scaled.
   //   shared_label         — magnitude (count of shared labels, normalized to [0,1] in
   //                          the deriver, capped at 5+ shared labels = 1.0). Scaled.
+  //   festival_cobill      — magnitude (recency-weighted shared-festival count, capped at
+  //                          3+ shared festivals = 1.0 in the deriver). Scaled.
   //   side_project         — BINARY fact ("X is a side project of Y"). Intentionally uniform —
   //                          a side project either exists or does not, there is no magnitude.
   //   member_of            — BINARY fact ("X is a member of Y"). Intentionally uniform — same
@@ -370,6 +487,7 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
         case 'shared_bills':
         case 'shared_label':
         case 'radio_cooccurrence':
+        case 'festival_cobill':
           return Math.max(1, link.score * 3)
         case 'side_project':
         case 'member_of':
@@ -387,6 +505,10 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
       if (link.type === 'shared_label') return [5, 5]
       if (link.type === 'side_project' || link.type === 'member_of') return [2, 4]
       if (link.type === 'radio_cooccurrence') return [8, 3]
+      // PSY-363: long-dash pattern for festival_cobill. Color (vermillion)
+      // is sufficiently distinct under all 3 CVD types per the audit, but
+      // the dash provides redundant encoding (WCAG 2.2 §1.4.1).
+      if (link.type === 'festival_cobill') return [10, 4]
       return []
     },
     []
@@ -421,6 +543,10 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
         }}
         onNodeClick={handleNodeClick}
         onNodeHover={handleNodeHover}
+        // PSY-361 / PSY-369 spike: disable node drag to remove the
+        // tap-vs-drag ambiguity on touch devices. Tap = re-center,
+        // long-press = tooltip; nothing for drag to do.
+        enableNodeDrag={false}
         linkSource="source"
         linkTarget="target"
         linkColor={linkColor}
@@ -436,26 +562,24 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
         backgroundColor="transparent"
       />
 
-      {/* Tooltip */}
       {hoveredNode && !hoveredNode.isCenter && (
+        <ArtistNodeTooltip node={hoveredNode} position={tooltipPos} />
+      )}
+
+      {/* PSY-361: re-center loading overlay. Sits above the canvas without
+          unmounting it — the previous frame stays visible underneath so
+          the transition feels continuous. The simulation itself is paused
+          by the parent (it stops dispatching new graph data while the
+          query is in flight); we just visually attribute the wait. */}
+      {isRecentering && (
         <div
-          className="fixed z-50 px-3 py-2 text-xs rounded-md bg-popover border border-border shadow-lg text-popover-foreground pointer-events-none"
-          style={{
-            left: tooltipPos.x + 12,
-            top: tooltipPos.y - 10,
-          }}
+          className="absolute inset-0 z-40 flex items-center justify-center bg-background/40 backdrop-blur-[1px]"
+          aria-hidden="true"
         >
-          <div className="font-medium text-sm">{hoveredNode.name}</div>
-          {(hoveredNode.city || hoveredNode.state) && (
-            <div className="text-muted-foreground">
-              {[hoveredNode.city, hoveredNode.state].filter(Boolean).join(', ')}
-            </div>
-          )}
-          {hoveredNode.upcoming_show_count > 0 && (
-            <div className="mt-1 text-green-400">
-              {hoveredNode.upcoming_show_count} upcoming {hoveredNode.upcoming_show_count === 1 ? 'show' : 'shows'}
-            </div>
-          )}
+          <div className="flex items-center gap-2 px-3 py-2 text-xs rounded-md bg-popover border border-border shadow-md">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <span>Re-centering...</span>
+          </div>
         </div>
       )}
 
@@ -467,7 +591,12 @@ export function ArtistGraphVisualization({ data, activeTypes, containerWidth }: 
               className="w-4 h-0.5 rounded-full"
               style={{
                 backgroundColor: EDGE_COLORS[type] || '#71717a',
-                borderStyle: type === 'shared_label' ? 'dashed' : type === 'side_project' || type === 'member_of' ? 'dotted' : 'solid',
+                borderStyle:
+                  type === 'shared_label' || type === 'festival_cobill'
+                    ? 'dashed'
+                    : type === 'side_project' || type === 'member_of'
+                      ? 'dotted'
+                      : 'solid',
               }}
             />
             <span className="text-muted-foreground">{EDGE_LABELS[type] || type}</span>

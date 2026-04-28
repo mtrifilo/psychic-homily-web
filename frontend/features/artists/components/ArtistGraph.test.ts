@@ -236,3 +236,103 @@ describe('buildLinkLabel (PSY-362 edge tooltip text)', () => {
     })
   })
 })
+
+// PSY-363: festival_cobill tooltip variants. The helper needs to gracefully
+// degrade as fields drop out of the loosely-typed `detail` JSONB.
+describe('buildLinkLabel — festival_cobill (PSY-363)', () => {
+  it('shows count, names, and last year when all fields populate', () => {
+    expect(
+      buildLinkLabel({
+        type: 'festival_cobill',
+        score: 0,
+        votes_up: 0,
+        votes_down: 0,
+        detail: {
+          festival_names: 'ACL, Coachella, Lollapalooza',
+          count: 3,
+          most_recent_year: 2025,
+        },
+      })
+    ).toBe('3 shared festivals: ACL, Coachella, Lollapalooza (last: 2025)')
+  })
+
+  it('falls back to count + last year when names are sparse', () => {
+    expect(
+      buildLinkLabel({
+        type: 'festival_cobill',
+        score: 0,
+        votes_up: 0,
+        votes_down: 0,
+        detail: {
+          festival_names: '',
+          count: 3,
+          most_recent_year: 2025,
+        },
+      })
+    ).toBe('3 shared festivals (last: 2025)')
+  })
+
+  it('falls back to count only when both names and year are missing', () => {
+    expect(
+      buildLinkLabel({
+        type: 'festival_cobill',
+        score: 0,
+        votes_up: 0,
+        votes_down: 0,
+        detail: { count: 3 },
+      })
+    ).toBe('3 shared festivals')
+  })
+
+  it('uses singular noun when count is 1', () => {
+    expect(
+      buildLinkLabel({
+        type: 'festival_cobill',
+        score: 0,
+        votes_up: 0,
+        votes_down: 0,
+        detail: {
+          festival_names: 'Coachella',
+          count: 1,
+          most_recent_year: 2025,
+        },
+      })
+    ).toBe('1 shared festival: Coachella (last: 2025)')
+  })
+
+  it('falls back to the static label when detail is missing entirely', () => {
+    expect(
+      buildLinkLabel({
+        type: 'festival_cobill',
+        score: 0,
+        votes_up: 0,
+        votes_down: 0,
+        detail: undefined,
+      })
+    ).toBe('Festival co-lineup')
+  })
+
+  it('falls back to the static label when count is missing', () => {
+    expect(
+      buildLinkLabel({
+        type: 'festival_cobill',
+        score: 0,
+        votes_up: 0,
+        votes_down: 0,
+        detail: { festival_names: 'Coachella' },
+      })
+    ).toBe('Festival co-lineup')
+  })
+
+  it('coerces a string count to a number', () => {
+    expect(
+      buildLinkLabel({
+        type: 'festival_cobill',
+        score: 0,
+        votes_up: 0,
+        votes_down: 0,
+        detail: { festival_names: 'Coachella', count: '2', most_recent_year: '2024' },
+      })
+    ).toBe('2 shared festivals: Coachella (last: 2024)')
+  })
+})

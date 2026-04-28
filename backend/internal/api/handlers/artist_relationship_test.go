@@ -44,6 +44,81 @@ func TestGetArtistGraph_TypesParsing(t *testing.T) {
 	}
 }
 
+// PSY-363: handler accepts festival_cobill as a valid type filter and
+// passes it through to the service unchanged.
+func TestGetArtistGraph_FestivalCobillTypePassedThrough(t *testing.T) {
+	var capturedTypes []string
+	mockGraph := &contracts.ArtistGraph{
+		Center: contracts.ArtistGraphNode{ID: 1, Name: "C"},
+		Links: []contracts.ArtistGraphLink{
+			{
+				SourceID: 1,
+				TargetID: 2,
+				Type:     "festival_cobill",
+				Score:    0.4,
+				Detail: map[string]interface{}{
+					"festival_names":   "Coachella",
+					"count":            1,
+					"most_recent_year": 2025,
+				},
+			},
+		},
+	}
+	h := NewArtistRelationshipHandler(
+		&mockArtistRelationshipService{
+			getArtistGraphFn: func(artistID uint, types []string, userID uint) (*contracts.ArtistGraph, error) {
+				capturedTypes = types
+				return mockGraph, nil
+			},
+		},
+		nil,
+	)
+	req := &GetArtistGraphRequest{ArtistID: "1", Types: "festival_cobill"}
+
+	resp, err := h.GetArtistGraphHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(capturedTypes) != 1 || capturedTypes[0] != "festival_cobill" {
+		t.Errorf("expected types [festival_cobill], got %v", capturedTypes)
+	}
+	if resp == nil || len(resp.Body.Links) != 1 {
+		t.Fatalf("expected 1 link in response, got %v", resp)
+	}
+	if resp.Body.Links[0].Type != "festival_cobill" {
+		t.Errorf("expected link type festival_cobill, got %q", resp.Body.Links[0].Type)
+	}
+}
+
+// PSY-363: festival_cobill works alongside other types in a multi-value filter.
+func TestGetArtistGraph_FestivalCobillCombinedWithOtherTypes(t *testing.T) {
+	var capturedTypes []string
+	h := NewArtistRelationshipHandler(
+		&mockArtistRelationshipService{
+			getArtistGraphFn: func(artistID uint, types []string, userID uint) (*contracts.ArtistGraph, error) {
+				capturedTypes = types
+				return &contracts.ArtistGraph{}, nil
+			},
+		},
+		nil,
+	)
+	req := &GetArtistGraphRequest{ArtistID: "1", Types: "similar,festival_cobill,shared_bills"}
+
+	_, err := h.GetArtistGraphHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"similar", "festival_cobill", "shared_bills"}
+	if len(capturedTypes) != len(want) {
+		t.Fatalf("expected %v, got %v", want, capturedTypes)
+	}
+	for i, v := range capturedTypes {
+		if v != want[i] {
+			t.Errorf("at %d: expected %q, got %q", i, want[i], v)
+		}
+	}
+}
+
 // --- GetRelatedArtistsHandler ---
 
 func TestGetRelatedArtists_InvalidID(t *testing.T) {

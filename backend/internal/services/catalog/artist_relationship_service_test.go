@@ -39,6 +39,9 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) SetupTest() {
 	sqlDB, _ := suite.db.DB()
 	_, _ = sqlDB.Exec("DELETE FROM artist_relationship_votes")
 	_, _ = sqlDB.Exec("DELETE FROM artist_relationships")
+	_, _ = sqlDB.Exec("DELETE FROM festival_artists")
+	_, _ = sqlDB.Exec("DELETE FROM festival_venues")
+	_, _ = sqlDB.Exec("DELETE FROM festivals")
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
@@ -480,6 +483,248 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_U
 	suite.Require().NoError(err)
 	suite.Require().Len(graph.Nodes, 1)
 	suite.Assert().Equal(1, graph.Nodes[0].UpcomingShowCount)
+}
+
+// ──────────────────────────────────────────────
+// PSY-363 — Festival co-lineup (query-time) tests
+// ──────────────────────────────────────────────
+
+// createFestival inserts a festivals row using year-month-day strings
+// for start/end. The `editionYear` matches the start_date's year.
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) createFestival(name string, startDate, endDate string, editionYear int) uint {
+	slug := fmt.Sprintf("fest-%s-%d", name, time.Now().UnixNano())
+	seriesSlug := fmt.Sprintf("fest-series-%s-%d", name, time.Now().UnixNano())
+	f := &models.Festival{
+		Name:        name,
+		Slug:        slug,
+		SeriesSlug:  seriesSlug,
+		EditionYear: editionYear,
+		StartDate:   startDate,
+		EndDate:     endDate,
+		Status:      models.FestivalStatusCompleted,
+	}
+	err := suite.db.Create(f).Error
+	suite.Require().NoError(err)
+	return f.ID
+}
+
+// addArtistToFestival inserts a festival_artists row. Position is auto.
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) addArtistToFestival(festivalID, artistID uint) {
+	fa := &models.FestivalArtist{
+		FestivalID:  festivalID,
+		ArtistID:    artistID,
+		BillingTier: models.BillingTierMidCard,
+	}
+	err := suite.db.Create(fa).Error
+	suite.Require().NoError(err)
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_FestivalCobill_OneSharedFestival() {
+	a1 := suite.createArtist("Center")
+	a2 := suite.createArtist("Co-billed")
+	thisYear := time.Now().Year()
+	startDate := fmt.Sprintf("%d-06-15", thisYear)
+	endDate := fmt.Sprintf("%d-06-17", thisYear)
+	f1 := suite.createFestival("Coachella", startDate, endDate, thisYear)
+	suite.addArtistToFestival(f1, a1)
+	suite.addArtistToFestival(f1, a2)
+
+	graph, err := suite.svc.GetArtistGraph(a1, []string{"festival_cobill"}, 0)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(graph)
+	suite.Require().Len(graph.Links, 1, "expected 1 festival_cobill edge")
+	suite.Assert().Equal("festival_cobill", graph.Links[0].Type)
+
+	// Score: count=1 → base=min(1/3,1)=0.333..., recency boost active
+	// (this year), so 0.333 * 1.2 = 0.4.
+	suite.Assert().InDelta(0.4, graph.Links[0].Score, 0.0001)
+
+	// Detail JSONB shape
+	detail, ok := graph.Links[0].Detail.(map[string]interface{})
+	suite.Require().True(ok, "detail should be map")
+	suite.Assert().Equal("Coachella", detail["festival_names"])
+	suite.Assert().Equal(1, asInt(detail["count"]))
+	suite.Assert().Equal(thisYear, asInt(detail["most_recent_year"]))
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_FestivalCobill_MultipleSharedFestivals() {
+	a1 := suite.createArtist("Center")
+	a2 := suite.createArtist("Co-billed")
+	thisYear := time.Now().Year()
+
+	// 4 shared festivals — exceeds the festivalCobillTopN cap (3), so
+	// base score is min(4/3,1)=1.0; recency boost is also 1.0 capped.
+	for i := 0; i < 4; i++ {
+		startDate := fmt.Sprintf("%d-06-1%d", thisYear-i, i+1)
+		endDate := fmt.Sprintf("%d-06-1%d", thisYear-i, i+2)
+		fid := suite.createFestival(fmt.Sprintf("Festival-%d", i), startDate, endDate, thisYear-i)
+		suite.addArtistToFestival(fid, a1)
+		suite.addArtistToFestival(fid, a2)
+	}
+
+	graph, err := suite.svc.GetArtistGraph(a1, []string{"festival_cobill"}, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(graph.Links, 1)
+	suite.Assert().Equal("festival_cobill", graph.Links[0].Type)
+	suite.Assert().InDelta(1.0, graph.Links[0].Score, 0.0001)
+
+	detail, ok := graph.Links[0].Detail.(map[string]interface{})
+	suite.Require().True(ok)
+	suite.Assert().Equal(4, asInt(detail["count"]))
+	suite.Assert().Equal(thisYear, asInt(detail["most_recent_year"]))
+	// Top 3 festival names by recency. Strict ordering by start_date DESC.
+	names, _ := detail["festival_names"].(string)
+	suite.Assert().Contains(names, "Festival-0")
+	suite.Assert().Contains(names, "Festival-1")
+	suite.Assert().Contains(names, "Festival-2")
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_FestivalCobill_OldFestivalNoRecencyBoost() {
+	a1 := suite.createArtist("Center")
+	a2 := suite.createArtist("Co-billed")
+	// Festival 5 years ago — outside the 2-year recency window, no boost.
+	oldYear := time.Now().Year() - 5
+	startDate := fmt.Sprintf("%d-06-15", oldYear)
+	endDate := fmt.Sprintf("%d-06-17", oldYear)
+	fid := suite.createFestival("Old Fest", startDate, endDate, oldYear)
+	suite.addArtistToFestival(fid, a1)
+	suite.addArtistToFestival(fid, a2)
+
+	graph, err := suite.svc.GetArtistGraph(a1, []string{"festival_cobill"}, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(graph.Links, 1)
+	// count=1, no boost: score = 1/3 ≈ 0.3333
+	suite.Assert().InDelta(1.0/3.0, graph.Links[0].Score, 0.0001)
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_FestivalCobill_FilterExcludesOtherTypes() {
+	a1 := suite.createArtist("Center")
+	a2 := suite.createArtist("Festival peer")
+	a3 := suite.createArtist("Stored peer")
+
+	// Festival co-lineup with a2 only.
+	thisYear := time.Now().Year()
+	startDate := fmt.Sprintf("%d-06-15", thisYear)
+	endDate := fmt.Sprintf("%d-06-17", thisYear)
+	fid := suite.createFestival("Lollapalooza", startDate, endDate, thisYear)
+	suite.addArtistToFestival(fid, a1)
+	suite.addArtistToFestival(fid, a2)
+
+	// Stored 'similar' relationship with a3 — should NOT appear when
+	// filter is festival_cobill only.
+	_, err := suite.svc.CreateRelationship(a1, a3, "similar", false)
+	suite.Require().NoError(err)
+
+	graph, err := suite.svc.GetArtistGraph(a1, []string{"festival_cobill"}, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(graph.Links, 1)
+	suite.Assert().Equal("festival_cobill", graph.Links[0].Type)
+	// The 'similar' edge should be absent.
+	for _, l := range graph.Links {
+		suite.Assert().NotEqual("similar", l.Type)
+	}
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_FestivalCobill_IncludedInAllTypes() {
+	a1 := suite.createArtist("Center")
+	a2 := suite.createArtist("Festival peer")
+
+	// One shared festival.
+	thisYear := time.Now().Year()
+	startDate := fmt.Sprintf("%d-06-15", thisYear)
+	endDate := fmt.Sprintf("%d-06-17", thisYear)
+	fid := suite.createFestival("ACL", startDate, endDate, thisYear)
+	suite.addArtistToFestival(fid, a1)
+	suite.addArtistToFestival(fid, a2)
+
+	// Stored 'similar' relationship.
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
+
+	// Empty types = include all (stored + query-time).
+	graph, err := suite.svc.GetArtistGraph(a1, nil, 0)
+	suite.Require().NoError(err)
+
+	hasFestivalCobill := false
+	hasSimilar := false
+	for _, l := range graph.Links {
+		if l.Type == "festival_cobill" {
+			hasFestivalCobill = true
+		}
+		if l.Type == "similar" {
+			hasSimilar = true
+		}
+	}
+	suite.Assert().True(hasFestivalCobill, "festival_cobill edge should be present when types is empty")
+	suite.Assert().True(hasSimilar, "similar edge should be present when types is empty")
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_FestivalCobill_NoSharedFestivals() {
+	a1 := suite.createArtist("Center")
+	a2 := suite.createArtist("Other")
+	thisYear := time.Now().Year()
+	startDate := fmt.Sprintf("%d-06-15", thisYear)
+	endDate := fmt.Sprintf("%d-06-17", thisYear)
+
+	// Each artist has their own festival, but no shared festival.
+	f1 := suite.createFestival("Solo Fest 1", startDate, endDate, thisYear)
+	f2 := suite.createFestival("Solo Fest 2", startDate, endDate, thisYear)
+	suite.addArtistToFestival(f1, a1)
+	suite.addArtistToFestival(f2, a2)
+
+	graph, err := suite.svc.GetArtistGraph(a1, []string{"festival_cobill"}, 0)
+	suite.Require().NoError(err)
+	suite.Assert().Empty(graph.Links)
+}
+
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_FestivalCobill_CrossEdges() {
+	// Center connects to a2 via stored 'similar'; a2 connects to a3 via
+	// query-time festival_cobill. The cross edge should appear.
+	a1 := suite.createArtist("Center")
+	a2 := suite.createArtist("Peer A")
+	a3 := suite.createArtist("Peer B")
+
+	thisYear := time.Now().Year()
+	startDate := fmt.Sprintf("%d-06-15", thisYear)
+	endDate := fmt.Sprintf("%d-06-17", thisYear)
+
+	// a2 ↔ a3 share a festival.
+	f1 := suite.createFestival("CrossFest", startDate, endDate, thisYear)
+	suite.addArtistToFestival(f1, a2)
+	suite.addArtistToFestival(f1, a3)
+
+	// Center ↔ a2 and Center ↔ a3 stored similar relationships so they
+	// surface as related artists.
+	suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.svc.CreateRelationship(a1, a3, "similar", false)
+
+	graph, err := suite.svc.GetArtistGraph(a1, nil, 0)
+	suite.Require().NoError(err)
+
+	// Find the festival_cobill cross edge between a2 and a3.
+	hasCrossFestivalCobill := false
+	for _, l := range graph.Links {
+		if l.Type == "festival_cobill" &&
+			((l.SourceID == a2 && l.TargetID == a3) || (l.SourceID == a3 && l.TargetID == a2)) {
+			hasCrossFestivalCobill = true
+		}
+	}
+	suite.Assert().True(hasCrossFestivalCobill, "expected a festival_cobill cross edge between peer artists")
+}
+
+// asInt coerces a JSON-decoded numeric value to int. JSON numbers
+// round-trip through float64 in interface{}.
+func asInt(v interface{}) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	default:
+		return 0
+	}
 }
 
 // ──────────────────────────────────────────────
