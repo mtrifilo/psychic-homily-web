@@ -63,7 +63,12 @@ type CollectionSubscriber struct {
 	CollectionID  uint       `gorm:"primaryKey;column:collection_id"`
 	UserID        uint       `gorm:"primaryKey;column:user_id"`
 	LastVisitedAt *time.Time `gorm:"column:last_visited_at"`
-	CreatedAt     time.Time  `gorm:"not null"`
+	// LastDigestSentAt is the per-subscriber cursor for the daily digest job
+	// (PSY-350). Null = "no digest sent yet"; the cycle then looks back to
+	// the subscription's CreatedAt so we don't miss items added between
+	// subscribing and the first cycle.
+	LastDigestSentAt *time.Time `gorm:"column:last_digest_sent_at"`
+	CreatedAt        time.Time  `gorm:"not null"`
 
 	// Relationships
 	Collection Collection `gorm:"foreignKey:CollectionID"`

@@ -27,6 +27,13 @@ export interface Collection {
   subscriber_count: number
   contributor_count: number
   entity_type_counts?: Record<string, number> | null
+  /**
+   * PSY-350: number of items added to this collection by other users since
+   * the viewer's last visit. Only present (>0) for collections the
+   * authenticated viewer is subscribed to. Always omitted/zero on public
+   * list responses where the viewer has no subscription.
+   */
+  new_since_last_visit?: number
   created_at: string
   updated_at: string
 }

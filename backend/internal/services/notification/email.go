@@ -8,6 +8,7 @@ import (
 	"github.com/getsentry/sentry-go"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/services/contracts"
 
 	"github.com/resend/resend-go/v2"
 )
@@ -756,6 +757,127 @@ func (s *EmailService) SendMentionNotification(toEmail, mentionerName, entityTyp
 	}
 
 	return nil
+}
+
+// SendCollectionDigestEmail sends a single batched email summarizing items
+// added across all of the recipient's subscribed collections in the last 24h.
+// PSY-350. Caller groups by collection and provides the rendered URLs.
+func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contracts.CollectionDigestGroup, unsubscribeURL string) error {
+	if !s.IsConfigured() {
+		return fmt.Errorf("email service is not configured")
+	}
+	if len(groups) == 0 {
+		return fmt.Errorf("no digest groups provided")
+	}
+
+	// Tally totals for subject line.
+	totalItems := 0
+	for _, g := range groups {
+		totalItems += len(g.Items)
+	}
+	if totalItems == 0 {
+		return fmt.Errorf("digest groups contain no items")
+	}
+
+	subject := fmt.Sprintf("Your collections digest: %d new %s", totalItems, pluralize("item", totalItems))
+	if len(groups) == 1 {
+		subject = fmt.Sprintf("New in %s: %d %s", groups[0].CollectionTitle, totalItems, pluralize("item", totalItems))
+	}
+
+	// Render each group as its own block.
+	var groupsHTML strings.Builder
+	for _, g := range groups {
+		groupsHTML.WriteString(fmt.Sprintf(
+			`<div style="margin-bottom: 24px;">
+				<h3 style="margin: 0 0 8px; color: #1a1a1a;"><a href="%s" style="color: #1a1a1a; text-decoration: none;">%s</a></h3>
+				<ul style="margin: 0; padding-left: 20px; color: #444;">`,
+			g.CollectionURL,
+			htmlEscape(g.CollectionTitle),
+		))
+		for _, item := range g.Items {
+			groupsHTML.WriteString(fmt.Sprintf(
+				`<li style="margin-bottom: 4px;"><a href="%s" style="color: #f97316; text-decoration: none;">%s</a> <span style="color: #888;">(%s, added by %s)</span></li>`,
+				item.EntityURL,
+				htmlEscape(item.EntityName),
+				htmlEscape(item.EntityType),
+				htmlEscape(item.AddedBy),
+			))
+		}
+		groupsHTML.WriteString(`</ul></div>`)
+	}
+
+	html := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #1a1a1a; margin: 0;">Psychic Homily</h1>
+    </div>
+
+    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
+        <h2 style="margin-top: 0; color: #1a1a1a;">New in your collections</h2>
+        <p style="font-size: 15px; color: #444;">Items added since your last digest.</p>
+        %s
+    </div>
+
+    <div style="text-align: center; font-size: 12px; color: #999;">
+        <p>You're receiving this because you're subscribed to one or more collections on Psychic Homily.</p>
+        <p>Don't want these digests? <a href="%s" style="color: #666;">Unsubscribe</a></p>
+    </div>
+</body>
+</html>
+`, groupsHTML.String(), unsubscribeURL)
+
+	params := &resend.SendEmailRequest{
+		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
+		To:      []string{toEmail},
+		Subject: subject,
+		Html:    html,
+		Headers: map[string]string{
+			"List-Unsubscribe":      fmt.Sprintf("<%s>", unsubscribeURL),
+			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+		},
+	}
+
+	_, err := s.client.Emails.Send(params)
+	if err != nil {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", "email")
+			scope.SetTag("email_type", "collection_digest")
+			sentry.CaptureException(err)
+		})
+		return fmt.Errorf("failed to send collection digest email: %w", err)
+	}
+
+	return nil
+}
+
+// pluralize returns word with an "s" appended if n != 1.
+func pluralize(word string, n int) string {
+	if n == 1 {
+		return word
+	}
+	return word + "s"
+}
+
+// htmlEscape replaces a small set of characters with their HTML entity
+// equivalents. Intentionally minimal — the digest builder controls every
+// string passed in (titles, names, URLs come from our DB), but HTML-escaping
+// names is still the right hygiene to prevent the rare display issue with
+// "&", "<", ">", or quotes in entity names.
+func htmlEscape(s string) string {
+	r := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+		`"`, "&quot;",
+		"'", "&#39;",
+	)
+	return r.Replace(s)
 }
 
 // SendEditRejectedEmail sends a notification when a user's pending edit is rejected.

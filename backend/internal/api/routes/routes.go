@@ -94,12 +94,16 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	huma.Patch(protectedGroup, "/auth/preferences/default-reply-permission", userPrefsHandler.SetDefaultReplyPermissionHandler)
 	// PSY-289: comment + mention notification preferences.
 	huma.Patch(protectedGroup, "/auth/preferences/comment-notifications", userPrefsHandler.SetCommentNotificationsHandler)
+	// PSY-350: collection daily-digest preference toggle.
+	huma.Patch(protectedGroup, "/auth/preferences/collection-digest", userPrefsHandler.SetCollectionDigestHandler)
 
 	// Public unsubscribe endpoint (HMAC-signed, no auth required)
 	huma.Post(api, "/auth/unsubscribe/show-reminders", userPrefsHandler.UnsubscribeShowRemindersHandler)
 	// PSY-289: public one-click unsubscribe for comment + mention emails.
 	huma.Post(api, "/unsubscribe/comment-subscription", userPrefsHandler.UnsubscribeCommentSubscriptionHandler)
 	huma.Post(api, "/unsubscribe/mention", userPrefsHandler.UnsubscribeMentionHandler)
+	// PSY-350: public one-click unsubscribe for collection digest emails.
+	huma.Post(api, "/unsubscribe/collection-digest", userPrefsHandler.UnsubscribeCollectionDigestHandler)
 
 	// Public email verification confirm endpoint (user clicks link from email)
 	huma.Post(api, "/auth/verify-email/confirm", authHandler.ConfirmVerificationHandler)

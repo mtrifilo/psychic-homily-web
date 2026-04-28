@@ -88,8 +88,13 @@ type CollectionListResponse struct {
 	SubscriberCount  int            `json:"subscriber_count"`
 	ContributorCount int            `json:"contributor_count"`
 	EntityTypeCounts map[string]int `json:"entity_type_counts"`
-	CreatedAt        time.Time      `json:"created_at"`
-	UpdatedAt        time.Time      `json:"updated_at"`
+	// NewSinceLastVisit is the count of items added to this collection after
+	// the viewer's `last_visited_at` cursor on the subscription. Always 0
+	// for collections the viewer is not subscribed to (or for unauthed
+	// viewers); only populated by the user-collections endpoint. PSY-350.
+	NewSinceLastVisit int       `json:"new_since_last_visit,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 // CollectionItemResponse represents an item in a collection

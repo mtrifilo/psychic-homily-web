@@ -133,4 +133,28 @@ describe('CollectionCard', () => {
     expect(img).toBeInTheDocument()
     expect(img).toHaveAttribute('src', 'https://example.com/cover.jpg')
   })
+
+  // PSY-350: "N new since last visit" badge
+  it('renders the N-new badge when new_since_last_visit > 0', () => {
+    const collection = { ...baseCollection, new_since_last_visit: 3 }
+    render(<CollectionCard collection={collection} />)
+
+    expect(screen.getByText('3 new')).toBeInTheDocument()
+    expect(
+      screen.getByLabelText('3 new since your last visit')
+    ).toBeInTheDocument()
+  })
+
+  it('omits the N-new badge when new_since_last_visit is 0', () => {
+    const collection = { ...baseCollection, new_since_last_visit: 0 }
+    render(<CollectionCard collection={collection} />)
+
+    expect(screen.queryByText(/new$/)).not.toBeInTheDocument()
+  })
+
+  it('omits the N-new badge when new_since_last_visit is undefined', () => {
+    render(<CollectionCard collection={baseCollection} />)
+
+    expect(screen.queryByText(/new$/)).not.toBeInTheDocument()
+  })
 })

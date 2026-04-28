@@ -96,6 +96,11 @@ type UserPreferences struct {
 	// PSY-289: comment subscription + mention notification preferences.
 	NotifyOnCommentSubscription bool `json:"notify_on_comment_subscription" gorm:"column:notify_on_comment_subscription;not null;default:true"`
 	NotifyOnMention             bool `json:"notify_on_mention" gorm:"column:notify_on_mention;not null;default:true"`
+
+	// PSY-350: collection daily-digest email preference. Toggles whether the
+	// user receives a once-per-day batched email summarizing items added to
+	// any of their subscribed collections in the last 24h.
+	NotifyOnCollectionDigest bool `json:"notify_on_collection_digest" gorm:"column:notify_on_collection_digest;not null;default:true"`
 }
 
 // TableName specifies the table name for UserPreferences

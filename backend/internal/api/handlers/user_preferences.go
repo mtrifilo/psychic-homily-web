@@ -431,3 +431,98 @@ func (h *UserPreferencesHandler) UnsubscribeMentionHandler(ctx context.Context, 
 		},
 	}, nil
 }
+
+// ──────────────────────────────────────────────
+// PSY-350: collection daily-digest preference
+// ──────────────────────────────────────────────
+
+// SetCollectionDigestRequest toggles the collection daily-digest preference.
+type SetCollectionDigestRequest struct {
+	Body struct {
+		Enabled bool `json:"enabled" doc:"Enable or disable the daily collection-subscription digest email"`
+	}
+}
+
+// SetCollectionDigestResponse reports the resulting preference state.
+type SetCollectionDigestResponse struct {
+	Body struct {
+		Success                  bool `json:"success"`
+		NotifyOnCollectionDigest bool `json:"notify_on_collection_digest"`
+	}
+}
+
+// SetCollectionDigestHandler handles PATCH /auth/preferences/collection-digest.
+func (h *UserPreferencesHandler) SetCollectionDigestHandler(ctx context.Context, req *SetCollectionDigestRequest) (*SetCollectionDigestResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	if err := h.userService.SetNotifyOnCollectionDigest(user.ID, req.Body.Enabled); err != nil {
+		logger.FromContext(ctx).Error("set_notify_on_collection_digest_failed",
+			"error", err.Error(),
+			"user_id", user.ID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to update preference: %s", err.Error()),
+		)
+	}
+
+	logger.FromContext(ctx).Info("set_notify_on_collection_digest_success",
+		"user_id", user.ID,
+		"enabled", req.Body.Enabled,
+	)
+
+	resp := &SetCollectionDigestResponse{}
+	resp.Body.Success = true
+	resp.Body.NotifyOnCollectionDigest = req.Body.Enabled
+	return resp, nil
+}
+
+// UnsubscribeCollectionDigestRequest is the public one-click unsubscribe
+// payload sent from the digest email "Unsubscribe" link. PSY-350.
+type UnsubscribeCollectionDigestRequest struct {
+	Body struct {
+		UID uint   `json:"uid" doc:"User ID"`
+		Sig string `json:"sig" doc:"HMAC signature"`
+	}
+}
+
+// UnsubscribeCollectionDigestResponse is the confirmation shape.
+type UnsubscribeCollectionDigestResponse struct {
+	Body struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+}
+
+// UnsubscribeCollectionDigestHandler handles POST /unsubscribe/collection-digest.
+// Verifies HMAC then flips notify_on_collection_digest to false. Public —
+// no auth required, just a valid signature minted in the digest email.
+func (h *UserPreferencesHandler) UnsubscribeCollectionDigestHandler(ctx context.Context, req *UnsubscribeCollectionDigestRequest) (*UnsubscribeCollectionDigestResponse, error) {
+	if !engagement.VerifyCollectionDigestUnsubscribeSignature(req.Body.UID, req.Body.Sig, h.jwtSecret) {
+		return nil, huma.Error403Forbidden("Invalid unsubscribe link")
+	}
+
+	if err := h.userService.SetNotifyOnCollectionDigest(req.Body.UID, false); err != nil {
+		logger.FromContext(ctx).Error("unsubscribe_collection_digest_failed",
+			"error", err.Error(),
+			"user_id", req.Body.UID,
+		)
+		return nil, huma.Error500InternalServerError("Failed to unsubscribe")
+	}
+
+	logger.FromContext(ctx).Info("unsubscribe_collection_digest_success",
+		"user_id", req.Body.UID,
+	)
+
+	return &UnsubscribeCollectionDigestResponse{
+		Body: struct {
+			Success bool   `json:"success"`
+			Message string `json:"message"`
+		}{
+			Success: true,
+			Message: "Collection digest notifications disabled",
+		},
+	}, nil
+}

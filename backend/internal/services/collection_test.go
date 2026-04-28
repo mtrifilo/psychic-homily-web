@@ -1105,3 +1105,153 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ContributorCou
 	suite.Require().NoError(err)
 	suite.Equal(3, detail.ContributorCount)
 }
+
+// =============================================================================
+// Group 13 (PSY-350): GetBySlug bumps last_visited_at for authed subscribers
+// =============================================================================
+
+// TestGetBySlug_AuthenticatedSubscriber_BumpsLastVisitedAt verifies the
+// fire-and-forget MarkVisited side-effect lands. Done via polling because
+// the bump runs in a goroutine.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_AuthenticatedSubscriber_BumpsLastVisitedAt() {
+	creator := suite.createTestUser("Visitor")
+	coll := suite.createBasicCollection(creator, "Visit Test")
+
+	// Reset last_visited_at to a known stale value.
+	stale := time.Now().Add(-24 * time.Hour)
+	suite.Require().NoError(
+		suite.db.Model(&models.CollectionSubscriber{}).
+			Where("collection_id = ? AND user_id = ?", coll.ID, creator.ID).
+			Update("last_visited_at", stale).Error,
+	)
+
+	_, err := suite.collectionService.GetBySlug(coll.Slug, creator.ID)
+	suite.Require().NoError(err)
+
+	// Poll for up to ~250ms — the goroutine should have run by then.
+	var subscriber models.CollectionSubscriber
+	deadline := time.Now().Add(250 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		err = suite.db.Where("collection_id = ? AND user_id = ?", coll.ID, creator.ID).First(&subscriber).Error
+		suite.Require().NoError(err)
+		if subscriber.LastVisitedAt != nil && subscriber.LastVisitedAt.After(stale) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	suite.Require().NotNil(subscriber.LastVisitedAt)
+	suite.True(subscriber.LastVisitedAt.After(stale),
+		"expected LastVisitedAt to advance past the stale value")
+}
+
+// TestGetBySlug_NonSubscriber_NoSideEffect — viewing a public collection
+// without being subscribed must NOT create a subscription row.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_NonSubscriber_NoSideEffect() {
+	creator := suite.createTestUser("Creator")
+	viewer := suite.createTestUser("Viewer")
+	coll := suite.createBasicCollection(creator, "Public Collection")
+
+	_, err := suite.collectionService.GetBySlug(coll.Slug, viewer.ID)
+	suite.Require().NoError(err)
+
+	var count int64
+	suite.db.Model(&models.CollectionSubscriber{}).
+		Where("collection_id = ? AND user_id = ?", coll.ID, viewer.ID).
+		Count(&count)
+	suite.Equal(int64(0), count, "viewing without subscribing must not create a subscription row")
+}
+
+// =============================================================================
+// Group 14 (PSY-350): GetUserCollections.NewSinceLastVisit
+// =============================================================================
+
+// TestGetUserCollections_NewSinceLastVisit_CountsItemsAfterLastVisit verifies
+// the library tab "N new since last visit" badge math. PSY-350.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_NewSinceLastVisit_CountsItemsAfterLastVisit() {
+	creator := suite.createTestUser("Creator")
+	subscriber := suite.createTestUser("Subscriber")
+	// Use a collaborative collection so the subscriber can also add items.
+	collResp, err := suite.collectionService.CreateCollection(creator.ID, &contracts.CreateCollectionRequest{
+		Title:         "Tracked Collection",
+		IsPublic:      true,
+		Collaborative: true,
+	})
+	suite.Require().NoError(err)
+	coll := collResp
+
+	// Subscribe the second user with a fixed last_visited_at.
+	visitedAt := time.Now().Add(-1 * time.Hour)
+	sub := &models.CollectionSubscriber{
+		CollectionID:  coll.ID,
+		UserID:        subscriber.ID,
+		LastVisitedAt: &visitedAt,
+	}
+	suite.Require().NoError(suite.db.Create(sub).Error)
+
+	a1 := suite.createTestArtist("A1")
+	a2 := suite.createTestArtist("A2")
+	a3 := suite.createTestArtist("A3")
+
+	// Item 1 added BEFORE visit — should not count.
+	item1, err := suite.collectionService.AddItem(coll.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist, EntityID: a1.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.Model(&models.CollectionItem{}).
+		Where("id = ?", item1.ID).
+		Update("created_at", visitedAt.Add(-30*time.Minute)).Error)
+
+	// Item 2 added AFTER visit by creator — should count.
+	item2, err := suite.collectionService.AddItem(coll.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist, EntityID: a2.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.Model(&models.CollectionItem{}).
+		Where("id = ?", item2.ID).
+		Update("created_at", visitedAt.Add(15*time.Minute)).Error)
+
+	// Item 3 added AFTER visit by subscriber themselves — should NOT count
+	// (we exclude the viewer's own additions to keep the badge meaningful).
+	item3, err := suite.collectionService.AddItem(coll.Slug, subscriber.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist, EntityID: a3.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.Model(&models.CollectionItem{}).
+		Where("id = ?", item3.ID).
+		Update("created_at", visitedAt.Add(45*time.Minute)).Error)
+
+	// Fetch via the user-collections endpoint.
+	resp, _, err := suite.collectionService.GetUserCollections(subscriber.ID, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Equal(1, resp[0].NewSinceLastVisit, "expected exactly one new item since visit (excluding self-add)")
+}
+
+// TestGetUserCollections_NewSinceLastVisit_NeverVisited_FallsBackToSubscriptionStart
+// verifies that subscribers who have never visited get the count of items
+// added after the subscription's created_at (excluding self).
+func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_NewSinceLastVisit_NeverVisited_FallsBackToSubscriptionStart() {
+	creator := suite.createTestUser("Creator")
+	subscriber := suite.createTestUser("Sub")
+	coll := suite.createBasicCollection(creator, "Coll")
+
+	// Subscribe the second user with NULL last_visited_at.
+	sub := &models.CollectionSubscriber{
+		CollectionID:  coll.ID,
+		UserID:        subscriber.ID,
+		LastVisitedAt: nil,
+	}
+	suite.Require().NoError(suite.db.Create(sub).Error)
+
+	// Add one item after subscribing — should count.
+	a := suite.createTestArtist("A")
+	_, err := suite.collectionService.AddItem(coll.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist, EntityID: a.ID,
+	})
+	suite.Require().NoError(err)
+
+	resp, _, err := suite.collectionService.GetUserCollections(subscriber.ID, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Equal(1, resp[0].NewSinceLastVisit)
+}

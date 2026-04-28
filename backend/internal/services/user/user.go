@@ -1162,6 +1162,42 @@ func (s *UserService) SetNotifyOnMention(userID uint, enabled bool) error {
 	})
 }
 
+// SetNotifyOnCollectionDigest toggles the collection daily-digest email
+// preference (PSY-350). Always-upsert: if no preferences row exists, create
+// one with this flag and the other notification flags at their defaults.
+func (s *UserService) SetNotifyOnCollectionDigest(userID uint, enabled bool) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	result := s.db.Model(&models.UserPreferences{}).
+		Where("user_id = ?", userID).
+		Update("notify_on_collection_digest", enabled)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update notify_on_collection_digest: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		// GORM bool zero-value gotcha: if `enabled` is false on Create, GORM
+		// skips the column → DB default (true) wins. Always create with true,
+		// then Update to false if needed.
+		prefs := &models.UserPreferences{
+			UserID:                      userID,
+			NotifyOnCommentSubscription: true,
+			NotifyOnMention:             true,
+			NotifyOnCollectionDigest:    true,
+		}
+		if err := s.db.Create(prefs).Error; err != nil {
+			return fmt.Errorf("failed to create user preferences: %w", err)
+		}
+		if !enabled {
+			if err := s.db.Model(prefs).Update("notify_on_collection_digest", false).Error; err != nil {
+				return fmt.Errorf("failed to update notify_on_collection_digest after create: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
 // setCommentNotificationPref updates one or both of the PSY-289 preference
 // flags on the user_preferences row, creating the row if it doesn't exist.
 func (s *UserService) setCommentNotificationPref(userID uint, updates map[string]interface{}) error {

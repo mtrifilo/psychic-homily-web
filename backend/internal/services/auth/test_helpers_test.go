@@ -159,6 +159,10 @@ func (n *nilDBUserService) SetNotifyOnMention(userID uint, enabled bool) error {
 	return fmt.Errorf("database not initialized")
 }
 
+func (n *nilDBUserService) SetNotifyOnCollectionDigest(userID uint, enabled bool) error {
+	return fmt.Errorf("database not initialized")
+}
+
 // newNilDBUserService returns a UserServiceInterface that returns
 // "database not initialized" for every DB-dependent method.
 func newNilDBUserService() contracts.UserServiceInterface {
