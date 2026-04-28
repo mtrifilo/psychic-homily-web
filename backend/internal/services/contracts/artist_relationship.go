@@ -50,6 +50,33 @@ type ArtistGraphLink struct {
 	Detail    any     `json:"detail,omitempty"`
 }
 
+// ArtistBillComposition aggregates an artist's bill-slot history and top co-bill artists.
+// Sourced from show_artists.position + set_type; is_headliner is derived
+// (position = 0 OR set_type = 'headliner') — never queried as a column.
+type ArtistBillComposition struct {
+	Artist           ArtistGraphNode `json:"artist"` // center
+	Stats            BillStats       `json:"stats"`
+	OpensWith        []BillCoArtist  `json:"opens_with"`        // artists who open for this one (top 10)
+	ClosesWith       []BillCoArtist  `json:"closes_with"`       // artists who headline above this one (top 10)
+	Graph            ArtistGraph     `json:"graph"`             // mini-graph: scoped to shared_bills edges
+	BelowThreshold   bool            `json:"below_threshold"`   // true if Stats.TotalShows < 3
+	TimeFilterMonths int             `json:"time_filter_months"` // 0 = all-time
+}
+
+// BillStats summarizes how often an artist plays which slot.
+type BillStats struct {
+	TotalShows     int `json:"total_shows"`
+	HeadlinerCount int `json:"headliner_count"`
+	OpenerCount    int `json:"opener_count"`
+}
+
+// BillCoArtist is one row in the opens-with / closes-with tables.
+type BillCoArtist struct {
+	Artist      ArtistGraphNode `json:"artist"`
+	SharedCount int             `json:"shared_count"`
+	LastShared  string          `json:"last_shared"` // ISO date "2026-03-01"
+}
+
 // ArtistRelationshipServiceInterface defines the contract for artist relationship operations.
 type ArtistRelationshipServiceInterface interface {
 	// CRUD
@@ -60,6 +87,7 @@ type ArtistRelationshipServiceInterface interface {
 
 	// Graph
 	GetArtistGraph(artistID uint, types []string, userID uint) (*ArtistGraph, error)
+	GetArtistBillComposition(artistID uint, months int) (*ArtistBillComposition, error)
 
 	// Voting (only for non-auto-derived, typically "similar")
 	Vote(artistA, artistB uint, relType string, userID uint, isUpvote bool) error

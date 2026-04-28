@@ -25,7 +25,7 @@ interface ShowHeaderProps {
  * This intentionally diverges from the generic `EntityHeader` — the bill
  * position semantics (`set_type`) and the co-primary venue entity don't
  * fit into `EntityHeader`'s single-string `title` / subtitle-badge shape.
- * See `docs/learnings/entity-detail-layout-migration.md` for rationale.
+ * See `docs/research/entity-detail-layout-migration.md` for rationale.
  */
 export function ShowHeader({ show, actions }: ShowHeaderProps) {
   const venue = show.venues[0]
