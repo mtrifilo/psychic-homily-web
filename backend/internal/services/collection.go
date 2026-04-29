@@ -136,6 +136,121 @@ func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.Crea
 	return s.GetBySlug(slug, creatorID)
 }
 
+// CloneCollection creates a new collection owned by callerID by copying
+// title (suffixed with " (fork)"), description, and all items (including
+// per-item notes and positions) from the source collection. Sets
+// `forked_from_collection_id` to the source ID. PSY-351.
+//
+// Visibility: matches the existing pattern (GetBySlug). Source must be
+// public OR owned by the caller. Anyone authenticated can clone any public
+// collection — no trust-tier gate.
+//
+// Notes:
+//   - The clone is created as a new public, collaborative=true collection
+//     by default, mirroring CreateCollection's defaults. The cloner can
+//     edit visibility/collaboration after the fact.
+//   - The whole copy runs in a transaction so we never end up with a
+//     half-populated fork on partial failure.
+func (s *CollectionService) CloneCollection(srcSlug string, callerID uint) (*contracts.CollectionDetailResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	if callerID == 0 {
+		// Defense-in-depth: handler already enforces auth, but the service
+		// must not silently accept anonymous callers.
+		return nil, apperrors.ErrCollectionForbidden(srcSlug)
+	}
+
+	// Load source.
+	var src models.Collection
+	if err := s.db.Where("slug = ?", srcSlug).First(&src).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.ErrCollectionNotFound(srcSlug)
+		}
+		return nil, fmt.Errorf("failed to load source collection: %w", err)
+	}
+
+	// Visibility: match GetBySlug — public OR owned by caller.
+	if !src.IsPublic && src.CreatorID != callerID {
+		return nil, apperrors.ErrCollectionForbidden(srcSlug)
+	}
+
+	// Generate a unique slug from "<title> (fork)".
+	forkTitle := src.Title + " (fork)"
+	baseSlug := utils.GenerateArtistSlug(forkTitle)
+	newSlug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
+		var count int64
+		s.db.Model(&models.Collection{}).Where("slug = ?", candidate).Count(&count)
+		return count > 0
+	})
+
+	srcID := src.ID
+	clone := &models.Collection{
+		Title:                  forkTitle,
+		Slug:                   newSlug,
+		Description:            src.Description,
+		CreatorID:              callerID,
+		Collaborative:          true, // GORM bool gotcha: create with true defaults; reset below if needed.
+		CoverImageURL:          src.CoverImageURL,
+		IsPublic:               true, // public default — caller can flip to private after clone.
+		IsFeatured:             false,
+		ForkedFromCollectionID: &srcID,
+	}
+
+	now := time.Now()
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(clone).Error; err != nil {
+			return fmt.Errorf("failed to create clone: %w", err)
+		}
+
+		// Copy items. We re-query the items rather than relying on a
+		// preloaded slice so we can order them deterministically and
+		// tolerate concurrent edits to the source.
+		var srcItems []models.CollectionItem
+		if err := tx.Where("collection_id = ?", srcID).
+			Order("position ASC, created_at ASC").
+			Find(&srcItems).Error; err != nil {
+			return fmt.Errorf("failed to load source items: %w", err)
+		}
+
+		if len(srcItems) > 0 {
+			cloned := make([]models.CollectionItem, 0, len(srcItems))
+			for _, item := range srcItems {
+				cloned = append(cloned, models.CollectionItem{
+					CollectionID:  clone.ID,
+					EntityType:    item.EntityType,
+					EntityID:      item.EntityID,
+					Position:      item.Position,
+					AddedByUserID: callerID, // attributed to the cloner.
+					Notes:         item.Notes,
+				})
+			}
+			if err := tx.Create(&cloned).Error; err != nil {
+				return fmt.Errorf("failed to copy items: %w", err)
+			}
+		}
+
+		// Auto-subscribe the cloner — mirrors CreateCollection.
+		sub := &models.CollectionSubscriber{
+			CollectionID:  clone.ID,
+			UserID:        callerID,
+			LastVisitedAt: &now,
+		}
+		if err := tx.Create(sub).Error; err != nil {
+			// Non-fatal: clone exists. Log but don't fail the transaction.
+			_ = err
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return s.GetBySlug(newSlug, callerID)
+}
+
 // GetBySlug retrieves a collection by slug with full detail
 func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.CollectionDetailResponse, error) {
 	if s.db == nil {
@@ -175,6 +290,21 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 	s.db.Model(&models.CollectionItem{}).Where("collection_id = ?", collection.ID).
 		Distinct("added_by_user_id").Count(&contributorCount)
 
+	// Count forks (public social signal — PSY-351). Live COUNT mirrors
+	// the existing collection counter pattern and is cheap thanks to the
+	// partial index added in migration 20260427173004.
+	var forksCount int64
+	s.db.Model(&models.Collection{}).
+		Where("forked_from_collection_id = ?", collection.ID).
+		Count(&forksCount)
+
+	// Resolve "forked from" attribution if applicable. PSY-351.
+	// PSY-351: When the source was deleted, the FK was reset to NULL by
+	// `ON DELETE SET NULL`. We never snapshot the source title at fork time
+	// (per product decision); the frontend renders fallback copy in that
+	// case.
+	forkedFrom := s.resolveForkedFromInfo(collection.ForkedFromCollectionID)
+
 	// Check if viewer is subscribed
 	isSubscribed := false
 	if viewerID > 0 {
@@ -186,26 +316,56 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 	}
 
 	return &contracts.CollectionDetailResponse{
-		ID:               collection.ID,
-		Title:            collection.Title,
-		Slug:             collection.Slug,
-		Description:      collection.Description,
-		DescriptionHTML:  s.renderMarkdown(collection.Description),
-		CreatorID:        collection.CreatorID,
-		CreatorName:      creatorName,
-		Collaborative:    collection.Collaborative,
-		CoverImageURL:    collection.CoverImageURL,
-		IsPublic:         collection.IsPublic,
-		IsFeatured:       collection.IsFeatured,
-		DisplayMode:      collection.DisplayMode,
-		ItemCount:        len(itemResponses),
-		SubscriberCount:  int(subscriberCount),
-		ContributorCount: int(contributorCount),
-		Items:            itemResponses,
-		IsSubscribed:     isSubscribed,
-		CreatedAt:        collection.CreatedAt,
-		UpdatedAt:        collection.UpdatedAt,
+		ID:                     collection.ID,
+		Title:                  collection.Title,
+		Slug:                   collection.Slug,
+		Description:            collection.Description,
+		DescriptionHTML:        s.renderMarkdown(collection.Description),
+		CreatorID:              collection.CreatorID,
+		CreatorName:            creatorName,
+		Collaborative:          collection.Collaborative,
+		CoverImageURL:          collection.CoverImageURL,
+		IsPublic:               collection.IsPublic,
+		IsFeatured:             collection.IsFeatured,
+		DisplayMode:            collection.DisplayMode,
+		ItemCount:              len(itemResponses),
+		SubscriberCount:        int(subscriberCount),
+		ContributorCount:       int(contributorCount),
+		ForksCount:             int(forksCount),
+		ForkedFromCollectionID: collection.ForkedFromCollectionID,
+		ForkedFrom:             forkedFrom,
+		Items:                  itemResponses,
+		IsSubscribed:           isSubscribed,
+		CreatedAt:              collection.CreatedAt,
+		UpdatedAt:              collection.UpdatedAt,
 	}, nil
+}
+
+// resolveForkedFromInfo loads the minimal source-collection snapshot for
+// inline attribution. Returns nil when:
+//   - This collection wasn't forked (FK is nil), OR
+//   - The source was deleted (FK was set to NULL by ON DELETE SET NULL).
+//
+// The frontend renders fallback copy ("Forked from a deleted collection")
+// based on whether the FK is set but the snapshot is nil.
+func (s *CollectionService) resolveForkedFromInfo(forkedFromID *uint) *contracts.ForkedFromInfo {
+	if forkedFromID == nil || *forkedFromID == 0 {
+		return nil
+	}
+	var source models.Collection
+	err := s.db.Select("id, title, slug, creator_id").
+		Where("id = ?", *forkedFromID).First(&source).Error
+	if err != nil {
+		// Source missing despite FK — treat as deleted.
+		return nil
+	}
+	return &contracts.ForkedFromInfo{
+		ID:          source.ID,
+		Title:       source.Title,
+		Slug:        source.Slug,
+		CreatorID:   source.CreatorID,
+		CreatorName: s.resolveUserName(source.CreatorID),
+	}
 }
 
 // ListCollections retrieves collections with optional filtering
@@ -278,6 +438,9 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	// Batch-load contributor counts
 	contributorCounts := s.batchCountContributors(collectionIDs)
 
+	// Batch-load fork counts (PSY-351)
+	forkCounts := s.batchCountForks(collectionIDs)
+
 	// Batch-load entity type counts
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 
@@ -288,24 +451,26 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
 		responses[i] = &contracts.CollectionListResponse{
-			ID:               c.ID,
-			Title:            c.Title,
-			Slug:             c.Slug,
-			Description:      c.Description,
-			DescriptionHTML:  s.renderMarkdown(c.Description),
-			CreatorID:        c.CreatorID,
-			CreatorName:      creatorNames[c.CreatorID],
-			Collaborative:    c.Collaborative,
-			CoverImageURL:    c.CoverImageURL,
-			IsPublic:         c.IsPublic,
-			IsFeatured:       c.IsFeatured,
-			DisplayMode:      c.DisplayMode,
-			ItemCount:        itemCounts[c.ID],
-			SubscriberCount:  subscriberCounts[c.ID],
-			ContributorCount: contributorCounts[c.ID],
-			EntityTypeCounts: entityTypeCounts[c.ID],
-			CreatedAt:        c.CreatedAt,
-			UpdatedAt:        c.UpdatedAt,
+			ID:                     c.ID,
+			Title:                  c.Title,
+			Slug:                   c.Slug,
+			Description:            c.Description,
+			DescriptionHTML:        s.renderMarkdown(c.Description),
+			CreatorID:              c.CreatorID,
+			CreatorName:            creatorNames[c.CreatorID],
+			Collaborative:          c.Collaborative,
+			CoverImageURL:          c.CoverImageURL,
+			IsPublic:               c.IsPublic,
+			IsFeatured:             c.IsFeatured,
+			DisplayMode:            c.DisplayMode,
+			ItemCount:              itemCounts[c.ID],
+			SubscriberCount:        subscriberCounts[c.ID],
+			ContributorCount:       contributorCounts[c.ID],
+			ForksCount:             forkCounts[c.ID],
+			ForkedFromCollectionID: c.ForkedFromCollectionID,
+			EntityTypeCounts:       entityTypeCounts[c.ID],
+			CreatedAt:              c.CreatedAt,
+			UpdatedAt:              c.UpdatedAt,
 		}
 	}
 
@@ -809,30 +974,33 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 	itemCounts := s.batchCountItems(collectionIDs)
 	subscriberCounts := s.batchCountSubscribers(collectionIDs)
 	contributorCounts := s.batchCountContributors(collectionIDs)
+	forkCounts := s.batchCountForks(collectionIDs)
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
 		responses[i] = &contracts.CollectionListResponse{
-			ID:               c.ID,
-			Title:            c.Title,
-			Slug:             c.Slug,
-			Description:      c.Description,
-			DescriptionHTML:  s.renderMarkdown(c.Description),
-			CreatorID:        c.CreatorID,
-			CreatorName:      creatorNames[c.CreatorID],
-			Collaborative:    c.Collaborative,
-			CoverImageURL:    c.CoverImageURL,
-			IsPublic:         c.IsPublic,
-			IsFeatured:       c.IsFeatured,
-			DisplayMode:      c.DisplayMode,
-			ItemCount:        itemCounts[c.ID],
-			SubscriberCount:  subscriberCounts[c.ID],
-			ContributorCount: contributorCounts[c.ID],
-			EntityTypeCounts: entityTypeCounts[c.ID],
-			CreatedAt:        c.CreatedAt,
-			UpdatedAt:        c.UpdatedAt,
+			ID:                     c.ID,
+			Title:                  c.Title,
+			Slug:                   c.Slug,
+			Description:            c.Description,
+			DescriptionHTML:        s.renderMarkdown(c.Description),
+			CreatorID:              c.CreatorID,
+			CreatorName:            creatorNames[c.CreatorID],
+			Collaborative:          c.Collaborative,
+			CoverImageURL:          c.CoverImageURL,
+			IsPublic:               c.IsPublic,
+			IsFeatured:             c.IsFeatured,
+			DisplayMode:            c.DisplayMode,
+			ItemCount:              itemCounts[c.ID],
+			SubscriberCount:        subscriberCounts[c.ID],
+			ContributorCount:       contributorCounts[c.ID],
+			ForksCount:             forkCounts[c.ID],
+			ForkedFromCollectionID: c.ForkedFromCollectionID,
+			EntityTypeCounts:       entityTypeCounts[c.ID],
+			CreatedAt:              c.CreatedAt,
+			UpdatedAt:              c.UpdatedAt,
 		}
 	}
 
@@ -883,30 +1051,33 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 	itemCounts := s.batchCountItems(collectionIDs)
 	subscriberCounts := s.batchCountSubscribers(collectionIDs)
 	contributorCounts := s.batchCountContributors(collectionIDs)
+	forkCounts := s.batchCountForks(collectionIDs)
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
 		responses[i] = &contracts.CollectionListResponse{
-			ID:               c.ID,
-			Title:            c.Title,
-			Slug:             c.Slug,
-			Description:      c.Description,
-			DescriptionHTML:  s.renderMarkdown(c.Description),
-			CreatorID:        c.CreatorID,
-			CreatorName:      creatorNames[c.CreatorID],
-			Collaborative:    c.Collaborative,
-			CoverImageURL:    c.CoverImageURL,
-			IsPublic:         c.IsPublic,
-			IsFeatured:       c.IsFeatured,
-			DisplayMode:      c.DisplayMode,
-			ItemCount:        itemCounts[c.ID],
-			SubscriberCount:  subscriberCounts[c.ID],
-			ContributorCount: contributorCounts[c.ID],
-			EntityTypeCounts: entityTypeCounts[c.ID],
-			CreatedAt:        c.CreatedAt,
-			UpdatedAt:        c.UpdatedAt,
+			ID:                     c.ID,
+			Title:                  c.Title,
+			Slug:                   c.Slug,
+			Description:            c.Description,
+			DescriptionHTML:        s.renderMarkdown(c.Description),
+			CreatorID:              c.CreatorID,
+			CreatorName:            creatorNames[c.CreatorID],
+			Collaborative:          c.Collaborative,
+			CoverImageURL:          c.CoverImageURL,
+			IsPublic:               c.IsPublic,
+			IsFeatured:             c.IsFeatured,
+			DisplayMode:            c.DisplayMode,
+			ItemCount:              itemCounts[c.ID],
+			SubscriberCount:        subscriberCounts[c.ID],
+			ContributorCount:       contributorCounts[c.ID],
+			ForksCount:             forkCounts[c.ID],
+			ForkedFromCollectionID: c.ForkedFromCollectionID,
+			EntityTypeCounts:       entityTypeCounts[c.ID],
+			CreatedAt:              c.CreatedAt,
+			UpdatedAt:              c.UpdatedAt,
 		}
 	}
 
@@ -954,30 +1125,33 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 	itemCounts := s.batchCountItems(collectionIDs)
 	subscriberCounts := s.batchCountSubscribers(collectionIDs)
 	contributorCounts := s.batchCountContributors(collectionIDs)
+	forkCounts := s.batchCountForks(collectionIDs)
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
 		responses[i] = &contracts.CollectionListResponse{
-			ID:               c.ID,
-			Title:            c.Title,
-			Slug:             c.Slug,
-			Description:      c.Description,
-			DescriptionHTML:  s.renderMarkdown(c.Description),
-			CreatorID:        c.CreatorID,
-			CreatorName:      creatorNames[c.CreatorID],
-			Collaborative:    c.Collaborative,
-			CoverImageURL:    c.CoverImageURL,
-			IsPublic:         c.IsPublic,
-			IsFeatured:       c.IsFeatured,
-			DisplayMode:      c.DisplayMode,
-			ItemCount:        itemCounts[c.ID],
-			SubscriberCount:  subscriberCounts[c.ID],
-			ContributorCount: contributorCounts[c.ID],
-			EntityTypeCounts: entityTypeCounts[c.ID],
-			CreatedAt:        c.CreatedAt,
-			UpdatedAt:        c.UpdatedAt,
+			ID:                     c.ID,
+			Title:                  c.Title,
+			Slug:                   c.Slug,
+			Description:            c.Description,
+			DescriptionHTML:        s.renderMarkdown(c.Description),
+			CreatorID:              c.CreatorID,
+			CreatorName:            creatorNames[c.CreatorID],
+			Collaborative:          c.Collaborative,
+			CoverImageURL:          c.CoverImageURL,
+			IsPublic:               c.IsPublic,
+			IsFeatured:             c.IsFeatured,
+			DisplayMode:            c.DisplayMode,
+			ItemCount:              itemCounts[c.ID],
+			SubscriberCount:        subscriberCounts[c.ID],
+			ContributorCount:       contributorCounts[c.ID],
+			ForksCount:             forkCounts[c.ID],
+			ForkedFromCollectionID: c.ForkedFromCollectionID,
+			EntityTypeCounts:       entityTypeCounts[c.ID],
+			CreatedAt:              c.CreatedAt,
+			UpdatedAt:              c.UpdatedAt,
 		}
 	}
 
@@ -1369,6 +1543,32 @@ func (s *CollectionService) batchCountContributors(collectionIDs []uint) map[uin
 
 	for _, r := range results {
 		counts[r.CollectionID] = r.Count
+	}
+	return counts
+}
+
+// batchCountForks returns fork counts (number of cloned children) keyed by
+// source collection ID. Live COUNT mirrors the existing collection counter
+// pattern. PSY-351.
+func (s *CollectionService) batchCountForks(collectionIDs []uint) map[uint]int {
+	counts := make(map[uint]int)
+	if len(collectionIDs) == 0 {
+		return counts
+	}
+
+	type Row struct {
+		ForkedFromCollectionID uint
+		Count                  int
+	}
+	var rows []Row
+	s.db.Model(&models.Collection{}).
+		Select("forked_from_collection_id, COUNT(*) as count").
+		Where("forked_from_collection_id IN ?", collectionIDs).
+		Group("forked_from_collection_id").
+		Find(&rows)
+
+	for _, r := range rows {
+		counts[r.ForkedFromCollectionID] = r.Count
 	}
 	return counts
 }

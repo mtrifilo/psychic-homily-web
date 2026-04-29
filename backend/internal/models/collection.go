@@ -38,8 +38,12 @@ type Collection struct {
 	IsPublic      bool      `gorm:"column:is_public;not null;default:true"`
 	IsFeatured    bool      `gorm:"column:is_featured;not null;default:false"`
 	DisplayMode   string    `gorm:"column:display_mode;not null;default:unranked"`
-	CreatedAt     time.Time `gorm:"not null"`
-	UpdatedAt     time.Time `gorm:"not null"`
+	// ForkedFromCollectionID is set when this collection was created via clone.
+	// FK uses ON DELETE SET NULL so deleting the source does not cascade-delete
+	// forks (see migration 20260427173004). PSY-351.
+	ForkedFromCollectionID *uint     `gorm:"column:forked_from_collection_id"`
+	CreatedAt              time.Time `gorm:"not null"`
+	UpdatedAt              time.Time `gorm:"not null"`
 
 	// Relationships
 	Creator     User                   `gorm:"foreignKey:CreatorID"`

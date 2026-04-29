@@ -37,6 +37,8 @@ const baseCollection: Collection = {
   display_mode: 'unranked',
   item_count: 5,
   subscriber_count: 10,
+  forks_count: 0,
+  forked_from_collection_id: null,
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
 }
