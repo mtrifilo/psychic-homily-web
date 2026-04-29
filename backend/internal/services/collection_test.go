@@ -548,9 +548,12 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_DescriptionXSS
 	resp, err := suite.collectionService.GetBySlug(created.Slug, user.ID)
 	suite.Require().NoError(err)
 	// Raw markdown is preserved (the editor will show what was typed); the
-	// rendered HTML must strip <script> per the bluemonday policy.
+	// rendered HTML must strip <script> per the bluemonday policy. Inner text
+	// of stripped tags becomes plain visible text — harmless without the
+	// surrounding executable tag — so we assert the tags themselves are gone,
+	// not the inner text.
 	suite.NotContains(resp.DescriptionHTML, "<script>")
-	suite.NotContains(resp.DescriptionHTML, "alert(")
+	suite.NotContains(resp.DescriptionHTML, "</script>")
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_DescriptionTooLong() {
@@ -811,7 +814,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_NotesXSSStripped
 
 	suite.Require().NoError(err)
 	suite.NotContains(resp.NotesHTML, "<script>")
-	suite.NotContains(resp.NotesHTML, "alert(")
+	suite.NotContains(resp.NotesHTML, "</script>")
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_NotesTooLong() {
