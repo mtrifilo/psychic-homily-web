@@ -69,10 +69,33 @@ type CollectionDetailResponse struct {
 	ItemCount        int                      `json:"item_count"`
 	SubscriberCount  int                      `json:"subscriber_count"`
 	ContributorCount int                      `json:"contributor_count"`
-	Items            []CollectionItemResponse `json:"items"`
-	IsSubscribed     bool                     `json:"is_subscribed"`
-	CreatedAt        time.Time                `json:"created_at"`
-	UpdatedAt        time.Time                `json:"updated_at"`
+	// ForksCount is a public social signal — number of collections that
+	// declared this one as their `forked_from_collection_id`. Computed live
+	// on read (see CollectionService.batchCountForks). PSY-351.
+	ForksCount int `json:"forks_count"`
+	// ForkedFromCollectionID is non-nil when this collection was cloned.
+	// May be set even if ForkedFrom is nil (when the source was deleted).
+	ForkedFromCollectionID *uint `json:"forked_from_collection_id,omitempty"`
+	// ForkedFrom is a minimal snapshot of the source collection for
+	// rendering inline attribution. nil when the source was deleted
+	// (FK was set to NULL) or this collection wasn't forked.
+	ForkedFrom   *ForkedFromInfo          `json:"forked_from,omitempty"`
+	Items        []CollectionItemResponse `json:"items"`
+	IsSubscribed bool                     `json:"is_subscribed"`
+	CreatedAt    time.Time                `json:"created_at"`
+	UpdatedAt    time.Time                `json:"updated_at"`
+}
+
+// ForkedFromInfo carries the minimum data needed to render the
+// "Forked from [Title] by [Curator]" inline attribution as a link.
+// Distinct from CollectionListResponse to keep the payload small and
+// to avoid recursive nesting (a fork's source may itself be a fork).
+type ForkedFromInfo struct {
+	ID          uint   `json:"id"`
+	Title       string `json:"title"`
+	Slug        string `json:"slug"`
+	CreatorID   uint   `json:"creator_id"`
+	CreatorName string `json:"creator_name"`
 }
 
 // CollectionListResponse represents a collection in list views (without items)
@@ -91,7 +114,12 @@ type CollectionListResponse struct {
 	ItemCount        int            `json:"item_count"`
 	SubscriberCount  int            `json:"subscriber_count"`
 	ContributorCount int            `json:"contributor_count"`
-	EntityTypeCounts map[string]int `json:"entity_type_counts"`
+	// ForksCount is a public social signal exposed on list cards too,
+	// so original collections can advertise how often they've been forked.
+	// PSY-351.
+	ForksCount             int            `json:"forks_count"`
+	ForkedFromCollectionID *uint          `json:"forked_from_collection_id,omitempty"`
+	EntityTypeCounts       map[string]int `json:"entity_type_counts"`
 	// NewSinceLastVisit is the count of items added to this collection after
 	// the viewer's `last_visited_at` cursor on the subscription. Always 0
 	// for collections the viewer is not subscribed to (or for unauthed
@@ -131,6 +159,7 @@ type UpdateCollectionItemRequest struct {
 // CollectionServiceInterface defines the contract for collection operations.
 type CollectionServiceInterface interface {
 	CreateCollection(creatorID uint, req *CreateCollectionRequest) (*CollectionDetailResponse, error)
+	CloneCollection(srcSlug string, callerID uint) (*CollectionDetailResponse, error)
 	GetBySlug(slug string, viewerID uint) (*CollectionDetailResponse, error)
 	ListCollections(filters CollectionFilters, limit, offset int) ([]*CollectionListResponse, int64, error)
 	UpdateCollection(slug string, userID uint, isAdmin bool, req *UpdateCollectionRequest) (*CollectionDetailResponse, error)

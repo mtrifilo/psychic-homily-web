@@ -17,6 +17,7 @@ vi.mock('@/lib/api', () => ({
       REORDER: (slug: string) => `/collections/${slug}/items/reorder`,
       SUBSCRIBE: (slug: string) => `/collections/${slug}/subscribe`,
       FEATURE: (slug: string) => `/collections/${slug}/feature`,
+      CLONE: (slug: string) => `/collections/${slug}/clone`,
       MY: '/auth/collections',
     },
   },
@@ -47,6 +48,7 @@ import {
   useCreateCollection,
   useUpdateCollection,
   useDeleteCollection,
+  useCloneCollection,
   useAddCollectionItem,
   useRemoveCollectionItem,
   useReorderCollectionItems,
@@ -238,6 +240,36 @@ describe('Collection mutation hooks', () => {
         '/collections/to-delete',
         expect.objectContaining({ method: 'DELETE' })
       )
+    })
+  })
+
+  describe('useCloneCollection', () => {
+    // PSY-351: clone hook posts to .../clone with no body and returns
+    // the new collection so the caller can navigate to its slug.
+    it('POSTs to /collections/{slug}/clone and returns the new collection', async () => {
+      const newCollection = {
+        id: 99,
+        title: 'Source (fork)',
+        slug: 'source-fork',
+        forked_from_collection_id: 1,
+      }
+      mockApiRequest.mockResolvedValueOnce(newCollection)
+
+      const { result } = renderHook(() => useCloneCollection(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ slug: 'source' })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/collections/source/clone',
+        expect.objectContaining({ method: 'POST' })
+      )
+      expect(result.current.data).toEqual(newCollection)
     })
   })
 

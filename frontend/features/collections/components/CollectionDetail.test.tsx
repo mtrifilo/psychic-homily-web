@@ -64,6 +64,16 @@ const mockDeleteMutation = vi.fn(() => ({
 }))
 const mockReorderMutate = vi.fn()
 const mockUpdateMutate = vi.fn()
+// PSY-351: clone mutation mock — `mutate` invokes the success callback
+// directly so we can assert the post-clone navigation deterministically
+// without spinning up a real React Query client.
+const mockCloneMutate = vi.fn()
+const mockCloneMutation = vi.fn(() => ({
+  mutate: mockCloneMutate,
+  isPending: false,
+  isError: false,
+  error: null,
+}))
 
 vi.mock('../hooks', () => ({
   useCollection: (...args: unknown[]) => mockCollection(...args),
@@ -101,6 +111,7 @@ vi.mock('../hooks', () => ({
     isPending: false,
   }),
   useDeleteCollection: () => mockDeleteMutation(),
+  useCloneCollection: () => mockCloneMutation(),
 }))
 
 // Mock comments feature
@@ -137,6 +148,9 @@ function makeCollection(
     item_count: 0,
     subscriber_count: 0,
     contributor_count: 0,
+    forks_count: 0,
+    forked_from_collection_id: null,
+    forked_from: null,
     created_at: '2025-01-01T00:00:00Z',
     updated_at: '2025-01-01T00:00:00Z',
     items: [],
@@ -161,6 +175,12 @@ describe('CollectionDetail', () => {
     })
     mockDeleteMutation.mockReturnValue({
       mutate: mockDeleteMutate,
+      isPending: false,
+      isError: false,
+      error: null,
+    })
+    mockCloneMutation.mockReturnValue({
+      mutate: mockCloneMutate,
       isPending: false,
       isError: false,
       error: null,
@@ -335,6 +355,201 @@ describe('CollectionDetail', () => {
 
     expect(confirmSpy).not.toHaveBeenCalled()
     confirmSpy.mockRestore()
+  })
+
+  // ──────────────────────────────────────────────
+  // PSY-351: Clone / Fork
+  // ──────────────────────────────────────────────
+
+  describe('PSY-351 fork attribution + clone button', () => {
+    it('does not render fork attribution when collection has no source', () => {
+      render(<CollectionDetail slug="test-collection" />)
+      expect(
+        screen.queryByTestId('forked-from-attribution')
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders inline "Forked from <link> by <curator>" when source exists', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          title: 'Forked Title',
+          forked_from_collection_id: 42,
+          forked_from: {
+            id: 42,
+            title: 'Original Title',
+            slug: 'original-slug',
+            creator_id: 7,
+            creator_name: 'originator',
+          },
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="forked-title" />)
+
+      const attribution = screen.getByTestId('forked-from-attribution')
+      expect(attribution).toBeInTheDocument()
+      expect(attribution.textContent).toContain('Forked from')
+      expect(attribution.textContent).toContain('Original Title')
+      expect(attribution.textContent).toContain('by originator')
+
+      // Title is rendered as a link to the source collection.
+      const link = screen.getByRole('link', { name: 'Original Title' })
+      expect(link).toHaveAttribute('href', '/collections/original-slug')
+    })
+
+    it('falls back to "Forked from a deleted collection" when source is gone', () => {
+      // FK is set on the cloned record but the snapshot is null —
+      // matches the backend behavior when the source was deleted (the
+      // FK was reset to NULL via ON DELETE SET NULL).
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          forked_from_collection_id: 42,
+          forked_from: null,
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="orphan-fork" />)
+
+      const attribution = screen.getByTestId('forked-from-attribution')
+      expect(attribution.textContent).toContain(
+        'Forked from a deleted collection'
+      )
+      // No link rendered in the fallback state.
+      expect(
+        screen.queryByRole('link', { name: /forked from/i })
+      ).not.toBeInTheDocument()
+    })
+
+    it('does not render "N forks" stat when count is zero', () => {
+      render(<CollectionDetail slug="test-collection" />)
+      expect(screen.queryByTestId('forks-count')).not.toBeInTheDocument()
+    })
+
+    it('renders "1 fork" / "N forks" public count when forks exist', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ forks_count: 1 }),
+        isLoading: false,
+        error: null,
+      })
+      const { rerender } = render(<CollectionDetail slug="test-collection" />)
+      expect(screen.getByTestId('forks-count').textContent).toContain('1 fork')
+
+      mockCollection.mockReturnValue({
+        data: makeCollection({ forks_count: 5 }),
+        isLoading: false,
+        error: null,
+      })
+      rerender(<CollectionDetail slug="test-collection" />)
+      expect(screen.getByTestId('forks-count').textContent).toContain('5 forks')
+    })
+
+    it('hides Fork button on the user\'s own collection', () => {
+      // current user (id=1) is the creator (creator_id=1) by default.
+      render(<CollectionDetail slug="test-collection" />)
+      expect(
+        screen.queryByRole('button', { name: 'Fork collection' })
+      ).not.toBeInTheDocument()
+    })
+
+    it('hides Fork button on private collections', () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: '999' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockCollection.mockReturnValue({
+        data: makeCollection({ creator_id: 1, is_public: false }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+      expect(
+        screen.queryByRole('button', { name: 'Fork collection' })
+      ).not.toBeInTheDocument()
+    })
+
+    it('hides Fork button when not authenticated', () => {
+      mockAuthContext.mockReturnValue({
+        user: null,
+        isAuthenticated: false,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockCollection.mockReturnValue({
+        data: makeCollection({ creator_id: 1 }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+      expect(
+        screen.queryByRole('button', { name: 'Fork collection' })
+      ).not.toBeInTheDocument()
+    })
+
+    it('shows Fork button to authenticated non-owners on public collections', () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: '999' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockCollection.mockReturnValue({
+        data: makeCollection({ creator_id: 1, is_public: true }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+      expect(
+        screen.getByRole('button', { name: 'Fork collection' })
+      ).toBeInTheDocument()
+    })
+
+    it('navigates to the new collection slug after a successful clone', async () => {
+      const user = userEvent.setup()
+      mockAuthContext.mockReturnValue({
+        user: { id: '999' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockCollection.mockReturnValue({
+        data: makeCollection({ creator_id: 1, is_public: true }),
+        isLoading: false,
+        error: null,
+      })
+      // Mutation triggers the onSuccess callback synchronously with the
+      // server response shape (CollectionDetail).
+      mockCloneMutate.mockImplementation(
+        (_args, opts) => {
+          opts?.onSuccess?.({
+            ...makeCollection({
+              id: 99,
+              title: 'Test Collection (fork)',
+              slug: 'test-collection-fork',
+              creator_id: 999,
+            }),
+          })
+        }
+      )
+
+      render(<CollectionDetail slug="test-collection" />)
+      await user.click(
+        screen.getByRole('button', { name: 'Fork collection' })
+      )
+
+      expect(mockCloneMutate).toHaveBeenCalledWith(
+        { slug: 'test-collection' },
+        expect.any(Object)
+      )
+      expect(mockPush).toHaveBeenCalledWith(
+        '/collections/test-collection-fork'
+      )
+    })
   })
 
   // ──────────────────────────────────────────────
