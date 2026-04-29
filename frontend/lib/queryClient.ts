@@ -312,6 +312,7 @@ export const queryKeys = {
     detail: (slug: string) => ['scenes', 'detail', slug] as const,
     artists: (slug: string, period?: number) => ['scenes', 'artists', slug, period] as const,
     genres: (slug: string) => ['scenes', 'genres', slug] as const,
+    graph: (slug: string, types?: string[]) => ['scenes', 'graph', slug, types ?? null] as const,
   },
 
   // Community queries (public)

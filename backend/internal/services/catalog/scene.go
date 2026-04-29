@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -548,4 +549,419 @@ func DiversityLabel(index float64) string {
 		return "Genre-focused"
 	}
 	return ""
+}
+
+// ──────────────────────────────────────────────
+// Scene graph (PSY-367)
+// ──────────────────────────────────────────────
+
+// Cluster sizing constants for the scene graph. v1 cluster signal is each artist's
+// most-frequently-played venue within the scene; clusters smaller than the
+// threshold roll up to a single "other" bucket, and the visible palette caps at
+// the Okabe-Ito 8-color set (see docs/features/scene-graph-layout.md §5).
+const (
+	sceneClusterMinSize       = 6 // first-class cluster floor (else rolled to "other")
+	sceneClusterMaxFirstClass = 8 // cap = Okabe-Ito palette size
+	sceneClusterOtherID       = "other"
+	sceneClusterOtherLabel    = "Other"
+)
+
+// allowedSceneEdgeTypes whitelists relationship types that the scene graph
+// surfaces. shared_bills + shared_label + member_of carry signal at scene scale;
+// `similar` is an editorial vote that doesn't compose well across many artists,
+// and `radio_cooccurrence` is station-level rather than scene-level. Constrain
+// here so the API surface stays predictable as new types are added.
+var allowedSceneEdgeTypes = map[string]bool{
+	"shared_bills": true,
+	"shared_label": true,
+	"member_of":    true,
+	"side_project": true,
+}
+
+// sceneArtistRow is the unified result of the scene-artists + primary-venue CTE.
+type sceneArtistRow struct {
+	ArtistID         uint    `gorm:"column:artist_id"`
+	Name             string  `gorm:"column:name"`
+	Slug             *string `gorm:"column:slug"`
+	City             *string `gorm:"column:city"`
+	State            *string `gorm:"column:state"`
+	PrimaryVenueID   *uint   `gorm:"column:primary_venue_id"`
+	PrimaryVenueName *string `gorm:"column:primary_venue_name"`
+}
+
+// sceneRelationshipRow is the in-scope relationship payload from artist_relationships.
+type sceneRelationshipRow struct {
+	SourceArtistID   uint            `gorm:"column:source_artist_id"`
+	TargetArtistID   uint            `gorm:"column:target_artist_id"`
+	RelationshipType string          `gorm:"column:relationship_type"`
+	Score            float32         `gorm:"column:score"`
+	Detail           json.RawMessage `gorm:"column:detail"`
+}
+
+// GetSceneGraph returns the typed-edge artist relationship graph scoped to a
+// single scene (city + state). Cluster IDs are computed at query time from each
+// artist's most-frequent venue within the scene; the result is read-only (no
+// vote data) and includes derived fields (`is_isolate`, `is_cross_cluster`)
+// that the frontend would otherwise have to recompute on every render.
+//
+// types filters to the subset of allowed scene edge types (see
+// allowedSceneEdgeTypes); empty/nil means "all allowed types".
+func (s *SceneService) GetSceneGraph(city, state string, types []string) (*contracts.SceneGraphResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Validate scene exists (mirrors GetActiveArtists / GetSceneDetail).
+	var venueCount int64
+	if err := s.db.Model(&models.Venue{}).
+		Where("city = ? AND state = ? AND verified = true", city, state).
+		Count(&venueCount).Error; err != nil {
+		return nil, fmt.Errorf("failed to count venues: %w", err)
+	}
+	if venueCount < sceneMinVenues {
+		return nil, fmt.Errorf("scene not found: %s, %s", city, state)
+	}
+
+	// Whitelist + dedupe types. Empty input means "all allowed types"; an input
+	// that was non-empty but resolved to nothing (every value unknown to the
+	// allowlist) must short-circuit to zero edges, not silently fall back to
+	// "all types".
+	resolvedTypes := resolveSceneEdgeTypes(types)
+	noEdgesByFilter := len(types) > 0 && len(resolvedTypes) == 0
+
+	// 1. Single CTE query — scene artists + their most-frequent in-scene venue.
+	//    Tie-break: more recent show wins (matches the spike doc §4 spec).
+	rows, err := s.querySceneArtistsWithPrimaryVenue(city, state)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query scene artists: %w", err)
+	}
+
+	resp := &contracts.SceneGraphResponse{
+		Scene: contracts.SceneGraphInfo{
+			Slug:        buildSceneSlug(city, state),
+			City:        city,
+			State:       state,
+			ArtistCount: len(rows),
+		},
+		Clusters: []contracts.SceneGraphCluster{},
+		Nodes:    []contracts.SceneGraphNode{},
+		Links:    []contracts.SceneGraphLink{},
+	}
+
+	if len(rows) == 0 {
+		return resp, nil
+	}
+
+	// 2. Cluster pass — count artists per primary venue, identify first-class clusters
+	//    (size >= sceneClusterMinSize, capped at Okabe-Ito palette size), roll the
+	//    long tail into a single "other" cluster.
+	clusters, clusterIDByVenue := buildSceneClusters(rows)
+	resp.Clusters = clusters
+
+	// 3. Build node list with cluster assignment. Order by artist name for
+	//    determinism (frontend doesn't depend on order, but tests do).
+	artistIDs := make([]uint, 0, len(rows))
+	clusterByArtist := make(map[uint]string, len(rows))
+	for _, r := range rows {
+		artistIDs = append(artistIDs, r.ArtistID)
+		clusterID := sceneClusterOtherID
+		if r.PrimaryVenueID != nil {
+			if cid, ok := clusterIDByVenue[*r.PrimaryVenueID]; ok {
+				clusterID = cid
+			}
+		}
+		clusterByArtist[r.ArtistID] = clusterID
+	}
+
+	// 4. Batch query upcoming-show-count for every node (mirror GetArtistGraph §4).
+	upcomingByArtist := s.batchUpcomingShowCount(artistIDs)
+
+	// 5. Query in-scope relationships — both endpoints in the scene's artist set.
+	var links []sceneRelationshipRow
+	if !noEdgesByFilter {
+		fetched, err := s.querySceneRelationships(artistIDs, resolvedTypes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query scene relationships: %w", err)
+		}
+		links = fetched
+	}
+
+	// 6. Build the link payload + flag cross-cluster ties.
+	connected := make(map[uint]bool, len(rows))
+	for _, l := range links {
+		srcCluster := clusterByArtist[l.SourceArtistID]
+		tgtCluster := clusterByArtist[l.TargetArtistID]
+
+		var detail any
+		if len(l.Detail) > 0 {
+			_ = json.Unmarshal(l.Detail, &detail)
+		}
+
+		resp.Links = append(resp.Links, contracts.SceneGraphLink{
+			SourceID:       l.SourceArtistID,
+			TargetID:       l.TargetArtistID,
+			Type:           l.RelationshipType,
+			Score:          float64(l.Score),
+			Detail:         detail,
+			IsCrossCluster: srcCluster != tgtCluster,
+		})
+
+		connected[l.SourceArtistID] = true
+		connected[l.TargetArtistID] = true
+	}
+	resp.Scene.EdgeCount = len(resp.Links)
+
+	// 7. Build node list with is_isolate set from the post-filter link set.
+	for _, r := range rows {
+		slug := ""
+		if r.Slug != nil {
+			slug = *r.Slug
+		}
+		ncity := ""
+		if r.City != nil {
+			ncity = *r.City
+		}
+		nstate := ""
+		if r.State != nil {
+			nstate = *r.State
+		}
+		resp.Nodes = append(resp.Nodes, contracts.SceneGraphNode{
+			ID:                r.ArtistID,
+			Name:              r.Name,
+			Slug:              slug,
+			City:              ncity,
+			State:             nstate,
+			UpcomingShowCount: upcomingByArtist[r.ArtistID],
+			ClusterID:         clusterByArtist[r.ArtistID],
+			IsIsolate:         !connected[r.ArtistID],
+		})
+	}
+
+	return resp, nil
+}
+
+// resolveSceneEdgeTypes filters the caller's requested types against the
+// scene-graph allowlist and returns a deterministic slice. Empty input → all
+// allowed types.
+func resolveSceneEdgeTypes(requested []string) []string {
+	if len(requested) == 0 {
+		out := make([]string, 0, len(allowedSceneEdgeTypes))
+		for t := range allowedSceneEdgeTypes {
+			out = append(out, t)
+		}
+		// Deterministic order so query plans + tests don't churn.
+		sortStringsAsc(out)
+		return out
+	}
+	seen := make(map[string]bool, len(requested))
+	out := make([]string, 0, len(requested))
+	for _, t := range requested {
+		if !allowedSceneEdgeTypes[t] || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	sortStringsAsc(out)
+	return out
+}
+
+// sortStringsAsc is a tiny insertion sort on strings — same shape as the
+// insertion sort patterns in artist_relationship_service.go. Kept inline to
+// avoid pulling in `sort` for one call site.
+func sortStringsAsc(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j] < s[j-1]; j-- {
+			s[j], s[j-1] = s[j-1], s[j]
+		}
+	}
+}
+
+// querySceneArtistsWithPrimaryVenue runs the CTE that lists every artist with
+// at least one approved show in (city, state) and resolves each artist's
+// most-frequently-played in-scene venue. LEFT JOINs the venue back so the
+// PrimaryVenueID/Name columns are nullable for any artist whose venue plays
+// don't resolve (defensive — should not happen given the source set).
+func (s *SceneService) querySceneArtistsWithPrimaryVenue(city, state string) ([]sceneArtistRow, error) {
+	const q = `
+		WITH scene_artists AS (
+			SELECT DISTINCT sa.artist_id
+			FROM show_artists sa
+			JOIN shows s ON s.id = sa.show_id
+			JOIN show_venues sv ON sv.show_id = s.id
+			JOIN venues v ON v.id = sv.venue_id
+			WHERE v.city = ? AND v.state = ? AND s.status = ?
+		),
+		artist_venue_counts AS (
+			SELECT
+				sa.artist_id,
+				v.id AS venue_id,
+				v.name AS venue_name,
+				COUNT(DISTINCT s.id) AS plays,
+				MAX(s.event_date) AS last_played,
+				ROW_NUMBER() OVER (
+					PARTITION BY sa.artist_id
+					ORDER BY COUNT(DISTINCT s.id) DESC, MAX(s.event_date) DESC
+				) AS rn
+			FROM show_artists sa
+			JOIN shows s ON s.id = sa.show_id
+			JOIN show_venues sv ON sv.show_id = s.id
+			JOIN venues v ON v.id = sv.venue_id
+			WHERE v.city = ? AND v.state = ? AND s.status = ?
+				AND sa.artist_id IN (SELECT artist_id FROM scene_artists)
+			GROUP BY sa.artist_id, v.id, v.name
+		)
+		SELECT
+			a.id   AS artist_id,
+			a.name AS name,
+			a.slug AS slug,
+			a.city AS city,
+			a.state AS state,
+			avc.venue_id   AS primary_venue_id,
+			avc.venue_name AS primary_venue_name
+		FROM artists a
+		JOIN scene_artists sa ON sa.artist_id = a.id
+		LEFT JOIN artist_venue_counts avc ON avc.artist_id = a.id AND avc.rn = 1
+		ORDER BY a.name ASC
+	`
+	var rows []sceneArtistRow
+	if err := s.db.Raw(q,
+		city, state, models.ShowStatusApproved,
+		city, state, models.ShowStatusApproved,
+	).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// querySceneRelationships fetches all stored relationships where BOTH source
+// and target artist IDs are in the scene's artist set, optionally filtered to
+// the resolved type list. The relationships table already pre-filters
+// shared_bills below the production threshold (see DeriveSharedBills minShows
+// default), so no `min_weight` query parameter is needed at v1.
+func (s *SceneService) querySceneRelationships(artistIDs []uint, types []string) ([]sceneRelationshipRow, error) {
+	if len(artistIDs) < 2 {
+		return nil, nil
+	}
+	var rows []sceneRelationshipRow
+	q := s.db.Table("artist_relationships").
+		Select("source_artist_id, target_artist_id, relationship_type, score, detail").
+		Where("source_artist_id IN ? AND target_artist_id IN ?", artistIDs, artistIDs)
+	if len(types) > 0 {
+		q = q.Where("relationship_type IN ?", types)
+	}
+	if err := q.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// batchUpcomingShowCount returns a map of artist_id → upcoming approved show
+// count, mirroring the batch pattern in GetArtistGraph step 4. Returns an empty
+// map (never nil) so callers can index without a nil check.
+func (s *SceneService) batchUpcomingShowCount(artistIDs []uint) map[uint]int {
+	out := make(map[uint]int, len(artistIDs))
+	if len(artistIDs) == 0 {
+		return out
+	}
+	type row struct {
+		ArtistID  uint
+		ShowCount int64
+	}
+	var rows []row
+	s.db.Table("show_artists").
+		Select("show_artists.artist_id, COUNT(DISTINCT shows.id) AS show_count").
+		Joins("JOIN shows ON shows.id = show_artists.show_id").
+		Where("show_artists.artist_id IN ? AND shows.status = ? AND shows.event_date > NOW()",
+			artistIDs, models.ShowStatusApproved).
+		Group("show_artists.artist_id").
+		Scan(&rows)
+	for _, r := range rows {
+		out[r.ArtistID] = int(r.ShowCount)
+	}
+	return out
+}
+
+// buildSceneClusters converts the per-artist primary-venue rows into a sorted
+// list of cluster definitions. Clusters >= sceneClusterMinSize are first-class
+// (capped at sceneClusterMaxFirstClass = 8, the Okabe-Ito palette size); the
+// remainder roll up to a single "other" cluster. Returns the cluster list
+// (caller-facing) and a venue_id → cluster_id lookup (used to assign nodes).
+func buildSceneClusters(rows []sceneArtistRow) ([]contracts.SceneGraphCluster, map[uint]string) {
+	type venueCount struct {
+		venueID uint
+		name    string
+		count   int
+	}
+	byVenue := make(map[uint]*venueCount)
+	for _, r := range rows {
+		if r.PrimaryVenueID == nil {
+			continue
+		}
+		entry, ok := byVenue[*r.PrimaryVenueID]
+		if !ok {
+			name := ""
+			if r.PrimaryVenueName != nil {
+				name = *r.PrimaryVenueName
+			}
+			entry = &venueCount{venueID: *r.PrimaryVenueID, name: name}
+			byVenue[*r.PrimaryVenueID] = entry
+		}
+		entry.count++
+	}
+
+	venues := make([]*venueCount, 0, len(byVenue))
+	for _, v := range byVenue {
+		venues = append(venues, v)
+	}
+	// Sort by count desc, then name asc for deterministic ordering on ties.
+	for i := 1; i < len(venues); i++ {
+		for j := i; j > 0; j-- {
+			a, b := venues[j], venues[j-1]
+			better := a.count > b.count || (a.count == b.count && a.name < b.name)
+			if !better {
+				break
+			}
+			venues[j], venues[j-1] = b, a
+		}
+	}
+
+	clusterIDByVenue := make(map[uint]string, len(venues))
+	clusters := make([]contracts.SceneGraphCluster, 0, len(venues)+1)
+	otherSize := 0
+
+	for i, v := range venues {
+		if v.count >= sceneClusterMinSize && len(clusters) < sceneClusterMaxFirstClass {
+			cid := fmt.Sprintf("v_%d", v.venueID)
+			clusterIDByVenue[v.venueID] = cid
+			clusters = append(clusters, contracts.SceneGraphCluster{
+				ID:         cid,
+				Label:      v.name,
+				Size:       v.count,
+				ColorIndex: i,
+			})
+			continue
+		}
+		// Falls into "other" — reuses the bucket id; no per-venue mapping needed.
+		clusterIDByVenue[v.venueID] = sceneClusterOtherID
+		otherSize += v.count
+	}
+
+	// Artists with no primary venue (defensive — e.g. data anomalies) land in "other".
+	for _, r := range rows {
+		if r.PrimaryVenueID == nil {
+			otherSize++
+		}
+	}
+
+	if otherSize > 0 {
+		clusters = append(clusters, contracts.SceneGraphCluster{
+			ID:         sceneClusterOtherID,
+			Label:      sceneClusterOtherLabel,
+			Size:       otherSize,
+			ColorIndex: -1,
+		})
+	}
+
+	return clusters, clusterIDByVenue
 }

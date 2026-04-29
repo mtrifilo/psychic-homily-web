@@ -70,3 +70,56 @@ export interface SceneGenreResponse {
   diversity_index: number
   diversity_label: string
 }
+
+// ──────────────────────────────────────────────
+// Scene graph (PSY-367) — derived per-scene artist relationship graph
+// ──────────────────────────────────────────────
+
+export interface SceneGraphInfo {
+  slug: string
+  city: string
+  state: string
+  artist_count: number
+  edge_count: number
+}
+
+export interface SceneGraphCluster {
+  /** "v_<venue_id>" for first-class clusters, "other" for the rolled-up tail. */
+  id: string
+  /** Venue name, or "Other". */
+  label: string
+  /** Number of artists in this cluster. */
+  size: number
+  /** 0..7 = Okabe-Ito palette index. -1 = "other" (use neutral grey). */
+  color_index: number
+}
+
+export interface SceneGraphNode {
+  id: number
+  name: string
+  slug: string
+  city?: string
+  state?: string
+  upcoming_show_count: number
+  /** Matches SceneGraphCluster.id. */
+  cluster_id: string
+  /** True when the artist has zero in-scene edges (post type-filter). */
+  is_isolate: boolean
+}
+
+export interface SceneGraphLink {
+  source_id: number
+  target_id: number
+  type: string
+  score: number
+  detail?: Record<string, unknown>
+  /** True when source.cluster_id !== target.cluster_id. */
+  is_cross_cluster: boolean
+}
+
+export interface SceneGraphResponse {
+  scene: SceneGraphInfo
+  clusters: SceneGraphCluster[]
+  nodes: SceneGraphNode[]
+  links: SceneGraphLink[]
+}
