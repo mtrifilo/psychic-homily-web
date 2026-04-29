@@ -3,4 +3,5 @@ export {
   useSceneDetail,
   useSceneArtists,
   useSceneGenres,
+  useSceneGraph,
 } from './useScenes'

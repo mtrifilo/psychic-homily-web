@@ -353,6 +353,7 @@ export const API_ENDPOINTS = {
     DETAIL: (slug: string) => `${API_BASE_URL}/scenes/${slug}`,
     ARTISTS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/artists`,
     GENRES: (slug: string) => `${API_BASE_URL}/scenes/${slug}/genres`,
+    GRAPH: (slug: string) => `${API_BASE_URL}/scenes/${slug}/graph`,
   },
 
   // Community endpoints (public)

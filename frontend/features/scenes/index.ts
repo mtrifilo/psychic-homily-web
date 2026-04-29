@@ -12,6 +12,11 @@ export type {
   SceneArtistsResponse,
   GenreCount,
   SceneGenreResponse,
+  SceneGraphInfo,
+  SceneGraphCluster,
+  SceneGraphNode,
+  SceneGraphLink,
+  SceneGraphResponse,
 } from './types'
 
 // Hooks
@@ -20,6 +25,7 @@ export {
   useSceneDetail,
   useSceneArtists,
   useSceneGenres,
+  useSceneGraph,
 } from './hooks'
 
 // Components

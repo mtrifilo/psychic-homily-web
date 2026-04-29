@@ -14,6 +14,7 @@ import type {
   SceneDetail,
   SceneArtistsResponse,
   SceneGenreResponse,
+  SceneGraphResponse,
 } from '../types'
 
 /**
@@ -95,5 +96,41 @@ export function useSceneGenres(slug: string) {
     },
     enabled: Boolean(slug),
     staleTime: 10 * 60 * 1000, // 10 minutes — genre data changes infrequently
+  })
+}
+
+interface UseSceneGraphOptions {
+  slug: string
+  types?: string[]
+  enabled?: boolean
+}
+
+/**
+ * Hook to fetch the scene-scale relationship graph (PSY-367).
+ *
+ * Cluster IDs are computed by the backend at query time from each artist's
+ * most-frequent in-scene venue; the response is read-only (no vote data) and
+ * includes derived `is_isolate` and `is_cross_cluster` flags so the frontend
+ * doesn't have to recompute them every render.
+ */
+export function useSceneGraph(options: UseSceneGraphOptions) {
+  const { slug, types, enabled = true } = options
+
+  const params = new URLSearchParams()
+  if (types && types.length > 0) {
+    params.set('types', types.join(','))
+  }
+  const queryString = params.toString()
+  const endpoint = queryString
+    ? `${API_ENDPOINTS.SCENES.GRAPH(slug)}?${queryString}`
+    : API_ENDPOINTS.SCENES.GRAPH(slug)
+
+  return useQuery({
+    queryKey: queryKeys.scenes.graph(slug, types),
+    queryFn: async (): Promise<SceneGraphResponse> => {
+      return apiRequest<SceneGraphResponse>(endpoint, { method: 'GET' })
+    },
+    enabled: enabled && Boolean(slug),
+    staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }
