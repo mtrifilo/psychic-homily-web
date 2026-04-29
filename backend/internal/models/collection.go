@@ -12,6 +12,20 @@ const (
 	CollectionEntityFestival = "festival"
 )
 
+// Collection display_mode values. Ranked surfaces numbered positions and
+// drag-and-drop reordering; unranked is a flat list with no numbering.
+const (
+	CollectionDisplayModeRanked   = "ranked"
+	CollectionDisplayModeUnranked = "unranked"
+)
+
+// IsValidCollectionDisplayMode returns true if mode is a recognized display
+// mode. Used by services/handlers to reject bad client input before it hits
+// the DB CHECK constraint.
+func IsValidCollectionDisplayMode(mode string) bool {
+	return mode == CollectionDisplayModeRanked || mode == CollectionDisplayModeUnranked
+}
+
 // Collection represents a user-curated collection of entities
 type Collection struct {
 	ID            uint      `gorm:"primaryKey"`
@@ -23,6 +37,7 @@ type Collection struct {
 	CoverImageURL *string   `gorm:"column:cover_image_url"`
 	IsPublic      bool      `gorm:"column:is_public;not null;default:true"`
 	IsFeatured    bool      `gorm:"column:is_featured;not null;default:false"`
+	DisplayMode   string    `gorm:"column:display_mode;not null;default:unranked"`
 	CreatedAt     time.Time `gorm:"not null"`
 	UpdatedAt     time.Time `gorm:"not null"`
 

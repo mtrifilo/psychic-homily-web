@@ -43,7 +43,7 @@ test.describe('Submit a show', () => {
 
   // TODO(PSY-446/PSY-437): add `{ tag: '@smoke' }` once the Valley Bar
   // autocomplete flake is resolved. Classified as a Smoke candidate by
-  // the PSY-445 audit (docs/strategy/testing-layers.md) — currently
+  // the PSY-445 audit (docs/runbooks/testing-layers.md) — currently
   // deferred to keep PR CI green. Track in PSY-437.
   test('can submit a show with existing venue', async ({
     authenticatedPage,

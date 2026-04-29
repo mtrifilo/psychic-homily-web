@@ -152,6 +152,7 @@ type CreateCollectionHandlerRequest struct {
 		Collaborative bool    `json:"collaborative,omitempty" required:"false" doc:"Whether other users can add items"`
 		CoverImageURL *string `json:"cover_image_url,omitempty" required:"false" doc:"Cover image URL"`
 		IsPublic      bool    `json:"is_public,omitempty" required:"false" doc:"Whether the collection is publicly visible"`
+		DisplayMode   *string `json:"display_mode,omitempty" required:"false" doc:"Display mode: 'ranked' (numbered, drag-to-reorder) or 'unranked' (flat list, default)" enum:"ranked,unranked"`
 	}
 }
 
@@ -179,10 +180,15 @@ func (h *CollectionHandler) CreateCollectionHandler(ctx context.Context, req *Cr
 		Collaborative: req.Body.Collaborative,
 		CoverImageURL: req.Body.CoverImageURL,
 		IsPublic:      req.Body.IsPublic,
+		DisplayMode:   req.Body.DisplayMode,
 	}
 
 	collection, err := h.collectionService.CreateCollection(user.ID, serviceReq)
 	if err != nil {
+		mappedErr := mapCollectionError(err)
+		if mappedErr != nil {
+			return nil, mappedErr
+		}
 		logger.FromContext(ctx).Error("create_collection_failed",
 			"error", err.Error(),
 			"request_id", requestID,
@@ -215,6 +221,7 @@ type UpdateCollectionHandlerRequest struct {
 		Collaborative *bool   `json:"collaborative,omitempty" required:"false" doc:"Whether other users can add items"`
 		CoverImageURL *string `json:"cover_image_url,omitempty" required:"false" doc:"Cover image URL"`
 		IsPublic      *bool   `json:"is_public,omitempty" required:"false" doc:"Whether the collection is publicly visible"`
+		DisplayMode   *string `json:"display_mode,omitempty" required:"false" doc:"Display mode: 'ranked' (numbered, drag-to-reorder) or 'unranked' (flat list)" enum:"ranked,unranked"`
 	}
 }
 
@@ -238,6 +245,7 @@ func (h *CollectionHandler) UpdateCollectionHandler(ctx context.Context, req *Up
 		Collaborative: req.Body.Collaborative,
 		CoverImageURL: req.Body.CoverImageURL,
 		IsPublic:      req.Body.IsPublic,
+		DisplayMode:   req.Body.DisplayMode,
 	}
 
 	collection, err := h.collectionService.UpdateCollection(req.Slug, user.ID, user.IsAdmin, serviceReq)
@@ -783,6 +791,8 @@ func mapCollectionError(err error) error {
 			return huma.Error409Conflict(collectionErr.Message)
 		case apperrors.CodeCollectionItemNotFound:
 			return huma.Error404NotFound(collectionErr.Message)
+		case apperrors.CodeCollectionInvalidRequest:
+			return huma.Error400BadRequest(collectionErr.Message)
 		}
 	}
 	return nil
