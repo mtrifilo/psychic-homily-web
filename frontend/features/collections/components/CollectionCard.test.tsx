@@ -34,6 +34,7 @@ const baseCollection: Collection = {
   creator_id: 1,
   creator_name: 'testuser',
   contributor_count: 0,
+  display_mode: 'unranked',
   item_count: 5,
   subscriber_count: 10,
   created_at: '2025-01-01T00:00:00Z',

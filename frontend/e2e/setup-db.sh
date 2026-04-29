@@ -433,7 +433,7 @@ echo "==> Seeding radio stations and shows (generated from backend/internal/seed
 # PSY-414: single source of truth in backend/internal/seeddata/radio.go,
 # rendered to SQL by cmd/gen-e2e-seed. cmd/seed (for local dev / stage)
 # and this pipe (for E2E) both consume the same Go data, so drift is not
-# possible. See docs/strategy/migrations.md.
+# possible. See docs/runbooks/migrations.md.
 go run ./cmd/gen-e2e-seed | psql -v ON_ERROR_STOP=1 "$E2E_DB_URL"
 
 echo "==> Seeding reserved per-worker collections (PSY-455)..."

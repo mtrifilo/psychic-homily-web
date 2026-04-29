@@ -221,6 +221,29 @@ export interface ArtistGraph {
   user_votes?: Record<string, string> // "sourceID-targetID-type" -> "up"/"down"
 }
 
+// Bill composition (PSY-364) — derived from show_artists.position + set_type.
+export interface BillStats {
+  total_shows: number
+  headliner_count: number
+  opener_count: number
+}
+
+export interface BillCoArtist {
+  artist: ArtistGraphNode
+  shared_count: number
+  last_shared: string // ISO date "2026-03-01"
+}
+
+export interface ArtistBillComposition {
+  artist: ArtistGraphNode
+  stats: BillStats
+  opens_with: BillCoArtist[]
+  closes_with: BillCoArtist[]
+  graph: ArtistGraph
+  below_threshold: boolean
+  time_filter_months: number // 0 = all-time
+}
+
 // Merge artist result
 export interface MergeArtistResult {
   canonical_artist_id: number

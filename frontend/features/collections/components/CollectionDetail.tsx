@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import {
   Loader2,
@@ -24,7 +24,28 @@ import {
   ChevronUp,
   ChevronDown,
   Share2,
+  GripVertical,
+  ListOrdered,
+  LayoutGrid,
 } from 'lucide-react'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import {
   Dialog,
   DialogContent,
@@ -49,7 +70,7 @@ import {
   getEntityTypeLabel,
   MAX_COLLECTION_MARKDOWN_LENGTH,
 } from '../types'
-import type { CollectionItem } from '../types'
+import type { CollectionDisplayMode, CollectionItem } from '../types'
 import { MarkdownEditor, MarkdownContent } from './MarkdownEditor'
 import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
@@ -186,6 +207,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
             description={collection.description}
             isPublic={collection.is_public}
             collaborative={collection.collaborative}
+            displayMode={collection.display_mode}
             onDone={() => setIsEditing(false)}
           />
         ) : (
@@ -350,6 +372,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
         items={items}
         slug={slug}
         isCreator={isCreator}
+        displayMode={collection.display_mode}
       />
 
       {/* Discussion */}
@@ -415,25 +438,37 @@ function CollectionItemsList({
   items,
   slug,
   isCreator,
+  displayMode,
 }: {
   items: CollectionItem[]
   slug: string
   isCreator: boolean
+  displayMode: CollectionDisplayMode
 }) {
   const reorderMutation = useReorderCollectionItems()
+  const isRanked = displayMode === 'ranked'
+  // Reordering only makes sense in ranked mode and only for creators.
+  const canReorder = isCreator && isRanked
+
+  const persistOrder = useCallback(
+    (orderedItems: CollectionItem[]) => {
+      const reorderPayload = orderedItems.map((item, i) => ({
+        item_id: item.id,
+        position: i,
+      }))
+      reorderMutation.mutate({ slug, items: reorderPayload })
+    },
+    [slug, reorderMutation]
+  )
 
   const handleMoveUp = useCallback(
     (index: number) => {
       if (index <= 0) return
       const newItems = [...items]
       ;[newItems[index - 1], newItems[index]] = [newItems[index], newItems[index - 1]]
-      const reorderPayload = newItems.map((item, i) => ({
-        item_id: item.id,
-        position: i,
-      }))
-      reorderMutation.mutate({ slug, items: reorderPayload })
+      persistOrder(newItems)
     },
-    [items, slug, reorderMutation]
+    [items, persistOrder]
   )
 
   const handleMoveDown = useCallback(
@@ -441,19 +476,47 @@ function CollectionItemsList({
       if (index >= items.length - 1) return
       const newItems = [...items]
       ;[newItems[index], newItems[index + 1]] = [newItems[index + 1], newItems[index]]
-      const reorderPayload = newItems.map((item, i) => ({
-        item_id: item.id,
-        position: i,
-      }))
-      reorderMutation.mutate({ slug, items: reorderPayload })
+      persistOrder(newItems)
     },
-    [items, slug, reorderMutation]
+    [items, persistOrder]
   )
 
-  return (
-    <div>
-      <h2 className="text-lg font-semibold mb-4">Items</h2>
-      {items.length === 0 ? (
+  // dnd-kit sensors:
+  // - PointerSensor with a small distance prevents drag from triggering on click.
+  // - TouchSensor with delay ⇒ long-press initiates drag on mobile (PSY-348).
+  // - KeyboardSensor pairs with sortableKeyboardCoordinates so focusable drag
+  //   handles support arrow-key reordering as a fallback.
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 8 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
+
+  const itemIds = useMemo(() => items.map((item) => item.id), [items])
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+      if (!over || active.id === over.id) return
+      const oldIndex = items.findIndex((item) => item.id === active.id)
+      const newIndex = items.findIndex((item) => item.id === over.id)
+      if (oldIndex === -1 || newIndex === -1) return
+      const reordered = arrayMove(items, oldIndex, newIndex)
+      persistOrder(reordered)
+    },
+    [items, persistOrder]
+  )
+
+  if (items.length === 0) {
+    return (
+      <div>
+        <h2 className="text-lg font-semibold mb-4">Items</h2>
         <div className="text-center py-12 text-muted-foreground">
           <Library className="h-12 w-12 mx-auto mb-3 text-muted-foreground/30" />
           <p>
@@ -462,22 +525,53 @@ function CollectionItemsList({
               : 'This collection is empty.'}
           </p>
         </div>
+      </div>
+    )
+  }
+
+  // Container layout differs between modes:
+  // - ranked   → vertical stack (numbering reads top-to-bottom)
+  // - unranked → responsive grid (visual parity with browse pages)
+  const containerClasses = isRanked
+    ? 'space-y-2'
+    : 'grid grid-cols-1 sm:grid-cols-2 gap-2'
+
+  const renderRows = () =>
+    items.map((item, index) => (
+      <CollectionItemRow
+        key={item.id}
+        item={item}
+        position={index + 1}
+        index={index}
+        totalItems={items.length}
+        slug={slug}
+        isCreator={isCreator}
+        isRanked={isRanked}
+        canReorder={canReorder}
+        onMoveUp={handleMoveUp}
+        onMoveDown={handleMoveDown}
+        isReordering={reorderMutation.isPending}
+      />
+    ))
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold mb-4">Items</h2>
+      {canReorder ? (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+            <div className={containerClasses} data-testid="collection-items">
+              {renderRows()}
+            </div>
+          </SortableContext>
+        </DndContext>
       ) : (
-        <div className="space-y-2">
-          {items.map((item, index) => (
-            <CollectionItemRow
-              key={item.id}
-              item={item}
-              position={index + 1}
-              index={index}
-              totalItems={items.length}
-              slug={slug}
-              isCreator={isCreator}
-              onMoveUp={handleMoveUp}
-              onMoveDown={handleMoveDown}
-              isReordering={reorderMutation.isPending}
-            />
-          ))}
+        <div className={containerClasses} data-testid="collection-items">
+          {renderRows()}
         </div>
       )}
     </div>
@@ -495,6 +589,8 @@ function CollectionItemRow({
   totalItems,
   slug,
   isCreator,
+  isRanked,
+  canReorder,
   onMoveUp,
   onMoveDown,
   isReordering,
@@ -505,6 +601,8 @@ function CollectionItemRow({
   totalItems: number
   slug: string
   isCreator: boolean
+  isRanked: boolean
+  canReorder: boolean
   onMoveUp: (index: number) => void
   onMoveDown: (index: number) => void
   isReordering: boolean
@@ -515,6 +613,25 @@ function CollectionItemRow({
   const [notesValue, setNotesValue] = useState(item.notes ?? '')
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false)
   const Icon = ENTITY_ICONS[item.entity_type] ?? Library
+
+  // useSortable returns no-op refs/listeners when not registered with a
+  // DndContext (e.g. unranked mode). Always calling it keeps hook order stable.
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.id, disabled: !canReorder })
+
+  const sortableStyle: React.CSSProperties = canReorder
+    ? {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.6 : undefined,
+      }
+    : {}
 
   const handleRemove = () => {
     removeMutation.mutate(
@@ -541,40 +658,59 @@ function CollectionItemRow({
   }
 
   return (
-    <div className="rounded-lg border border-border/50 bg-card p-3">
+    <div
+      ref={canReorder ? setNodeRef : undefined}
+      style={sortableStyle}
+      className="rounded-lg border border-border/50 bg-card p-3"
+    >
       <div className="flex items-center gap-3">
-        {/* Reorder arrows (creator only) */}
-        {isCreator && (
-          <div className="flex flex-col shrink-0">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
-              onClick={() => onMoveUp(index)}
-              disabled={index === 0 || isReordering}
-              title="Move up"
-              aria-label="Move up"
+        {/* Drag handle + keyboard reorder fallback (ranked mode, creator only) */}
+        {canReorder && (
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              {...attributes}
+              {...listeners}
+              className="touch-none cursor-grab active:cursor-grabbing h-7 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={`Drag to reorder ${item.entity_name}. Use space to lift, arrow keys to move.`}
+              title="Drag to reorder"
+              data-testid="drag-handle"
             >
-              <ChevronUp className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
-              onClick={() => onMoveDown(index)}
-              disabled={index === totalItems - 1 || isReordering}
-              title="Move down"
-              aria-label="Move down"
-            >
-              <ChevronDown className="h-3.5 w-3.5" />
-            </Button>
+              <GripVertical className="h-4 w-4" />
+            </button>
+            <div className="flex flex-col">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
+                onClick={() => onMoveUp(index)}
+                disabled={index === 0 || isReordering}
+                title="Move up"
+                aria-label="Move up"
+              >
+                <ChevronUp className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
+                onClick={() => onMoveDown(index)}
+                disabled={index === totalItems - 1 || isReordering}
+                title="Move down"
+                aria-label="Move down"
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           </div>
         )}
 
-        {/* Position number */}
-        <span className="text-sm font-medium text-muted-foreground/60 w-6 text-right shrink-0">
-          {position}
-        </span>
+        {/* Position number — only meaningful in ranked mode */}
+        {isRanked && (
+          <span className="text-sm font-medium text-muted-foreground/60 w-6 text-right shrink-0">
+            {position}
+          </span>
+        )}
 
         {/* Entity type icon */}
         <div className="h-8 w-8 shrink-0 rounded-md bg-muted/50 flex items-center justify-center">
@@ -913,6 +1049,7 @@ function InlineEditForm({
   description: initialDescription,
   isPublic: initialPublic,
   collaborative: initialCollaborative,
+  displayMode: initialDisplayMode,
   onDone,
 }: {
   slug: string
@@ -920,6 +1057,7 @@ function InlineEditForm({
   description: string
   isPublic: boolean
   collaborative: boolean
+  displayMode: CollectionDisplayMode
   onDone: () => void
 }) {
   const updateMutation = useUpdateCollection()
@@ -927,6 +1065,8 @@ function InlineEditForm({
   const [description, setDescription] = useState(initialDescription)
   const [isPublic, setIsPublic] = useState(initialPublic)
   const [collaborative, setCollaborative] = useState(initialCollaborative)
+  const [displayMode, setDisplayMode] =
+    useState<CollectionDisplayMode>(initialDisplayMode)
 
   const handleSave = () => {
     updateMutation.mutate(
@@ -936,6 +1076,7 @@ function InlineEditForm({
         description: description.trim(),
         is_public: isPublic,
         collaborative,
+        display_mode: displayMode,
       },
       { onSuccess: () => onDone() }
     )
@@ -972,6 +1113,65 @@ function InlineEditForm({
           testId="collection-description-editor"
         />
       </div>
+
+      {/* Display mode — radio group so the choice and its consequence are
+          always visible together. Numbered/ranked is opt-in. */}
+      <fieldset>
+        <legend className="text-sm font-medium mb-1.5">Display mode</legend>
+        <div className="flex flex-wrap items-stretch gap-2">
+          <label
+            className={`flex flex-1 min-w-[10rem] items-start gap-2 rounded-md border p-2.5 cursor-pointer text-sm ${
+              displayMode === 'unranked'
+                ? 'border-primary bg-primary/5'
+                : 'border-border hover:border-border/80'
+            }`}
+          >
+            <input
+              type="radio"
+              name="display-mode"
+              value="unranked"
+              checked={displayMode === 'unranked'}
+              onChange={() => setDisplayMode('unranked')}
+              className="mt-0.5"
+            />
+            <span className="flex-1">
+              <span className="flex items-center gap-1.5 font-medium">
+                <LayoutGrid className="h-3.5 w-3.5" />
+                Unranked
+              </span>
+              <span className="block text-xs text-muted-foreground mt-0.5">
+                Flat list. No numbering.
+              </span>
+            </span>
+          </label>
+
+          <label
+            className={`flex flex-1 min-w-[10rem] items-start gap-2 rounded-md border p-2.5 cursor-pointer text-sm ${
+              displayMode === 'ranked'
+                ? 'border-primary bg-primary/5'
+                : 'border-border hover:border-border/80'
+            }`}
+          >
+            <input
+              type="radio"
+              name="display-mode"
+              value="ranked"
+              checked={displayMode === 'ranked'}
+              onChange={() => setDisplayMode('ranked')}
+              className="mt-0.5"
+            />
+            <span className="flex-1">
+              <span className="flex items-center gap-1.5 font-medium">
+                <ListOrdered className="h-3.5 w-3.5" />
+                Ranked
+              </span>
+              <span className="block text-xs text-muted-foreground mt-0.5">
+                Numbered, drag-to-reorder.
+              </span>
+            </span>
+          </label>
+        </div>
+      </fieldset>
 
       <div className="flex items-center gap-6">
         <label className="flex items-center gap-2 text-sm cursor-pointer">

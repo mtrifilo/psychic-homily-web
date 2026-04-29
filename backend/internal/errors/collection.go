@@ -6,10 +6,11 @@ import (
 
 // Collection error codes
 const (
-	CodeCollectionNotFound     = "COLLECTION_NOT_FOUND"
-	CodeCollectionForbidden    = "COLLECTION_FORBIDDEN"
-	CodeCollectionItemExists   = "COLLECTION_ITEM_EXISTS"
-	CodeCollectionItemNotFound = "COLLECTION_ITEM_NOT_FOUND"
+	CodeCollectionNotFound       = "COLLECTION_NOT_FOUND"
+	CodeCollectionForbidden      = "COLLECTION_FORBIDDEN"
+	CodeCollectionItemExists     = "COLLECTION_ITEM_EXISTS"
+	CodeCollectionItemNotFound   = "COLLECTION_ITEM_NOT_FOUND"
+	CodeCollectionInvalidRequest = "COLLECTION_INVALID_REQUEST"
 )
 
 // CollectionError represents a collection-related error with additional context.
@@ -63,5 +64,15 @@ func ErrCollectionItemNotFound(itemID uint) *CollectionError {
 	return &CollectionError{
 		Code:    CodeCollectionItemNotFound,
 		Message: fmt.Sprintf("Collection item %d not found", itemID),
+	}
+}
+
+// ErrCollectionInvalidRequest creates an invalid-request error for the
+// collection domain (bad enum value, malformed input, etc.). The message is
+// surfaced verbatim to the API caller as a 400.
+func ErrCollectionInvalidRequest(message string) *CollectionError {
+	return &CollectionError{
+		Code:    CodeCollectionInvalidRequest,
+		Message: message,
 	}
 }
