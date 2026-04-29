@@ -1285,6 +1285,7 @@ type mockEmailService struct {
 	sendEditRejectedEmailFn func(string, string, string, string, string) (error)
 	sendCommentNotificationFn func(string, string, string, string, string, string, string) (error)
 	sendMentionNotificationFn func(string, string, string, string, string, string, string) (error)
+	sendCollectionDigestEmailFn func(string, []contracts.CollectionDigestGroup, string) (error)
 }
 
 func (m *mockEmailService) IsConfigured() (bool) {
@@ -1362,6 +1363,12 @@ func (m *mockEmailService) SendCommentNotification(toEmail string, commenterName
 func (m *mockEmailService) SendMentionNotification(toEmail string, mentionerName string, entityType string, entityName string, commentExcerpt string, commentURL string, unsubscribeURL string) (error) {
 	if m.sendMentionNotificationFn != nil {
 		return m.sendMentionNotificationFn(toEmail, mentionerName, entityType, entityName, commentExcerpt, commentURL, unsubscribeURL)
+	}
+	return nil
+}
+func (m *mockEmailService) SendCollectionDigestEmail(toEmail string, groups []contracts.CollectionDigestGroup, unsubscribeURL string) (error) {
+	if m.sendCollectionDigestEmailFn != nil {
+		return m.sendCollectionDigestEmailFn(toEmail, groups, unsubscribeURL)
 	}
 	return nil
 }
@@ -3306,6 +3313,7 @@ type mockUserService struct {
 	setDefaultReplyPermissionFn func(uint, string) (error)
 	setNotifyOnCommentSubscriptionFn func(uint, bool) (error)
 	setNotifyOnMentionFn func(uint, bool) (error)
+	setNotifyOnCollectionDigestFn func(uint, bool) (error)
 }
 
 func (m *mockUserService) ListUsers(limit int, offset int, filters contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
@@ -3533,6 +3541,12 @@ func (m *mockUserService) SetNotifyOnCommentSubscription(userID uint, enabled bo
 func (m *mockUserService) SetNotifyOnMention(userID uint, enabled bool) (error) {
 	if m.setNotifyOnMentionFn != nil {
 		return m.setNotifyOnMentionFn(userID, enabled)
+	}
+	return nil
+}
+func (m *mockUserService) SetNotifyOnCollectionDigest(userID uint, enabled bool) (error) {
+	if m.setNotifyOnCollectionDigestFn != nil {
+		return m.setNotifyOnCollectionDigestFn(userID, enabled)
 	}
 	return nil
 }

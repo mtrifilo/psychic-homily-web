@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -78,6 +79,9 @@ func (m *mockEmailService) SendCommentNotification(_, _, _, _, _, _, _ string) e
 	return nil
 }
 func (m *mockEmailService) SendMentionNotification(_, _, _, _, _, _, _ string) error {
+	return nil
+}
+func (m *mockEmailService) SendCollectionDigestEmail(_ string, _ []contracts.CollectionDigestGroup, _ string) error {
 	return nil
 }
 

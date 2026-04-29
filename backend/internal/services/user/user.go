@@ -1162,6 +1162,55 @@ func (s *UserService) SetNotifyOnMention(userID uint, enabled bool) error {
 	})
 }
 
+// SetNotifyOnCollectionDigest toggles the collection digest email
+// preference (PSY-350). Always-upsert: if no preferences row exists, create
+// one with this flag and the other notification flags at their defaults.
+//
+// Defaults differ by notification type:
+//   - notify_on_comment_subscription / notify_on_mention default TRUE
+//     (opt-OUT) — single email per direct interaction.
+//   - notify_on_collection_digest defaults FALSE (opt-IN) — subscribing
+//     to a collection implicitly subscribes to every future addition
+//     by anyone, so we keep the firehose explicit.
+func (s *UserService) SetNotifyOnCollectionDigest(userID uint, enabled bool) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	result := s.db.Model(&models.UserPreferences{}).
+		Where("user_id = ?", userID).
+		Update("notify_on_collection_digest", enabled)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update notify_on_collection_digest: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		// No prefs row exists yet — create one. The GORM bool zero-value
+		// gotcha only bites when the desired value collides with the column
+		// default. NotifyOnCommentSubscription / NotifyOnMention default to
+		// TRUE at the column level, so passing TRUE is fine. NotifyOnCollectionDigest
+		// defaults to FALSE (opt-IN), so passing FALSE is fine, but passing
+		// TRUE would also be skipped by GORM's zero-value omit only if it
+		// were false; since we're passing the caller's `enabled`, we follow
+		// up with an explicit Update only when enabling — matching the
+		// pattern used in ToggleCollectionDigest tests for false toggles.
+		prefs := &models.UserPreferences{
+			UserID:                      userID,
+			NotifyOnCommentSubscription: true,
+			NotifyOnMention:             true,
+			NotifyOnCollectionDigest:    enabled,
+		}
+		if err := s.db.Create(prefs).Error; err != nil {
+			return fmt.Errorf("failed to create user preferences: %w", err)
+		}
+		// If the caller asked to enable but the column default is false,
+		// GORM's Create writes `true` correctly because true is non-zero.
+		// If the caller asked to disable, the column default is false and
+		// GORM skipped the column → row reflects false. No follow-up Update
+		// is needed in either branch.
+	}
+	return nil
+}
+
 // setCommentNotificationPref updates one or both of the PSY-289 preference
 // flags on the user_preferences row, creating the row if it doesn't exist.
 func (s *UserService) setCommentNotificationPref(userID uint, updates map[string]interface{}) error {

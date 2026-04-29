@@ -59,6 +59,10 @@ interface UserPreferencesData {
   language?: string
   favorite_cities?: FavoriteCity[]
   default_reply_permission?: string
+  // PSY-350 / PSY-515: weekly digest of new items in collections the user
+  // follows. Server default is FALSE (opt-IN); user toggles this from the
+  // notification settings page.
+  notify_on_collection_digest?: boolean
 }
 
 interface UserProfile {

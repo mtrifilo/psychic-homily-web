@@ -431,3 +431,60 @@ func (h *UserPreferencesHandler) UnsubscribeMentionHandler(ctx context.Context, 
 		},
 	}, nil
 }
+
+// ──────────────────────────────────────────────
+// PSY-350: collection digest preference (weekly cadence; opt-IN by default)
+// ──────────────────────────────────────────────
+
+// SetCollectionDigestRequest toggles the collection digest preference.
+type SetCollectionDigestRequest struct {
+	Body struct {
+		Enabled bool `json:"enabled" doc:"Enable or disable the weekly collection-subscription digest email"`
+	}
+}
+
+// SetCollectionDigestResponse reports the resulting preference state.
+type SetCollectionDigestResponse struct {
+	Body struct {
+		Success                  bool `json:"success"`
+		NotifyOnCollectionDigest bool `json:"notify_on_collection_digest"`
+	}
+}
+
+// SetCollectionDigestHandler handles PATCH /auth/preferences/collection-digest.
+func (h *UserPreferencesHandler) SetCollectionDigestHandler(ctx context.Context, req *SetCollectionDigestRequest) (*SetCollectionDigestResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	if err := h.userService.SetNotifyOnCollectionDigest(user.ID, req.Body.Enabled); err != nil {
+		logger.FromContext(ctx).Error("set_notify_on_collection_digest_failed",
+			"error", err.Error(),
+			"user_id", user.ID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to update preference: %s", err.Error()),
+		)
+	}
+
+	logger.FromContext(ctx).Info("set_notify_on_collection_digest_success",
+		"user_id", user.ID,
+		"enabled", req.Body.Enabled,
+	)
+
+	resp := &SetCollectionDigestResponse{}
+	resp.Body.Success = true
+	resp.Body.NotifyOnCollectionDigest = req.Body.Enabled
+	return resp, nil
+}
+
+// PSY-350: collection digest unsubscribe handler is registered as a chi
+// route (not Huma) so the same path can serve:
+//   - GET (manual link click from the email body): renders an HTML
+//     confirmation page so the user has visible feedback that the
+//     unsubscribe succeeded (and a path back to settings to re-enable).
+//   - POST (RFC 8058 / RFC 2369 one-click from Gmail/Yahoo's bulk-sender
+//     unsubscribe button): returns 200 with a small JSON body.
+// See UnsubscribeCollectionDigestPageHandler in this package and the
+// route registration in routes.go.

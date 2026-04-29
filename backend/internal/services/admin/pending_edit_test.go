@@ -100,6 +100,9 @@ func (m *mockEmailServiceForPendingEdit) SendCommentNotification(_, _, _, _, _, 
 func (m *mockEmailServiceForPendingEdit) SendMentionNotification(_, _, _, _, _, _, _ string) error {
 	return nil
 }
+func (m *mockEmailServiceForPendingEdit) SendCollectionDigestEmail(_ string, _ []contracts.CollectionDigestGroup, _ string) error {
+	return nil
+}
 
 type PendingEditServiceIntegrationTestSuite struct {
 	suite.Suite

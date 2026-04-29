@@ -231,6 +231,8 @@ type UserServiceInterface interface {
 	// PSY-289: comment + mention notification preference toggles.
 	SetNotifyOnCommentSubscription(userID uint, enabled bool) error
 	SetNotifyOnMention(userID uint, enabled bool) error
+	// PSY-350: collection digest preference toggle (weekly cadence; opt-IN).
+	SetNotifyOnCollectionDigest(userID uint, enabled bool) error
 }
 
 // EmailServiceInterface defines the contract for email operations.
@@ -249,6 +251,26 @@ type EmailServiceInterface interface {
 	// PSY-289: comment + mention notifications.
 	SendCommentNotification(toEmail, commenterName, entityType, entityName, commentExcerpt, entityURL, unsubscribeURL string) error
 	SendMentionNotification(toEmail, mentionerName, entityType, entityName, commentExcerpt, commentURL, unsubscribeURL string) error
+	// PSY-350: collection digest email — single batched email per user per
+	// week grouping items added across all subscribed collections.
+	SendCollectionDigestEmail(toEmail string, groups []CollectionDigestGroup, unsubscribeURL string) error
+}
+
+// CollectionDigestEntry describes a single item added to a subscribed
+// collection for inclusion in the weekly digest email. PSY-350.
+type CollectionDigestEntry struct {
+	EntityType string
+	EntityName string
+	EntityURL  string
+	AddedBy    string
+}
+
+// CollectionDigestGroup is one subscribed collection's worth of new items in
+// a single user's weekly digest. PSY-350.
+type CollectionDigestGroup struct {
+	CollectionTitle string
+	CollectionURL   string
+	Items           []CollectionDigestEntry
 }
 
 // ReminderServiceInterface defines the contract for the show reminder background service.

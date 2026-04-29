@@ -98,6 +98,22 @@ export function CollectionCard({ collection }: CollectionCardProps) {
           </Link>
 
           <div className="flex items-center gap-1 flex-wrap mt-0.5">
+            {/*
+              PSY-350: "N new" badge for subscribed collections in the library
+              tab. Backend only populates new_since_last_visit when the viewer
+              is subscribed; for public list cards, this prop is undefined or
+              zero and the badge is hidden.
+            */}
+            {collection.new_since_last_visit !== undefined &&
+              collection.new_since_last_visit > 0 && (
+                <Badge
+                  variant="default"
+                  className="text-[10px] px-1.5 py-0"
+                  aria-label={`${collection.new_since_last_visit} new since your last visit`}
+                >
+                  {collection.new_since_last_visit} new
+                </Badge>
+              )}
             {collection.is_featured && (
               <Badge variant="default" className="text-[10px] px-1.5 py-0">
                 <Star className="h-2.5 w-2.5 mr-0.5" />

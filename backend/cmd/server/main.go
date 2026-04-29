@@ -175,13 +175,14 @@ func main() {
 	// Each service keeps its own cancel func; a nil cancel signals "not started"
 	// so the shutdown path can skip it without panicking.
 	var (
-		cleanupCancel       context.CancelFunc
-		reminderCancel      context.CancelFunc
-		schedulerCancel     context.CancelFunc
-		enrichmentCancel    context.CancelFunc
-		autoPromotionCancel context.CancelFunc
-		radioFetchCancel    context.CancelFunc
-		relDerivationCancel context.CancelFunc
+		cleanupCancel          context.CancelFunc
+		reminderCancel         context.CancelFunc
+		schedulerCancel        context.CancelFunc
+		enrichmentCancel       context.CancelFunc
+		autoPromotionCancel    context.CancelFunc
+		radioFetchCancel       context.CancelFunc
+		relDerivationCancel    context.CancelFunc
+		collectionDigestCancel context.CancelFunc
 	)
 
 	// Start account cleanup service (background job for permanent deletion)
@@ -247,6 +248,18 @@ func main() {
 		log.Printf("DISABLE_RELATIONSHIP_DERIVATION=1: skipping relationship derivation service startup")
 	}
 
+	// Start collection digest service (PSY-350: background job for weekly
+	// collection-subscription digest emails, batching items added across all
+	// of a user's subscribed collections into one email per week. Opt-IN —
+	// users must enable the toggle in notification settings).
+	if os.Getenv("DISABLE_COLLECTION_DIGEST") != "1" {
+		var collectionDigestCtx context.Context
+		collectionDigestCtx, collectionDigestCancel = context.WithCancel(context.Background())
+		sc.CollectionDigest.Start(collectionDigestCtx)
+	} else {
+		log.Printf("DISABLE_COLLECTION_DIGEST=1: skipping collection digest service startup")
+	}
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -299,6 +312,10 @@ func main() {
 	if relDerivationCancel != nil {
 		relDerivationCancel()
 		sc.RelationshipDerivation.Stop()
+	}
+	if collectionDigestCancel != nil {
+		collectionDigestCancel()
+		sc.CollectionDigest.Stop()
 	}
 
 	// Shut down chromedp browser pool

@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -313,6 +314,33 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 			Where("collection_id = ? AND user_id = ?", collection.ID, viewerID).
 			Count(&subCount)
 		isSubscribed = subCount > 0
+	}
+
+	// PSY-350: bump last_visited_at for authenticated subscribers so the
+	// library tab's "N new since last visit" badge clears. Fire-and-forget —
+	// a write failure here must NOT fail the read. We do this in a goroutine
+	// to avoid contention with the read path; the staleness window is one
+	// page-load and that's acceptable.
+	//
+	// Hook point: the detail endpoint (GET /collections/{slug}) is the
+	// natural "user looked at the collection" signal. Card-only views and
+	// list endpoints intentionally do NOT bump the cursor.
+	if isSubscribed {
+		collectionID := collection.ID
+		uid := viewerID
+		dbHandle := s.db
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("warning: collection MarkVisited goroutine panicked for user %d collection %d: %v", uid, collectionID, r)
+				}
+			}()
+			if err := dbHandle.Model(&models.CollectionSubscriber{}).
+				Where("collection_id = ? AND user_id = ?", collectionID, uid).
+				Update("last_visited_at", time.Now()).Error; err != nil {
+				log.Printf("warning: failed to bump last_visited_at for user %d collection %d: %v", uid, collectionID, err)
+			}
+		}()
 	}
 
 	return &contracts.CollectionDetailResponse{
@@ -634,6 +662,13 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 	if err := s.db.Create(item).Error; err != nil {
 		return nil, fmt.Errorf("failed to add item to collection: %w", err)
 	}
+
+	// PSY-350: collection-subscription digest notifications are emitted by
+	// the lazy CollectionDigestService ticker, NOT fanned out here. The
+	// ticker queries collection_items.created_at against each subscriber's
+	// per-row cursor, so no synchronous notification work happens during
+	// AddItem. This means AddItem cannot fail or slow due to a notification
+	// path — the requirement is satisfied by construction.
 
 	// Resolve entity name and slug
 	entityName, entitySlug := s.resolveEntityNameAndSlug(req.EntityType, req.EntityID)
@@ -977,6 +1012,9 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 	forkCounts := s.batchCountForks(collectionIDs)
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
+	// PSY-350: per-(user, collection) "new since last visit" counts so the
+	// library tab can render a "N new" badge per subscribed collection.
+	newCounts := s.batchCountNewSinceLastVisit(userID, collectionIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
@@ -999,6 +1037,7 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 			ForksCount:             forkCounts[c.ID],
 			ForkedFromCollectionID: c.ForkedFromCollectionID,
 			EntityTypeCounts:       entityTypeCounts[c.ID],
+			NewSinceLastVisit:      newCounts[c.ID],
 			CreatedAt:              c.CreatedAt,
 			UpdatedAt:              c.UpdatedAt,
 		}
@@ -1516,6 +1555,52 @@ func (s *CollectionService) batchCountSubscribers(collectionIDs []uint) map[uint
 		Where("collection_id IN ?", collectionIDs).
 		Group("collection_id").
 		Find(&results)
+
+	for _, r := range results {
+		counts[r.CollectionID] = r.Count
+	}
+	return counts
+}
+
+// batchCountNewSinceLastVisit returns, per collection in `collectionIDs`, the
+// number of items added after the user's `last_visited_at` cursor on the
+// subscription. PSY-350.
+//
+// Only populated for collections the user is actually subscribed to —
+// non-subscribed collection IDs simply don't appear in the result map (zero
+// values when looked up). Collections never visited (last_visited_at IS
+// NULL) fall back to "all items added by other users since subscribed".
+func (s *CollectionService) batchCountNewSinceLastVisit(userID uint, collectionIDs []uint) map[uint]int {
+	counts := make(map[uint]int)
+	if len(collectionIDs) == 0 || userID == 0 {
+		return counts
+	}
+
+	type CountResult struct {
+		CollectionID uint
+		Count        int
+	}
+	var results []CountResult
+
+	// Items added by *other* users since the viewer last visited (or, when
+	// the viewer has never visited, since they subscribed). We exclude
+	// the viewer's own additions because seeing your own work as "new" is
+	// noise.
+	err := s.db.Raw(`
+		SELECT cs.collection_id, COUNT(*) AS count
+		FROM collection_subscribers cs
+		JOIN collection_items ci
+			ON ci.collection_id = cs.collection_id
+			AND ci.added_by_user_id <> cs.user_id
+			AND ci.created_at > COALESCE(cs.last_visited_at, cs.created_at)
+		WHERE cs.user_id = ?
+			AND cs.collection_id IN ?
+		GROUP BY cs.collection_id
+	`, userID, collectionIDs).Scan(&results).Error
+	if err != nil {
+		// Non-fatal — surface as zero counts in the response.
+		return counts
+	}
 
 	for _, r := range results {
 		counts[r.CollectionID] = r.Count
