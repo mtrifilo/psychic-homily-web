@@ -2749,6 +2749,7 @@ type mockSceneService struct {
 	parseSceneSlugFn func(string) (string, string, error)
 	getSceneGenreDistributionFn func(string, string) ([]contracts.GenreCount, error)
 	getGenreDiversityIndexFn func(string, string) (float64, error)
+	getSceneGraphFn func(string, string, []string) (*contracts.SceneGraphResponse, error)
 }
 
 func (m *mockSceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
@@ -2786,6 +2787,17 @@ func (m *mockSceneService) GetGenreDiversityIndex(city string, state string) (fl
 		return m.getGenreDiversityIndexFn(city, state)
 	}
 	return -1, nil
+}
+func (m *mockSceneService) GetSceneGraph(city string, state string, types []string) (*contracts.SceneGraphResponse, error) {
+	if m.getSceneGraphFn != nil {
+		return m.getSceneGraphFn(city, state, types)
+	}
+	return &contracts.SceneGraphResponse{
+		Scene:    contracts.SceneGraphInfo{City: city, State: state},
+		Clusters: []contracts.SceneGraphCluster{},
+		Nodes:    []contracts.SceneGraphNode{},
+		Links:    []contracts.SceneGraphLink{},
+	}, nil
 }
 
 // ============================================================================

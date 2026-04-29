@@ -107,7 +107,28 @@ describe('CollectionCard', () => {
   it('renders creator name', () => {
     render(<CollectionCard collection={baseCollection} />)
 
-    expect(screen.getByText('by testuser')).toBeInTheDocument()
+    expect(screen.getByText(/testuser/)).toBeInTheDocument()
+  })
+
+  // PSY-353: creator attribution links to /users/:username when the
+  // creator has a username set; otherwise renders as plain text so we
+  // never produce a link to a non-existent profile.
+  it('links creator name to /users/:username when creator_username is set', () => {
+    const collection = { ...baseCollection, creator_username: 'testuser' }
+    render(<CollectionCard collection={collection} />)
+
+    const link = screen.getByRole('link', { name: 'testuser' })
+    expect(link).toHaveAttribute('href', '/users/testuser')
+  })
+
+  it('does not link creator name when creator_username is null', () => {
+    const collection = { ...baseCollection, creator_username: null }
+    render(<CollectionCard collection={collection} />)
+
+    expect(
+      screen.queryByRole('link', { name: 'testuser' })
+    ).not.toBeInTheDocument()
+    expect(screen.getByText(/testuser/)).toBeInTheDocument()
   })
 
   it('renders item count (plural)', () => {
@@ -282,5 +303,40 @@ describe('CollectionCard', () => {
     render(<CollectionCard collection={collection} />)
 
     expect(screen.getByTestId('collection-like-button')).toBeDisabled()
+  })
+
+  // PSY-353: "Built by N contributors" badge surfaces community curation
+  // once at least 3 distinct users have added items. Below the threshold
+  // the card stays creator-only to avoid noise on solo collections.
+  describe('PSY-353 contributor badge', () => {
+    it('renders the contributor badge when contributor_count >= 3', () => {
+      const collection = { ...baseCollection, contributor_count: 5 }
+      render(<CollectionCard collection={collection} />)
+
+      const badge = screen.getByTestId('contributor-badge')
+      expect(badge).toBeInTheDocument()
+      expect(badge.textContent).toContain('Built by 5 contributors')
+    })
+
+    it('renders at the threshold (exactly 3 contributors)', () => {
+      const collection = { ...baseCollection, contributor_count: 3 }
+      render(<CollectionCard collection={collection} />)
+
+      const badge = screen.getByTestId('contributor-badge')
+      expect(badge.textContent).toContain('Built by 3 contributors')
+    })
+
+    it('omits the badge when contributor_count is below 3', () => {
+      const collection = { ...baseCollection, contributor_count: 2 }
+      render(<CollectionCard collection={collection} />)
+
+      expect(screen.queryByTestId('contributor-badge')).not.toBeInTheDocument()
+    })
+
+    it('omits the badge when contributor_count is 0', () => {
+      render(<CollectionCard collection={baseCollection} />)
+
+      expect(screen.queryByTestId('contributor-badge')).not.toBeInTheDocument()
+    })
   })
 })

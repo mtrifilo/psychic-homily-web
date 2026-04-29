@@ -864,4 +864,72 @@ describe('CollectionDetail', () => {
       expect(unrankedRadio).not.toBeChecked()
     })
   })
+
+  // ──────────────────────────────────────────────
+  // PSY-353: contributor badge + creator attribution link
+  // ──────────────────────────────────────────────
+
+  describe('PSY-353 contributor badge + creator link', () => {
+    it('links creator name to /users/:username when creator_username is set', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ creator_username: 'testuser' }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      const link = screen.getByRole('link', { name: 'testuser' })
+      expect(link).toHaveAttribute('href', '/users/testuser')
+    })
+
+    it('renders creator name as plain text when creator_username is absent', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ creator_username: null }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      expect(
+        screen.queryByRole('link', { name: 'testuser' })
+      ).not.toBeInTheDocument()
+      expect(screen.getByText(/testuser/)).toBeInTheDocument()
+    })
+
+    it('renders the contributor badge when contributor_count >= 3', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ contributor_count: 5 }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      const badge = screen.getByTestId('contributor-badge')
+      expect(badge.textContent).toContain('Built by 5 contributors')
+    })
+
+    it('renders the badge at the threshold (exactly 3)', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ contributor_count: 3 }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      expect(screen.getByTestId('contributor-badge').textContent).toContain(
+        'Built by 3 contributors'
+      )
+    })
+
+    it('omits the badge when contributor_count is below 3', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ contributor_count: 2 }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      expect(screen.queryByTestId('contributor-badge')).not.toBeInTheDocument()
+    })
+  })
 })

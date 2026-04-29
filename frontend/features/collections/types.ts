@@ -58,6 +58,12 @@ export interface Collection {
   description_html?: string
   creator_id: number
   creator_name: string
+  /**
+   * Creator's username, used to link the attribution to /users/:username.
+   * Null when the user has not set a username — render the name as plain
+   * text in that case (PSY-353).
+   */
+  creator_username?: string | null
   collaborative: boolean
   cover_image_url?: string | null
   is_public: boolean

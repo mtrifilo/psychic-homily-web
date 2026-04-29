@@ -574,3 +574,60 @@ type SceneGenreResponse struct {
 type VenueGenreResponse struct {
 	Genres []GenreCount `json:"genres"`
 }
+
+// ──────────────────────────────────────────────
+// Scene graph (PSY-367) — derived per-scene artist relationship graph
+// ──────────────────────────────────────────────
+
+// SceneGraphResponse is the payload for GET /scenes/{slug}/graph.
+// Cluster IDs are computed at query time from each artist's most-frequent venue
+// in the scene (see docs/features/scene-graph-layout.md §4 for the rationale).
+type SceneGraphResponse struct {
+	Scene    SceneGraphInfo      `json:"scene"`
+	Clusters []SceneGraphCluster `json:"clusters"`
+	Nodes    []SceneGraphNode    `json:"nodes"`
+	Links    []SceneGraphLink    `json:"links"`
+}
+
+// SceneGraphInfo holds scene metadata for the graph response.
+type SceneGraphInfo struct {
+	Slug        string `json:"slug"`
+	City        string `json:"city"`
+	State       string `json:"state"`
+	ArtistCount int    `json:"artist_count"` // total artists in the scene (includes isolates)
+	EdgeCount   int    `json:"edge_count"`   // total edges in the response (post type-filter)
+}
+
+// SceneGraphCluster groups artists in the scene. v1 cluster signal is the
+// artist's most-frequently-played venue within the scene. Clusters with fewer
+// than the size threshold are rolled into a single "other" cluster.
+type SceneGraphCluster struct {
+	ID         string `json:"id"`          // "v_<venue_id>" or "other"
+	Label      string `json:"label"`       // venue name or "Other"
+	Size       int    `json:"size"`        // number of artists in this cluster
+	ColorIndex int    `json:"color_index"` // 0-7 = Okabe-Ito index; -1 = "other" (grey)
+}
+
+// SceneGraphNode represents an artist in the scene graph.
+type SceneGraphNode struct {
+	ID                uint   `json:"id"`
+	Name              string `json:"name"`
+	Slug              string `json:"slug"`
+	City              string `json:"city,omitempty"`
+	State             string `json:"state,omitempty"`
+	UpcomingShowCount int    `json:"upcoming_show_count"`
+	ClusterID         string `json:"cluster_id"`  // matches SceneGraphCluster.ID; "other" for tail
+	IsIsolate         bool   `json:"is_isolate"`  // true when the artist has no in-scene edges (post type-filter)
+}
+
+// SceneGraphLink represents an in-scene relationship between two artists.
+// Voting and user-vote data are intentionally omitted — scene graph is read-only
+// per the spike's out-of-scope list (see docs/features/scene-graph-layout.md §8).
+type SceneGraphLink struct {
+	SourceID       uint    `json:"source_id"`
+	TargetID       uint    `json:"target_id"`
+	Type           string  `json:"type"`
+	Score          float64 `json:"score"`
+	Detail         any     `json:"detail,omitempty"`
+	IsCrossCluster bool    `json:"is_cross_cluster"` // derived: source.cluster_id != target.cluster_id
+}

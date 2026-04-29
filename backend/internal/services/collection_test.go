@@ -191,6 +191,50 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_Creator
 	suite.Equal("alexrocks", resp.CreatorName)
 }
 
+// PSY-353: detail responses must surface creator_username so the frontend
+// can link the attribution to /users/:username. When the creator has no
+// username, the field is null (not the empty string) so the frontend can
+// distinguish "linkable" from "render unlinked".
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_CreatorUsername() {
+	user := suite.createTestUserWithUsername("Bea", "beam")
+	resp := suite.createBasicCollection(user, "Username Test")
+	suite.Require().NotNil(resp.CreatorUsername)
+	suite.Equal("beam", *resp.CreatorUsername)
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_CreatorUsername_NilWhenAbsent() {
+	user := suite.createTestUser("NoUsernameCreator")
+	resp := suite.createBasicCollection(user, "No Username Test")
+	suite.Nil(resp.CreatorUsername)
+}
+
+// PSY-353: list responses must surface creator_username for the same
+// reason as detail responses — collection cards link the attribution.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_CreatorUsername() {
+	withUsername := suite.createTestUserWithUsername("Cara", "carac")
+	withoutUsername := suite.createTestUser("NoNameLister")
+
+	suite.createBasicCollection(withUsername, "List Username With")
+	suite.createBasicCollection(withoutUsername, "List Username Without")
+
+	resps, _, err := suite.collectionService.ListCollections(contracts.CollectionFilters{}, 50, 0)
+	suite.Require().NoError(err)
+
+	byCreator := map[uint]*contracts.CollectionListResponse{}
+	for _, r := range resps {
+		byCreator[r.CreatorID] = r
+	}
+
+	withResp := byCreator[withUsername.ID]
+	suite.Require().NotNil(withResp)
+	suite.Require().NotNil(withResp.CreatorUsername)
+	suite.Equal("carac", *withResp.CreatorUsername)
+
+	withoutResp := byCreator[withoutUsername.ID]
+	suite.Require().NotNil(withoutResp)
+	suite.Nil(withoutResp.CreatorUsername)
+}
+
 func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_DefaultDisplayModeUnranked() {
 	user := suite.createTestUser("DefaultModeCreator")
 	resp := suite.createBasicCollection(user, "Default Mode")
