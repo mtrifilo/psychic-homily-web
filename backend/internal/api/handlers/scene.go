@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -184,6 +185,60 @@ func (h *SceneHandler) GetSceneGenresHandler(ctx context.Context, req *GetSceneG
 	}
 
 	return resp, nil
+}
+
+// ============================================================================
+// Get Scene Graph (PSY-367)
+// ============================================================================
+
+// GetSceneGraphRequest represents the request for the scene-scale graph.
+// `Types` is a comma-separated list (e.g. "shared_bills,shared_label"); empty
+// means all allowed scene edge types. Huma forbids pointer query params, so
+// the empty string is the explicit "no filter" sentinel.
+type GetSceneGraphRequest struct {
+	Slug  string `path:"slug" doc:"Scene slug (e.g. phoenix-az)" example:"phoenix-az"`
+	Types string `query:"types" doc:"Comma-separated relationship types (e.g. shared_bills,shared_label). Empty = all allowed types." example:"shared_bills,shared_label"`
+}
+
+// GetSceneGraphResponse represents the response for the scene-scale graph.
+type GetSceneGraphResponse struct {
+	Body *contracts.SceneGraphResponse
+}
+
+// GetSceneGraphHandler handles GET /scenes/{slug}/graph — returns the typed-edge
+// scene-scale graph with computed venue-keyed clusters (per PSY-367 / spike PSY-368).
+func (h *SceneHandler) GetSceneGraphHandler(ctx context.Context, req *GetSceneGraphRequest) (*GetSceneGraphResponse, error) {
+	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
+	if err != nil {
+		return nil, huma.Error404NotFound("Scene not found")
+	}
+
+	graph, err := h.sceneService.GetSceneGraph(city, state, parseTypesQueryParam(req.Types))
+	if err != nil {
+		if isSceneNotFoundErr(err) {
+			return nil, huma.Error404NotFound("Scene not found")
+		}
+		return nil, huma.Error500InternalServerError("Failed to get scene graph", err)
+	}
+
+	return &GetSceneGraphResponse{Body: graph}, nil
+}
+
+// parseTypesQueryParam splits the comma-separated `types` query param into a
+// trimmed, non-empty slice. The service-side allowlist drops anything unknown.
+func parseTypesQueryParam(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		t := strings.TrimSpace(p)
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // isSceneNotFoundErr checks if an error indicates a scene was not found.

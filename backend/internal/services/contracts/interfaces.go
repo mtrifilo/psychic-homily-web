@@ -496,6 +496,7 @@ type SceneServiceInterface interface {
 	ParseSceneSlug(slug string) (string, string, error)
 	GetSceneGenreDistribution(city, state string) ([]GenreCount, error)
 	GetGenreDiversityIndex(city, state string) (float64, error)
+	GetSceneGraph(city, state string, types []string) (*SceneGraphResponse, error)
 }
 
 // DataQualityServiceInterface defines the contract for data quality dashboard operations.

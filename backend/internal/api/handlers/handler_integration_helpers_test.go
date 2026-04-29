@@ -47,6 +47,7 @@ type handlerIntegrationDeps struct {
 	requestService             *services.RequestService
 	tagService                 *catalog.TagService
 	artistRelationshipService  *catalog.ArtistRelationshipService
+	sceneService               *catalog.SceneService
 }
 
 func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
@@ -84,6 +85,7 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		requestService:            services.NewRequestService(db),
 		tagService:                catalog.NewTagService(db),
 		artistRelationshipService: catalog.NewArtistRelationshipService(db),
+		sceneService:              catalog.NewSceneService(db),
 	}
 
 	return deps
