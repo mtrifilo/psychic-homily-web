@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -492,6 +493,95 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_NoChang
 	suite.Equal("Stable Collection", resp.Title)
 }
 
+// PSY-349: description and per-item notes are stored as raw markdown but
+// returned with rendered+sanitized HTML. The renderer reuses utils.MarkdownRenderer
+// (goldmark + bluemonday) which is the same policy used by comments and field
+// notes, so allowed tags and XSS safety match exactly.
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_RendersDescriptionMarkdown() {
+	user := suite.createTestUser("MarkdownAuthor")
+
+	desc := "**bold** and *italic* and [link](https://example.com)"
+	req := &contracts.CreateCollectionRequest{
+		Title:       "Markdown Description",
+		Description: &desc,
+		IsPublic:    true,
+	}
+
+	resp, err := suite.collectionService.CreateCollection(user.ID, req)
+	suite.Require().NoError(err)
+
+	// Raw markdown is preserved on the response so the editor can re-populate it.
+	suite.Equal(desc, resp.Description)
+	// Rendered HTML is sanitized + populated.
+	suite.Contains(resp.DescriptionHTML, "<strong>bold</strong>")
+	suite.Contains(resp.DescriptionHTML, "<em>italic</em>")
+	suite.Contains(resp.DescriptionHTML, `href="https://example.com"`)
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_RendersDescriptionMarkdownOnEachRead() {
+	user := suite.createTestUser("MarkdownReader")
+	desc := "> a quote\n\n- bullet one"
+	created, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:       "Quoted",
+		Description: &desc,
+		IsPublic:    true,
+	})
+	suite.Require().NoError(err)
+
+	resp, err := suite.collectionService.GetBySlug(created.Slug, user.ID)
+	suite.Require().NoError(err)
+	suite.Contains(resp.DescriptionHTML, "<blockquote>")
+	suite.Contains(resp.DescriptionHTML, "<ul>")
+	suite.Contains(resp.DescriptionHTML, "<li>")
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_DescriptionXSSStripped() {
+	user := suite.createTestUser("XSSAuthor")
+	desc := "Trust me <script>alert('pwn')</script>"
+	created, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:       "XSS Attempt",
+		Description: &desc,
+		IsPublic:    true,
+	})
+	suite.Require().NoError(err)
+
+	resp, err := suite.collectionService.GetBySlug(created.Slug, user.ID)
+	suite.Require().NoError(err)
+	// Raw markdown is preserved (the editor will show what was typed); the
+	// rendered HTML must strip <script> per the bluemonday policy.
+	suite.NotContains(resp.DescriptionHTML, "<script>")
+	suite.NotContains(resp.DescriptionHTML, "alert(")
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_DescriptionTooLong() {
+	user := suite.createTestUser("TooLong")
+
+	longDesc := strings.Repeat("a", contracts.MaxCollectionDescriptionLength+1)
+	resp, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:       "Too Long",
+		Description: &longDesc,
+		IsPublic:    true,
+	})
+
+	suite.Require().Error(err)
+	suite.Nil(resp)
+	suite.Contains(err.Error(), "exceeds maximum length")
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_DescriptionTooLong() {
+	user := suite.createTestUser("UpdaterTooLong")
+	created := suite.createBasicCollection(user, "Will Reject Long Update")
+
+	longDesc := strings.Repeat("b", contracts.MaxCollectionDescriptionLength+1)
+	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+		Description: &longDesc,
+	})
+
+	suite.Require().Error(err)
+	suite.Nil(resp)
+	suite.Contains(err.Error(), "exceeds maximum length")
+}
+
 func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_DisplayModeToggle() {
 	user := suite.createTestUser("ToggleUpdater")
 	created := suite.createBasicCollection(user, "Toggle Mode")
@@ -684,6 +774,87 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_WithNotes() {
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp.Notes)
 	suite.Equal("Saw them live, amazing set", *resp.Notes)
+	// Plain-text notes also pass through the renderer (plain text is valid markdown).
+	suite.NotEmpty(resp.NotesHTML)
+	suite.Contains(resp.NotesHTML, "Saw them live")
+}
+
+// PSY-349: per-item notes accept markdown and respond with sanitized HTML.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_RendersMarkdownNotes() {
+	user := suite.createTestUser("MdNoteAdder")
+	coll := suite.createBasicCollection(user, "MD Notes")
+	artist := suite.createTestArtist("MD Artist")
+
+	notes := "**must-see** band — see [their site](https://example.com)"
+	resp, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist,
+		EntityID:   artist.ID,
+		Notes:      &notes,
+	})
+
+	suite.Require().NoError(err)
+	suite.Contains(resp.NotesHTML, "<strong>must-see</strong>")
+	suite.Contains(resp.NotesHTML, `href="https://example.com"`)
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_NotesXSSStripped() {
+	user := suite.createTestUser("XSSNoteAdder")
+	coll := suite.createBasicCollection(user, "XSS Notes")
+	artist := suite.createTestArtist("XSS Artist")
+
+	notes := "<script>alert('hax')</script>nice band"
+	resp, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist,
+		EntityID:   artist.ID,
+		Notes:      &notes,
+	})
+
+	suite.Require().NoError(err)
+	suite.NotContains(resp.NotesHTML, "<script>")
+	suite.NotContains(resp.NotesHTML, "alert(")
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_NotesTooLong() {
+	user := suite.createTestUser("LongNoteAdder")
+	coll := suite.createBasicCollection(user, "Too Long Notes")
+	artist := suite.createTestArtist("Long Artist")
+
+	long := strings.Repeat("a", contracts.MaxCollectionItemNotesLength+1)
+	_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist,
+		EntityID:   artist.ID,
+		Notes:      &long,
+	})
+
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "exceed maximum length")
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestUpdateItem_RendersMarkdownNotesAndEnforcesLimit() {
+	user := suite.createTestUser("UpdateNoteAdder")
+	coll := suite.createBasicCollection(user, "Update Notes")
+	artist := suite.createTestArtist("Update Notes Artist")
+
+	added, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist,
+		EntityID:   artist.ID,
+	})
+	suite.Require().NoError(err)
+
+	updatedNotes := "*italic update*"
+	resp, err := suite.collectionService.UpdateItem(coll.Slug, added.ID, user.ID, false, &contracts.UpdateCollectionItemRequest{
+		Notes: &updatedNotes,
+	})
+	suite.Require().NoError(err)
+	suite.Contains(resp.NotesHTML, "<em>italic update</em>")
+
+	// Length-limit enforcement on update.
+	long := strings.Repeat("z", contracts.MaxCollectionItemNotesLength+1)
+	_, err = suite.collectionService.UpdateItem(coll.Slug, added.ID, user.ID, false, &contracts.UpdateCollectionItemRequest{
+		Notes: &long,
+	})
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "exceed maximum length")
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_Duplicate() {
