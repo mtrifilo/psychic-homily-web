@@ -775,6 +775,65 @@ func (h *CollectionHandler) GetUserPublicCollectionsHandler(ctx context.Context,
 }
 
 // ============================================================================
+// Clone Collection (PSY-351)
+// ============================================================================
+
+// CloneCollectionHandlerRequest represents the request for cloning a collection.
+// No body required — the source slug is in the path. The clone is owned
+// by the authenticated caller.
+type CloneCollectionHandlerRequest struct {
+	Slug string `path:"slug" doc:"Source collection slug to clone" example:"my-favorite-artists"`
+}
+
+// CloneCollectionHandlerResponse returns the newly created cloned collection.
+type CloneCollectionHandlerResponse struct {
+	Body *contracts.CollectionDetailResponse
+}
+
+// CloneCollectionHandler handles POST /collections/{slug}/clone.
+//
+// Cloning is open to any authenticated user (no trust-tier gate). Source
+// must be public OR owned by the caller — the same visibility rule as
+// GetBySlug. Items are copied with notes + positions preserved; the
+// new collection's items are attributed to the cloner.
+func (h *CollectionHandler) CloneCollectionHandler(ctx context.Context, req *CloneCollectionHandlerRequest) (*CloneCollectionHandlerResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	clone, err := h.collectionService.CloneCollection(req.Slug, user.ID)
+	if err != nil {
+		if mappedErr := mapCollectionError(err); mappedErr != nil {
+			return nil, mappedErr
+		}
+		logger.FromContext(ctx).Error("clone_collection_failed",
+			"slug", req.Slug,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to clone collection (request_id: %s)", requestID),
+		)
+	}
+
+	// Audit log (fire and forget). The audit feed renders this as
+	// "collection_cloned" via mapActionToEventType in admin/stats.go.
+	if h.auditLogService != nil {
+		go func() {
+			h.auditLogService.LogAction(user.ID, "clone_collection", "collection", clone.ID, map[string]interface{}{
+				"source_slug": req.Slug,
+				"source_id":   clone.ForkedFromCollectionID,
+			})
+		}()
+	}
+
+	return &CloneCollectionHandlerResponse{Body: clone}, nil
+}
+
+// ============================================================================
 // Helpers
 // ============================================================================
 

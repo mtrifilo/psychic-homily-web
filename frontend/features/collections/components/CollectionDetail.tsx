@@ -24,6 +24,7 @@ import {
   ChevronUp,
   ChevronDown,
   Share2,
+  GitFork,
   GripVertical,
   ListOrdered,
   LayoutGrid,
@@ -64,6 +65,7 @@ import {
   useSubscribeCollection,
   useUnsubscribeCollection,
   useDeleteCollection,
+  useCloneCollection,
 } from '../hooks'
 import { getEntityUrl, getEntityTypeLabel } from '../types'
 import type { CollectionDisplayMode, CollectionItem } from '../types'
@@ -100,6 +102,9 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   const subscribeMutation = useSubscribeCollection()
   const unsubscribeMutation = useUnsubscribeCollection()
   const deleteMutation = useDeleteCollection()
+  // PSY-351: clone an existing collection. On success, navigate to the
+  // new collection's detail page using the slug returned by the server.
+  const cloneMutation = useCloneCollection()
 
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -163,6 +168,19 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   const currentUserId = user?.id ? Number(user.id) : undefined
   const isCreator = currentUserId === collection.creator_id
   const canSubscribe = isAuthenticated && !isCreator
+  // PSY-351: per ticket, the clone button is hidden on the user's own
+  // collections (you wouldn't fork yourself). Anyone else who is
+  // authenticated may clone any public collection.
+  const canClone = isAuthenticated && !isCreator && collection.is_public
+
+  // PSY-351 attribution state.
+  // - forkedFromInfo set + collection.forked_from_collection_id set →
+  //   render "Forked from <link> by <curator>".
+  // - collection.forked_from_collection_id falsy → not a fork, render nothing.
+  // - collection.forked_from_collection_id set, info absent → source was
+  //   deleted; render fallback copy.
+  const isFork = Boolean(collection.forked_from_collection_id)
+  const forkedFromInfo = collection.forked_from ?? null
 
   const handleSubscribe = () => {
     if (collection.is_subscribed) {
@@ -179,6 +197,17 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
         onSuccess: () => {
           setIsDeleteDialogOpen(false)
           router.push('/collections')
+        },
+      }
+    )
+  }
+
+  const handleClone = () => {
+    cloneMutation.mutate(
+      { slug },
+      {
+        onSuccess: (newCollection) => {
+          router.push(`/collections/${newCollection.slug}`)
         },
       }
     )
@@ -241,6 +270,33 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                   by {collection.creator_name}
                 </p>
 
+                {/* PSY-351: inline fork attribution. Renders below the
+                    creator line when this collection was cloned. Falls back
+                    to literal copy when the source was deleted (FK is set
+                    but the snapshot is null). */}
+                {isFork && (
+                  <p
+                    className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"
+                    data-testid="forked-from-attribution"
+                  >
+                    <GitFork className="h-3 w-3" aria-hidden="true" />
+                    {forkedFromInfo ? (
+                      <span>
+                        Forked from{' '}
+                        <Link
+                          href={`/collections/${forkedFromInfo.slug}`}
+                          className="underline-offset-2 hover:underline text-foreground/80"
+                        >
+                          {forkedFromInfo.title}
+                        </Link>{' '}
+                        by {forkedFromInfo.creator_name}
+                      </span>
+                    ) : (
+                      <span>Forked from a deleted collection</span>
+                    )}
+                  </p>
+                )}
+
                 {collection.description && (
                   <p className="text-muted-foreground mt-3 whitespace-pre-line">
                     {collection.description}
@@ -261,6 +317,21 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                       ? '1 subscriber'
                       : `${collection.subscriber_count} subscribers`}
                   </span>
+                  {/* PSY-351: public fork count — visible to all viewers
+                      so original collections advertise their pull. Only
+                      rendered when forks exist to avoid noise on every
+                      collection page. */}
+                  {collection.forks_count > 0 && (
+                    <span
+                      className="flex items-center gap-1"
+                      data-testid="forks-count"
+                    >
+                      <GitFork className="h-4 w-4" />
+                      {collection.forks_count === 1
+                        ? '1 fork'
+                        : `${collection.forks_count} forks`}
+                    </span>
+                  )}
                   <span title={new Date(collection.created_at).toLocaleString()}>
                     Created {formatRelativeTime(collection.created_at)}
                   </span>
@@ -321,6 +392,26 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                         Subscribe
                       </>
                     )}
+                  </Button>
+                )}
+
+                {/* PSY-351: Clone/fork. Visible only when caller is
+                    authenticated AND not the owner AND the source is
+                    public. */}
+                {canClone && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClone}
+                    disabled={cloneMutation.isPending}
+                    aria-label="Fork collection"
+                  >
+                    {cloneMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                    ) : (
+                      <GitFork className="h-4 w-4 mr-1.5" />
+                    )}
+                    {cloneMutation.isPending ? 'Forking...' : 'Fork'}
                   </Button>
                 )}
 

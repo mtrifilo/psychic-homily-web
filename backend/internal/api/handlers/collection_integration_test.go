@@ -896,6 +896,180 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_WithLimit() {
 }
 
 // ============================================================================
+// CloneCollectionHandler (PSY-351)
+// ============================================================================
+
+// TestCloneCollection_CopiesItemsNotesAndPositions exercises the happy path:
+// a public collection with items + notes + positions is copied faithfully
+// into a new collection owned by the caller, with attribution back to the
+// original. This is the primary acceptance criterion.
+func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_CopiesItemsNotesAndPositions() {
+	owner := createTestUser(s.deps.db)
+	cloner := createTestUser(s.deps.db)
+	src := s.createCollectionViaService(owner, "Source Collection", true)
+
+	// Add three items with notes; reorder to confirm position is preserved.
+	a1 := createArtist(s.deps.db, "Artist One")
+	a2 := createArtist(s.deps.db, "Artist Two")
+	a3 := createArtist(s.deps.db, "Artist Three")
+	notes1 := "first note"
+	notes3 := "third note"
+	_, err := s.deps.collectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+		EntityType: "artist", EntityID: a1.ID, Notes: &notes1,
+	})
+	s.Require().NoError(err)
+	_, err = s.deps.collectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+		EntityType: "artist", EntityID: a2.ID,
+	})
+	s.Require().NoError(err)
+	_, err = s.deps.collectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+		EntityType: "artist", EntityID: a3.ID, Notes: &notes3,
+	})
+	s.Require().NoError(err)
+
+	ctx := ctxWithUser(cloner)
+	req := &CloneCollectionHandlerRequest{Slug: src.Slug}
+	resp, err := s.handler.CloneCollectionHandler(ctx, req)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp)
+	s.Require().NotNil(resp.Body)
+
+	// New collection is owned by the cloner, distinct from source.
+	s.NotEqual(src.ID, resp.Body.ID)
+	s.Equal(cloner.ID, resp.Body.CreatorID)
+	s.Equal("Source Collection (fork)", resp.Body.Title)
+
+	// Attribution back to original.
+	s.Require().NotNil(resp.Body.ForkedFromCollectionID)
+	s.Equal(src.ID, *resp.Body.ForkedFromCollectionID)
+	s.Require().NotNil(resp.Body.ForkedFrom)
+	s.Equal(src.ID, resp.Body.ForkedFrom.ID)
+	s.Equal("Source Collection", resp.Body.ForkedFrom.Title)
+	s.Equal(owner.ID, resp.Body.ForkedFrom.CreatorID)
+
+	// Items copied with notes and positions preserved.
+	s.Require().Len(resp.Body.Items, 3)
+	s.Equal(a1.ID, resp.Body.Items[0].EntityID)
+	s.Require().NotNil(resp.Body.Items[0].Notes)
+	s.Equal("first note", *resp.Body.Items[0].Notes)
+	s.Equal(a2.ID, resp.Body.Items[1].EntityID)
+	s.Nil(resp.Body.Items[1].Notes)
+	s.Equal(a3.ID, resp.Body.Items[2].EntityID)
+	s.Require().NotNil(resp.Body.Items[2].Notes)
+	s.Equal("third note", *resp.Body.Items[2].Notes)
+
+	// Positions are strictly increasing (matches source order).
+	s.Less(resp.Body.Items[0].Position, resp.Body.Items[1].Position)
+	s.Less(resp.Body.Items[1].Position, resp.Body.Items[2].Position)
+}
+
+// TestCloneCollection_NoAuth covers the authn boundary — the endpoint
+// must reject anonymous callers.
+func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_NoAuth() {
+	owner := createTestUser(s.deps.db)
+	src := s.createCollectionViaService(owner, "No Auth Clone", true)
+
+	req := &CloneCollectionHandlerRequest{Slug: src.Slug}
+	_, err := s.handler.CloneCollectionHandler(context.Background(), req)
+	assertHumaError(s.T(), err, 401)
+}
+
+// TestCloneCollection_PrivateSourceForbidden ensures the visibility check
+// matches GetBySlug — non-owners cannot clone a private collection.
+func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_PrivateSourceForbidden() {
+	owner := createTestUser(s.deps.db)
+	other := createTestUser(s.deps.db)
+	private := s.createCollectionViaService(owner, "Private Source", false)
+
+	ctx := ctxWithUser(other)
+	req := &CloneCollectionHandlerRequest{Slug: private.Slug}
+	_, err := s.handler.CloneCollectionHandler(ctx, req)
+	assertHumaError(s.T(), err, 403)
+}
+
+// TestCloneCollection_SourceNotFound ensures unknown slugs return 404.
+func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_SourceNotFound() {
+	user := createTestUser(s.deps.db)
+	ctx := ctxWithUser(user)
+	req := &CloneCollectionHandlerRequest{Slug: "nope-not-real"}
+	_, err := s.handler.CloneCollectionHandler(ctx, req)
+	assertHumaError(s.T(), err, 404)
+}
+
+// TestCloneCollection_OwnerCanCloneOwnPrivate ensures the visibility check
+// allows owners to clone their own private collections (matching GetBySlug
+// — public OR owner). UI can still hide the button per the ticket.
+func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_OwnerCanCloneOwnPrivate() {
+	owner := createTestUser(s.deps.db)
+	src := s.createCollectionViaService(owner, "Mine Private", false)
+
+	ctx := ctxWithUser(owner)
+	req := &CloneCollectionHandlerRequest{Slug: src.Slug}
+	resp, err := s.handler.CloneCollectionHandler(ctx, req)
+	s.Require().NoError(err)
+	s.Equal(owner.ID, resp.Body.CreatorID)
+	s.Require().NotNil(resp.Body.ForkedFromCollectionID)
+	s.Equal(src.ID, *resp.Body.ForkedFromCollectionID)
+}
+
+// TestCloneCollection_DeletingOriginalSetsForkedFromNull verifies the
+// ON DELETE SET NULL behavior on the new FK. Deleting the source must
+// not cascade-delete forks; the cloned page should still load with the
+// FK reset and ForkedFrom = nil so the frontend renders fallback copy.
+// This is the explicit user requirement for the FK semantics.
+func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_DeletingOriginalSetsForkedFromNull() {
+	owner := createTestUser(s.deps.db)
+	cloner := createTestUser(s.deps.db)
+	src := s.createCollectionViaService(owner, "Doomed Source", true)
+
+	// Clone first.
+	ctx := ctxWithUser(cloner)
+	cloneReq := &CloneCollectionHandlerRequest{Slug: src.Slug}
+	cloneResp, err := s.handler.CloneCollectionHandler(ctx, cloneReq)
+	s.Require().NoError(err)
+	cloneSlug := cloneResp.Body.Slug
+
+	// Delete the source.
+	delErr := s.deps.collectionService.DeleteCollection(src.Slug, owner.ID, false)
+	s.Require().NoError(delErr)
+
+	// Clone still exists; ForkedFromCollectionID must be NULL post-cascade.
+	getReq := &GetCollectionHandlerRequest{Slug: cloneSlug}
+	getResp, err := s.handler.GetCollectionHandler(context.Background(), getReq)
+	s.Require().NoError(err)
+	s.Require().NotNil(getResp)
+	s.Nil(getResp.Body.ForkedFromCollectionID,
+		"ON DELETE SET NULL should clear the FK when the source is deleted")
+	s.Nil(getResp.Body.ForkedFrom,
+		"ForkedFrom should be nil so the frontend renders fallback copy")
+}
+
+// TestCloneCollection_OriginalShowsForksCount verifies the public fork
+// count on the original collection. After two clones, the source's
+// `forks_count` should be 2.
+func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_OriginalShowsForksCount() {
+	owner := createTestUser(s.deps.db)
+	cloner1 := createTestUser(s.deps.db)
+	cloner2 := createTestUser(s.deps.db)
+	src := s.createCollectionViaService(owner, "Forky Source", true)
+
+	// Two clones from different users.
+	for _, c := range []*models.User{cloner1, cloner2} {
+		ctx := ctxWithUser(c)
+		req := &CloneCollectionHandlerRequest{Slug: src.Slug}
+		_, err := s.handler.CloneCollectionHandler(ctx, req)
+		s.Require().NoError(err)
+	}
+
+	// Reload the source via the public detail endpoint.
+	getReq := &GetCollectionHandlerRequest{Slug: src.Slug}
+	getResp, err := s.handler.GetCollectionHandler(context.Background(), getReq)
+	s.Require().NoError(err)
+	s.Equal(2, getResp.Body.ForksCount,
+		"public forks_count should reflect clone count")
+}
+
+// ============================================================================
 // mapCollectionError
 // ============================================================================
 
