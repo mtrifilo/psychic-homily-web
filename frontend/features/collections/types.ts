@@ -81,6 +81,14 @@ export interface Collection {
    * list responses where the viewer has no subscription.
    */
   new_since_last_visit?: number
+  /** PSY-352: aggregate count of likes on this collection. */
+  like_count: number
+  /**
+   * PSY-352: whether the authenticated viewer has liked this collection.
+   * Always false for anonymous viewers; only meaningfully populated for
+   * the public browse list and the detail endpoint.
+   */
+  user_likes_this?: boolean
   created_at: string
   updated_at: string
 }

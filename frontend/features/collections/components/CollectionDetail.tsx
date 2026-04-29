@@ -26,6 +26,7 @@ import {
   Share2,
   GitFork,
   GripVertical,
+  Heart,
   ListOrdered,
   LayoutGrid,
 } from 'lucide-react'
@@ -66,7 +67,10 @@ import {
   useUnsubscribeCollection,
   useDeleteCollection,
   useCloneCollection,
+  useLikeCollection,
+  useUnlikeCollection,
 } from '../hooks'
+import { cn } from '@/lib/utils'
 import {
   getEntityUrl,
   getEntityTypeLabel,
@@ -109,6 +113,9 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   // PSY-351: clone an existing collection. On success, navigate to the
   // new collection's detail page using the slug returned by the server.
   const cloneMutation = useCloneCollection()
+  // PSY-352: like/unlike toggle.
+  const likeMutation = useLikeCollection()
+  const unlikeMutation = useUnlikeCollection()
 
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -216,6 +223,15 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
       }
     )
   }
+
+  const handleToggleLike = () => {
+    if (collection.user_likes_this) {
+      unlikeMutation.mutate({ slug })
+    } else {
+      likeMutation.mutate({ slug })
+    }
+  }
+  const isLikePending = likeMutation.isPending || unlikeMutation.isPending
 
   const items = collection.items ?? []
 
@@ -372,6 +388,45 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 
               {/* Action buttons */}
               <div className="flex items-center gap-2 shrink-0">
+                {/* PSY-352: Like toggle. Authenticated viewers can click;
+                    anonymous viewers see a read-only heart + count so they
+                    know the signal exists. Aggregate count only — privacy
+                    decision: no list of likers exposed. */}
+                {isAuthenticated ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleToggleLike}
+                    disabled={isLikePending}
+                    aria-pressed={collection.user_likes_this ?? false}
+                    aria-label={
+                      collection.user_likes_this
+                        ? 'Unlike collection'
+                        : 'Like collection'
+                    }
+                    className={cn(
+                      collection.user_likes_this && 'text-primary'
+                    )}
+                    data-testid="collection-like-button"
+                  >
+                    <Heart
+                      className={cn(
+                        'h-4 w-4 mr-1.5',
+                        collection.user_likes_this && 'fill-current'
+                      )}
+                    />
+                    {collection.like_count}
+                  </Button>
+                ) : (
+                  <span
+                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border/60 px-3 text-sm text-muted-foreground"
+                    data-testid="collection-like-count"
+                  >
+                    <Heart className="h-4 w-4" />
+                    {collection.like_count}
+                  </span>
+                )}
+
                 <Button
                   variant="outline"
                   size="sm"

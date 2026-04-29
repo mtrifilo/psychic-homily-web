@@ -6,6 +6,7 @@ import {
   Users,
   Star,
   Clock,
+  Heart,
   Mic2,
   MapPin,
   Calendar,
@@ -19,6 +20,8 @@ import { Badge } from '@/components/ui/badge'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { getEntityTypeLabel, type Collection } from '../types'
 import { MarkdownContent } from './MarkdownEditor'
+import { useLikeCollection, useUnlikeCollection } from '../hooks'
+import { useAuthContext } from '@/lib/context/AuthContext'
 
 const ENTITY_ICONS: Record<string, LucideIcon> = {
   artist: Mic2,
@@ -34,6 +37,24 @@ interface CollectionCardProps {
 }
 
 export function CollectionCard({ collection }: CollectionCardProps) {
+  const { isAuthenticated } = useAuthContext()
+  const likeMutation = useLikeCollection()
+  const unlikeMutation = useUnlikeCollection()
+
+  const handleToggleLike = (e: React.MouseEvent) => {
+    // Card body is wrapped in a link; stop propagation so clicking the
+    // heart doesn't navigate to the detail page.
+    e.preventDefault()
+    e.stopPropagation()
+    if (collection.user_likes_this) {
+      unlikeMutation.mutate({ slug: collection.slug })
+    } else {
+      likeMutation.mutate({ slug: collection.slug })
+    }
+  }
+
+  const isLikePending = likeMutation.isPending || unlikeMutation.isPending
+
   const topEntityTypes = Object.entries(collection.entity_type_counts ?? {})
     .sort((a, b) => b[1] - a[1])
     .slice(0, 2)
@@ -166,6 +187,48 @@ export function CollectionCard({ collection }: CollectionCardProps) {
                   : `${collection.subscriber_count} subscribers`}
               </span>
             )}
+            {/* PSY-352: heart + like count. Authenticated users get a
+                clickable toggle (filled when liked); anonymous users see
+                a static count + outline heart so they know the signal
+                exists but can't yet act on it. Hide the row when the count
+                is zero AND the viewer can't add — keeps the card quiet on
+                fresh collections. */}
+            {(collection.like_count > 0 || isAuthenticated) &&
+              (isAuthenticated ? (
+                <button
+                  type="button"
+                  onClick={handleToggleLike}
+                  disabled={isLikePending}
+                  aria-pressed={collection.user_likes_this ?? false}
+                  aria-label={
+                    collection.user_likes_this
+                      ? 'Unlike collection'
+                      : 'Like collection'
+                  }
+                  className={cn(
+                    'flex items-center gap-1 transition-colors',
+                    'hover:text-primary',
+                    collection.user_likes_this && 'text-primary'
+                  )}
+                  data-testid="collection-like-button"
+                >
+                  <Heart
+                    className={cn(
+                      'h-3 w-3',
+                      collection.user_likes_this && 'fill-current'
+                    )}
+                  />
+                  <span>{collection.like_count}</span>
+                </button>
+              ) : (
+                <span
+                  className="flex items-center gap-1"
+                  data-testid="collection-like-count"
+                >
+                  <Heart className="h-3 w-3" />
+                  {collection.like_count}
+                </span>
+              ))}
             <span className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
               {formatRelativeTime(collection.updated_at)}

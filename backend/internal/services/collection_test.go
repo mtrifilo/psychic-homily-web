@@ -41,6 +41,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
 	// Delete in FK-safe order
+	_, _ = sqlDB.Exec("DELETE FROM collection_likes")
 	_, _ = sqlDB.Exec("DELETE FROM collection_subscribers")
 	_, _ = sqlDB.Exec("DELETE FROM collection_items")
 	_, _ = sqlDB.Exec("DELETE FROM collections")
@@ -1513,4 +1514,230 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_NewSi
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
 	suite.Equal(1, resp[0].NewSinceLastVisit)
+}
+
+// =============================================================================
+// PSY-352: Likes + popular sort
+// =============================================================================
+
+// TestLike_Success verifies a fresh like creates the row, returns the correct
+// aggregate, and surfaces in subsequent GetBySlug responses.
+func (suite *CollectionServiceIntegrationTestSuite) TestLike_Success() {
+	creator := suite.createTestUser("Creator")
+	liker := suite.createTestUser("Liker")
+	coll := suite.createBasicCollection(creator, "Likeable")
+
+	resp, err := suite.collectionService.Like(coll.Slug, liker.ID)
+	suite.Require().NoError(err)
+	suite.Equal(1, resp.LikeCount)
+	suite.True(resp.UserLikesThis)
+
+	detail, err := suite.collectionService.GetBySlug(coll.Slug, liker.ID)
+	suite.Require().NoError(err)
+	suite.Equal(1, detail.LikeCount)
+	suite.True(detail.UserLikesThis)
+}
+
+// TestLike_Idempotent verifies that liking twice does not error and the count
+// does not double — composite-PK + ON CONFLICT DO NOTHING is the contract.
+func (suite *CollectionServiceIntegrationTestSuite) TestLike_Idempotent() {
+	creator := suite.createTestUser("Creator")
+	liker := suite.createTestUser("Liker")
+	coll := suite.createBasicCollection(creator, "Idempotent")
+
+	r1, err := suite.collectionService.Like(coll.Slug, liker.ID)
+	suite.Require().NoError(err)
+	suite.Equal(1, r1.LikeCount)
+
+	r2, err := suite.collectionService.Like(coll.Slug, liker.ID)
+	suite.Require().NoError(err)
+	suite.Equal(1, r2.LikeCount)
+	suite.True(r2.UserLikesThis)
+}
+
+// TestLike_NotFound returns a CollectionNotFound error for unknown slugs.
+func (suite *CollectionServiceIntegrationTestSuite) TestLike_NotFound() {
+	user := suite.createTestUser("User")
+
+	_, err := suite.collectionService.Like("does-not-exist", user.ID)
+	suite.Require().Error(err)
+	var collErr *apperrors.CollectionError
+	suite.ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionNotFound, collErr.Code)
+}
+
+// TestLike_PrivateCollection_OtherUser blocks likes on private collections
+// the caller does not own.
+func (suite *CollectionServiceIntegrationTestSuite) TestLike_PrivateCollection_OtherUser() {
+	creator := suite.createTestUser("Creator")
+	other := suite.createTestUser("Other")
+
+	private := false
+	req := &contracts.CreateCollectionRequest{
+		Title:    "Private",
+		IsPublic: private,
+	}
+	coll, err := suite.collectionService.CreateCollection(creator.ID, req)
+	suite.Require().NoError(err)
+	// CreateCollection's bool gotcha workaround leaves IsPublic true on
+	// initial create then updates to false — assert post-state.
+	suite.Require().False(coll.IsPublic)
+
+	_, err = suite.collectionService.Like(coll.Slug, other.ID)
+	suite.Require().Error(err)
+	var collErr *apperrors.CollectionError
+	suite.ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionForbidden, collErr.Code)
+}
+
+// TestUnlike_Success verifies that unliking decrements the count.
+func (suite *CollectionServiceIntegrationTestSuite) TestUnlike_Success() {
+	creator := suite.createTestUser("Creator")
+	liker := suite.createTestUser("Liker")
+	coll := suite.createBasicCollection(creator, "Unlikeable")
+
+	_, err := suite.collectionService.Like(coll.Slug, liker.ID)
+	suite.Require().NoError(err)
+
+	resp, err := suite.collectionService.Unlike(coll.Slug, liker.ID)
+	suite.Require().NoError(err)
+	suite.Equal(0, resp.LikeCount)
+	suite.False(resp.UserLikesThis)
+}
+
+// TestUnlike_Idempotent verifies that unliking when no like exists is a no-op.
+func (suite *CollectionServiceIntegrationTestSuite) TestUnlike_Idempotent() {
+	creator := suite.createTestUser("Creator")
+	user := suite.createTestUser("User")
+	coll := suite.createBasicCollection(creator, "NoOp")
+
+	resp, err := suite.collectionService.Unlike(coll.Slug, user.ID)
+	suite.Require().NoError(err)
+	suite.Equal(0, resp.LikeCount)
+	suite.False(resp.UserLikesThis)
+}
+
+// TestListCollections_PopulatesLikeAggregates verifies aggregate counts and
+// per-viewer like state on the public list response.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_PopulatesLikeAggregates() {
+	creator := suite.createTestUser("Creator")
+	liker1 := suite.createTestUser("L1")
+	liker2 := suite.createTestUser("L2")
+	coll := suite.createBasicCollection(creator, "Aggregated")
+
+	_, err := suite.collectionService.Like(coll.Slug, liker1.ID)
+	suite.Require().NoError(err)
+	_, err = suite.collectionService.Like(coll.Slug, liker2.ID)
+	suite.Require().NoError(err)
+
+	// Anonymous viewer: count populated, user_likes_this false.
+	resp, _, err := suite.collectionService.ListCollections(contracts.CollectionFilters{}, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Equal(2, resp[0].LikeCount)
+	suite.False(resp[0].UserLikesThis)
+
+	// Liker viewer: count populated, user_likes_this true.
+	resp, _, err = suite.collectionService.ListCollections(
+		contracts.CollectionFilters{ViewerID: liker1.ID}, 20, 0,
+	)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Equal(2, resp[0].LikeCount)
+	suite.True(resp[0].UserLikesThis)
+}
+
+// TestListCollections_PopularSort orders by HN gravity. A young collection
+// with a few likes should outrank an old collection with many likes when
+// the age delta is large enough.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_PopularSort() {
+	creator := suite.createTestUser("Creator")
+
+	// Old collection: created 30 days ago, 5 likes.
+	old := suite.createBasicCollection(creator, "Old Hits")
+	thirtyDaysAgo := time.Now().Add(-30 * 24 * time.Hour)
+	suite.Require().NoError(
+		suite.db.Model(&models.Collection{}).Where("id = ?", old.ID).
+			Update("created_at", thirtyDaysAgo).Error,
+	)
+	for i := 0; i < 5; i++ {
+		liker := suite.createTestUser(fmt.Sprintf("Old%d", i))
+		_, err := suite.collectionService.Like(old.Slug, liker.ID)
+		suite.Require().NoError(err)
+	}
+
+	// Young collection: created now, 3 likes.
+	young := suite.createBasicCollection(creator, "Young Buzz")
+	for i := 0; i < 3; i++ {
+		liker := suite.createTestUser(fmt.Sprintf("Young%d", i))
+		_, err := suite.collectionService.Like(young.Slug, liker.ID)
+		suite.Require().NoError(err)
+	}
+
+	resp, _, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Sort: contracts.CollectionSortPopular}, 20, 0,
+	)
+	suite.Require().NoError(err)
+	suite.Require().GreaterOrEqual(len(resp), 2)
+	// Young Buzz should beat Old Hits under HN gravity:
+	//   young: 3 / (0 + 2)^1.8     ≈ 3 / 3.48   ≈ 0.86
+	//   old:   5 / (720 + 2)^1.8   ≈ 5 / 188400 ≈ 0.000027
+	suite.Equal(young.ID, resp[0].ID, "expected young collection ranked first under HN gravity")
+}
+
+// TestListCollections_DefaultSort_PreservedAfterPopularAdded verifies that
+// the default ordering remains updated_at DESC when sort is empty.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_DefaultSort_PreservedAfterPopularAdded() {
+	creator := suite.createTestUser("Creator")
+
+	first := suite.createBasicCollection(creator, "First")
+	time.Sleep(20 * time.Millisecond)
+	second := suite.createBasicCollection(creator, "Second")
+
+	resp, _, err := suite.collectionService.ListCollections(contracts.CollectionFilters{}, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 2)
+	suite.Equal(second.ID, resp[0].ID)
+	suite.Equal(first.ID, resp[1].ID)
+}
+
+// TestBatchCountLikes returns correct counts for multiple collections.
+func (suite *CollectionServiceIntegrationTestSuite) TestBatchCountLikes() {
+	creator := suite.createTestUser("Creator")
+	a := suite.createBasicCollection(creator, "A")
+	b := suite.createBasicCollection(creator, "B")
+	c := suite.createBasicCollection(creator, "C")
+
+	l1 := suite.createTestUser("L1")
+	l2 := suite.createTestUser("L2")
+	_, _ = suite.collectionService.Like(a.Slug, l1.ID)
+	_, _ = suite.collectionService.Like(a.Slug, l2.ID)
+	_, _ = suite.collectionService.Like(b.Slug, l1.ID)
+	// c gets no likes.
+
+	counts := suite.collectionService.batchCountLikes([]uint{a.ID, b.ID, c.ID})
+	suite.Equal(2, counts[a.ID])
+	suite.Equal(1, counts[b.ID])
+	suite.Equal(0, counts[c.ID]) // missing key returns zero, which is correct
+}
+
+// TestBatchCheckUserLikes returns the correct set of liked collection IDs.
+func (suite *CollectionServiceIntegrationTestSuite) TestBatchCheckUserLikes() {
+	creator := suite.createTestUser("Creator")
+	a := suite.createBasicCollection(creator, "A")
+	b := suite.createBasicCollection(creator, "B")
+	c := suite.createBasicCollection(creator, "C")
+
+	user := suite.createTestUser("Viewer")
+	_, _ = suite.collectionService.Like(a.Slug, user.ID)
+	_, _ = suite.collectionService.Like(c.Slug, user.ID)
+
+	result := suite.collectionService.batchCheckUserLikes(user.ID, []uint{a.ID, b.ID, c.ID})
+	suite.True(result[a.ID])
+	suite.False(result[b.ID])
+	suite.True(result[c.ID])
+
+	// Anonymous viewer (userID == 0) returns empty.
+	result = suite.collectionService.batchCheckUserLikes(0, []uint{a.ID, b.ID, c.ID})
+	suite.Empty(result)
 }

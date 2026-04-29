@@ -739,6 +739,15 @@ func setupCollectionRoutes(rc RouteContext) {
 	huma.Post(rc.Protected, "/crates/{slug}/subscribe", collectionHandler.SubscribeHandler)
 	huma.Delete(rc.Protected, "/crates/{slug}/subscribe", collectionHandler.UnsubscribeHandler)
 
+	// PSY-352: collection like/unlike. Idempotent — POST creates or no-ops if
+	// already liked, DELETE removes or no-ops if not liked. Returns the
+	// post-mutation aggregate count + caller's like state.
+	collectionLikeHandler := handlers.NewCollectionLikeHandler(rc.SC.Collection)
+	huma.Post(rc.Protected, "/collections/{slug}/like", collectionLikeHandler.LikeCollectionHandler)
+	huma.Delete(rc.Protected, "/collections/{slug}/like", collectionLikeHandler.UnlikeCollectionHandler)
+	huma.Post(rc.Protected, "/crates/{slug}/like", collectionLikeHandler.LikeCollectionHandler)
+	huma.Delete(rc.Protected, "/crates/{slug}/like", collectionLikeHandler.UnlikeCollectionHandler)
+
 	// Admin: feature/unfeature collections — canonical /collections/ paths
 	huma.Put(rc.Protected, "/collections/{slug}/feature", collectionHandler.SetFeaturedHandler)
 

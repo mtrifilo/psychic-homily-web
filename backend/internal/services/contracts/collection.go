@@ -66,7 +66,21 @@ type CollectionFilters struct {
 	Featured   bool
 	Search     string
 	PublicOnly bool
+	// Sort selects the ordering for list results. Recognized values:
+	//   ""        — default: updated_at DESC
+	//   "popular" — HN-gravity: like_count / POWER(age_hours+2, 1.8) DESC
+	//               with updated_at DESC as a tiebreaker. PSY-352.
+	// Unknown values are rejected at the handler layer.
+	Sort string
+	// ViewerID is the authenticated viewer's user ID (or 0 when anonymous).
+	// Carried on the filter struct so we can populate UserLikesThis on each
+	// list row without changing the function signature. PSY-352.
+	ViewerID uint
 }
+
+// CollectionSortPopular is the recognized sort value for the HN-gravity
+// "popular" ordering. PSY-352.
+const CollectionSortPopular = "popular"
 
 // CollectionDetailResponse represents the full collection data returned to clients.
 // Description is the raw markdown source; DescriptionHTML is rendered + sanitized
@@ -102,8 +116,13 @@ type CollectionDetailResponse struct {
 	ForkedFrom   *ForkedFromInfo          `json:"forked_from,omitempty"`
 	Items        []CollectionItemResponse `json:"items"`
 	IsSubscribed bool                     `json:"is_subscribed"`
-	CreatedAt    time.Time                `json:"created_at"`
-	UpdatedAt    time.Time                `json:"updated_at"`
+	// LikeCount is the aggregate count of likes on this collection. PSY-352.
+	LikeCount int `json:"like_count"`
+	// UserLikesThis is true when the authenticated viewer has liked this
+	// collection. Always false for anonymous viewers. PSY-352.
+	UserLikesThis bool      `json:"user_likes_this"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // ForkedFromInfo carries the minimum data needed to render the
@@ -147,9 +166,14 @@ type CollectionListResponse struct {
 	// the viewer's `last_visited_at` cursor on the subscription. Always 0
 	// for collections the viewer is not subscribed to (or for unauthed
 	// viewers); only populated by the user-collections endpoint. PSY-350.
-	NewSinceLastVisit int       `json:"new_since_last_visit,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	NewSinceLastVisit int `json:"new_since_last_visit,omitempty"`
+	// LikeCount is the aggregate count of likes on this collection. PSY-352.
+	LikeCount int `json:"like_count"`
+	// UserLikesThis is true when the authenticated viewer has liked this
+	// collection. Always false for anonymous viewers. PSY-352.
+	UserLikesThis bool      `json:"user_likes_this"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // CollectionItemResponse represents an item in a collection.
@@ -183,6 +207,14 @@ type UpdateCollectionItemRequest struct {
 	Notes *string `json:"notes"`
 }
 
+// CollectionLikeResponse is returned by POST/DELETE on the /like endpoint.
+// Surfaces only aggregates and the caller's like state; the per-user list
+// of likes is intentionally not exposed (privacy decision, PSY-352).
+type CollectionLikeResponse struct {
+	LikeCount     int  `json:"like_count"`
+	UserLikesThis bool `json:"user_likes_this"`
+}
+
 // CollectionServiceInterface defines the contract for collection operations.
 type CollectionServiceInterface interface {
 	CreateCollection(creatorID uint, req *CreateCollectionRequest) (*CollectionDetailResponse, error)
@@ -198,6 +230,12 @@ type CollectionServiceInterface interface {
 	Subscribe(slug string, userID uint) error
 	Unsubscribe(slug string, userID uint) error
 	MarkVisited(slug string, userID uint) error
+	// Like records a user's like on the collection. Idempotent — calling
+	// twice for the same (user, collection) is a no-op. PSY-352.
+	Like(slug string, userID uint) (*CollectionLikeResponse, error)
+	// Unlike removes a user's like on the collection. Idempotent — calling
+	// when the like doesn't exist is a no-op. PSY-352.
+	Unlike(slug string, userID uint) (*CollectionLikeResponse, error)
 	GetStats(slug string) (*CollectionStatsResponse, error)
 	GetUserCollections(userID uint, limit, offset int) ([]*CollectionListResponse, int64, error)
 	GetEntityCollections(entityType string, entityID uint, limit int) ([]*CollectionListResponse, error)

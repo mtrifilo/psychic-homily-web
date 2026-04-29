@@ -98,3 +98,17 @@ type CollectionSubscriber struct {
 func (CollectionSubscriber) TableName() string {
 	return "collection_subscribers"
 }
+
+// CollectionLike represents a single user's like on a collection.
+// Composite PK (user_id, collection_id) makes the like inherently unique
+// and POST idempotent via INSERT ... ON CONFLICT DO NOTHING. PSY-352.
+type CollectionLike struct {
+	UserID       uint      `gorm:"primaryKey;column:user_id" json:"user_id"`
+	CollectionID uint      `gorm:"primaryKey;column:collection_id" json:"collection_id"`
+	CreatedAt    time.Time `gorm:"not null;column:created_at;default:CURRENT_TIMESTAMP" json:"created_at"`
+}
+
+// TableName specifies the table name for CollectionLike.
+func (CollectionLike) TableName() string {
+	return "collection_likes"
+}

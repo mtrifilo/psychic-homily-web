@@ -86,6 +86,16 @@ var testFixtureAllowlist = []testFixtureScope{
 		},
 	},
 	{
+		// PSY-352: per-user likes; FK to users with ON DELETE CASCADE.
+		// Reset alongside subscribers so a fresh-slate E2E run doesn't
+		// inherit prior likes from a previous run.
+		displayName: "collection_likes",
+		delete: func(tx *gorm.DB, userID uint) (int64, error) {
+			res := tx.Where("user_id = ?", userID).Delete(&models.CollectionLike{})
+			return res.RowsAffected, res.Error
+		},
+	},
+	{
 		displayName: "collections",
 		delete: func(tx *gorm.DB, userID uint) (int64, error) {
 			res := tx.Where("creator_id = ?", userID).Delete(&models.Collection{})
