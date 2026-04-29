@@ -67,13 +67,17 @@ import {
   useDeleteCollection,
   useCloneCollection,
 } from '../hooks'
-import { getEntityUrl, getEntityTypeLabel } from '../types'
+import {
+  getEntityUrl,
+  getEntityTypeLabel,
+  MAX_COLLECTION_MARKDOWN_LENGTH,
+} from '../types'
 import type { CollectionDisplayMode, CollectionItem } from '../types'
+import { MarkdownEditor, MarkdownContent } from './MarkdownEditor'
 import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Breadcrumb } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -297,10 +301,16 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                   </p>
                 )}
 
-                {collection.description && (
-                  <p className="text-muted-foreground mt-3 whitespace-pre-line">
-                    {collection.description}
-                  </p>
+                {/* PSY-349: description rendered as markdown by the backend
+                    (goldmark + bluemonday). Always trust description_html when
+                    present; fall back to nothing rather than rendering raw
+                    description (which is markdown source, not HTML). */}
+                {collection.description_html && (
+                  <MarkdownContent
+                    html={collection.description_html}
+                    className="mt-3 text-muted-foreground"
+                    testId="collection-description"
+                  />
                 )}
 
                 {/* Stats */}
@@ -813,13 +823,17 @@ function CollectionItemRow({
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
             <span>added by {item.added_by_name}</span>
-            {!isEditingNotes && item.notes && (
-              <>
-                <span className="text-muted-foreground/40">|</span>
-                <span className="truncate">{item.notes}</span>
-              </>
-            )}
           </div>
+          {/* PSY-349: render notes as sanitized markdown HTML (server-rendered).
+              Display only when not editing; legacy plain-text notes still
+              render correctly because plain text is valid markdown. */}
+          {!isEditingNotes && item.notes_html && (
+            <MarkdownContent
+              html={item.notes_html}
+              className="mt-1 text-xs text-muted-foreground"
+              testId={`collection-item-notes-${item.id}`}
+            />
+          )}
         </div>
 
         {/* Action buttons (creator only) */}
@@ -883,16 +897,18 @@ function CollectionItemRow({
         )}
       </div>
 
-      {/* Inline notes editor */}
+      {/* Inline notes editor (PSY-349: markdown w/ preview toggle) */}
       {isEditingNotes && isCreator && (
         <div className="mt-2 ml-[4.25rem] space-y-2">
-          <Textarea
+          <MarkdownEditor
             value={notesValue}
-            onChange={(e) => setNotesValue(e.target.value)}
-            placeholder="Add a note about this item..."
+            onChange={setNotesValue}
+            placeholder="Add a note about this item... (markdown supported)"
             rows={2}
-            className="text-sm"
+            maxLength={MAX_COLLECTION_MARKDOWN_LENGTH}
+            ariaLabel="Notes for this collection item"
             autoFocus
+            testId={`collection-item-notes-editor-${item.id}`}
           />
           {updateMutation.isError && (
             <p className="text-xs text-destructive">
@@ -1178,11 +1194,14 @@ function InlineEditForm({
         >
           Description
         </label>
-        <Textarea
+        <MarkdownEditor
           id="edit-description"
           value={description}
-          onChange={e => setDescription(e.target.value)}
-          rows={3}
+          onChange={setDescription}
+          rows={4}
+          maxLength={MAX_COLLECTION_MARKDOWN_LENGTH}
+          placeholder="Markdown supported: **bold**, *italic*, [link](url), > quote, - list"
+          testId="collection-description-editor"
         />
       </div>
 

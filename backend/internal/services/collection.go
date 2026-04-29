@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -15,9 +16,14 @@ import (
 	"psychic-homily-backend/internal/utils"
 )
 
-// CollectionService handles collection-related business logic
+// CollectionService handles collection-related business logic.
+// md is the shared utils.MarkdownRenderer (goldmark + bluemonday) used to
+// render Description and per-item Notes on read. Sanitization is applied on
+// every response so existing plain-text rows are also rendered safely — the
+// sanitizer is the source of truth for XSS safety, not the input pipeline.
 type CollectionService struct {
 	db *gorm.DB
+	md *utils.MarkdownRenderer
 }
 
 // NewCollectionService creates a new collection service
@@ -27,7 +33,30 @@ func NewCollectionService(database *gorm.DB) *CollectionService {
 	}
 	return &CollectionService{
 		db: database,
+		md: utils.NewMarkdownRenderer(),
 	}
+}
+
+// renderMarkdown returns sanitized HTML for the given markdown source. Returns
+// "" for empty input. Falls back to a freshly-constructed renderer when the
+// service was built with the bare struct literal (older test paths).
+func (s *CollectionService) renderMarkdown(src string) string {
+	if src == "" {
+		return ""
+	}
+	if s.md == nil {
+		s.md = utils.NewMarkdownRenderer()
+	}
+	return s.md.Render(src)
+}
+
+// renderNotes is a *string-aware wrapper around renderMarkdown for the
+// nullable Notes column. Returns "" when the pointer is nil or empty.
+func (s *CollectionService) renderNotes(notes *string) string {
+	if notes == nil {
+		return ""
+	}
+	return s.renderMarkdown(*notes)
 }
 
 // CreateCollection creates a new collection and auto-subscribes the creator
@@ -47,6 +76,9 @@ func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.Crea
 	description := ""
 	if req.Description != nil {
 		description = *req.Description
+	}
+	if len(description) > contracts.MaxCollectionDescriptionLength {
+		return nil, fmt.Errorf("description exceeds maximum length of %d characters", contracts.MaxCollectionDescriptionLength)
 	}
 
 	displayMode := models.CollectionDisplayModeUnranked
@@ -284,11 +316,39 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		isSubscribed = subCount > 0
 	}
 
+	// PSY-350: bump last_visited_at for authenticated subscribers so the
+	// library tab's "N new since last visit" badge clears. Fire-and-forget —
+	// a write failure here must NOT fail the read. We do this in a goroutine
+	// to avoid contention with the read path; the staleness window is one
+	// page-load and that's acceptable.
+	//
+	// Hook point: the detail endpoint (GET /collections/{slug}) is the
+	// natural "user looked at the collection" signal. Card-only views and
+	// list endpoints intentionally do NOT bump the cursor.
+	if isSubscribed {
+		collectionID := collection.ID
+		uid := viewerID
+		dbHandle := s.db
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("warning: collection MarkVisited goroutine panicked for user %d collection %d: %v", uid, collectionID, r)
+				}
+			}()
+			if err := dbHandle.Model(&models.CollectionSubscriber{}).
+				Where("collection_id = ? AND user_id = ?", collectionID, uid).
+				Update("last_visited_at", time.Now()).Error; err != nil {
+				log.Printf("warning: failed to bump last_visited_at for user %d collection %d: %v", uid, collectionID, err)
+			}
+		}()
+	}
+
 	return &contracts.CollectionDetailResponse{
 		ID:                     collection.ID,
 		Title:                  collection.Title,
 		Slug:                   collection.Slug,
 		Description:            collection.Description,
+		DescriptionHTML:        s.renderMarkdown(collection.Description),
 		CreatorID:              collection.CreatorID,
 		CreatorName:            creatorName,
 		Collaborative:          collection.Collaborative,
@@ -423,6 +483,7 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 			Title:                  c.Title,
 			Slug:                   c.Slug,
 			Description:            c.Description,
+			DescriptionHTML:        s.renderMarkdown(c.Description),
 			CreatorID:              c.CreatorID,
 			CreatorName:            creatorNames[c.CreatorID],
 			Collaborative:          c.Collaborative,
@@ -478,6 +539,9 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 		updates["slug"] = newSlug
 	}
 	if req.Description != nil {
+		if len(*req.Description) > contracts.MaxCollectionDescriptionLength {
+			return nil, fmt.Errorf("description exceeds maximum length of %d characters", contracts.MaxCollectionDescriptionLength)
+		}
 		updates["description"] = *req.Description
 	}
 	if req.Collaborative != nil {
@@ -562,6 +626,11 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 		return nil, apperrors.ErrCollectionForbidden(slug)
 	}
 
+	// Validate notes length on save (mirrors comment body limit).
+	if req.Notes != nil && len(*req.Notes) > contracts.MaxCollectionItemNotesLength {
+		return nil, fmt.Errorf("notes exceed maximum length of %d characters", contracts.MaxCollectionItemNotesLength)
+	}
+
 	// Check for duplicate
 	var existingCount int64
 	s.db.Model(&models.CollectionItem{}).
@@ -594,6 +663,13 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 		return nil, fmt.Errorf("failed to add item to collection: %w", err)
 	}
 
+	// PSY-350: collection-subscription digest notifications are emitted by
+	// the lazy CollectionDigestService ticker, NOT fanned out here. The
+	// ticker queries collection_items.created_at against each subscriber's
+	// per-row cursor, so no synchronous notification work happens during
+	// AddItem. This means AddItem cannot fail or slow due to a notification
+	// path — the requirement is satisfied by construction.
+
 	// Resolve entity name and slug
 	entityName, entitySlug := s.resolveEntityNameAndSlug(req.EntityType, req.EntityID)
 	addedByName := s.resolveUserName(userID)
@@ -608,6 +684,7 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 		AddedByUserID: item.AddedByUserID,
 		AddedByName:   addedByName,
 		Notes:         item.Notes,
+		NotesHTML:     s.renderNotes(item.Notes),
 		CreatedAt:     item.CreatedAt,
 	}, nil
 }
@@ -641,6 +718,11 @@ func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, is
 		return nil, apperrors.ErrCollectionForbidden(slug)
 	}
 
+	// Validate notes length on save (mirrors comment body limit).
+	if req.Notes != nil && len(*req.Notes) > contracts.MaxCollectionItemNotesLength {
+		return nil, fmt.Errorf("notes exceed maximum length of %d characters", contracts.MaxCollectionItemNotesLength)
+	}
+
 	// Update notes
 	if req.Notes != nil {
 		item.Notes = req.Notes
@@ -664,6 +746,7 @@ func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, is
 		AddedByUserID: item.AddedByUserID,
 		AddedByName:   addedByName,
 		Notes:         item.Notes,
+		NotesHTML:     s.renderNotes(item.Notes),
 		CreatedAt:     item.CreatedAt,
 	}, nil
 }
@@ -929,6 +1012,9 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 	forkCounts := s.batchCountForks(collectionIDs)
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
+	// PSY-350: per-(user, collection) "new since last visit" counts so the
+	// library tab can render a "N new" badge per subscribed collection.
+	newCounts := s.batchCountNewSinceLastVisit(userID, collectionIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
@@ -937,6 +1023,7 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 			Title:                  c.Title,
 			Slug:                   c.Slug,
 			Description:            c.Description,
+			DescriptionHTML:        s.renderMarkdown(c.Description),
 			CreatorID:              c.CreatorID,
 			CreatorName:            creatorNames[c.CreatorID],
 			Collaborative:          c.Collaborative,
@@ -950,6 +1037,7 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 			ForksCount:             forkCounts[c.ID],
 			ForkedFromCollectionID: c.ForkedFromCollectionID,
 			EntityTypeCounts:       entityTypeCounts[c.ID],
+			NewSinceLastVisit:      newCounts[c.ID],
 			CreatedAt:              c.CreatedAt,
 			UpdatedAt:              c.UpdatedAt,
 		}
@@ -1013,6 +1101,7 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 			Title:                  c.Title,
 			Slug:                   c.Slug,
 			Description:            c.Description,
+			DescriptionHTML:        s.renderMarkdown(c.Description),
 			CreatorID:              c.CreatorID,
 			CreatorName:            creatorNames[c.CreatorID],
 			Collaborative:          c.Collaborative,
@@ -1086,6 +1175,7 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 			Title:                  c.Title,
 			Slug:                   c.Slug,
 			Description:            c.Description,
+			DescriptionHTML:        s.renderMarkdown(c.Description),
 			CreatorID:              c.CreatorID,
 			CreatorName:            creatorNames[c.CreatorID],
 			Collaborative:          c.Collaborative,
@@ -1305,6 +1395,7 @@ func (s *CollectionService) buildItemResponses(items []models.CollectionItem) []
 			AddedByUserID: item.AddedByUserID,
 			AddedByName:   userNames[item.AddedByUserID],
 			Notes:         item.Notes,
+			NotesHTML:     s.renderNotes(item.Notes),
 			CreatedAt:     item.CreatedAt,
 		}
 	}
@@ -1464,6 +1555,52 @@ func (s *CollectionService) batchCountSubscribers(collectionIDs []uint) map[uint
 		Where("collection_id IN ?", collectionIDs).
 		Group("collection_id").
 		Find(&results)
+
+	for _, r := range results {
+		counts[r.CollectionID] = r.Count
+	}
+	return counts
+}
+
+// batchCountNewSinceLastVisit returns, per collection in `collectionIDs`, the
+// number of items added after the user's `last_visited_at` cursor on the
+// subscription. PSY-350.
+//
+// Only populated for collections the user is actually subscribed to —
+// non-subscribed collection IDs simply don't appear in the result map (zero
+// values when looked up). Collections never visited (last_visited_at IS
+// NULL) fall back to "all items added by other users since subscribed".
+func (s *CollectionService) batchCountNewSinceLastVisit(userID uint, collectionIDs []uint) map[uint]int {
+	counts := make(map[uint]int)
+	if len(collectionIDs) == 0 || userID == 0 {
+		return counts
+	}
+
+	type CountResult struct {
+		CollectionID uint
+		Count        int
+	}
+	var results []CountResult
+
+	// Items added by *other* users since the viewer last visited (or, when
+	// the viewer has never visited, since they subscribed). We exclude
+	// the viewer's own additions because seeing your own work as "new" is
+	// noise.
+	err := s.db.Raw(`
+		SELECT cs.collection_id, COUNT(*) AS count
+		FROM collection_subscribers cs
+		JOIN collection_items ci
+			ON ci.collection_id = cs.collection_id
+			AND ci.added_by_user_id <> cs.user_id
+			AND ci.created_at > COALESCE(cs.last_visited_at, cs.created_at)
+		WHERE cs.user_id = ?
+			AND cs.collection_id IN ?
+		GROUP BY cs.collection_id
+	`, userID, collectionIDs).Scan(&results).Error
+	if err != nil {
+		// Non-fatal — surface as zero counts in the response.
+		return counts
+	}
 
 	for _, r := range results {
 		counts[r.CollectionID] = r.Count

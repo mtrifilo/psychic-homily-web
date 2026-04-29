@@ -5,10 +5,11 @@ import { Plus, Search, Library, Star, Clock, TrendingUp, User } from 'lucide-rea
 import { useDebounce } from 'use-debounce'
 import { useCollections, useMyCollections, useCreateCollection } from '../hooks'
 import { CollectionCard } from './CollectionCard'
+import { MarkdownEditor } from './MarkdownEditor'
+import { MAX_COLLECTION_MARKDOWN_LENGTH } from '../types'
 import { LoadingSpinner } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog,
   DialogContent,
@@ -419,12 +420,14 @@ function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => voi
         >
           Description (optional)
         </label>
-        <Textarea
+        <MarkdownEditor
           id="collection-description"
           value={description}
-          onChange={e => setDescription(e.target.value)}
-          placeholder="A brief description of this collection..."
+          onChange={setDescription}
+          placeholder="A brief description of this collection... (markdown supported)"
           rows={3}
+          maxLength={MAX_COLLECTION_MARKDOWN_LENGTH}
+          testId="create-collection-description-editor"
         />
       </div>
 

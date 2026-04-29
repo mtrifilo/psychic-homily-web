@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -492,6 +493,98 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_NoChang
 	suite.Equal("Stable Collection", resp.Title)
 }
 
+// PSY-349: description and per-item notes are stored as raw markdown but
+// returned with rendered+sanitized HTML. The renderer reuses utils.MarkdownRenderer
+// (goldmark + bluemonday) which is the same policy used by comments and field
+// notes, so allowed tags and XSS safety match exactly.
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_RendersDescriptionMarkdown() {
+	user := suite.createTestUser("MarkdownAuthor")
+
+	desc := "**bold** and *italic* and [link](https://example.com)"
+	req := &contracts.CreateCollectionRequest{
+		Title:       "Markdown Description",
+		Description: &desc,
+		IsPublic:    true,
+	}
+
+	resp, err := suite.collectionService.CreateCollection(user.ID, req)
+	suite.Require().NoError(err)
+
+	// Raw markdown is preserved on the response so the editor can re-populate it.
+	suite.Equal(desc, resp.Description)
+	// Rendered HTML is sanitized + populated.
+	suite.Contains(resp.DescriptionHTML, "<strong>bold</strong>")
+	suite.Contains(resp.DescriptionHTML, "<em>italic</em>")
+	suite.Contains(resp.DescriptionHTML, `href="https://example.com"`)
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_RendersDescriptionMarkdownOnEachRead() {
+	user := suite.createTestUser("MarkdownReader")
+	desc := "> a quote\n\n- bullet one"
+	created, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:       "Quoted",
+		Description: &desc,
+		IsPublic:    true,
+	})
+	suite.Require().NoError(err)
+
+	resp, err := suite.collectionService.GetBySlug(created.Slug, user.ID)
+	suite.Require().NoError(err)
+	suite.Contains(resp.DescriptionHTML, "<blockquote>")
+	suite.Contains(resp.DescriptionHTML, "<ul>")
+	suite.Contains(resp.DescriptionHTML, "<li>")
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_DescriptionXSSStripped() {
+	user := suite.createTestUser("XSSAuthor")
+	desc := "Trust me <script>alert('pwn')</script>"
+	created, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:       "XSS Attempt",
+		Description: &desc,
+		IsPublic:    true,
+	})
+	suite.Require().NoError(err)
+
+	resp, err := suite.collectionService.GetBySlug(created.Slug, user.ID)
+	suite.Require().NoError(err)
+	// Raw markdown is preserved (the editor will show what was typed); the
+	// rendered HTML must strip <script> per the bluemonday policy. Inner text
+	// of stripped tags becomes plain visible text — harmless without the
+	// surrounding executable tag — so we assert the tags themselves are gone,
+	// not the inner text.
+	suite.NotContains(resp.DescriptionHTML, "<script>")
+	suite.NotContains(resp.DescriptionHTML, "</script>")
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_DescriptionTooLong() {
+	user := suite.createTestUser("TooLong")
+
+	longDesc := strings.Repeat("a", contracts.MaxCollectionDescriptionLength+1)
+	resp, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:       "Too Long",
+		Description: &longDesc,
+		IsPublic:    true,
+	})
+
+	suite.Require().Error(err)
+	suite.Nil(resp)
+	suite.Contains(err.Error(), "exceeds maximum length")
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_DescriptionTooLong() {
+	user := suite.createTestUser("UpdaterTooLong")
+	created := suite.createBasicCollection(user, "Will Reject Long Update")
+
+	longDesc := strings.Repeat("b", contracts.MaxCollectionDescriptionLength+1)
+	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+		Description: &longDesc,
+	})
+
+	suite.Require().Error(err)
+	suite.Nil(resp)
+	suite.Contains(err.Error(), "exceeds maximum length")
+}
+
 func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_DisplayModeToggle() {
 	user := suite.createTestUser("ToggleUpdater")
 	created := suite.createBasicCollection(user, "Toggle Mode")
@@ -684,6 +777,87 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_WithNotes() {
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp.Notes)
 	suite.Equal("Saw them live, amazing set", *resp.Notes)
+	// Plain-text notes also pass through the renderer (plain text is valid markdown).
+	suite.NotEmpty(resp.NotesHTML)
+	suite.Contains(resp.NotesHTML, "Saw them live")
+}
+
+// PSY-349: per-item notes accept markdown and respond with sanitized HTML.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_RendersMarkdownNotes() {
+	user := suite.createTestUser("MdNoteAdder")
+	coll := suite.createBasicCollection(user, "MD Notes")
+	artist := suite.createTestArtist("MD Artist")
+
+	notes := "**must-see** band — see [their site](https://example.com)"
+	resp, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist,
+		EntityID:   artist.ID,
+		Notes:      &notes,
+	})
+
+	suite.Require().NoError(err)
+	suite.Contains(resp.NotesHTML, "<strong>must-see</strong>")
+	suite.Contains(resp.NotesHTML, `href="https://example.com"`)
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_NotesXSSStripped() {
+	user := suite.createTestUser("XSSNoteAdder")
+	coll := suite.createBasicCollection(user, "XSS Notes")
+	artist := suite.createTestArtist("XSS Artist")
+
+	notes := "<script>alert('hax')</script>nice band"
+	resp, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist,
+		EntityID:   artist.ID,
+		Notes:      &notes,
+	})
+
+	suite.Require().NoError(err)
+	suite.NotContains(resp.NotesHTML, "<script>")
+	suite.NotContains(resp.NotesHTML, "</script>")
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_NotesTooLong() {
+	user := suite.createTestUser("LongNoteAdder")
+	coll := suite.createBasicCollection(user, "Too Long Notes")
+	artist := suite.createTestArtist("Long Artist")
+
+	long := strings.Repeat("a", contracts.MaxCollectionItemNotesLength+1)
+	_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist,
+		EntityID:   artist.ID,
+		Notes:      &long,
+	})
+
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "exceed maximum length")
+}
+
+func (suite *CollectionServiceIntegrationTestSuite) TestUpdateItem_RendersMarkdownNotesAndEnforcesLimit() {
+	user := suite.createTestUser("UpdateNoteAdder")
+	coll := suite.createBasicCollection(user, "Update Notes")
+	artist := suite.createTestArtist("Update Notes Artist")
+
+	added, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist,
+		EntityID:   artist.ID,
+	})
+	suite.Require().NoError(err)
+
+	updatedNotes := "*italic update*"
+	resp, err := suite.collectionService.UpdateItem(coll.Slug, added.ID, user.ID, false, &contracts.UpdateCollectionItemRequest{
+		Notes: &updatedNotes,
+	})
+	suite.Require().NoError(err)
+	suite.Contains(resp.NotesHTML, "<em>italic update</em>")
+
+	// Length-limit enforcement on update.
+	long := strings.Repeat("z", contracts.MaxCollectionItemNotesLength+1)
+	_, err = suite.collectionService.UpdateItem(coll.Slug, added.ID, user.ID, false, &contracts.UpdateCollectionItemRequest{
+		Notes: &long,
+	})
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "exceed maximum length")
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_Duplicate() {
@@ -1189,4 +1363,154 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ContributorCou
 	detail, err := suite.collectionService.GetBySlug(coll.Slug, creator.ID)
 	suite.Require().NoError(err)
 	suite.Equal(3, detail.ContributorCount)
+}
+
+// =============================================================================
+// Group 13 (PSY-350): GetBySlug bumps last_visited_at for authed subscribers
+// =============================================================================
+
+// TestGetBySlug_AuthenticatedSubscriber_BumpsLastVisitedAt verifies the
+// fire-and-forget MarkVisited side-effect lands. Done via polling because
+// the bump runs in a goroutine.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_AuthenticatedSubscriber_BumpsLastVisitedAt() {
+	creator := suite.createTestUser("Visitor")
+	coll := suite.createBasicCollection(creator, "Visit Test")
+
+	// Reset last_visited_at to a known stale value.
+	stale := time.Now().Add(-24 * time.Hour)
+	suite.Require().NoError(
+		suite.db.Model(&models.CollectionSubscriber{}).
+			Where("collection_id = ? AND user_id = ?", coll.ID, creator.ID).
+			Update("last_visited_at", stale).Error,
+	)
+
+	_, err := suite.collectionService.GetBySlug(coll.Slug, creator.ID)
+	suite.Require().NoError(err)
+
+	// Poll for up to ~250ms — the goroutine should have run by then.
+	var subscriber models.CollectionSubscriber
+	deadline := time.Now().Add(250 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		err = suite.db.Where("collection_id = ? AND user_id = ?", coll.ID, creator.ID).First(&subscriber).Error
+		suite.Require().NoError(err)
+		if subscriber.LastVisitedAt != nil && subscriber.LastVisitedAt.After(stale) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	suite.Require().NotNil(subscriber.LastVisitedAt)
+	suite.True(subscriber.LastVisitedAt.After(stale),
+		"expected LastVisitedAt to advance past the stale value")
+}
+
+// TestGetBySlug_NonSubscriber_NoSideEffect — viewing a public collection
+// without being subscribed must NOT create a subscription row.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_NonSubscriber_NoSideEffect() {
+	creator := suite.createTestUser("Creator")
+	viewer := suite.createTestUser("Viewer")
+	coll := suite.createBasicCollection(creator, "Public Collection")
+
+	_, err := suite.collectionService.GetBySlug(coll.Slug, viewer.ID)
+	suite.Require().NoError(err)
+
+	var count int64
+	suite.db.Model(&models.CollectionSubscriber{}).
+		Where("collection_id = ? AND user_id = ?", coll.ID, viewer.ID).
+		Count(&count)
+	suite.Equal(int64(0), count, "viewing without subscribing must not create a subscription row")
+}
+
+// =============================================================================
+// Group 14 (PSY-350): GetUserCollections.NewSinceLastVisit
+// =============================================================================
+
+// TestGetUserCollections_NewSinceLastVisit_CountsItemsAfterLastVisit verifies
+// the library tab "N new since last visit" badge math. PSY-350.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_NewSinceLastVisit_CountsItemsAfterLastVisit() {
+	creator := suite.createTestUser("Creator")
+	subscriber := suite.createTestUser("Subscriber")
+	// Use a collaborative collection so the subscriber can also add items.
+	collResp, err := suite.collectionService.CreateCollection(creator.ID, &contracts.CreateCollectionRequest{
+		Title:         "Tracked Collection",
+		IsPublic:      true,
+		Collaborative: true,
+	})
+	suite.Require().NoError(err)
+	coll := collResp
+
+	// Subscribe the second user with a fixed last_visited_at.
+	visitedAt := time.Now().Add(-1 * time.Hour)
+	sub := &models.CollectionSubscriber{
+		CollectionID:  coll.ID,
+		UserID:        subscriber.ID,
+		LastVisitedAt: &visitedAt,
+	}
+	suite.Require().NoError(suite.db.Create(sub).Error)
+
+	a1 := suite.createTestArtist("A1")
+	a2 := suite.createTestArtist("A2")
+	a3 := suite.createTestArtist("A3")
+
+	// Item 1 added BEFORE visit — should not count.
+	item1, err := suite.collectionService.AddItem(coll.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist, EntityID: a1.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.Model(&models.CollectionItem{}).
+		Where("id = ?", item1.ID).
+		Update("created_at", visitedAt.Add(-30*time.Minute)).Error)
+
+	// Item 2 added AFTER visit by creator — should count.
+	item2, err := suite.collectionService.AddItem(coll.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist, EntityID: a2.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.Model(&models.CollectionItem{}).
+		Where("id = ?", item2.ID).
+		Update("created_at", visitedAt.Add(15*time.Minute)).Error)
+
+	// Item 3 added AFTER visit by subscriber themselves — should NOT count
+	// (we exclude the viewer's own additions to keep the badge meaningful).
+	item3, err := suite.collectionService.AddItem(coll.Slug, subscriber.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist, EntityID: a3.ID,
+	})
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.Model(&models.CollectionItem{}).
+		Where("id = ?", item3.ID).
+		Update("created_at", visitedAt.Add(45*time.Minute)).Error)
+
+	// Fetch via the user-collections endpoint.
+	resp, _, err := suite.collectionService.GetUserCollections(subscriber.ID, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Equal(1, resp[0].NewSinceLastVisit, "expected exactly one new item since visit (excluding self-add)")
+}
+
+// TestGetUserCollections_NewSinceLastVisit_NeverVisited_FallsBackToSubscriptionStart
+// verifies that subscribers who have never visited get the count of items
+// added after the subscription's created_at (excluding self).
+func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_NewSinceLastVisit_NeverVisited_FallsBackToSubscriptionStart() {
+	creator := suite.createTestUser("Creator")
+	subscriber := suite.createTestUser("Sub")
+	coll := suite.createBasicCollection(creator, "Coll")
+
+	// Subscribe the second user with NULL last_visited_at.
+	sub := &models.CollectionSubscriber{
+		CollectionID:  coll.ID,
+		UserID:        subscriber.ID,
+		LastVisitedAt: nil,
+	}
+	suite.Require().NoError(suite.db.Create(sub).Error)
+
+	// Add one item after subscribing — should count.
+	a := suite.createTestArtist("A")
+	_, err := suite.collectionService.AddItem(coll.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist, EntityID: a.ID,
+	})
+	suite.Require().NoError(err)
+
+	resp, _, err := suite.collectionService.GetUserCollections(subscriber.ID, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Equal(1, resp[0].NewSinceLastVisit)
 }

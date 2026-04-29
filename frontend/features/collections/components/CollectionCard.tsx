@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { getEntityTypeLabel, type Collection } from '../types'
+import { MarkdownContent } from './MarkdownEditor'
 
 const ENTITY_ICONS: Record<string, LucideIcon> = {
   artist: Mic2,
@@ -97,6 +98,22 @@ export function CollectionCard({ collection }: CollectionCardProps) {
           </Link>
 
           <div className="flex items-center gap-1 flex-wrap mt-0.5">
+            {/*
+              PSY-350: "N new" badge for subscribed collections in the library
+              tab. Backend only populates new_since_last_visit when the viewer
+              is subscribed; for public list cards, this prop is undefined or
+              zero and the badge is hidden.
+            */}
+            {collection.new_since_last_visit !== undefined &&
+              collection.new_since_last_visit > 0 && (
+                <Badge
+                  variant="default"
+                  className="text-[10px] px-1.5 py-0"
+                  aria-label={`${collection.new_since_last_visit} new since your last visit`}
+                >
+                  {collection.new_since_last_visit} new
+                </Badge>
+              )}
             {collection.is_featured && (
               <Badge variant="default" className="text-[10px] px-1.5 py-0">
                 <Star className="h-2.5 w-2.5 mr-0.5" />
@@ -120,14 +137,17 @@ export function CollectionCard({ collection }: CollectionCardProps) {
             ))}
           </div>
 
-          {collection.description && (
-            <p
+          {/* PSY-349: server-rendered description_html (sanitized markdown).
+              line-clamp keeps the card height stable; the prose styles
+              come from MarkdownContent. Falls back to nothing rather than
+              rendering raw markdown source as HTML. */}
+          {collection.description_html && (
+            <MarkdownContent
+              html={collection.description_html}
               className={cn(
                 'text-sm text-muted-foreground mt-1 line-clamp-3'
               )}
-            >
-              {collection.description}
-            </p>
+            />
           )}
 
           <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground flex-wrap">

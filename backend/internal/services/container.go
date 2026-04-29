@@ -86,6 +86,8 @@ type ServiceContainer struct {
 	Enrichment       *pipeline.EnrichmentService
 	EnrichmentWorker *pipeline.EnrichmentWorker
 	AutoPromotion    *adminsvc.AutoPromotionService
+	// PSY-350: weekly collection-subscription digest emails (opt-IN).
+	CollectionDigest *engagement.CollectionDigestService
 }
 
 // newFetcherWithChromedp creates a FetcherService with chromedp initialized at 3 workers.
@@ -209,5 +211,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Enrichment:       enrichmentSvc,
 		EnrichmentWorker: enrichmentWorker,
 		AutoPromotion:    adminsvc.NewAutoPromotionService(database, email),
+		CollectionDigest: engagement.NewCollectionDigestService(database, email, cfg),
 	}
 }

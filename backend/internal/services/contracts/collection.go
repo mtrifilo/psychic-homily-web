@@ -1,6 +1,21 @@
 package contracts
 
-import "time"
+import (
+	"time"
+
+	"psychic-homily-backend/internal/models"
+)
+
+// MaxCollectionDescriptionLength is the maximum length, in bytes, accepted for
+// a collection's `description` field. Aliases models.MaxCommentBodyLength
+// (10,000) so the markdown editor experience and limits are consistent across
+// comments, field notes, and collections (PSY-349) — there is no parallel
+// limit to keep in sync.
+const MaxCollectionDescriptionLength = models.MaxCommentBodyLength
+
+// MaxCollectionItemNotesLength is the maximum length, in bytes, accepted for
+// per-item `notes` on a collection item. Aliases models.MaxCommentBodyLength.
+const MaxCollectionItemNotesLength = models.MaxCommentBodyLength
 
 // ──────────────────────────────────────────────
 // Collection types
@@ -53,12 +68,17 @@ type CollectionFilters struct {
 	PublicOnly bool
 }
 
-// CollectionDetailResponse represents the full collection data returned to clients
+// CollectionDetailResponse represents the full collection data returned to clients.
+// Description is the raw markdown source; DescriptionHTML is rendered + sanitized
+// HTML produced on each read via utils.MarkdownRenderer (goldmark + bluemonday),
+// matching the comment-system policy. Description (raw) is preserved so editors
+// can re-populate the textarea without re-parsing HTML back to markdown.
 type CollectionDetailResponse struct {
 	ID               uint                     `json:"id"`
 	Title            string                   `json:"title"`
 	Slug             string                   `json:"slug"`
 	Description      string                   `json:"description"`
+	DescriptionHTML  string                   `json:"description_html,omitempty"`
 	CreatorID        uint                     `json:"creator_id"`
 	CreatorName      string                   `json:"creator_name"`
 	Collaborative    bool                     `json:"collaborative"`
@@ -98,12 +118,15 @@ type ForkedFromInfo struct {
 	CreatorName string `json:"creator_name"`
 }
 
-// CollectionListResponse represents a collection in list views (without items)
+// CollectionListResponse represents a collection in list views (without items).
+// DescriptionHTML mirrors the detail response — sanitized markdown render of
+// Description, computed on read. See CollectionDetailResponse for rationale.
 type CollectionListResponse struct {
 	ID               uint           `json:"id"`
 	Title            string         `json:"title"`
 	Slug             string         `json:"slug"`
 	Description      string         `json:"description"`
+	DescriptionHTML  string         `json:"description_html,omitempty"`
 	CreatorID        uint           `json:"creator_id"`
 	CreatorName      string         `json:"creator_name"`
 	Collaborative    bool           `json:"collaborative"`
@@ -120,11 +143,19 @@ type CollectionListResponse struct {
 	ForksCount             int            `json:"forks_count"`
 	ForkedFromCollectionID *uint          `json:"forked_from_collection_id,omitempty"`
 	EntityTypeCounts       map[string]int `json:"entity_type_counts"`
-	CreatedAt              time.Time      `json:"created_at"`
-	UpdatedAt              time.Time      `json:"updated_at"`
+	// NewSinceLastVisit is the count of items added to this collection after
+	// the viewer's `last_visited_at` cursor on the subscription. Always 0
+	// for collections the viewer is not subscribed to (or for unauthed
+	// viewers); only populated by the user-collections endpoint. PSY-350.
+	NewSinceLastVisit int       `json:"new_since_last_visit,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
-// CollectionItemResponse represents an item in a collection
+// CollectionItemResponse represents an item in a collection.
+// Notes is the raw markdown; NotesHTML is sanitized rendered HTML, computed on
+// read. Existing plain-text notes still render correctly because plain text is
+// valid markdown, and the sanitizer guarantees safe output for any stored row.
 type CollectionItemResponse struct {
 	ID            uint      `json:"id"`
 	EntityType    string    `json:"entity_type"`
@@ -135,6 +166,7 @@ type CollectionItemResponse struct {
 	AddedByUserID uint      `json:"added_by_user_id"`
 	AddedByName   string    `json:"added_by_name"`
 	Notes         *string   `json:"notes"`
+	NotesHTML     string    `json:"notes_html,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 }
 

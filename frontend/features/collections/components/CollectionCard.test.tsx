@@ -24,6 +24,9 @@ const baseCollection: Collection = {
   title: 'Arizona Indie Essentials',
   slug: 'arizona-indie-essentials',
   description: 'The best indie bands from AZ',
+  // PSY-349: server provides server-rendered + sanitized HTML alongside raw
+  // markdown. Tests use realistic <p>-wrapped output that goldmark would emit.
+  description_html: '<p>The best indie bands from AZ</p>',
   is_public: true,
   collaborative: false,
   is_featured: false,
@@ -56,7 +59,14 @@ describe('CollectionCard', () => {
   })
 
   it('does not render description when absent', () => {
-    const collection = { ...baseCollection, description: null as unknown as string }
+    // PSY-349: card renders description_html (server-sanitized), so an empty
+    // description_html means nothing is rendered even if `description` has
+    // legacy raw content.
+    const collection = {
+      ...baseCollection,
+      description: '',
+      description_html: '',
+    }
     render(<CollectionCard collection={collection} />)
 
     expect(screen.queryByText('The best indie bands from AZ')).not.toBeInTheDocument()
@@ -135,5 +145,29 @@ describe('CollectionCard', () => {
     const img = screen.getByRole('img', { name: 'Arizona Indie Essentials cover' })
     expect(img).toBeInTheDocument()
     expect(img).toHaveAttribute('src', 'https://example.com/cover.jpg')
+  })
+
+  // PSY-350: "N new since last visit" badge
+  it('renders the N-new badge when new_since_last_visit > 0', () => {
+    const collection = { ...baseCollection, new_since_last_visit: 3 }
+    render(<CollectionCard collection={collection} />)
+
+    expect(screen.getByText('3 new')).toBeInTheDocument()
+    expect(
+      screen.getByLabelText('3 new since your last visit')
+    ).toBeInTheDocument()
+  })
+
+  it('omits the N-new badge when new_since_last_visit is 0', () => {
+    const collection = { ...baseCollection, new_since_last_visit: 0 }
+    render(<CollectionCard collection={collection} />)
+
+    expect(screen.queryByText(/new$/)).not.toBeInTheDocument()
+  })
+
+  it('omits the N-new badge when new_since_last_visit is undefined', () => {
+    render(<CollectionCard collection={baseCollection} />)
+
+    expect(screen.queryByText(/new$/)).not.toBeInTheDocument()
   })
 })
