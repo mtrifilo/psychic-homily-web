@@ -151,13 +151,38 @@ export function CollectionCard({ collection }: CollectionCardProps) {
           )}
 
           <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-            <span>by {collection.creator_name}</span>
+            <span>
+              by{' '}
+              {collection.creator_username ? (
+                <Link
+                  href={`/users/${collection.creator_username}`}
+                  className="text-foreground hover:underline"
+                >
+                  {collection.creator_name}
+                </Link>
+              ) : (
+                collection.creator_name
+              )}
+            </span>
             <span className="flex items-center gap-1">
               <Library className="h-3 w-3" />
               {collection.item_count === 1
                 ? '1 item'
                 : `${collection.item_count} items`}
             </span>
+            {/* PSY-353: surface community curation when at least 3
+                contributors have added items. Threshold matches What.cd's
+                min-3-items spirit; below it, attribution is just the
+                creator. */}
+            {collection.contributor_count >= 3 && (
+              <span
+                className="flex items-center gap-1"
+                data-testid="contributor-badge"
+              >
+                <Users className="h-3 w-3" />
+                Built by {collection.contributor_count} contributors
+              </span>
+            )}
             {collection.subscriber_count > 0 && (
               <span className="flex items-center gap-1">
                 <Users className="h-3 w-3" />

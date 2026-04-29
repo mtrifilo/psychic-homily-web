@@ -323,8 +323,32 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                 </div>
 
                 <p className="text-sm text-muted-foreground">
-                  by {collection.creator_name}
+                  by{' '}
+                  {collection.creator_username ? (
+                    <Link
+                      href={`/users/${collection.creator_username}`}
+                      className="text-foreground hover:underline"
+                    >
+                      {collection.creator_name}
+                    </Link>
+                  ) : (
+                    collection.creator_name
+                  )}
                 </p>
+
+                {/* PSY-353: contributor badge surfaces community curation
+                    when at least 3 distinct users have added items.
+                    Threshold matches What.cd's min-3-items spirit; below
+                    it, the creator-only line above is sufficient. */}
+                {collection.contributor_count >= 3 && (
+                  <p
+                    className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"
+                    data-testid="contributor-badge"
+                  >
+                    <Users className="h-3 w-3" aria-hidden="true" />
+                    Built by {collection.contributor_count} contributors
+                  </p>
+                )}
 
                 {/* PSY-351: inline fork attribution. Renders below the
                     creator line when this collection was cloned. Falls back

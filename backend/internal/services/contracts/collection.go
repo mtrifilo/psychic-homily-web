@@ -81,6 +81,11 @@ type CollectionDetailResponse struct {
 	DescriptionHTML  string                   `json:"description_html,omitempty"`
 	CreatorID        uint                     `json:"creator_id"`
 	CreatorName      string                   `json:"creator_name"`
+	// CreatorUsername is the creator's username when set, used by the
+	// frontend to link the attribution to /users/:username. Pointer so the
+	// JSON encodes null (not "") for accounts that never set a username —
+	// the frontend renders the name as plain text in that case (PSY-353).
+	CreatorUsername  *string                  `json:"creator_username"`
 	Collaborative    bool                     `json:"collaborative"`
 	CoverImageURL    *string                  `json:"cover_image_url"`
 	IsPublic         bool                     `json:"is_public"`
@@ -129,6 +134,8 @@ type CollectionListResponse struct {
 	DescriptionHTML  string         `json:"description_html,omitempty"`
 	CreatorID        uint           `json:"creator_id"`
 	CreatorName      string         `json:"creator_name"`
+	// CreatorUsername mirrors CollectionDetailResponse — see PSY-353.
+	CreatorUsername  *string        `json:"creator_username"`
 	Collaborative    bool           `json:"collaborative"`
 	CoverImageURL    *string        `json:"cover_image_url"`
 	IsPublic         bool           `json:"is_public"`

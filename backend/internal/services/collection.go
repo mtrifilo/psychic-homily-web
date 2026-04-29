@@ -338,6 +338,7 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 
 	// Load creator name
 	creatorName := s.resolveUserName(collection.CreatorID)
+	creatorUsername := s.resolveUserUsername(collection.CreatorID)
 
 	// Load items
 	var items []models.CollectionItem
@@ -415,6 +416,7 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		DescriptionHTML:        s.renderMarkdown(collection.Description),
 		CreatorID:              collection.CreatorID,
 		CreatorName:            creatorName,
+		CreatorUsername:        creatorUsername,
 		Collaborative:          collection.Collaborative,
 		CoverImageURL:          collection.CoverImageURL,
 		IsPublic:               collection.IsPublic,
@@ -547,6 +549,7 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 
 	// Batch-load creator names
 	creatorNames := s.batchResolveUserNames(creatorIDs)
+	creatorUsernames := s.batchResolveUserUsernames(creatorIDs)
 
 	// Build responses
 	responses := make([]*contracts.CollectionListResponse, len(collections))
@@ -559,6 +562,7 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 			DescriptionHTML:        s.renderMarkdown(c.Description),
 			CreatorID:              c.CreatorID,
 			CreatorName:            creatorNames[c.CreatorID],
+			CreatorUsername:        creatorUsernames[c.CreatorID],
 			Collaborative:          c.Collaborative,
 			CoverImageURL:          c.CoverImageURL,
 			IsPublic:               c.IsPublic,
@@ -1107,6 +1111,7 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 	forkCounts := s.batchCountForks(collectionIDs)
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
+	creatorUsernames := s.batchResolveUserUsernames(creatorIDs)
 	// PSY-350: per-(user, collection) "new since last visit" counts so the
 	// library tab can render a "N new" badge per subscribed collection.
 	newCounts := s.batchCountNewSinceLastVisit(userID, collectionIDs)
@@ -1121,6 +1126,7 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 			DescriptionHTML:        s.renderMarkdown(c.Description),
 			CreatorID:              c.CreatorID,
 			CreatorName:            creatorNames[c.CreatorID],
+			CreatorUsername:        creatorUsernames[c.CreatorID],
 			Collaborative:          c.Collaborative,
 			CoverImageURL:          c.CoverImageURL,
 			IsPublic:               c.IsPublic,
@@ -1188,6 +1194,7 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 	forkCounts := s.batchCountForks(collectionIDs)
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
+	creatorUsernames := s.batchResolveUserUsernames(creatorIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
@@ -1199,6 +1206,7 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 			DescriptionHTML:        s.renderMarkdown(c.Description),
 			CreatorID:              c.CreatorID,
 			CreatorName:            creatorNames[c.CreatorID],
+			CreatorUsername:        creatorUsernames[c.CreatorID],
 			Collaborative:          c.Collaborative,
 			CoverImageURL:          c.CoverImageURL,
 			IsPublic:               c.IsPublic,
@@ -1262,6 +1270,7 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 	forkCounts := s.batchCountForks(collectionIDs)
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
+	creatorUsernames := s.batchResolveUserUsernames(creatorIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
@@ -1273,6 +1282,7 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 			DescriptionHTML:        s.renderMarkdown(c.Description),
 			CreatorID:              c.CreatorID,
 			CreatorName:            creatorNames[c.CreatorID],
+			CreatorUsername:        creatorUsernames[c.CreatorID],
 			Collaborative:          c.Collaborative,
 			CoverImageURL:          c.CoverImageURL,
 			IsPublic:               c.IsPublic,
@@ -1334,6 +1344,43 @@ func (s *CollectionService) SetFeatured(slug string, featured bool) error {
 // ============================================================================
 // Helper methods
 // ============================================================================
+
+// resolveUserUsername returns the user's username (for /users/:username
+// links) or nil when the user has no username set. Distinct from
+// resolveUserName, which falls back to first/last/email so it can never be
+// safely used in a URL slug. PSY-353.
+func (s *CollectionService) resolveUserUsername(userID uint) *string {
+	var user models.User
+	if err := s.db.Select("id, username").First(&user, userID).Error; err != nil {
+		return nil
+	}
+	if user.Username == nil || *user.Username == "" {
+		return nil
+	}
+	username := *user.Username
+	return &username
+}
+
+// batchResolveUserUsernames resolves usernames for multiple user IDs.
+// Map values are nil-pointer when the user has no username — callers should
+// treat that as "render unlinked". PSY-353.
+func (s *CollectionService) batchResolveUserUsernames(userIDs []uint) map[uint]*string {
+	result := make(map[uint]*string)
+	if len(userIDs) == 0 {
+		return result
+	}
+	var users []models.User
+	s.db.Select("id, username").Where("id IN ?", userIDs).Find(&users)
+	for _, user := range users {
+		if user.Username != nil && *user.Username != "" {
+			username := *user.Username
+			result[user.ID] = &username
+		} else {
+			result[user.ID] = nil
+		}
+	}
+	return result
+}
 
 // resolveUserName returns the display name for a user ID
 func (s *CollectionService) resolveUserName(userID uint) string {
