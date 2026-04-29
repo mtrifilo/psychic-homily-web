@@ -137,22 +137,17 @@ describe('SceneGraph', () => {
     expect(screen.getByText(/1 unconnected/)).toBeInTheDocument()
   })
 
-  it('shows the View map button at desktop width', () => {
-    renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
-    expect(screen.getByText('View map')).toBeInTheDocument()
-  })
-
-  it('hides the View map button below the 640px breakpoint', () => {
+  it('hides the canvas below the 640px breakpoint', () => {
     setMockContainerWidth(500)
     renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
-    expect(screen.queryByText('View map')).not.toBeInTheDocument()
+    // PSY-516: header copy is gated by `nodeCount === 0`, not by mobile gating,
+    // so it may still render. The canvas + cluster legend must be absent.
+    expect(screen.queryByTestId('scene-graph-canvas')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Valley Bar \(6\)/)).not.toBeInTheDocument()
   })
 
-  it('reveals canvas + cluster legend after clicking View map', async () => {
-    const user = userEvent.setup()
+  it('renders canvas + cluster legend at desktop width', () => {
     renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
-    expect(screen.queryByTestId('scene-graph-canvas')).not.toBeInTheDocument()
-    await user.click(screen.getByText('View map'))
     expect(screen.getByTestId('scene-graph-canvas')).toBeInTheDocument()
     expect(screen.getByText(/Valley Bar \(6\)/)).toBeInTheDocument()
     expect(screen.getByText(/Crescent Ballroom \(6\)/)).toBeInTheDocument()
@@ -161,7 +156,6 @@ describe('SceneGraph', () => {
   it('toggles cluster visibility when a legend pill is clicked', async () => {
     const user = userEvent.setup()
     renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
-    await user.click(screen.getByText('View map'))
 
     const canvasBefore = screen.getByTestId('scene-graph-canvas')
     expect(canvasBefore).toHaveAttribute('data-hidden-clusters', '')

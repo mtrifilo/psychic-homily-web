@@ -1,30 +1,32 @@
 'use client'
 
 /**
- * SceneGraph (PSY-367)
+ * SceneGraph (PSY-367, PSY-516)
  *
- * Section wrapper for the scene-scale graph: header, "View Map" toggle, cluster
- * legend, and the canvas. Mirrors the BillComposition / RelatedArtists section
- * pattern — graph hidden behind a toggle, mobile-gated below the Tailwind `sm`
- * breakpoint per PSY-369→PSY-511.
+ * Section wrapper for the scene-scale graph: header, cluster legend, and the
+ * canvas. Mobile-gated below the Tailwind `sm` breakpoint per
+ * PSY-369→PSY-511.
  *
- * Decision: inline toggle on the existing `/scenes/{slug}` page rather than a
+ * PSY-516: graph is visible by default at ≥640px (previously hidden behind a
+ * "View map" / "Hide map" toggle). Dogfood feedback flagged the toggle as
+ * friction on a feature whose value is the immediate visual scan. Mobile
+ * gating and the empty-state (`<3` connected artists) gate are unchanged.
+ *
+ * Decision: inline on the existing `/scenes/{slug}` page rather than a
  * separate `/scenes/{slug}/graph` route. Reasons:
- *   - Mirrors the artist-page precedent (per-artist + bill-composition both
- *     toggle inline). One mental model across the app.
  *   - Discoverable: users browsing scenes naturally encounter it; no need to
  *     learn a separate URL.
  *   - Keeps the scene page authoritative for "what the scene is" — the graph
  *     is one of many lenses, alongside venues, artists, pulse, genres.
  *
- * Trade-off accepted: the canvas competes with other page sections, but
- * collapsing by default + the standalone fixed-height container keep that
- * cost bounded.
+ * Trade-off accepted: the canvas mounts on every Phoenix-scale scene visit
+ * and pushes other sections down, but `react-force-graph-2d` is dynamic-
+ * imported with `ssr: false`, the canvas pauses after `cooldownTicks=200`,
+ * and mobile already gates it off.
  */
 
 import { useState, useCallback, useMemo } from 'react'
-import { Network, Eye, EyeOff } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Eye, EyeOff } from 'lucide-react'
 import { useSceneGraph } from '../hooks/useScenes'
 import { SceneGraphVisualization } from './SceneGraphVisualization'
 
@@ -59,7 +61,6 @@ interface SceneGraphProps {
 
 export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   const { data, isLoading } = useSceneGraph({ slug, enabled: Boolean(slug) })
-  const [showGraph, setShowGraph] = useState(false)
   const [hiddenClusters, setHiddenClusters] = useState<Set<string>>(new Set())
   const [containerWidth, setContainerWidth] = useState<number | null>(null)
 
@@ -99,10 +100,9 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   const graphAvailable =
     hasEnoughForGraph && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
 
-  // Section is rendered (with the header) so users get scale info even when the
-  // graph is unavailable; the toggle button is only shown when graphAvailable.
-  // Empty state: scene has < 3 connected artists — render nothing rather than
-  // a confusing skeleton.
+  // Section is rendered (with the header) so users get scale info even when
+  // the graph is unavailable (e.g. mobile). Empty state: scene has < 3
+  // connected artists — render nothing rather than a confusing skeleton.
   if (!data || nodeCount === 0) return null
 
   const toggleCluster = (clusterID: string) => {
@@ -138,19 +138,9 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
             )}
           </p>
         </div>
-        {graphAvailable && (
-          <Button
-            variant={showGraph ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setShowGraph(prev => !prev)}
-          >
-            <Network className="h-4 w-4 mr-1.5" />
-            {showGraph ? 'Hide map' : 'View map'}
-          </Button>
-        )}
       </div>
 
-      {showGraph && graphAvailable && (
+      {graphAvailable && (
         <div className="space-y-3">
           {/* Cluster legend — click a row to toggle that cluster's visibility.
               "Other" stays clickable so users can hide the long tail at will. */}
