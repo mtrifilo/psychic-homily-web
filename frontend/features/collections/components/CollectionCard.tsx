@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { getEntityTypeLabel, type Collection } from '../types'
+import { MarkdownContent } from './MarkdownEditor'
 
 const ENTITY_ICONS: Record<string, LucideIcon> = {
   artist: Mic2,
@@ -136,14 +137,17 @@ export function CollectionCard({ collection }: CollectionCardProps) {
             ))}
           </div>
 
-          {collection.description && (
-            <p
+          {/* PSY-349: server-rendered description_html (sanitized markdown).
+              line-clamp keeps the card height stable; the prose styles
+              come from MarkdownContent. Falls back to nothing rather than
+              rendering raw markdown source as HTML. */}
+          {collection.description_html && (
+            <MarkdownContent
+              html={collection.description_html}
               className={cn(
                 'text-sm text-muted-foreground mt-1 line-clamp-3'
               )}
-            >
-              {collection.description}
-            </p>
+            />
           )}
 
           <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground flex-wrap">

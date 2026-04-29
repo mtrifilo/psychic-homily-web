@@ -1,9 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { Library, Users } from 'lucide-react'
+import { Library } from 'lucide-react'
 import { useEntityCollections } from '../hooks'
 import type { Collection } from '../types'
+import { MarkdownContent } from './MarkdownEditor'
 
 interface EntityCollectionsProps {
   entityType: string
@@ -24,9 +25,9 @@ function CollectionsList({ collections }: { collections: Collection[] }) {
           <Link
             key={collection.id}
             href={`/collections/${collection.slug}`}
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors py-0.5 group"
+            className="flex items-start gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors py-0.5 group"
           >
-            <Library className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 group-hover:text-foreground" />
+            <Library className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 group-hover:text-foreground mt-0.5" />
             <div className="flex-1 min-w-0">
               <span className="truncate block">{collection.title}</span>
               <span className="text-xs text-muted-foreground/60">
@@ -38,6 +39,15 @@ function CollectionsList({ collections }: { collections: Collection[] }) {
                   </>
                 )}
               </span>
+              {/* PSY-349: server-rendered markdown description on backlink
+                  cards. Single line so the list stays scannable; clicking
+                  through to the detail page shows the full rendered desc. */}
+              {collection.description_html && (
+                <MarkdownContent
+                  html={collection.description_html}
+                  className="text-xs text-muted-foreground/60 mt-0.5 line-clamp-1"
+                />
+              )}
             </div>
           </Link>
         ))}

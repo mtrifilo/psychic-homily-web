@@ -16,9 +16,14 @@ import (
 	"psychic-homily-backend/internal/utils"
 )
 
-// CollectionService handles collection-related business logic
+// CollectionService handles collection-related business logic.
+// md is the shared utils.MarkdownRenderer (goldmark + bluemonday) used to
+// render Description and per-item Notes on read. Sanitization is applied on
+// every response so existing plain-text rows are also rendered safely — the
+// sanitizer is the source of truth for XSS safety, not the input pipeline.
 type CollectionService struct {
 	db *gorm.DB
+	md *utils.MarkdownRenderer
 }
 
 // NewCollectionService creates a new collection service
@@ -28,7 +33,30 @@ func NewCollectionService(database *gorm.DB) *CollectionService {
 	}
 	return &CollectionService{
 		db: database,
+		md: utils.NewMarkdownRenderer(),
 	}
+}
+
+// renderMarkdown returns sanitized HTML for the given markdown source. Returns
+// "" for empty input. Falls back to a freshly-constructed renderer when the
+// service was built with the bare struct literal (older test paths).
+func (s *CollectionService) renderMarkdown(src string) string {
+	if src == "" {
+		return ""
+	}
+	if s.md == nil {
+		s.md = utils.NewMarkdownRenderer()
+	}
+	return s.md.Render(src)
+}
+
+// renderNotes is a *string-aware wrapper around renderMarkdown for the
+// nullable Notes column. Returns "" when the pointer is nil or empty.
+func (s *CollectionService) renderNotes(notes *string) string {
+	if notes == nil {
+		return ""
+	}
+	return s.renderMarkdown(*notes)
 }
 
 // CreateCollection creates a new collection and auto-subscribes the creator
@@ -48,6 +76,9 @@ func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.Crea
 	description := ""
 	if req.Description != nil {
 		description = *req.Description
+	}
+	if len(description) > contracts.MaxCollectionDescriptionLength {
+		return nil, fmt.Errorf("description exceeds maximum length of %d characters", contracts.MaxCollectionDescriptionLength)
 	}
 
 	displayMode := models.CollectionDisplayModeUnranked
@@ -317,6 +348,7 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		Title:                  collection.Title,
 		Slug:                   collection.Slug,
 		Description:            collection.Description,
+		DescriptionHTML:        s.renderMarkdown(collection.Description),
 		CreatorID:              collection.CreatorID,
 		CreatorName:            creatorName,
 		Collaborative:          collection.Collaborative,
@@ -451,6 +483,7 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 			Title:                  c.Title,
 			Slug:                   c.Slug,
 			Description:            c.Description,
+			DescriptionHTML:        s.renderMarkdown(c.Description),
 			CreatorID:              c.CreatorID,
 			CreatorName:            creatorNames[c.CreatorID],
 			Collaborative:          c.Collaborative,
@@ -506,6 +539,9 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 		updates["slug"] = newSlug
 	}
 	if req.Description != nil {
+		if len(*req.Description) > contracts.MaxCollectionDescriptionLength {
+			return nil, fmt.Errorf("description exceeds maximum length of %d characters", contracts.MaxCollectionDescriptionLength)
+		}
 		updates["description"] = *req.Description
 	}
 	if req.Collaborative != nil {
@@ -590,6 +626,11 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 		return nil, apperrors.ErrCollectionForbidden(slug)
 	}
 
+	// Validate notes length on save (mirrors comment body limit).
+	if req.Notes != nil && len(*req.Notes) > contracts.MaxCollectionItemNotesLength {
+		return nil, fmt.Errorf("notes exceed maximum length of %d characters", contracts.MaxCollectionItemNotesLength)
+	}
+
 	// Check for duplicate
 	var existingCount int64
 	s.db.Model(&models.CollectionItem{}).
@@ -643,6 +684,7 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 		AddedByUserID: item.AddedByUserID,
 		AddedByName:   addedByName,
 		Notes:         item.Notes,
+		NotesHTML:     s.renderNotes(item.Notes),
 		CreatedAt:     item.CreatedAt,
 	}, nil
 }
@@ -676,6 +718,11 @@ func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, is
 		return nil, apperrors.ErrCollectionForbidden(slug)
 	}
 
+	// Validate notes length on save (mirrors comment body limit).
+	if req.Notes != nil && len(*req.Notes) > contracts.MaxCollectionItemNotesLength {
+		return nil, fmt.Errorf("notes exceed maximum length of %d characters", contracts.MaxCollectionItemNotesLength)
+	}
+
 	// Update notes
 	if req.Notes != nil {
 		item.Notes = req.Notes
@@ -699,6 +746,7 @@ func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, is
 		AddedByUserID: item.AddedByUserID,
 		AddedByName:   addedByName,
 		Notes:         item.Notes,
+		NotesHTML:     s.renderNotes(item.Notes),
 		CreatedAt:     item.CreatedAt,
 	}, nil
 }
@@ -975,6 +1023,7 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 			Title:                  c.Title,
 			Slug:                   c.Slug,
 			Description:            c.Description,
+			DescriptionHTML:        s.renderMarkdown(c.Description),
 			CreatorID:              c.CreatorID,
 			CreatorName:            creatorNames[c.CreatorID],
 			Collaborative:          c.Collaborative,
@@ -1052,6 +1101,7 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 			Title:                  c.Title,
 			Slug:                   c.Slug,
 			Description:            c.Description,
+			DescriptionHTML:        s.renderMarkdown(c.Description),
 			CreatorID:              c.CreatorID,
 			CreatorName:            creatorNames[c.CreatorID],
 			Collaborative:          c.Collaborative,
@@ -1125,6 +1175,7 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 			Title:                  c.Title,
 			Slug:                   c.Slug,
 			Description:            c.Description,
+			DescriptionHTML:        s.renderMarkdown(c.Description),
 			CreatorID:              c.CreatorID,
 			CreatorName:            creatorNames[c.CreatorID],
 			Collaborative:          c.Collaborative,
@@ -1344,6 +1395,7 @@ func (s *CollectionService) buildItemResponses(items []models.CollectionItem) []
 			AddedByUserID: item.AddedByUserID,
 			AddedByName:   userNames[item.AddedByUserID],
 			Notes:         item.Notes,
+			NotesHTML:     s.renderNotes(item.Notes),
 			CreatedAt:     item.CreatedAt,
 		}
 	}
