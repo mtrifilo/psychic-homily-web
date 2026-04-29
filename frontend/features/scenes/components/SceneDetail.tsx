@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { TagPill } from '@/components/shared'
 import { useSceneDetail, useSceneArtists, useSceneGenres } from '../hooks'
 import { ScenePulse } from './ScenePulse'
+import { SceneGraph } from './SceneGraph'
 
 interface SceneDetailProps {
   slug: string
@@ -168,6 +169,10 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
 
       {/* Scene Pulse */}
       <ScenePulse pulse={scene.pulse} />
+
+      {/* Scene graph (PSY-367) — read-only artist relationship map. Section
+          self-hides when there are <3 connected artists or container is mobile. */}
+      <SceneGraph slug={slug} city={scene.city} state={scene.state} />
 
       {/* Content sections */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
