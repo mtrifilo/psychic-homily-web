@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import type { SceneGraphResponse } from '../types'
@@ -68,15 +68,20 @@ vi.mock('../hooks/useScenes', () => ({
 }))
 
 // Canvas can't render in jsdom. Stub the visualization so we can assert toggling.
+// Forward `height` as a data attribute so the overlay sizing test can verify
+// the prop reaches the visualization.
 vi.mock('./SceneGraphVisualization', () => ({
   SceneGraphVisualization: ({
     hiddenClusterIDs,
+    height,
   }: {
     hiddenClusterIDs: Set<string>
+    height?: number
   }) => (
     <div
       data-testid="scene-graph-canvas"
       data-hidden-clusters={Array.from(hiddenClusterIDs).sort().join(',')}
+      data-height={height ?? ''}
     >
       Scene Graph Canvas
     </div>
@@ -198,5 +203,122 @@ describe('SceneGraph', () => {
       <SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />,
     )
     expect(container.firstChild).toBeNull()
+  })
+
+  describe('fullscreen overlay (PSY-517)', () => {
+    it('renders the Expand button when graph is available at desktop width', () => {
+      renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+      expect(
+        screen.getByRole('button', { name: /expand scene graph to fullscreen/i }),
+      ).toBeInTheDocument()
+    })
+
+    it('does NOT render the Expand button below the 640px breakpoint (mobile gate inherited)', () => {
+      setMockContainerWidth(500)
+      renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+      // Mobile gate: graphAvailable === false → Expand button isn't rendered.
+      expect(
+        screen.queryByRole('button', { name: /expand scene graph to fullscreen/i }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('opens the overlay when Expand is clicked', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+
+      expect(screen.queryByTestId('scene-graph-overlay')).not.toBeInTheDocument()
+
+      await user.click(
+        screen.getByRole('button', { name: /expand scene graph to fullscreen/i }),
+      )
+
+      const overlay = screen.getByTestId('scene-graph-overlay')
+      expect(overlay).toBeInTheDocument()
+      expect(overlay).toHaveAttribute('role', 'dialog')
+      expect(overlay).toHaveAttribute('aria-modal', 'true')
+      // The Exit button replaces Expand in the header.
+      expect(
+        screen.getByRole('button', { name: /exit fullscreen scene graph/i }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /expand scene graph to fullscreen/i }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('closes the overlay when the Exit button is clicked', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+
+      await user.click(
+        screen.getByRole('button', { name: /expand scene graph to fullscreen/i }),
+      )
+      expect(screen.getByTestId('scene-graph-overlay')).toBeInTheDocument()
+
+      await user.click(
+        screen.getByRole('button', { name: /exit fullscreen scene graph/i }),
+      )
+      expect(screen.queryByTestId('scene-graph-overlay')).not.toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /expand scene graph to fullscreen/i }),
+      ).toBeInTheDocument()
+    })
+
+    it('closes the overlay when Esc is pressed', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+
+      await user.click(
+        screen.getByRole('button', { name: /expand scene graph to fullscreen/i }),
+      )
+      expect(screen.getByTestId('scene-graph-overlay')).toBeInTheDocument()
+
+      await user.keyboard('{Escape}')
+
+      expect(screen.queryByTestId('scene-graph-overlay')).not.toBeInTheDocument()
+    })
+
+    it('locks body scroll while open and restores the previous value on close', async () => {
+      const user = userEvent.setup()
+      // Seed an inline overflow value so we can verify the previous-value
+      // restore (not a blind reset to '').
+      document.body.style.overflow = 'auto'
+
+      renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+      expect(document.body.style.overflow).toBe('auto')
+
+      await user.click(
+        screen.getByRole('button', { name: /expand scene graph to fullscreen/i }),
+      )
+      expect(document.body.style.overflow).toBe('hidden')
+
+      await user.keyboard('{Escape}')
+      expect(document.body.style.overflow).toBe('auto')
+
+      // Cleanup so the next test isn't affected.
+      document.body.style.overflow = ''
+    })
+
+    it('keeps cluster pills interactive inside the overlay', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+
+      await user.click(
+        screen.getByRole('button', { name: /expand scene graph to fullscreen/i }),
+      )
+      const overlay = screen.getByTestId('scene-graph-overlay')
+
+      // Pill inside the overlay is rendered + clickable + reflects state on the
+      // overlay's canvas (which receives the same hiddenClusterIDs set).
+      const valleyPill = within(overlay).getByText(/Valley Bar/).closest('button')!
+      expect(valleyPill).toHaveAttribute('aria-pressed', 'true')
+
+      await user.click(valleyPill)
+
+      const valleyPillAfter = within(overlay).getByText(/Valley Bar/).closest('button')!
+      expect(valleyPillAfter).toHaveAttribute('aria-pressed', 'false')
+
+      const overlayCanvas = within(overlay).getByTestId('scene-graph-canvas')
+      expect(overlayCanvas).toHaveAttribute('data-hidden-clusters', 'v_1')
+    })
   })
 })

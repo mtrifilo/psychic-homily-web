@@ -148,12 +148,20 @@ interface SceneGraphVisualizationProps {
    * visible (toggling it would hide the long tail without a way back).
    */
   hiddenClusterIDs: Set<string>
+  /**
+   * Optional explicit canvas height. When omitted, defaults to the inline
+   * sizing (400px on narrow viewports, 560px otherwise). PSY-517 passes an
+   * overlay-aware height in fullscreen mode so the canvas fills the viewport
+   * minus the header/legend reserve.
+   */
+  height?: number
 }
 
 export function SceneGraphVisualization({
   data,
   containerWidth,
   hiddenClusterIDs,
+  height,
 }: SceneGraphVisualizationProps) {
   const router = useRouter()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -163,7 +171,7 @@ export function SceneGraphVisualization({
   const [hoveredNode, setHoveredNode] = useState<RenderNode | null>(null)
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
 
-  const graphHeight = containerWidth < 768 ? 400 : 560
+  const graphHeight = height ?? (containerWidth < 768 ? 400 : 560)
 
   // Cluster lookup + ordered cluster IDs (for centroid placement). Order is
   // backend-provided (size desc) so colors stay stable across renders.
