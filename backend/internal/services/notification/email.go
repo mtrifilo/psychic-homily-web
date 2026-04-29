@@ -760,8 +760,22 @@ func (s *EmailService) SendMentionNotification(toEmail, mentionerName, entityTyp
 }
 
 // SendCollectionDigestEmail sends a single batched email summarizing items
-// added across all of the recipient's subscribed collections in the last 24h.
-// PSY-350. Caller groups by collection and provides the rendered URLs.
+// added across all of the recipient's subscribed collections in the last 7
+// days. PSY-350. Caller groups by collection and provides the rendered URLs.
+//
+// Anti-spam hardening:
+//   - The recipient must have explicitly enabled `notify_on_collection_digest`
+//     (column default is FALSE / opt-IN). The digest service filters the
+//     candidate query on this flag; this function is a dumb sender.
+//   - RFC 8058 / RFC 2369 List-Unsubscribe headers are set so Gmail and Yahoo
+//     surface the native "Unsubscribe" affordance next to the sender name.
+//     The `unsubscribeURL` MUST be an HTTPS endpoint that accepts BOTH a
+//     manual GET (renders an HTML confirmation page) and an unauthenticated
+//     POST with body `List-Unsubscribe=One-Click` (RFC 8058 one-click).
+//   - The email body itself leads with a prominent opt-out block — the
+//     in-body link is the same `unsubscribeURL`, not buried in the footer.
+//     Mailbox providers and recipients should both have a single visible
+//     way out.
 func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contracts.CollectionDigestGroup, unsubscribeURL string) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("email service is not configured")
@@ -779,9 +793,9 @@ func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contra
 		return fmt.Errorf("digest groups contain no items")
 	}
 
-	subject := fmt.Sprintf("Your collections digest: %d new %s", totalItems, pluralize("item", totalItems))
+	subject := fmt.Sprintf("Your weekly collections digest: %d new %s", totalItems, pluralize("item", totalItems))
 	if len(groups) == 1 {
-		subject = fmt.Sprintf("New in %s: %d %s", groups[0].CollectionTitle, totalItems, pluralize("item", totalItems))
+		subject = fmt.Sprintf("New this week in %s: %d %s", groups[0].CollectionTitle, totalItems, pluralize("item", totalItems))
 	}
 
 	// Render each group as its own block.
@@ -820,23 +834,36 @@ func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contra
 
     <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
         <h2 style="margin-top: 0; color: #1a1a1a;">New in your collections</h2>
-        <p style="font-size: 15px; color: #444;">Items added since your last digest.</p>
+        <p style="font-size: 15px; color: #444;">Items added to collections you follow over the past week.</p>
         %s
     </div>
 
+    <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px;">
+        <p style="margin: 0; font-size: 14px; color: #444;">
+            Don&rsquo;t want these weekly digests?
+            <a href="%s" style="color: #c2410c; font-weight: 600;">Unsubscribe in one click</a> &mdash;
+            no login required.
+        </p>
+    </div>
+
     <div style="text-align: center; font-size: 12px; color: #999;">
-        <p>You're receiving this because you're subscribed to one or more collections on Psychic Homily.</p>
-        <p>Don't want these digests? <a href="%s" style="color: #666;">Unsubscribe</a></p>
+        <p>You&rsquo;re receiving this because you opted in to weekly digests for collections you follow on Psychic Homily.</p>
+        <p>Manage all notifications in your <a href="%s/settings" style="color: #666;">notification settings</a>.</p>
     </div>
 </body>
 </html>
-`, groupsHTML.String(), unsubscribeURL)
+`, groupsHTML.String(), unsubscribeURL, s.frontendURL)
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
 		To:      []string{toEmail},
 		Subject: subject,
 		Html:    html,
+		// RFC 8058 / RFC 2369 — Gmail & Yahoo bulk-sender requirement. The
+		// header value MUST be a single HTTPS URL or mailto wrapped in <>;
+		// see RFC 2369 §3. List-Unsubscribe-Post tells the receiver this
+		// link supports RFC 8058 one-click POST so it can render the
+		// "Unsubscribe" button next to the sender name.
 		Headers: map[string]string{
 			"List-Unsubscribe":      fmt.Sprintf("<%s>", unsubscribeURL),
 			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",

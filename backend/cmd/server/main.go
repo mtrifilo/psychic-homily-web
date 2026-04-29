@@ -248,9 +248,10 @@ func main() {
 		log.Printf("DISABLE_RELATIONSHIP_DERIVATION=1: skipping relationship derivation service startup")
 	}
 
-	// Start collection digest service (PSY-350: background job for daily
+	// Start collection digest service (PSY-350: background job for weekly
 	// collection-subscription digest emails, batching items added across all
-	// of a user's subscribed collections into one email per day).
+	// of a user's subscribed collections into one email per week. Opt-IN —
+	// users must enable the toggle in notification settings).
 	if os.Getenv("DISABLE_COLLECTION_DIGEST") != "1" {
 		var collectionDigestCtx context.Context
 		collectionDigestCtx, collectionDigestCancel = context.WithCancel(context.Background())

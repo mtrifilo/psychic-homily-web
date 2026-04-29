@@ -94,7 +94,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	huma.Patch(protectedGroup, "/auth/preferences/default-reply-permission", userPrefsHandler.SetDefaultReplyPermissionHandler)
 	// PSY-289: comment + mention notification preferences.
 	huma.Patch(protectedGroup, "/auth/preferences/comment-notifications", userPrefsHandler.SetCommentNotificationsHandler)
-	// PSY-350: collection daily-digest preference toggle.
+	// PSY-350: collection digest preference toggle (weekly cadence; opt-IN).
 	huma.Patch(protectedGroup, "/auth/preferences/collection-digest", userPrefsHandler.SetCollectionDigestHandler)
 
 	// Public unsubscribe endpoint (HMAC-signed, no auth required)
@@ -102,8 +102,14 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	// PSY-289: public one-click unsubscribe for comment + mention emails.
 	huma.Post(api, "/unsubscribe/comment-subscription", userPrefsHandler.UnsubscribeCommentSubscriptionHandler)
 	huma.Post(api, "/unsubscribe/mention", userPrefsHandler.UnsubscribeMentionHandler)
-	// PSY-350: public one-click unsubscribe for collection digest emails.
-	huma.Post(api, "/unsubscribe/collection-digest", userPrefsHandler.UnsubscribeCollectionDigestHandler)
+	// PSY-350: public unsubscribe for collection digest emails. Registered as
+	// chi routes (NOT Huma) so the same path serves both a manual GET (HTML
+	// confirmation page) and an RFC 8058 / RFC 2369 one-click POST. Mailbox
+	// providers (Gmail, Yahoo) send the POST when a user clicks the native
+	// "Unsubscribe" button next to the sender name; the GET is the link in
+	// the email body. Both verify the same HMAC signature.
+	router.Get("/unsubscribe/collection-digest", userPrefsHandler.UnsubscribeCollectionDigestPageHandler)
+	router.Post("/unsubscribe/collection-digest", userPrefsHandler.UnsubscribeCollectionDigestPageHandler)
 
 	// Public email verification confirm endpoint (user clicks link from email)
 	huma.Post(api, "/auth/verify-email/confirm", authHandler.ConfirmVerificationHandler)

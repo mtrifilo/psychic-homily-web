@@ -22,11 +22,15 @@ import (
 )
 
 // DefaultCollectionDigestInterval is how often the digest job runs.
-// Set to 24h to deliver one email per user per day.
-const DefaultCollectionDigestInterval = 24 * time.Hour
+// Set to 168h (7 days) to deliver one email per user per week. Weekly
+// (rather than daily) cadence is the spam-prevention default — the digest
+// is opt-IN and weekly, so a user who subscribes to a busy collection
+// can't accidentally get a deluge. The COLLECTION_DIGEST_INTERVAL_HOURS
+// env var still overrides this for local dogfooding.
+const DefaultCollectionDigestInterval = 168 * time.Hour
 
 // CollectionDigestService is a ticker-based background service that batches
-// "items added to subscribed collections" into a single daily email per user.
+// "items added to subscribed collections" into a single weekly email per user.
 // PSY-350.
 //
 // Idempotent across restarts: the per-subscriber `last_digest_sent_at`
@@ -41,7 +45,12 @@ type CollectionDigestService struct {
 	wg           sync.WaitGroup
 	logger       *slog.Logger
 	frontendURL  string
-	jwtSecret    string
+	// backendURL is the public API URL (e.g. https://api.psychichomily.com).
+	// Used for the unsubscribe URL placed in the email body and the
+	// `List-Unsubscribe` header — the same chi route serves both manual
+	// GET (HTML confirmation page) and RFC 8058 POST one-click unsubscribe.
+	backendURL string
+	jwtSecret  string
 }
 
 // NewCollectionDigestService creates a new collection digest service.
@@ -53,7 +62,7 @@ func NewCollectionDigestService(database *gorm.DB, emailService contracts.EmailS
 	interval := DefaultCollectionDigestInterval
 
 	// Allow override for local development / dogfooding via env var.
-	// Hours is the natural unit since the default is "once a day".
+	// Hours is the natural unit since the default is weekly (168h).
 	if envInterval := os.Getenv("COLLECTION_DIGEST_INTERVAL_HOURS"); envInterval != "" {
 		if hours, err := strconv.Atoi(envInterval); err == nil && hours > 0 {
 			interval = time.Duration(hours) * time.Hour
@@ -67,7 +76,22 @@ func NewCollectionDigestService(database *gorm.DB, emailService contracts.EmailS
 		stopCh:       make(chan struct{}),
 		logger:       slog.Default(),
 		frontendURL:  cfg.Email.FrontendURL,
+		backendURL:   deriveBackendURL(cfg.Email.FrontendURL),
 		jwtSecret:    cfg.JWT.SecretKey,
+	}
+}
+
+// deriveBackendURL maps a frontend URL to the corresponding public API URL.
+// Mirrors handlers.getAPIBaseURL — pulled inline to avoid cross-package
+// imports. Defaults to localhost:8080 in dev.
+func deriveBackendURL(frontendURL string) string {
+	switch frontendURL {
+	case "https://psychichomily.com":
+		return "https://api.psychichomily.com"
+	case "https://stage.psychichomily.com":
+		return "https://api-stage.psychichomily.com"
+	default:
+		return "http://localhost:8080"
 	}
 }
 
@@ -238,7 +262,10 @@ func (s *CollectionDigestService) runDigestCycle() {
 			continue
 		}
 
-		unsubURL := GenerateCollectionDigestUnsubscribeURL(s.frontendURL, ub.userID, s.jwtSecret)
+		// Unsubscribe URL points at the BACKEND so the same path serves
+		// both the manual-click HTML confirmation page (GET) and the
+		// RFC 8058 / RFC 2369 one-click POST. No SPA round-trip.
+		unsubURL := GenerateCollectionDigestUnsubscribeURL(s.backendURL, ub.userID, s.jwtSecret)
 
 		if s.emailService != nil && s.emailService.IsConfigured() {
 			if err := s.emailService.SendCollectionDigestEmail(ub.userEmail, groups, unsubURL); err != nil {
@@ -310,6 +337,11 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 	// intentionally NOT used as a cursor — viewing the collection in the UI
 	// already updates last_visited_at so library "new since visit" badges
 	// can clear, but we don't want viewing to also suppress the email.
+	//
+	// notify_on_collection_digest is opt-IN: the column default is FALSE so
+	// users must explicitly enable the digest from the notification settings
+	// page (PSY-350 / PSY-515). A subscriber with no user_preferences row
+	// COALESCEs to FALSE and is excluded.
 	err := s.db.Raw(`
 		SELECT
 			cs.user_id,
@@ -335,7 +367,7 @@ func (s *CollectionDigestService) queryCandidates(now time.Time) ([]digestCandid
 		LEFT JOIN user_preferences up ON up.user_id = cs.user_id
 		WHERE u.is_active = TRUE
 			AND u.deleted_at IS NULL
-			AND COALESCE(up.notify_on_collection_digest, TRUE) = TRUE
+			AND COALESCE(up.notify_on_collection_digest, FALSE) = TRUE
 		ORDER BY cs.user_id ASC, c.id ASC, ci.created_at ASC
 	`, now).Scan(&rows).Error
 	if err != nil {
@@ -506,6 +538,11 @@ func (s *CollectionDigestService) RunDigestCycleNow() {
 // the recipient's `notify_on_collection_digest` preference off when visited.
 // Account-wide (preference flag, not per-collection) — same shape as
 // GenerateMentionUnsubscribeURL.
+//
+// `baseURL` should be the public API/backend URL (NOT the frontend) — the
+// chi route at /unsubscribe/collection-digest serves an HTML confirmation
+// page on GET and accepts an RFC 8058 one-click POST. See
+// handlers.UnsubscribeCollectionDigestPageHandler.
 func GenerateCollectionDigestUnsubscribeURL(baseURL string, userID uint, secret string) string {
 	sig := ComputeCollectionDigestUnsubscribeSignature(userID, secret)
 	return fmt.Sprintf("%s/unsubscribe/collection-digest?uid=%d&sig=%s", baseURL, userID, sig)

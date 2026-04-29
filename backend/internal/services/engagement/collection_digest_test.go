@@ -249,19 +249,18 @@ func (s *CollectionDigestServiceIntegrationSuite) createUser(username string) *m
 }
 
 // createUserWithDigestPref creates a user with explicit notify_on_collection_digest.
-// Uses Create-then-Update for false because GORM skips zero-value bools.
+// PSY-350: column default is FALSE (opt-IN). When `notify=true`, GORM writes
+// the non-zero value directly; when `notify=false`, GORM skips the column and
+// the DB default (false) wins.
 func (s *CollectionDigestServiceIntegrationSuite) createUserWithDigestPref(username string, notify bool) *models.User {
 	u := s.createUser(username)
 	prefs := &models.UserPreferences{
 		UserID:                      u.ID,
 		NotifyOnCommentSubscription: true,
 		NotifyOnMention:             true,
-		NotifyOnCollectionDigest:    true,
+		NotifyOnCollectionDigest:    notify,
 	}
 	s.Require().NoError(s.db.Create(prefs).Error)
-	if !notify {
-		s.Require().NoError(s.db.Model(prefs).Update("notify_on_collection_digest", false).Error)
-	}
 	return u
 }
 
@@ -563,9 +562,10 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_FailedSendDoesNotBu
 	require.Len(s.T(), s.mock.calls, 1)
 }
 
-// TestDigest_PrefDefaultsToTrue — a subscriber with no user_preferences row
-// at all should still receive the digest (DB default for the column is true).
-func (s *CollectionDigestServiceIntegrationSuite) TestDigest_PrefDefaultsToTrue() {
+// TestDigest_PrefDefaultsToFalse — a subscriber with no user_preferences row
+// at all should NOT receive the digest. PSY-350 hardening: the column default
+// is FALSE (opt-IN), so an absent prefs row COALESCEs to FALSE and is excluded.
+func (s *CollectionDigestServiceIntegrationSuite) TestDigest_PrefDefaultsToFalse() {
 	creator := s.createUser("creator")
 	sub := s.createUser("sub-no-prefs") // no preferences row created
 	coll := s.createCollection(creator, "C1", "c1")
@@ -575,7 +575,7 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_PrefDefaultsToTrue(
 	s.addItem(coll, creator, models.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
 
 	s.svc.RunDigestCycleNow()
-	require.Len(s.T(), s.mock.calls, 1, "missing prefs row should default to receiving digest")
+	assert.Empty(s.T(), s.mock.calls, "missing prefs row should default to NOT receiving digest")
 }
 
 // strPtr returns a pointer to s. Test helper.

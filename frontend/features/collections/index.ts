@@ -28,4 +28,7 @@ export {
   useUserPublicCollections,
 } from './hooks'
 
+// PSY-350 / PSY-515: weekly digest preference toggle (notification settings).
+export { useSetCollectionDigestPreference } from './hooks/useCollectionDigestPreference'
+
 export { EntityCollections, UserCollections } from './components'

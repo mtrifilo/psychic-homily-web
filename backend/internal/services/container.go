@@ -86,7 +86,7 @@ type ServiceContainer struct {
 	Enrichment       *pipeline.EnrichmentService
 	EnrichmentWorker *pipeline.EnrichmentWorker
 	AutoPromotion    *adminsvc.AutoPromotionService
-	// PSY-350: daily collection-subscription digest emails.
+	// PSY-350: weekly collection-subscription digest emails (opt-IN).
 	CollectionDigest *engagement.CollectionDigestService
 }
 
