@@ -284,14 +284,15 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
       {isFullscreen && graphAvailable && (
         <div
           // Full-opacity backdrop so nothing peeks through; the overlay is its
-          // own surface, not a translucent modal. z-50 mirrors other overlays
-          // in the codebase. role=dialog + aria-modal communicates focus
-          // expectations to assistive tech without trapping focus (the
-          // overlay is keyboard-dismissable via Esc).
+          // own surface, not a translucent modal. z-[60] sits above the cookie
+          // consent banner (z-50) so first-time visitors don't see the banner
+          // painted over the bottom of the canvas (PSY-518). role=dialog +
+          // aria-modal communicates focus expectations to assistive tech
+          // without trapping focus (the overlay is keyboard-dismissable via Esc).
           role="dialog"
           aria-modal="true"
           aria-label={`Scene graph for ${city}, ${state}, fullscreen`}
-          className="fixed inset-0 z-50 bg-background flex flex-col"
+          className="fixed inset-0 z-[60] bg-background flex flex-col"
           data-testid="scene-graph-overlay"
         >
           <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-border/50">
