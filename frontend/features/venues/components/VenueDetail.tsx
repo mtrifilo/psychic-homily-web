@@ -17,6 +17,7 @@ import { EntityTagList } from '@/features/tags'
 import { NotifyMeButton } from '@/features/notifications'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
+import { VenueBillNetwork } from './VenueBillNetwork'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
 import { EntityEditDrawer, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
@@ -311,6 +312,12 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
             venueVerified={venue.verified}
             onShowAdded={handleShowAdded}
           />
+
+          {/* Bill Network — PSY-365: who plays together at this venue. The
+              section returns null when the venue is too sparse, when the
+              viewport is mobile, or when the active window has no co-bills,
+              so we render unconditionally and let the component self-gate. */}
+          <VenueBillNetwork venueIdOrSlug={venue.id} venueName={venue.name} />
         </div>
 
         {/* Sidebar - Location Card + Genre Profile */}

@@ -206,6 +206,9 @@ func (s *stubVenueService) GetUnverifiedVenues(limit, offset int) ([]*contracts.
 func (s *stubVenueService) GetVenueGenreProfile(venueID uint) ([]contracts.GenreCount, error) {
 	panic("not implemented")
 }
+func (s *stubVenueService) GetVenueBillNetwork(venueID uint, window string, year *int) (*contracts.VenueBillNetworkResponse, error) {
+	panic("not implemented")
+}
 
 // ============================================================================
 // Helper to build PipelineService with stubs

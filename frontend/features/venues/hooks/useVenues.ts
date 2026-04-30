@@ -16,6 +16,8 @@ import type {
   VenueShowsResponse,
   VenueCitiesResponse,
   VenueGenreResponse,
+  VenueBillNetworkResponse,
+  VenueBillNetworkWindow,
 } from '../types'
 
 interface CityState {
@@ -167,5 +169,57 @@ export const useVenueGenres = (venueIdOrSlug: string | number) => {
     },
     enabled: typeof venueIdOrSlug === 'string' ? Boolean(venueIdOrSlug) : venueIdOrSlug > 0,
     staleTime: 10 * 60 * 1000, // 10 minutes — genre profiles change infrequently
+  })
+}
+
+interface UseVenueBillNetworkOptions {
+  venueIdOrSlug: string | number
+  /** All-time (default) / rolling 12 months / specific calendar year. */
+  window?: VenueBillNetworkWindow
+  /** Required when window === 'year'. Hook returns disabled if missing. */
+  year?: number
+  enabled?: boolean
+}
+
+/**
+ * Hook to fetch a venue's co-bill network (PSY-365). Mirrors `useSceneGraph`
+ * — same shape on the wire (nodes/links/clusters), narrower scope.
+ *
+ * Edge weights are AT-VENUE shared shows (not global), within the active
+ * time window. The default window is "all" (matches the scene graph's
+ * "all approved shows" precedent).
+ */
+export const useVenueBillNetwork = (options: UseVenueBillNetworkOptions) => {
+  const { venueIdOrSlug, window = 'all', year, enabled = true } = options
+
+  // Build query params. The backend accepts: window=all|12m|year, year=YYYY.
+  const params = new URLSearchParams()
+  if (window !== 'all') {
+    params.set('window', window)
+  }
+  if (window === 'year' && year !== undefined) {
+    params.set('year', String(year))
+  }
+  const queryString = params.toString()
+  const endpoint = queryString
+    ? `${venueEndpoints.BILL_NETWORK(venueIdOrSlug)}?${queryString}`
+    : venueEndpoints.BILL_NETWORK(venueIdOrSlug)
+
+  // year is required when window=year; if missing, gate the request rather
+  // than send an invalid query that the backend would reject with a 400.
+  const hasValidYear = window !== 'year' || (year !== undefined && year > 0)
+
+  return useQuery({
+    queryKey: venueQueryKeys.billNetwork(venueIdOrSlug, window, year),
+    queryFn: async (): Promise<VenueBillNetworkResponse> => {
+      return apiRequest<VenueBillNetworkResponse>(endpoint, { method: 'GET' })
+    },
+    enabled:
+      enabled &&
+      hasValidYear &&
+      (typeof venueIdOrSlug === 'string'
+        ? Boolean(venueIdOrSlug)
+        : venueIdOrSlug > 0),
+    staleTime: 5 * 60 * 1000, // 5 minutes — match useSceneGraph
   })
 }

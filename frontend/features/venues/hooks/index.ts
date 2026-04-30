@@ -5,6 +5,7 @@ export {
   useVenueShows,
   useVenueCities,
   useVenueGenres,
+  useVenueBillNetwork,
 } from './useVenues'
 
 export { useVenueSearch } from './useVenueSearch'

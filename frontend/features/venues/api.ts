@@ -19,6 +19,9 @@ export const venueEndpoints = {
   GET: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
   SHOWS: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}/shows`,
   GENRES: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}/genres`,
+  // PSY-365: venue-rooted co-bill graph endpoint.
+  BILL_NETWORK: (venueIdOrSlug: string | number) =>
+    `${API_BASE_URL}/venues/${venueIdOrSlug}/bill-network`,
   UPDATE: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
   DELETE: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
 } as const
@@ -37,4 +40,18 @@ export const venueQueryKeys = {
     ['venues', 'search', query.toLowerCase()] as const,
   shows: (venueIdOrSlug: string | number) => ['venues', 'shows', String(venueIdOrSlug)] as const,
   genres: (venueIdOrSlug: string | number) => ['venues', 'genres', String(venueIdOrSlug)] as const,
+  // PSY-365: bill-network cache is keyed by venue + active window so
+  // toggling all/12m/year cycles through cache entries instead of refetching.
+  billNetwork: (
+    venueIdOrSlug: string | number,
+    window: string,
+    year?: number,
+  ) =>
+    [
+      'venues',
+      'bill-network',
+      String(venueIdOrSlug),
+      window,
+      year ?? null,
+    ] as const,
 } as const
