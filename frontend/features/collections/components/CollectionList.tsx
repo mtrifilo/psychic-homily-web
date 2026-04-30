@@ -43,6 +43,12 @@ export function CollectionList() {
   const isFeaturedTab = activeTab === 'featured'
   const searchTerm = debouncedSearch.trim()
 
+  // PSY-352: when the Popular tab is active, ask the server to sort by
+  // HN gravity (likes / age^1.8). The client-side `subscriber_count` sort
+  // we used to do here was an approximation; the server-side gravity sort
+  // is the canonical ranking and includes recency-bias.
+  const isPopularTab = activeTab === 'popular'
+
   // Fetch public collections (with search + featured + entity-type filters)
   const {
     data: publicData,
@@ -53,6 +59,7 @@ export function CollectionList() {
     search: searchTerm || undefined,
     featured: isFeaturedTab || undefined,
     entityType: entityTypeFilter === 'all' ? undefined : entityTypeFilter,
+    sort: isPopularTab ? 'popular' : undefined,
   })
 
   // Fetch user's own collections (only when on "yours" tab and authenticated)
@@ -70,7 +77,11 @@ export function CollectionList() {
     ? (myData?.collections ?? [])
     : (publicData?.collections ?? [])
 
-  // Apply client-side sort for "popular" and "recent" tabs + entity-type filter on the "yours" tab
+  // PSY-352: Popular tab now uses server-side ordering — the API returns
+  // results already sorted by HN gravity, so we render them as-is. The
+  // Recent tab still uses a client-side sort (newest created_at) since the
+  // backend default sort is updated_at; converting that is out of scope.
+  // The Yours tab applies an entity-type filter client-side.
   const collections = useMemo(() => {
     let items = [...rawCollections]
 
@@ -80,9 +91,7 @@ export function CollectionList() {
       )
     }
 
-    if (activeTab === 'popular') {
-      items.sort((a, b) => b.subscriber_count - a.subscriber_count)
-    } else if (activeTab === 'recent') {
+    if (activeTab === 'recent') {
       items.sort(
         (a, b) =>
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()

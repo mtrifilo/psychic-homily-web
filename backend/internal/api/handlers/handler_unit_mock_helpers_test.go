@@ -688,6 +688,8 @@ type mockCollectionService struct {
 	subscribeFn func(string, uint) (error)
 	unsubscribeFn func(string, uint) (error)
 	markVisitedFn func(string, uint) (error)
+	likeFn func(string, uint) (*contracts.CollectionLikeResponse, error)
+	unlikeFn func(string, uint) (*contracts.CollectionLikeResponse, error)
 	getStatsFn func(string) (*contracts.CollectionStatsResponse, error)
 	getUserCollectionsFn func(uint, int, int) ([]*contracts.CollectionListResponse, int64, error)
 	getEntityCollectionsFn func(string, uint, int) ([]*contracts.CollectionListResponse, error)
@@ -773,6 +775,18 @@ func (m *mockCollectionService) MarkVisited(slug string, userID uint) (error) {
 		return m.markVisitedFn(slug, userID)
 	}
 	return nil
+}
+func (m *mockCollectionService) Like(slug string, userID uint) (*contracts.CollectionLikeResponse, error) {
+	if m.likeFn != nil {
+		return m.likeFn(slug, userID)
+	}
+	return nil, nil
+}
+func (m *mockCollectionService) Unlike(slug string, userID uint) (*contracts.CollectionLikeResponse, error) {
+	if m.unlikeFn != nil {
+		return m.unlikeFn(slug, userID)
+	}
+	return nil, nil
 }
 func (m *mockCollectionService) GetStats(slug string) (*contracts.CollectionStatsResponse, error) {
 	if m.getStatsFn != nil {

@@ -20,11 +20,19 @@ import type {
 // Queries
 // ──────────────────────────────────────────────
 
+/** Sort values understood by the public collections list endpoint. PSY-352. */
+export type CollectionListSort = 'popular'
+
 /** Filter params for the public collections list */
 export interface CollectionListParams {
   search?: string
   featured?: boolean
   entityType?: string
+  /**
+   * PSY-352: when set to "popular", the server orders results by
+   * HN gravity (likes / age^1.8). Omit for default (recently-updated).
+   */
+  sort?: CollectionListSort
 }
 
 /** Fetch public collections list with optional filters */
@@ -36,6 +44,7 @@ export function useCollections(params?: CollectionListParams) {
       if (params?.search) searchParams.set('search', params.search)
       if (params?.featured) searchParams.set('featured', '1')
       if (params?.entityType) searchParams.set('entity_type', params.entityType)
+      if (params?.sort) searchParams.set('sort', params.sort)
 
       const qs = searchParams.toString()
       const url = qs
@@ -330,6 +339,145 @@ export function useUnsubscribeCollection() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.collections.detail(variables.slug),
       })
+    },
+  })
+}
+
+// ──────────────────────────────────────────────
+// Likes (PSY-352)
+// ──────────────────────────────────────────────
+
+/**
+ * Server-shaped response for POST/DELETE on the /like endpoint. PSY-352.
+ * Mirrors backend `contracts.CollectionLikeResponse` exactly.
+ */
+export interface CollectionLikeResponse {
+  like_count: number
+  user_likes_this: boolean
+}
+
+/**
+ * Toggle helper used by the like + unlike mutations to optimistically patch
+ * the cached detail entry without a full refetch. Keeps the heart icon in
+ * sync the moment the user clicks. The server response confirms the count
+ * on success; on error TanStack rolls back via onError.
+ *
+ * Detail cache: `queryKeys.collections.detail(slug)` holds a `CollectionDetail`.
+ * We update its `like_count` and `user_likes_this` in place.
+ */
+function patchDetailLikeCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  slug: string,
+  liking: boolean
+): CollectionDetail | undefined {
+  const key = queryKeys.collections.detail(slug)
+  const previous = queryClient.getQueryData<CollectionDetail>(key)
+  if (!previous) return previous
+
+  // Don't double-count: if the optimistic state already matches the action,
+  // leave the cache alone. The server will return the authoritative count.
+  if (previous.user_likes_this === liking) return previous
+
+  const next: CollectionDetail = {
+    ...previous,
+    user_likes_this: liking,
+    like_count: Math.max(0, previous.like_count + (liking ? 1 : -1)),
+  }
+  queryClient.setQueryData(key, next)
+  return previous
+}
+
+/**
+ * Like a collection. Optimistically updates the detail cache (heart fills
+ * + count increments) and rolls back on error. Server response replaces the
+ * optimistic state on success.
+ */
+export function useLikeCollection() {
+  const queryClient = useQueryClient()
+  return useMutation<
+    CollectionLikeResponse,
+    Error,
+    { slug: string },
+    { previousDetail: CollectionDetail | undefined }
+  >({
+    mutationFn: ({ slug }) =>
+      apiRequest<CollectionLikeResponse>(API_ENDPOINTS.COLLECTIONS.LIKE(slug), {
+        method: 'POST',
+      }),
+    onMutate: async ({ slug }) => {
+      await queryClient.cancelQueries({
+        queryKey: queryKeys.collections.detail(slug),
+      })
+      const previousDetail = patchDetailLikeCache(queryClient, slug, true)
+      return { previousDetail }
+    },
+    onError: (_err, variables, context) => {
+      // Rollback to the pre-mutation snapshot.
+      if (context?.previousDetail) {
+        queryClient.setQueryData(
+          queryKeys.collections.detail(variables.slug),
+          context.previousDetail
+        )
+      }
+    },
+    onSuccess: (data, variables) => {
+      // Server is the source of truth for the count — replace the optimistic
+      // value with the authoritative one.
+      const key = queryKeys.collections.detail(variables.slug)
+      const cached = queryClient.getQueryData<CollectionDetail>(key)
+      if (cached) {
+        queryClient.setQueryData<CollectionDetail>(key, {
+          ...cached,
+          like_count: data.like_count,
+          user_likes_this: data.user_likes_this,
+        })
+      }
+      // List queries display like_count too — invalidate so they re-fetch
+      // (cheap; the user only sees this happen on tab-switch).
+      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
+    },
+  })
+}
+
+/** Unlike a collection. See useLikeCollection for the optimistic-update story. */
+export function useUnlikeCollection() {
+  const queryClient = useQueryClient()
+  return useMutation<
+    CollectionLikeResponse,
+    Error,
+    { slug: string },
+    { previousDetail: CollectionDetail | undefined }
+  >({
+    mutationFn: ({ slug }) =>
+      apiRequest<CollectionLikeResponse>(API_ENDPOINTS.COLLECTIONS.LIKE(slug), {
+        method: 'DELETE',
+      }),
+    onMutate: async ({ slug }) => {
+      await queryClient.cancelQueries({
+        queryKey: queryKeys.collections.detail(slug),
+      })
+      const previousDetail = patchDetailLikeCache(queryClient, slug, false)
+      return { previousDetail }
+    },
+    onError: (_err, variables, context) => {
+      if (context?.previousDetail) {
+        queryClient.setQueryData(
+          queryKeys.collections.detail(variables.slug),
+          context.previousDetail
+        )
+      }
+    },
+    onSuccess: (data, variables) => {
+      const key = queryKeys.collections.detail(variables.slug)
+      const cached = queryClient.getQueryData<CollectionDetail>(key)
+      if (cached) {
+        queryClient.setQueryData<CollectionDetail>(key, {
+          ...cached,
+          like_count: data.like_count,
+          user_likes_this: data.user_likes_this,
+        })
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
     },
   })
 }

@@ -38,8 +38,11 @@ type ListCollectionsHandlerRequest struct {
 	EntityType string `query:"entity_type" required:"false" doc:"Filter by entity type (artist, release, label, show, venue, festival)"`
 	Featured   int    `query:"featured" required:"false" doc:"Filter featured collections (1=featured only)" example:"0"`
 	Search     string `query:"search" required:"false" doc:"Search by title"`
-	Limit      int    `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
-	Offset     int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+	// PSY-352: sort=popular orders by HN gravity (likes / age^1.8). Empty
+	// or omitted defaults to updated_at DESC.
+	Sort   string `query:"sort" required:"false" doc:"Sort order: 'popular' for HN-gravity ranking. Defaults to recently-updated." enum:"popular"`
+	Limit  int    `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
+	Offset int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
 }
 
 // ListCollectionsHandlerResponse represents the response for listing collections
@@ -52,10 +55,18 @@ type ListCollectionsHandlerResponse struct {
 
 // ListCollectionsHandler handles GET /collections
 func (h *CollectionHandler) ListCollectionsHandler(ctx context.Context, req *ListCollectionsHandlerRequest) (*ListCollectionsHandlerResponse, error) {
+	// Validate sort. Empty (default) is always allowed; explicit values must
+	// be in the recognized set so unknown sorts produce a clean 400 rather
+	// than silently falling back to the default. PSY-352.
+	if req.Sort != "" && req.Sort != contracts.CollectionSortPopular {
+		return nil, huma.Error400BadRequest(fmt.Sprintf("Unsupported sort value: %q", req.Sort))
+	}
+
 	filters := contracts.CollectionFilters{
 		Search:     req.Search,
 		EntityType: req.EntityType,
 		PublicOnly: true, // Public endpoint always filters to public
+		Sort:       req.Sort,
 	}
 
 	if req.Featured == 1 {
@@ -64,9 +75,10 @@ func (h *CollectionHandler) ListCollectionsHandler(ctx context.Context, req *Lis
 
 	// If viewer is authenticated, don't restrict to public only for their own collections
 	user := middleware.GetUserFromContext(ctx)
-	if user != nil && req.Creator != "" {
-		// If filtering by the current user, show their private collections too
-		// This is handled implicitly — if CreatorID matches viewer, service shows all
+	if user != nil {
+		// PSY-352: viewer ID is passed into filters so the list can populate
+		// `user_likes_this` per row without an N+1.
+		filters.ViewerID = user.ID
 	}
 
 	limit := req.Limit

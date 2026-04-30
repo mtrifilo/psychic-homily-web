@@ -278,6 +278,23 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_OnlyPublic() {
 	}
 }
 
+// PSY-352: sort=popular orders by HN gravity at the service layer; the
+// handler's job is just to forward the value and reject unknowns.
+func (s *CollectionHandlerIntegrationSuite) TestListCollections_PopularSort_Accepted() {
+	user := createTestUser(s.deps.db)
+	s.createCollectionViaService(user, "Popular Sort A", true)
+
+	req := &ListCollectionsHandlerRequest{Sort: "popular"}
+	_, err := s.handler.ListCollectionsHandler(context.Background(), req)
+	s.NoError(err)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestListCollections_UnknownSort_Rejected() {
+	req := &ListCollectionsHandlerRequest{Sort: "bogus"}
+	_, err := s.handler.ListCollectionsHandler(context.Background(), req)
+	assertHumaError(s.T(), err, 400)
+}
+
 func (s *CollectionHandlerIntegrationSuite) TestListCollections_FeaturedFilter() {
 	user := createTestUser(s.deps.db)
 	coll := s.createCollectionViaService(user, "Featured Coll", true)
