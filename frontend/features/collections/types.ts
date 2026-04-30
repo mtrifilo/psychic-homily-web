@@ -20,6 +20,53 @@ export const MAX_COLLECTION_MARKDOWN_LENGTH = 10000
 export const MIN_PUBLIC_COLLECTION_ITEMS = 3
 export const MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS = 50
 
+/**
+ * PSY-371: maximum length for `cover_image_url`. The browser address-bar
+ * de-facto cap is ~2048 chars; longer URLs almost always indicate
+ * pasted-malformed input. We cap on the client to surface the error
+ * inline rather than letting the request fail at the backend.
+ */
+export const MAX_COVER_IMAGE_URL_LENGTH = 2048
+
+/**
+ * PSY-371: validate a candidate cover-image URL for the Edit Collection
+ * dialog.
+ *
+ * Returns `null` for valid input (including empty string — empty means
+ * "clear the cover" and is always acceptable). Returns a short, human
+ * error message otherwise so the form can display it inline.
+ *
+ * Rules:
+ * - empty string → null (clearing is intentional)
+ * - must parse as a URL via the WHATWG `URL` constructor
+ * - protocol must be `http:` or `https:` (no `data:`, `file:`, `javascript:`)
+ * - length must not exceed `MAX_COVER_IMAGE_URL_LENGTH`
+ *
+ * Server-side sanitization is the source of truth; this is purely UX so
+ * curators see the problem before they hit Save.
+ */
+export function validateCoverImageUrl(value: string): string | null {
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return null
+
+  if (trimmed.length > MAX_COVER_IMAGE_URL_LENGTH) {
+    return `URL is too long (max ${MAX_COVER_IMAGE_URL_LENGTH} characters).`
+  }
+
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return 'Enter a valid URL starting with http:// or https://.'
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return 'URL must start with http:// or https://.'
+  }
+
+  return null
+}
+
 export const COLLECTION_ENTITY_TYPES = [
   'artist',
   'release',

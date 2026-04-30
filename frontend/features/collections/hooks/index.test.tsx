@@ -223,6 +223,57 @@ describe('Collection mutation hooks', () => {
         })
       )
     })
+
+    // PSY-371: PUT must round-trip the cover_image_url field, both when
+    // setting a new URL and when clearing it (sent as explicit null).
+    it('forwards cover_image_url in the PUT body', async () => {
+      mockApiRequest.mockResolvedValueOnce({ id: 1, slug: 'test' })
+
+      const { result } = renderHook(() => useUpdateCollection(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({
+          slug: 'test',
+          cover_image_url: 'https://example.com/cover.jpg',
+        })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/collections/test',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({
+            cover_image_url: 'https://example.com/cover.jpg',
+          }),
+        })
+      )
+    })
+
+    it('forwards cover_image_url: null to clear the cover', async () => {
+      mockApiRequest.mockResolvedValueOnce({ id: 1, slug: 'test' })
+
+      const { result } = renderHook(() => useUpdateCollection(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ slug: 'test', cover_image_url: null })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/collections/test',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({ cover_image_url: null }),
+        })
+      )
+    })
   })
 
   describe('useDeleteCollection', () => {
