@@ -133,6 +133,8 @@ function makeCollection(overrides: Partial<Collection> = {}): Collection {
     contributor_count: 1,
     forks_count: 0,
     forked_from_collection_id: null,
+    like_count: 0,
+    user_likes_this: false,
     created_at: '2025-01-01T00:00:00Z',
     updated_at: '2025-01-01T00:00:00Z',
     ...overrides,

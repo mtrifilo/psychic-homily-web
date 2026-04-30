@@ -18,6 +18,7 @@ vi.mock('@/lib/api', () => ({
       SUBSCRIBE: (slug: string) => `/collections/${slug}/subscribe`,
       FEATURE: (slug: string) => `/collections/${slug}/feature`,
       CLONE: (slug: string) => `/collections/${slug}/clone`,
+      LIKE: (slug: string) => `/collections/${slug}/like`,
       MY: '/auth/collections',
     },
   },
@@ -55,6 +56,8 @@ import {
   useUpdateCollectionItem,
   useSubscribeCollection,
   useUnsubscribeCollection,
+  useLikeCollection,
+  useUnlikeCollection,
 } from './index'
 
 
@@ -502,6 +505,90 @@ describe('Collection mutation hooks', () => {
 
       await waitFor(() => expect(result.current.isError).toBe(true))
       expect(result.current.error).toBeDefined()
+    })
+  })
+})
+
+// ──────────────────────────────────────────────
+// PSY-352: sort param + like/unlike toggle
+// ──────────────────────────────────────────────
+
+describe('Collection sort + like hooks', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  describe('useCollections sort param', () => {
+    it('passes sort=popular to the LIST endpoint when requested', async () => {
+      mockApiRequest.mockResolvedValueOnce({ collections: [], total: 0 })
+
+      const { result } = renderHook(
+        () => useCollections({ sort: 'popular' }),
+        { wrapper: createWrapper() }
+      )
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith('/collections?sort=popular')
+    })
+
+    it('omits sort when not provided', async () => {
+      mockApiRequest.mockResolvedValueOnce({ collections: [], total: 0 })
+
+      const { result } = renderHook(() => useCollections(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith('/collections')
+    })
+  })
+
+  describe('useLikeCollection', () => {
+    it('POSTs to the like endpoint and resolves with the new aggregate', async () => {
+      mockApiRequest.mockResolvedValueOnce({ like_count: 1, user_likes_this: true })
+
+      const { result } = renderHook(() => useLikeCollection(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ slug: 'my-collection' })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/collections/my-collection/like',
+        expect.objectContaining({ method: 'POST' })
+      )
+      expect(result.current.data).toEqual({
+        like_count: 1,
+        user_likes_this: true,
+      })
+    })
+  })
+
+  describe('useUnlikeCollection', () => {
+    it('DELETEs the like endpoint and resolves with the new aggregate', async () => {
+      mockApiRequest.mockResolvedValueOnce({ like_count: 0, user_likes_this: false })
+
+      const { result } = renderHook(() => useUnlikeCollection(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ slug: 'my-collection' })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/collections/my-collection/like',
+        expect.objectContaining({ method: 'DELETE' })
+      )
+      expect(result.current.data).toEqual({
+        like_count: 0,
+        user_likes_this: false,
+      })
     })
   })
 })

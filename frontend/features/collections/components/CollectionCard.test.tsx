@@ -1,6 +1,6 @@
 import React from 'react'
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
 
 // Mock next/link
 vi.mock('next/link', () => ({
@@ -15,6 +15,36 @@ vi.mock('next/link', () => ({
 vi.mock('@/lib/formatRelativeTime', () => ({
   formatRelativeTime: (date: string) => `relative(${date})`,
 }))
+
+// PSY-352: auth + like mutation mocks. Default: anonymous viewer + no-op
+// mutations. Individual tests override these via mockIsAuthenticated and
+// the mutation spies below.
+let mockIsAuthenticated = false
+const mockLikeMutate = vi.fn()
+const mockUnlikeMutate = vi.fn()
+let mockIsLikePending = false
+
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({ isAuthenticated: mockIsAuthenticated, user: null }),
+}))
+
+vi.mock('../hooks', () => ({
+  useLikeCollection: () => ({
+    mutate: mockLikeMutate,
+    isPending: mockIsLikePending,
+  }),
+  useUnlikeCollection: () => ({
+    mutate: mockUnlikeMutate,
+    isPending: mockIsLikePending,
+  }),
+}))
+
+beforeEach(() => {
+  mockIsAuthenticated = false
+  mockIsLikePending = false
+  mockLikeMutate.mockReset()
+  mockUnlikeMutate.mockReset()
+})
 
 import { CollectionCard } from './CollectionCard'
 import type { Collection } from '../types'
@@ -39,6 +69,8 @@ const baseCollection: Collection = {
   subscriber_count: 10,
   forks_count: 0,
   forked_from_collection_id: null,
+  like_count: 0,
+  user_likes_this: false,
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
 }
@@ -190,6 +222,87 @@ describe('CollectionCard', () => {
     render(<CollectionCard collection={baseCollection} />)
 
     expect(screen.queryByText(/new$/)).not.toBeInTheDocument()
+  })
+
+  // ──────────────────────────────────────────────
+  // PSY-352: like toggle
+  // ──────────────────────────────────────────────
+
+  it('renders a clickable heart with count for authenticated viewers', () => {
+    mockIsAuthenticated = true
+    const collection = { ...baseCollection, like_count: 4, user_likes_this: false }
+    render(<CollectionCard collection={collection} />)
+
+    const btn = screen.getByTestId('collection-like-button')
+    expect(btn).toBeInTheDocument()
+    expect(btn).toHaveTextContent('4')
+    expect(btn).toHaveAttribute('aria-pressed', 'false')
+    expect(btn).toHaveAttribute('aria-label', 'Like collection')
+  })
+
+  it('renders a non-interactive heart + count for anonymous viewers when likes exist', () => {
+    mockIsAuthenticated = false
+    const collection = { ...baseCollection, like_count: 7 }
+    render(<CollectionCard collection={collection} />)
+
+    expect(screen.getByTestId('collection-like-count')).toHaveTextContent('7')
+    expect(screen.queryByTestId('collection-like-button')).not.toBeInTheDocument()
+  })
+
+  it('hides the heart entirely for anonymous viewers when like_count is 0', () => {
+    mockIsAuthenticated = false
+    const collection = { ...baseCollection, like_count: 0 }
+    render(<CollectionCard collection={collection} />)
+
+    expect(screen.queryByTestId('collection-like-count')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('collection-like-button')).not.toBeInTheDocument()
+  })
+
+  it('still renders the heart for authenticated viewers when like_count is 0', () => {
+    mockIsAuthenticated = true
+    const collection = { ...baseCollection, like_count: 0 }
+    render(<CollectionCard collection={collection} />)
+
+    expect(screen.getByTestId('collection-like-button')).toHaveTextContent('0')
+  })
+
+  it('marks the heart as pressed when user_likes_this is true', () => {
+    mockIsAuthenticated = true
+    const collection = { ...baseCollection, like_count: 1, user_likes_this: true }
+    render(<CollectionCard collection={collection} />)
+
+    const btn = screen.getByTestId('collection-like-button')
+    expect(btn).toHaveAttribute('aria-pressed', 'true')
+    expect(btn).toHaveAttribute('aria-label', 'Unlike collection')
+  })
+
+  it('calls likeCollection when an unliked heart is clicked', () => {
+    mockIsAuthenticated = true
+    const collection = { ...baseCollection, like_count: 0, user_likes_this: false }
+    render(<CollectionCard collection={collection} />)
+
+    fireEvent.click(screen.getByTestId('collection-like-button'))
+    expect(mockLikeMutate).toHaveBeenCalledWith({ slug: 'arizona-indie-essentials' })
+    expect(mockUnlikeMutate).not.toHaveBeenCalled()
+  })
+
+  it('calls unlikeCollection when an already-liked heart is clicked', () => {
+    mockIsAuthenticated = true
+    const collection = { ...baseCollection, like_count: 1, user_likes_this: true }
+    render(<CollectionCard collection={collection} />)
+
+    fireEvent.click(screen.getByTestId('collection-like-button'))
+    expect(mockUnlikeMutate).toHaveBeenCalledWith({ slug: 'arizona-indie-essentials' })
+    expect(mockLikeMutate).not.toHaveBeenCalled()
+  })
+
+  it('disables the heart while a like mutation is pending', () => {
+    mockIsAuthenticated = true
+    mockIsLikePending = true
+    const collection = { ...baseCollection, user_likes_this: false }
+    render(<CollectionCard collection={collection} />)
+
+    expect(screen.getByTestId('collection-like-button')).toBeDisabled()
   })
 
   // PSY-353: "Built by N contributors" badge surfaces community curation

@@ -16,6 +16,24 @@ import (
 	"psychic-homily-backend/internal/utils"
 )
 
+// PSY-356: quality gates for public collection visibility.
+//
+// MinPublicCollectionItems is the minimum number of items a collection must
+// contain to appear in the public /collections browse listing. Matches
+// What.cd's "3 items" convention. Existing public collections that fall
+// below this threshold remain `is_public=true` in the DB (URL access via
+// /collections/{slug} is unaffected); they are filtered out of the browse
+// list only.
+//
+// MinPublicCollectionDescriptionChars is the minimum CHAR_LENGTH of the
+// raw description for the same gate. The collections.description column
+// is NOT NULL and defaults to "" — the SQL filter below uses CHAR_LENGTH
+// directly without an IS NOT NULL guard.
+const (
+	MinPublicCollectionItems            = 3
+	MinPublicCollectionDescriptionChars = 50
+)
+
 // CollectionService handles collection-related business logic.
 // md is the shared utils.MarkdownRenderer (goldmark + bluemonday) used to
 // render Description and per-item Notes on read. Sanitization is applied on
@@ -59,6 +77,42 @@ func (s *CollectionService) renderNotes(notes *string) string {
 	return s.renderMarkdown(*notes)
 }
 
+// validatePublishGate rejects a visibility transition that would make a
+// collection public while it falls below the items + description thresholds
+// (PSY-356). Returns nil when the gate passes. Returns an
+// ErrCollectionInvalidRequest (mapped to 400) with a precise message
+// enumerating only the missing pieces, so the caller can surface the same
+// guidance the in-app banner shows.
+func validatePublishGate(itemCount int, description string) error {
+	itemsBelow := itemCount < MinPublicCollectionItems
+	descBelow := len(description) < MinPublicCollectionDescriptionChars
+	if !itemsBelow && !descBelow {
+		return nil
+	}
+
+	itemsNeeded := MinPublicCollectionItems - itemCount
+	if itemsNeeded < 0 {
+		itemsNeeded = 0
+	}
+	switch {
+	case itemsBelow && descBelow:
+		return apperrors.ErrCollectionInvalidRequest(fmt.Sprintf(
+			"public collections require at least %d items and a description of at least %d characters (currently %d items, %d-character description)",
+			MinPublicCollectionItems, MinPublicCollectionDescriptionChars, itemCount, len(description),
+		))
+	case itemsBelow:
+		return apperrors.ErrCollectionInvalidRequest(fmt.Sprintf(
+			"public collections require at least %d items (currently %d)",
+			MinPublicCollectionItems, itemCount,
+		))
+	default:
+		return apperrors.ErrCollectionInvalidRequest(fmt.Sprintf(
+			"public collections require a description of at least %d characters (currently %d)",
+			MinPublicCollectionDescriptionChars, len(description),
+		))
+	}
+}
+
 // CreateCollection creates a new collection and auto-subscribes the creator
 func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.CreateCollectionRequest) (*contracts.CollectionDetailResponse, error) {
 	if s.db == nil {
@@ -79,6 +133,16 @@ func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.Crea
 	}
 	if len(description) > contracts.MaxCollectionDescriptionLength {
 		return nil, fmt.Errorf("description exceeds maximum length of %d characters", contracts.MaxCollectionDescriptionLength)
+	}
+
+	// PSY-356: forward gate. New collections cannot be created public —
+	// items_count is 0 at create time, so the items half of the gate
+	// always rejects. The error message also enumerates the description
+	// gap when applicable, mirroring the in-app banner copy.
+	if req.IsPublic {
+		if err := validatePublishGate(0, description); err != nil {
+			return nil, err
+		}
 	}
 
 	displayMode := models.CollectionDisplayModeUnranked
@@ -317,6 +381,19 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		isSubscribed = subCount > 0
 	}
 
+	// PSY-352: aggregate like count + caller's like state. UserLikesThis
+	// is always false for anonymous viewers (viewerID == 0).
+	var likeCount int64
+	s.db.Model(&models.CollectionLike{}).Where("collection_id = ?", collection.ID).Count(&likeCount)
+	userLikesThis := false
+	if viewerID > 0 {
+		var ulCount int64
+		s.db.Model(&models.CollectionLike{}).
+			Where("collection_id = ? AND user_id = ?", collection.ID, viewerID).
+			Count(&ulCount)
+		userLikesThis = ulCount > 0
+	}
+
 	// PSY-350: bump last_visited_at for authenticated subscribers so the
 	// library tab's "N new since last visit" badge clears. Fire-and-forget —
 	// a write failure here must NOT fail the read. We do this in a goroutine
@@ -366,6 +443,8 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		ForkedFrom:             forkedFrom,
 		Items:                  itemResponses,
 		IsSubscribed:           isSubscribed,
+		LikeCount:              int(likeCount),
+		UserLikesThis:          userLikesThis,
 		CreatedAt:              collection.CreatedAt,
 		UpdatedAt:              collection.UpdatedAt,
 	}, nil
@@ -408,6 +487,15 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 
 	if filters.PublicOnly {
 		query = query.Where("is_public = ?", true)
+		// PSY-356: quality gate for browse visibility. Items count is computed
+		// later via batchCountItems(), so we can't filter post-fetch — use a
+		// correlated subquery here. description is NOT NULL (defaults to ""),
+		// so CHAR_LENGTH alone is sufficient.
+		query = query.Where(
+			"(SELECT COUNT(*) FROM collection_items ci WHERE ci.collection_id = collections.id) >= ?",
+			MinPublicCollectionItems,
+		)
+		query = query.Where("CHAR_LENGTH(description) >= ?", MinPublicCollectionDescriptionChars)
 	}
 	if filters.CreatorID > 0 {
 		query = query.Where("creator_id = ?", filters.CreatorID)
@@ -436,7 +524,7 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	if limit <= 0 {
 		limit = 20
 	}
-	query = query.Order("updated_at DESC").Limit(limit).Offset(offset)
+	query = applyCollectionSort(query, filters.Sort).Limit(limit).Offset(offset)
 
 	var collections []models.Collection
 	if err := query.Find(&collections).Error; err != nil {
@@ -471,6 +559,10 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	// Batch-load fork counts (PSY-351)
 	forkCounts := s.batchCountForks(collectionIDs)
 
+	// Batch-load like counts and viewer's own like state (PSY-352)
+	likeCounts := s.batchCountLikes(collectionIDs)
+	userLikes := s.batchCheckUserLikes(filters.ViewerID, collectionIDs)
+
 	// Batch-load entity type counts
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 
@@ -501,12 +593,35 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 			ForksCount:             forkCounts[c.ID],
 			ForkedFromCollectionID: c.ForkedFromCollectionID,
 			EntityTypeCounts:       entityTypeCounts[c.ID],
+			LikeCount:              likeCounts[c.ID],
+			UserLikesThis:          userLikes[c.ID],
 			CreatedAt:              c.CreatedAt,
 			UpdatedAt:              c.UpdatedAt,
 		}
 	}
 
 	return responses, total, nil
+}
+
+// applyCollectionSort applies the requested ordering to the list query.
+// Default ("") is updated_at DESC. "popular" is HN gravity:
+//
+//	(like count) / POWER(age_in_hours + 2, 1.8) DESC, with updated_at DESC
+//	as a tiebreaker for collections at equal gravity (rare but real).
+//
+// Unknown sort values fall back to the default — the handler validates
+// recognized values and rejects unknowns before reaching this point.
+// PSY-352.
+func applyCollectionSort(query *gorm.DB, sort string) *gorm.DB {
+	if sort == contracts.CollectionSortPopular {
+		return query.Order(`(
+			SELECT COUNT(*) FROM collection_likes cl
+			WHERE cl.collection_id = collections.id
+		)::float / POWER(
+			EXTRACT(EPOCH FROM (NOW() - collections.created_at))/3600 + 2, 1.8
+		) DESC`).Order("collections.updated_at DESC")
+	}
+	return query.Order("updated_at DESC")
 }
 
 // UpdateCollection updates an existing collection
@@ -555,6 +670,28 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 		updates["cover_image_url"] = *req.CoverImageURL
 	}
 	if req.IsPublic != nil {
+		// PSY-356: forward gate at the false→true visibility transition.
+		// Other transitions are unchanged: keeping public is grandfathered
+		// (existing public collections below the gate stay editable),
+		// and going from public to private is always allowed.
+		if *req.IsPublic && !collection.IsPublic {
+			var itemCount int64
+			if err := s.db.Model(&models.CollectionItem{}).
+				Where("collection_id = ?", collection.ID).
+				Count(&itemCount).Error; err != nil {
+				return nil, fmt.Errorf("failed to count items for publish gate: %w", err)
+			}
+			// Use the patched description when the same request is updating
+			// it, so the curator can satisfy both halves of the gate in a
+			// single PATCH instead of two round-trips.
+			descToCheck := collection.Description
+			if req.Description != nil {
+				descToCheck = *req.Description
+			}
+			if err := validatePublishGate(int(itemCount), descToCheck); err != nil {
+				return nil, err
+			}
+		}
 		updates["is_public"] = *req.IsPublic
 	}
 	if req.DisplayMode != nil {
@@ -886,6 +1023,99 @@ func (s *CollectionService) Unsubscribe(slug string, userID uint) error {
 	return nil
 }
 
+// Like records a user's like on the collection. Idempotent — likes are
+// composite-PK rows so an INSERT ... ON CONFLICT DO NOTHING is sufficient.
+// Returns the post-mutation aggregate count and the caller's like state
+// so the handler can return them without a follow-up query.
+//
+// Visibility: anyone authenticated can like any public collection (or
+// their own private collection). Liking a private collection you don't
+// own is rejected (404 / 403 mapped at the handler layer). PSY-352.
+func (s *CollectionService) Like(slug string, userID uint) (*contracts.CollectionLikeResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var collection models.Collection
+	err := s.db.Where("slug = ?", slug).First(&collection).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.ErrCollectionNotFound(slug)
+		}
+		return nil, fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	if !collection.IsPublic && collection.CreatorID != userID {
+		return nil, apperrors.ErrCollectionForbidden(slug)
+	}
+
+	// Idempotent insert. ON CONFLICT DO NOTHING is the canonical pattern
+	// for composite-PK toggles — no transaction needed and no error on
+	// re-like.
+	if err := s.db.Exec(
+		"INSERT INTO collection_likes (user_id, collection_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+		userID, collection.ID,
+	).Error; err != nil {
+		return nil, fmt.Errorf("failed to like collection: %w", err)
+	}
+
+	return s.buildLikeResponse(collection.ID, userID)
+}
+
+// Unlike removes a user's like on the collection. Idempotent — DELETE on
+// a row that doesn't exist is a no-op. Returns the post-mutation aggregate.
+// PSY-352.
+func (s *CollectionService) Unlike(slug string, userID uint) (*contracts.CollectionLikeResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var collection models.Collection
+	err := s.db.Where("slug = ?", slug).First(&collection).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.ErrCollectionNotFound(slug)
+		}
+		return nil, fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	if !collection.IsPublic && collection.CreatorID != userID {
+		return nil, apperrors.ErrCollectionForbidden(slug)
+	}
+
+	if err := s.db.Where("user_id = ? AND collection_id = ?", userID, collection.ID).
+		Delete(&models.CollectionLike{}).Error; err != nil {
+		return nil, fmt.Errorf("failed to unlike collection: %w", err)
+	}
+
+	return s.buildLikeResponse(collection.ID, userID)
+}
+
+// buildLikeResponse loads the post-mutation aggregate count and the caller's
+// like state for the given collection. PSY-352.
+func (s *CollectionService) buildLikeResponse(collectionID uint, userID uint) (*contracts.CollectionLikeResponse, error) {
+	var likeCount int64
+	if err := s.db.Model(&models.CollectionLike{}).
+		Where("collection_id = ?", collectionID).
+		Count(&likeCount).Error; err != nil {
+		return nil, fmt.Errorf("failed to count likes: %w", err)
+	}
+
+	userLikes := false
+	if userID > 0 {
+		var ulCount int64
+		s.db.Model(&models.CollectionLike{}).
+			Where("collection_id = ? AND user_id = ?", collectionID, userID).
+			Count(&ulCount)
+		userLikes = ulCount > 0
+	}
+
+	return &contracts.CollectionLikeResponse{
+		LikeCount:     int(likeCount),
+		UserLikesThis: userLikes,
+	}, nil
+}
+
 // MarkVisited updates the last_visited_at timestamp for a subscriber
 func (s *CollectionService) MarkVisited(slug string, userID uint) error {
 	if s.db == nil {
@@ -1020,6 +1250,9 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 	// PSY-350: per-(user, collection) "new since last visit" counts so the
 	// library tab can render a "N new" badge per subscribed collection.
 	newCounts := s.batchCountNewSinceLastVisit(userID, collectionIDs)
+	// PSY-352: like aggregates and viewer's own like state.
+	likeCounts := s.batchCountLikes(collectionIDs)
+	userLikes := s.batchCheckUserLikes(userID, collectionIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
@@ -1044,6 +1277,8 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 			ForkedFromCollectionID: c.ForkedFromCollectionID,
 			EntityTypeCounts:       entityTypeCounts[c.ID],
 			NewSinceLastVisit:      newCounts[c.ID],
+			LikeCount:              likeCounts[c.ID],
+			UserLikesThis:          userLikes[c.ID],
 			CreatedAt:              c.CreatedAt,
 			UpdatedAt:              c.UpdatedAt,
 		}
@@ -1100,6 +1335,10 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 	creatorUsernames := s.batchResolveUserUsernames(creatorIDs)
+	// PSY-352: like aggregate; viewer ID isn't threaded through this call,
+	// so UserLikesThis is left false here (clients that need it should
+	// use the detail endpoint).
+	likeCounts := s.batchCountLikes(collectionIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
@@ -1123,6 +1362,7 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 			ForksCount:             forkCounts[c.ID],
 			ForkedFromCollectionID: c.ForkedFromCollectionID,
 			EntityTypeCounts:       entityTypeCounts[c.ID],
+			LikeCount:              likeCounts[c.ID],
 			CreatedAt:              c.CreatedAt,
 			UpdatedAt:              c.UpdatedAt,
 		}
@@ -1176,6 +1416,9 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 	creatorUsernames := s.batchResolveUserUsernames(creatorIDs)
+	// PSY-352: like aggregate; viewer ID is not threaded through this call,
+	// so UserLikesThis is left false here.
+	likeCounts := s.batchCountLikes(collectionIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
@@ -1199,6 +1442,7 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 			ForksCount:             forkCounts[c.ID],
 			ForkedFromCollectionID: c.ForkedFromCollectionID,
 			EntityTypeCounts:       entityTypeCounts[c.ID],
+			LikeCount:              likeCounts[c.ID],
 			CreatedAt:              c.CreatedAt,
 			UpdatedAt:              c.UpdatedAt,
 		}
@@ -1703,4 +1947,49 @@ func (s *CollectionService) batchCountForks(collectionIDs []uint) map[uint]int {
 		counts[r.ForkedFromCollectionID] = r.Count
 	}
 	return counts
+}
+
+// batchCountLikes returns like counts keyed by collection ID. Live COUNT —
+// mirrors batchCountSubscribers / batchCountForks. PSY-352.
+func (s *CollectionService) batchCountLikes(collectionIDs []uint) map[uint]int {
+	counts := make(map[uint]int)
+	if len(collectionIDs) == 0 {
+		return counts
+	}
+
+	type CountResult struct {
+		CollectionID uint
+		Count        int
+	}
+	var results []CountResult
+	s.db.Model(&models.CollectionLike{}).
+		Select("collection_id, COUNT(*) as count").
+		Where("collection_id IN ?", collectionIDs).
+		Group("collection_id").
+		Find(&results)
+
+	for _, r := range results {
+		counts[r.CollectionID] = r.Count
+	}
+	return counts
+}
+
+// batchCheckUserLikes returns a set (as map) of collection IDs the user has
+// liked, drawn from the supplied candidate IDs. Empty for unauthenticated
+// viewers (userID == 0). PSY-352.
+func (s *CollectionService) batchCheckUserLikes(userID uint, collectionIDs []uint) map[uint]bool {
+	result := make(map[uint]bool)
+	if userID == 0 || len(collectionIDs) == 0 {
+		return result
+	}
+
+	var rows []models.CollectionLike
+	s.db.Select("collection_id").
+		Where("user_id = ? AND collection_id IN ?", userID, collectionIDs).
+		Find(&rows)
+
+	for _, r := range rows {
+		result[r.CollectionID] = true
+	}
+	return result
 }

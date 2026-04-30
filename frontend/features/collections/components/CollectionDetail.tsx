@@ -26,6 +26,7 @@ import {
   Share2,
   GitFork,
   GripVertical,
+  Heart,
   ListOrdered,
   LayoutGrid,
 } from 'lucide-react'
@@ -66,16 +67,22 @@ import {
   useUnsubscribeCollection,
   useDeleteCollection,
   useCloneCollection,
+  useLikeCollection,
+  useUnlikeCollection,
 } from '../hooks'
+import { cn } from '@/lib/utils'
 import {
   getEntityUrl,
   getEntityTypeLabel,
   MAX_COLLECTION_MARKDOWN_LENGTH,
+  MIN_PUBLIC_COLLECTION_ITEMS,
+  MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS,
 } from '../types'
-import type { CollectionDisplayMode, CollectionItem } from '../types'
+import type { CollectionDisplayMode, CollectionItem, CollectionDetail as CollectionDetailType } from '../types'
 import { MarkdownEditor, MarkdownContent } from './MarkdownEditor'
 import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -99,6 +106,55 @@ const ENTITY_ICONS: Record<string, React.ElementType> = {
   festival: Tent,
 }
 
+/**
+ * PSY-356: curator-only banner shown on a collection's detail page when it
+ * fails the public-visibility gate (>= 3 items AND >= 50-char description).
+ * Copy enumerates only the missing pieces and changes wording based on
+ * whether the collection is currently public (and thus dropped from browse)
+ * or still private (and warned about pre-publish).
+ *
+ * Hidden when:
+ *   - Caller is not the creator (other viewers should not see this).
+ *   - The gate passes.
+ */
+function PublishGateBanner({ collection }: { collection: CollectionDetailType }) {
+  const itemsBelow = collection.item_count < MIN_PUBLIC_COLLECTION_ITEMS
+  const descriptionLength = collection.description?.length ?? 0
+  const descBelow = descriptionLength < MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS
+  if (!itemsBelow && !descBelow) {
+    return null
+  }
+
+  const itemsNeeded = Math.max(0, MIN_PUBLIC_COLLECTION_ITEMS - collection.item_count)
+  const itemsClause =
+    itemsNeeded === 1
+      ? '1 more item'
+      : `${itemsNeeded} more items`
+  const descriptionClause =
+    descriptionLength === 0
+      ? `a description of at least ${MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS} characters`
+      : `a longer description (${MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS}+ characters)`
+
+  let needsCopy: string
+  if (itemsBelow && descBelow) {
+    needsCopy = `${itemsClause} and ${descriptionClause}`
+  } else if (itemsBelow) {
+    needsCopy = itemsClause
+  } else {
+    needsCopy = descriptionClause
+  }
+
+  const message = collection.is_public
+    ? `Below current quality standards — your collection isn't appearing in the public browse. Add ${needsCopy} to fix this.`
+    : `Before publishing, this collection needs ${needsCopy}. Public collections must meet these standards.`
+
+  return (
+    <Alert className="mb-4" data-testid="publish-gate-banner">
+      <AlertDescription>{message}</AlertDescription>
+    </Alert>
+  )
+}
+
 export function CollectionDetail({ slug }: CollectionDetailProps) {
   const router = useRouter()
   const { user, isAuthenticated } = useAuthContext()
@@ -109,6 +165,9 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   // PSY-351: clone an existing collection. On success, navigate to the
   // new collection's detail page using the slug returned by the server.
   const cloneMutation = useCloneCollection()
+  // PSY-352: like/unlike toggle.
+  const likeMutation = useLikeCollection()
+  const unlikeMutation = useUnlikeCollection()
 
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -216,6 +275,15 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
       }
     )
   }
+
+  const handleToggleLike = () => {
+    if (collection.user_likes_this) {
+      unlikeMutation.mutate({ slug })
+    } else {
+      likeMutation.mutate({ slug })
+    }
+  }
+  const isLikePending = likeMutation.isPending || unlikeMutation.isPending
 
   const items = collection.items ?? []
 
@@ -396,6 +464,45 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 
               {/* Action buttons */}
               <div className="flex items-center gap-2 shrink-0">
+                {/* PSY-352: Like toggle. Authenticated viewers can click;
+                    anonymous viewers see a read-only heart + count so they
+                    know the signal exists. Aggregate count only — privacy
+                    decision: no list of likers exposed. */}
+                {isAuthenticated ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleToggleLike}
+                    disabled={isLikePending}
+                    aria-pressed={collection.user_likes_this ?? false}
+                    aria-label={
+                      collection.user_likes_this
+                        ? 'Unlike collection'
+                        : 'Like collection'
+                    }
+                    className={cn(
+                      collection.user_likes_this && 'text-primary'
+                    )}
+                    data-testid="collection-like-button"
+                  >
+                    <Heart
+                      className={cn(
+                        'h-4 w-4 mr-1.5',
+                        collection.user_likes_this && 'fill-current'
+                      )}
+                    />
+                    {collection.like_count}
+                  </Button>
+                ) : (
+                  <span
+                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border/60 px-3 text-sm text-muted-foreground"
+                    data-testid="collection-like-count"
+                  >
+                    <Heart className="h-4 w-4" />
+                    {collection.like_count}
+                  </span>
+                )}
+
                 <Button
                   variant="outline"
                   size="sm"
@@ -476,6 +583,9 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
           </div>
         )}
       </header>
+
+      {/* PSY-356: publish-gate banner (creator-only) */}
+      {isCreator && <PublishGateBanner collection={collection} />}
 
       {/* Add Items (creator only) */}
       {isCreator && (

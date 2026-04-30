@@ -67,6 +67,9 @@ const mockUpdateMutate = vi.fn()
 // PSY-351: clone mutation mock — `mutate` invokes the success callback
 // directly so we can assert the post-clone navigation deterministically
 // without spinning up a real React Query client.
+// PSY-352: like/unlike mutation spies for the heart toggle.
+const mockLikeMutate = vi.fn()
+const mockUnlikeMutate = vi.fn()
 const mockCloneMutate = vi.fn()
 const mockCloneMutation = vi.fn(() => ({
   mutate: mockCloneMutate,
@@ -112,6 +115,14 @@ vi.mock('../hooks', () => ({
   }),
   useDeleteCollection: () => mockDeleteMutation(),
   useCloneCollection: () => mockCloneMutation(),
+  useLikeCollection: () => ({
+    mutate: mockLikeMutate,
+    isPending: false,
+  }),
+  useUnlikeCollection: () => ({
+    mutate: mockUnlikeMutate,
+    isPending: false,
+  }),
 }))
 
 // Mock comments feature
@@ -151,6 +162,8 @@ function makeCollection(
     forks_count: 0,
     forked_from_collection_id: null,
     forked_from: null,
+    like_count: 0,
+    user_likes_this: false,
     created_at: '2025-01-01T00:00:00Z',
     updated_at: '2025-01-01T00:00:00Z',
     items: [],
@@ -553,6 +566,85 @@ describe('CollectionDetail', () => {
   })
 
   // ──────────────────────────────────────────────
+  // PSY-352: like toggle on the detail header
+  // ──────────────────────────────────────────────
+
+  describe('like toggle', () => {
+    it('renders the heart button with current count for authenticated viewer', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ like_count: 12, user_likes_this: false }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      const btn = screen.getByTestId('collection-like-button')
+      expect(btn).toBeInTheDocument()
+      expect(btn).toHaveTextContent('12')
+      expect(btn).toHaveAttribute('aria-pressed', 'false')
+      expect(btn).toHaveAttribute('aria-label', 'Like collection')
+    })
+
+    it('marks the heart pressed when user_likes_this is true', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ like_count: 5, user_likes_this: true }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+      const btn = screen.getByTestId('collection-like-button')
+      expect(btn).toHaveAttribute('aria-pressed', 'true')
+      expect(btn).toHaveAttribute('aria-label', 'Unlike collection')
+    })
+
+    it('renders read-only count for anonymous viewers', () => {
+      mockAuthContext.mockReturnValue({
+        user: null,
+        isAuthenticated: false,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockCollection.mockReturnValue({
+        data: makeCollection({ like_count: 9 }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      expect(screen.getByTestId('collection-like-count')).toHaveTextContent('9')
+      expect(screen.queryByTestId('collection-like-button')).not.toBeInTheDocument()
+    })
+
+    it('calls likeCollection when an unliked heart is clicked', async () => {
+      const user = userEvent.setup()
+      mockCollection.mockReturnValue({
+        data: makeCollection({ like_count: 0, user_likes_this: false }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      await user.click(screen.getByTestId('collection-like-button'))
+      expect(mockLikeMutate).toHaveBeenCalledWith({ slug: 'test-collection' })
+      expect(mockUnlikeMutate).not.toHaveBeenCalled()
+    })
+
+    it('calls unlikeCollection when an already-liked heart is clicked', async () => {
+      const user = userEvent.setup()
+      mockCollection.mockReturnValue({
+        data: makeCollection({ like_count: 1, user_likes_this: true }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      await user.click(screen.getByTestId('collection-like-button'))
+      expect(mockUnlikeMutate).toHaveBeenCalledWith({ slug: 'test-collection' })
+      expect(mockLikeMutate).not.toHaveBeenCalled()
+    })
+  })
+
+  // ──────────────────────────────────────────────
   // PSY-348: ranked vs. unranked display mode
   // ──────────────────────────────────────────────
 
@@ -770,6 +862,129 @@ describe('CollectionDetail', () => {
       const unrankedRadio = radios.find((r) => r.value === 'unranked')!
       expect(rankedRadio).toBeChecked()
       expect(unrankedRadio).not.toBeChecked()
+    })
+  })
+
+  // ──────────────────────────────────────────────
+  // PSY-356: publish-gate banner
+  // ──────────────────────────────────────────────
+
+  describe('PSY-356 publish-gate banner', () => {
+    it('renders for creator on a public collection below the gate (items + description)', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          is_public: true,
+          item_count: 0,
+          description: '',
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="test-collection" />)
+
+      const banner = screen.getByTestId('publish-gate-banner')
+      expect(banner).toBeInTheDocument()
+      // Public + below: emphasises the browse-listing impact.
+      expect(banner.textContent).toContain("isn't appearing")
+      // Enumerates both gaps.
+      expect(banner.textContent).toContain('3 more items')
+      expect(banner.textContent).toContain('description of at least 50 characters')
+    })
+
+    it('renders pre-publish copy when creator owns a private below-gate collection', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          is_public: false,
+          item_count: 1,
+          description: 'short',
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="test-collection" />)
+
+      const banner = screen.getByTestId('publish-gate-banner')
+      expect(banner.textContent).toContain('Before publishing')
+      // Items: 1 of 3 → 2 more items.
+      expect(banner.textContent).toContain('2 more items')
+      // Existing-but-too-short description uses the "longer description" phrasing.
+      expect(banner.textContent).toContain('longer description (50+ characters)')
+    })
+
+    it('enumerates only the items gap when description already passes', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          is_public: false,
+          item_count: 2,
+          description: 'x'.repeat(60),
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="test-collection" />)
+
+      const banner = screen.getByTestId('publish-gate-banner')
+      expect(banner.textContent).toContain('1 more item')
+      expect(banner.textContent).not.toMatch(/description/)
+    })
+
+    it('enumerates only the description gap when items already pass', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          is_public: false,
+          item_count: 3,
+          description: '',
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="test-collection" />)
+
+      const banner = screen.getByTestId('publish-gate-banner')
+      expect(banner.textContent).toContain('description of at least 50 characters')
+      expect(banner.textContent).not.toMatch(/more item/)
+    })
+
+    it('does not render when the gate passes', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          is_public: true,
+          item_count: 3,
+          description: 'x'.repeat(60),
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="test-collection" />)
+      expect(screen.queryByTestId('publish-gate-banner')).not.toBeInTheDocument()
+    })
+
+    it('does not render for a non-creator viewer', () => {
+      // Viewer is user 999, collection creator is user 1.
+      mockAuthContext.mockReturnValue({
+        user: { id: '999' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          creator_id: 1,
+          is_public: true,
+          item_count: 0,
+          description: '',
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="test-collection" />)
+      expect(screen.queryByTestId('publish-gate-banner')).not.toBeInTheDocument()
     })
   })
 
