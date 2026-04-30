@@ -12,7 +12,7 @@
  * the legend/filter grammar matches the project's typed-edge palette (PSY-362).
  */
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import Link from 'next/link'
 import { Network } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -33,18 +33,23 @@ export function BillComposition({ artistId }: BillCompositionProps) {
   const { data, isLoading } = useArtistBillComposition({ artistId, months, enabled: artistId > 0 })
   const [showGraph, setShowGraph] = useState(false)
   const [containerWidth, setContainerWidth] = useState<number | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
 
-  // Same ResizeObserver pattern as RelatedArtists — null until measured so
-  // the canvas never flashes at the wrong size on first paint.
-  useEffect(() => {
-    if (!containerRef.current) return
+  // Callback ref instead of useRef + useEffect (PSY-519). Same fix that
+  // landed on SceneGraph.tsx (PSY-516/PSY-517): on first render this
+  // component returns `null` while TanStack Query is loading, so a ref-
+  // based useEffect with `[]` deps fires once with a null ref, bails, and
+  // never re-runs after the JSX mounts. A callback ref fires whenever the
+  // underlying DOM node mounts/unmounts, so we always measure the right
+  // node. Cleanup return is honored automatically (React 19).
+  const containerRefCallback = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return
+    setContainerWidth(node.getBoundingClientRect().width)
     const observer = new ResizeObserver(entries => {
       for (const entry of entries) {
         setContainerWidth(entry.contentRect.width)
       }
     })
-    observer.observe(containerRef.current)
+    observer.observe(node)
     return () => observer.disconnect()
   }, [])
 
@@ -57,7 +62,7 @@ export function BillComposition({ artistId }: BillCompositionProps) {
     containerWidth >= GRAPH_BREAKPOINT_PX
 
   return (
-    <div ref={containerRef} className="mt-8 px-4 md:px-0">
+    <div ref={containerRefCallback} className="mt-8 px-4 md:px-0">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <h2 className="text-lg font-semibold">Bill composition</h2>
         <div className="flex items-center gap-2">
