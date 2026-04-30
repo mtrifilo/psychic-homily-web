@@ -59,11 +59,29 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
   const [showGraph, setShowGraph] = useState(false)
   const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set(ALL_TYPES))
   const [showSuggest, setShowSuggest] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
   // Defer the graph render until ResizeObserver reports a real width.
   // Initialising to a hard-coded value caused the canvas to render at
   // the wrong size on first paint; null + a measured update is the fix.
   const [containerWidth, setContainerWidth] = useState<number | null>(null)
+
+  // Callback ref instead of useRef + useEffect (PSY-519). Same fix that
+  // landed on SceneGraph.tsx (PSY-516/PSY-517): on first render this
+  // component returns `null` while TanStack Query is loading, so a ref-
+  // based useEffect with `[]` deps fires once with a null ref, bails, and
+  // never re-runs after the JSX mounts. A callback ref fires whenever the
+  // underlying DOM node mounts/unmounts, so we always measure the right
+  // node. Cleanup return is honored automatically (React 19).
+  const containerRefCallback = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return
+    setContainerWidth(node.getBoundingClientRect().width)
+    const observer = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width)
+      }
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
 
   // PSY-361: re-center state. The trail is the breadcrumb of *prior*
   // centers (not including the current). Capped at MAX_TRAIL_SLOTS=3
@@ -75,18 +93,6 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
   const [slugToIdCache, setSlugToIdCache] = useState<Record<string, number>>({})
   const [announcement, setAnnouncement] = useState('')
 
-  // Measure container width for graph
-  useEffect(() => {
-    if (!containerRef.current) return
-    const observer = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width)
-      }
-    })
-    observer.observe(containerRef.current)
-    return () => observer.disconnect()
-  }, [])
-
   if (isLoading) return null
 
   const hasRelationships = originalGraph && (originalGraph.nodes.length > 0 || originalGraph.links.length > 0)
@@ -94,7 +100,7 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
   // Empty state: show header + message + suggest button for authenticated users
   if (!hasRelationships) {
     return (
-      <div ref={containerRef} className="mt-8 px-4 md:px-0">
+      <div ref={containerRefCallback} className="mt-8 px-4 md:px-0">
         <h2 className="text-lg font-semibold mb-4">Related Artists</h2>
         <p className="text-sm text-muted-foreground">
           No similar artists yet. Be the first to suggest one!
@@ -169,7 +175,7 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
     hasEnoughForGraph && containerWidth !== null && containerWidth >= 640
 
   return (
-    <div ref={containerRef} className="mt-8 px-4 md:px-0">
+    <div ref={containerRefCallback} className="mt-8 px-4 md:px-0">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Related Artists</h2>
         <div className="flex items-center gap-2">
