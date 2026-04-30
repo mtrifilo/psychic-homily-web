@@ -774,6 +774,129 @@ describe('CollectionDetail', () => {
   })
 
   // ──────────────────────────────────────────────
+  // PSY-356: publish-gate banner
+  // ──────────────────────────────────────────────
+
+  describe('PSY-356 publish-gate banner', () => {
+    it('renders for creator on a public collection below the gate (items + description)', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          is_public: true,
+          item_count: 0,
+          description: '',
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="test-collection" />)
+
+      const banner = screen.getByTestId('publish-gate-banner')
+      expect(banner).toBeInTheDocument()
+      // Public + below: emphasises the browse-listing impact.
+      expect(banner.textContent).toContain("isn't appearing")
+      // Enumerates both gaps.
+      expect(banner.textContent).toContain('3 more items')
+      expect(banner.textContent).toContain('description of at least 50 characters')
+    })
+
+    it('renders pre-publish copy when creator owns a private below-gate collection', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          is_public: false,
+          item_count: 1,
+          description: 'short',
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="test-collection" />)
+
+      const banner = screen.getByTestId('publish-gate-banner')
+      expect(banner.textContent).toContain('Before publishing')
+      // Items: 1 of 3 → 2 more items.
+      expect(banner.textContent).toContain('2 more items')
+      // Existing-but-too-short description uses the "longer description" phrasing.
+      expect(banner.textContent).toContain('longer description (50+ characters)')
+    })
+
+    it('enumerates only the items gap when description already passes', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          is_public: false,
+          item_count: 2,
+          description: 'x'.repeat(60),
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="test-collection" />)
+
+      const banner = screen.getByTestId('publish-gate-banner')
+      expect(banner.textContent).toContain('1 more item')
+      expect(banner.textContent).not.toMatch(/description/)
+    })
+
+    it('enumerates only the description gap when items already pass', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          is_public: false,
+          item_count: 3,
+          description: '',
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="test-collection" />)
+
+      const banner = screen.getByTestId('publish-gate-banner')
+      expect(banner.textContent).toContain('description of at least 50 characters')
+      expect(banner.textContent).not.toMatch(/more item/)
+    })
+
+    it('does not render when the gate passes', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          is_public: true,
+          item_count: 3,
+          description: 'x'.repeat(60),
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="test-collection" />)
+      expect(screen.queryByTestId('publish-gate-banner')).not.toBeInTheDocument()
+    })
+
+    it('does not render for a non-creator viewer', () => {
+      // Viewer is user 999, collection creator is user 1.
+      mockAuthContext.mockReturnValue({
+        user: { id: '999' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          creator_id: 1,
+          is_public: true,
+          item_count: 0,
+          description: '',
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="test-collection" />)
+      expect(screen.queryByTestId('publish-gate-banner')).not.toBeInTheDocument()
+    })
+  })
+
+  // ──────────────────────────────────────────────
   // PSY-353: contributor badge + creator attribution link
   // ──────────────────────────────────────────────
 

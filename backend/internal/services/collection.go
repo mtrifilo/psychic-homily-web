@@ -16,6 +16,24 @@ import (
 	"psychic-homily-backend/internal/utils"
 )
 
+// PSY-356: quality gates for public collection visibility.
+//
+// MinPublicCollectionItems is the minimum number of items a collection must
+// contain to appear in the public /collections browse listing. Matches
+// What.cd's "3 items" convention. Existing public collections that fall
+// below this threshold remain `is_public=true` in the DB (URL access via
+// /collections/{slug} is unaffected); they are filtered out of the browse
+// list only.
+//
+// MinPublicCollectionDescriptionChars is the minimum CHAR_LENGTH of the
+// raw description for the same gate. The collections.description column
+// is NOT NULL and defaults to "" — the SQL filter below uses CHAR_LENGTH
+// directly without an IS NOT NULL guard.
+const (
+	MinPublicCollectionItems            = 3
+	MinPublicCollectionDescriptionChars = 50
+)
+
 // CollectionService handles collection-related business logic.
 // md is the shared utils.MarkdownRenderer (goldmark + bluemonday) used to
 // render Description and per-item Notes on read. Sanitization is applied on
@@ -59,6 +77,42 @@ func (s *CollectionService) renderNotes(notes *string) string {
 	return s.renderMarkdown(*notes)
 }
 
+// validatePublishGate rejects a visibility transition that would make a
+// collection public while it falls below the items + description thresholds
+// (PSY-356). Returns nil when the gate passes. Returns an
+// ErrCollectionInvalidRequest (mapped to 400) with a precise message
+// enumerating only the missing pieces, so the caller can surface the same
+// guidance the in-app banner shows.
+func validatePublishGate(itemCount int, description string) error {
+	itemsBelow := itemCount < MinPublicCollectionItems
+	descBelow := len(description) < MinPublicCollectionDescriptionChars
+	if !itemsBelow && !descBelow {
+		return nil
+	}
+
+	itemsNeeded := MinPublicCollectionItems - itemCount
+	if itemsNeeded < 0 {
+		itemsNeeded = 0
+	}
+	switch {
+	case itemsBelow && descBelow:
+		return apperrors.ErrCollectionInvalidRequest(fmt.Sprintf(
+			"public collections require at least %d items and a description of at least %d characters (currently %d items, %d-character description)",
+			MinPublicCollectionItems, MinPublicCollectionDescriptionChars, itemCount, len(description),
+		))
+	case itemsBelow:
+		return apperrors.ErrCollectionInvalidRequest(fmt.Sprintf(
+			"public collections require at least %d items (currently %d)",
+			MinPublicCollectionItems, itemCount,
+		))
+	default:
+		return apperrors.ErrCollectionInvalidRequest(fmt.Sprintf(
+			"public collections require a description of at least %d characters (currently %d)",
+			MinPublicCollectionDescriptionChars, len(description),
+		))
+	}
+}
+
 // CreateCollection creates a new collection and auto-subscribes the creator
 func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.CreateCollectionRequest) (*contracts.CollectionDetailResponse, error) {
 	if s.db == nil {
@@ -79,6 +133,16 @@ func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.Crea
 	}
 	if len(description) > contracts.MaxCollectionDescriptionLength {
 		return nil, fmt.Errorf("description exceeds maximum length of %d characters", contracts.MaxCollectionDescriptionLength)
+	}
+
+	// PSY-356: forward gate. New collections cannot be created public —
+	// items_count is 0 at create time, so the items half of the gate
+	// always rejects. The error message also enumerates the description
+	// gap when applicable, mirroring the in-app banner copy.
+	if req.IsPublic {
+		if err := validatePublishGate(0, description); err != nil {
+			return nil, err
+		}
 	}
 
 	displayMode := models.CollectionDisplayModeUnranked
@@ -408,6 +472,15 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 
 	if filters.PublicOnly {
 		query = query.Where("is_public = ?", true)
+		// PSY-356: quality gate for browse visibility. Items count is computed
+		// later via batchCountItems(), so we can't filter post-fetch — use a
+		// correlated subquery here. description is NOT NULL (defaults to ""),
+		// so CHAR_LENGTH alone is sufficient.
+		query = query.Where(
+			"(SELECT COUNT(*) FROM collection_items ci WHERE ci.collection_id = collections.id) >= ?",
+			MinPublicCollectionItems,
+		)
+		query = query.Where("CHAR_LENGTH(description) >= ?", MinPublicCollectionDescriptionChars)
 	}
 	if filters.CreatorID > 0 {
 		query = query.Where("creator_id = ?", filters.CreatorID)
@@ -555,6 +628,28 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 		updates["cover_image_url"] = *req.CoverImageURL
 	}
 	if req.IsPublic != nil {
+		// PSY-356: forward gate at the false→true visibility transition.
+		// Other transitions are unchanged: keeping public is grandfathered
+		// (existing public collections below the gate stay editable),
+		// and going from public to private is always allowed.
+		if *req.IsPublic && !collection.IsPublic {
+			var itemCount int64
+			if err := s.db.Model(&models.CollectionItem{}).
+				Where("collection_id = ?", collection.ID).
+				Count(&itemCount).Error; err != nil {
+				return nil, fmt.Errorf("failed to count items for publish gate: %w", err)
+			}
+			// Use the patched description when the same request is updating
+			// it, so the curator can satisfy both halves of the gate in a
+			// single PATCH instead of two round-trips.
+			descToCheck := collection.Description
+			if req.Description != nil {
+				descToCheck = *req.Description
+			}
+			if err := validatePublishGate(int(itemCount), descToCheck); err != nil {
+				return nil, err
+			}
+		}
 		updates["is_public"] = *req.IsPublic
 	}
 	if req.DisplayMode != nil {
