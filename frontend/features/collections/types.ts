@@ -8,6 +8,18 @@
  */
 export const MAX_COLLECTION_MARKDOWN_LENGTH = 10000
 
+/**
+ * PSY-356: minimum thresholds for a public collection to appear in the
+ * /collections browse listing. Mirrors backend `services.MinPublicCollection*`
+ * constants — keep both sides in sync.
+ *
+ * - MIN_PUBLIC_COLLECTION_ITEMS: number of items required.
+ * - MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS: minimum CHAR_LENGTH of the raw
+ *   description (the banner copy talks about "characters" for clarity).
+ */
+export const MIN_PUBLIC_COLLECTION_ITEMS = 3
+export const MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS = 50
+
 export const COLLECTION_ENTITY_TYPES = [
   'artist',
   'release',
