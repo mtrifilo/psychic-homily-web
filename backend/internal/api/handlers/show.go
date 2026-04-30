@@ -218,6 +218,23 @@ type GetShowsRequest struct {
 	TagMatch string    `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 
+// SearchShowsRequest represents the autocomplete search request for shows.
+// PSY-520.
+type SearchShowsRequest struct {
+	Query string `query:"q" doc:"Search query. Matches show title or any bill artist name (case-insensitive)." example:"valley bar"`
+}
+
+// SearchShowsResponse represents the autocomplete search response for shows.
+// Matches the shape of SearchArtistsResponse / SearchFestivalsResponse /
+// SearchReleasesResponse so the frontend's entity-search hook handles all
+// entity types uniformly. PSY-520.
+type SearchShowsResponse struct {
+	Body struct {
+		Shows []*contracts.ShowSearchResult `json:"shows" doc:"Matching shows ordered by event_date DESC, max 20"`
+		Count int                            `json:"count" doc:"Number of results"`
+	}
+}
+
 // GetShowsResponse represents the HTTP response for listing shows
 type GetShowsResponse struct {
 	Body []*contracts.ShowResponse `json:"body"`
@@ -544,6 +561,32 @@ func (h *ShowHandler) GetShowHandler(ctx context.Context, req *GetShowRequest) (
 	)
 
 	return &GetShowResponse{Body: *show}, nil
+}
+
+// SearchShowsHandler handles GET /shows/search?q=query.
+// Returns up to 20 shows whose title or any bill artist name matches the
+// query (case-insensitive), ordered by event_date DESC.
+//
+// Empty / whitespace-only queries short-circuit to []. The service has the
+// same guard for safety; this avoids the round-trip and follows the
+// "validate at the boundary" rule from the global CLAUDE.md. PSY-520.
+func (h *ShowHandler) SearchShowsHandler(ctx context.Context, req *SearchShowsRequest) (*SearchShowsResponse, error) {
+	resp := &SearchShowsResponse{}
+	resp.Body.Shows = []*contracts.ShowSearchResult{}
+
+	// Empty / whitespace-only query returns [] without hitting the DB.
+	if strings.TrimSpace(req.Query) == "" {
+		return resp, nil
+	}
+
+	shows, err := h.showService.SearchShows(req.Query)
+	if err != nil {
+		return nil, err
+	}
+
+	resp.Body.Shows = shows
+	resp.Body.Count = len(shows)
+	return resp, nil
 }
 
 // GetShowsHandler handles GET /shows

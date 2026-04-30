@@ -25,6 +25,10 @@ type ShowServiceInterface interface {
 	GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *UpcomingShowsFilter) ([]*ShowResponse, *string, error)
 	GetShowCities(timezone string) ([]ShowCityResponse, error)
 	DeleteShow(showID uint) error
+	// SearchShows returns up to 20 shows matching the query in show title or
+	// any bill artist name (case-insensitive), ordered by event_date DESC.
+	// Empty query returns an empty slice. PSY-520.
+	SearchShows(query string) ([]*ShowSearchResult, error)
 }
 
 // ShowAdminServiceInterface defines the contract for admin show management operations
