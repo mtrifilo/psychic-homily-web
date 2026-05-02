@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -310,6 +311,218 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_FeaturedFilter()
 	s.NotNil(resp)
 	s.Equal(int64(1), resp.Body.Total)
 	s.Equal("Featured Coll", resp.Body.Collections[0].Title)
+}
+
+// ============================================================================
+// PSY-355: expanded browse search (description / notes / tag name+alias)
+// ============================================================================
+
+// seedSearchableCollection bundles the publish-gate dance with a description
+// and (optionally) an item-with-notes payload so the search-tier tests below
+// stay readable. Returns the public slug.
+func (s *CollectionHandlerIntegrationSuite) seedSearchableCollection(
+	user *models.User,
+	title, description, itemNotes string,
+) string {
+	priv, err := s.deps.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:    title,
+		IsPublic: false,
+	})
+	s.Require().NoError(err)
+
+	// PSY-356 publish gate seeds. Reuse the supplied notes on the first
+	// item so both the gate and notes-tier match share the same row.
+	for i := 0; i < MinPublicCollectionItems; i++ {
+		artist := createArtist(s.deps.db, fmt.Sprintf("%s seed %d-%d", title, i, time.Now().UnixNano()))
+		req := &contracts.AddCollectionItemRequest{
+			EntityType: "artist",
+			EntityID:   artist.ID,
+		}
+		if i == 0 && itemNotes != "" {
+			notes := itemNotes
+			req.Notes = &notes
+		}
+		_, err = s.deps.collectionService.AddItem(priv.Slug, user.ID, req)
+		s.Require().NoError(err)
+	}
+
+	// Description must be at least 50 chars to pass the publish gate; pad
+	// when the test's intent description is shorter.
+	desc := description
+	if len(desc) < 50 {
+		desc = description + " — " + strings.Repeat("seed", 16)
+	}
+	pub := true
+	_, err = s.deps.collectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+		Description: &desc,
+		IsPublic:    &pub,
+	})
+	s.Require().NoError(err)
+	return priv.Slug
+}
+
+// TestListCollections_Search_DescriptionMatch surfaces a collection whose
+// only matching field is its description.
+func (s *CollectionHandlerIntegrationSuite) TestListCollections_Search_DescriptionMatch() {
+	user := createTestUser(s.deps.db)
+	s.seedSearchableCollection(user, "Generic Title 1", "deep dive into shoegaze records", "")
+	s.seedSearchableCollection(user, "Generic Title 2", "wide-ranging mix of new wave hits", "")
+
+	req := &ListCollectionsHandlerRequest{Search: "shoegaze"}
+	resp, err := s.handler.ListCollectionsHandler(context.Background(), req)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Body.Collections, 1)
+	s.Equal("Generic Title 1", resp.Body.Collections[0].Title)
+}
+
+// TestListCollections_Search_NotesMatch surfaces a collection whose only
+// matching field is the notes on one of its items.
+func (s *CollectionHandlerIntegrationSuite) TestListCollections_Search_NotesMatch() {
+	user := createTestUser(s.deps.db)
+	s.seedSearchableCollection(user, "Plain Title One", "ordinary description text", "phenomenal myrkur set at the venue")
+	s.seedSearchableCollection(user, "Plain Title Two", "ordinary description text", "")
+
+	req := &ListCollectionsHandlerRequest{Search: "myrkur"}
+	resp, err := s.handler.ListCollectionsHandler(context.Background(), req)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Body.Collections, 1)
+	s.Equal("Plain Title One", resp.Body.Collections[0].Title)
+}
+
+// TestListCollections_Search_TagNameMatch surfaces a collection whose only
+// matching field is an applied tag's name.
+func (s *CollectionHandlerIntegrationSuite) TestListCollections_Search_TagNameMatch() {
+	user := createTestUser(s.deps.db)
+	s.promoteContributorForTags(user)
+
+	taggedSlug := s.seedSearchableCollection(user, "Untitled Mix Alpha", "ordinary description text", "")
+	s.seedSearchableCollection(user, "Untitled Mix Beta", "ordinary description text", "")
+
+	ctx := ctxWithUser(user)
+	tagReq := &AddCollectionTagHandlerRequest{Slug: taggedSlug}
+	tagReq.Body.TagName = "darkwave"
+	_, err := s.handler.AddCollectionTagHandler(ctx, tagReq)
+	s.Require().NoError(err)
+
+	req := &ListCollectionsHandlerRequest{Search: "darkwave"}
+	resp, err := s.handler.ListCollectionsHandler(context.Background(), req)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Body.Collections, 1)
+	s.Equal("Untitled Mix Alpha", resp.Body.Collections[0].Title)
+}
+
+// TestListCollections_Search_TagAliasMatch surfaces a collection whose only
+// matching field is an alias on an applied tag.
+func (s *CollectionHandlerIntegrationSuite) TestListCollections_Search_TagAliasMatch() {
+	user := createTestUser(s.deps.db)
+	s.promoteContributorForTags(user)
+
+	taggedSlug := s.seedSearchableCollection(user, "Alpha Catalog", "ordinary description text", "")
+	s.seedSearchableCollection(user, "Beta Catalog", "ordinary description text", "")
+
+	tag, err := s.deps.tagService.CreateTag("post-rock", nil, nil, models.TagCategoryGenre, false, &user.ID)
+	s.Require().NoError(err)
+	s.Require().NoError(s.deps.db.Create(&models.TagAlias{
+		TagID: tag.ID,
+		Alias: "postrock",
+	}).Error)
+
+	ctx := ctxWithUser(user)
+	tagReq := &AddCollectionTagHandlerRequest{Slug: taggedSlug}
+	tagReq.Body.TagID = tag.ID
+	_, err = s.handler.AddCollectionTagHandler(ctx, tagReq)
+	s.Require().NoError(err)
+
+	req := &ListCollectionsHandlerRequest{Search: "postrock"}
+	resp, err := s.handler.ListCollectionsHandler(context.Background(), req)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Body.Collections, 1)
+	s.Equal("Alpha Catalog", resp.Body.Collections[0].Title)
+}
+
+// TestListCollections_Search_RelevanceTierOrder seeds four collections each
+// matched in a different tier and verifies title > description > notes > tag.
+func (s *CollectionHandlerIntegrationSuite) TestListCollections_Search_RelevanceTierOrder() {
+	user := createTestUser(s.deps.db)
+	s.promoteContributorForTags(user)
+
+	tagOnlySlug := s.seedSearchableCollection(user, "Tag Only Title", "ordinary description text", "")
+	notesOnlySlug := s.seedSearchableCollection(user, "Notes Only Title", "ordinary description text", "magnetar reverb pedal noted here")
+	descOnlySlug := s.seedSearchableCollection(user, "Description Only Title", "a deep magnetar synth treatise", "")
+	titleOnlySlug := s.seedSearchableCollection(user, "Magnetar Best Of", "ordinary description text", "")
+
+	ctx := ctxWithUser(user)
+	tagReq := &AddCollectionTagHandlerRequest{Slug: tagOnlySlug}
+	tagReq.Body.TagName = "magnetar"
+	_, err := s.handler.AddCollectionTagHandler(ctx, tagReq)
+	s.Require().NoError(err)
+
+	req := &ListCollectionsHandlerRequest{Search: "magnetar"}
+	resp, err := s.handler.ListCollectionsHandler(context.Background(), req)
+	s.Require().NoError(err)
+	s.Require().Len(resp.Body.Collections, 4)
+
+	// Verify the tier order. Resolve slugs back to titles so the assertion
+	// failure messages are informative if the order regresses.
+	s.Equal(titleOnlySlug, resp.Body.Collections[0].Slug, "tier 1 (title) leads")
+	s.Equal(descOnlySlug, resp.Body.Collections[1].Slug, "tier 2 (description) second")
+	s.Equal(notesOnlySlug, resp.Body.Collections[2].Slug, "tier 3 (notes) third")
+	s.Equal(tagOnlySlug, resp.Body.Collections[3].Slug, "tier 4 (tag) last")
+}
+
+// TestListCollections_Search_DistinctMultiFieldMatch confirms a collection
+// matched on multiple tiers appears exactly once. Guards against a JOIN-style
+// fan-out regression.
+func (s *CollectionHandlerIntegrationSuite) TestListCollections_Search_DistinctMultiFieldMatch() {
+	user := createTestUser(s.deps.db)
+	s.promoteContributorForTags(user)
+
+	taggedSlug := s.seedSearchableCollection(user, "Krautrock Essentials",
+		"a tour through krautrock for the curious", "krautrock cornerstone")
+
+	ctx := ctxWithUser(user)
+	tagReq := &AddCollectionTagHandlerRequest{Slug: taggedSlug}
+	tagReq.Body.TagName = "krautrock"
+	_, err := s.handler.AddCollectionTagHandler(ctx, tagReq)
+	s.Require().NoError(err)
+
+	req := &ListCollectionsHandlerRequest{Search: "krautrock"}
+	resp, err := s.handler.ListCollectionsHandler(context.Background(), req)
+	s.Require().NoError(err)
+	s.Equal(int64(1), resp.Body.Total)
+	s.Require().Len(resp.Body.Collections, 1)
+}
+
+// TestListCollections_Search_EmptyShortCircuits verifies an empty/whitespace
+// query disables the predicate at the handler boundary (mirrors PSY-520).
+func (s *CollectionHandlerIntegrationSuite) TestListCollections_Search_EmptyShortCircuits() {
+	user := createTestUser(s.deps.db)
+	s.createCollectionViaService(user, "Alpha Coll", true)
+	s.createCollectionViaService(user, "Beta Coll", true)
+
+	req := &ListCollectionsHandlerRequest{Search: ""}
+	resp, err := s.handler.ListCollectionsHandler(context.Background(), req)
+	s.Require().NoError(err)
+	s.Equal(int64(2), resp.Body.Total)
+
+	req = &ListCollectionsHandlerRequest{Search: "   \t  "}
+	resp, err = s.handler.ListCollectionsHandler(context.Background(), req)
+	s.Require().NoError(err)
+	s.Equal(int64(2), resp.Body.Total)
+}
+
+// TestListCollections_Search_TitleStillMatches is regression coverage that
+// the existing title-only path still works after the OR expansion.
+func (s *CollectionHandlerIntegrationSuite) TestListCollections_Search_TitleStillMatches() {
+	user := createTestUser(s.deps.db)
+	s.seedSearchableCollection(user, "Phoenix Punk Bands", "ordinary description text", "")
+	s.seedSearchableCollection(user, "Chicago Jazz Venues", "ordinary description text", "")
+
+	req := &ListCollectionsHandlerRequest{Search: "punk"}
+	resp, err := s.handler.ListCollectionsHandler(context.Background(), req)
+	s.Require().NoError(err)
+	s.Equal(int64(1), resp.Body.Total)
+	s.Equal("Phoenix Punk Bands", resp.Body.Collections[0].Title)
 }
 
 // ============================================================================

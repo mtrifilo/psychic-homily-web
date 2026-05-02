@@ -448,6 +448,290 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBy
 	suite.Equal("Phoenix Punk Bands", resp[0].Title)
 }
 
+// =============================================================================
+// PSY-355: expanded search across description, item notes, and tag names
+// =============================================================================
+
+// updateCollectionDescription patches a collection's description without
+// flipping visibility. Used by search tests that need to seed a description
+// containing the search term while keeping the collection private (so the
+// PSY-356 publish gate doesn't get in the way).
+func (suite *CollectionServiceIntegrationTestSuite) updateCollectionDescription(slug string, userID uint, description string) {
+	desc := description
+	_, err := suite.collectionService.UpdateCollection(slug, userID, false,
+		&contracts.UpdateCollectionRequest{Description: &desc})
+	suite.Require().NoError(err)
+}
+
+// addItemWithNotes seeds a collection_item with the given notes so search
+// tests can exercise the notes-tier match. Uses a fresh artist per call so
+// the duplicate-item guard in AddItem doesn't reject repeated calls.
+func (suite *CollectionServiceIntegrationTestSuite) addItemWithNotes(slug string, userID uint, notes string) {
+	artist := suite.createTestArtist(fmt.Sprintf("notes-seed-%d", time.Now().UnixNano()))
+	notesPtr := notes
+	_, err := suite.collectionService.AddItem(slug, userID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityArtist,
+		EntityID:   artist.ID,
+		Notes:      &notesPtr,
+	})
+	suite.Require().NoError(err)
+}
+
+// TestListCollections_FilterBySearch_DescriptionMatch covers the
+// description-tier branch of the OR-clause: a collection whose title doesn't
+// match but whose description does should appear in the result set.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_DescriptionMatch() {
+	user := suite.createTestUser("DescriptionSearcher")
+	target := suite.createBasicCollection(user, "Generic Title One")
+	suite.createBasicCollection(user, "Generic Title Two")
+
+	suite.updateCollectionDescription(target.Slug, user.ID,
+		"a curated dive into shoegaze classics from the 90s")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "shoegaze"}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(target.ID, resp[0].ID)
+}
+
+// TestListCollections_FilterBySearch_NotesMatch covers the notes-tier branch:
+// match when only an item's notes contain the term.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_NotesMatch() {
+	user := suite.createTestUser("NotesSearcher")
+	target := suite.createBasicCollection(user, "Boring Title")
+	suite.createBasicCollection(user, "Other Boring Title")
+
+	suite.addItemWithNotes(target.Slug, user.ID,
+		"saw them open for slowdive at the warehouse — wall of sound")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "slowdive"}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(target.ID, resp[0].ID)
+}
+
+// TestListCollections_FilterBySearch_TagNameMatch covers the tag-name branch
+// of the OR-clause and confirms the polymorphic entity_tags subquery
+// resolves correctly for entity_type='collection'.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_TagNameMatch() {
+	user := suite.createTestUser("TagSearcher")
+	suite.promoteContributor(user)
+
+	target := suite.createBasicCollection(user, "Untitled Mix")
+	suite.createBasicCollection(user, "Other Untitled")
+
+	_, err := suite.collectionService.AddTagToCollection(target.Slug, user.ID,
+		&contracts.AddCollectionTagRequest{TagName: "post-punk"})
+	suite.Require().NoError(err)
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "post-punk"}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(target.ID, resp[0].ID)
+}
+
+// TestListCollections_FilterBySearch_TagAliasMatch verifies that the
+// LEFT JOIN tag_aliases branch resolves alias matches. Seed a tag with an
+// alias row, then query by the alias text — the collection tagged with the
+// canonical name should surface.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_TagAliasMatch() {
+	user := suite.createTestUser("AliasSearcher")
+	suite.promoteContributor(user)
+
+	target := suite.createBasicCollection(user, "Alias Target")
+	suite.createBasicCollection(user, "Alias Distractor")
+
+	tag, err := suite.tagService.CreateTag("psychedelic-rock", nil, nil, models.TagCategoryGenre, false, &user.ID)
+	suite.Require().NoError(err)
+
+	// Seed an alias row directly — the tag service's public surface for
+	// alias creation isn't exercised here; we just need the row.
+	suite.Require().NoError(suite.db.Create(&models.TagAlias{
+		TagID: tag.ID,
+		Alias: "psych-rock",
+	}).Error)
+
+	_, err = suite.collectionService.AddTagToCollection(target.Slug, user.ID,
+		&contracts.AddCollectionTagRequest{TagID: tag.ID})
+	suite.Require().NoError(err)
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "psych-rock"}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(target.ID, resp[0].ID)
+}
+
+// TestListCollections_FilterBySearch_DistinctMultiFieldMatch verifies that a
+// collection matching the term in multiple fields (title + description, in
+// this case) appears exactly once. The OR-clause on its own would not
+// duplicate rows, but the tag/notes EXISTS subqueries can return multiple
+// rows for collections with multiple items / tags — confirm we don't
+// accidentally regress to a JOIN-style fan-out.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_DistinctMultiFieldMatch() {
+	user := suite.createTestUser("DistinctSearcher")
+	suite.promoteContributor(user)
+
+	target := suite.createBasicCollection(user, "Krautrock Essentials")
+	suite.updateCollectionDescription(target.Slug, user.ID,
+		"a tour through krautrock for the curious listener")
+	// Add a tag and a noted item that also reference the same term to make
+	// sure the multi-tier match still de-duplicates to a single row.
+	_, err := suite.collectionService.AddTagToCollection(target.Slug, user.ID,
+		&contracts.AddCollectionTagRequest{TagName: "krautrock"})
+	suite.Require().NoError(err)
+	suite.addItemWithNotes(target.Slug, user.ID, "krautrock cornerstone")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "krautrock"}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(target.ID, resp[0].ID)
+}
+
+// TestListCollections_FilterBySearch_RelevanceTierOrder seeds four
+// collections each matched in a different tier (title / description / notes
+// / tag) and verifies the result order: title > description > notes > tag.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_RelevanceTierOrder() {
+	user := suite.createTestUser("RelevanceSearcher")
+	suite.promoteContributor(user)
+
+	// Tier 4 — only tag matches.
+	tagOnly := suite.createBasicCollection(user, "Tag Only Collection")
+	_, err := suite.collectionService.AddTagToCollection(tagOnly.Slug, user.ID,
+		&contracts.AddCollectionTagRequest{TagName: "rocketship"})
+	suite.Require().NoError(err)
+
+	// Tier 3 — only item notes match.
+	notesOnly := suite.createBasicCollection(user, "Notes Only Collection")
+	suite.addItemWithNotes(notesOnly.Slug, user.ID, "rocketship-only-note-here")
+
+	// Tier 2 — only description matches.
+	descOnly := suite.createBasicCollection(user, "Description Only Collection")
+	suite.updateCollectionDescription(descOnly.Slug, user.ID, "a deep dive into rocketship sounds")
+
+	// Tier 1 — title matches.
+	titleOnly := suite.createBasicCollection(user, "Rocketship Best Of")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "rocketship"}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(4), total)
+	suite.Require().Len(resp, 4)
+	suite.Equal(titleOnly.ID, resp[0].ID, "tier 1: title match leads")
+	suite.Equal(descOnly.ID, resp[1].ID, "tier 2: description match second")
+	suite.Equal(notesOnly.ID, resp[2].ID, "tier 3: notes match third")
+	suite.Equal(tagOnly.ID, resp[3].ID, "tier 4: tag match last")
+}
+
+// TestListCollections_FilterBySearch_EmptyShortCircuits confirms an empty
+// string disables the search predicate. (The handler also short-circuits
+// before reaching the service; this guards the service-direct path used by
+// internal callers and tests.)
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_EmptyShortCircuits() {
+	user := suite.createTestUser("EmptySearch")
+	suite.createBasicCollection(user, "Alpha")
+	suite.createBasicCollection(user, "Beta")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: ""}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total)
+	suite.Len(resp, 2)
+}
+
+// TestListCollections_FilterBySearch_WhitespaceShortCircuits is the same as
+// the empty case but with a whitespace-only query — the service trims it
+// and skips the predicate. Mirrors PSY-520's whitespace guard.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_WhitespaceShortCircuits() {
+	user := suite.createTestUser("WhitespaceSearch")
+	suite.createBasicCollection(user, "Alpha")
+	suite.createBasicCollection(user, "Beta")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "   \t  "}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total)
+	suite.Len(resp, 2)
+}
+
+// TestListCollections_FilterBySearch_PopularSortOverridesRelevance verifies
+// that an explicit ?sort=popular wins over relevance ranking when both
+// search and sort are set. The user's deliberate sort choice always wins.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_PopularSortOverridesRelevance() {
+	user := suite.createTestUser("SortOverride")
+
+	// All three collections match the search term but in different tiers.
+	// With relevance ordering: title > description > notes. With popular
+	// sort: order is by likes (none here) then updated_at DESC.
+	titleMatch := suite.createBasicCollection(user, "Indie Anthems")
+	descMatch := suite.createBasicCollection(user, "Eclectic Mix")
+	suite.updateCollectionDescription(descMatch.Slug, user.ID, "indie playlist seed for the year")
+
+	// Verify the explicit Sort knob is respected — we don't assert the
+	// exact ordering popular produces (that's covered elsewhere) but we
+	// confirm the call succeeds and surfaces both rows. The relevance
+	// tier-order test above proves the default-sort path.
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{
+			Search: "indie",
+			Sort:   contracts.CollectionSortPopular,
+		}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total)
+	suite.Require().Len(resp, 2)
+	// Both rows present — order is popular-driven, not relevance-driven.
+	ids := []uint{resp[0].ID, resp[1].ID}
+	suite.Contains(ids, titleMatch.ID)
+	suite.Contains(ids, descMatch.ID)
+}
+
+// TestListCollections_FilterBySearch_CaseInsensitive confirms ILIKE behavior:
+// searching for "PUNK" (uppercase) matches a collection titled "Phoenix punk
+// bands" (lowercase). Existing case test for the title only; this widens the
+// guarantee.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_CaseInsensitive() {
+	user := suite.createTestUser("CaseSearcher")
+	target := suite.createBasicCollection(user, "Generic Title")
+	suite.updateCollectionDescription(target.Slug, user.ID,
+		"a deep look at GLITCH electronics from Berlin")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "glitch"}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(target.ID, resp[0].ID)
+}
+
 func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterByFeatured() {
 	user := suite.createTestUser("FeaturedLister")
 	coll := suite.createBasicCollection(user, "Featured Collection")
