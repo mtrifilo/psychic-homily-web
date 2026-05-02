@@ -217,6 +217,14 @@ export interface CollectionItem {
   entity_id: number
   entity_name: string
   entity_slug: string
+  /**
+   * PSY-360: representative image for the entity. Today only release
+   * (cover_art_url) and festival (flyer_url) populate this field; the four
+   * other types currently surface as nil and the UI renders a typed Lucide
+   * icon as a fallback. May be `null` (DB column null), `undefined`
+   * (older response shape) or a non-empty string.
+   */
+  image_url?: string | null
   position: number
   added_by_user_id: number
   added_by_name: string

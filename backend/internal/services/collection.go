@@ -1820,8 +1820,11 @@ func (s *CollectionService) buildItemResponses(items []models.CollectionItem) []
 		}
 	}
 
-	// Batch-resolve entity names and slugs
-	entityNames, entitySlugs := s.batchResolveEntityNames(entityIDsByType)
+	// Batch-resolve entity names, slugs, and images. Images are returned as a
+	// separate map (rather than folded into the names/slugs tuple) because
+	// only release + festival populate it today, and a separate map keeps the
+	// nil-vs-empty distinction clean per row (PSY-360).
+	entityNames, entitySlugs, entityImages := s.batchResolveEntityNames(entityIDsByType)
 
 	// Batch-resolve user names
 	userNames := s.batchResolveUserNames(userIDs)
@@ -1836,6 +1839,7 @@ func (s *CollectionService) buildItemResponses(items []models.CollectionItem) []
 			EntityID:      item.EntityID,
 			EntityName:    entityNames[key],
 			EntitySlug:    entitySlugs[key],
+			ImageURL:      entityImages[key],
 			Position:      item.Position,
 			AddedByUserID: item.AddedByUserID,
 			AddedByName:   userNames[item.AddedByUserID],
@@ -1848,10 +1852,16 @@ func (s *CollectionService) buildItemResponses(items []models.CollectionItem) []
 	return responses
 }
 
-// batchResolveEntityNames resolves names and slugs for groups of entities by type
-func (s *CollectionService) batchResolveEntityNames(entityIDsByType map[string][]uint) (map[string]string, map[string]string) {
+// batchResolveEntityNames resolves names, slugs, and image URLs for groups of
+// entities by type. Image URLs are pulled for the two entity tables that
+// already store a canonical image (release.cover_art_url, festival.flyer_url);
+// the other types (artist/venue/show/label) have no image column yet, so the
+// returned image map has no key for those rows and the caller surfaces nil
+// (PSY-360).
+func (s *CollectionService) batchResolveEntityNames(entityIDsByType map[string][]uint) (map[string]string, map[string]string, map[string]*string) {
 	names := make(map[string]string)
 	slugs := make(map[string]string)
+	images := make(map[string]*string)
 
 	for entityType, ids := range entityIDsByType {
 		if len(ids) == 0 {
@@ -1896,13 +1906,14 @@ func (s *CollectionService) batchResolveEntityNames(entityIDsByType map[string][
 
 		case models.CollectionEntityRelease:
 			var releases []models.Release
-			s.db.Select("id, title, slug").Where("id IN ?", ids).Find(&releases)
+			s.db.Select("id, title, slug, cover_art_url").Where("id IN ?", ids).Find(&releases)
 			for _, r := range releases {
 				key := fmt.Sprintf("%s:%d", entityType, r.ID)
 				names[key] = r.Title
 				if r.Slug != nil {
 					slugs[key] = *r.Slug
 				}
+				images[key] = nonEmptyImageURL(r.CoverArtURL)
 			}
 
 		case models.CollectionEntityLabel:
@@ -1918,16 +1929,33 @@ func (s *CollectionService) batchResolveEntityNames(entityIDsByType map[string][
 
 		case models.CollectionEntityFestival:
 			var festivals []models.Festival
-			s.db.Select("id, name, slug").Where("id IN ?", ids).Find(&festivals)
+			s.db.Select("id, name, slug, flyer_url").Where("id IN ?", ids).Find(&festivals)
 			for _, f := range festivals {
 				key := fmt.Sprintf("%s:%d", entityType, f.ID)
 				names[key] = f.Name
 				slugs[key] = f.Slug
+				images[key] = nonEmptyImageURL(f.FlyerURL)
 			}
 		}
 	}
 
-	return names, slugs
+	return names, slugs, images
+}
+
+// nonEmptyImageURL normalizes an entity's nullable image column. Returns nil
+// when the source is nil OR when the stored value is whitespace-only — both
+// cases mean "no image" to the frontend grid (PSY-360). Without this, an
+// empty string would render an `<img src="">` tag in the browser, which most
+// browsers turn into a broken-image icon.
+func nonEmptyImageURL(src *string) *string {
+	if src == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*src)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 // batchCountItems returns item counts per collection ID
