@@ -299,6 +299,7 @@ func setupShowRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/shows", showHandler.GetShowsHandler)
 	huma.Get(rc.API, "/shows/cities", showHandler.GetShowCitiesHandler)
 	huma.Get(rc.API, "/shows/upcoming", showHandler.GetUpcomingShowsHandler)
+	huma.Get(rc.API, "/shows/search", showHandler.SearchShowsHandler)
 
 	// Show detail with optional auth for access control on non-approved shows
 	optionalAuthGroup := huma.NewGroup(rc.API, "")

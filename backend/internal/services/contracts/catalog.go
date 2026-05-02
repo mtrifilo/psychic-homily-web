@@ -167,6 +167,24 @@ type ShowCityResponse struct {
 	ShowCount int    `json:"show_count"`
 }
 
+// ShowSearchResult is the row shape returned by GET /shows/search.
+// Contains just enough data for the frontend's
+// "{Headliner} @ {Venue} · {Date}" entity-search label, without the cost of
+// hydrating the full ShowResponse (artists slice, venues slice, etc).
+//
+// Headliner resolution mirrors the existing convention used elsewhere in
+// catalog/show.go (e.g. checkDuplicateHeadlinerConflicts): the headliner is
+// the show_artists row with set_type = 'headliner', falling back to position
+// = 0. There is no `is_headliner` column on show_artists. PSY-520.
+type ShowSearchResult struct {
+	ID            uint      `json:"id"`
+	Slug          string    `json:"slug"`
+	Title         string    `json:"title"`
+	HeadlinerName string    `json:"headliner_name"`
+	VenueName     string    `json:"venue_name"`
+	EventDate     time.Time `json:"event_date"`
+}
+
 // OrphanedArtist represents an artist with no remaining show associations.
 type OrphanedArtist struct {
 	ID   uint   `json:"id"`
