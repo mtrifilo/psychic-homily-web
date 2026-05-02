@@ -207,10 +207,10 @@ describe('CollectionItemCard', () => {
           />
         )
 
-        // Both the image-area link AND the title link should point at
-        // the entity. Querying by the visible name picks the title link.
-        const titleLink = screen.getByRole('link', { name: 'Some Entity' })
-        expect(titleLink).toHaveAttribute('href', expectedHref)
+        // The card is one wrapping <a> covering image + title; assert the
+        // single link points at the entity URL.
+        const cardLink = screen.getByRole('link')
+        expect(cardLink).toHaveAttribute('href', expectedHref)
       }
     )
   })
@@ -233,8 +233,8 @@ describe('CollectionItemCard', () => {
           />
         )
 
-        const titleLink = screen.getByRole('link', { name: 'Density Probe' })
-        expect(titleLink.className).toContain(expectedClass)
+        const titleEl = screen.getByTestId('collection-item-card-title')
+        expect(titleEl.className).toContain(expectedClass)
       }
     )
   })

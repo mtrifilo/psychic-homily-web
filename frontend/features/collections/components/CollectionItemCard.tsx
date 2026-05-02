@@ -90,91 +90,82 @@ export function CollectionItemCard({
       data-testid="collection-item-card"
       data-entity-type={item.entity_type}
     >
-      {/* Square image / fallback area. The whole tile is a link to the
-          entity detail page so the click target is generous on touch. */}
+      {/* Single navigation target — image area and title live inside one
+          <a> so two links to the same href don't fight strict-mode
+          getByRole resolutions (Playwright). Caption + attribution stay
+          outside so inline links in markdown notes remain independent. */}
       <Link
         href={entityUrl}
-        className={cn(
-          'group relative block aspect-square overflow-hidden rounded-lg',
-          'border border-border/50 bg-muted/40',
-          'transition-shadow hover:shadow-sm',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-        )}
+        className="group flex flex-col gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={`${item.entity_name} (${typeLabel})`}
       >
-        {hasImage ? (
-          // Plain <img> matches the CollectionCard / ReleaseCard /
-          // existing CollectionDetail patterns. We can't use next/image
-          // for arbitrary external URLs (Bandcamp art, festival flyers)
-          // without an admin-curated `images.remotePatterns`, which is
-          // out of scope for PSY-360.
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            src={item.image_url ?? ''}
-            alt=""
-            className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]"
-            data-testid="collection-item-card-image"
-          />
-        ) : (
-          <div
-            className="flex h-full w-full items-center justify-center"
-            data-testid="collection-item-card-fallback"
-          >
-            <Icon
-              className={cn(
-                'text-muted-foreground/50',
-                ICON_SIZE_CLASSES[density]
-              )}
-              aria-hidden="true"
+        <div
+          className={cn(
+            'relative block aspect-square overflow-hidden rounded-lg',
+            'border border-border/50 bg-muted/40',
+            'transition-shadow group-hover:shadow-sm'
+          )}
+        >
+          {hasImage ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={item.image_url ?? ''}
+              alt=""
+              className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]"
+              data-testid="collection-item-card-image"
             />
-          </div>
-        )}
+          ) : (
+            <div
+              className="flex h-full w-full items-center justify-center"
+              data-testid="collection-item-card-fallback"
+            >
+              <Icon
+                className={cn(
+                  'text-muted-foreground/50',
+                  ICON_SIZE_CLASSES[density]
+                )}
+                aria-hidden="true"
+              />
+            </div>
+          )}
 
-        {/* Position badge (top-right). Only rendered for ranked mode where
-            the parent passes a 1-indexed position. Semi-transparent dark
-            background so it remains legible over both image and icon
-            backgrounds. */}
-        {position !== undefined && (
+          {position !== undefined && (
+            <span
+              className={cn(
+                'absolute right-1.5 top-1.5 rounded px-1.5 py-0.5',
+                'bg-black/60 text-white font-semibold tabular-nums',
+                density === 'compact' ? 'text-xs' : 'text-sm'
+              )}
+              data-testid="collection-item-card-position"
+              aria-label={`Position ${position}`}
+            >
+              {position}
+            </span>
+          )}
+
           <span
             className={cn(
-              'absolute right-1.5 top-1.5 rounded px-1.5 py-0.5',
-              'bg-black/60 text-white font-semibold tabular-nums',
-              density === 'compact' ? 'text-xs' : 'text-sm'
+              'absolute left-1.5 top-1.5 rounded px-1.5 py-0.5',
+              'bg-black/60 text-white font-medium uppercase tracking-wide',
+              density === 'compact' ? 'text-[9px]' : 'text-[10px]'
             )}
-            data-testid="collection-item-card-position"
-            aria-label={`Position ${position}`}
+            aria-hidden="true"
           >
-            {position}
+            {typeLabel}
           </span>
-        )}
+        </div>
 
-        {/* Entity-type chip (top-left) — small, subtle, lets the visual
-            still dominate. Useful when many entity types share a grid. */}
-        <span
+        <p
           className={cn(
-            'absolute left-1.5 top-1.5 rounded px-1.5 py-0.5',
-            'bg-black/60 text-white font-medium uppercase tracking-wide',
-            density === 'compact' ? 'text-[9px]' : 'text-[10px]'
+            'font-medium text-foreground group-hover:text-primary transition-colors',
+            'line-clamp-2',
+            TITLE_SIZE_CLASSES[density]
           )}
-          aria-hidden="true"
+          title={item.entity_name}
+          data-testid="collection-item-card-title"
         >
-          {typeLabel}
-        </span>
-      </Link>
-
-      {/* Title — always present below the tile, never inside it. Keeping
-          it outside means the image stays a true square regardless of
-          how long the entity name is. */}
-      <Link
-        href={entityUrl}
-        className={cn(
-          'block font-medium text-foreground hover:text-primary transition-colors',
-          'line-clamp-2',
-          TITLE_SIZE_CLASSES[density]
-        )}
-        title={item.entity_name}
-      >
-        {item.entity_name}
+          {item.entity_name}
+        </p>
       </Link>
 
       {/* Caption — server-rendered markdown notes. Always visible (never
