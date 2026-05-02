@@ -8,6 +8,7 @@ import { venueEndpoints } from '@/features/venues/api'
 import { releaseEndpoints } from '@/features/releases/api'
 import { labelEndpoints } from '@/features/labels/api'
 import { festivalEndpoints } from '@/features/festivals/api'
+import { showEndpoints } from '@/features/shows/api'
 
 // ============================================================================
 // Types
@@ -19,7 +20,7 @@ export interface EntitySearchResult {
   name: string
   /** Subtitle info (e.g., city/state, release type, year) */
   subtitle: string | null
-  entityType: 'artist' | 'venue' | 'release' | 'label' | 'festival' | 'tag'
+  entityType: 'artist' | 'venue' | 'show' | 'release' | 'label' | 'festival' | 'tag'
   href: string
   /**
    * Only populated for tag results — surfaces the curated-tag mark in the
@@ -31,6 +32,7 @@ export interface EntitySearchResult {
 export interface EntitySearchResults {
   artists: EntitySearchResult[]
   venues: EntitySearchResult[]
+  shows: EntitySearchResult[]
   releases: EntitySearchResult[]
   labels: EntitySearchResult[]
   festivals: EntitySearchResult[]
@@ -52,6 +54,18 @@ interface VenueSearchItem {
   name: string
   city?: string
   state?: string
+}
+
+// PSY-372 / PSY-520: GET /shows/search row shape. Field names mirror
+// backend `contracts.ShowSearchResult` exactly (snake_case on the wire).
+// `event_date` is an ISO 8601 string per Go's time.Time JSON marshalling.
+interface ShowSearchItem {
+  id: number
+  slug: string
+  title: string
+  headliner_name: string
+  venue_name: string
+  event_date: string
 }
 
 interface ReleaseSearchItem {
@@ -120,6 +134,45 @@ function mapVenue(v: VenueSearchItem): EntitySearchResult {
   }
 }
 
+// PSY-372: shows are most recognizable by headliner+venue+date. Most shows
+// have auto-generated titles, so we synthesize the full identifier label
+// here and put it in `name`. Format mirrors the ticket spec exactly:
+// "{Headliner} @ {Venue} · {Date}" (e.g. "Faetooth @ Valley Bar · Apr 15, 2026").
+//
+// Date formatting: the search row only carries the ISO event_date — there's
+// no venue timezone in the payload to localize against, and search labels
+// are identification, not show-up-time. Using the user's locale here is
+// fine; venue-timezone formatting is reserved for show-detail UIs.
+function mapShow(s: ShowSearchItem): EntitySearchResult {
+  const date = new Date(s.event_date)
+  const dateLabel = Number.isNaN(date.getTime())
+    ? ''
+    : date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      })
+
+  // Each segment is conditionally appended so a missing field (sparse data)
+  // doesn't leak orphan separators into the label.
+  const parts: string[] = []
+  if (s.headliner_name) parts.push(s.headliner_name)
+  if (s.venue_name) parts.push(`@ ${s.venue_name}`)
+  // Join headliner + venue with a space so we get "Faetooth @ Valley Bar".
+  const left = parts.join(' ')
+  const label =
+    left && dateLabel ? `${left} · ${dateLabel}` : left || dateLabel || s.title
+
+  return {
+    id: s.id,
+    slug: s.slug,
+    name: label,
+    subtitle: null,
+    entityType: 'show',
+    href: `/shows/${s.slug}`,
+  }
+}
+
 function mapRelease(r: ReleaseSearchItem): EntitySearchResult {
   const parts: string[] = []
   if (r.release_type) parts.push(r.release_type)
@@ -183,13 +236,16 @@ async function fetchEntitySearch(query: string): Promise<EntitySearchResults> {
   const encoded = encodeURIComponent(query)
 
   // Fire all requests in parallel; if individual ones fail, return empty arrays
-  const [artists, venues, releases, labels, festivals, tags] = await Promise.all([
+  const [artists, venues, shows, releases, labels, festivals, tags] = await Promise.all([
     apiRequest<{ artists: ArtistSearchItem[]; count: number }>(
       `${artistEndpoints.SEARCH}?q=${encoded}`
     ).catch(() => ({ artists: [], count: 0 })),
     apiRequest<{ venues: VenueSearchItem[]; count: number }>(
       `${venueEndpoints.SEARCH}?q=${encoded}`
     ).catch(() => ({ venues: [], count: 0 })),
+    apiRequest<{ shows: ShowSearchItem[]; count: number }>(
+      `${showEndpoints.SEARCH}?q=${encoded}`
+    ).catch(() => ({ shows: [], count: 0 })),
     apiRequest<{ releases: ReleaseSearchItem[]; count: number }>(
       `${releaseEndpoints.SEARCH}?q=${encoded}`
     ).catch(() => ({ releases: [], count: 0 })),
@@ -207,6 +263,7 @@ async function fetchEntitySearch(query: string): Promise<EntitySearchResults> {
   return {
     artists: (artists.artists || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapArtist),
     venues: (venues.venues || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapVenue),
+    shows: (shows.shows || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapShow),
     releases: (releases.releases || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapRelease),
     labels: (labels.labels || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapLabel),
     festivals: (festivals.festivals || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapFestival),
@@ -221,6 +278,7 @@ async function fetchEntitySearch(query: string): Promise<EntitySearchResults> {
 const EMPTY_RESULTS: EntitySearchResults = {
   artists: [],
   venues: [],
+  shows: [],
   releases: [],
   labels: [],
   festivals: [],
@@ -228,8 +286,9 @@ const EMPTY_RESULTS: EntitySearchResults = {
 }
 
 /**
- * Hook for searching entities across all types (artists, venues, releases, labels, festivals, tags).
- * Used in the Cmd+K command palette to provide entity results alongside page navigation.
+ * Hook for searching entities across all types (artists, venues, shows,
+ * releases, labels, festivals, tags). Used by the collection-detail
+ * "Add Items" search panel and the Cmd+K command palette.
  *
  * Returns results grouped by entity type, limited to 5 per type.
  * Debounces input by default (300ms) and requires at least 2 characters.
@@ -256,6 +315,7 @@ export function useEntitySearch(options: {
   const totalResults =
     (result.data?.artists.length ?? 0) +
     (result.data?.venues.length ?? 0) +
+    (result.data?.shows.length ?? 0) +
     (result.data?.releases.length ?? 0) +
     (result.data?.labels.length ?? 0) +
     (result.data?.festivals.length ?? 0) +
