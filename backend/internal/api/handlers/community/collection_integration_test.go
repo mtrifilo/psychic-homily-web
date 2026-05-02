@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
@@ -1161,10 +1162,221 @@ func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_FlipPublicBelow
 }
 
 // ============================================================================
-// mapCollectionError
+// shared.MapCollectionError
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestMapCollectionError_NotFound() {
-	err := mapCollectionError(fmt.Errorf("generic error"))
+	err := shared.MapCollectionError(fmt.Errorf("generic error"))
 	s.Nil(err, "non-CollectionError should return nil")
+}
+
+// ============================================================================
+// PSY-354: collection tag endpoints
+// ============================================================================
+
+// promoteContributorForTags lifts a user above the new_user trust tier so the
+// inline-tag-creation path passes (otherwise free-form tag names get a 403
+// from the tag service's createTagInline gate). The trust-tier gate itself
+// is covered in catalog/tag_service_test.go — these tests focus on the
+// collection-side behavior.
+func (s *CollectionHandlerIntegrationSuite) promoteContributorForTags(user *models.User) {
+	s.Require().NoError(s.deps.DB.Model(&models.User{}).
+		Where("id = ?", user.ID).
+		Update("user_tier", "contributor").Error)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestAddCollectionTag_Success() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	s.promoteContributorForTags(user)
+	coll := s.createCollectionViaService(user, "Tagged Coll", false)
+
+	ctx := testhelpers.CtxWithUser(user)
+	req := &AddCollectionTagHandlerRequest{Slug: coll.Slug}
+	req.Body.TagName = "first-tag"
+
+	resp, err := s.handler.AddCollectionTagHandler(ctx, req)
+	s.NoError(err)
+	s.Require().NotNil(resp)
+	s.Require().Len(resp.Body.Tags, 1)
+	s.Equal("first-tag", resp.Body.Tags[0].Name)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestAddCollectionTag_NoAuth() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	coll := s.createCollectionViaService(user, "Need Auth", false)
+
+	req := &AddCollectionTagHandlerRequest{Slug: coll.Slug}
+	req.Body.TagName = "no-auth"
+
+	_, err := s.handler.AddCollectionTagHandler(context.Background(), req)
+	testhelpers.AssertHumaError(s.T(), err, 401)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestAddCollectionTag_MissingArgs() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	s.promoteContributorForTags(user)
+	coll := s.createCollectionViaService(user, "Missing Args", false)
+
+	ctx := testhelpers.CtxWithUser(user)
+	req := &AddCollectionTagHandlerRequest{Slug: coll.Slug}
+	// no tag_id, no tag_name
+
+	_, err := s.handler.AddCollectionTagHandler(ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 400)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestAddCollectionTag_NonOwner_Forbidden() {
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	stranger := testhelpers.CreateTestUser(s.deps.DB)
+	s.promoteContributorForTags(stranger)
+	coll := s.createCollectionViaService(owner, "Solo Owner", false)
+	// createCollectionViaService leaves Collaborative=false (CreateCollection's
+	// GORM-bool dance), so the stranger cannot tag the collection.
+
+	ctx := testhelpers.CtxWithUser(stranger)
+	req := &AddCollectionTagHandlerRequest{Slug: coll.Slug}
+	req.Body.TagName = "stranger-tag"
+
+	_, err := s.handler.AddCollectionTagHandler(ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 403)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestAddCollectionTag_LimitExceeded() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	s.promoteContributorForTags(user)
+	coll := s.createCollectionViaService(user, "Capped Collection", false)
+	ctx := testhelpers.CtxWithUser(user)
+
+	for i := 0; i < contracts.MaxCollectionTags; i++ {
+		r := &AddCollectionTagHandlerRequest{Slug: coll.Slug}
+		r.Body.TagName = fmt.Sprintf("cap-%d", i)
+		_, err := s.handler.AddCollectionTagHandler(ctx, r)
+		s.Require().NoError(err)
+	}
+
+	r := &AddCollectionTagHandlerRequest{Slug: coll.Slug}
+	r.Body.TagName = "one-too-many"
+	_, err := s.handler.AddCollectionTagHandler(ctx, r)
+	testhelpers.AssertHumaError(s.T(), err, 400)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestRemoveCollectionTag_Success() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	s.promoteContributorForTags(user)
+	coll := s.createCollectionViaService(user, "Remove Tag", false)
+	ctx := testhelpers.CtxWithUser(user)
+
+	addReq := &AddCollectionTagHandlerRequest{Slug: coll.Slug}
+	addReq.Body.TagName = "to-remove"
+	addResp, err := s.handler.AddCollectionTagHandler(ctx, addReq)
+	s.Require().NoError(err)
+	s.Require().Len(addResp.Body.Tags, 1)
+	tagID := addResp.Body.Tags[0].TagID
+
+	delReq := &RemoveCollectionTagHandlerRequest{
+		Slug:  coll.Slug,
+		TagID: fmt.Sprintf("%d", tagID),
+	}
+	_, err = s.handler.RemoveCollectionTagHandler(ctx, delReq)
+	s.NoError(err)
+
+	// Verify it's gone via the detail endpoint.
+	getResp, err := s.handler.GetCollectionHandler(ctx, &GetCollectionHandlerRequest{Slug: coll.Slug})
+	s.Require().NoError(err)
+	s.Empty(getResp.Body.Tags)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestRemoveCollectionTag_NoAuth() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	s.promoteContributorForTags(user)
+	coll := s.createCollectionViaService(user, "Auth Needed Remove", false)
+	ctx := testhelpers.CtxWithUser(user)
+
+	addReq := &AddCollectionTagHandlerRequest{Slug: coll.Slug}
+	addReq.Body.TagName = "tagged"
+	addResp, err := s.handler.AddCollectionTagHandler(ctx, addReq)
+	s.Require().NoError(err)
+	tagID := addResp.Body.Tags[0].TagID
+
+	delReq := &RemoveCollectionTagHandlerRequest{
+		Slug:  coll.Slug,
+		TagID: fmt.Sprintf("%d", tagID),
+	}
+	_, err = s.handler.RemoveCollectionTagHandler(context.Background(), delReq)
+	testhelpers.AssertHumaError(s.T(), err, 401)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestRemoveCollectionTag_InvalidID() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	coll := s.createCollectionViaService(user, "Invalid ID", false)
+
+	delReq := &RemoveCollectionTagHandlerRequest{
+		Slug:  coll.Slug,
+		TagID: "not-a-number",
+	}
+	_, err := s.handler.RemoveCollectionTagHandler(testhelpers.CtxWithUser(user), delReq)
+	testhelpers.AssertHumaError(s.T(), err, 400)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestGetCollection_SurfacesTags() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	s.promoteContributorForTags(user)
+	coll := s.createCollectionViaService(user, "Surface Tags", false)
+	ctx := testhelpers.CtxWithUser(user)
+
+	addReq := &AddCollectionTagHandlerRequest{Slug: coll.Slug}
+	addReq.Body.TagName = "surfaced"
+	_, err := s.handler.AddCollectionTagHandler(ctx, addReq)
+	s.Require().NoError(err)
+
+	getResp, err := s.handler.GetCollectionHandler(ctx, &GetCollectionHandlerRequest{Slug: coll.Slug})
+	s.Require().NoError(err)
+	s.Require().Len(getResp.Body.Tags, 1)
+	s.Equal("surfaced", getResp.Body.Tags[0].Name)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestListCollections_TagFilter() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	s.promoteContributorForTags(user)
+
+	tagged := s.createCollectionViaService(user, "Tagged Browse", true)
+	s.createCollectionViaService(user, "Untagged Browse", true)
+
+	ctx := testhelpers.CtxWithUser(user)
+	addReq := &AddCollectionTagHandlerRequest{Slug: tagged.Slug}
+	addReq.Body.TagName = "browse-filter-tag"
+	_, err := s.handler.AddCollectionTagHandler(ctx, addReq)
+	s.Require().NoError(err)
+
+	// Filter by the tag.
+	listReq := &ListCollectionsHandlerRequest{Tag: "browse-filter-tag"}
+	listResp, err := s.handler.ListCollectionsHandler(context.Background(), listReq)
+	s.Require().NoError(err)
+	s.Equal(int64(1), listResp.Body.Total)
+	s.Require().Len(listResp.Body.Collections, 1)
+	s.Equal(tagged.ID, listResp.Body.Collections[0].ID)
+
+	// No filter — both surface.
+	listReq = &ListCollectionsHandlerRequest{}
+	listResp, err = s.handler.ListCollectionsHandler(context.Background(), listReq)
+	s.Require().NoError(err)
+	s.Equal(int64(2), listResp.Body.Total)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestListCollections_PopulatesTags() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	s.promoteContributorForTags(user)
+	tagged := s.createCollectionViaService(user, "Browse Tags", true)
+
+	ctx := testhelpers.CtxWithUser(user)
+	addReq := &AddCollectionTagHandlerRequest{Slug: tagged.Slug}
+	addReq.Body.TagName = "browse-chip"
+	_, err := s.handler.AddCollectionTagHandler(ctx, addReq)
+	s.Require().NoError(err)
+
+	listResp, err := s.handler.ListCollectionsHandler(context.Background(), &ListCollectionsHandlerRequest{})
+	s.Require().NoError(err)
+	s.Require().Len(listResp.Body.Collections, 1)
+	s.Require().Len(listResp.Body.Collections[0].Tags, 1)
+	s.Equal("browse-chip", listResp.Body.Collections[0].Tags[0].Name)
 }

@@ -143,6 +143,13 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	commentNotificationSvc := engagement.NewCommentNotificationService(database, email, cfg.JWT.SecretKey, cfg.Email.FrontendURL)
 	commentSvc.SetNotifier(commentNotificationSvc)
 
+	// PSY-354: collections get tag support via the polymorphic entity_tags
+	// system. Wire the tag service into the collection service so curators
+	// can apply/remove tags + the get/list responses can surface chips.
+	collectionSvc := NewCollectionService(database)
+	tagSvc := catalog.NewTagService(database)
+	collectionSvc.SetTagService(tagSvc)
+
 	return &ServiceContainer{
 		// DB-only leaf services
 		AdminStats:         adminsvc.NewAdminStatsService(database),
@@ -158,9 +165,9 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		AuditLog:      adminsvc.NewAuditLogService(database),
 		Bookmark:      engagement.NewBookmarkService(database),
 		Calendar:      engagement.NewCalendarService(database, savedShow),
-		Collection:    NewCollectionService(database),
+		Collection:    collectionSvc,
 		Request:       NewRequestService(database),
-		Tag:                catalog.NewTagService(database),
+		Tag:                tagSvc,
 		ArtistRelationship: artistRelSvc,
 		Scene:              catalog.NewSceneService(database),
 		Attendance:         engagement.NewAttendanceService(database),

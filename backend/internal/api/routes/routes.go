@@ -757,6 +757,14 @@ func setupCollectionRoutes(rc RouteContext) {
 	huma.Post(rc.Protected, "/crates/{slug}/like", collectionLikeHandler.LikeCollectionHandler)
 	huma.Delete(rc.Protected, "/crates/{slug}/like", collectionLikeHandler.UnlikeCollectionHandler)
 
+	// PSY-354: collection tag management. Same edit-access rule as
+	// AddItem (creator OR collaborative-and-authenticated). Both
+	// /collections/ and /crates/ paths registered for backward compat.
+	huma.Post(rc.Protected, "/collections/{slug}/tags", collectionHandler.AddCollectionTagHandler)
+	huma.Delete(rc.Protected, "/collections/{slug}/tags/{tag_id}", collectionHandler.RemoveCollectionTagHandler)
+	huma.Post(rc.Protected, "/crates/{slug}/tags", collectionHandler.AddCollectionTagHandler)
+	huma.Delete(rc.Protected, "/crates/{slug}/tags/{tag_id}", collectionHandler.RemoveCollectionTagHandler)
+
 	// Admin: feature/unfeature collections — canonical /collections/ paths
 	huma.Put(rc.Protected, "/collections/{slug}/feature", collectionHandler.SetFeaturedHandler)
 

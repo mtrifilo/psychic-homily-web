@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Plus, Search, Library, Star, Clock, TrendingUp, User } from 'lucide-react'
+import { Plus, Search, Library, Star, Clock, TrendingUp, User, X } from 'lucide-react'
 import { useDebounce } from 'use-debounce'
 import { useCollections, useMyCollections, useCreateCollection } from '../hooks'
 import { CollectionCard } from './CollectionCard'
@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   COLLECTION_ENTITY_TYPES,
   getEntityTypeLabel,
@@ -33,6 +33,7 @@ type BrowseTab = 'all' | 'popular' | 'recent' | 'featured' | 'yours'
 export function CollectionList() {
   const { isAuthenticated } = useAuthContext()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<BrowseTab>('all')
   const [searchInput, setSearchInput] = useState('')
@@ -49,6 +50,22 @@ export function CollectionList() {
   // is the canonical ranking and includes recency-bias.
   const isPopularTab = activeTab === 'popular'
 
+  // PSY-354: URL-driven tag filter. The chip on collection cards links to
+  // `/collections?tag=<slug>`; reading from the URL keeps the filter
+  // shareable + back-button-restorable. Single-tag for the MVP.
+  const tagFilter = searchParams.get('tag') ?? ''
+
+  // Clear the active tag pill — pushes a URL without `tag=`. Use
+  // router.replace so the back button doesn't bounce back into the
+  // filtered view (the filter clear is part of the same navigation
+  // intent, not a separate history entry).
+  const handleClearTag = () => {
+    const next = new URLSearchParams(searchParams.toString())
+    next.delete('tag')
+    const qs = next.toString()
+    router.replace(qs ? `/collections?${qs}` : '/collections', { scroll: false })
+  }
+
   // Fetch public collections (with search + featured + entity-type filters)
   const {
     data: publicData,
@@ -60,6 +77,7 @@ export function CollectionList() {
     featured: isFeaturedTab || undefined,
     entityType: entityTypeFilter === 'all' ? undefined : entityTypeFilter,
     sort: isPopularTab ? 'popular' : undefined,
+    tag: tagFilter || undefined,
   })
 
   // Fetch user's own collections (only when on "yours" tab and authenticated)
@@ -176,7 +194,7 @@ export function CollectionList() {
         </TabsList>
 
         {/* Entity type filter chips */}
-        <div className="mb-6 flex flex-wrap gap-1.5" role="group" aria-label="Filter by entity type">
+        <div className="mb-3 flex flex-wrap gap-1.5" role="group" aria-label="Filter by entity type">
           <TypeChip
             active={entityTypeFilter === 'all'}
             onClick={() => setEntityTypeFilter('all')}
@@ -191,6 +209,38 @@ export function CollectionList() {
             />
           ))}
         </div>
+
+        {/* PSY-354: active tag-filter pill. Distinct from the entity-type
+            chips above (those are toggleable filters; this is a "you are
+            currently filtering" indicator with an X-to-clear). Empty when
+            ?tag=<slug> isn't present in the URL. */}
+        {tagFilter && (
+          <div
+            className="mb-6 flex flex-wrap items-center gap-2 text-sm"
+            role="status"
+            aria-live="polite"
+            data-testid="collection-tag-filter-pill"
+          >
+            <span className="text-muted-foreground">Tagged with</span>
+            <span
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5',
+                'border-primary/40 bg-primary/10 text-primary'
+              )}
+            >
+              <span className="font-medium">{tagFilter}</span>
+              <button
+                type="button"
+                onClick={handleClearTag}
+                aria-label={`Clear tag filter (${tagFilter})`}
+                className="rounded-full p-0.5 hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-ring"
+                data-testid="collection-tag-filter-clear"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          </div>
+        )}
 
         {/* All tab content areas render the same grid — content differs by data source */}
         {tabs.map((tab) => (

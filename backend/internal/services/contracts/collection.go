@@ -76,6 +76,10 @@ type CollectionFilters struct {
 	// Carried on the filter struct so we can populate UserLikesThis on each
 	// list row without changing the function signature. PSY-352.
 	ViewerID uint
+	// Tag is the slug of a single tag to filter the listing by (PSY-354).
+	// Empty string means no tag filter. Multi-tag filtering is intentionally
+	// out of scope for the MVP — the URL surface stays `?tag=<slug>`.
+	Tag string
 }
 
 // CollectionSortPopular is the recognized sort value for the HN-gravity
@@ -125,9 +129,14 @@ type CollectionDetailResponse struct {
 	LikeCount int `json:"like_count"`
 	// UserLikesThis is true when the authenticated viewer has liked this
 	// collection. Always false for anonymous viewers. PSY-352.
-	UserLikesThis bool      `json:"user_likes_this"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	UserLikesThis bool `json:"user_likes_this"`
+	// Tags applied to this collection (PSY-354). Always non-nil — empty
+	// array when the collection has no tags. Reuses the polymorphic
+	// EntityTagResponse so the same chip component renders here as on
+	// artist/release/etc detail pages.
+	Tags      []EntityTagResponse `json:"tags"`
+	CreatedAt time.Time           `json:"created_at"`
+	UpdatedAt time.Time           `json:"updated_at"`
 }
 
 // ForkedFromInfo carries the minimum data needed to render the
@@ -178,9 +187,13 @@ type CollectionListResponse struct {
 	LikeCount int `json:"like_count"`
 	// UserLikesThis is true when the authenticated viewer has liked this
 	// collection. Always false for anonymous viewers. PSY-352.
-	UserLikesThis bool      `json:"user_likes_this"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	UserLikesThis bool `json:"user_likes_this"`
+	// Tags applied to this collection (PSY-354). Reuses TagSummary so list
+	// rows stay lightweight (no vote counts on cards). Always non-nil; empty
+	// array when the collection has no tags.
+	Tags      []TagSummary `json:"tags"`
+	CreatedAt time.Time    `json:"created_at"`
+	UpdatedAt time.Time    `json:"updated_at"`
 }
 
 // CollectionItemResponse represents an item in a collection.
@@ -222,6 +235,28 @@ type CollectionLikeResponse struct {
 	UserLikesThis bool `json:"user_likes_this"`
 }
 
+// MaxCollectionTags is the cap on tag applications per collection (PSY-354).
+// Mirrors the modest tag bar the rest of the project applies to entity
+// tagging — collections aren't the canonical taxonomy, and a 10-tag ceiling
+// keeps cards readable while still allowing meaningful classification.
+const MaxCollectionTags = 10
+
+// AddCollectionTagRequest is the body for POST /collections/{slug}/tags
+// (PSY-354). Mirrors the Add-Tag-To-Entity endpoint: callers either pass a
+// known tag_id or a free-form tag_name (with alias resolution + inline
+// creation gated by trust tier in the tag service).
+type AddCollectionTagRequest struct {
+	TagID    uint   `json:"tag_id"`
+	TagName  string `json:"tag_name"`
+	Category string `json:"category"`
+}
+
+// AddCollectionTagResponse returns the post-mutation tag list so the
+// frontend can refresh chips without a follow-up GET.
+type AddCollectionTagResponse struct {
+	Tags []EntityTagResponse `json:"tags"`
+}
+
 // CollectionServiceInterface defines the contract for collection operations.
 type CollectionServiceInterface interface {
 	CreateCollection(creatorID uint, req *CreateCollectionRequest) (*CollectionDetailResponse, error)
@@ -249,4 +284,12 @@ type CollectionServiceInterface interface {
 	GetUserPublicCollections(userID uint, limit, offset int) ([]*CollectionListResponse, int64, error)
 	GetUserPublicCollectionsByUsername(username string, limit, offset int) ([]*CollectionListResponse, int64, error)
 	SetFeatured(slug string, featured bool) error
+	// AddTagToCollection applies a tag to a collection (PSY-354). Caller must
+	// have edit access (creator OR collaborative-and-authenticated, mirroring
+	// AddItem). Enforces MaxCollectionTags. Returns the post-mutation tag
+	// list.
+	AddTagToCollection(slug string, userID uint, req *AddCollectionTagRequest) (*AddCollectionTagResponse, error)
+	// RemoveTagFromCollection removes a tag from a collection (PSY-354).
+	// Same edit-access rule as AddTagToCollection.
+	RemoveTagFromCollection(slug string, tagID uint, userID uint) error
 }

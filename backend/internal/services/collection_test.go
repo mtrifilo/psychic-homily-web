@@ -11,6 +11,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -24,13 +25,18 @@ type CollectionServiceIntegrationTestSuite struct {
 	testDB            *testutil.TestDatabase
 	db                *gorm.DB
 	collectionService *CollectionService
+	// tagService is wired into collectionService so the PSY-354 test paths
+	// (tag rendering on detail/list, AddTagToCollection, RemoveTagFromCollection)
+	// exercise the same code production uses.
+	tagService *catalog.TagService
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) SetupSuite() {
 	suite.testDB = testutil.SetupTestPostgres(suite.T())
 	suite.db = suite.testDB.DB
 
-	suite.collectionService = &CollectionService{db: suite.testDB.DB}
+	suite.tagService = catalog.NewTagService(suite.testDB.DB)
+	suite.collectionService = &CollectionService{db: suite.testDB.DB, tagService: suite.tagService}
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TearDownSuite() {
@@ -41,6 +47,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
 	// Delete in FK-safe order
+	// PSY-354: clear polymorphic tag links + votes before users (added_by FKs
+	// are NOT ON DELETE CASCADE, so leaked rows would block user deletion).
+	_, _ = sqlDB.Exec("DELETE FROM tag_votes")
+	_, _ = sqlDB.Exec("DELETE FROM entity_tags")
 	_, _ = sqlDB.Exec("DELETE FROM collection_likes")
 	_, _ = sqlDB.Exec("DELETE FROM collection_subscribers")
 	_, _ = sqlDB.Exec("DELETE FROM collection_items")
@@ -58,6 +68,9 @@ func (suite *CollectionServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM festival_artists")
 	_, _ = sqlDB.Exec("DELETE FROM festival_venues")
 	_, _ = sqlDB.Exec("DELETE FROM festivals")
+	// Tag corpus last — LOWER(name) unique would collide between tests.
+	_, _ = sqlDB.Exec("DELETE FROM tag_aliases")
+	_, _ = sqlDB.Exec("DELETE FROM tags")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
@@ -2050,4 +2063,288 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCloneCollection_AutoPass
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), total, "source + clone both pass the gate")
 	suite.Len(resp, 2)
+}
+
+// =============================================================================
+// PSY-354: Collection tags
+// =============================================================================
+//
+// Tags reuse the polymorphic entity_tags table. Coverage:
+//   - Add by free-form name creates the tag inline + applies it.
+//   - Add reuses an existing tag when one is found by name.
+//   - Add enforces MaxCollectionTags (rejects 11th).
+//   - Permission rule: creator OR collaborative-and-authenticated; otherwise 403.
+//   - Remove unapplies the tag and decrements usage_count.
+//   - Detail / list responses surface tags.
+//   - ListCollections accepts ?tag=<slug> and filters correctly.
+
+// promoteContributor flips a test user's tier to "contributor" so the tag
+// service's createTagInline gate (new_user → 403) doesn't reject the test
+// path. createTestUser doesn't set UserTier, so the DB default ("new_user")
+// applies — identical to the dogfooded gate, which we want to side-step
+// for the bulk of these tests since the trust-tier gate is covered in
+// catalog/tag_service_test.go.
+func (suite *CollectionServiceIntegrationTestSuite) promoteContributor(user *models.User) {
+	suite.Require().NoError(suite.db.Model(&models.User{}).
+		Where("id = ?", user.ID).
+		Update("user_tier", "contributor").Error)
+}
+
+// TestAddTagToCollection_ByName_HappyPath creates the tag inline and surfaces
+// it on the post-mutation response.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_ByName_HappyPath() {
+	creator := suite.createTestUser("TagCreator")
+	suite.promoteContributor(creator)
+	coll := suite.createBasicCollection(creator, "Tagged Collection")
+
+	resp, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "best-of-2026"})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Require().Len(resp.Tags, 1)
+	suite.Equal("best-of-2026", resp.Tags[0].Name)
+	suite.Equal("other", resp.Tags[0].Category, "default category for new collection tags is 'other'")
+}
+
+// TestAddTagToCollection_ByID applies an existing tag without creating a new one.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_ByID() {
+	creator := suite.createTestUser("TagCreator")
+	suite.promoteContributor(creator)
+	coll := suite.createBasicCollection(creator, "By ID Collection")
+
+	// Pre-create a tag.
+	tag, err := suite.tagService.CreateTag("phoenix", nil, nil, models.TagCategoryLocale, false, &creator.ID)
+	suite.Require().NoError(err)
+
+	resp, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagID: tag.ID})
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Tags, 1)
+	suite.Equal(tag.ID, resp.Tags[0].TagID)
+	suite.Equal("phoenix", resp.Tags[0].Name)
+	suite.Equal("locale", resp.Tags[0].Category, "category preserved when applying an existing tag")
+}
+
+// TestAddTagToCollection_DefaultCategory_OtherForFreeForm verifies that a
+// free-form tag name without a category gets "other" rather than picking
+// up "genre" by default — the rest of the tag system defaults to genre,
+// but collection meta-tags rarely fit that taxonomy.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_DefaultCategory_OtherForFreeForm() {
+	creator := suite.createTestUser("TagCreator")
+	suite.promoteContributor(creator)
+	coll := suite.createBasicCollection(creator, "Default Category Test")
+
+	resp, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "post-show-essentials"})
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Tags, 1)
+	suite.Equal("other", resp.Tags[0].Category)
+}
+
+// TestAddTagToCollection_MaxLimit_Rejects11th hits the cap and verifies the
+// 400 carries the cap + current count.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_MaxLimit_Rejects11th() {
+	creator := suite.createTestUser("CapCreator")
+	suite.promoteContributor(creator)
+	coll := suite.createBasicCollection(creator, "Capped Collection")
+
+	for i := 0; i < contracts.MaxCollectionTags; i++ {
+		_, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+			&contracts.AddCollectionTagRequest{TagName: fmt.Sprintf("cap-tag-%d", i)})
+		suite.Require().NoError(err, "failed adding tag %d", i)
+	}
+
+	_, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "one-too-many"})
+	suite.Require().Error(err)
+	var collErr *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionTagLimitExceeded, collErr.Code)
+	suite.Contains(collErr.Message, "10 tags")
+}
+
+// TestAddTagToCollection_NonOwner_NonCollaborative_Rejected covers the
+// permission gate: a non-creator on a non-collaborative collection cannot
+// add tags. PSY-354. createBasicCollection's GORM-bool dance lands the
+// collection as Collaborative=false by default, which is the state we want.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_NonOwner_NonCollaborative_Rejected() {
+	creator := suite.createTestUser("Owner")
+	stranger := suite.createTestUser("Stranger")
+	suite.promoteContributor(stranger)
+
+	coll := suite.createBasicCollection(creator, "Solo Curator")
+	suite.Require().False(coll.Collaborative, "expected default Collaborative=false from createBasicCollection")
+
+	_, err := suite.collectionService.AddTagToCollection(coll.Slug, stranger.ID,
+		&contracts.AddCollectionTagRequest{TagName: "intruder-tag"})
+	suite.Require().Error(err)
+	var collErr *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionForbidden, collErr.Code)
+}
+
+// TestAddTagToCollection_Collaborator_Allowed verifies the open path: any
+// authenticated user can tag a collaborative collection. createBasicCollection
+// defaults to Collaborative=false (per CreateCollection's GORM-bool dance);
+// flip it explicitly with UpdateCollection so the test exercises the
+// collaborative branch of canEditCollectionTags.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_Collaborator_Allowed() {
+	creator := suite.createTestUser("Owner")
+	collaborator := suite.createTestUser("Helper")
+	suite.promoteContributor(collaborator)
+
+	coll := suite.createBasicCollection(creator, "Collab Curator")
+	collab := true
+	_, err := suite.collectionService.UpdateCollection(coll.Slug, creator.ID, false,
+		&contracts.UpdateCollectionRequest{Collaborative: &collab})
+	suite.Require().NoError(err)
+
+	resp, err := suite.collectionService.AddTagToCollection(coll.Slug, collaborator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "community-pick"})
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Tags, 1)
+	suite.Equal("community-pick", resp.Tags[0].Name)
+}
+
+// TestAddTagToCollection_NotFound returns 404-shaped error.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_NotFound() {
+	user := suite.createTestUser("AnyUser")
+	suite.promoteContributor(user)
+	_, err := suite.collectionService.AddTagToCollection("does-not-exist-slug", user.ID,
+		&contracts.AddCollectionTagRequest{TagName: "tag"})
+	suite.Require().Error(err)
+	var collErr *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionNotFound, collErr.Code)
+}
+
+// TestAddTagToCollection_MissingArgs rejects bodies without tag_id or tag_name.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_MissingArgs() {
+	creator := suite.createTestUser("Owner")
+	suite.promoteContributor(creator)
+	coll := suite.createBasicCollection(creator, "Missing Args")
+
+	_, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{})
+	suite.Require().Error(err)
+	var collErr *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionInvalidRequest, collErr.Code)
+}
+
+// TestRemoveTagFromCollection_Success removes the application and the tag
+// disappears from the detail response.
+func (suite *CollectionServiceIntegrationTestSuite) TestRemoveTagFromCollection_Success() {
+	creator := suite.createTestUser("Owner")
+	suite.promoteContributor(creator)
+	coll := suite.createBasicCollection(creator, "Remove Tag Test")
+
+	resp, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "to-be-removed"})
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Tags, 1)
+	tagID := resp.Tags[0].TagID
+
+	suite.Require().NoError(suite.collectionService.RemoveTagFromCollection(coll.Slug, tagID, creator.ID))
+
+	detail, err := suite.collectionService.GetBySlug(coll.Slug, creator.ID)
+	suite.Require().NoError(err)
+	suite.Empty(detail.Tags, "removed tag must drop from the detail response")
+}
+
+// TestRemoveTagFromCollection_NonOwner_Rejected mirrors the add gate.
+func (suite *CollectionServiceIntegrationTestSuite) TestRemoveTagFromCollection_NonOwner_Rejected() {
+	creator := suite.createTestUser("Owner")
+	stranger := suite.createTestUser("Stranger")
+	suite.promoteContributor(creator)
+
+	coll := suite.createBasicCollection(creator, "Solo Curator Removal")
+	suite.Require().False(coll.Collaborative, "expected default Collaborative=false")
+
+	resp, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "owner-only"})
+	suite.Require().NoError(err)
+	tagID := resp.Tags[0].TagID
+
+	err = suite.collectionService.RemoveTagFromCollection(coll.Slug, tagID, stranger.ID)
+	suite.Require().Error(err)
+	var collErr *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionForbidden, collErr.Code)
+}
+
+// TestGetBySlug_PopulatesTags verifies tags surface on the detail response.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_PopulatesTags() {
+	creator := suite.createTestUser("Curator")
+	suite.promoteContributor(creator)
+	coll := suite.createBasicCollection(creator, "Detail With Tags")
+
+	for _, name := range []string{"genre-foo", "vibe-bar"} {
+		_, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+			&contracts.AddCollectionTagRequest{TagName: name})
+		suite.Require().NoError(err)
+	}
+
+	detail, err := suite.collectionService.GetBySlug(coll.Slug, creator.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Tags, 2)
+
+	names := []string{detail.Tags[0].Name, detail.Tags[1].Name}
+	suite.Contains(names, "genre-foo")
+	suite.Contains(names, "vibe-bar")
+}
+
+// TestListCollections_PopulatesTagSummaries verifies tag chips appear on
+// list cards.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_PopulatesTagSummaries() {
+	creator := suite.createTestUser("Curator")
+	suite.promoteContributor(creator)
+	coll := suite.createPublicCollection(creator, "List With Tags")
+
+	_, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "card-tag"})
+	suite.Require().NoError(err)
+
+	resp, _, err := suite.collectionService.ListCollections(contracts.CollectionFilters{PublicOnly: true}, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Require().Len(resp[0].Tags, 1)
+	suite.Equal("card-tag", resp[0].Tags[0].Name)
+}
+
+// TestListCollections_FilterByTag returns only collections matching the
+// given tag slug.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterByTag() {
+	creator := suite.createTestUser("Curator")
+	suite.promoteContributor(creator)
+
+	tagged := suite.createPublicCollection(creator, "Tagged List")
+	suite.createPublicCollection(creator, "Untagged List")
+
+	addResp, err := suite.collectionService.AddTagToCollection(tagged.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "indie-2026"})
+	suite.Require().NoError(err)
+	suite.Require().Len(addResp.Tags, 1)
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{PublicOnly: true, Tag: "indie-2026"}, 20, 0,
+	)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(tagged.ID, resp[0].ID)
+}
+
+// TestListCollections_FilterByTag_Unknown returns empty when no collection
+// has the requested tag.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterByTag_Unknown() {
+	creator := suite.createTestUser("Curator")
+	suite.createPublicCollection(creator, "Some Collection")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{PublicOnly: true, Tag: "no-such-tag-slug-xyz"}, 20, 0,
+	)
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), total)
+	suite.Empty(resp)
 }

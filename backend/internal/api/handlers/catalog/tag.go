@@ -2,14 +2,13 @@ package catalog
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
-	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
@@ -288,7 +287,14 @@ func (h *TagHandler) AddTagToEntityHandler(ctx context.Context, req *AddTagToEnt
 
 	_, err = h.tagService.AddTagToEntity(req.Body.TagID, req.Body.TagName, req.EntityType, uint(entityID), user.ID, req.Body.Category)
 	if err != nil {
-		mapped := mapTagError(err)
+		// PSY-354: AddTagToEntity returns a CollectionError when the
+		// per-collection cap is hit. Check the collection-domain mapping
+		// first so the 400 reaches the caller; otherwise fall through to
+		// the tag-domain mapping.
+		if mapped := shared.MapCollectionError(err); mapped != nil {
+			return nil, mapped
+		}
+		mapped := shared.MapTagError(err)
 		if mapped != nil {
 			return nil, mapped
 		}
@@ -328,7 +334,7 @@ func (h *TagHandler) RemoveTagFromEntityHandler(ctx context.Context, req *Remove
 
 	err = h.tagService.RemoveTagFromEntity(uint(tagID), req.EntityType, uint(entityID))
 	if err != nil {
-		mapped := mapTagError(err)
+		mapped := shared.MapTagError(err)
 		if mapped != nil {
 			return nil, mapped
 		}
@@ -368,7 +374,7 @@ func (h *TagHandler) VoteTagHandler(ctx context.Context, req *VoteTagRequest) (*
 
 	err = h.tagService.VoteOnTag(uint(tagID), req.EntityType, uint(entityID), user.ID, req.Body.IsUpvote)
 	if err != nil {
-		mapped := mapTagError(err)
+		mapped := shared.MapTagError(err)
 		if mapped != nil {
 			return nil, mapped
 		}
@@ -447,7 +453,7 @@ func (h *TagHandler) CreateTagHandler(ctx context.Context, req *CreateTagRequest
 
 	tag, err := h.tagService.CreateTag(req.Body.Name, req.Body.Description, req.Body.ParentID, req.Body.Category, req.Body.IsOfficial, &user.ID)
 	if err != nil {
-		mapped := mapTagError(err)
+		mapped := shared.MapTagError(err)
 		if mapped != nil {
 			return nil, mapped
 		}
@@ -512,7 +518,7 @@ func (h *TagHandler) UpdateTagHandler(ctx context.Context, req *UpdateTagRequest
 
 	tag, err := h.tagService.UpdateTag(uint(id), req.Body.Name, req.Body.Description, req.Body.ParentID, req.Body.Category, req.Body.IsOfficial)
 	if err != nil {
-		mapped := mapTagError(err)
+		mapped := shared.MapTagError(err)
 		if mapped != nil {
 			return nil, mapped
 		}
@@ -554,7 +560,7 @@ func (h *TagHandler) DeleteTagHandler(ctx context.Context, req *DeleteTagRequest
 
 	err = h.tagService.DeleteTag(uint(id))
 	if err != nil {
-		mapped := mapTagError(err)
+		mapped := shared.MapTagError(err)
 		if mapped != nil {
 			return nil, mapped
 		}
@@ -645,7 +651,7 @@ func (h *TagHandler) CreateAliasHandler(ctx context.Context, req *CreateAliasReq
 
 	alias, err := h.tagService.CreateAlias(uint(id), req.Body.Alias)
 	if err != nil {
-		mapped := mapTagError(err)
+		mapped := shared.MapTagError(err)
 		if mapped != nil {
 			return nil, mapped
 		}
@@ -779,7 +785,7 @@ func (h *TagHandler) MergeTagsPreviewHandler(ctx context.Context, req *MergeTags
 
 	preview, err := h.tagService.PreviewMergeTags(uint(sourceID), req.TargetID)
 	if err != nil {
-		mapped := mapTagError(err)
+		mapped := shared.MapTagError(err)
 		if mapped != nil {
 			return nil, mapped
 		}
@@ -823,7 +829,7 @@ func (h *TagHandler) MergeTagsHandler(ctx context.Context, req *MergeTagsRequest
 
 	result, err := h.tagService.MergeTags(uint(sourceID), req.Body.TargetID, user.ID)
 	if err != nil {
-		mapped := mapTagError(err)
+		mapped := shared.MapTagError(err)
 		if mapped != nil {
 			return nil, mapped
 		}
@@ -941,7 +947,7 @@ func (h *TagHandler) SnoozeTagHandler(ctx context.Context, req *SnoozeTagRequest
 	}
 
 	if err := h.tagService.SnoozeLowQualityTag(uint(id), user.ID); err != nil {
-		mapped := mapTagError(err)
+		mapped := shared.MapTagError(err)
 		if mapped != nil {
 			return nil, mapped
 		}
@@ -992,7 +998,7 @@ func (h *TagHandler) BulkLowQualityTagsHandler(ctx context.Context, req *BulkLow
 
 	result, err := h.tagService.BulkActionLowQualityTags(req.Body.Action, req.Body.TagIDs)
 	if err != nil {
-		mapped := mapTagError(err)
+		mapped := shared.MapTagError(err)
 		if mapped != nil {
 			return nil, mapped
 		}
@@ -1107,7 +1113,7 @@ func (h *TagHandler) SetTagParentHandler(ctx context.Context, req *SetTagParentR
 	}
 
 	if err := h.tagService.SetTagParent(uint(id), req.Body.ParentID, user.ID); err != nil {
-		if mapped := mapTagError(err); mapped != nil {
+		if mapped := shared.MapTagError(err); mapped != nil {
 			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to set tag parent")
@@ -1172,32 +1178,5 @@ func buildTagResponse(tag *models.Tag) *contracts.TagResponse {
 	return resp
 }
 
-// mapTagError converts a TagError to an appropriate Huma HTTP error.
-func mapTagError(err error) error {
-	var tagErr *apperrors.TagError
-	if errors.As(err, &tagErr) {
-		switch tagErr.Code {
-		case apperrors.CodeTagNotFound:
-			return huma.Error404NotFound(tagErr.Message)
-		case apperrors.CodeTagExists, apperrors.CodeTagAliasExists, apperrors.CodeEntityTagExists:
-			return huma.Error409Conflict(tagErr.Message)
-		case apperrors.CodeEntityTagNotFound:
-			return huma.Error404NotFound(tagErr.Message)
-		case apperrors.CodeTagCreationForbidden:
-			return huma.Error403Forbidden(tagErr.Message)
-		case apperrors.CodeTagNameInvalid:
-			return huma.Error400BadRequest(tagErr.Message)
-		case apperrors.CodeTagMergeInvalid:
-			return huma.Error400BadRequest(tagErr.Message)
-		case apperrors.CodeTagMergeAliasConflict:
-			return huma.Error409Conflict(tagErr.Message)
-		case apperrors.CodeTagHierarchyCycle:
-			return huma.Error400BadRequest(tagErr.Message)
-		case apperrors.CodeTagHierarchyNotGenre:
-			return huma.Error400BadRequest(tagErr.Message)
-		case apperrors.CodeTagBulkActionInvalid:
-			return huma.Error400BadRequest(tagErr.Message)
-		}
-	}
-	return nil
-}
+// (mapTagError moved to handlers/shared/error_mappers.go as MapTagError —
+// shared between catalog/tag.go and community/collection.go after PSY-420.)

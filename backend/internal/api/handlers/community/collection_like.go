@@ -6,6 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -47,7 +48,7 @@ func (h *CollectionLikeHandler) LikeCollectionHandler(ctx context.Context, req *
 
 	resp, err := h.collectionService.Like(req.Slug, user.ID)
 	if err != nil {
-		if mapped := mapCollectionError(err); mapped != nil {
+		if mapped := shared.MapCollectionError(err); mapped != nil {
 			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("like_collection_failed",
@@ -84,7 +85,7 @@ func (h *CollectionLikeHandler) UnlikeCollectionHandler(ctx context.Context, req
 
 	resp, err := h.collectionService.Unlike(req.Slug, user.ID)
 	if err != nil {
-		if mapped := mapCollectionError(err); mapped != nil {
+		if mapped := shared.MapCollectionError(err); mapped != nil {
 			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("unlike_collection_failed",

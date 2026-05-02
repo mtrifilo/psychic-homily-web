@@ -94,6 +94,7 @@ import { useRouter } from 'next/navigation'
 import type { ApiError } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { CommentThread } from '@/features/comments'
+import { EntityTagList } from '@/features/tags'
 
 interface CollectionDetailProps {
   slug: string
@@ -586,6 +587,22 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
           </div>
         )}
       </header>
+
+      {/* PSY-354: tag chips + picker. Reuses the same EntityTagList that
+          renders on artist/release/etc detail pages — chips link to
+          /tags/{slug} for the deep-dive (the collection-card override
+          links to /collections?tag=<slug> instead because cards prefer
+          the lateral "show me other collections like this" path). The
+          per-collection 10-tag cap is enforced server-side in
+          catalog.TagService.AddTagToEntity, so this picker honors the
+          limit regardless of the picker's UI cap awareness. */}
+      <div className="mb-4">
+        <EntityTagList
+          entityType="collection"
+          entityId={collection.id}
+          isAuthenticated={isAuthenticated}
+        />
+      </div>
 
       {/* PSY-356: publish-gate banner (creator-only) */}
       {isCreator && <PublishGateBanner collection={collection} />}

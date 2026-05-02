@@ -17,8 +17,11 @@ vi.mock('@/lib/context/AuthContext', () => ({
 
 // Mock next/navigation
 const mockPush = vi.fn()
+const mockReplace = vi.fn()
+const mockSearchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
+  useSearchParams: () => mockSearchParams,
 }))
 
 // Mock use-debounce to fire immediately
@@ -423,6 +426,70 @@ describe('CollectionList', () => {
       render(<CollectionList />)
       const collabCheckbox = screen.getByLabelText('Collaborative') as HTMLInputElement
       expect(collabCheckbox.checked).toBe(false)
+    })
+  })
+
+  // PSY-354: tag-filter URL plumbing.
+  describe('tag filter (PSY-354)', () => {
+    it('does not render the active-filter pill when ?tag is absent', () => {
+      mockSearchParams.delete('tag')
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      expect(
+        screen.queryByTestId('collection-tag-filter-pill')
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders the active-filter pill with tag slug when ?tag is set', () => {
+      mockSearchParams.set('tag', 'phoenix')
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      const pill = screen.getByTestId('collection-tag-filter-pill')
+      expect(pill).toBeInTheDocument()
+      expect(pill.textContent).toContain('phoenix')
+      mockSearchParams.delete('tag')
+    })
+
+    it('passes tag from URL into useCollections params', () => {
+      mockSearchParams.set('tag', 'best-of-2026')
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      // The hook is called with tag set when ?tag is in the URL.
+      expect(mockUseCollections).toHaveBeenCalledWith(
+        expect.objectContaining({ tag: 'best-of-2026' })
+      )
+      mockSearchParams.delete('tag')
+    })
+
+    it('clears the filter via router.replace when X is clicked', async () => {
+      const user = userEvent.setup()
+      mockSearchParams.set('tag', 'phoenix')
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      const clearBtn = screen.getByTestId('collection-tag-filter-clear')
+      await user.click(clearBtn)
+      expect(mockReplace).toHaveBeenCalled()
+      mockSearchParams.delete('tag')
     })
   })
 })

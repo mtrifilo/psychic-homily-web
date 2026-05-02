@@ -38,11 +38,11 @@ var (
 // ============================================================================
 
 type MockAPITokenService struct {
-	CreateTokenFn          func(uint, *string, int) (*contracts.APITokenCreateResponse, error)
-	ValidateTokenFn        func(string) (*models.User, *models.APIToken, error)
-	ListTokensFn           func(uint) ([]contracts.APITokenResponse, error)
-	RevokeTokenFn          func(uint, uint) error
-	GetTokenFn             func(uint, uint) (*contracts.APITokenResponse, error)
+	CreateTokenFn func(uint, *string, int) (*contracts.APITokenCreateResponse, error)
+	ValidateTokenFn func(string) (*models.User, *models.APIToken, error)
+	ListTokensFn func(uint) ([]contracts.APITokenResponse, error)
+	RevokeTokenFn func(uint, uint) (error)
+	GetTokenFn func(uint, uint) (*contracts.APITokenResponse, error)
 	CleanupExpiredTokensFn func() (int64, error)
 }
 
@@ -64,7 +64,7 @@ func (m *MockAPITokenService) ListTokens(userID uint) ([]contracts.APITokenRespo
 	}
 	return nil, nil
 }
-func (m *MockAPITokenService) RevokeToken(userID uint, tokenID uint) error {
+func (m *MockAPITokenService) RevokeToken(userID uint, tokenID uint) (error) {
 	if m.RevokeTokenFn != nil {
 		return m.RevokeTokenFn(userID, tokenID)
 	}
@@ -110,9 +110,9 @@ func (m *MockAdminStatsService) GetRecentActivity() (*contracts.ActivityFeedResp
 // ============================================================================
 
 type MockAnalyticsService struct {
-	GetGrowthMetricsFn     func(int) (*contracts.GrowthMetricsResponse, error)
+	GetGrowthMetricsFn func(int) (*contracts.GrowthMetricsResponse, error)
 	GetEngagementMetricsFn func(int) (*contracts.EngagementMetricsResponse, error)
-	GetCommunityHealthFn   func() (*contracts.CommunityHealthResponse, error)
+	GetCommunityHealthFn func() (*contracts.CommunityHealthResponse, error)
 	GetDataQualityTrendsFn func(int) (*contracts.DataQualityTrendsResponse, error)
 }
 
@@ -169,17 +169,17 @@ func (m *MockAnalyticsService) GetDataQualityTrends(months int) (*contracts.Data
 // ============================================================================
 
 type MockArtistRelationshipService struct {
-	CreateRelationshipFn       func(uint, uint, string, bool) (*models.ArtistRelationship, error)
-	GetRelationshipFn          func(uint, uint, string) (*models.ArtistRelationship, error)
-	GetRelatedArtistsFn        func(uint, string, int) ([]contracts.RelatedArtistResponse, error)
-	DeleteRelationshipFn       func(uint, uint, string) error
-	GetArtistGraphFn           func(uint, []string, uint) (*contracts.ArtistGraph, error)
+	CreateRelationshipFn func(uint, uint, string, bool) (*models.ArtistRelationship, error)
+	GetRelationshipFn func(uint, uint, string) (*models.ArtistRelationship, error)
+	GetRelatedArtistsFn func(uint, string, int) ([]contracts.RelatedArtistResponse, error)
+	DeleteRelationshipFn func(uint, uint, string) (error)
+	GetArtistGraphFn func(uint, []string, uint) (*contracts.ArtistGraph, error)
 	GetArtistBillCompositionFn func(uint, int) (*contracts.ArtistBillComposition, error)
-	VoteFn                     func(uint, uint, string, uint, bool) error
-	RemoveVoteFn               func(uint, uint, string, uint) error
-	GetUserVoteFn              func(uint, uint, string, uint) (*models.ArtistRelationshipVote, error)
-	DeriveSharedBillsFn        func(int) (int64, error)
-	DeriveSharedLabelsFn       func(int) (int64, error)
+	VoteFn func(uint, uint, string, uint, bool) (error)
+	RemoveVoteFn func(uint, uint, string, uint) (error)
+	GetUserVoteFn func(uint, uint, string, uint) (*models.ArtistRelationshipVote, error)
+	DeriveSharedBillsFn func(int) (int64, error)
+	DeriveSharedLabelsFn func(int) (int64, error)
 }
 
 func (m *MockArtistRelationshipService) CreateRelationship(sourceID uint, targetID uint, relType string, autoDerived bool) (*models.ArtistRelationship, error) {
@@ -200,7 +200,7 @@ func (m *MockArtistRelationshipService) GetRelatedArtists(artistID uint, relType
 	}
 	return nil, nil
 }
-func (m *MockArtistRelationshipService) DeleteRelationship(artistA uint, artistB uint, relType string) error {
+func (m *MockArtistRelationshipService) DeleteRelationship(artistA uint, artistB uint, relType string) (error) {
 	if m.DeleteRelationshipFn != nil {
 		return m.DeleteRelationshipFn(artistA, artistB, relType)
 	}
@@ -218,13 +218,13 @@ func (m *MockArtistRelationshipService) GetArtistBillComposition(artistID uint, 
 	}
 	return nil, nil
 }
-func (m *MockArtistRelationshipService) Vote(artistA uint, artistB uint, relType string, userID uint, isUpvote bool) error {
+func (m *MockArtistRelationshipService) Vote(artistA uint, artistB uint, relType string, userID uint, isUpvote bool) (error) {
 	if m.VoteFn != nil {
 		return m.VoteFn(artistA, artistB, relType, userID, isUpvote)
 	}
 	return nil
 }
-func (m *MockArtistRelationshipService) RemoveVote(artistA uint, artistB uint, relType string, userID uint) error {
+func (m *MockArtistRelationshipService) RemoveVote(artistA uint, artistB uint, relType string, userID uint) (error) {
 	if m.RemoveVoteFn != nil {
 		return m.RemoveVoteFn(artistA, artistB, relType, userID)
 	}
@@ -254,12 +254,12 @@ func (m *MockArtistRelationshipService) DeriveSharedLabels(minLabels int) (int64
 // ============================================================================
 
 type MockArtistReportService struct {
-	CreateReportFn           func(uint, uint, string, *string) (*contracts.ArtistReportResponse, error)
+	CreateReportFn func(uint, uint, string, *string) (*contracts.ArtistReportResponse, error)
 	GetUserReportForArtistFn func(uint, uint) (*contracts.ArtistReportResponse, error)
-	GetPendingReportsFn      func(int, int) ([]*contracts.ArtistReportResponse, int64, error)
-	DismissReportFn          func(uint, uint, *string) (*contracts.ArtistReportResponse, error)
-	ResolveReportFn          func(uint, uint, *string) (*contracts.ArtistReportResponse, error)
-	GetReportByIDFn          func(uint) (*models.ArtistReport, error)
+	GetPendingReportsFn func(int, int) ([]*contracts.ArtistReportResponse, int64, error)
+	DismissReportFn func(uint, uint, *string) (*contracts.ArtistReportResponse, error)
+	ResolveReportFn func(uint, uint, *string) (*contracts.ArtistReportResponse, error)
+	GetReportByIDFn func(uint) (*models.ArtistReport, error)
 }
 
 func (m *MockArtistReportService) CreateReport(userID uint, artistID uint, reportType string, details *string) (*contracts.ArtistReportResponse, error) {
@@ -304,22 +304,22 @@ func (m *MockArtistReportService) GetReportByID(reportID uint) (*models.ArtistRe
 // ============================================================================
 
 type MockArtistService struct {
-	CreateArtistFn             func(*contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error)
-	GetArtistFn                func(uint) (*contracts.ArtistDetailResponse, error)
-	GetArtistByNameFn          func(string) (*contracts.ArtistDetailResponse, error)
-	GetArtistBySlugFn          func(string) (*contracts.ArtistDetailResponse, error)
-	GetArtistsFn               func(map[string]interface{}) ([]*contracts.ArtistDetailResponse, error)
+	CreateArtistFn func(*contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error)
+	GetArtistFn func(uint) (*contracts.ArtistDetailResponse, error)
+	GetArtistByNameFn func(string) (*contracts.ArtistDetailResponse, error)
+	GetArtistBySlugFn func(string) (*contracts.ArtistDetailResponse, error)
+	GetArtistsFn func(map[string]interface{}) ([]*contracts.ArtistDetailResponse, error)
 	GetArtistsWithShowCountsFn func(map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error)
-	UpdateArtistFn             func(uint, map[string]interface{}) (*contracts.ArtistDetailResponse, error)
-	DeleteArtistFn             func(uint) error
-	SearchArtistsFn            func(string) ([]*contracts.ArtistDetailResponse, error)
-	GetShowsForArtistFn        func(uint, string, int, string) ([]*contracts.ArtistShowResponse, int64, error)
-	GetArtistCitiesFn          func() ([]*contracts.ArtistCityResponse, error)
-	GetLabelsForArtistFn       func(uint) ([]*contracts.ArtistLabelResponse, error)
-	AddArtistAliasFn           func(uint, string) (*contracts.ArtistAliasResponse, error)
-	RemoveArtistAliasFn        func(uint) error
-	GetArtistAliasesFn         func(uint) ([]*contracts.ArtistAliasResponse, error)
-	MergeArtistsFn             func(uint, uint) (*contracts.MergeArtistResult, error)
+	UpdateArtistFn func(uint, map[string]interface{}) (*contracts.ArtistDetailResponse, error)
+	DeleteArtistFn func(uint) (error)
+	SearchArtistsFn func(string) ([]*contracts.ArtistDetailResponse, error)
+	GetShowsForArtistFn func(uint, string, int, string) ([]*contracts.ArtistShowResponse, int64, error)
+	GetArtistCitiesFn func() ([]*contracts.ArtistCityResponse, error)
+	GetLabelsForArtistFn func(uint) ([]*contracts.ArtistLabelResponse, error)
+	AddArtistAliasFn func(uint, string) (*contracts.ArtistAliasResponse, error)
+	RemoveArtistAliasFn func(uint) (error)
+	GetArtistAliasesFn func(uint) ([]*contracts.ArtistAliasResponse, error)
+	MergeArtistsFn func(uint, uint) (*contracts.MergeArtistResult, error)
 }
 
 func (m *MockArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
@@ -364,7 +364,7 @@ func (m *MockArtistService) UpdateArtist(artistID uint, updates map[string]inter
 	}
 	return nil, nil
 }
-func (m *MockArtistService) DeleteArtist(artistID uint) error {
+func (m *MockArtistService) DeleteArtist(artistID uint) (error) {
 	if m.DeleteArtistFn != nil {
 		return m.DeleteArtistFn(artistID)
 	}
@@ -400,7 +400,7 @@ func (m *MockArtistService) AddArtistAlias(artistID uint, alias string) (*contra
 	}
 	return nil, nil
 }
-func (m *MockArtistService) RemoveArtistAlias(aliasID uint) error {
+func (m *MockArtistService) RemoveArtistAlias(aliasID uint) (error) {
 	if m.RemoveArtistAliasFn != nil {
 		return m.RemoveArtistAliasFn(aliasID)
 	}
@@ -424,22 +424,22 @@ func (m *MockArtistService) MergeArtists(canonicalID uint, mergeFromID uint) (*c
 // ============================================================================
 
 type MockAttendanceService struct {
-	SetAttendanceFn            func(uint, uint, string) error
-	RemoveAttendanceFn         func(uint, uint) error
-	GetUserAttendanceFn        func(uint, uint) (string, error)
-	GetAttendanceCountsFn      func(uint) (*contracts.AttendanceCountsResponse, error)
+	SetAttendanceFn func(uint, uint, string) (error)
+	RemoveAttendanceFn func(uint, uint) (error)
+	GetUserAttendanceFn func(uint, uint) (string, error)
+	GetAttendanceCountsFn func(uint) (*contracts.AttendanceCountsResponse, error)
 	GetBatchAttendanceCountsFn func([]uint) (map[uint]*contracts.AttendanceCountsResponse, error)
-	GetBatchUserAttendanceFn   func(uint, []uint) (map[uint]string, error)
-	GetUserAttendingShowsFn    func(uint, string, int, int) ([]*contracts.AttendingShowResponse, int64, error)
+	GetBatchUserAttendanceFn func(uint, []uint) (map[uint]string, error)
+	GetUserAttendingShowsFn func(uint, string, int, int) ([]*contracts.AttendingShowResponse, int64, error)
 }
 
-func (m *MockAttendanceService) SetAttendance(userID uint, showID uint, status string) error {
+func (m *MockAttendanceService) SetAttendance(userID uint, showID uint, status string) (error) {
 	if m.SetAttendanceFn != nil {
 		return m.SetAttendanceFn(userID, showID, status)
 	}
 	return nil
 }
-func (m *MockAttendanceService) RemoveAttendance(userID uint, showID uint) error {
+func (m *MockAttendanceService) RemoveAttendance(userID uint, showID uint) (error) {
 	if m.RemoveAttendanceFn != nil {
 		return m.RemoveAttendanceFn(userID, showID)
 	}
@@ -485,7 +485,7 @@ func (m *MockAttendanceService) GetUserAttendingShows(userID uint, status string
 // ============================================================================
 
 type MockAuditLogService struct {
-	LogActionFn    func(uint, string, string, uint, map[string]interface{})
+	LogActionFn func(uint, string, string, uint, map[string]interface{})
 	GetAuditLogsFn func(int, int, contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error)
 }
 
@@ -506,16 +506,16 @@ func (m *MockAuditLogService) GetAuditLogs(limit int, offset int, filters contra
 // ============================================================================
 
 type MockAuthService struct {
-	OAuthLoginFn               func(http.ResponseWriter, *http.Request, string) error
-	OAuthCallbackFn            func(http.ResponseWriter, *http.Request, string) (*models.User, string, error)
+	OAuthLoginFn func(http.ResponseWriter, *http.Request, string) (error)
+	OAuthCallbackFn func(http.ResponseWriter, *http.Request, string) (*models.User, string, error)
 	OAuthCallbackWithConsentFn func(http.ResponseWriter, *http.Request, string, *contracts.OAuthSignupConsent) (*models.User, string, error)
-	GetUserProfileFn           func(uint) (*models.User, error)
-	RefreshUserTokenFn         func(*models.User) (string, error)
-	LogoutFn                   func(http.ResponseWriter, *http.Request) error
-	SetOAuthCompleterFn        func(contracts.OAuthCompleter)
+	GetUserProfileFn func(uint) (*models.User, error)
+	RefreshUserTokenFn func(*models.User) (string, error)
+	LogoutFn func(http.ResponseWriter, *http.Request) (error)
+	SetOAuthCompleterFn func(contracts.OAuthCompleter)
 }
 
-func (m *MockAuthService) OAuthLogin(w http.ResponseWriter, r *http.Request, provider string) error {
+func (m *MockAuthService) OAuthLogin(w http.ResponseWriter, r *http.Request, provider string) (error) {
 	if m.OAuthLoginFn != nil {
 		return m.OAuthLoginFn(w, r, provider)
 	}
@@ -545,7 +545,7 @@ func (m *MockAuthService) RefreshUserToken(user *models.User) (string, error) {
 	}
 	return "", nil
 }
-func (m *MockAuthService) Logout(w http.ResponseWriter, r *http.Request) error {
+func (m *MockAuthService) Logout(w http.ResponseWriter, r *http.Request) (error) {
 	if m.LogoutFn != nil {
 		return m.LogoutFn(w, r)
 	}
@@ -563,7 +563,7 @@ func (m *MockAuthService) SetOAuthCompleter(completer contracts.OAuthCompleter) 
 
 type MockAutoPromotionService struct {
 	EvaluateAllUsersFn func() (*contracts.AutoPromotionResult, error)
-	EvaluateUserFn     func(uint) (*contracts.UserEvaluationResult, error)
+	EvaluateUserFn func(uint) (*contracts.UserEvaluationResult, error)
 }
 
 func (m *MockAutoPromotionService) EvaluateAllUsers() (*contracts.AutoPromotionResult, error) {
@@ -584,11 +584,11 @@ func (m *MockAutoPromotionService) EvaluateUser(userID uint) (*contracts.UserEva
 // ============================================================================
 
 type MockCalendarService struct {
-	CreateTokenFn           func(uint, string) (*contracts.CalendarTokenCreateResponse, error)
-	GetTokenStatusFn        func(uint) (*contracts.CalendarTokenStatusResponse, error)
-	DeleteTokenFn           func(uint) error
+	CreateTokenFn func(uint, string) (*contracts.CalendarTokenCreateResponse, error)
+	GetTokenStatusFn func(uint) (*contracts.CalendarTokenStatusResponse, error)
+	DeleteTokenFn func(uint) (error)
 	ValidateCalendarTokenFn func(string) (*models.User, error)
-	GenerateICSFeedFn       func(uint, string) ([]byte, error)
+	GenerateICSFeedFn func(uint, string) ([]byte, error)
 }
 
 func (m *MockCalendarService) CreateToken(userID uint, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
@@ -603,7 +603,7 @@ func (m *MockCalendarService) GetTokenStatus(userID uint) (*contracts.CalendarTo
 	}
 	return nil, nil
 }
-func (m *MockCalendarService) DeleteToken(userID uint) error {
+func (m *MockCalendarService) DeleteToken(userID uint) (error) {
 	if m.DeleteTokenFn != nil {
 		return m.DeleteTokenFn(userID)
 	}
@@ -627,10 +627,10 @@ func (m *MockCalendarService) GenerateICSFeed(userID uint, frontendURL string) (
 // ============================================================================
 
 type MockChartsService struct {
-	GetTrendingShowsFn  func(int) ([]contracts.TrendingShow, error)
+	GetTrendingShowsFn func(int) ([]contracts.TrendingShow, error)
 	GetPopularArtistsFn func(int) ([]contracts.PopularArtist, error)
-	GetActiveVenuesFn   func(int) ([]contracts.ActiveVenue, error)
-	GetHotReleasesFn    func(int) ([]contracts.HotRelease, error)
+	GetActiveVenuesFn func(int) ([]contracts.ActiveVenue, error)
+	GetHotReleasesFn func(int) ([]contracts.HotRelease, error)
 	GetChartsOverviewFn func() (*contracts.ChartsOverview, error)
 }
 
@@ -675,27 +675,29 @@ func (m *MockChartsService) GetChartsOverview() (*contracts.ChartsOverview, erro
 // ============================================================================
 
 type MockCollectionService struct {
-	CreateCollectionFn                   func(uint, *contracts.CreateCollectionRequest) (*contracts.CollectionDetailResponse, error)
-	CloneCollectionFn                    func(string, uint) (*contracts.CollectionDetailResponse, error)
-	GetBySlugFn                          func(string, uint) (*contracts.CollectionDetailResponse, error)
-	ListCollectionsFn                    func(contracts.CollectionFilters, int, int) ([]*contracts.CollectionListResponse, int64, error)
-	UpdateCollectionFn                   func(string, uint, bool, *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, error)
-	DeleteCollectionFn                   func(string, uint, bool) error
-	AddItemFn                            func(string, uint, *contracts.AddCollectionItemRequest) (*contracts.CollectionItemResponse, error)
-	UpdateItemFn                         func(string, uint, uint, bool, *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, error)
-	RemoveItemFn                         func(string, uint, uint, bool) error
-	ReorderItemsFn                       func(string, uint, *contracts.ReorderCollectionItemsRequest) error
-	SubscribeFn                          func(string, uint) error
-	UnsubscribeFn                        func(string, uint) error
-	MarkVisitedFn                        func(string, uint) error
-	LikeFn                               func(string, uint) (*contracts.CollectionLikeResponse, error)
-	UnlikeFn                             func(string, uint) (*contracts.CollectionLikeResponse, error)
-	GetStatsFn                           func(string) (*contracts.CollectionStatsResponse, error)
-	GetUserCollectionsFn                 func(uint, int, int) ([]*contracts.CollectionListResponse, int64, error)
-	GetEntityCollectionsFn               func(string, uint, int) ([]*contracts.CollectionListResponse, error)
-	GetUserPublicCollectionsFn           func(uint, int, int) ([]*contracts.CollectionListResponse, int64, error)
+	CreateCollectionFn func(uint, *contracts.CreateCollectionRequest) (*contracts.CollectionDetailResponse, error)
+	CloneCollectionFn func(string, uint) (*contracts.CollectionDetailResponse, error)
+	GetBySlugFn func(string, uint) (*contracts.CollectionDetailResponse, error)
+	ListCollectionsFn func(contracts.CollectionFilters, int, int) ([]*contracts.CollectionListResponse, int64, error)
+	UpdateCollectionFn func(string, uint, bool, *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, error)
+	DeleteCollectionFn func(string, uint, bool) (error)
+	AddItemFn func(string, uint, *contracts.AddCollectionItemRequest) (*contracts.CollectionItemResponse, error)
+	UpdateItemFn func(string, uint, uint, bool, *contracts.UpdateCollectionItemRequest) (*contracts.CollectionItemResponse, error)
+	RemoveItemFn func(string, uint, uint, bool) (error)
+	ReorderItemsFn func(string, uint, *contracts.ReorderCollectionItemsRequest) (error)
+	SubscribeFn func(string, uint) (error)
+	UnsubscribeFn func(string, uint) (error)
+	MarkVisitedFn func(string, uint) (error)
+	LikeFn func(string, uint) (*contracts.CollectionLikeResponse, error)
+	UnlikeFn func(string, uint) (*contracts.CollectionLikeResponse, error)
+	GetStatsFn func(string) (*contracts.CollectionStatsResponse, error)
+	GetUserCollectionsFn func(uint, int, int) ([]*contracts.CollectionListResponse, int64, error)
+	GetEntityCollectionsFn func(string, uint, int) ([]*contracts.CollectionListResponse, error)
+	GetUserPublicCollectionsFn func(uint, int, int) ([]*contracts.CollectionListResponse, int64, error)
 	GetUserPublicCollectionsByUsernameFn func(string, int, int) ([]*contracts.CollectionListResponse, int64, error)
-	SetFeaturedFn                        func(string, bool) error
+	SetFeaturedFn func(string, bool) (error)
+	AddTagToCollectionFn func(string, uint, *contracts.AddCollectionTagRequest) (*contracts.AddCollectionTagResponse, error)
+	RemoveTagFromCollectionFn func(string, uint, uint) (error)
 }
 
 func (m *MockCollectionService) CreateCollection(creatorID uint, req *contracts.CreateCollectionRequest) (*contracts.CollectionDetailResponse, error) {
@@ -728,7 +730,7 @@ func (m *MockCollectionService) UpdateCollection(slug string, userID uint, isAdm
 	}
 	return nil, nil
 }
-func (m *MockCollectionService) DeleteCollection(slug string, userID uint, isAdmin bool) error {
+func (m *MockCollectionService) DeleteCollection(slug string, userID uint, isAdmin bool) (error) {
 	if m.DeleteCollectionFn != nil {
 		return m.DeleteCollectionFn(slug, userID, isAdmin)
 	}
@@ -746,31 +748,31 @@ func (m *MockCollectionService) UpdateItem(slug string, itemID uint, userID uint
 	}
 	return nil, nil
 }
-func (m *MockCollectionService) RemoveItem(slug string, itemID uint, userID uint, isAdmin bool) error {
+func (m *MockCollectionService) RemoveItem(slug string, itemID uint, userID uint, isAdmin bool) (error) {
 	if m.RemoveItemFn != nil {
 		return m.RemoveItemFn(slug, itemID, userID, isAdmin)
 	}
 	return nil
 }
-func (m *MockCollectionService) ReorderItems(slug string, userID uint, req *contracts.ReorderCollectionItemsRequest) error {
+func (m *MockCollectionService) ReorderItems(slug string, userID uint, req *contracts.ReorderCollectionItemsRequest) (error) {
 	if m.ReorderItemsFn != nil {
 		return m.ReorderItemsFn(slug, userID, req)
 	}
 	return nil
 }
-func (m *MockCollectionService) Subscribe(slug string, userID uint) error {
+func (m *MockCollectionService) Subscribe(slug string, userID uint) (error) {
 	if m.SubscribeFn != nil {
 		return m.SubscribeFn(slug, userID)
 	}
 	return nil
 }
-func (m *MockCollectionService) Unsubscribe(slug string, userID uint) error {
+func (m *MockCollectionService) Unsubscribe(slug string, userID uint) (error) {
 	if m.UnsubscribeFn != nil {
 		return m.UnsubscribeFn(slug, userID)
 	}
 	return nil
 }
-func (m *MockCollectionService) MarkVisited(slug string, userID uint) error {
+func (m *MockCollectionService) MarkVisited(slug string, userID uint) (error) {
 	if m.MarkVisitedFn != nil {
 		return m.MarkVisitedFn(slug, userID)
 	}
@@ -818,9 +820,21 @@ func (m *MockCollectionService) GetUserPublicCollectionsByUsername(username stri
 	}
 	return nil, 0, nil
 }
-func (m *MockCollectionService) SetFeatured(slug string, featured bool) error {
+func (m *MockCollectionService) SetFeatured(slug string, featured bool) (error) {
 	if m.SetFeaturedFn != nil {
 		return m.SetFeaturedFn(slug, featured)
+	}
+	return nil
+}
+func (m *MockCollectionService) AddTagToCollection(slug string, userID uint, req *contracts.AddCollectionTagRequest) (*contracts.AddCollectionTagResponse, error) {
+	if m.AddTagToCollectionFn != nil {
+		return m.AddTagToCollectionFn(slug, userID, req)
+	}
+	return nil, nil
+}
+func (m *MockCollectionService) RemoveTagFromCollection(slug string, tagID uint, userID uint) (error) {
+	if m.RemoveTagFromCollectionFn != nil {
+		return m.RemoveTagFromCollectionFn(slug, tagID, userID)
 	}
 	return nil
 }
@@ -830,21 +844,21 @@ func (m *MockCollectionService) SetFeatured(slug string, featured bool) error {
 // ============================================================================
 
 type MockCommentAdminService struct {
-	HideCommentFn           func(uint, uint, string) error
-	RestoreCommentFn        func(uint, uint) error
-	ListPendingCommentsFn   func(int, int) ([]*contracts.CommentResponse, int64, error)
-	ApproveCommentFn        func(uint, uint) error
-	RejectCommentFn         func(uint, uint, string) error
+	HideCommentFn func(uint, uint, string) (error)
+	RestoreCommentFn func(uint, uint) (error)
+	ListPendingCommentsFn func(int, int) ([]*contracts.CommentResponse, int64, error)
+	ApproveCommentFn func(uint, uint) (error)
+	RejectCommentFn func(uint, uint, string) (error)
 	GetCommentEditHistoryFn func(uint, uint) (*contracts.CommentEditHistoryResponse, error)
 }
 
-func (m *MockCommentAdminService) HideComment(adminUserID uint, commentID uint, reason string) error {
+func (m *MockCommentAdminService) HideComment(adminUserID uint, commentID uint, reason string) (error) {
 	if m.HideCommentFn != nil {
 		return m.HideCommentFn(adminUserID, commentID, reason)
 	}
 	return nil
 }
-func (m *MockCommentAdminService) RestoreComment(adminUserID uint, commentID uint) error {
+func (m *MockCommentAdminService) RestoreComment(adminUserID uint, commentID uint) (error) {
 	if m.RestoreCommentFn != nil {
 		return m.RestoreCommentFn(adminUserID, commentID)
 	}
@@ -856,13 +870,13 @@ func (m *MockCommentAdminService) ListPendingComments(limit int, offset int) ([]
 	}
 	return nil, 0, nil
 }
-func (m *MockCommentAdminService) ApproveComment(adminUserID uint, commentID uint) error {
+func (m *MockCommentAdminService) ApproveComment(adminUserID uint, commentID uint) (error) {
 	if m.ApproveCommentFn != nil {
 		return m.ApproveCommentFn(adminUserID, commentID)
 	}
 	return nil
 }
-func (m *MockCommentAdminService) RejectComment(adminUserID uint, commentID uint, reason string) error {
+func (m *MockCommentAdminService) RejectComment(adminUserID uint, commentID uint, reason string) (error) {
 	if m.RejectCommentFn != nil {
 		return m.RejectCommentFn(adminUserID, commentID, reason)
 	}
@@ -880,13 +894,13 @@ func (m *MockCommentAdminService) GetCommentEditHistory(requesterID uint, commen
 // ============================================================================
 
 type MockCommentService struct {
-	CreateCommentFn         func(uint, *contracts.CreateCommentRequest) (*contracts.CommentResponse, error)
-	GetCommentFn            func(uint) (*contracts.CommentResponse, error)
+	CreateCommentFn func(uint, *contracts.CreateCommentRequest) (*contracts.CommentResponse, error)
+	GetCommentFn func(uint) (*contracts.CommentResponse, error)
 	ListCommentsForEntityFn func(string, uint, contracts.CommentListFilters) (*contracts.CommentListResponse, error)
-	GetThreadFn             func(uint) ([]*contracts.CommentResponse, error)
-	UpdateCommentFn         func(uint, uint, *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error)
+	GetThreadFn func(uint) ([]*contracts.CommentResponse, error)
+	UpdateCommentFn func(uint, uint, *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error)
 	UpdateReplyPermissionFn func(uint, uint, string) (*contracts.CommentResponse, error)
-	DeleteCommentFn         func(uint, uint, bool) error
+	DeleteCommentFn func(uint, uint, bool) (error)
 }
 
 func (m *MockCommentService) CreateComment(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
@@ -925,7 +939,7 @@ func (m *MockCommentService) UpdateReplyPermission(userID uint, commentID uint, 
 	}
 	return nil, nil
 }
-func (m *MockCommentService) DeleteComment(userID uint, commentID uint, isAdmin bool) error {
+func (m *MockCommentService) DeleteComment(userID uint, commentID uint, isAdmin bool) (error) {
 	if m.DeleteCommentFn != nil {
 		return m.DeleteCommentFn(userID, commentID, isAdmin)
 	}
@@ -937,22 +951,22 @@ func (m *MockCommentService) DeleteComment(userID uint, commentID uint, isAdmin 
 // ============================================================================
 
 type MockCommentSubscriptionService struct {
-	SubscribeFn               func(uint, string, uint) error
-	UnsubscribeFn             func(uint, string, uint) error
-	IsSubscribedFn            func(uint, string, uint) (bool, error)
-	MarkReadFn                func(uint, string, uint) error
-	GetUnreadCountFn          func(uint, string, uint) (int, error)
+	SubscribeFn func(uint, string, uint) (error)
+	UnsubscribeFn func(uint, string, uint) (error)
+	IsSubscribedFn func(uint, string, uint) (bool, error)
+	MarkReadFn func(uint, string, uint) (error)
+	GetUnreadCountFn func(uint, string, uint) (int, error)
 	GetSubscriptionsForUserFn func(uint, int, int) ([]contracts.SubscriptionResponse, int64, error)
 	GetSubscribersForEntityFn func(string, uint) ([]uint, error)
 }
 
-func (m *MockCommentSubscriptionService) Subscribe(userID uint, entityType string, entityID uint) error {
+func (m *MockCommentSubscriptionService) Subscribe(userID uint, entityType string, entityID uint) (error) {
 	if m.SubscribeFn != nil {
 		return m.SubscribeFn(userID, entityType, entityID)
 	}
 	return nil
 }
-func (m *MockCommentSubscriptionService) Unsubscribe(userID uint, entityType string, entityID uint) error {
+func (m *MockCommentSubscriptionService) Unsubscribe(userID uint, entityType string, entityID uint) (error) {
 	if m.UnsubscribeFn != nil {
 		return m.UnsubscribeFn(userID, entityType, entityID)
 	}
@@ -964,7 +978,7 @@ func (m *MockCommentSubscriptionService) IsSubscribed(userID uint, entityType st
 	}
 	return false, nil
 }
-func (m *MockCommentSubscriptionService) MarkRead(userID uint, entityType string, entityID uint) error {
+func (m *MockCommentSubscriptionService) MarkRead(userID uint, entityType string, entityID uint) (error) {
 	if m.MarkReadFn != nil {
 		return m.MarkReadFn(userID, entityType, entityID)
 	}
@@ -994,20 +1008,20 @@ func (m *MockCommentSubscriptionService) GetSubscribersForEntity(entityType stri
 // ============================================================================
 
 type MockCommentVoteService struct {
-	VoteFn                    func(uint, uint, int) error
-	UnvoteFn                  func(uint, uint) error
-	GetUserVoteFn             func(uint, uint) (*int, error)
+	VoteFn func(uint, uint, int) (error)
+	UnvoteFn func(uint, uint) (error)
+	GetUserVoteFn func(uint, uint) (*int, error)
 	GetUserVotesForCommentsFn func(uint, []uint) (map[uint]int, error)
-	GetCommentVoteCountsFn    func(uint) (int, int, float64, error)
+	GetCommentVoteCountsFn func(uint) (int, int, float64, error)
 }
 
-func (m *MockCommentVoteService) Vote(userID uint, commentID uint, direction int) error {
+func (m *MockCommentVoteService) Vote(userID uint, commentID uint, direction int) (error) {
 	if m.VoteFn != nil {
 		return m.VoteFn(userID, commentID, direction)
 	}
 	return nil
 }
-func (m *MockCommentVoteService) Unvote(userID uint, commentID uint) error {
+func (m *MockCommentVoteService) Unvote(userID uint, commentID uint) (error) {
 	if m.UnvoteFn != nil {
 		return m.UnvoteFn(userID, commentID)
 	}
@@ -1037,18 +1051,18 @@ func (m *MockCommentVoteService) GetCommentVoteCounts(commentID uint) (int, int,
 // ============================================================================
 
 type MockContributorProfileService struct {
-	GetPublicProfileFn       func(string, *uint) (*contracts.PublicProfileResponse, error)
-	GetOwnProfileFn          func(uint) (*contracts.PublicProfileResponse, error)
-	GetContributionStatsFn   func(uint) (*contracts.ContributionStats, error)
+	GetPublicProfileFn func(string, *uint) (*contracts.PublicProfileResponse, error)
+	GetOwnProfileFn func(uint) (*contracts.PublicProfileResponse, error)
+	GetContributionStatsFn func(uint) (*contracts.ContributionStats, error)
 	GetContributionHistoryFn func(uint, int, int, string) ([]*contracts.ContributionEntry, int64, error)
-	UpdatePrivacySettingsFn  func(uint, contracts.PrivacySettings) (*contracts.PrivacySettings, error)
-	GetUserSectionsFn        func(uint) ([]*contracts.ProfileSectionResponse, error)
-	GetOwnSectionsFn         func(uint) ([]*contracts.ProfileSectionResponse, error)
-	CreateSectionFn          func(uint, string, string, int) (*contracts.ProfileSectionResponse, error)
-	UpdateSectionFn          func(uint, uint, map[string]interface{}) (*contracts.ProfileSectionResponse, error)
-	DeleteSectionFn          func(uint, uint) error
-	GetActivityHeatmapFn     func(uint) (*contracts.ActivityHeatmapResponse, error)
-	GetPercentileRankingsFn  func(uint) (*contracts.PercentileRankings, error)
+	UpdatePrivacySettingsFn func(uint, contracts.PrivacySettings) (*contracts.PrivacySettings, error)
+	GetUserSectionsFn func(uint) ([]*contracts.ProfileSectionResponse, error)
+	GetOwnSectionsFn func(uint) ([]*contracts.ProfileSectionResponse, error)
+	CreateSectionFn func(uint, string, string, int) (*contracts.ProfileSectionResponse, error)
+	UpdateSectionFn func(uint, uint, map[string]interface{}) (*contracts.ProfileSectionResponse, error)
+	DeleteSectionFn func(uint, uint) (error)
+	GetActivityHeatmapFn func(uint) (*contracts.ActivityHeatmapResponse, error)
+	GetPercentileRankingsFn func(uint) (*contracts.PercentileRankings, error)
 }
 
 func (m *MockContributorProfileService) GetPublicProfile(username string, viewerID *uint) (*contracts.PublicProfileResponse, error) {
@@ -1105,7 +1119,7 @@ func (m *MockContributorProfileService) UpdateSection(userID uint, sectionID uin
 	}
 	return nil, nil
 }
-func (m *MockContributorProfileService) DeleteSection(userID uint, sectionID uint) error {
+func (m *MockContributorProfileService) DeleteSection(userID uint, sectionID uint) (error) {
 	if m.DeleteSectionFn != nil {
 		return m.DeleteSectionFn(userID, sectionID)
 	}
@@ -1129,7 +1143,7 @@ func (m *MockContributorProfileService) GetPercentileRankings(userID uint) (*con
 // ============================================================================
 
 type MockDataQualityService struct {
-	GetSummaryFn       func() (*contracts.DataQualitySummary, error)
+	GetSummaryFn func() (*contracts.DataQualitySummary, error)
 	GetCategoryItemsFn func(string, int, int) ([]*contracts.DataQualityItem, int64, error)
 }
 
@@ -1151,10 +1165,10 @@ func (m *MockDataQualityService) GetCategoryItems(category string, limit int, of
 // ============================================================================
 
 type MockDataSyncService struct {
-	ExportShowsFn   func(contracts.ExportShowsParams) (*contracts.ExportShowsResult, error)
+	ExportShowsFn func(contracts.ExportShowsParams) (*contracts.ExportShowsResult, error)
 	ExportArtistsFn func(contracts.ExportArtistsParams) (*contracts.ExportArtistsResult, error)
-	ExportVenuesFn  func(contracts.ExportVenuesParams) (*contracts.ExportVenuesResult, error)
-	ImportDataFn    func(contracts.DataImportRequest) (*contracts.DataImportResult, error)
+	ExportVenuesFn func(contracts.ExportVenuesParams) (*contracts.ExportVenuesResult, error)
+	ImportDataFn func(contracts.DataImportRequest) (*contracts.DataImportResult, error)
 }
 
 func (m *MockDataSyncService) ExportShows(params contracts.ExportShowsParams) (*contracts.ExportShowsResult, error) {
@@ -1187,18 +1201,18 @@ func (m *MockDataSyncService) ImportData(req contracts.DataImportRequest) (*cont
 // ============================================================================
 
 type MockDiscordService struct {
-	IsConfiguredFn           func() bool
-	NotifyNewUserFn          func(*models.User)
-	NotifyNewShowFn          func(*contracts.ShowResponse, string)
+	IsConfiguredFn func() (bool)
+	NotifyNewUserFn func(*models.User)
+	NotifyNewShowFn func(*contracts.ShowResponse, string)
 	NotifyShowStatusChangeFn func(string, uint, string, string, string)
-	NotifyShowApprovedFn     func(*contracts.ShowResponse)
-	NotifyShowRejectedFn     func(*contracts.ShowResponse, string)
-	NotifyShowReportFn       func(*models.ShowReport, string)
-	NotifyArtistReportFn     func(*models.ArtistReport, string)
-	NotifyNewVenueFn         func(uint, string, string, string, *string, string)
+	NotifyShowApprovedFn func(*contracts.ShowResponse)
+	NotifyShowRejectedFn func(*contracts.ShowResponse, string)
+	NotifyShowReportFn func(*models.ShowReport, string)
+	NotifyArtistReportFn func(*models.ArtistReport, string)
+	NotifyNewVenueFn func(uint, string, string, string, *string, string)
 }
 
-func (m *MockDiscordService) IsConfigured() bool {
+func (m *MockDiscordService) IsConfigured() (bool) {
 	if m.IsConfiguredFn != nil {
 		return m.IsConfiguredFn()
 	}
@@ -1250,10 +1264,10 @@ func (m *MockDiscordService) NotifyNewVenue(venueID uint, venueName string, city
 // ============================================================================
 
 type MockDiscoveryService struct {
-	ImportFromJSONFn       func(string, bool) (*contracts.ImportResult, error)
+	ImportFromJSONFn func(string, bool) (*contracts.ImportResult, error)
 	ImportFromJSONWithDBFn func(string, bool, *gorm.DB) (*contracts.ImportResult, error)
-	CheckEventsFn          func([]contracts.CheckEventInput) (*contracts.CheckEventsResult, error)
-	ImportEventsFn         func([]contracts.DiscoveredEvent, bool, bool, models.ShowStatus) (*contracts.ImportResult, error)
+	CheckEventsFn func([]contracts.CheckEventInput) (*contracts.CheckEventsResult, error)
+	ImportEventsFn func([]contracts.DiscoveredEvent, bool, bool, models.ShowStatus) (*contracts.ImportResult, error)
 }
 
 func (m *MockDiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*contracts.ImportResult, error) {
@@ -1286,101 +1300,101 @@ func (m *MockDiscoveryService) ImportEvents(events []contracts.DiscoveredEvent, 
 // ============================================================================
 
 type MockEmailService struct {
-	IsConfiguredFn                 func() bool
-	SendVerificationEmailFn        func(string, string) error
-	SendMagicLinkEmailFn           func(string, string) error
-	SendAccountRecoveryEmailFn     func(string, string, int) error
-	SendShowReminderEmailFn        func(string, string, string, string, time.Time, []string) error
-	SendFilterNotificationEmailFn  func(string, string, string, string) error
-	SendTierPromotionEmailFn       func(string, string, string, string, string, []string) error
-	SendTierDemotionEmailFn        func(string, string, string, string, string) error
-	SendTierDemotionWarningEmailFn func(string, string, string, float64, float64) error
-	SendEditApprovedEmailFn        func(string, string, string, string, string) error
-	SendEditRejectedEmailFn        func(string, string, string, string, string) error
-	SendCommentNotificationFn      func(string, string, string, string, string, string, string) error
-	SendMentionNotificationFn      func(string, string, string, string, string, string, string) error
-	SendCollectionDigestEmailFn    func(string, []contracts.CollectionDigestGroup, string) error
+	IsConfiguredFn func() (bool)
+	SendVerificationEmailFn func(string, string) (error)
+	SendMagicLinkEmailFn func(string, string) (error)
+	SendAccountRecoveryEmailFn func(string, string, int) (error)
+	SendShowReminderEmailFn func(string, string, string, string, time.Time, []string) (error)
+	SendFilterNotificationEmailFn func(string, string, string, string) (error)
+	SendTierPromotionEmailFn func(string, string, string, string, string, []string) (error)
+	SendTierDemotionEmailFn func(string, string, string, string, string) (error)
+	SendTierDemotionWarningEmailFn func(string, string, string, float64, float64) (error)
+	SendEditApprovedEmailFn func(string, string, string, string, string) (error)
+	SendEditRejectedEmailFn func(string, string, string, string, string) (error)
+	SendCommentNotificationFn func(string, string, string, string, string, string, string) (error)
+	SendMentionNotificationFn func(string, string, string, string, string, string, string) (error)
+	SendCollectionDigestEmailFn func(string, []contracts.CollectionDigestGroup, string) (error)
 }
 
-func (m *MockEmailService) IsConfigured() bool {
+func (m *MockEmailService) IsConfigured() (bool) {
 	if m.IsConfiguredFn != nil {
 		return m.IsConfiguredFn()
 	}
 	return false
 }
-func (m *MockEmailService) SendVerificationEmail(toEmail string, token string) error {
+func (m *MockEmailService) SendVerificationEmail(toEmail string, token string) (error) {
 	if m.SendVerificationEmailFn != nil {
 		return m.SendVerificationEmailFn(toEmail, token)
 	}
 	return nil
 }
-func (m *MockEmailService) SendMagicLinkEmail(toEmail string, token string) error {
+func (m *MockEmailService) SendMagicLinkEmail(toEmail string, token string) (error) {
 	if m.SendMagicLinkEmailFn != nil {
 		return m.SendMagicLinkEmailFn(toEmail, token)
 	}
 	return nil
 }
-func (m *MockEmailService) SendAccountRecoveryEmail(toEmail string, token string, daysRemaining int) error {
+func (m *MockEmailService) SendAccountRecoveryEmail(toEmail string, token string, daysRemaining int) (error) {
 	if m.SendAccountRecoveryEmailFn != nil {
 		return m.SendAccountRecoveryEmailFn(toEmail, token, daysRemaining)
 	}
 	return nil
 }
-func (m *MockEmailService) SendShowReminderEmail(toEmail string, showTitle string, showURL string, unsubscribeURL string, eventDate time.Time, venues []string) error {
+func (m *MockEmailService) SendShowReminderEmail(toEmail string, showTitle string, showURL string, unsubscribeURL string, eventDate time.Time, venues []string) (error) {
 	if m.SendShowReminderEmailFn != nil {
 		return m.SendShowReminderEmailFn(toEmail, showTitle, showURL, unsubscribeURL, eventDate, venues)
 	}
 	return nil
 }
-func (m *MockEmailService) SendFilterNotificationEmail(toEmail string, subject string, htmlBody string, unsubscribeURL string) error {
+func (m *MockEmailService) SendFilterNotificationEmail(toEmail string, subject string, htmlBody string, unsubscribeURL string) (error) {
 	if m.SendFilterNotificationEmailFn != nil {
 		return m.SendFilterNotificationEmailFn(toEmail, subject, htmlBody, unsubscribeURL)
 	}
 	return nil
 }
-func (m *MockEmailService) SendTierPromotionEmail(toEmail string, username string, oldTier string, newTier string, reason string, newPermissions []string) error {
+func (m *MockEmailService) SendTierPromotionEmail(toEmail string, username string, oldTier string, newTier string, reason string, newPermissions []string) (error) {
 	if m.SendTierPromotionEmailFn != nil {
 		return m.SendTierPromotionEmailFn(toEmail, username, oldTier, newTier, reason, newPermissions)
 	}
 	return nil
 }
-func (m *MockEmailService) SendTierDemotionEmail(toEmail string, username string, oldTier string, newTier string, reason string) error {
+func (m *MockEmailService) SendTierDemotionEmail(toEmail string, username string, oldTier string, newTier string, reason string) (error) {
 	if m.SendTierDemotionEmailFn != nil {
 		return m.SendTierDemotionEmailFn(toEmail, username, oldTier, newTier, reason)
 	}
 	return nil
 }
-func (m *MockEmailService) SendTierDemotionWarningEmail(toEmail string, username string, currentTier string, currentRate float64, threshold float64) error {
+func (m *MockEmailService) SendTierDemotionWarningEmail(toEmail string, username string, currentTier string, currentRate float64, threshold float64) (error) {
 	if m.SendTierDemotionWarningEmailFn != nil {
 		return m.SendTierDemotionWarningEmailFn(toEmail, username, currentTier, currentRate, threshold)
 	}
 	return nil
 }
-func (m *MockEmailService) SendEditApprovedEmail(toEmail string, username string, entityType string, entityName string, entityURL string) error {
+func (m *MockEmailService) SendEditApprovedEmail(toEmail string, username string, entityType string, entityName string, entityURL string) (error) {
 	if m.SendEditApprovedEmailFn != nil {
 		return m.SendEditApprovedEmailFn(toEmail, username, entityType, entityName, entityURL)
 	}
 	return nil
 }
-func (m *MockEmailService) SendEditRejectedEmail(toEmail string, username string, entityType string, entityName string, rejectionReason string) error {
+func (m *MockEmailService) SendEditRejectedEmail(toEmail string, username string, entityType string, entityName string, rejectionReason string) (error) {
 	if m.SendEditRejectedEmailFn != nil {
 		return m.SendEditRejectedEmailFn(toEmail, username, entityType, entityName, rejectionReason)
 	}
 	return nil
 }
-func (m *MockEmailService) SendCommentNotification(toEmail string, commenterName string, entityType string, entityName string, commentExcerpt string, entityURL string, unsubscribeURL string) error {
+func (m *MockEmailService) SendCommentNotification(toEmail string, commenterName string, entityType string, entityName string, commentExcerpt string, entityURL string, unsubscribeURL string) (error) {
 	if m.SendCommentNotificationFn != nil {
 		return m.SendCommentNotificationFn(toEmail, commenterName, entityType, entityName, commentExcerpt, entityURL, unsubscribeURL)
 	}
 	return nil
 }
-func (m *MockEmailService) SendMentionNotification(toEmail string, mentionerName string, entityType string, entityName string, commentExcerpt string, commentURL string, unsubscribeURL string) error {
+func (m *MockEmailService) SendMentionNotification(toEmail string, mentionerName string, entityType string, entityName string, commentExcerpt string, commentURL string, unsubscribeURL string) (error) {
 	if m.SendMentionNotificationFn != nil {
 		return m.SendMentionNotificationFn(toEmail, mentionerName, entityType, entityName, commentExcerpt, commentURL, unsubscribeURL)
 	}
 	return nil
 }
-func (m *MockEmailService) SendCollectionDigestEmail(toEmail string, groups []contracts.CollectionDigestGroup, unsubscribeURL string) error {
+func (m *MockEmailService) SendCollectionDigestEmail(toEmail string, groups []contracts.CollectionDigestGroup, unsubscribeURL string) (error) {
 	if m.SendCollectionDigestEmailFn != nil {
 		return m.SendCollectionDigestEmailFn(toEmail, groups, unsubscribeURL)
 	}
@@ -1392,13 +1406,13 @@ func (m *MockEmailService) SendCollectionDigestEmail(toEmail string, groups []co
 // ============================================================================
 
 type MockEnrichmentService struct {
-	QueueShowForEnrichmentFn func(uint, string) error
-	ProcessQueueFn           func(context.Context, int) (int, error)
-	EnrichShowFn             func(context.Context, uint) (*contracts.EnrichmentResult, error)
-	GetQueueStatsFn          func() (*contracts.EnrichmentQueueStats, error)
+	QueueShowForEnrichmentFn func(uint, string) (error)
+	ProcessQueueFn func(context.Context, int) (int, error)
+	EnrichShowFn func(context.Context, uint) (*contracts.EnrichmentResult, error)
+	GetQueueStatsFn func() (*contracts.EnrichmentQueueStats, error)
 }
 
-func (m *MockEnrichmentService) QueueShowForEnrichment(showID uint, enrichmentType string) error {
+func (m *MockEnrichmentService) QueueShowForEnrichment(showID uint, enrichmentType string) (error) {
 	if m.QueueShowForEnrichmentFn != nil {
 		return m.QueueShowForEnrichmentFn(showID, enrichmentType)
 	}
@@ -1428,10 +1442,10 @@ func (m *MockEnrichmentService) GetQueueStats() (*contracts.EnrichmentQueueStats
 // ============================================================================
 
 type MockEntityReportService struct {
-	CreateEntityReportFn  func(*contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error)
-	GetEntityReportFn     func(uint) (*contracts.EntityReportResponse, error)
-	GetEntityReportsFn    func(string, uint) ([]contracts.EntityReportResponse, error)
-	ListEntityReportsFn   func(*contracts.EntityReportFilters) ([]contracts.EntityReportResponse, int64, error)
+	CreateEntityReportFn func(*contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error)
+	GetEntityReportFn func(uint) (*contracts.EntityReportResponse, error)
+	GetEntityReportsFn func(string, uint) ([]contracts.EntityReportResponse, error)
+	ListEntityReportsFn func(*contracts.EntityReportFilters) ([]contracts.EntityReportResponse, int64, error)
 	ResolveEntityReportFn func(uint, uint, string) (*contracts.EntityReportResponse, error)
 	DismissEntityReportFn func(uint, uint, string) (*contracts.EntityReportResponse, error)
 }
@@ -1478,7 +1492,7 @@ func (m *MockEntityReportService) DismissEntityReport(reportID uint, reviewerID 
 // ============================================================================
 
 type MockExtractionService struct {
-	ExtractShowFn         func(*contracts.ExtractShowRequest) (*contracts.ExtractShowResponse, error)
+	ExtractShowFn func(*contracts.ExtractShowRequest) (*contracts.ExtractShowResponse, error)
 	ExtractCalendarPageFn func(string, string, string, ...string) (*contracts.CalendarExtractionResponse, error)
 }
 
@@ -1500,21 +1514,21 @@ func (m *MockExtractionService) ExtractCalendarPage(venueName string, content st
 // ============================================================================
 
 type MockFavoriteVenueService struct {
-	FavoriteVenueFn                 func(uint, uint) error
-	UnfavoriteVenueFn               func(uint, uint) error
-	GetUserFavoriteVenuesFn         func(uint, int, int) ([]*contracts.FavoriteVenueResponse, int64, error)
-	IsVenueFavoritedFn              func(uint, uint) (bool, error)
+	FavoriteVenueFn func(uint, uint) (error)
+	UnfavoriteVenueFn func(uint, uint) (error)
+	GetUserFavoriteVenuesFn func(uint, int, int) ([]*contracts.FavoriteVenueResponse, int64, error)
+	IsVenueFavoritedFn func(uint, uint) (bool, error)
 	GetUpcomingShowsFromFavoritesFn func(uint, string, int, int) ([]*contracts.FavoriteVenueShowResponse, int64, error)
-	GetFavoriteVenueIDsFn           func(uint, []uint) (map[uint]bool, error)
+	GetFavoriteVenueIDsFn func(uint, []uint) (map[uint]bool, error)
 }
 
-func (m *MockFavoriteVenueService) FavoriteVenue(userID uint, venueID uint) error {
+func (m *MockFavoriteVenueService) FavoriteVenue(userID uint, venueID uint) (error) {
 	if m.FavoriteVenueFn != nil {
 		return m.FavoriteVenueFn(userID, venueID)
 	}
 	return nil
 }
-func (m *MockFavoriteVenueService) UnfavoriteVenue(userID uint, venueID uint) error {
+func (m *MockFavoriteVenueService) UnfavoriteVenue(userID uint, venueID uint) (error) {
 	if m.UnfavoriteVenueFn != nil {
 		return m.UnfavoriteVenueFn(userID, venueID)
 	}
@@ -1550,11 +1564,11 @@ func (m *MockFavoriteVenueService) GetFavoriteVenueIDs(userID uint, venueIDs []u
 // ============================================================================
 
 type MockFestivalIntelligenceService struct {
-	GetSimilarFestivalsFn         func(uint, int) ([]contracts.SimilarFestival, error)
-	GetFestivalOverlapFn          func(uint, uint) (*contracts.FestivalOverlap, error)
-	GetFestivalBreakoutsFn        func(uint) (*contracts.FestivalBreakouts, error)
+	GetSimilarFestivalsFn func(uint, int) ([]contracts.SimilarFestival, error)
+	GetFestivalOverlapFn func(uint, uint) (*contracts.FestivalOverlap, error)
+	GetFestivalBreakoutsFn func(uint) (*contracts.FestivalBreakouts, error)
 	GetArtistFestivalTrajectoryFn func(uint) (*contracts.ArtistTrajectory, error)
-	GetSeriesComparisonFn         func(string, []int) (*contracts.SeriesComparison, error)
+	GetSeriesComparisonFn func(string, []int) (*contracts.SeriesComparison, error)
 }
 
 func (m *MockFestivalIntelligenceService) GetSimilarFestivals(festivalID uint, limit int) ([]contracts.SimilarFestival, error) {
@@ -1593,20 +1607,20 @@ func (m *MockFestivalIntelligenceService) GetSeriesComparison(seriesSlug string,
 // ============================================================================
 
 type MockFestivalService struct {
-	CreateFestivalFn        func(*contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error)
-	GetFestivalFn           func(uint) (*contracts.FestivalDetailResponse, error)
-	GetFestivalBySlugFn     func(string) (*contracts.FestivalDetailResponse, error)
-	ListFestivalsFn         func(map[string]interface{}) ([]*contracts.FestivalListResponse, error)
-	SearchFestivalsFn       func(string) ([]*contracts.FestivalListResponse, error)
-	UpdateFestivalFn        func(uint, *contracts.UpdateFestivalRequest) (*contracts.FestivalDetailResponse, error)
-	DeleteFestivalFn        func(uint) error
-	GetFestivalArtistsFn    func(uint, *string) ([]*contracts.FestivalArtistResponse, error)
-	AddFestivalArtistFn     func(uint, *contracts.AddFestivalArtistRequest) (*contracts.FestivalArtistResponse, error)
-	UpdateFestivalArtistFn  func(uint, uint, *contracts.UpdateFestivalArtistRequest) (*contracts.FestivalArtistResponse, error)
-	RemoveFestivalArtistFn  func(uint, uint) error
-	GetFestivalVenuesFn     func(uint) ([]*contracts.FestivalVenueResponse, error)
-	AddFestivalVenueFn      func(uint, *contracts.AddFestivalVenueRequest) (*contracts.FestivalVenueResponse, error)
-	RemoveFestivalVenueFn   func(uint, uint) error
+	CreateFestivalFn func(*contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error)
+	GetFestivalFn func(uint) (*contracts.FestivalDetailResponse, error)
+	GetFestivalBySlugFn func(string) (*contracts.FestivalDetailResponse, error)
+	ListFestivalsFn func(map[string]interface{}) ([]*contracts.FestivalListResponse, error)
+	SearchFestivalsFn func(string) ([]*contracts.FestivalListResponse, error)
+	UpdateFestivalFn func(uint, *contracts.UpdateFestivalRequest) (*contracts.FestivalDetailResponse, error)
+	DeleteFestivalFn func(uint) (error)
+	GetFestivalArtistsFn func(uint, *string) ([]*contracts.FestivalArtistResponse, error)
+	AddFestivalArtistFn func(uint, *contracts.AddFestivalArtistRequest) (*contracts.FestivalArtistResponse, error)
+	UpdateFestivalArtistFn func(uint, uint, *contracts.UpdateFestivalArtistRequest) (*contracts.FestivalArtistResponse, error)
+	RemoveFestivalArtistFn func(uint, uint) (error)
+	GetFestivalVenuesFn func(uint) ([]*contracts.FestivalVenueResponse, error)
+	AddFestivalVenueFn func(uint, *contracts.AddFestivalVenueRequest) (*contracts.FestivalVenueResponse, error)
+	RemoveFestivalVenueFn func(uint, uint) (error)
 	GetFestivalsForArtistFn func(uint) ([]*contracts.ArtistFestivalListResponse, error)
 }
 
@@ -1646,7 +1660,7 @@ func (m *MockFestivalService) UpdateFestival(festivalID uint, req *contracts.Upd
 	}
 	return nil, nil
 }
-func (m *MockFestivalService) DeleteFestival(festivalID uint) error {
+func (m *MockFestivalService) DeleteFestival(festivalID uint) (error) {
 	if m.DeleteFestivalFn != nil {
 		return m.DeleteFestivalFn(festivalID)
 	}
@@ -1670,7 +1684,7 @@ func (m *MockFestivalService) UpdateFestivalArtist(festivalID uint, artistID uin
 	}
 	return nil, nil
 }
-func (m *MockFestivalService) RemoveFestivalArtist(festivalID uint, artistID uint) error {
+func (m *MockFestivalService) RemoveFestivalArtist(festivalID uint, artistID uint) (error) {
 	if m.RemoveFestivalArtistFn != nil {
 		return m.RemoveFestivalArtistFn(festivalID, artistID)
 	}
@@ -1688,7 +1702,7 @@ func (m *MockFestivalService) AddFestivalVenue(festivalID uint, req *contracts.A
 	}
 	return nil, nil
 }
-func (m *MockFestivalService) RemoveFestivalVenue(festivalID uint, venueID uint) error {
+func (m *MockFestivalService) RemoveFestivalVenue(festivalID uint, venueID uint) (error) {
 	if m.RemoveFestivalVenueFn != nil {
 		return m.RemoveFestivalVenueFn(festivalID, venueID)
 	}
@@ -1706,7 +1720,7 @@ func (m *MockFestivalService) GetFestivalsForArtist(artistID uint) ([]*contracts
 // ============================================================================
 
 type MockFieldNoteService struct {
-	CreateFieldNoteFn       func(uint, *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error)
+	CreateFieldNoteFn func(uint, *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error)
 	ListFieldNotesForShowFn func(uint, int, int) (*contracts.CommentListResponse, error)
 }
 
@@ -1728,23 +1742,23 @@ func (m *MockFieldNoteService) ListFieldNotesForShow(showID uint, limit int, off
 // ============================================================================
 
 type MockFollowService struct {
-	FollowFn                 func(uint, string, uint) error
-	UnfollowFn               func(uint, string, uint) error
-	IsFollowingFn            func(uint, string, uint) (bool, error)
-	GetFollowerCountFn       func(string, uint) (int64, error)
+	FollowFn func(uint, string, uint) (error)
+	UnfollowFn func(uint, string, uint) (error)
+	IsFollowingFn func(uint, string, uint) (bool, error)
+	GetFollowerCountFn func(string, uint) (int64, error)
 	GetBatchFollowerCountsFn func(string, []uint) (map[uint]int64, error)
-	GetBatchUserFollowingFn  func(uint, string, []uint) (map[uint]bool, error)
-	GetUserFollowingFn       func(uint, string, int, int) ([]*contracts.FollowingEntityResponse, int64, error)
-	GetFollowersFn           func(string, uint, int, int) ([]*contracts.FollowerResponse, int64, error)
+	GetBatchUserFollowingFn func(uint, string, []uint) (map[uint]bool, error)
+	GetUserFollowingFn func(uint, string, int, int) ([]*contracts.FollowingEntityResponse, int64, error)
+	GetFollowersFn func(string, uint, int, int) ([]*contracts.FollowerResponse, int64, error)
 }
 
-func (m *MockFollowService) Follow(userID uint, entityType string, entityID uint) error {
+func (m *MockFollowService) Follow(userID uint, entityType string, entityID uint) (error) {
 	if m.FollowFn != nil {
 		return m.FollowFn(userID, entityType, entityID)
 	}
 	return nil
 }
-func (m *MockFollowService) Unfollow(userID uint, entityType string, entityID uint) error {
+func (m *MockFollowService) Unfollow(userID uint, entityType string, entityID uint) (error) {
 	if m.UnfollowFn != nil {
 		return m.UnfollowFn(userID, entityType, entityID)
 	}
@@ -1796,15 +1810,15 @@ func (m *MockFollowService) GetFollowers(entityType string, entityID uint, limit
 // ============================================================================
 
 type MockJWTService struct {
-	CreateTokenFn                  func(*models.User) (string, error)
-	ValidateTokenFn                func(string) (*models.User, error)
-	RefreshTokenFn                 func(string) (string, error)
-	ValidateTokenLenientFn         func(string, time.Duration) (*models.User, error)
-	CreateVerificationTokenFn      func(uint, string) (string, error)
-	ValidateVerificationTokenFn    func(string) (*contracts.VerificationTokenClaims, error)
-	CreateMagicLinkTokenFn         func(uint, string) (string, error)
-	ValidateMagicLinkTokenFn       func(string) (*contracts.MagicLinkTokenClaims, error)
-	CreateAccountRecoveryTokenFn   func(uint, string) (string, error)
+	CreateTokenFn func(*models.User) (string, error)
+	ValidateTokenFn func(string) (*models.User, error)
+	RefreshTokenFn func(string) (string, error)
+	ValidateTokenLenientFn func(string, time.Duration) (*models.User, error)
+	CreateVerificationTokenFn func(uint, string) (string, error)
+	ValidateVerificationTokenFn func(string) (*contracts.VerificationTokenClaims, error)
+	CreateMagicLinkTokenFn func(uint, string) (string, error)
+	ValidateMagicLinkTokenFn func(string) (*contracts.MagicLinkTokenClaims, error)
+	CreateAccountRecoveryTokenFn func(uint, string) (string, error)
 	ValidateAccountRecoveryTokenFn func(string) (*contracts.AccountRecoveryTokenClaims, error)
 }
 
@@ -1874,17 +1888,17 @@ func (m *MockJWTService) ValidateAccountRecoveryToken(tokenString string) (*cont
 // ============================================================================
 
 type MockLabelService struct {
-	CreateLabelFn       func(*contracts.CreateLabelRequest) (*contracts.LabelDetailResponse, error)
-	GetLabelFn          func(uint) (*contracts.LabelDetailResponse, error)
-	GetLabelBySlugFn    func(string) (*contracts.LabelDetailResponse, error)
-	ListLabelsFn        func(map[string]interface{}) ([]*contracts.LabelListResponse, error)
-	SearchLabelsFn      func(string) ([]*contracts.LabelListResponse, error)
-	UpdateLabelFn       func(uint, *contracts.UpdateLabelRequest) (*contracts.LabelDetailResponse, error)
-	DeleteLabelFn       func(uint) error
-	GetLabelRosterFn    func(uint) ([]*contracts.LabelArtistResponse, error)
-	GetLabelCatalogFn   func(uint) ([]*contracts.LabelReleaseResponse, error)
-	AddArtistToLabelFn  func(uint, uint) error
-	AddReleaseToLabelFn func(uint, uint, *string) error
+	CreateLabelFn func(*contracts.CreateLabelRequest) (*contracts.LabelDetailResponse, error)
+	GetLabelFn func(uint) (*contracts.LabelDetailResponse, error)
+	GetLabelBySlugFn func(string) (*contracts.LabelDetailResponse, error)
+	ListLabelsFn func(map[string]interface{}) ([]*contracts.LabelListResponse, error)
+	SearchLabelsFn func(string) ([]*contracts.LabelListResponse, error)
+	UpdateLabelFn func(uint, *contracts.UpdateLabelRequest) (*contracts.LabelDetailResponse, error)
+	DeleteLabelFn func(uint) (error)
+	GetLabelRosterFn func(uint) ([]*contracts.LabelArtistResponse, error)
+	GetLabelCatalogFn func(uint) ([]*contracts.LabelReleaseResponse, error)
+	AddArtistToLabelFn func(uint, uint) (error)
+	AddReleaseToLabelFn func(uint, uint, *string) (error)
 }
 
 func (m *MockLabelService) CreateLabel(req *contracts.CreateLabelRequest) (*contracts.LabelDetailResponse, error) {
@@ -1923,7 +1937,7 @@ func (m *MockLabelService) UpdateLabel(labelID uint, req *contracts.UpdateLabelR
 	}
 	return nil, nil
 }
-func (m *MockLabelService) DeleteLabel(labelID uint) error {
+func (m *MockLabelService) DeleteLabel(labelID uint) (error) {
 	if m.DeleteLabelFn != nil {
 		return m.DeleteLabelFn(labelID)
 	}
@@ -1941,13 +1955,13 @@ func (m *MockLabelService) GetLabelCatalog(labelID uint) ([]*contracts.LabelRele
 	}
 	return nil, nil
 }
-func (m *MockLabelService) AddArtistToLabel(labelID uint, artistID uint) error {
+func (m *MockLabelService) AddArtistToLabel(labelID uint, artistID uint) (error) {
 	if m.AddArtistToLabelFn != nil {
 		return m.AddArtistToLabelFn(labelID, artistID)
 	}
 	return nil
 }
-func (m *MockLabelService) AddReleaseToLabel(labelID uint, releaseID uint, catalogNumber *string) error {
+func (m *MockLabelService) AddReleaseToLabel(labelID uint, releaseID uint, catalogNumber *string) (error) {
 	if m.AddReleaseToLabelFn != nil {
 		return m.AddReleaseToLabelFn(labelID, releaseID, catalogNumber)
 	}
@@ -1960,7 +1974,7 @@ func (m *MockLabelService) AddReleaseToLabel(labelID uint, releaseID uint, catal
 
 type MockLeaderboardService struct {
 	GetLeaderboardFn func(string, string, int) ([]contracts.LeaderboardEntry, error)
-	GetUserRankFn    func(uint, string, string) (*int, error)
+	GetUserRankFn func(uint, string, string) (*int, error)
 }
 
 func (m *MockLeaderboardService) GetLeaderboard(dimension string, period string, limit int) ([]contracts.LeaderboardEntry, error) {
@@ -1981,11 +1995,11 @@ func (m *MockLeaderboardService) GetUserRank(userID uint, dimension string, peri
 // ============================================================================
 
 type MockMusicDiscoveryService struct {
-	IsConfiguredFn           func() bool
+	IsConfiguredFn func() (bool)
 	DiscoverMusicForArtistFn func(uint, string)
 }
 
-func (m *MockMusicDiscoveryService) IsConfigured() bool {
+func (m *MockMusicDiscoveryService) IsConfigured() (bool) {
 	if m.IsConfiguredFn != nil {
 		return m.IsConfiguredFn()
 	}
@@ -2002,17 +2016,17 @@ func (m *MockMusicDiscoveryService) DiscoverMusicForArtist(artistID uint, artist
 // ============================================================================
 
 type MockNotificationFilterService struct {
-	CreateFilterFn         func(uint, contracts.CreateFilterInput) (*models.NotificationFilter, error)
-	UpdateFilterFn         func(uint, uint, contracts.UpdateFilterInput) (*models.NotificationFilter, error)
-	DeleteFilterFn         func(uint, uint) error
-	GetUserFiltersFn       func(uint) ([]models.NotificationFilter, error)
-	GetFilterFn            func(uint, uint) (*models.NotificationFilter, error)
-	QuickCreateFilterFn    func(uint, string, uint) (*models.NotificationFilter, error)
-	MatchAndNotifyFn       func(*models.Show) error
-	MatchAndNotifyBatchFn  func([]models.Show) error
+	CreateFilterFn func(uint, contracts.CreateFilterInput) (*models.NotificationFilter, error)
+	UpdateFilterFn func(uint, uint, contracts.UpdateFilterInput) (*models.NotificationFilter, error)
+	DeleteFilterFn func(uint, uint) (error)
+	GetUserFiltersFn func(uint) ([]models.NotificationFilter, error)
+	GetFilterFn func(uint, uint) (*models.NotificationFilter, error)
+	QuickCreateFilterFn func(uint, string, uint) (*models.NotificationFilter, error)
+	MatchAndNotifyFn func(*models.Show) (error)
+	MatchAndNotifyBatchFn func([]models.Show) (error)
 	GetUserNotificationsFn func(uint, int, int) ([]contracts.NotificationLogEntry, error)
-	GetUnreadCountFn       func(uint) (int64, error)
-	PauseFilterFn          func(uint) error
+	GetUnreadCountFn func(uint) (int64, error)
+	PauseFilterFn func(uint) (error)
 }
 
 func (m *MockNotificationFilterService) CreateFilter(userID uint, input contracts.CreateFilterInput) (*models.NotificationFilter, error) {
@@ -2027,7 +2041,7 @@ func (m *MockNotificationFilterService) UpdateFilter(userID uint, filterID uint,
 	}
 	return nil, nil
 }
-func (m *MockNotificationFilterService) DeleteFilter(userID uint, filterID uint) error {
+func (m *MockNotificationFilterService) DeleteFilter(userID uint, filterID uint) (error) {
 	if m.DeleteFilterFn != nil {
 		return m.DeleteFilterFn(userID, filterID)
 	}
@@ -2051,13 +2065,13 @@ func (m *MockNotificationFilterService) QuickCreateFilter(userID uint, entityTyp
 	}
 	return nil, nil
 }
-func (m *MockNotificationFilterService) MatchAndNotify(show *models.Show) error {
+func (m *MockNotificationFilterService) MatchAndNotify(show *models.Show) (error) {
 	if m.MatchAndNotifyFn != nil {
 		return m.MatchAndNotifyFn(show)
 	}
 	return nil
 }
-func (m *MockNotificationFilterService) MatchAndNotifyBatch(shows []models.Show) error {
+func (m *MockNotificationFilterService) MatchAndNotifyBatch(shows []models.Show) (error) {
 	if m.MatchAndNotifyBatchFn != nil {
 		return m.MatchAndNotifyBatchFn(shows)
 	}
@@ -2075,7 +2089,7 @@ func (m *MockNotificationFilterService) GetUnreadCount(userID uint) (int64, erro
 	}
 	return 0, nil
 }
-func (m *MockNotificationFilterService) PauseFilter(filterID uint) error {
+func (m *MockNotificationFilterService) PauseFilter(filterID uint) (error) {
 	if m.PauseFilterFn != nil {
 		return m.PauseFilterFn(filterID)
 	}
@@ -2088,8 +2102,8 @@ func (m *MockNotificationFilterService) PauseFilter(filterID uint) error {
 
 type MockPasswordValidator struct {
 	ValidatePasswordFn func(string) (*contracts.PasswordValidationResult, error)
-	IsBreachedFn       func(string) (bool, error)
-	IsCommonPasswordFn func(string) bool
+	IsBreachedFn func(string) (bool, error)
+	IsCommonPasswordFn func(string) (bool)
 }
 
 func (m *MockPasswordValidator) ValidatePassword(password string) (*contracts.PasswordValidationResult, error) {
@@ -2104,7 +2118,7 @@ func (m *MockPasswordValidator) IsBreached(password string) (bool, error) {
 	}
 	return false, nil
 }
-func (m *MockPasswordValidator) IsCommonPassword(password string) bool {
+func (m *MockPasswordValidator) IsCommonPassword(password string) (bool) {
 	if m.IsCommonPasswordFn != nil {
 		return m.IsCommonPasswordFn(password)
 	}
@@ -2116,14 +2130,14 @@ func (m *MockPasswordValidator) IsCommonPassword(password string) bool {
 // ============================================================================
 
 type MockPendingEditService struct {
-	CreatePendingEditFn        func(*contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error)
-	GetPendingEditFn           func(uint) (*contracts.PendingEditResponse, error)
+	CreatePendingEditFn func(*contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error)
+	GetPendingEditFn func(uint) (*contracts.PendingEditResponse, error)
 	GetPendingEditsForEntityFn func(string, uint) ([]contracts.PendingEditResponse, error)
-	GetUserPendingEditsFn      func(uint, int, int) ([]contracts.PendingEditResponse, int64, error)
-	ListPendingEditsFn         func(*contracts.PendingEditFilters) ([]contracts.PendingEditResponse, int64, error)
-	ApprovePendingEditFn       func(uint, uint) (*contracts.PendingEditResponse, error)
-	RejectPendingEditFn        func(uint, uint, string) (*contracts.PendingEditResponse, error)
-	CancelPendingEditFn        func(uint, uint) error
+	GetUserPendingEditsFn func(uint, int, int) ([]contracts.PendingEditResponse, int64, error)
+	ListPendingEditsFn func(*contracts.PendingEditFilters) ([]contracts.PendingEditResponse, int64, error)
+	ApprovePendingEditFn func(uint, uint) (*contracts.PendingEditResponse, error)
+	RejectPendingEditFn func(uint, uint, string) (*contracts.PendingEditResponse, error)
+	CancelPendingEditFn func(uint, uint) (error)
 }
 
 func (m *MockPendingEditService) CreatePendingEdit(req *contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
@@ -2168,7 +2182,7 @@ func (m *MockPendingEditService) RejectPendingEdit(editID uint, reviewerID uint,
 	}
 	return nil, nil
 }
-func (m *MockPendingEditService) CancelPendingEdit(editID uint, userID uint) error {
+func (m *MockPendingEditService) CancelPendingEdit(editID uint, userID uint) (error) {
 	if m.CancelPendingEditFn != nil {
 		return m.CancelPendingEditFn(editID, userID)
 	}
@@ -2203,44 +2217,44 @@ func (m *MockPipelineService) ExtractVenue(venueID uint, dryRun bool) (*contract
 // ============================================================================
 
 type MockRadioService struct {
-	CreateStationFn               func(*contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error)
-	GetStationFn                  func(uint) (*contracts.RadioStationDetailResponse, error)
-	GetStationBySlugFn            func(string) (*contracts.RadioStationDetailResponse, error)
-	ListStationsFn                func(map[string]interface{}) ([]*contracts.RadioStationListResponse, error)
-	UpdateStationFn               func(uint, *contracts.UpdateRadioStationRequest) (*contracts.RadioStationDetailResponse, error)
-	DeleteStationFn               func(uint) error
-	CreateShowFn                  func(uint, *contracts.CreateRadioShowRequest) (*contracts.RadioShowDetailResponse, error)
-	GetShowFn                     func(uint) (*contracts.RadioShowDetailResponse, error)
-	GetShowBySlugFn               func(string) (*contracts.RadioShowDetailResponse, error)
-	ListShowsFn                   func(uint) ([]*contracts.RadioShowListResponse, error)
-	UpdateShowFn                  func(uint, *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error)
-	DeleteShowFn                  func(uint) error
-	GetEpisodesFn                 func(uint, int, int) ([]*contracts.RadioEpisodeResponse, int64, error)
-	GetEpisodeByShowAndDateFn     func(uint, string) (*contracts.RadioEpisodeDetailResponse, error)
-	GetEpisodeDetailFn            func(uint) (*contracts.RadioEpisodeDetailResponse, error)
-	GetTopArtistsForShowFn        func(uint, int, int) ([]*contracts.RadioTopArtistResponse, error)
-	GetTopLabelsForShowFn         func(uint, int, int) ([]*contracts.RadioTopLabelResponse, error)
-	GetAsHeardOnForArtistFn       func(uint) ([]*contracts.RadioAsHeardOnResponse, error)
-	GetAsHeardOnForReleaseFn      func(uint) ([]*contracts.RadioAsHeardOnResponse, error)
-	GetNewReleaseRadarFn          func(uint, int) ([]*contracts.RadioNewReleaseRadarEntry, error)
-	GetRadioStatsFn               func() (*contracts.RadioStatsResponse, error)
-	ImportStationFn               func(uint, int) (*contracts.RadioImportResult, error)
-	FetchNewEpisodesFn            func(uint) (*contracts.RadioImportResult, error)
-	ImportEpisodePlaylistFn       func(uint, string) (*contracts.EpisodeImportResult, error)
-	DiscoverStationShowsFn        func(uint) (*contracts.RadioDiscoverResult, error)
-	ImportShowEpisodesFn          func(uint, string, string) (*contracts.RadioImportResult, error)
-	MatchPlaysFn                  func(uint) (*contracts.MatchResult, error)
-	GetUnmatchedPlaysFn           func(uint, int, int) ([]*contracts.UnmatchedPlayGroup, int64, error)
-	LinkPlayFn                    func(uint, *contracts.LinkPlayRequest) error
-	BulkLinkPlaysFn               func(*contracts.BulkLinkRequest) (*contracts.BulkLinkResult, error)
-	ComputeAffinityFn             func() error
+	CreateStationFn func(*contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error)
+	GetStationFn func(uint) (*contracts.RadioStationDetailResponse, error)
+	GetStationBySlugFn func(string) (*contracts.RadioStationDetailResponse, error)
+	ListStationsFn func(map[string]interface{}) ([]*contracts.RadioStationListResponse, error)
+	UpdateStationFn func(uint, *contracts.UpdateRadioStationRequest) (*contracts.RadioStationDetailResponse, error)
+	DeleteStationFn func(uint) (error)
+	CreateShowFn func(uint, *contracts.CreateRadioShowRequest) (*contracts.RadioShowDetailResponse, error)
+	GetShowFn func(uint) (*contracts.RadioShowDetailResponse, error)
+	GetShowBySlugFn func(string) (*contracts.RadioShowDetailResponse, error)
+	ListShowsFn func(uint) ([]*contracts.RadioShowListResponse, error)
+	UpdateShowFn func(uint, *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error)
+	DeleteShowFn func(uint) (error)
+	GetEpisodesFn func(uint, int, int) ([]*contracts.RadioEpisodeResponse, int64, error)
+	GetEpisodeByShowAndDateFn func(uint, string) (*contracts.RadioEpisodeDetailResponse, error)
+	GetEpisodeDetailFn func(uint) (*contracts.RadioEpisodeDetailResponse, error)
+	GetTopArtistsForShowFn func(uint, int, int) ([]*contracts.RadioTopArtistResponse, error)
+	GetTopLabelsForShowFn func(uint, int, int) ([]*contracts.RadioTopLabelResponse, error)
+	GetAsHeardOnForArtistFn func(uint) ([]*contracts.RadioAsHeardOnResponse, error)
+	GetAsHeardOnForReleaseFn func(uint) ([]*contracts.RadioAsHeardOnResponse, error)
+	GetNewReleaseRadarFn func(uint, int) ([]*contracts.RadioNewReleaseRadarEntry, error)
+	GetRadioStatsFn func() (*contracts.RadioStatsResponse, error)
+	ImportStationFn func(uint, int) (*contracts.RadioImportResult, error)
+	FetchNewEpisodesFn func(uint) (*contracts.RadioImportResult, error)
+	ImportEpisodePlaylistFn func(uint, string) (*contracts.EpisodeImportResult, error)
+	DiscoverStationShowsFn func(uint) (*contracts.RadioDiscoverResult, error)
+	ImportShowEpisodesFn func(uint, string, string) (*contracts.RadioImportResult, error)
+	MatchPlaysFn func(uint) (*contracts.MatchResult, error)
+	GetUnmatchedPlaysFn func(uint, int, int) ([]*contracts.UnmatchedPlayGroup, int64, error)
+	LinkPlayFn func(uint, *contracts.LinkPlayRequest) (error)
+	BulkLinkPlaysFn func(*contracts.BulkLinkRequest) (*contracts.BulkLinkResult, error)
+	ComputeAffinityFn func() (error)
 	SyncAffinityToRelationshipsFn func() (*contracts.SyncAffinityResult, error)
-	ReMatchUnmatchedFn            func() (*contracts.MatchResult, error)
-	CreateImportJobFn             func(uint, string, string) (*contracts.RadioImportJobResponse, error)
-	StartImportJobFn              func(uint) error
-	CancelImportJobFn             func(uint) error
-	GetImportJobFn                func(uint) (*contracts.RadioImportJobResponse, error)
-	ListImportJobsFn              func(uint) ([]*contracts.RadioImportJobResponse, error)
+	ReMatchUnmatchedFn func() (*contracts.MatchResult, error)
+	CreateImportJobFn func(uint, string, string) (*contracts.RadioImportJobResponse, error)
+	StartImportJobFn func(uint) (error)
+	CancelImportJobFn func(uint) (error)
+	GetImportJobFn func(uint) (*contracts.RadioImportJobResponse, error)
+	ListImportJobsFn func(uint) ([]*contracts.RadioImportJobResponse, error)
 }
 
 func (m *MockRadioService) CreateStation(req *contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
@@ -2273,7 +2287,7 @@ func (m *MockRadioService) UpdateStation(stationID uint, req *contracts.UpdateRa
 	}
 	return nil, nil
 }
-func (m *MockRadioService) DeleteStation(stationID uint) error {
+func (m *MockRadioService) DeleteStation(stationID uint) (error) {
 	if m.DeleteStationFn != nil {
 		return m.DeleteStationFn(stationID)
 	}
@@ -2309,7 +2323,7 @@ func (m *MockRadioService) UpdateShow(showID uint, req *contracts.UpdateRadioSho
 	}
 	return nil, nil
 }
-func (m *MockRadioService) DeleteShow(showID uint) error {
+func (m *MockRadioService) DeleteShow(showID uint) (error) {
 	if m.DeleteShowFn != nil {
 		return m.DeleteShowFn(showID)
 	}
@@ -2411,7 +2425,7 @@ func (m *MockRadioService) GetUnmatchedPlays(stationID uint, limit int, offset i
 	}
 	return nil, 0, nil
 }
-func (m *MockRadioService) LinkPlay(playID uint, req *contracts.LinkPlayRequest) error {
+func (m *MockRadioService) LinkPlay(playID uint, req *contracts.LinkPlayRequest) (error) {
 	if m.LinkPlayFn != nil {
 		return m.LinkPlayFn(playID, req)
 	}
@@ -2423,7 +2437,7 @@ func (m *MockRadioService) BulkLinkPlays(req *contracts.BulkLinkRequest) (*contr
 	}
 	return nil, nil
 }
-func (m *MockRadioService) ComputeAffinity() error {
+func (m *MockRadioService) ComputeAffinity() (error) {
 	if m.ComputeAffinityFn != nil {
 		return m.ComputeAffinityFn()
 	}
@@ -2447,13 +2461,13 @@ func (m *MockRadioService) CreateImportJob(showID uint, since string, until stri
 	}
 	return nil, nil
 }
-func (m *MockRadioService) StartImportJob(jobID uint) error {
+func (m *MockRadioService) StartImportJob(jobID uint) (error) {
 	if m.StartImportJobFn != nil {
 		return m.StartImportJobFn(jobID)
 	}
 	return nil
 }
-func (m *MockRadioService) CancelImportJob(jobID uint) error {
+func (m *MockRadioService) CancelImportJob(jobID uint) (error) {
 	if m.CancelImportJobFn != nil {
 		return m.CancelImportJobFn(jobID)
 	}
@@ -2477,17 +2491,17 @@ func (m *MockRadioService) ListImportJobs(showID uint) ([]*contracts.RadioImport
 // ============================================================================
 
 type MockReleaseService struct {
-	CreateReleaseFn                 func(*contracts.CreateReleaseRequest) (*contracts.ReleaseDetailResponse, error)
-	GetReleaseFn                    func(uint) (*contracts.ReleaseDetailResponse, error)
-	GetReleaseBySlugFn              func(string) (*contracts.ReleaseDetailResponse, error)
-	ListReleasesFn                  func(contracts.ReleaseListFilters) ([]*contracts.ReleaseListResponse, int64, error)
-	SearchReleasesFn                func(string) ([]*contracts.ReleaseListResponse, error)
-	UpdateReleaseFn                 func(uint, *contracts.UpdateReleaseRequest) (*contracts.ReleaseDetailResponse, error)
-	DeleteReleaseFn                 func(uint) error
-	GetReleasesForArtistFn          func(uint) ([]*contracts.ReleaseListResponse, error)
+	CreateReleaseFn func(*contracts.CreateReleaseRequest) (*contracts.ReleaseDetailResponse, error)
+	GetReleaseFn func(uint) (*contracts.ReleaseDetailResponse, error)
+	GetReleaseBySlugFn func(string) (*contracts.ReleaseDetailResponse, error)
+	ListReleasesFn func(contracts.ReleaseListFilters) ([]*contracts.ReleaseListResponse, int64, error)
+	SearchReleasesFn func(string) ([]*contracts.ReleaseListResponse, error)
+	UpdateReleaseFn func(uint, *contracts.UpdateReleaseRequest) (*contracts.ReleaseDetailResponse, error)
+	DeleteReleaseFn func(uint) (error)
+	GetReleasesForArtistFn func(uint) ([]*contracts.ReleaseListResponse, error)
 	GetReleasesForArtistWithRolesFn func(uint) ([]*contracts.ArtistReleaseListResponse, error)
-	AddExternalLinkFn               func(uint, string, string) (*contracts.ReleaseExternalLinkResponse, error)
-	RemoveExternalLinkFn            func(uint) error
+	AddExternalLinkFn func(uint, string, string) (*contracts.ReleaseExternalLinkResponse, error)
+	RemoveExternalLinkFn func(uint) (error)
 }
 
 func (m *MockReleaseService) CreateRelease(req *contracts.CreateReleaseRequest) (*contracts.ReleaseDetailResponse, error) {
@@ -2526,7 +2540,7 @@ func (m *MockReleaseService) UpdateRelease(releaseID uint, req *contracts.Update
 	}
 	return nil, nil
 }
-func (m *MockReleaseService) DeleteRelease(releaseID uint) error {
+func (m *MockReleaseService) DeleteRelease(releaseID uint) (error) {
 	if m.DeleteReleaseFn != nil {
 		return m.DeleteReleaseFn(releaseID)
 	}
@@ -2550,7 +2564,7 @@ func (m *MockReleaseService) AddExternalLink(releaseID uint, platform string, ur
 	}
 	return nil, nil
 }
-func (m *MockReleaseService) RemoveExternalLink(linkID uint) error {
+func (m *MockReleaseService) RemoveExternalLink(linkID uint) (error) {
 	if m.RemoveExternalLinkFn != nil {
 		return m.RemoveExternalLinkFn(linkID)
 	}
@@ -2562,16 +2576,16 @@ func (m *MockReleaseService) RemoveExternalLink(linkID uint) error {
 // ============================================================================
 
 type MockRequestService struct {
-	CreateRequestFn  func(uint, string, string, string, *uint) (*models.Request, error)
-	GetRequestFn     func(uint) (*models.Request, error)
-	ListRequestsFn   func(string, string, string, int, int) ([]models.Request, int64, error)
-	UpdateRequestFn  func(uint, uint, *string, *string) (*models.Request, error)
-	DeleteRequestFn  func(uint, uint, bool) error
-	VoteFn           func(uint, uint, bool) error
-	RemoveVoteFn     func(uint, uint) error
-	FulfillRequestFn func(uint, uint, *uint) error
-	CloseRequestFn   func(uint, uint, bool) error
-	GetUserVoteFn    func(uint, uint) (*models.RequestVote, error)
+	CreateRequestFn func(uint, string, string, string, *uint) (*models.Request, error)
+	GetRequestFn func(uint) (*models.Request, error)
+	ListRequestsFn func(string, string, string, int, int) ([]models.Request, int64, error)
+	UpdateRequestFn func(uint, uint, *string, *string) (*models.Request, error)
+	DeleteRequestFn func(uint, uint, bool) (error)
+	VoteFn func(uint, uint, bool) (error)
+	RemoveVoteFn func(uint, uint) (error)
+	FulfillRequestFn func(uint, uint, *uint) (error)
+	CloseRequestFn func(uint, uint, bool) (error)
+	GetUserVoteFn func(uint, uint) (*models.RequestVote, error)
 }
 
 func (m *MockRequestService) CreateRequest(userID uint, title string, description string, entityType string, requestedEntityID *uint) (*models.Request, error) {
@@ -2615,31 +2629,31 @@ func (m *MockRequestService) UpdateRequest(requestID uint, userID uint, title *s
 	t := "Updated"
 	return &models.Request{ID: requestID, Title: t, EntityType: "artist", Status: models.RequestStatusPending, RequesterID: userID}, nil
 }
-func (m *MockRequestService) DeleteRequest(requestID uint, userID uint, isAdmin bool) error {
+func (m *MockRequestService) DeleteRequest(requestID uint, userID uint, isAdmin bool) (error) {
 	if m.DeleteRequestFn != nil {
 		return m.DeleteRequestFn(requestID, userID, isAdmin)
 	}
 	return nil
 }
-func (m *MockRequestService) Vote(requestID uint, userID uint, isUpvote bool) error {
+func (m *MockRequestService) Vote(requestID uint, userID uint, isUpvote bool) (error) {
 	if m.VoteFn != nil {
 		return m.VoteFn(requestID, userID, isUpvote)
 	}
 	return nil
 }
-func (m *MockRequestService) RemoveVote(requestID uint, userID uint) error {
+func (m *MockRequestService) RemoveVote(requestID uint, userID uint) (error) {
 	if m.RemoveVoteFn != nil {
 		return m.RemoveVoteFn(requestID, userID)
 	}
 	return nil
 }
-func (m *MockRequestService) FulfillRequest(requestID uint, fulfillerID uint, fulfilledEntityID *uint) error {
+func (m *MockRequestService) FulfillRequest(requestID uint, fulfillerID uint, fulfilledEntityID *uint) (error) {
 	if m.FulfillRequestFn != nil {
 		return m.FulfillRequestFn(requestID, fulfillerID, fulfilledEntityID)
 	}
 	return nil
 }
-func (m *MockRequestService) CloseRequest(requestID uint, userID uint, isAdmin bool) error {
+func (m *MockRequestService) CloseRequest(requestID uint, userID uint, isAdmin bool) (error) {
 	if m.CloseRequestFn != nil {
 		return m.CloseRequestFn(requestID, userID, isAdmin)
 	}
@@ -2657,14 +2671,14 @@ func (m *MockRequestService) GetUserVote(requestID uint, userID uint) (*models.R
 // ============================================================================
 
 type MockRevisionService struct {
-	RecordRevisionFn   func(string, uint, uint, []models.FieldChange, string) error
+	RecordRevisionFn func(string, uint, uint, []models.FieldChange, string) (error)
 	GetEntityHistoryFn func(string, uint, int, int) ([]models.Revision, int64, error)
-	GetRevisionFn      func(uint) (*models.Revision, error)
+	GetRevisionFn func(uint) (*models.Revision, error)
 	GetUserRevisionsFn func(uint, int, int) ([]models.Revision, int64, error)
-	RollbackFn         func(uint, uint) error
+	RollbackFn func(uint, uint) (error)
 }
 
-func (m *MockRevisionService) RecordRevision(entityType string, entityID uint, userID uint, changes []models.FieldChange, summary string) error {
+func (m *MockRevisionService) RecordRevision(entityType string, entityID uint, userID uint, changes []models.FieldChange, summary string) (error) {
 	if m.RecordRevisionFn != nil {
 		return m.RecordRevisionFn(entityType, entityID, userID, changes, summary)
 	}
@@ -2688,7 +2702,7 @@ func (m *MockRevisionService) GetUserRevisions(userID uint, limit int, offset in
 	}
 	return nil, 0, nil
 }
-func (m *MockRevisionService) Rollback(revisionID uint, adminUserID uint) error {
+func (m *MockRevisionService) Rollback(revisionID uint, adminUserID uint) (error) {
 	if m.RollbackFn != nil {
 		return m.RollbackFn(revisionID, adminUserID)
 	}
@@ -2700,20 +2714,20 @@ func (m *MockRevisionService) Rollback(revisionID uint, adminUserID uint) error 
 // ============================================================================
 
 type MockSavedShowService struct {
-	SaveShowFn          func(uint, uint) error
-	UnsaveShowFn        func(uint, uint) error
+	SaveShowFn func(uint, uint) (error)
+	UnsaveShowFn func(uint, uint) (error)
 	GetUserSavedShowsFn func(uint, int, int) ([]*contracts.SavedShowResponse, int64, error)
-	IsShowSavedFn       func(uint, uint) (bool, error)
-	GetSavedShowIDsFn   func(uint, []uint) (map[uint]bool, error)
+	IsShowSavedFn func(uint, uint) (bool, error)
+	GetSavedShowIDsFn func(uint, []uint) (map[uint]bool, error)
 }
 
-func (m *MockSavedShowService) SaveShow(userID uint, showID uint) error {
+func (m *MockSavedShowService) SaveShow(userID uint, showID uint) (error) {
 	if m.SaveShowFn != nil {
 		return m.SaveShowFn(userID, showID)
 	}
 	return nil
 }
-func (m *MockSavedShowService) UnsaveShow(userID uint, showID uint) error {
+func (m *MockSavedShowService) UnsaveShow(userID uint, showID uint) (error) {
 	if m.UnsaveShowFn != nil {
 		return m.UnsaveShowFn(userID, showID)
 	}
@@ -2743,13 +2757,13 @@ func (m *MockSavedShowService) GetSavedShowIDs(userID uint, showIDs []uint) (map
 // ============================================================================
 
 type MockSceneService struct {
-	ListScenesFn                func() ([]*contracts.SceneListResponse, error)
-	GetSceneDetailFn            func(string, string) (*contracts.SceneDetailResponse, error)
-	GetActiveArtistsFn          func(string, string, int, int, int) ([]*contracts.SceneArtistResponse, int64, error)
-	ParseSceneSlugFn            func(string) (string, string, error)
+	ListScenesFn func() ([]*contracts.SceneListResponse, error)
+	GetSceneDetailFn func(string, string) (*contracts.SceneDetailResponse, error)
+	GetActiveArtistsFn func(string, string, int, int, int) ([]*contracts.SceneArtistResponse, int64, error)
+	ParseSceneSlugFn func(string) (string, string, error)
 	GetSceneGenreDistributionFn func(string, string) ([]contracts.GenreCount, error)
-	GetGenreDiversityIndexFn    func(string, string) (float64, error)
-	GetSceneGraphFn             func(string, string, []string) (*contracts.SceneGraphResponse, error)
+	GetGenreDiversityIndexFn func(string, string) (float64, error)
+	GetSceneGraphFn func(string, string, []string) (*contracts.SceneGraphResponse, error)
 }
 
 func (m *MockSceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
@@ -2800,13 +2814,13 @@ func (m *MockSceneService) GetSceneGraph(city string, state string, types []stri
 // ============================================================================
 
 type MockShowAdminService struct {
-	GetPendingShowsFn   func(int, int, *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error)
-	GetRejectedShowsFn  func(int, int, string) ([]*contracts.ShowResponse, int64, error)
-	ApproveShowFn       func(uint, bool) (*contracts.ShowResponse, error)
-	RejectShowFn        func(uint, string) (*contracts.ShowResponse, error)
+	GetPendingShowsFn func(int, int, *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error)
+	GetRejectedShowsFn func(int, int, string) ([]*contracts.ShowResponse, int64, error)
+	ApproveShowFn func(uint, bool) (*contracts.ShowResponse, error)
+	RejectShowFn func(uint, string) (*contracts.ShowResponse, error)
 	BatchApproveShowsFn func([]uint) (*contracts.BatchShowResult, error)
-	BatchRejectShowsFn  func([]uint, string, string) (*contracts.BatchShowResult, error)
-	GetAdminShowsFn     func(int, int, contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error)
+	BatchRejectShowsFn func([]uint, string, string) (*contracts.BatchShowResult, error)
+	GetAdminShowsFn func(int, int, contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error)
 }
 
 func (m *MockShowAdminService) GetPendingShows(limit int, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
@@ -2858,9 +2872,9 @@ func (m *MockShowAdminService) GetAdminShows(limit int, offset int, filters cont
 
 type MockShowImportService struct {
 	ExportShowToMarkdownFn func(uint) ([]byte, string, error)
-	ParseShowMarkdownFn    func([]byte) (*contracts.ParsedShowImport, error)
-	PreviewShowImportFn    func([]byte) (*contracts.ImportPreviewResponse, error)
-	ConfirmShowImportFn    func([]byte, bool) (*contracts.ShowResponse, error)
+	ParseShowMarkdownFn func([]byte) (*contracts.ParsedShowImport, error)
+	PreviewShowImportFn func([]byte) (*contracts.ImportPreviewResponse, error)
+	ConfirmShowImportFn func([]byte, bool) (*contracts.ShowResponse, error)
 }
 
 func (m *MockShowImportService) ExportShowToMarkdown(showID uint) ([]byte, string, error) {
@@ -2893,13 +2907,13 @@ func (m *MockShowImportService) ConfirmShowImport(content []byte, isAdmin bool) 
 // ============================================================================
 
 type MockShowReportService struct {
-	CreateReportFn          func(uint, uint, string, *string) (*contracts.ShowReportResponse, error)
-	GetUserReportForShowFn  func(uint, uint) (*contracts.ShowReportResponse, error)
-	GetPendingReportsFn     func(int, int) ([]*contracts.ShowReportResponse, int64, error)
-	DismissReportFn         func(uint, uint, *string) (*contracts.ShowReportResponse, error)
-	ResolveReportFn         func(uint, uint, *string) (*contracts.ShowReportResponse, error)
+	CreateReportFn func(uint, uint, string, *string) (*contracts.ShowReportResponse, error)
+	GetUserReportForShowFn func(uint, uint) (*contracts.ShowReportResponse, error)
+	GetPendingReportsFn func(int, int) ([]*contracts.ShowReportResponse, int64, error)
+	DismissReportFn func(uint, uint, *string) (*contracts.ShowReportResponse, error)
+	ResolveReportFn func(uint, uint, *string) (*contracts.ShowReportResponse, error)
 	ResolveReportWithFlagFn func(uint, uint, *string, bool) (*contracts.ShowReportResponse, error)
-	GetReportByIDFn         func(uint) (*models.ShowReport, error)
+	GetReportByIDFn func(uint) (*models.ShowReport, error)
 }
 
 func (m *MockShowReportService) CreateReport(userID uint, showID uint, reportType string, details *string) (*contracts.ShowReportResponse, error) {
@@ -2950,17 +2964,17 @@ func (m *MockShowReportService) GetReportByID(reportID uint) (*models.ShowReport
 // ============================================================================
 
 type MockShowService struct {
-	CreateShowFn              func(*contracts.CreateShowRequest) (*contracts.ShowResponse, error)
-	GetShowFn                 func(uint) (*contracts.ShowResponse, error)
-	GetShowBySlugFn           func(string) (*contracts.ShowResponse, error)
-	GetShowsFn                func(map[string]interface{}) ([]*contracts.ShowResponse, error)
-	GetUserSubmissionsFn      func(uint, int, int) ([]contracts.ShowResponse, int, error)
-	UpdateShowFn              func(uint, map[string]interface{}) (*contracts.ShowResponse, error)
+	CreateShowFn func(*contracts.CreateShowRequest) (*contracts.ShowResponse, error)
+	GetShowFn func(uint) (*contracts.ShowResponse, error)
+	GetShowBySlugFn func(string) (*contracts.ShowResponse, error)
+	GetShowsFn func(map[string]interface{}) ([]*contracts.ShowResponse, error)
+	GetUserSubmissionsFn func(uint, int, int) ([]contracts.ShowResponse, int, error)
+	UpdateShowFn func(uint, map[string]interface{}) (*contracts.ShowResponse, error)
 	UpdateShowWithRelationsFn func(uint, map[string]interface{}, []contracts.CreateShowVenue, []contracts.CreateShowArtist, bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error)
-	GetUpcomingShowsFn        func(string, string, int, bool, *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error)
-	GetShowCitiesFn           func(string) ([]contracts.ShowCityResponse, error)
-	DeleteShowFn              func(uint) error
-	SearchShowsFn             func(string) ([]*contracts.ShowSearchResult, error)
+	GetUpcomingShowsFn func(string, string, int, bool, *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error)
+	GetShowCitiesFn func(string) ([]contracts.ShowCityResponse, error)
+	DeleteShowFn func(uint) (error)
+	SearchShowsFn func(string) ([]*contracts.ShowSearchResult, error)
 }
 
 func (m *MockShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
@@ -3017,7 +3031,7 @@ func (m *MockShowService) GetShowCities(timezone string) ([]contracts.ShowCityRe
 	}
 	return nil, nil
 }
-func (m *MockShowService) DeleteShow(showID uint) error {
+func (m *MockShowService) DeleteShow(showID uint) (error) {
 	if m.DeleteShowFn != nil {
 		return m.DeleteShowFn(showID)
 	}
@@ -3035,10 +3049,10 @@ func (m *MockShowService) SearchShows(query string) ([]*contracts.ShowSearchResu
 // ============================================================================
 
 type MockShowStateService struct {
-	UnpublishShowFn    func(uint, uint, bool) (*contracts.ShowResponse, error)
-	MakePrivateShowFn  func(uint, uint, bool) (*contracts.ShowResponse, error)
-	PublishShowFn      func(uint, uint, bool) (*contracts.ShowResponse, error)
-	SetShowSoldOutFn   func(uint, bool) (*contracts.ShowResponse, error)
+	UnpublishShowFn func(uint, uint, bool) (*contracts.ShowResponse, error)
+	MakePrivateShowFn func(uint, uint, bool) (*contracts.ShowResponse, error)
+	PublishShowFn func(uint, uint, bool) (*contracts.ShowResponse, error)
+	SetShowSoldOutFn func(uint, bool) (*contracts.ShowResponse, error)
 	SetShowCancelledFn func(uint, bool) (*contracts.ShowResponse, error)
 }
 
@@ -3078,37 +3092,37 @@ func (m *MockShowStateService) SetShowCancelled(showID uint, isCancelled bool) (
 // ============================================================================
 
 type MockTagService struct {
-	CreateTagFn                func(string, *string, *uint, string, bool, *uint) (*models.Tag, error)
-	GetTagFn                   func(uint) (*models.Tag, error)
-	GetTagBySlugFn             func(string) (*models.Tag, error)
-	ListTagsFn                 func(string, string, *uint, string, int, int, string) ([]models.Tag, int64, error)
-	UpdateTagFn                func(uint, *string, *string, *uint, *string, *bool) (*models.Tag, error)
-	DeleteTagFn                func(uint) error
-	AddTagToEntityFn           func(uint, string, string, uint, uint, string) (*models.EntityTag, error)
-	RemoveTagFromEntityFn      func(uint, string, uint) error
-	ListEntityTagsFn           func(string, uint, uint) ([]contracts.EntityTagResponse, error)
-	VoteOnTagFn                func(uint, string, uint, uint, bool) error
-	RemoveTagVoteFn            func(uint, string, uint, uint) error
-	CreateAliasFn              func(uint, string) (*models.TagAlias, error)
-	DeleteAliasFn              func(uint) error
-	ListAliasesFn              func(uint) ([]models.TagAlias, error)
-	ResolveAliasFn             func(string) (*models.Tag, error)
-	ListAllAliasesFn           func(string, int, int) ([]contracts.TagAliasListing, int64, error)
-	BulkImportAliasesFn        func([]contracts.BulkAliasImportItem) (*contracts.BulkAliasImportResult, error)
-	MergeTagsFn                func(uint, uint, uint) (*contracts.MergeTagsResult, error)
-	PreviewMergeTagsFn         func(uint, uint) (*contracts.MergeTagsPreview, error)
-	GetTagAncestorsFn          func(uint) ([]*models.Tag, error)
-	GetTagChildrenFn           func(uint) ([]*models.Tag, error)
-	GetGenreHierarchyFn        func() ([]*models.Tag, error)
-	SetTagParentFn             func(uint, *uint, uint) error
-	GetTagEntitiesFn           func(uint, string, int, int) ([]contracts.TaggedEntityItem, int64, error)
-	GetTagDetailFn             func(uint) (*contracts.TagDetailResponse, error)
-	GetLowQualityTagQueueFn    func(int, int) (*contracts.LowQualityTagQueueResponse, error)
-	SnoozeLowQualityTagFn      func(uint, uint) error
+	CreateTagFn func(string, *string, *uint, string, bool, *uint) (*models.Tag, error)
+	GetTagFn func(uint) (*models.Tag, error)
+	GetTagBySlugFn func(string) (*models.Tag, error)
+	ListTagsFn func(string, string, *uint, string, int, int, string) ([]models.Tag, int64, error)
+	UpdateTagFn func(uint, *string, *string, *uint, *string, *bool) (*models.Tag, error)
+	DeleteTagFn func(uint) (error)
+	AddTagToEntityFn func(uint, string, string, uint, uint, string) (*models.EntityTag, error)
+	RemoveTagFromEntityFn func(uint, string, uint) (error)
+	ListEntityTagsFn func(string, uint, uint) ([]contracts.EntityTagResponse, error)
+	VoteOnTagFn func(uint, string, uint, uint, bool) (error)
+	RemoveTagVoteFn func(uint, string, uint, uint) (error)
+	CreateAliasFn func(uint, string) (*models.TagAlias, error)
+	DeleteAliasFn func(uint) (error)
+	ListAliasesFn func(uint) ([]models.TagAlias, error)
+	ResolveAliasFn func(string) (*models.Tag, error)
+	ListAllAliasesFn func(string, int, int) ([]contracts.TagAliasListing, int64, error)
+	BulkImportAliasesFn func([]contracts.BulkAliasImportItem) (*contracts.BulkAliasImportResult, error)
+	MergeTagsFn func(uint, uint, uint) (*contracts.MergeTagsResult, error)
+	PreviewMergeTagsFn func(uint, uint) (*contracts.MergeTagsPreview, error)
+	GetTagAncestorsFn func(uint) ([]*models.Tag, error)
+	GetTagChildrenFn func(uint) ([]*models.Tag, error)
+	GetGenreHierarchyFn func() ([]*models.Tag, error)
+	SetTagParentFn func(uint, *uint, uint) (error)
+	GetTagEntitiesFn func(uint, string, int, int) ([]contracts.TaggedEntityItem, int64, error)
+	GetTagDetailFn func(uint) (*contracts.TagDetailResponse, error)
+	GetLowQualityTagQueueFn func(int, int) (*contracts.LowQualityTagQueueResponse, error)
+	SnoozeLowQualityTagFn func(uint, uint) (error)
 	BulkActionLowQualityTagsFn func(string, []uint) (*contracts.BulkLowQualityTagActionResult, error)
-	SearchTagsFn               func(string, int, string) ([]contracts.TagSearchResult, error)
-	GetTrendingTagsFn          func(int, string) ([]models.Tag, error)
-	PruneDownvotedTagsFn       func() (int64, error)
+	SearchTagsFn func(string, int, string) ([]contracts.TagSearchResult, error)
+	GetTrendingTagsFn func(int, string) ([]models.Tag, error)
+	PruneDownvotedTagsFn func() (int64, error)
 }
 
 func (m *MockTagService) CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool, userID *uint) (*models.Tag, error) {
@@ -3141,7 +3155,7 @@ func (m *MockTagService) UpdateTag(tagID uint, name *string, description *string
 	}
 	return nil, nil
 }
-func (m *MockTagService) DeleteTag(tagID uint) error {
+func (m *MockTagService) DeleteTag(tagID uint) (error) {
 	if m.DeleteTagFn != nil {
 		return m.DeleteTagFn(tagID)
 	}
@@ -3153,7 +3167,7 @@ func (m *MockTagService) AddTagToEntity(tagID uint, tagName string, entityType s
 	}
 	return nil, nil
 }
-func (m *MockTagService) RemoveTagFromEntity(tagID uint, entityType string, entityID uint) error {
+func (m *MockTagService) RemoveTagFromEntity(tagID uint, entityType string, entityID uint) (error) {
 	if m.RemoveTagFromEntityFn != nil {
 		return m.RemoveTagFromEntityFn(tagID, entityType, entityID)
 	}
@@ -3165,13 +3179,13 @@ func (m *MockTagService) ListEntityTags(entityType string, entityID uint, userID
 	}
 	return nil, nil
 }
-func (m *MockTagService) VoteOnTag(tagID uint, entityType string, entityID uint, userID uint, isUpvote bool) error {
+func (m *MockTagService) VoteOnTag(tagID uint, entityType string, entityID uint, userID uint, isUpvote bool) (error) {
 	if m.VoteOnTagFn != nil {
 		return m.VoteOnTagFn(tagID, entityType, entityID, userID, isUpvote)
 	}
 	return nil
 }
-func (m *MockTagService) RemoveTagVote(tagID uint, entityType string, entityID uint, userID uint) error {
+func (m *MockTagService) RemoveTagVote(tagID uint, entityType string, entityID uint, userID uint) (error) {
 	if m.RemoveTagVoteFn != nil {
 		return m.RemoveTagVoteFn(tagID, entityType, entityID, userID)
 	}
@@ -3183,7 +3197,7 @@ func (m *MockTagService) CreateAlias(tagID uint, alias string) (*models.TagAlias
 	}
 	return nil, nil
 }
-func (m *MockTagService) DeleteAlias(aliasID uint) error {
+func (m *MockTagService) DeleteAlias(aliasID uint) (error) {
 	if m.DeleteAliasFn != nil {
 		return m.DeleteAliasFn(aliasID)
 	}
@@ -3243,7 +3257,7 @@ func (m *MockTagService) GetGenreHierarchy() ([]*models.Tag, error) {
 	}
 	return nil, nil
 }
-func (m *MockTagService) SetTagParent(tagID uint, parentID *uint, actorUserID uint) error {
+func (m *MockTagService) SetTagParent(tagID uint, parentID *uint, actorUserID uint) (error) {
 	if m.SetTagParentFn != nil {
 		return m.SetTagParentFn(tagID, parentID, actorUserID)
 	}
@@ -3267,7 +3281,7 @@ func (m *MockTagService) GetLowQualityTagQueue(limit int, offset int) (*contract
 	}
 	return nil, nil
 }
-func (m *MockTagService) SnoozeLowQualityTag(tagID uint, actorUserID uint) error {
+func (m *MockTagService) SnoozeLowQualityTag(tagID uint, actorUserID uint) (error) {
 	if m.SnoozeLowQualityTagFn != nil {
 		return m.SnoozeLowQualityTagFn(tagID, actorUserID)
 	}
@@ -3303,45 +3317,45 @@ func (m *MockTagService) PruneDownvotedTags() (int64, error) {
 // ============================================================================
 
 type MockUserService struct {
-	ListUsersFn                       func(int, int, contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error)
-	FindOrCreateUserFn                func(goth.User, string) (*models.User, error)
-	FindOrCreateUserWithConsentFn     func(goth.User, string, *contracts.OAuthSignupConsent) (*models.User, error)
-	AuthenticateUserWithPasswordFn    func(string, string) (*models.User, error)
-	CreateUserWithPasswordFn          func(string, string, string, string) (*models.User, error)
+	ListUsersFn func(int, int, contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error)
+	FindOrCreateUserFn func(goth.User, string) (*models.User, error)
+	FindOrCreateUserWithConsentFn func(goth.User, string, *contracts.OAuthSignupConsent) (*models.User, error)
+	AuthenticateUserWithPasswordFn func(string, string) (*models.User, error)
+	CreateUserWithPasswordFn func(string, string, string, string) (*models.User, error)
 	CreateUserWithPasswordWithLegalFn func(string, string, string, string, contracts.LegalAcceptance) (*models.User, error)
-	GetUserByIDFn                     func(uint) (*models.User, error)
-	GetUserByEmailFn                  func(string) (*models.User, error)
-	GetUserByUsernameFn               func(string) (*models.User, error)
-	UpdateUserFn                      func(uint, map[string]any) (*models.User, error)
-	HashPasswordFn                    func(string) (string, error)
-	VerifyPasswordFn                  func(string, string) error
-	IsAccountLockedFn                 func(*models.User) bool
-	GetLockTimeRemainingFn            func(*models.User) time.Duration
-	IncrementFailedAttemptsFn         func(uint) error
-	ResetFailedAttemptsFn             func(uint) error
-	UpdatePasswordFn                  func(uint, string, string) error
-	SetEmailVerifiedFn                func(uint, bool) error
-	GetDeletionSummaryFn              func(uint) (*contracts.DeletionSummary, error)
-	SoftDeleteAccountFn               func(uint, *string) error
-	CreateUserWithoutPasswordFn       func(string) (*models.User, error)
-	ExportUserDataFn                  func(uint) (*contracts.UserDataExport, error)
-	ExportUserDataJSONFn              func(uint) ([]byte, error)
-	GetOAuthAccountsFn                func(uint) ([]models.OAuthAccount, error)
-	GetUserByEmailIncludingDeletedFn  func(string) (*models.User, error)
-	IsAccountRecoverableFn            func(*models.User) bool
-	GetDaysUntilPermanentDeletionFn   func(*models.User) int
-	RestoreAccountFn                  func(uint) error
-	GetExpiredDeletedAccountsFn       func() ([]models.User, error)
-	PermanentlyDeleteUserFn           func(uint) error
-	CanUnlinkOAuthAccountFn           func(uint, string) (bool, string, error)
-	UnlinkOAuthAccountFn              func(uint, string) error
-	GetFavoriteCitiesFn               func(uint) ([]models.FavoriteCity, error)
-	SetFavoriteCitiesFn               func(uint, []models.FavoriteCity) error
-	SetShowRemindersFn                func(uint, bool) error
-	SetDefaultReplyPermissionFn       func(uint, string) error
-	SetNotifyOnCommentSubscriptionFn  func(uint, bool) error
-	SetNotifyOnMentionFn              func(uint, bool) error
-	SetNotifyOnCollectionDigestFn     func(uint, bool) error
+	GetUserByIDFn func(uint) (*models.User, error)
+	GetUserByEmailFn func(string) (*models.User, error)
+	GetUserByUsernameFn func(string) (*models.User, error)
+	UpdateUserFn func(uint, map[string]any) (*models.User, error)
+	HashPasswordFn func(string) (string, error)
+	VerifyPasswordFn func(string, string) (error)
+	IsAccountLockedFn func(*models.User) (bool)
+	GetLockTimeRemainingFn func(*models.User) (time.Duration)
+	IncrementFailedAttemptsFn func(uint) (error)
+	ResetFailedAttemptsFn func(uint) (error)
+	UpdatePasswordFn func(uint, string, string) (error)
+	SetEmailVerifiedFn func(uint, bool) (error)
+	GetDeletionSummaryFn func(uint) (*contracts.DeletionSummary, error)
+	SoftDeleteAccountFn func(uint, *string) (error)
+	CreateUserWithoutPasswordFn func(string) (*models.User, error)
+	ExportUserDataFn func(uint) (*contracts.UserDataExport, error)
+	ExportUserDataJSONFn func(uint) ([]byte, error)
+	GetOAuthAccountsFn func(uint) ([]models.OAuthAccount, error)
+	GetUserByEmailIncludingDeletedFn func(string) (*models.User, error)
+	IsAccountRecoverableFn func(*models.User) (bool)
+	GetDaysUntilPermanentDeletionFn func(*models.User) (int)
+	RestoreAccountFn func(uint) (error)
+	GetExpiredDeletedAccountsFn func() ([]models.User, error)
+	PermanentlyDeleteUserFn func(uint) (error)
+	CanUnlinkOAuthAccountFn func(uint, string) (bool, string, error)
+	UnlinkOAuthAccountFn func(uint, string) (error)
+	GetFavoriteCitiesFn func(uint) ([]models.FavoriteCity, error)
+	SetFavoriteCitiesFn func(uint, []models.FavoriteCity) (error)
+	SetShowRemindersFn func(uint, bool) (error)
+	SetDefaultReplyPermissionFn func(uint, string) (error)
+	SetNotifyOnCommentSubscriptionFn func(uint, bool) (error)
+	SetNotifyOnMentionFn func(uint, bool) (error)
+	SetNotifyOnCollectionDigestFn func(uint, bool) (error)
 }
 
 func (m *MockUserService) ListUsers(limit int, offset int, filters contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
@@ -3410,43 +3424,43 @@ func (m *MockUserService) HashPassword(password string) (string, error) {
 	}
 	return "", nil
 }
-func (m *MockUserService) VerifyPassword(hashedPassword string, password string) error {
+func (m *MockUserService) VerifyPassword(hashedPassword string, password string) (error) {
 	if m.VerifyPasswordFn != nil {
 		return m.VerifyPasswordFn(hashedPassword, password)
 	}
 	return nil
 }
-func (m *MockUserService) IsAccountLocked(user *models.User) bool {
+func (m *MockUserService) IsAccountLocked(user *models.User) (bool) {
 	if m.IsAccountLockedFn != nil {
 		return m.IsAccountLockedFn(user)
 	}
 	return false
 }
-func (m *MockUserService) GetLockTimeRemaining(user *models.User) time.Duration {
+func (m *MockUserService) GetLockTimeRemaining(user *models.User) (time.Duration) {
 	if m.GetLockTimeRemainingFn != nil {
 		return m.GetLockTimeRemainingFn(user)
 	}
 	return 0
 }
-func (m *MockUserService) IncrementFailedAttempts(userID uint) error {
+func (m *MockUserService) IncrementFailedAttempts(userID uint) (error) {
 	if m.IncrementFailedAttemptsFn != nil {
 		return m.IncrementFailedAttemptsFn(userID)
 	}
 	return nil
 }
-func (m *MockUserService) ResetFailedAttempts(userID uint) error {
+func (m *MockUserService) ResetFailedAttempts(userID uint) (error) {
 	if m.ResetFailedAttemptsFn != nil {
 		return m.ResetFailedAttemptsFn(userID)
 	}
 	return nil
 }
-func (m *MockUserService) UpdatePassword(userID uint, currentPassword string, newPassword string) error {
+func (m *MockUserService) UpdatePassword(userID uint, currentPassword string, newPassword string) (error) {
 	if m.UpdatePasswordFn != nil {
 		return m.UpdatePasswordFn(userID, currentPassword, newPassword)
 	}
 	return nil
 }
-func (m *MockUserService) SetEmailVerified(userID uint, verified bool) error {
+func (m *MockUserService) SetEmailVerified(userID uint, verified bool) (error) {
 	if m.SetEmailVerifiedFn != nil {
 		return m.SetEmailVerifiedFn(userID, verified)
 	}
@@ -3458,7 +3472,7 @@ func (m *MockUserService) GetDeletionSummary(userID uint) (*contracts.DeletionSu
 	}
 	return nil, nil
 }
-func (m *MockUserService) SoftDeleteAccount(userID uint, reason *string) error {
+func (m *MockUserService) SoftDeleteAccount(userID uint, reason *string) (error) {
 	if m.SoftDeleteAccountFn != nil {
 		return m.SoftDeleteAccountFn(userID, reason)
 	}
@@ -3494,19 +3508,19 @@ func (m *MockUserService) GetUserByEmailIncludingDeleted(email string) (*models.
 	}
 	return nil, nil
 }
-func (m *MockUserService) IsAccountRecoverable(user *models.User) bool {
+func (m *MockUserService) IsAccountRecoverable(user *models.User) (bool) {
 	if m.IsAccountRecoverableFn != nil {
 		return m.IsAccountRecoverableFn(user)
 	}
 	return false
 }
-func (m *MockUserService) GetDaysUntilPermanentDeletion(user *models.User) int {
+func (m *MockUserService) GetDaysUntilPermanentDeletion(user *models.User) (int) {
 	if m.GetDaysUntilPermanentDeletionFn != nil {
 		return m.GetDaysUntilPermanentDeletionFn(user)
 	}
 	return 0
 }
-func (m *MockUserService) RestoreAccount(userID uint) error {
+func (m *MockUserService) RestoreAccount(userID uint) (error) {
 	if m.RestoreAccountFn != nil {
 		return m.RestoreAccountFn(userID)
 	}
@@ -3518,7 +3532,7 @@ func (m *MockUserService) GetExpiredDeletedAccounts() ([]models.User, error) {
 	}
 	return nil, nil
 }
-func (m *MockUserService) PermanentlyDeleteUser(userID uint) error {
+func (m *MockUserService) PermanentlyDeleteUser(userID uint) (error) {
 	if m.PermanentlyDeleteUserFn != nil {
 		return m.PermanentlyDeleteUserFn(userID)
 	}
@@ -3530,7 +3544,7 @@ func (m *MockUserService) CanUnlinkOAuthAccount(userID uint, provider string) (b
 	}
 	return false, "", nil
 }
-func (m *MockUserService) UnlinkOAuthAccount(userID uint, provider string) error {
+func (m *MockUserService) UnlinkOAuthAccount(userID uint, provider string) (error) {
 	if m.UnlinkOAuthAccountFn != nil {
 		return m.UnlinkOAuthAccountFn(userID, provider)
 	}
@@ -3542,37 +3556,37 @@ func (m *MockUserService) GetFavoriteCities(userID uint) ([]models.FavoriteCity,
 	}
 	return []models.FavoriteCity{}, nil
 }
-func (m *MockUserService) SetFavoriteCities(userID uint, cities []models.FavoriteCity) error {
+func (m *MockUserService) SetFavoriteCities(userID uint, cities []models.FavoriteCity) (error) {
 	if m.SetFavoriteCitiesFn != nil {
 		return m.SetFavoriteCitiesFn(userID, cities)
 	}
 	return nil
 }
-func (m *MockUserService) SetShowReminders(userID uint, enabled bool) error {
+func (m *MockUserService) SetShowReminders(userID uint, enabled bool) (error) {
 	if m.SetShowRemindersFn != nil {
 		return m.SetShowRemindersFn(userID, enabled)
 	}
 	return nil
 }
-func (m *MockUserService) SetDefaultReplyPermission(userID uint, permission string) error {
+func (m *MockUserService) SetDefaultReplyPermission(userID uint, permission string) (error) {
 	if m.SetDefaultReplyPermissionFn != nil {
 		return m.SetDefaultReplyPermissionFn(userID, permission)
 	}
 	return nil
 }
-func (m *MockUserService) SetNotifyOnCommentSubscription(userID uint, enabled bool) error {
+func (m *MockUserService) SetNotifyOnCommentSubscription(userID uint, enabled bool) (error) {
 	if m.SetNotifyOnCommentSubscriptionFn != nil {
 		return m.SetNotifyOnCommentSubscriptionFn(userID, enabled)
 	}
 	return nil
 }
-func (m *MockUserService) SetNotifyOnMention(userID uint, enabled bool) error {
+func (m *MockUserService) SetNotifyOnMention(userID uint, enabled bool) (error) {
 	if m.SetNotifyOnMentionFn != nil {
 		return m.SetNotifyOnMentionFn(userID, enabled)
 	}
 	return nil
 }
-func (m *MockUserService) SetNotifyOnCollectionDigest(userID uint, enabled bool) error {
+func (m *MockUserService) SetNotifyOnCollectionDigest(userID uint, enabled bool) (error) {
 	if m.SetNotifyOnCollectionDigestFn != nil {
 		return m.SetNotifyOnCollectionDigestFn(userID, enabled)
 	}
@@ -3584,23 +3598,23 @@ func (m *MockUserService) SetNotifyOnCollectionDigest(userID uint, enabled bool)
 // ============================================================================
 
 type MockVenueService struct {
-	CreateVenueFn              func(*contracts.CreateVenueRequest, bool) (*contracts.VenueDetailResponse, error)
-	GetVenueFn                 func(uint) (*contracts.VenueDetailResponse, error)
-	GetVenueBySlugFn           func(string) (*contracts.VenueDetailResponse, error)
-	GetVenuesFn                func(map[string]interface{}) ([]*contracts.VenueDetailResponse, error)
-	UpdateVenueFn              func(uint, map[string]interface{}) (*contracts.VenueDetailResponse, error)
-	DeleteVenueFn              func(uint) error
-	SearchVenuesFn             func(string) ([]*contracts.VenueDetailResponse, error)
-	FindOrCreateVenueFn        func(string, string, string, *string, *string, *gorm.DB, bool) (*models.Venue, bool, error)
-	VerifyVenueFn              func(uint) (*contracts.VenueDetailResponse, error)
-	GetVenuesWithShowCountsFn  func(contracts.VenueListFilters, int, int) ([]*contracts.VenueWithShowCountResponse, int64, error)
+	CreateVenueFn func(*contracts.CreateVenueRequest, bool) (*contracts.VenueDetailResponse, error)
+	GetVenueFn func(uint) (*contracts.VenueDetailResponse, error)
+	GetVenueBySlugFn func(string) (*contracts.VenueDetailResponse, error)
+	GetVenuesFn func(map[string]interface{}) ([]*contracts.VenueDetailResponse, error)
+	UpdateVenueFn func(uint, map[string]interface{}) (*contracts.VenueDetailResponse, error)
+	DeleteVenueFn func(uint) (error)
+	SearchVenuesFn func(string) ([]*contracts.VenueDetailResponse, error)
+	FindOrCreateVenueFn func(string, string, string, *string, *string, *gorm.DB, bool) (*models.Venue, bool, error)
+	VerifyVenueFn func(uint) (*contracts.VenueDetailResponse, error)
+	GetVenuesWithShowCountsFn func(contracts.VenueListFilters, int, int) ([]*contracts.VenueWithShowCountResponse, int64, error)
 	GetUpcomingShowsForVenueFn func(uint, string, int) ([]*contracts.VenueShowResponse, int64, error)
-	GetShowsForVenueFn         func(uint, string, int, string) ([]*contracts.VenueShowResponse, int64, error)
-	GetVenueCitiesFn           func() ([]*contracts.VenueCityResponse, error)
-	GetVenueModelFn            func(uint) (*models.Venue, error)
-	GetUnverifiedVenuesFn      func(int, int) ([]*contracts.UnverifiedVenueResponse, int64, error)
-	GetVenueGenreProfileFn     func(uint) ([]contracts.GenreCount, error)
-	GetVenueBillNetworkFn      func(uint, string, *int) (*contracts.VenueBillNetworkResponse, error)
+	GetShowsForVenueFn func(uint, string, int, string) ([]*contracts.VenueShowResponse, int64, error)
+	GetVenueCitiesFn func() ([]*contracts.VenueCityResponse, error)
+	GetVenueModelFn func(uint) (*models.Venue, error)
+	GetUnverifiedVenuesFn func(int, int) ([]*contracts.UnverifiedVenueResponse, int64, error)
+	GetVenueGenreProfileFn func(uint) ([]contracts.GenreCount, error)
+	GetVenueBillNetworkFn func(uint, string, *int) (*contracts.VenueBillNetworkResponse, error)
 }
 
 func (m *MockVenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bool) (*contracts.VenueDetailResponse, error) {
@@ -3633,7 +3647,7 @@ func (m *MockVenueService) UpdateVenue(venueID uint, updates map[string]interfac
 	}
 	return nil, nil
 }
-func (m *MockVenueService) DeleteVenue(venueID uint) error {
+func (m *MockVenueService) DeleteVenue(venueID uint) (error) {
 	if m.DeleteVenueFn != nil {
 		return m.DeleteVenueFn(venueID)
 	}
@@ -3711,17 +3725,17 @@ func (m *MockVenueService) GetVenueBillNetwork(venueID uint, window string, year
 // ============================================================================
 
 type MockVenueSourceConfigService struct {
-	GetByVenueIDFn          func(uint) (*models.VenueSourceConfig, error)
-	CreateOrUpdateFn        func(*models.VenueSourceConfig) (*models.VenueSourceConfig, error)
-	UpdateAfterRunFn        func(uint, *string, *string, int) error
-	IncrementFailuresFn     func(uint) error
-	RecordRunFn             func(*models.VenueExtractionRun) error
-	GetRecentRunsFn         func(uint, int) ([]models.VenueExtractionRun, error)
-	GetAllRecentRunsFn      func(int, int) ([]contracts.ImportHistoryEntry, int64, error)
-	ListConfiguredFn        func() ([]models.VenueSourceConfig, error)
-	GetRejectionStatsFn     func(uint) (*contracts.VenueRejectionStats, error)
-	UpdateExtractionNotesFn func(uint, *string) error
-	ResetRenderMethodFn     func(uint) error
+	GetByVenueIDFn func(uint) (*models.VenueSourceConfig, error)
+	CreateOrUpdateFn func(*models.VenueSourceConfig) (*models.VenueSourceConfig, error)
+	UpdateAfterRunFn func(uint, *string, *string, int) (error)
+	IncrementFailuresFn func(uint) (error)
+	RecordRunFn func(*models.VenueExtractionRun) (error)
+	GetRecentRunsFn func(uint, int) ([]models.VenueExtractionRun, error)
+	GetAllRecentRunsFn func(int, int) ([]contracts.ImportHistoryEntry, int64, error)
+	ListConfiguredFn func() ([]models.VenueSourceConfig, error)
+	GetRejectionStatsFn func(uint) (*contracts.VenueRejectionStats, error)
+	UpdateExtractionNotesFn func(uint, *string) (error)
+	ResetRenderMethodFn func(uint) (error)
 }
 
 func (m *MockVenueSourceConfigService) GetByVenueID(venueID uint) (*models.VenueSourceConfig, error) {
@@ -3736,19 +3750,19 @@ func (m *MockVenueSourceConfigService) CreateOrUpdate(config *models.VenueSource
 	}
 	return config, nil
 }
-func (m *MockVenueSourceConfigService) UpdateAfterRun(venueID uint, contentHash *string, etag *string, eventsExtracted int) error {
+func (m *MockVenueSourceConfigService) UpdateAfterRun(venueID uint, contentHash *string, etag *string, eventsExtracted int) (error) {
 	if m.UpdateAfterRunFn != nil {
 		return m.UpdateAfterRunFn(venueID, contentHash, etag, eventsExtracted)
 	}
 	return nil
 }
-func (m *MockVenueSourceConfigService) IncrementFailures(venueID uint) error {
+func (m *MockVenueSourceConfigService) IncrementFailures(venueID uint) (error) {
 	if m.IncrementFailuresFn != nil {
 		return m.IncrementFailuresFn(venueID)
 	}
 	return nil
 }
-func (m *MockVenueSourceConfigService) RecordRun(run *models.VenueExtractionRun) error {
+func (m *MockVenueSourceConfigService) RecordRun(run *models.VenueExtractionRun) (error) {
 	if m.RecordRunFn != nil {
 		return m.RecordRunFn(run)
 	}
@@ -3778,13 +3792,13 @@ func (m *MockVenueSourceConfigService) GetRejectionStats(venueID uint) (*contrac
 	}
 	return &contracts.VenueRejectionStats{RejectionBreakdown: make(map[string]int64)}, nil
 }
-func (m *MockVenueSourceConfigService) UpdateExtractionNotes(venueID uint, notes *string) error {
+func (m *MockVenueSourceConfigService) UpdateExtractionNotes(venueID uint, notes *string) (error) {
 	if m.UpdateExtractionNotesFn != nil {
 		return m.UpdateExtractionNotesFn(venueID, notes)
 	}
 	return nil
 }
-func (m *MockVenueSourceConfigService) ResetRenderMethod(venueID uint) error {
+func (m *MockVenueSourceConfigService) ResetRenderMethod(venueID uint) (error) {
 	if m.ResetRenderMethodFn != nil {
 		return m.ResetRenderMethodFn(venueID)
 	}
@@ -3796,23 +3810,23 @@ func (m *MockVenueSourceConfigService) ResetRenderMethod(venueID uint) error {
 // ============================================================================
 
 type MockWebAuthnService struct {
-	BeginRegistrationFn                 func(*models.User) (*protocol.CredentialCreation, *webauthn.SessionData, error)
-	FinishRegistrationFn                func(*models.User, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string) (*models.WebAuthnCredential, error)
-	BeginLoginFn                        func(*models.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error)
-	BeginDiscoverableLoginFn            func() (*protocol.CredentialAssertion, *webauthn.SessionData, error)
-	FinishLoginFn                       func(*models.User, *webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*models.WebAuthnCredential, error)
-	FinishDiscoverableLoginFn           func(*webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*models.User, *models.WebAuthnCredential, error)
-	GetUserCredentialsFn                func(uint) ([]models.WebAuthnCredential, error)
-	DeleteCredentialFn                  func(uint, uint) error
-	UpdateCredentialNameFn              func(uint, uint, string) error
-	StoreChallengeFn                    func(uint, *webauthn.SessionData, string) (string, error)
-	GetChallengeFn                      func(string, string) (*webauthn.SessionData, uint, error)
-	DeleteChallengeFn                   func(string) error
-	CleanupExpiredChallengesFn          func() error
-	BeginRegistrationForEmailFn         func(string) (*protocol.CredentialCreation, *webauthn.SessionData, error)
-	StoreChallengeWithEmailFn           func(string, *webauthn.SessionData, string) (string, error)
-	GetChallengeWithEmailFn             func(string, string) (*webauthn.SessionData, string, error)
-	FinishSignupRegistrationFn          func(string, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string) (*models.User, error)
+	BeginRegistrationFn func(*models.User) (*protocol.CredentialCreation, *webauthn.SessionData, error)
+	FinishRegistrationFn func(*models.User, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string) (*models.WebAuthnCredential, error)
+	BeginLoginFn func(*models.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error)
+	BeginDiscoverableLoginFn func() (*protocol.CredentialAssertion, *webauthn.SessionData, error)
+	FinishLoginFn func(*models.User, *webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*models.WebAuthnCredential, error)
+	FinishDiscoverableLoginFn func(*webauthn.SessionData, *protocol.ParsedCredentialAssertionData) (*models.User, *models.WebAuthnCredential, error)
+	GetUserCredentialsFn func(uint) ([]models.WebAuthnCredential, error)
+	DeleteCredentialFn func(uint, uint) (error)
+	UpdateCredentialNameFn func(uint, uint, string) (error)
+	StoreChallengeFn func(uint, *webauthn.SessionData, string) (string, error)
+	GetChallengeFn func(string, string) (*webauthn.SessionData, uint, error)
+	DeleteChallengeFn func(string) (error)
+	CleanupExpiredChallengesFn func() (error)
+	BeginRegistrationForEmailFn func(string) (*protocol.CredentialCreation, *webauthn.SessionData, error)
+	StoreChallengeWithEmailFn func(string, *webauthn.SessionData, string) (string, error)
+	GetChallengeWithEmailFn func(string, string) (*webauthn.SessionData, string, error)
+	FinishSignupRegistrationFn func(string, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string) (*models.User, error)
 	FinishSignupRegistrationWithLegalFn func(string, *webauthn.SessionData, *protocol.ParsedCredentialCreationData, string, contracts.LegalAcceptance) (*models.User, error)
 }
 
@@ -3858,13 +3872,13 @@ func (m *MockWebAuthnService) GetUserCredentials(userID uint) ([]models.WebAuthn
 	}
 	return nil, nil
 }
-func (m *MockWebAuthnService) DeleteCredential(userID uint, credentialID uint) error {
+func (m *MockWebAuthnService) DeleteCredential(userID uint, credentialID uint) (error) {
 	if m.DeleteCredentialFn != nil {
 		return m.DeleteCredentialFn(userID, credentialID)
 	}
 	return nil
 }
-func (m *MockWebAuthnService) UpdateCredentialName(userID uint, credentialID uint, displayName string) error {
+func (m *MockWebAuthnService) UpdateCredentialName(userID uint, credentialID uint, displayName string) (error) {
 	if m.UpdateCredentialNameFn != nil {
 		return m.UpdateCredentialNameFn(userID, credentialID, displayName)
 	}
@@ -3882,13 +3896,13 @@ func (m *MockWebAuthnService) GetChallenge(challengeID string, operation string)
 	}
 	return nil, 0, nil
 }
-func (m *MockWebAuthnService) DeleteChallenge(challengeID string) error {
+func (m *MockWebAuthnService) DeleteChallenge(challengeID string) (error) {
 	if m.DeleteChallengeFn != nil {
 		return m.DeleteChallengeFn(challengeID)
 	}
 	return nil
 }
-func (m *MockWebAuthnService) CleanupExpiredChallenges() error {
+func (m *MockWebAuthnService) CleanupExpiredChallenges() (error) {
 	if m.CleanupExpiredChallengesFn != nil {
 		return m.CleanupExpiredChallengesFn()
 	}

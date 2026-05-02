@@ -18,12 +18,16 @@ var TagCategories = []string{
 
 // Tag entity type constants (same values as CollectionEntity* / RequestEntity*)
 const (
-	TagEntityArtist   = "artist"
-	TagEntityRelease  = "release"
-	TagEntityLabel    = "label"
-	TagEntityShow     = "show"
-	TagEntityVenue    = "venue"
-	TagEntityFestival = "festival"
+	TagEntityArtist     = "artist"
+	TagEntityRelease    = "release"
+	TagEntityLabel      = "label"
+	TagEntityShow       = "show"
+	TagEntityVenue      = "venue"
+	TagEntityFestival   = "festival"
+	// TagEntityCollection enables polymorphic tagging on collections (PSY-354).
+	// The shared entity_tags table is unchanged — collections piggy-back on the
+	// existing (entity_type, entity_id) shape so no new migration is required.
+	TagEntityCollection = "collection"
 )
 
 // TagEntityTypes is the set of valid entity types for tagging.
@@ -34,6 +38,7 @@ var TagEntityTypes = []string{
 	TagEntityShow,
 	TagEntityVenue,
 	TagEntityFestival,
+	TagEntityCollection,
 }
 
 // Tag represents a user-facing tag for categorizing entities.
