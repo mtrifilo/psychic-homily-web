@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import {
   Loader2,
@@ -302,6 +302,18 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   // PSY-366: only surface the graph toggle when the collection has at least
   // one artist item — non-artist-only collections have nothing to graph.
   const artistItemCount = items.filter(it => it.entity_type === 'artist').length
+
+  // PSY-366: when arriving via a `#graph` deep-link (e.g. from the Cmd+K
+  // palette), auto-open the graph so the anchor resolves. The graph wrapper
+  // only carries `id="graph"` while showGraph is true; without this, the
+  // hash points at a non-existent element and the user lands at the page
+  // top with nothing visible.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (window.location.hash === '#graph' && artistItemCount > 0) {
+      setShowGraph(true)
+    }
+  }, [artistItemCount])
 
   return (
     <div className="container max-w-6xl mx-auto px-4 py-6">

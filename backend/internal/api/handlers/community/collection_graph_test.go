@@ -1,4 +1,4 @@
-package handlers
+package community
 
 import (
 	"context"
@@ -11,38 +11,39 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/api/middleware"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
 // CollectionGraphHandlerSuite covers the handler-level concerns that the
 // services-package test (collection_graph_test.go) cannot:
 //   - viewerID resolution from middleware context (anonymous vs authed)
-//   - mapCollectionError → huma HTTP error mapping (404, 403)
-//   - parseTypesQueryParam wiring through the request struct
+//   - shared.MapCollectionError → huma HTTP error mapping (404, 403)
+//   - parseCollectionGraphTypesParam wiring through the request struct
 //
 // Business-logic coverage (graph composition, isolate flag, type-filter
 // short-circuit) lives in internal/services/collection_graph_test.go.
 type CollectionGraphHandlerSuite struct {
 	suite.Suite
-	deps    *handlerIntegrationDeps
+	deps    *testhelpers.IntegrationDeps
 	handler *CollectionHandler
 }
 
 func (s *CollectionGraphHandlerSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
-	// auditLog is ok to be nil for read-only paths — the handler doesn't write
-	// audit entries on graph reads.
-	s.handler = NewCollectionHandler(s.deps.collectionService, s.deps.auditLogService)
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
+	s.handler = NewCollectionHandler(s.deps.CollectionService, s.deps.AuditLogService)
 }
 
 func (s *CollectionGraphHandlerSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *CollectionGraphHandlerSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestCollectionGraphHandler(t *testing.T) {
@@ -52,8 +53,8 @@ func TestCollectionGraphHandler(t *testing.T) {
 	suite.Run(t, new(CollectionGraphHandlerSuite))
 }
 
-func (s *CollectionGraphHandlerSuite) seedPrivateCollection(creator *models.User, title string) *contracts.CollectionDetailResponse {
-	resp, err := s.deps.collectionService.CreateCollection(creator.ID, &contracts.CreateCollectionRequest{
+func (s *CollectionGraphHandlerSuite) seedPrivateCollection(creator *authm.User, title string) *contracts.CollectionDetailResponse {
+	resp, err := s.deps.CollectionService.CreateCollection(creator.ID, &contracts.CreateCollectionRequest{
 		Title:    title,
 		IsPublic: false,
 	})
@@ -65,21 +66,21 @@ func (s *CollectionGraphHandlerSuite) seedPrivateCollection(creator *models.User
 // user in context) successfully reads a public collection's graph. Verifies
 // that an absent user is treated as viewerID=0 by the handler, not as an error.
 func (s *CollectionGraphHandlerSuite) TestHandler_AnonymousViewerSeesPublicCollection() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	// Build a publicly-visible collection by going through the publish-gate
 	// path. PSY-356 requires >=3 items + >=50-char description.
 	priv := s.seedPrivateCollection(user, "Public Through Gate")
 	for i := 0; i < 3; i++ {
-		artist := createArtist(s.deps.db, fmt.Sprintf("GateArtist-%d-%d", i, time.Now().UnixNano()))
-		_, err := s.deps.collectionService.AddItem(priv.Slug, user.ID, &contracts.AddCollectionItemRequest{
-			EntityType: models.CollectionEntityArtist,
+		artist := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("GateArtist-%d-%d", i, time.Now().UnixNano()))
+		_, err := s.deps.CollectionService.AddItem(priv.Slug, user.ID, &contracts.AddCollectionItemRequest{
+			EntityType: communitym.CollectionEntityArtist,
 			EntityID:   artist.ID,
 		})
 		s.Require().NoError(err)
 	}
 	desc := strings.Repeat("a", 60)
 	pub := true
-	_, err := s.deps.collectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+	_, err := s.deps.CollectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		Description: &desc,
 		IsPublic:    &pub,
 	})
@@ -94,11 +95,9 @@ func (s *CollectionGraphHandlerSuite) TestHandler_AnonymousViewerSeesPublicColle
 
 // TestHandler_AuthedNonOwnerOnPrivateCollection_403: an authed user who is
 // not the creator hitting a private collection's graph endpoint gets a 403.
-// Verifies that mapCollectionError correctly translates ErrCollectionForbidden
-// into huma.Error403Forbidden — the unique handler-layer concern.
 func (s *CollectionGraphHandlerSuite) TestHandler_AuthedNonOwnerOnPrivateCollection_403() {
-	creator := createTestUser(s.deps.db)
-	other := createTestUser(s.deps.db)
+	creator := testhelpers.CreateTestUser(s.deps.DB)
+	other := testhelpers.CreateTestUser(s.deps.DB)
 	priv := s.seedPrivateCollection(creator, "Locked Down")
 
 	ctx := context.WithValue(context.Background(), middleware.UserContextKey, other)
@@ -112,10 +111,9 @@ func (s *CollectionGraphHandlerSuite) TestHandler_AuthedNonOwnerOnPrivateCollect
 }
 
 // TestHandler_OwnerOnPrivateCollection_200: the creator authed in the context
-// can read their own private collection's graph. Verifies the auth-context
-// path resolves user.ID and forwards it to the service.
+// can read their own private collection's graph.
 func (s *CollectionGraphHandlerSuite) TestHandler_OwnerOnPrivateCollection_200() {
-	creator := createTestUser(s.deps.db)
+	creator := testhelpers.CreateTestUser(s.deps.DB)
 	priv := s.seedPrivateCollection(creator, "Owner Visible")
 
 	ctx := context.WithValue(context.Background(), middleware.UserContextKey, creator)
@@ -126,7 +124,7 @@ func (s *CollectionGraphHandlerSuite) TestHandler_OwnerOnPrivateCollection_200()
 }
 
 // TestHandler_MissingSlug_404: hitting the endpoint with a slug that doesn't
-// exist returns 404 (mapCollectionError → huma.Error404NotFound).
+// exist returns 404.
 func (s *CollectionGraphHandlerSuite) TestHandler_MissingSlug_404() {
 	resp, err := s.handler.GetCollectionGraphHandler(context.Background(), &GetCollectionGraphRequest{Slug: "no-such-collection-xyz"})
 	s.Require().Error(err)
@@ -142,27 +140,27 @@ func (s *CollectionGraphHandlerSuite) TestHandler_MissingSlug_404() {
 // a known-bad type and observing zero edges (allowlist short-circuit), which
 // proves the query string was actually parsed and reached the service.
 func (s *CollectionGraphHandlerSuite) TestHandler_TypesQueryStringPassesThrough() {
-	creator := createTestUser(s.deps.db)
+	creator := testhelpers.CreateTestUser(s.deps.DB)
 	priv := s.seedPrivateCollection(creator, "Type Filter")
-	a1 := createArtist(s.deps.db, fmt.Sprintf("TypeA-%d", time.Now().UnixNano()))
-	a2 := createArtist(s.deps.db, fmt.Sprintf("TypeB-%d", time.Now().UnixNano()+1))
+	a1 := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("TypeA-%d", time.Now().UnixNano()))
+	a2 := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("TypeB-%d", time.Now().UnixNano()+1))
 
-	for _, art := range []*models.Artist{a1, a2} {
-		_, err := s.deps.collectionService.AddItem(priv.Slug, creator.ID, &contracts.AddCollectionItemRequest{
-			EntityType: models.CollectionEntityArtist,
+	for _, art := range []*catalogm.Artist{a1, a2} {
+		_, err := s.deps.CollectionService.AddItem(priv.Slug, creator.ID, &contracts.AddCollectionItemRequest{
+			EntityType: communitym.CollectionEntityArtist,
 			EntityID:   art.ID,
 		})
 		s.Require().NoError(err)
 	}
-	src, tgt := models.CanonicalOrder(a1.ID, a2.ID)
-	rel := &models.ArtistRelationship{
+	src, tgt := catalogm.CanonicalOrder(a1.ID, a2.ID)
+	rel := &catalogm.ArtistRelationship{
 		SourceArtistID:   src,
 		TargetArtistID:   tgt,
-		RelationshipType: models.RelationshipTypeSharedBills,
+		RelationshipType: catalogm.RelationshipTypeSharedBills,
 		Score:            5.0,
 		AutoDerived:      true,
 	}
-	s.Require().NoError(s.deps.db.Create(rel).Error)
+	s.Require().NoError(s.deps.DB.Create(rel).Error)
 
 	ctx := context.WithValue(context.Background(), middleware.UserContextKey, creator)
 
@@ -180,6 +178,5 @@ func (s *CollectionGraphHandlerSuite) TestHandler_TypesQueryStringPassesThrough(
 	respShared, err := s.handler.GetCollectionGraphHandler(ctx, &GetCollectionGraphRequest{Slug: priv.Slug, Types: "shared_bills"})
 	s.Require().NoError(err)
 	s.Require().Len(respShared.Body.Links, 1)
-	s.Equal(models.RelationshipTypeSharedBills, respShared.Body.Links[0].Type)
+	s.Equal(catalogm.RelationshipTypeSharedBills, respShared.Body.Links[0].Type)
 }
-

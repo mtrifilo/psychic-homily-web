@@ -1,10 +1,12 @@
-package handlers
+package community
 
 import (
 	"context"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -37,13 +39,33 @@ func (h *CollectionHandler) GetCollectionGraphHandler(ctx context.Context, req *
 		viewerID = user.ID
 	}
 
-	graph, err := h.collectionService.GetCollectionGraph(req.Slug, viewerID, parseTypesQueryParam(req.Types))
+	graph, err := h.collectionService.GetCollectionGraph(req.Slug, viewerID, parseCollectionGraphTypesParam(req.Types))
 	if err != nil {
-		if mapped := mapCollectionError(err); mapped != nil {
+		if mapped := shared.MapCollectionError(err); mapped != nil {
 			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to get collection graph", err)
 	}
 
 	return &GetCollectionGraphResponse{Body: graph}, nil
+}
+
+// parseCollectionGraphTypesParam splits the comma-separated `types` query param
+// into a trimmed, non-empty slice. Service-side allowlist drops anything
+// unknown. Mirrors parseTypesQueryParam in handlers/catalog/scene.go — kept
+// local to this package to avoid an unrelated refactor that would move the
+// helper to shared/.
+func parseCollectionGraphTypesParam(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		t := strings.TrimSpace(p)
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
