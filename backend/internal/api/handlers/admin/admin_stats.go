@@ -6,7 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -37,10 +37,7 @@ type GetAdminStatsResponse struct {
 func (h *AdminStatsHandler) GetAdminStatsHandler(ctx context.Context, req *GetAdminStatsRequest) (*GetAdminStatsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	logger.FromContext(ctx).Debug("admin_stats_attempt",
 		"admin_id", user.ID,
@@ -76,10 +73,7 @@ type GetActivityFeedResponse struct {
 func (h *AdminStatsHandler) GetActivityFeedHandler(ctx context.Context, req *GetActivityFeedRequest) (*GetActivityFeedResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	logger.FromContext(ctx).Debug("admin_activity_feed_attempt",
 		"admin_id", user.ID,

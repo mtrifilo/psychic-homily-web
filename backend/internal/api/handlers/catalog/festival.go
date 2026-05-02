@@ -8,7 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
@@ -191,10 +191,7 @@ type CreateFestivalResponse struct {
 func (h *FestivalHandler) CreateFestivalHandler(ctx context.Context, req *CreateFestivalRequest) (*CreateFestivalResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.Name == "" {
 		return nil, huma.Error400BadRequest("Name is required")
@@ -291,10 +288,7 @@ type UpdateFestivalResponse struct {
 func (h *FestivalHandler) UpdateFestivalHandler(ctx context.Context, req *UpdateFestivalRequest) (*UpdateFestivalResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	festivalID, err := h.resolveFestivalID(req.FestivalID)
 	if err != nil {
@@ -388,10 +382,7 @@ type DeleteFestivalRequest struct {
 func (h *FestivalHandler) DeleteFestivalHandler(ctx context.Context, req *DeleteFestivalRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	festivalID, err := h.resolveFestivalID(req.FestivalID)
 	if err != nil {
@@ -499,10 +490,7 @@ type AddFestivalArtistHandlerResponse struct {
 func (h *FestivalHandler) AddFestivalArtistHandler(ctx context.Context, req *AddFestivalArtistHandlerRequest) (*AddFestivalArtistHandlerResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	festivalID, err := strconv.ParseUint(req.FestivalID, 10, 32)
 	if err != nil {
@@ -575,10 +563,7 @@ type UpdateFestivalArtistHandlerResponse struct {
 func (h *FestivalHandler) UpdateFestivalArtistHandler(ctx context.Context, req *UpdateFestivalArtistHandlerRequest) (*UpdateFestivalArtistHandlerResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	festivalID, err := strconv.ParseUint(req.FestivalID, 10, 32)
 	if err != nil {
@@ -635,10 +620,7 @@ type RemoveFestivalArtistRequest struct {
 func (h *FestivalHandler) RemoveFestivalArtistHandler(ctx context.Context, req *RemoveFestivalArtistRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	festivalID, err := strconv.ParseUint(req.FestivalID, 10, 32)
 	if err != nil {
@@ -734,10 +716,7 @@ type AddFestivalVenueHandlerResponse struct {
 func (h *FestivalHandler) AddFestivalVenueHandler(ctx context.Context, req *AddFestivalVenueHandlerRequest) (*AddFestivalVenueHandlerResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	festivalID, err := strconv.ParseUint(req.FestivalID, 10, 32)
 	if err != nil {
@@ -792,10 +771,7 @@ type RemoveFestivalVenueRequest struct {
 func (h *FestivalHandler) RemoveFestivalVenueHandler(ctx context.Context, req *RemoveFestivalVenueRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	festivalID, err := strconv.ParseUint(req.FestivalID, 10, 32)
 	if err != nil {

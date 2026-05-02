@@ -56,19 +56,6 @@ func makeTestRevision(id uint) adminm.Revision {
 // Tests: Admin Guard (Rollback only)
 // ============================================================================
 
-func TestRevisionHandler_Rollback_RequiresAdmin(t *testing.T) {
-	h := testRevisionHandler()
-
-	t.Run("NoUser", func(t *testing.T) {
-		_, err := h.RollbackRevisionHandler(context.Background(), &RollbackRevisionRequest{RevisionID: "1"})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-	t.Run("NonAdmin", func(t *testing.T) {
-		_, err := h.RollbackRevisionHandler(revisionNonAdminCtx(), &RollbackRevisionRequest{RevisionID: "1"})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-}
-
 // ============================================================================
 // Tests: GetEntityHistoryHandler
 // ============================================================================

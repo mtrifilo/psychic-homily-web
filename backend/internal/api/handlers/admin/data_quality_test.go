@@ -30,32 +30,6 @@ func dataQualityNonAdminCtx() context.Context {
 // Tests: Admin Guard
 // ============================================================================
 
-func TestDataQualityHandler_Summary_RequiresAdmin(t *testing.T) {
-	h := testDataQualityHandler()
-
-	t.Run("NoUser", func(t *testing.T) {
-		_, err := h.GetDataQualitySummaryHandler(context.Background(), &GetDataQualitySummaryRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-	t.Run("NonAdmin", func(t *testing.T) {
-		_, err := h.GetDataQualitySummaryHandler(dataQualityNonAdminCtx(), &GetDataQualitySummaryRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-}
-
-func TestDataQualityHandler_Category_RequiresAdmin(t *testing.T) {
-	h := testDataQualityHandler()
-
-	t.Run("NoUser", func(t *testing.T) {
-		_, err := h.GetDataQualityCategoryHandler(context.Background(), &GetDataQualityCategoryRequest{Category: "artists_missing_links"})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-	t.Run("NonAdmin", func(t *testing.T) {
-		_, err := h.GetDataQualityCategoryHandler(dataQualityNonAdminCtx(), &GetDataQualityCategoryRequest{Category: "artists_missing_links"})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-}
-
 // ============================================================================
 // Tests: GetDataQualitySummaryHandler
 // ============================================================================

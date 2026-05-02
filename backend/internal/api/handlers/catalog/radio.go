@@ -10,6 +10,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -616,10 +617,7 @@ type AdminCreateRadioStationResponse struct {
 func (h *RadioHandler) AdminCreateRadioStationHandler(ctx context.Context, req *AdminCreateRadioStationRequest) (*AdminCreateRadioStationResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.Name == "" {
 		return nil, huma.Error400BadRequest("Name is required")
@@ -714,10 +712,7 @@ type AdminUpdateRadioStationResponse struct {
 func (h *RadioHandler) AdminUpdateRadioStationHandler(ctx context.Context, req *AdminUpdateRadioStationRequest) (*AdminUpdateRadioStationResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	serviceReq := &contracts.UpdateRadioStationRequest{
 		Name:             req.Body.Name,
@@ -785,12 +780,9 @@ type AdminDeleteRadioStationRequest struct {
 func (h *RadioHandler) AdminDeleteRadioStationHandler(ctx context.Context, req *AdminDeleteRadioStationRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
-	err = h.stationWriter.DeleteStation(req.StationID)
+	err := h.stationWriter.DeleteStation(req.StationID)
 	if err != nil {
 		var radioErr *apperrors.RadioError
 		if errors.As(err, &radioErr) && radioErr.Code == apperrors.CodeRadioStationNotFound {
@@ -852,10 +844,7 @@ type AdminCreateRadioShowResponse struct {
 func (h *RadioHandler) AdminCreateRadioShowHandler(ctx context.Context, req *AdminCreateRadioShowRequest) (*AdminCreateRadioShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.Name == "" {
 		return nil, huma.Error400BadRequest("Name is required")
@@ -938,10 +927,7 @@ type AdminUpdateRadioShowResponse struct {
 func (h *RadioHandler) AdminUpdateRadioShowHandler(ctx context.Context, req *AdminUpdateRadioShowRequest) (*AdminUpdateRadioShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	serviceReq := &contracts.UpdateRadioShowRequest{
 		Name:            req.Body.Name,
@@ -1000,12 +986,9 @@ type AdminDeleteRadioShowRequest struct {
 func (h *RadioHandler) AdminDeleteRadioShowHandler(ctx context.Context, req *AdminDeleteRadioShowRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
-	err = h.showWriter.DeleteShow(req.ShowID)
+	err := h.showWriter.DeleteShow(req.ShowID)
 	if err != nil {
 		var radioErr *apperrors.RadioError
 		if errors.As(err, &radioErr) && radioErr.Code == apperrors.CodeRadioShowNotFound {
@@ -1053,11 +1036,6 @@ type AdminDiscoverShowsResponse struct {
 
 // AdminDiscoverShowsHandler handles POST /admin/radio-stations/{id}/discover
 func (h *RadioHandler) AdminDiscoverShowsHandler(ctx context.Context, req *AdminDiscoverShowsRequest) (*AdminDiscoverShowsResponse, error) {
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	result, err := h.importer.DiscoverStationShows(req.StationID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to discover shows", err)
@@ -1078,11 +1056,6 @@ type AdminTriggerFetchRequest struct {
 // AdminTriggerFetchHandler handles POST /admin/radio-stations/{id}/fetch
 // Repurposed to call DiscoverStationShows.
 func (h *RadioHandler) AdminTriggerFetchHandler(ctx context.Context, req *AdminTriggerFetchRequest) (*AdminDiscoverShowsResponse, error) {
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	result, err := h.importer.DiscoverStationShows(req.StationID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to discover shows", err)
@@ -1111,11 +1084,6 @@ type AdminImportShowEpisodesResponse struct {
 
 // AdminImportShowEpisodesHandler handles POST /admin/radio-shows/{id}/import
 func (h *RadioHandler) AdminImportShowEpisodesHandler(ctx context.Context, req *AdminImportShowEpisodesRequest) (*AdminImportShowEpisodesResponse, error) {
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	result, err := h.importer.ImportShowEpisodes(req.ShowID, req.Body.Since, req.Body.Until)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to import show episodes", err)
@@ -1145,11 +1113,6 @@ type AdminGetUnmatchedPlaysResponse struct {
 
 // AdminGetUnmatchedPlaysHandler handles GET /admin/radio/unmatched
 func (h *RadioHandler) AdminGetUnmatchedPlaysHandler(ctx context.Context, req *AdminGetUnmatchedPlaysRequest) (*AdminGetUnmatchedPlaysResponse, error) {
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 50
@@ -1195,10 +1158,7 @@ type AdminLinkPlayResponse struct {
 func (h *RadioHandler) AdminLinkPlayHandler(ctx context.Context, req *AdminLinkPlayRequest) (*AdminLinkPlayResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	linkReq := &contracts.LinkPlayRequest{
 		ArtistID:  req.Body.ArtistID,
@@ -1254,10 +1214,7 @@ type AdminBulkLinkPlaysResponse struct {
 func (h *RadioHandler) AdminBulkLinkPlaysHandler(ctx context.Context, req *AdminBulkLinkPlaysRequest) (*AdminBulkLinkPlaysResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.ArtistName == "" {
 		return nil, huma.Error400BadRequest("artist_name is required")
@@ -1328,10 +1285,7 @@ type AdminCreateImportJobResponse struct {
 func (h *RadioHandler) AdminCreateImportJobHandler(ctx context.Context, req *AdminCreateImportJobRequest) (*AdminCreateImportJobResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.Since == "" {
 		return nil, huma.Error400BadRequest("since date is required")
@@ -1399,11 +1353,6 @@ type AdminGetImportJobResponse struct {
 
 // AdminGetImportJobHandler handles GET /admin/radio/import-jobs/{id}
 func (h *RadioHandler) AdminGetImportJobHandler(ctx context.Context, req *AdminGetImportJobRequest) (*AdminGetImportJobResponse, error) {
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	job, err := h.importJobManager.GetImportJob(req.JobID)
 	if err != nil {
 		return nil, huma.Error404NotFound("Import job not found")
@@ -1432,10 +1381,7 @@ type AdminCancelImportJobResponse struct {
 func (h *RadioHandler) AdminCancelImportJobHandler(ctx context.Context, req *AdminCancelImportJobRequest) (*AdminCancelImportJobResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	if err := h.importJobManager.CancelImportJob(req.JobID); err != nil {
 		logger.FromContext(ctx).Error("cancel_import_job_failed",
@@ -1485,11 +1431,6 @@ type AdminListImportJobsResponse struct {
 
 // AdminListImportJobsHandler handles GET /admin/radio-shows/{id}/import-jobs
 func (h *RadioHandler) AdminListImportJobsHandler(ctx context.Context, req *AdminListImportJobsRequest) (*AdminListImportJobsResponse, error) {
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	jobs, err := h.importJobManager.ListImportJobs(req.ShowID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to list import jobs", err)

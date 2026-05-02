@@ -5,7 +5,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -48,11 +47,6 @@ type DataQualityCategoryResponse struct {
 
 // GetDataQualitySummaryHandler handles GET /admin/data-quality
 func (h *DataQualityHandler) GetDataQualitySummaryHandler(ctx context.Context, _ *GetDataQualitySummaryRequest) (*GetDataQualitySummaryResponse, error) {
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	summary, err := h.dataQualityService.GetSummary()
 	if err != nil {
 		logger.FromContext(ctx).Error("data_quality_summary_failed",
@@ -106,11 +100,6 @@ type GetDataQualityCategoryResponse struct {
 
 // GetDataQualityCategoryHandler handles GET /admin/data-quality/{category}
 func (h *DataQualityHandler) GetDataQualityCategoryHandler(ctx context.Context, req *GetDataQualityCategoryRequest) (*GetDataQualityCategoryResponse, error) {
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 50

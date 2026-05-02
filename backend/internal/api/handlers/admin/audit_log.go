@@ -6,7 +6,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -42,11 +41,6 @@ type GetAuditLogsResponse struct {
 // GetAuditLogsHandler handles GET /admin/audit-logs
 func (h *AuditLogHandler) GetAuditLogsHandler(ctx context.Context, req *GetAuditLogsRequest) (*GetAuditLogsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
-
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	// Validate limit
 	limit := req.Limit
