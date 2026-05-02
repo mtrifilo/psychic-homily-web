@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { CommentThread } from './CommentThread'
+import type { Comment } from '../types'
 
 // --- Mocks ---
 
@@ -191,5 +192,162 @@ describe('CommentThread', () => {
     expect(screen.getByText('Best')).toBeInTheDocument()
     expect(screen.getByText('New')).toBeInTheDocument()
     expect(screen.getByText('Top')).toBeInTheDocument()
+  })
+
+  // PSY-513: pending-review feedback.
+  describe('pending-review feedback (PSY-513)', () => {
+    function makePending(overrides: Partial<Comment> = {}): Comment {
+      return {
+        id: 9001,
+        entity_type: 'artist',
+        entity_id: 42,
+        user_id: 7,
+        author_name: 'NewUser',
+        body: 'Will it appear?',
+        body_html: '<p>Will it appear?</p>',
+        parent_id: null,
+        root_id: null,
+        depth: 0,
+        ups: 0,
+        downs: 0,
+        score: 0,
+        visibility: 'pending_review',
+        reply_permission: 'anyone',
+        edit_count: 0,
+        is_edited: false,
+        created_at: '2026-04-29T18:00:00Z',
+        updated_at: '2026-04-29T18:00:00Z',
+        ...overrides,
+      }
+    }
+
+    it('renders banner + optimistic comment with badge when POST returns pending_review', () => {
+      const pending = makePending()
+      // Make the mocked mutate invoke onSuccess synchronously with a
+      // pending_review response — emulates a new_user-tier submit.
+      const mutateImpl = vi.fn(
+        (_args: unknown, opts?: { onSuccess?: (data: Comment) => void }) => {
+          opts?.onSuccess?.(pending)
+        }
+      )
+      mockUseCreateComment.mockReturnValue({
+        mutate: mutateImpl,
+        isPending: false,
+      })
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '7', email: 'newuser@example.com' },
+      })
+      mockUseComments.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+
+      render(<CommentThread {...defaultProps} />)
+
+      // Empty state visible before submit.
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument()
+      expect(screen.queryByTestId('pending-review-banner')).not.toBeInTheDocument()
+
+      // Submit the form.
+      fireEvent.change(screen.getByTestId('comment-textarea'), {
+        target: { value: 'Will it appear?' },
+      })
+      fireEvent.click(screen.getByTestId('comment-submit'))
+
+      // Banner appears.
+      expect(screen.getByTestId('pending-review-banner')).toBeInTheDocument()
+      expect(
+        screen.getByText(/awaiting moderation/i)
+      ).toBeInTheDocument()
+
+      // Empty-state is suppressed once a pending comment exists.
+      expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument()
+
+      // Optimistic comment with the Pending review badge is rendered.
+      expect(screen.getByTestId('pending-review-badge')).toBeInTheDocument()
+      expect(screen.getByText('Will it appear?')).toBeInTheDocument()
+    })
+
+    it('does NOT render banner when POST returns visible (trusted-tier auto-publish)', () => {
+      const visible: Comment = {
+        ...makePending({ visibility: 'visible' }),
+      }
+      const mutateImpl = vi.fn(
+        (_args: unknown, opts?: { onSuccess?: (data: Comment) => void }) => {
+          opts?.onSuccess?.(visible)
+        }
+      )
+      mockUseCreateComment.mockReturnValue({
+        mutate: mutateImpl,
+        isPending: false,
+      })
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '7', email: 'trusted@example.com' },
+      })
+      mockUseComments.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+
+      render(<CommentThread {...defaultProps} />)
+
+      fireEvent.change(screen.getByTestId('comment-textarea'), {
+        target: { value: 'Auto-published' },
+      })
+      fireEvent.click(screen.getByTestId('comment-submit'))
+
+      expect(screen.queryByTestId('pending-review-banner')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('pending-review-badge')).not.toBeInTheDocument()
+    })
+
+    it('drops the optimistic entry once the canonical row appears in the list (post-approval refetch)', () => {
+      const pending = makePending()
+      const mutateImpl = vi.fn(
+        (_args: unknown, opts?: { onSuccess?: (data: Comment) => void }) => {
+          opts?.onSuccess?.(pending)
+        }
+      )
+      mockUseCreateComment.mockReturnValue({
+        mutate: mutateImpl,
+        isPending: false,
+      })
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '7', email: 'newuser@example.com' },
+      })
+
+      // Initially the canonical list is empty (server still has it pending).
+      mockUseComments.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+
+      const { rerender } = render(<CommentThread {...defaultProps} />)
+
+      fireEvent.change(screen.getByTestId('comment-textarea'), {
+        target: { value: 'Will it appear?' },
+      })
+      fireEvent.click(screen.getByTestId('comment-submit'))
+
+      expect(screen.getByTestId('pending-review-banner')).toBeInTheDocument()
+
+      // Simulate a refetch after admin approval — same id, now visible.
+      mockUseComments.mockReturnValue({
+        data: {
+          comments: [{ ...pending, visibility: 'visible' }],
+          total: 1,
+          has_more: false,
+        },
+        isLoading: false,
+      })
+
+      rerender(<CommentThread {...defaultProps} />)
+
+      // Optimistic entry de-duped; banner gone.
+      expect(screen.queryByTestId('pending-review-banner')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('pending-review-badge')).not.toBeInTheDocument()
+    })
   })
 })

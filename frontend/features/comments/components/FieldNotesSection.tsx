@@ -1,11 +1,12 @@
 'use client'
 
-import { ClipboardList } from 'lucide-react'
+import { useState } from 'react'
+import { ClipboardList, Clock } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useFieldNotes, useCreateFieldNote } from '../hooks'
 import { FieldNoteForm } from './FieldNoteForm'
 import { FieldNoteCard } from './FieldNoteCard'
-import type { CreateFieldNoteInput } from '../types'
+import type { Comment, CreateFieldNoteInput } from '../types'
 
 interface ShowArtist {
   id: number
@@ -36,13 +37,30 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
   const { isAuthenticated } = useAuthContext()
   const { data, isLoading } = useFieldNotes(showId)
   const createMutation = useCreateFieldNote()
+  // PSY-513: track the author's pending-review field note so we can render
+  // it optimistically alongside the public list (which filters out
+  // pending_review). De-duped once the canonical row appears post-approval.
+  const [pendingNote, setPendingNote] = useState<Comment | null>(null)
 
   const fieldNotes = data?.comments ?? []
   const total = data?.total ?? 0
   const isFuture = isShowInFuture(showDate)
 
+  const hasCanonicalPending =
+    pendingNote !== null && fieldNotes.some((c) => c.id === pendingNote.id)
+  const effectivePending = hasCanonicalPending ? null : pendingNote
+
   const handleCreate = (input: CreateFieldNoteInput) => {
-    createMutation.mutate({ showId, input })
+    createMutation.mutate(
+      { showId, input },
+      {
+        onSuccess: (created) => {
+          if (created.visibility === 'pending_review') {
+            setPendingNote(created)
+          }
+        },
+      }
+    )
   }
 
   return (
@@ -88,6 +106,21 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
             </p>
           )}
 
+          {/* PSY-513: pending-review confirmation banner. Inline pattern
+              mirrors EntityEditDrawer's success state. Only the author sees it. */}
+          {effectivePending && (
+            <div
+              className="mb-4 rounded-md border border-amber-700/50 bg-amber-950/40 p-3 flex items-start gap-2"
+              role="status"
+              data-testid="pending-review-banner"
+            >
+              <Clock className="h-4 w-4 mt-0.5 text-amber-500 shrink-0" />
+              <p className="text-sm text-amber-200">
+                Field note submitted — awaiting moderation. You&apos;ll see it here once an admin approves it.
+              </p>
+            </div>
+          )}
+
           {/* Field notes list */}
           {isLoading ? (
             <div className="space-y-4">
@@ -99,7 +132,7 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
                 </div>
               ))}
             </div>
-          ) : fieldNotes.length === 0 ? (
+          ) : fieldNotes.length === 0 && !effectivePending ? (
             <p
               className="text-sm text-muted-foreground py-8 text-center"
               data-testid="field-notes-empty"
@@ -108,6 +141,13 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
             </p>
           ) : (
             <div className="space-y-4">
+              {effectivePending && (
+                <FieldNoteCard
+                  comment={effectivePending}
+                  showId={showId}
+                  artists={artists}
+                />
+              )}
               {fieldNotes.map((note) => (
                 <FieldNoteCard
                   key={note.id}

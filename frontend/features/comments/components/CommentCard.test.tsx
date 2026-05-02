@@ -130,6 +130,83 @@ describe('CommentCard — admin edit history trigger (PSY-297)', () => {
   })
 })
 
+// PSY-513: pending-review badge — author-only visibility.
+describe('CommentCard — pending review badge (PSY-513)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  const defaultProps = {
+    entityType: 'artist',
+    entityId: 10,
+  }
+
+  it('renders the pending-review badge for the comment author', () => {
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: '99', email: 'me@me.com' },
+    })
+
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ visibility: 'pending_review', user_id: 99 })}
+      />
+    )
+
+    expect(screen.getByTestId('pending-review-badge')).toBeInTheDocument()
+    expect(screen.getByText('Pending review')).toBeInTheDocument()
+  })
+
+  it('does NOT render the pending-review badge for non-authors', () => {
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: '7', email: 'other@user.com' },
+    })
+
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ visibility: 'pending_review', user_id: 99 })}
+      />
+    )
+
+    expect(screen.queryByTestId('pending-review-badge')).not.toBeInTheDocument()
+  })
+
+  it('does NOT render the pending-review badge for anonymous viewers', () => {
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: false,
+      user: null,
+    })
+
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ visibility: 'pending_review', user_id: 99 })}
+      />
+    )
+
+    expect(screen.queryByTestId('pending-review-badge')).not.toBeInTheDocument()
+  })
+
+  it('does NOT render the pending-review badge on a normal visible comment', () => {
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: '99', email: 'me@me.com' },
+    })
+
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ visibility: 'visible', user_id: 99 })}
+      />
+    )
+
+    expect(screen.queryByTestId('pending-review-badge')).not.toBeInTheDocument()
+  })
+})
+
 // PSY-514: top-level comments with zero replies must NOT render a "Show
 // replies" affordance. Previously the button rendered unconditionally on
 // every top-level comment; clicking it removed the button without showing

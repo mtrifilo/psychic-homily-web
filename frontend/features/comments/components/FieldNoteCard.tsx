@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronUp, ChevronDown, MessageSquare, Star, CheckCircle, Eye, EyeOff, Flag } from 'lucide-react'
+import { ChevronUp, ChevronDown, MessageSquare, Star, CheckCircle, Eye, EyeOff, Flag, Clock } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -125,6 +125,18 @@ export function FieldNoteCard({
         {comment.is_edited && (
           <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
             Edited
+          </Badge>
+        )}
+        {/* PSY-513: pending-review badge for the author of a queued field
+            note. Mirrors the CommentCard pattern. */}
+        {comment.visibility === 'pending_review' && isOwner && (
+          <Badge
+            variant="outline"
+            className="text-[10px] px-1.5 py-0 gap-1 border-amber-700/50 text-amber-500"
+            data-testid="pending-review-badge"
+          >
+            <Clock className="h-2.5 w-2.5" />
+            Pending review
           </Badge>
         )}
       </div>
