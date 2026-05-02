@@ -206,12 +206,10 @@ func (h *TestFixtureHandler) Reset(ctx context.Context, req *ResetTestFixturesRe
 		return nil, huma.Error400BadRequest(fmt.Sprintf("%s header is required", TestFixturesHeader))
 	}
 
-	// Defense 3: admin only. Route lives on the protected group so JWT is
-	// validated upstream; we only need to assert IsAdmin here.
+	// Defense 3: admin only. Route lives on the rc.Admin group (PSY-423) so
+	// JWT auth + IsAdmin are both enforced upstream by middleware. Pull the
+	// user for audit-log attribution below.
 	user := middleware.GetUserFromContext(ctx)
-	if user == nil || !user.IsAdmin {
-		return nil, huma.Error403Forbidden("admin required")
-	}
 
 	if len(req.Body.Tables) == 0 {
 		return nil, huma.Error400BadRequest("tables: at least one scope is required")

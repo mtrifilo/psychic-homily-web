@@ -30,69 +30,17 @@ func analyticsNonAdminCtx() context.Context {
 // Tests: Admin Guard - Growth
 // ============================================================================
 
-func TestAnalyticsHandler_Growth_RequiresAdmin(t *testing.T) {
-	h := testAnalyticsHandler()
-
-	t.Run("NoUser", func(t *testing.T) {
-		_, err := h.GetGrowthMetricsHandler(context.Background(), &GetGrowthMetricsRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-	t.Run("NonAdmin", func(t *testing.T) {
-		_, err := h.GetGrowthMetricsHandler(analyticsNonAdminCtx(), &GetGrowthMetricsRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-}
-
 // ============================================================================
 // Tests: Admin Guard - Engagement
 // ============================================================================
-
-func TestAnalyticsHandler_Engagement_RequiresAdmin(t *testing.T) {
-	h := testAnalyticsHandler()
-
-	t.Run("NoUser", func(t *testing.T) {
-		_, err := h.GetEngagementMetricsHandler(context.Background(), &GetEngagementMetricsRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-	t.Run("NonAdmin", func(t *testing.T) {
-		_, err := h.GetEngagementMetricsHandler(analyticsNonAdminCtx(), &GetEngagementMetricsRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-}
 
 // ============================================================================
 // Tests: Admin Guard - Community
 // ============================================================================
 
-func TestAnalyticsHandler_Community_RequiresAdmin(t *testing.T) {
-	h := testAnalyticsHandler()
-
-	t.Run("NoUser", func(t *testing.T) {
-		_, err := h.GetCommunityHealthHandler(context.Background(), &GetCommunityHealthRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-	t.Run("NonAdmin", func(t *testing.T) {
-		_, err := h.GetCommunityHealthHandler(analyticsNonAdminCtx(), &GetCommunityHealthRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-}
-
 // ============================================================================
 // Tests: Admin Guard - Data Quality Trends
 // ============================================================================
-
-func TestAnalyticsHandler_DataQuality_RequiresAdmin(t *testing.T) {
-	h := testAnalyticsHandler()
-
-	t.Run("NoUser", func(t *testing.T) {
-		_, err := h.GetDataQualityTrendsHandler(context.Background(), &GetDataQualityTrendsRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-	t.Run("NonAdmin", func(t *testing.T) {
-		_, err := h.GetDataQualityTrendsHandler(analyticsNonAdminCtx(), &GetDataQualityTrendsRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-}
 
 // ============================================================================
 // Tests: GetGrowthMetricsHandler

@@ -437,12 +437,6 @@ type CreateTagResponse struct {
 
 func (h *TagHandler) CreateTagHandler(ctx context.Context, req *CreateTagRequest) (*CreateTagResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
 
 	if req.Body.Name == "" {
 		return nil, huma.Error400BadRequest("Name is required")
@@ -504,12 +498,6 @@ type UpdateTagResponse struct {
 
 func (h *TagHandler) UpdateTagHandler(ctx context.Context, req *UpdateTagRequest) (*UpdateTagResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
 
 	id, err := strconv.ParseUint(req.TagID, 10, 32)
 	if err != nil {
@@ -546,12 +534,6 @@ type DeleteTagRequest struct {
 
 func (h *TagHandler) DeleteTagHandler(ctx context.Context, req *DeleteTagRequest) (*struct{}, error) {
 	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
 
 	id, err := strconv.ParseUint(req.TagID, 10, 32)
 	if err != nil {
@@ -633,12 +615,6 @@ type CreateAliasResponse struct {
 
 func (h *TagHandler) CreateAliasHandler(ctx context.Context, req *CreateAliasRequest) (*CreateAliasResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
 
 	id, err := strconv.ParseUint(req.TagID, 10, 32)
 	if err != nil {
@@ -686,12 +662,6 @@ type DeleteAliasRequest struct {
 
 func (h *TagHandler) DeleteAliasHandler(ctx context.Context, req *DeleteAliasRequest) (*struct{}, error) {
 	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
 
 	aliasID, err := strconv.ParseUint(req.AliasID, 10, 32)
 	if err != nil {
@@ -734,14 +704,6 @@ type ListAllAliasesResponse struct {
 }
 
 func (h *TagHandler) ListAllAliasesHandler(ctx context.Context, req *ListAllAliasesRequest) (*ListAllAliasesResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
-
 	items, total, err := h.tagService.ListAllAliases(req.Search, req.Limit, req.Offset)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to list aliases")
@@ -767,14 +729,6 @@ type MergeTagsPreviewResponse struct {
 }
 
 func (h *TagHandler) MergeTagsPreviewHandler(ctx context.Context, req *MergeTagsPreviewRequest) (*MergeTagsPreviewResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
-
 	sourceID, err := strconv.ParseUint(req.SourceID, 10, 32)
 	if err != nil {
 		return nil, huma.Error400BadRequest("Invalid source tag ID")
@@ -812,12 +766,6 @@ type MergeTagsResponse struct {
 
 func (h *TagHandler) MergeTagsHandler(ctx context.Context, req *MergeTagsRequest) (*MergeTagsResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
 
 	sourceID, err := strconv.ParseUint(req.SourceID, 10, 32)
 	if err != nil {
@@ -863,12 +811,6 @@ type BulkImportAliasesResponse struct {
 
 func (h *TagHandler) BulkImportAliasesHandler(ctx context.Context, req *BulkImportAliasesRequest) (*BulkImportAliasesResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
 
 	if len(req.Body.Items) == 0 {
 		return nil, huma.Error400BadRequest("items is required and must not be empty")
@@ -912,14 +854,6 @@ type ListLowQualityTagsResponse struct {
 }
 
 func (h *TagHandler) ListLowQualityTagsHandler(ctx context.Context, req *ListLowQualityTagsRequest) (*ListLowQualityTagsResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
-
 	queue, err := h.tagService.GetLowQualityTagQueue(req.Limit, req.Offset)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to load low-quality tag queue")
@@ -934,12 +868,6 @@ type SnoozeTagRequest struct {
 
 func (h *TagHandler) SnoozeTagHandler(ctx context.Context, req *SnoozeTagRequest) (*struct{}, error) {
 	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
 
 	id, err := strconv.ParseUint(req.TagID, 10, 32)
 	if err != nil {
@@ -982,12 +910,6 @@ type BulkLowQualityTagsResponse struct {
 // counters, and tag IDs so the activity is auditable end-to-end.
 func (h *TagHandler) BulkLowQualityTagsHandler(ctx context.Context, req *BulkLowQualityTagsRequest) (*BulkLowQualityTagsResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
 
 	if req.Body.Action == "" {
 		return nil, huma.Error400BadRequest("action is required")
@@ -1053,14 +975,6 @@ type GetGenreHierarchyResponse struct {
 // parent_id populated. The frontend assembles the tree — this keeps the
 // backend query trivial (one indexed scan) and avoids a recursive CTE.
 func (h *TagHandler) GetGenreHierarchyHandler(ctx context.Context, _ *struct{}) (*GetGenreHierarchyResponse, error) {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
-
 	tags, err := h.tagService.GetGenreHierarchy()
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to load genre hierarchy")
@@ -1100,12 +1014,6 @@ type SetTagParentRequest struct {
 // The handler's job is path-id parsing + error mapping.
 func (h *TagHandler) SetTagParentHandler(ctx context.Context, req *SetTagParentRequest) (*struct{}, error) {
 	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
 
 	id, err := strconv.ParseUint(req.TagID, 10, 32)
 	if err != nil {

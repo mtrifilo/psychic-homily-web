@@ -34,6 +34,7 @@ type UpdateLabelRequest struct {
 	FoundedYear *int    `json:"founded_year"`
 	Status      *string `json:"status"`
 	Description *string `json:"description"`
+	ImageURL    *string `json:"image_url"`
 	Instagram   *string `json:"instagram"`
 	Facebook    *string `json:"facebook"`
 	Twitter     *string `json:"twitter"`
@@ -55,6 +56,7 @@ type LabelDetailResponse struct {
 	FoundedYear  *int           `json:"founded_year"`
 	Status       string         `json:"status"`
 	Description  *string        `json:"description"`
+	ImageURL     *string        `json:"image_url"` // Optional label logo (PSY-521)
 	Social       SocialResponse `json:"social"`
 	ArtistCount  int            `json:"artist_count"`
 	ReleaseCount int            `json:"release_count"`
@@ -90,4 +92,23 @@ type LabelReleaseResponse struct {
 	ReleaseYear   *int    `json:"release_year"`
 	CoverArtURL   *string `json:"cover_art_url"`
 	CatalogNumber *string `json:"catalog_number"`
+}
+
+// ──────────────────────────────────────────────
+// Label Service Interface
+// ──────────────────────────────────────────────
+
+// LabelServiceInterface defines the contract for label operations.
+type LabelServiceInterface interface {
+	CreateLabel(req *CreateLabelRequest) (*LabelDetailResponse, error)
+	GetLabel(labelID uint) (*LabelDetailResponse, error)
+	GetLabelBySlug(slug string) (*LabelDetailResponse, error)
+	ListLabels(filters map[string]interface{}) ([]*LabelListResponse, error)
+	SearchLabels(query string) ([]*LabelListResponse, error)
+	UpdateLabel(labelID uint, req *UpdateLabelRequest) (*LabelDetailResponse, error)
+	DeleteLabel(labelID uint) error
+	GetLabelRoster(labelID uint) ([]*LabelArtistResponse, error)
+	GetLabelCatalog(labelID uint) ([]*LabelReleaseResponse, error)
+	AddArtistToLabel(labelID, artistID uint) error
+	AddReleaseToLabel(labelID, releaseID uint, catalogNumber *string) error
 }

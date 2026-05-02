@@ -82,6 +82,15 @@ test.describe('Add to Collection', () => {
         })
       ).toBeVisible({ timeout: 10_000 })
 
+      // PSY-360 made grid view the default for collection items. The grid
+      // card (CollectionItemCard) doesn't expose a per-item Remove control;
+      // only the list-view row does. Switch to list view so the cleanup
+      // selectors below — which target the list-view row layout
+      // (div.rounded-lg wrapper + title="Remove from collection") — keep
+      // working. The view toggle renders unconditionally in the items
+      // header, so awaiting the click is safe.
+      await authenticatedPage.getByTestId('view-mode-list').click()
+
       // 6. Verify the show appears in the collection's items list.
       // Each item links to the entity via entity_name as link text.
       const itemLink = authenticatedPage.getByRole('link', {

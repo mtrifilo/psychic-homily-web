@@ -1070,26 +1070,6 @@ func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_Unfeature() {
 	s.False(getResp.Body.IsFeatured)
 }
 
-func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_NonAdminForbidden() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	coll := s.createCollectionViaService(user, "Not Your Feature", true)
-
-	ctx := testhelpers.CtxWithUser(user)
-	req := &SetFeaturedHandlerRequest{Slug: coll.Slug}
-	req.Body.Featured = true
-
-	_, err := s.handler.SetFeaturedHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
-func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_NoAuth() {
-	req := &SetFeaturedHandlerRequest{Slug: "some-slug"}
-	req.Body.Featured = true
-
-	_, err := s.handler.SetFeaturedHandler(context.Background(), req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
 func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_NotFound() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(admin)

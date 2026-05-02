@@ -1,8 +1,14 @@
 package contracts
 
 import (
+	"context"
 	"errors"
 	"time"
+
+	"gorm.io/gorm"
+
+	adminm "psychic-homily-backend/internal/models/admin"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 // ──────────────────────────────────────────────
@@ -327,4 +333,108 @@ type CheckEventStatus struct {
 // CheckEventsResult contains the import status of multiple events
 type CheckEventsResult struct {
 	Events map[string]CheckEventStatus `json:"events"`
+}
+
+// ──────────────────────────────────────────────
+// Extraction Service Interface
+// ──────────────────────────────────────────────
+
+// ExtractionServiceInterface defines the contract for AI show extraction operations.
+type ExtractionServiceInterface interface {
+	ExtractShow(req *ExtractShowRequest) (*ExtractShowResponse, error)
+	ExtractCalendarPage(venueName string, content string, contentType string, extractionNotes ...string) (*CalendarExtractionResponse, error)
+}
+
+// ──────────────────────────────────────────────
+// Music Discovery Service Interface
+// ──────────────────────────────────────────────
+
+// MusicDiscoveryServiceInterface defines the contract for music discovery operations.
+type MusicDiscoveryServiceInterface interface {
+	IsConfigured() bool
+	DiscoverMusicForArtist(artistID uint, artistName string)
+}
+
+// ──────────────────────────────────────────────
+// Discovery Service Interface
+// ──────────────────────────────────────────────
+
+// DiscoveryServiceInterface defines the contract for venue discovery/import operations.
+type DiscoveryServiceInterface interface {
+	ImportFromJSON(filepath string, dryRun bool) (*ImportResult, error)
+	ImportFromJSONWithDB(filepath string, dryRun bool, database *gorm.DB) (*ImportResult, error)
+	CheckEvents(events []CheckEventInput) (*CheckEventsResult, error)
+	ImportEvents(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus catalogm.ShowStatus) (*ImportResult, error)
+}
+
+// ──────────────────────────────────────────────
+// Fetcher Service Interface
+// ──────────────────────────────────────────────
+
+// FetcherServiceInterface defines the contract for HTTP fetching with change detection.
+type FetcherServiceInterface interface {
+	Fetch(url string, lastETag string, lastContentHash string) (*FetchResult, error)
+	FetchDynamic(url string) (*FetchResult, error)
+	FetchScreenshot(url string) (*FetchResult, error)
+	DetectRenderMethod(url string) (string, error)
+}
+
+// ──────────────────────────────────────────────
+// Pipeline Service Interface
+// ──────────────────────────────────────────────
+
+// PipelineServiceInterface defines the contract for the AI extraction pipeline orchestrator.
+type PipelineServiceInterface interface {
+	ExtractVenue(venueID uint, dryRun bool) (*PipelineResult, error)
+}
+
+// ──────────────────────────────────────────────
+// Venue Source Config Service Interface
+// ──────────────────────────────────────────────
+
+// VenueSourceConfigServiceInterface defines the contract for venue source config operations.
+type VenueSourceConfigServiceInterface interface {
+	GetByVenueID(venueID uint) (*adminm.VenueSourceConfig, error)
+	CreateOrUpdate(config *adminm.VenueSourceConfig) (*adminm.VenueSourceConfig, error)
+	UpdateAfterRun(venueID uint, contentHash, etag *string, eventsExtracted int) error
+	IncrementFailures(venueID uint) error
+	RecordRun(run *adminm.VenueExtractionRun) error
+	GetRecentRuns(venueID uint, limit int) ([]adminm.VenueExtractionRun, error)
+	GetAllRecentRuns(limit, offset int) ([]ImportHistoryEntry, int64, error)
+	ListConfigured() ([]adminm.VenueSourceConfig, error)
+	GetRejectionStats(venueID uint) (*VenueRejectionStats, error)
+	UpdateExtractionNotes(venueID uint, notes *string) error
+	ResetRenderMethod(venueID uint) error
+}
+
+// ──────────────────────────────────────────────
+// Scheduler Service Interface
+// ──────────────────────────────────────────────
+
+// SchedulerServiceInterface defines the contract for the background extraction scheduler.
+type SchedulerServiceInterface interface {
+	Start(ctx context.Context)
+	Stop()
+}
+
+// ──────────────────────────────────────────────
+// Enrichment Service Interface
+// ──────────────────────────────────────────────
+
+// EnrichmentServiceInterface defines the contract for post-import enrichment operations.
+type EnrichmentServiceInterface interface {
+	QueueShowForEnrichment(showID uint, enrichmentType string) error
+	ProcessQueue(ctx context.Context, batchSize int) (int, error)
+	EnrichShow(ctx context.Context, showID uint) (*EnrichmentResult, error)
+	GetQueueStats() (*EnrichmentQueueStats, error)
+}
+
+// ──────────────────────────────────────────────
+// Enrichment Worker Interface
+// ──────────────────────────────────────────────
+
+// EnrichmentWorkerInterface defines the contract for the background enrichment worker.
+type EnrichmentWorkerInterface interface {
+	Start(ctx context.Context)
+	Stop()
 }

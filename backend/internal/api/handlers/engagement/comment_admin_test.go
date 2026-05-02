@@ -31,23 +31,6 @@ func commentAdminUserCtx() context.Context {
 // Tests: Hide Comment — Auth & Validation
 // ============================================================================
 
-func TestAdminHideComment_RequiresAdmin(t *testing.T) {
-	h := testCommentAdminHandler()
-
-	t.Run("NoUser", func(t *testing.T) {
-		req := &AdminHideCommentRequest{CommentID: "1"}
-		req.Body.Reason = "spam"
-		_, err := h.AdminHideCommentHandler(context.Background(), req)
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-	t.Run("NonAdmin", func(t *testing.T) {
-		req := &AdminHideCommentRequest{CommentID: "1"}
-		req.Body.Reason = "spam"
-		_, err := h.AdminHideCommentHandler(commentAdminUserCtx(), req)
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-}
-
 func TestAdminHideComment_InvalidID(t *testing.T) {
 	h := testCommentAdminHandler()
 	req := &AdminHideCommentRequest{CommentID: "abc"}
@@ -103,19 +86,6 @@ func TestAdminHideComment_Success(t *testing.T) {
 // Tests: Restore Comment — Auth & Validation
 // ============================================================================
 
-func TestAdminRestoreComment_RequiresAdmin(t *testing.T) {
-	h := testCommentAdminHandler()
-
-	t.Run("NoUser", func(t *testing.T) {
-		_, err := h.AdminRestoreCommentHandler(context.Background(), &AdminRestoreCommentRequest{CommentID: "1"})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-	t.Run("NonAdmin", func(t *testing.T) {
-		_, err := h.AdminRestoreCommentHandler(commentAdminUserCtx(), &AdminRestoreCommentRequest{CommentID: "1"})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-}
-
 func TestAdminRestoreComment_InvalidID(t *testing.T) {
 	h := testCommentAdminHandler()
 	_, err := h.AdminRestoreCommentHandler(commentAdminAdminCtx(), &AdminRestoreCommentRequest{CommentID: "abc"})
@@ -169,19 +139,6 @@ func TestAdminRestoreComment_Success(t *testing.T) {
 // ============================================================================
 // Tests: List Pending Comments — Auth & Pagination
 // ============================================================================
-
-func TestAdminListPendingComments_RequiresAdmin(t *testing.T) {
-	h := testCommentAdminHandler()
-
-	t.Run("NoUser", func(t *testing.T) {
-		_, err := h.AdminListPendingCommentsHandler(context.Background(), &AdminListPendingCommentsRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-	t.Run("NonAdmin", func(t *testing.T) {
-		_, err := h.AdminListPendingCommentsHandler(commentAdminUserCtx(), &AdminListPendingCommentsRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-}
 
 func TestAdminListPendingComments_Success(t *testing.T) {
 	pendingComments := []*contracts.CommentResponse{
@@ -237,19 +194,6 @@ func TestAdminListPendingComments_ServiceError(t *testing.T) {
 // Tests: Approve Comment — Auth & Validation
 // ============================================================================
 
-func TestAdminApproveComment_RequiresAdmin(t *testing.T) {
-	h := testCommentAdminHandler()
-
-	t.Run("NoUser", func(t *testing.T) {
-		_, err := h.AdminApproveCommentHandler(context.Background(), &AdminApproveCommentRequest{CommentID: "1"})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-	t.Run("NonAdmin", func(t *testing.T) {
-		_, err := h.AdminApproveCommentHandler(commentAdminUserCtx(), &AdminApproveCommentRequest{CommentID: "1"})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-}
-
 func TestAdminApproveComment_InvalidID(t *testing.T) {
 	h := testCommentAdminHandler()
 	_, err := h.AdminApproveCommentHandler(commentAdminAdminCtx(), &AdminApproveCommentRequest{CommentID: "abc"})
@@ -303,23 +247,6 @@ func TestAdminApproveComment_Success(t *testing.T) {
 // ============================================================================
 // Tests: Reject Comment — Auth & Validation
 // ============================================================================
-
-func TestAdminRejectComment_RequiresAdmin(t *testing.T) {
-	h := testCommentAdminHandler()
-
-	t.Run("NoUser", func(t *testing.T) {
-		req := &AdminRejectCommentRequest{CommentID: "1"}
-		req.Body.Reason = "spam"
-		_, err := h.AdminRejectCommentHandler(context.Background(), req)
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-	t.Run("NonAdmin", func(t *testing.T) {
-		req := &AdminRejectCommentRequest{CommentID: "1"}
-		req.Body.Reason = "spam"
-		_, err := h.AdminRejectCommentHandler(commentAdminUserCtx(), req)
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-}
 
 func TestAdminRejectComment_InvalidID(t *testing.T) {
 	h := testCommentAdminHandler()
@@ -420,19 +347,6 @@ func TestCreateComment_HourlyLimitError(t *testing.T) {
 // ============================================================================
 // Tests: Admin Get Comment Edit History — Auth & Response (PSY-297)
 // ============================================================================
-
-func TestAdminGetCommentEditHistory_RequiresAdmin(t *testing.T) {
-	h := testCommentAdminHandler()
-
-	t.Run("NoUser", func(t *testing.T) {
-		_, err := h.AdminGetCommentEditHistoryHandler(context.Background(), &AdminGetCommentEditHistoryRequest{CommentID: "1"})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-	t.Run("NonAdmin", func(t *testing.T) {
-		_, err := h.AdminGetCommentEditHistoryHandler(commentAdminUserCtx(), &AdminGetCommentEditHistoryRequest{CommentID: "1"})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-}
 
 func TestAdminGetCommentEditHistory_InvalidID(t *testing.T) {
 	h := testCommentAdminHandler()

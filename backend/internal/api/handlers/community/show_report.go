@@ -7,7 +7,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -192,11 +191,6 @@ type GetPendingReportsResponse struct {
 func (h *ShowReportHandler) GetPendingReportsHandler(ctx context.Context, req *GetPendingReportsRequest) (*GetPendingReportsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	// Validate limit
 	limit := req.Limit
 	if limit < 1 {
@@ -256,10 +250,7 @@ type DismissReportResponse struct {
 func (h *ShowReportHandler) DismissReportHandler(ctx context.Context, req *DismissReportRequest) (*DismissReportResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Parse report ID
 	reportID, err := strconv.ParseUint(req.ReportID, 10, 32)
@@ -319,10 +310,7 @@ type ResolveReportResponse struct {
 func (h *ShowReportHandler) ResolveReportHandler(ctx context.Context, req *ResolveReportRequest) (*ResolveReportResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Parse report ID
 	reportID, err := strconv.ParseUint(req.ReportID, 10, 32)

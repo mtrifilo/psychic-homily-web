@@ -633,17 +633,6 @@ func TestAdminCreateRadioStation_Success(t *testing.T) {
 	}
 }
 
-func TestAdminCreateRadioStation_NotAdmin(t *testing.T) {
-	mock := &testhelpers.MockRadioService{}
-	h := testRadioHandler(mock)
-	req := &AdminCreateRadioStationRequest{}
-	req.Body.Name = "KEXP"
-	req.Body.BroadcastType = "both"
-
-	_, err := h.AdminCreateRadioStationHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
 func TestAdminCreateRadioStation_MissingName(t *testing.T) {
 	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
@@ -707,15 +696,6 @@ func TestAdminUpdateRadioStation_Success(t *testing.T) {
 	}
 }
 
-func TestAdminUpdateRadioStation_NotAdmin(t *testing.T) {
-	mock := &testhelpers.MockRadioService{}
-	h := testRadioHandler(mock)
-	req := &AdminUpdateRadioStationRequest{StationID: 1}
-
-	_, err := h.AdminUpdateRadioStationHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
 func TestAdminUpdateRadioStation_NotFound(t *testing.T) {
 	mock := &testhelpers.MockRadioService{
 		UpdateStationFn: func(stationID uint, req *contracts.UpdateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
@@ -746,15 +726,6 @@ func TestAdminDeleteRadioStation_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-}
-
-func TestAdminDeleteRadioStation_NotAdmin(t *testing.T) {
-	mock := &testhelpers.MockRadioService{}
-	h := testRadioHandler(mock)
-	req := &AdminDeleteRadioStationRequest{StationID: 1}
-
-	_, err := h.AdminDeleteRadioStationHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminDeleteRadioStation_NotFound(t *testing.T) {
@@ -796,16 +767,6 @@ func TestAdminCreateRadioShow_Success(t *testing.T) {
 	if resp.Body.Name != "Morning Show" {
 		t.Errorf("expected Morning Show, got %s", resp.Body.Name)
 	}
-}
-
-func TestAdminCreateRadioShow_NotAdmin(t *testing.T) {
-	mock := &testhelpers.MockRadioService{}
-	h := testRadioHandler(mock)
-	req := &AdminCreateRadioShowRequest{StationID: 1}
-	req.Body.Name = "Morning Show"
-
-	_, err := h.AdminCreateRadioShowHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminCreateRadioShow_MissingName(t *testing.T) {
@@ -859,15 +820,6 @@ func TestAdminUpdateRadioShow_Success(t *testing.T) {
 	}
 }
 
-func TestAdminUpdateRadioShow_NotAdmin(t *testing.T) {
-	mock := &testhelpers.MockRadioService{}
-	h := testRadioHandler(mock)
-	req := &AdminUpdateRadioShowRequest{ShowID: 1}
-
-	_, err := h.AdminUpdateRadioShowHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
 func TestAdminUpdateRadioShow_NotFound(t *testing.T) {
 	mock := &testhelpers.MockRadioService{
 		UpdateShowFn: func(showID uint, req *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
@@ -898,15 +850,6 @@ func TestAdminDeleteRadioShow_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-}
-
-func TestAdminDeleteRadioShow_NotAdmin(t *testing.T) {
-	mock := &testhelpers.MockRadioService{}
-	h := testRadioHandler(mock)
-	req := &AdminDeleteRadioShowRequest{ShowID: 1}
-
-	_, err := h.AdminDeleteRadioShowHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminDeleteRadioShow_NotFound(t *testing.T) {
@@ -944,15 +887,6 @@ func TestAdminTriggerFetch_Success(t *testing.T) {
 	}
 }
 
-func TestAdminTriggerFetch_NotAdmin(t *testing.T) {
-	mock := &testhelpers.MockRadioService{}
-	h := testRadioHandler(mock)
-	req := &AdminTriggerFetchRequest{StationID: 1}
-
-	_, err := h.AdminTriggerFetchHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
 // ============================================================================
 // AdminDiscoverShowsHandler Tests
 // ============================================================================
@@ -976,15 +910,6 @@ func TestAdminDiscoverShows_Success(t *testing.T) {
 	if len(resp.Body.ShowNames) != 2 {
 		t.Fatalf("expected 2 show names, got %d", len(resp.Body.ShowNames))
 	}
-}
-
-func TestAdminDiscoverShows_NotAdmin(t *testing.T) {
-	mock := &testhelpers.MockRadioService{}
-	h := testRadioHandler(mock)
-	req := &AdminDiscoverShowsRequest{StationID: 1}
-
-	_, err := h.AdminDiscoverShowsHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminDiscoverShows_ServiceError(t *testing.T) {
@@ -1032,17 +957,6 @@ func TestAdminImportShowEpisodes_Success(t *testing.T) {
 	if resp.Body.PlaysMatched != 30 {
 		t.Fatalf("expected 30 plays matched, got %d", resp.Body.PlaysMatched)
 	}
-}
-
-func TestAdminImportShowEpisodes_NotAdmin(t *testing.T) {
-	mock := &testhelpers.MockRadioService{}
-	h := testRadioHandler(mock)
-	req := &AdminImportShowEpisodesRequest{ShowID: 1}
-	req.Body.Since = "2024-01-01"
-	req.Body.Until = "2024-12-31"
-
-	_, err := h.AdminImportShowEpisodesHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminImportShowEpisodes_ServiceError(t *testing.T) {
@@ -1103,17 +1017,6 @@ func TestAdminCreateImportJob_Success(t *testing.T) {
 	if resp.Body.Status != "pending" {
 		t.Errorf("expected status 'pending', got %s", resp.Body.Status)
 	}
-}
-
-func TestAdminCreateImportJob_NotAdmin(t *testing.T) {
-	mock := &testhelpers.MockRadioService{}
-	h := testRadioHandler(mock)
-	req := &AdminCreateImportJobRequest{ShowID: 1}
-	req.Body.Since = "2025-01-01"
-	req.Body.Until = "2025-12-31"
-
-	_, err := h.AdminCreateImportJobHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminCreateImportJob_MissingSince(t *testing.T) {
@@ -1197,13 +1100,6 @@ func TestAdminGetImportJob_NotFound(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 404)
 }
 
-func TestAdminGetImportJob_NotAdmin(t *testing.T) {
-	mock := &testhelpers.MockRadioService{}
-	h := testRadioHandler(mock)
-	_, err := h.AdminGetImportJobHandler(context.Background(), &AdminGetImportJobRequest{JobID: 1})
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
 // ============================================================================
 // AdminCancelImportJobHandler Tests
 // ============================================================================
@@ -1233,13 +1129,6 @@ func TestAdminCancelImportJob_ServiceError(t *testing.T) {
 	h := testRadioHandler(mock)
 	_, err := h.AdminCancelImportJobHandler(radioAdminCtx(), &AdminCancelImportJobRequest{JobID: 1})
 	testhelpers.AssertHumaError(t, err, 500)
-}
-
-func TestAdminCancelImportJob_NotAdmin(t *testing.T) {
-	mock := &testhelpers.MockRadioService{}
-	h := testRadioHandler(mock)
-	_, err := h.AdminCancelImportJobHandler(context.Background(), &AdminCancelImportJobRequest{JobID: 1})
-	testhelpers.AssertHumaError(t, err, 403)
 }
 
 // ============================================================================
@@ -1304,9 +1193,3 @@ func TestAdminListImportJobs_ServiceError(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 500)
 }
 
-func TestAdminListImportJobs_NotAdmin(t *testing.T) {
-	mock := &testhelpers.MockRadioService{}
-	h := testRadioHandler(mock)
-	_, err := h.AdminListImportJobsHandler(context.Background(), &AdminListImportJobsRequest{ShowID: 1})
-	testhelpers.AssertHumaError(t, err, 403)
-}

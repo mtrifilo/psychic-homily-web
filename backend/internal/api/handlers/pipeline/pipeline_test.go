@@ -32,59 +32,6 @@ func pipelineNonAdminCtx() context.Context {
 // Tests: Admin Guard
 // ============================================================================
 
-func TestPipelineHandler_RequiresAdmin(t *testing.T) {
-	h := testPipelineHandler()
-
-	tests := []struct {
-		name string
-		fn   func(ctx context.Context) error
-	}{
-		{"ExtractVenue", func(ctx context.Context) error {
-			_, err := h.ExtractVenueHandler(ctx, &ExtractVenueRequest{VenueID: "1"})
-			return err
-		}},
-		{"ListPipelineVenues", func(ctx context.Context) error {
-			_, err := h.ListPipelineVenuesHandler(ctx, &ListPipelineVenuesRequest{})
-			return err
-		}},
-		{"VenueRejectionStats", func(ctx context.Context) error {
-			_, err := h.VenueRejectionStatsHandler(ctx, &VenueRejectionStatsRequest{VenueID: "1"})
-			return err
-		}},
-		{"UpdateExtractionNotes", func(ctx context.Context) error {
-			_, err := h.UpdateExtractionNotesHandler(ctx, &UpdateExtractionNotesRequest{VenueID: "1"})
-			return err
-		}},
-		{"UpdateVenueConfig", func(ctx context.Context) error {
-			_, err := h.UpdateVenueConfigHandler(ctx, &UpdateVenueConfigRequest{VenueID: "1"})
-			return err
-		}},
-		{"GetVenueRuns", func(ctx context.Context) error {
-			_, err := h.GetVenueRunsHandler(ctx, &GetVenueRunsRequest{VenueID: "1"})
-			return err
-		}},
-		{"ResetRenderMethod", func(ctx context.Context) error {
-			_, err := h.ResetRenderMethodHandler(ctx, &ResetRenderMethodRequest{VenueID: "1"})
-			return err
-		}},
-		{"GetImportHistory", func(ctx context.Context) error {
-			_, err := h.GetImportHistoryHandler(ctx, &GetImportHistoryRequest{})
-			return err
-		}},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name+"_NoUser", func(t *testing.T) {
-			err := tc.fn(context.Background())
-			testhelpers.AssertHumaError(t, err, 403)
-		})
-		t.Run(tc.name+"_NonAdmin", func(t *testing.T) {
-			err := tc.fn(pipelineNonAdminCtx())
-			testhelpers.AssertHumaError(t, err, 403)
-		})
-	}
-}
-
 // ============================================================================
 // Tests: ExtractVenueHandler
 // ============================================================================
@@ -776,15 +723,6 @@ func TestPipelineHandler_EnrichmentStatus_Success(t *testing.T) {
 	}
 }
 
-func TestPipelineHandler_EnrichmentStatus_RequiresAdmin(t *testing.T) {
-	h := testPipelineHandler()
-	_, err := h.EnrichmentStatusHandler(context.Background(), &EnrichmentStatusRequest{})
-	testhelpers.AssertHumaError(t, err, 403)
-
-	_, err = h.EnrichmentStatusHandler(pipelineNonAdminCtx(), &EnrichmentStatusRequest{})
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
 func TestPipelineHandler_EnrichmentStatus_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
 		&testhelpers.MockPipelineService{},
@@ -832,15 +770,6 @@ func TestPipelineHandler_TriggerEnrichment_Success(t *testing.T) {
 	if receivedType != "all" {
 		t.Errorf("expected type=all, got %s", receivedType)
 	}
-}
-
-func TestPipelineHandler_TriggerEnrichment_RequiresAdmin(t *testing.T) {
-	h := testPipelineHandler()
-	_, err := h.TriggerEnrichmentHandler(context.Background(), &TriggerEnrichmentRequest{ShowID: "1"})
-	testhelpers.AssertHumaError(t, err, 403)
-
-	_, err = h.TriggerEnrichmentHandler(pipelineNonAdminCtx(), &TriggerEnrichmentRequest{ShowID: "1"})
-	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestPipelineHandler_TriggerEnrichment_InvalidShowID(t *testing.T) {

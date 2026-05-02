@@ -140,25 +140,6 @@ func (s *LabelHandlerIntegrationSuite) TestCreateLabel_AdminSuccess() {
 	s.Equal("active", resp.Body.Status)
 }
 
-func (s *LabelHandlerIntegrationSuite) TestCreateLabel_NonAdminForbidden() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	ctx := testhelpers.CtxWithUser(user)
-
-	req := &CreateLabelRequest{}
-	req.Body.Name = "Forbidden Label"
-
-	_, err := s.handler.CreateLabelHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
-func (s *LabelHandlerIntegrationSuite) TestCreateLabel_NoAuth() {
-	req := &CreateLabelRequest{}
-	req.Body.Name = "No Auth Label"
-
-	_, err := s.handler.CreateLabelHandler(s.deps.Ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
 func (s *LabelHandlerIntegrationSuite) TestCreateLabel_EmptyName() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(admin)
@@ -213,19 +194,6 @@ func (s *LabelHandlerIntegrationSuite) TestUpdateLabel_NotFound() {
 	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
-func (s *LabelHandlerIntegrationSuite) TestUpdateLabel_NonAdminForbidden() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	label := s.createLabelViaService("Forbidden Update Label")
-
-	ctx := testhelpers.CtxWithUser(user)
-	newName := "Hacked Name"
-	req := &UpdateLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
-	req.Body.Name = &newName
-
-	_, err := s.handler.UpdateLabelHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
 // --- DeleteLabelHandler ---
 
 func (s *LabelHandlerIntegrationSuite) TestDeleteLabel_Success() {
@@ -250,17 +218,6 @@ func (s *LabelHandlerIntegrationSuite) TestDeleteLabel_NotFound() {
 
 	_, err := s.handler.DeleteLabelHandler(ctx, req)
 	testhelpers.AssertHumaError(s.T(), err, 404)
-}
-
-func (s *LabelHandlerIntegrationSuite) TestDeleteLabel_NonAdminForbidden() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	label := s.createLabelViaService("Protected Label")
-
-	ctx := testhelpers.CtxWithUser(user)
-	req := &DeleteLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
-
-	_, err := s.handler.DeleteLabelHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 // --- GetLabelRosterHandler ---
@@ -412,19 +369,6 @@ func (s *LabelHandlerIntegrationSuite) TestAddArtistToLabel_LabelNotFound() {
 	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
-func (s *LabelHandlerIntegrationSuite) TestAddArtistToLabel_NonAdminForbidden() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	label := s.createLabelViaService("Forbidden Label")
-	artist := s.createArtistForLabel("Forbidden Artist")
-
-	ctx := testhelpers.CtxWithUser(user)
-	req := &AddArtistToLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
-	req.Body.ArtistID = artist.ID
-
-	_, err := s.handler.AddArtistToLabelHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
 func (s *LabelHandlerIntegrationSuite) TestAddArtistToLabel_MissingArtistID() {
 	label := s.createLabelViaService("No Artist Label")
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
@@ -521,19 +465,6 @@ func (s *LabelHandlerIntegrationSuite) TestAddReleaseToLabel_LabelNotFound() {
 
 	_, err := s.handler.AddReleaseToLabelHandler(ctx, req)
 	testhelpers.AssertHumaError(s.T(), err, 404)
-}
-
-func (s *LabelHandlerIntegrationSuite) TestAddReleaseToLabel_NonAdminForbidden() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	label := s.createLabelViaService("Forbidden Release Label")
-	release := s.createReleaseForLabel("Forbidden Release")
-
-	ctx := testhelpers.CtxWithUser(user)
-	req := &AddReleaseToLabelRequest{LabelID: fmt.Sprintf("%d", label.ID)}
-	req.Body.ReleaseID = release.ID
-
-	_, err := s.handler.AddReleaseToLabelHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 func (s *LabelHandlerIntegrationSuite) TestAddReleaseToLabel_MissingReleaseID() {

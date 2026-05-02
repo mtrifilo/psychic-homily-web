@@ -238,19 +238,6 @@ func TestReportEntity_ServiceError(t *testing.T) {
 // Tests: Admin — List Entity Reports
 // ============================================================================
 
-func TestAdminListEntityReports_RequiresAdmin(t *testing.T) {
-	h := testEntityReportHandler()
-
-	t.Run("NoUser", func(t *testing.T) {
-		_, err := h.AdminListEntityReportsHandler(context.Background(), &AdminListEntityReportsRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-	t.Run("NonAdmin", func(t *testing.T) {
-		_, err := h.AdminListEntityReportsHandler(entityReportUserCtx(), &AdminListEntityReportsRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-}
-
 func TestAdminListEntityReports_Success(t *testing.T) {
 	reports := []contracts.EntityReportResponse{*makeEntityReportResponse(1, "artist", "inaccurate")}
 	h := NewEntityReportHandler(
@@ -308,12 +295,6 @@ func TestAdminListEntityReports_WithEntityTypeFilter(t *testing.T) {
 // Tests: Admin — Get Single Entity Report
 // ============================================================================
 
-func TestAdminGetEntityReport_RequiresAdmin(t *testing.T) {
-	h := testEntityReportHandler()
-	_, err := h.AdminGetEntityReportHandler(entityReportUserCtx(), &AdminGetEntityReportRequest{ReportID: "1"})
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
 func TestAdminGetEntityReport_InvalidID(t *testing.T) {
 	h := testEntityReportHandler()
 	_, err := h.AdminGetEntityReportHandler(entityReportAdminCtx(), &AdminGetEntityReportRequest{ReportID: "abc"})
@@ -360,13 +341,6 @@ func TestAdminGetEntityReport_Success(t *testing.T) {
 // ============================================================================
 // Tests: Admin — Resolve Entity Report
 // ============================================================================
-
-func TestAdminResolveEntityReport_RequiresAdmin(t *testing.T) {
-	h := testEntityReportHandler()
-	req := &AdminResolveEntityReportRequest{ReportID: "1"}
-	_, err := h.AdminResolveEntityReportHandler(entityReportUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
 
 func TestAdminResolveEntityReport_InvalidID(t *testing.T) {
 	h := testEntityReportHandler()
@@ -440,13 +414,6 @@ func TestAdminResolveEntityReport_AlreadyReviewed(t *testing.T) {
 // ============================================================================
 // Tests: Admin — Dismiss Entity Report
 // ============================================================================
-
-func TestAdminDismissEntityReport_RequiresAdmin(t *testing.T) {
-	h := testEntityReportHandler()
-	req := &AdminDismissEntityReportRequest{ReportID: "1"}
-	_, err := h.AdminDismissEntityReportHandler(entityReportUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
 
 func TestAdminDismissEntityReport_InvalidID(t *testing.T) {
 	h := testEntityReportHandler()

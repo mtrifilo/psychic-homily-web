@@ -270,6 +270,8 @@ export const API_ENDPOINTS = {
     TAGS: (slug: string) => `${API_BASE_URL}/collections/${slug}/tags`,
     TAG: (slug: string, tagId: number) =>
       `${API_BASE_URL}/collections/${slug}/tags/${tagId}`,
+    // PSY-366: artist-relationship subgraph for the collection's artist items.
+    GRAPH: (slug: string) => `${API_BASE_URL}/collections/${slug}/graph`,
     MY: `${API_BASE_URL}/auth/collections`,
     ENTITY: (entityType: string, entityId: number) =>
       `${API_BASE_URL}/collections/entity/${entityType}/${entityId}`,
