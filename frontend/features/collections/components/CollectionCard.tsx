@@ -171,6 +171,41 @@ export function CollectionCard({ collection }: CollectionCardProps) {
             />
           )}
 
+          {/* PSY-354: tag chips. Cap at 5 visible to keep cards readable;
+              the detail page shows the full set. Each chip links to the
+              tag-filtered collections browse — the ticket explicitly
+              chose this over the global /tags/{slug} target so chips on
+              cards behave like a "show me other collections like this"
+              shortcut rather than a deep-dive into the tag's full corpus. */}
+          {collection.tags && collection.tags.length > 0 && (
+            <div
+              className="mt-1.5 flex flex-wrap gap-1"
+              data-testid="collection-card-tags"
+            >
+              {collection.tags.slice(0, 5).map((tag) => (
+                <Link
+                  key={tag.id}
+                  href={`/collections?tag=${encodeURIComponent(tag.slug)}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className={cn(
+                    'inline-flex items-center rounded-full border px-2 py-0.5',
+                    'text-[10px] font-medium transition-colors',
+                    'border-border/60 bg-muted/30 text-muted-foreground',
+                    'hover:border-primary/40 hover:bg-primary/10 hover:text-primary'
+                  )}
+                  title={tag.name}
+                >
+                  {tag.name}
+                </Link>
+              ))}
+              {collection.tags.length > 5 && (
+                <span className="text-[10px] text-muted-foreground self-center">
+                  +{collection.tags.length - 5}
+                </span>
+              )}
+            </div>
+          )}
+
           <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
             <span>
               by{' '}

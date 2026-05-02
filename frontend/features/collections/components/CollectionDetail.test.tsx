@@ -132,6 +132,24 @@ vi.mock('@/features/comments', () => ({
   ),
 }))
 
+// PSY-354: stub EntityTagList — its real implementation pulls in tag
+// hooks (useEntityTags, useSearchTags, useVoteOnTag) that need a
+// QueryClient. The CollectionDetail tests don't exercise tag UI, so a
+// minimal stub keeps them isolated from tag-feature plumbing.
+vi.mock('@/features/tags', () => ({
+  EntityTagList: ({
+    entityType,
+    entityId,
+  }: {
+    entityType: string
+    entityId: number
+  }) => (
+    <div data-testid="entity-tag-list">
+      Tags for {entityType} {entityId}
+    </div>
+  ),
+}))
+
 // Mock useEntitySearch
 vi.mock('@/lib/hooks/common/useEntitySearch', () => ({
   useEntitySearch: () => ({
