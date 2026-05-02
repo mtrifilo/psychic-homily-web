@@ -481,9 +481,7 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		updates["description"] = utils.NilIfEmpty(*req.Body.Description)
 	}
 	if req.Body.ImageURL != nil {
-		if len(*req.Body.ImageURL) > 2048 {
-			return nil, huma.Error422UnprocessableEntity("Image URL must be 2048 characters or fewer")
-		}
+		// Length + scheme already validated above (PSY-525); just persist.
 		updates["image_url"] = utils.NilIfEmpty(*req.Body.ImageURL)
 	}
 

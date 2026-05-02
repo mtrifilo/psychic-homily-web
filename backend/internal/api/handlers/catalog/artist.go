@@ -992,6 +992,7 @@ func validateSocialURLs(instagram, facebook, twitter, youtube, spotify, soundclo
 	}
 	return nil
 }
+
 // ============================================================================
 // Artist Aliases
 // ============================================================================
