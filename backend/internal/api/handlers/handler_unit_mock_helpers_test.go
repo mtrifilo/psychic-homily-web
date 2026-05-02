@@ -2965,6 +2965,7 @@ type mockShowService struct {
 	getUpcomingShowsFn func(string, string, int, bool, *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error)
 	getShowCitiesFn func(string) ([]contracts.ShowCityResponse, error)
 	deleteShowFn func(uint) (error)
+	searchShowsFn func(string) ([]*contracts.ShowSearchResult, error)
 }
 
 func (m *mockShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
@@ -3026,6 +3027,12 @@ func (m *mockShowService) DeleteShow(showID uint) (error) {
 		return m.deleteShowFn(showID)
 	}
 	return nil
+}
+func (m *mockShowService) SearchShows(query string) ([]*contracts.ShowSearchResult, error) {
+	if m.searchShowsFn != nil {
+		return m.searchShowsFn(query)
+	}
+	return nil, nil
 }
 
 // ============================================================================

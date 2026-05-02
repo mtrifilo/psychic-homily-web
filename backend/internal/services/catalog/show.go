@@ -8,6 +8,7 @@ import (
 	"hash/fnv"
 	"log"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -810,6 +811,144 @@ func (s *ShowService) GetShowCities(timezone string) ([]contracts.ShowCityRespon
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get show cities: %w", err)
+	}
+
+	return results, nil
+}
+
+// SearchShows returns up to 20 shows whose title or any bill artist name matches
+// the query (case-insensitive ILIKE substring), ordered by event_date DESC.
+//
+// Match target: shows.title OR any artists.name on the bill (joined through
+// show_artists). User explicitly chose this permissive shape for PSY-372: users
+// think of shows by artist first. PSY-520.
+//
+// Headliner resolution: there is no `is_headliner` column on show_artists.
+// Headliner = the show_artists row with set_type = 'headliner', falling back
+// to position = 0. This mirrors checkDuplicateHeadlinerConflicts above.
+//
+// Venue resolution: a show may have multiple venues; we pick the
+// lowest-numbered venue_id deterministically as the "primary" — venues array
+// ordering isn't currently tracked in show_venues.
+//
+// Empty query returns []*ShowSearchResult{}, not all shows.
+//
+// Mirrors SearchFestivals/SearchReleases: no status filter (those don't
+// constrain to approved either), simple LIMIT 20, no relevance ranking.
+func (s *ShowService) SearchShows(query string) ([]*contracts.ShowSearchResult, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Empty / whitespace-only queries return no results — never "all shows".
+	// The handler also short-circuits before calling here as a defensive
+	// boundary; this keeps the service safe if it's ever called directly
+	// (e.g. from tests or future internal callers).
+	if strings.TrimSpace(query) == "" {
+		return []*contracts.ShowSearchResult{}, nil
+	}
+
+	pattern := "%" + query + "%"
+
+	// Single query: select shows whose title matches OR any artist on the
+	// bill matches, then resolve headliner/venue via correlated subqueries.
+	// DISTINCT on shows.id prevents duplicate rows when both title and
+	// multiple artists match.
+	rows, err := s.db.Raw(`
+		SELECT DISTINCT ON (shows.id)
+			shows.id,
+			shows.slug,
+			shows.title,
+			shows.event_date,
+			COALESCE(
+				(SELECT a.name
+				 FROM show_artists sa
+				 JOIN artists a ON a.id = sa.artist_id
+				 WHERE sa.show_id = shows.id
+				   AND sa.set_type = 'headliner'
+				 ORDER BY sa.position ASC
+				 LIMIT 1),
+				(SELECT a.name
+				 FROM show_artists sa
+				 JOIN artists a ON a.id = sa.artist_id
+				 WHERE sa.show_id = shows.id
+				 ORDER BY sa.position ASC
+				 LIMIT 1),
+				''
+			) AS headliner_name,
+			COALESCE(
+				(SELECT v.name
+				 FROM show_venues sv
+				 JOIN venues v ON v.id = sv.venue_id
+				 WHERE sv.show_id = shows.id
+				 ORDER BY sv.venue_id ASC
+				 LIMIT 1),
+				''
+			) AS venue_name
+		FROM shows
+		LEFT JOIN show_artists sa_match ON sa_match.show_id = shows.id
+		LEFT JOIN artists a_match ON a_match.id = sa_match.artist_id
+		WHERE shows.title ILIKE ?
+		   OR a_match.name ILIKE ?
+	`, pattern, pattern).Rows()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to search shows: %w", err)
+	}
+	defer rows.Close()
+
+	// Two-stage scan: DISTINCT ON requires its expression(s) to lead the
+	// ORDER BY. To order results by event_date DESC across the de-duplicated
+	// set, materialize the matched rows first then sort + truncate in Go.
+	type matchedRow struct {
+		ID            uint
+		Slug          *string
+		Title         string
+		EventDate     time.Time
+		HeadlinerName string
+		VenueName     string
+	}
+	var matched []matchedRow
+	for rows.Next() {
+		var r matchedRow
+		if err := rows.Scan(&r.ID, &r.Slug, &r.Title, &r.EventDate, &r.HeadlinerName, &r.VenueName); err != nil {
+			return nil, fmt.Errorf("failed to scan show search row: %w", err)
+		}
+		matched = append(matched, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate show search rows: %w", err)
+	}
+
+	// Sort by event_date DESC (most-recent first); ties broken by ID DESC for
+	// deterministic ordering.
+	sort.Slice(matched, func(i, j int) bool {
+		if matched[i].EventDate.Equal(matched[j].EventDate) {
+			return matched[i].ID > matched[j].ID
+		}
+		return matched[i].EventDate.After(matched[j].EventDate)
+	})
+
+	limit := 20
+	if len(matched) < limit {
+		limit = len(matched)
+	}
+
+	results := make([]*contracts.ShowSearchResult, 0, limit)
+	for i := 0; i < limit; i++ {
+		r := matched[i]
+		slug := ""
+		if r.Slug != nil {
+			slug = *r.Slug
+		}
+		results = append(results, &contracts.ShowSearchResult{
+			ID:            r.ID,
+			Slug:          slug,
+			Title:         r.Title,
+			HeadlinerName: r.HeadlinerName,
+			VenueName:     r.VenueName,
+			EventDate:     r.EventDate,
+		})
 	}
 
 	return results, nil

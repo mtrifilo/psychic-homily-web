@@ -188,3 +188,104 @@ func TestSearchFestivals_ServiceError(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+// ============================================================================
+// Tests: SearchShowsHandler (PSY-520)
+// ============================================================================
+
+// newShowHandlerWithSearchMock builds a ShowHandler with only the mock show
+// service wired — every other dependency is nil because the search handler
+// only touches showService. Mirrors the minimal setup used in
+// TestSearchReleases_* etc.
+func newShowHandlerWithSearchMock(mock *mockShowService) *ShowHandler {
+	return NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+}
+
+func TestSearchShows_Success(t *testing.T) {
+	called := false
+	mock := &mockShowService{
+		searchShowsFn: func(query string) ([]*contracts.ShowSearchResult, error) {
+			called = true
+			if query != "valley" {
+				t.Errorf("expected query='valley', got %q", query)
+			}
+			return []*contracts.ShowSearchResult{
+				{ID: 1, Slug: "valley-show", Title: "Valley Bar Showcase", HeadlinerName: "Band A", VenueName: "Valley Bar"},
+			}, nil
+		},
+	}
+	h := newShowHandlerWithSearchMock(mock)
+
+	resp, err := h.SearchShowsHandler(context.Background(), &SearchShowsRequest{Query: "valley"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("expected service to be called")
+	}
+	if resp.Body.Count != 1 {
+		t.Errorf("expected count=1, got %d", resp.Body.Count)
+	}
+	if len(resp.Body.Shows) != 1 || resp.Body.Shows[0].Title != "Valley Bar Showcase" {
+		t.Errorf("expected title='Valley Bar Showcase', got %+v", resp.Body.Shows)
+	}
+}
+
+func TestSearchShows_EmptyQuery(t *testing.T) {
+	// Empty query must short-circuit at the handler — service should not
+	// be invoked at all (avoids unnecessary DB round-trip).
+	mock := &mockShowService{
+		searchShowsFn: func(_ string) ([]*contracts.ShowSearchResult, error) {
+			t.Error("service should not be called on empty query")
+			return nil, nil
+		},
+	}
+	h := newShowHandlerWithSearchMock(mock)
+
+	resp, err := h.SearchShowsHandler(context.Background(), &SearchShowsRequest{Query: ""})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Count != 0 {
+		t.Errorf("expected count=0, got %d", resp.Body.Count)
+	}
+	// Body.Shows is initialized to a non-nil empty slice so the JSON is `[]`,
+	// not `null`. The frontend treats null and [] differently.
+	if resp.Body.Shows == nil {
+		t.Error("expected Body.Shows to be initialized to []")
+	}
+}
+
+func TestSearchShows_WhitespaceQuery(t *testing.T) {
+	// Whitespace-only queries must short-circuit identically to empty
+	// queries: no DB call, [] result.
+	mock := &mockShowService{
+		searchShowsFn: func(_ string) ([]*contracts.ShowSearchResult, error) {
+			t.Error("service should not be called on whitespace-only query")
+			return nil, nil
+		},
+	}
+	h := newShowHandlerWithSearchMock(mock)
+
+	resp, err := h.SearchShowsHandler(context.Background(), &SearchShowsRequest{Query: "   \t\n"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Count != 0 {
+		t.Errorf("expected count=0, got %d", resp.Body.Count)
+	}
+}
+
+func TestSearchShows_ServiceError(t *testing.T) {
+	mock := &mockShowService{
+		searchShowsFn: func(_ string) ([]*contracts.ShowSearchResult, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+	h := newShowHandlerWithSearchMock(mock)
+
+	_, err := h.SearchShowsHandler(context.Background(), &SearchShowsRequest{Query: "test"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
