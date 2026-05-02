@@ -87,6 +87,10 @@ func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
 		artistRelationshipService: catalog.NewArtistRelationshipService(db),
 		sceneService:              catalog.NewSceneService(db),
 	}
+	// PSY-354: collections gain polymorphic tagging via the tag service.
+	// Wire the dependency so handler tests exercise the same code path
+	// that production uses.
+	deps.collectionService.SetTagService(deps.tagService)
 
 	return deps
 }
@@ -96,6 +100,14 @@ func cleanupTables(db *gorm.DB) {
 	// Order respects FK constraints
 	_, _ = sqlDB.Exec("DELETE FROM request_votes")
 	_, _ = sqlDB.Exec("DELETE FROM requests")
+	// PSY-354: clear polymorphic tag links + votes before removing the
+	// underlying entities they reference (entity_tags has no FK to the
+	// polymorphic entity, but tag_votes references tags + users; clearing
+	// these here lets entity_tags rows from prior tests not leak into
+	// later tests that share the same database).
+	_, _ = sqlDB.Exec("DELETE FROM tag_votes")
+	_, _ = sqlDB.Exec("DELETE FROM entity_tags")
+	_, _ = sqlDB.Exec("DELETE FROM collection_likes")
 	_, _ = sqlDB.Exec("DELETE FROM collection_subscribers")
 	_, _ = sqlDB.Exec("DELETE FROM collection_items")
 	_, _ = sqlDB.Exec("DELETE FROM collections")
@@ -122,6 +134,13 @@ func cleanupTables(db *gorm.DB) {
 	_, _ = sqlDB.Exec("DELETE FROM webauthn_challenges")
 	_, _ = sqlDB.Exec("DELETE FROM oauth_accounts")
 	_, _ = sqlDB.Exec("DELETE FROM user_preferences")
+	// PSY-354: clear the polymorphic tag corpus too — tags / tag_aliases
+	// can leak between integration test cases via the LOWER(name) unique
+	// index ("post-punk" reused across tests would collide). Tags's FK to
+	// users is ON DELETE SET NULL, so order vs `users` is fine, but we
+	// drop tags before users so tag cleanup doesn't see orphaned rows.
+	_, _ = sqlDB.Exec("DELETE FROM tag_aliases")
+	_, _ = sqlDB.Exec("DELETE FROM tags")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 

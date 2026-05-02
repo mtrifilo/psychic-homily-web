@@ -19,6 +19,8 @@ vi.mock('@/lib/api', () => ({
       FEATURE: (slug: string) => `/collections/${slug}/feature`,
       CLONE: (slug: string) => `/collections/${slug}/clone`,
       LIKE: (slug: string) => `/collections/${slug}/like`,
+      TAGS: (slug: string) => `/collections/${slug}/tags`,
+      TAG: (slug: string, tagId: number) => `/collections/${slug}/tags/${tagId}`,
       MY: '/auth/collections',
     },
   },
@@ -58,6 +60,8 @@ import {
   useUnsubscribeCollection,
   useLikeCollection,
   useUnlikeCollection,
+  useAddCollectionTag,
+  useRemoveCollectionTag,
 } from './index'
 
 
@@ -640,6 +644,115 @@ describe('Collection sort + like hooks', () => {
         like_count: 0,
         user_likes_this: false,
       })
+    })
+  })
+
+  // PSY-354: collection tag mutation hooks.
+  describe('useAddCollectionTag', () => {
+    it('POSTs to /collections/{slug}/tags with tag_name', async () => {
+      mockApiRequest.mockResolvedValueOnce({
+        tags: [
+          {
+            tag_id: 1,
+            name: 'phoenix',
+            slug: 'phoenix',
+            category: 'locale',
+            is_official: false,
+            upvotes: 0,
+            downvotes: 0,
+            wilson_score: 0,
+          },
+        ],
+      })
+
+      const { result } = renderHook(() => useAddCollectionTag(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ slug: 'my-coll', tag_name: 'phoenix' })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/collections/my-coll/tags',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            tag_id: undefined,
+            tag_name: 'phoenix',
+            category: undefined,
+          }),
+        })
+      )
+    })
+
+    it('POSTs with tag_id when applying an existing tag', async () => {
+      mockApiRequest.mockResolvedValueOnce({ tags: [] })
+      const { result } = renderHook(() => useAddCollectionTag(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ slug: 'my-coll', tag_id: 42 })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/collections/my-coll/tags',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            tag_id: 42,
+            tag_name: undefined,
+            category: undefined,
+          }),
+        })
+      )
+    })
+  })
+
+  describe('useRemoveCollectionTag', () => {
+    it('DELETEs /collections/{slug}/tags/{tag_id}', async () => {
+      mockApiRequest.mockResolvedValueOnce(undefined)
+      const { result } = renderHook(() => useRemoveCollectionTag(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ slug: 'my-coll', tagId: 7 })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/collections/my-coll/tags/7',
+        expect.objectContaining({ method: 'DELETE' })
+      )
+    })
+  })
+
+  describe('useCollections — tag filter (PSY-354)', () => {
+    it('passes tag query param when set', async () => {
+      mockApiRequest.mockResolvedValueOnce({ collections: [], total: 0 })
+      const { result } = renderHook(() => useCollections({ tag: 'phoenix' }), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        expect.stringContaining('tag=phoenix')
+      )
+    })
+
+    it('omits tag param when undefined', async () => {
+      mockApiRequest.mockResolvedValueOnce({ collections: [], total: 0 })
+      const { result } = renderHook(() => useCollections({}), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      const calledUrl = mockApiRequest.mock.calls[0][0] as string
+      expect(calledUrl).not.toContain('tag=')
     })
   })
 })

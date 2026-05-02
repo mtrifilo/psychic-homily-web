@@ -11,6 +11,9 @@ const (
 	CodeCollectionItemExists     = "COLLECTION_ITEM_EXISTS"
 	CodeCollectionItemNotFound   = "COLLECTION_ITEM_NOT_FOUND"
 	CodeCollectionInvalidRequest = "COLLECTION_INVALID_REQUEST"
+	// CodeCollectionTagLimitExceeded is returned when a curator tries to add
+	// an 11th tag to a collection (PSY-354). Maps to HTTP 400.
+	CodeCollectionTagLimitExceeded = "COLLECTION_TAG_LIMIT_EXCEEDED"
 )
 
 // CollectionError represents a collection-related error with additional context.
@@ -74,5 +77,18 @@ func ErrCollectionInvalidRequest(message string) *CollectionError {
 	return &CollectionError{
 		Code:    CodeCollectionInvalidRequest,
 		Message: message,
+	}
+}
+
+// ErrCollectionTagLimitExceeded creates an error for the collection-tag cap
+// (PSY-354). Surfaced verbatim to the caller as a 400 so the curator UI can
+// show the cap and current count.
+func ErrCollectionTagLimitExceeded(currentCount, maxAllowed int) *CollectionError {
+	return &CollectionError{
+		Code: CodeCollectionTagLimitExceeded,
+		Message: fmt.Sprintf(
+			"Collections can have at most %d tags (currently %d). Remove a tag before adding another.",
+			maxAllowed, currentCount,
+		),
 	}
 }
