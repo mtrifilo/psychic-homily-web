@@ -7,7 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -57,10 +57,7 @@ type GetUnverifiedVenuesResponse struct {
 func (h *AdminVenueHandler) VerifyVenueHandler(ctx context.Context, req *VerifyVenueRequest) (*VerifyVenueResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Parse venue ID
 	venueID, err := strconv.ParseUint(req.VenueID, 10, 32)
@@ -102,11 +99,6 @@ func (h *AdminVenueHandler) VerifyVenueHandler(ctx context.Context, req *VerifyV
 // Returns venues that have not been verified by an admin, for admin review.
 func (h *AdminVenueHandler) GetUnverifiedVenuesHandler(ctx context.Context, req *GetUnverifiedVenuesRequest) (*GetUnverifiedVenuesResponse, error) {
 	requestID := logger.GetRequestID(ctx)
-
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	// Validate limit
 	limit := req.Limit

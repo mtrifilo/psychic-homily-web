@@ -41,7 +41,7 @@ type ListCollectionsHandlerRequest struct {
 	// tag names/aliases (case-insensitive ILIKE substring). Empty / whitespace
 	// queries short-circuit before hitting the DB. Title-tier matches rank
 	// above body-tier matches when the default sort is in effect.
-	Search     string `query:"search" required:"false" doc:"Search across collection title, description, item notes, and tag names/aliases (case-insensitive substring)"`
+	Search string `query:"search" required:"false" doc:"Search across collection title, description, item notes, and tag names/aliases (case-insensitive substring)"`
 	// PSY-352: sort=popular orders by HN gravity (likes / age^1.8). Empty
 	// or omitted defaults to updated_at DESC.
 	Sort string `query:"sort" required:"false" doc:"Sort order: 'popular' for HN-gravity ranking. Defaults to recently-updated." enum:"popular"`
@@ -633,16 +633,14 @@ type SetFeaturedHandlerRequest struct {
 	}
 }
 
-// SetFeaturedHandler handles PUT /collections/{slug}/feature
+// SetFeaturedHandler handles PUT /collections/{slug}/feature.
+// PSY-423: admin gating handled by HumaAdminMiddleware on rc.Admin.
 func (h *CollectionHandler) SetFeaturedHandler(ctx context.Context, req *SetFeaturedHandlerRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
-	err = h.collectionService.SetFeatured(req.Slug, req.Body.Featured)
+	err := h.collectionService.SetFeatured(req.Slug, req.Body.Featured)
 	if err != nil {
 		mappedErr := shared.MapCollectionError(err)
 		if mappedErr != nil {

@@ -7,7 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
@@ -48,10 +48,7 @@ type ExtractVenueResponse struct {
 
 // ExtractVenueHandler handles POST /admin/pipeline/extract/{venue_id}
 func (h *PipelineHandler) ExtractVenueHandler(ctx context.Context, req *ExtractVenueRequest) (*ExtractVenueResponse, error) {
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	venueID, err := strconv.ParseUint(req.VenueID, 10, 64)
 	if err != nil {
@@ -111,10 +108,6 @@ type ListPipelineVenuesResponse struct {
 
 // ListPipelineVenuesHandler handles GET /admin/pipeline/venues
 func (h *PipelineHandler) ListPipelineVenuesHandler(ctx context.Context, req *ListPipelineVenuesRequest) (*ListPipelineVenuesResponse, error) {
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	configs, err := h.venueConfigService.ListConfigured()
 	if err != nil {
@@ -177,10 +170,6 @@ type VenueRejectionStatsResponse struct {
 
 // VenueRejectionStatsHandler handles GET /admin/pipeline/venues/{venue_id}/stats
 func (h *PipelineHandler) VenueRejectionStatsHandler(ctx context.Context, req *VenueRejectionStatsRequest) (*VenueRejectionStatsResponse, error) {
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	venueID, err := strconv.ParseUint(req.VenueID, 10, 64)
 	if err != nil {
@@ -219,10 +208,7 @@ type UpdateExtractionNotesResponse struct {
 
 // UpdateExtractionNotesHandler handles PATCH /admin/pipeline/venues/{venue_id}/notes
 func (h *PipelineHandler) UpdateExtractionNotesHandler(ctx context.Context, req *UpdateExtractionNotesRequest) (*UpdateExtractionNotesResponse, error) {
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	venueID, err := strconv.ParseUint(req.VenueID, 10, 64)
 	if err != nil {
@@ -271,10 +257,7 @@ type UpdateVenueConfigResponse struct {
 
 // UpdateVenueConfigHandler handles PUT /admin/pipeline/venues/{venue_id}/config
 func (h *PipelineHandler) UpdateVenueConfigHandler(ctx context.Context, req *UpdateVenueConfigRequest) (*UpdateVenueConfigResponse, error) {
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	venueID, err := strconv.ParseUint(req.VenueID, 10, 64)
 	if err != nil {
@@ -345,10 +328,6 @@ type GetVenueRunsResponse struct {
 
 // GetVenueRunsHandler handles GET /admin/pipeline/venues/{venue_id}/runs
 func (h *PipelineHandler) GetVenueRunsHandler(ctx context.Context, req *GetVenueRunsRequest) (*GetVenueRunsResponse, error) {
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	venueID, err := strconv.ParseUint(req.VenueID, 10, 64)
 	if err != nil {
@@ -393,10 +372,6 @@ type GetImportHistoryResponse struct {
 
 // GetImportHistoryHandler handles GET /admin/pipeline/imports
 func (h *PipelineHandler) GetImportHistoryHandler(ctx context.Context, req *GetImportHistoryRequest) (*GetImportHistoryResponse, error) {
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	imports, total, err := h.venueConfigService.GetAllRecentRuns(req.Limit, req.Offset)
 	if err != nil {
@@ -428,10 +403,7 @@ type ResetRenderMethodResponse struct {
 
 // ResetRenderMethodHandler handles POST /admin/pipeline/venues/{venue_id}/reset-render-method
 func (h *PipelineHandler) ResetRenderMethodHandler(ctx context.Context, req *ResetRenderMethodRequest) (*ResetRenderMethodResponse, error) {
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	venueID, err := strconv.ParseUint(req.VenueID, 10, 64)
 	if err != nil {
@@ -468,10 +440,6 @@ type EnrichmentStatusResponse struct {
 
 // EnrichmentStatusHandler handles GET /admin/pipeline/enrichment/status
 func (h *PipelineHandler) EnrichmentStatusHandler(ctx context.Context, req *EnrichmentStatusRequest) (*EnrichmentStatusResponse, error) {
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	stats, err := h.enrichmentService.GetQueueStats()
 	if err != nil {
@@ -499,10 +467,7 @@ type TriggerEnrichmentResponse struct {
 
 // TriggerEnrichmentHandler handles POST /admin/pipeline/enrichment/trigger/{show_id}
 func (h *PipelineHandler) TriggerEnrichmentHandler(ctx context.Context, req *TriggerEnrichmentRequest) (*TriggerEnrichmentResponse, error) {
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	showID, err := strconv.ParseUint(req.ShowID, 10, 64)
 	if err != nil {

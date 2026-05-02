@@ -18,6 +18,15 @@ import (
 
 // RequireAdmin verifies the request is from an admin user.
 // Returns the user on success, or a 403 Forbidden error.
+//
+// PSY-423: prefer registering admin-only endpoints on the rc.Admin Huma group
+// (which wires HumaAdminMiddleware) instead of calling this helper inline.
+// The middleware enforces the admin gate at the route level, makes the
+// admin scope visible in route declarations, and removes the policy from N
+// handlers down to one. This helper is retained for the rare conditional
+// callsite where neither rc.Protected nor rc.Admin fits — for example, an
+// endpoint that admits anonymous internal-service requests via an alternative
+// auth mechanism but otherwise requires admin (currently zero such callers).
 func RequireAdmin(ctx context.Context) (*authm.User, error) {
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil || !user.IsAdmin {

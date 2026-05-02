@@ -206,8 +206,11 @@ func (h *TestFixtureHandler) Reset(ctx context.Context, req *ResetTestFixturesRe
 		return nil, huma.Error400BadRequest(fmt.Sprintf("%s header is required", TestFixturesHeader))
 	}
 
-	// Defense 3: admin only. Route lives on the protected group so JWT is
-	// validated upstream; we only need to assert IsAdmin here.
+	// Defense 3: admin only. Route lives on the rc.Admin group (PSY-423) so
+	// HumaAdminMiddleware enforces admin upstream; the inline check stays as
+	// defense-in-depth for this security-sensitive endpoint and so the
+	// suite's integration tests (which call this handler directly, bypassing
+	// the middleware) keep their assertion that non-admin → 403.
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil || !user.IsAdmin {
 		return nil, huma.Error403Forbidden("admin required")

@@ -30,16 +30,16 @@ func setupCommentRoutes(rc RouteContext) {
 	// PSY-296: owner-only reply-permission toggle.
 	huma.Put(rc.Protected, "/comments/{comment_id}/reply-permission", commentHandler.UpdateReplyPermissionHandler)
 
-	// Admin: comment moderation
+	// Admin: comment moderation (PSY-423: route-gated by HumaAdminMiddleware)
 	// NOTE: literal paths MUST be registered before parameterized paths to avoid
 	// {comment_id} consuming "pending" as a value and returning 404.
-	huma.Get(rc.Protected, "/admin/comments/pending", commentAdminHandler.AdminListPendingCommentsHandler)
-	huma.Post(rc.Protected, "/admin/comments/{comment_id}/hide", commentAdminHandler.AdminHideCommentHandler)
-	huma.Post(rc.Protected, "/admin/comments/{comment_id}/restore", commentAdminHandler.AdminRestoreCommentHandler)
-	huma.Post(rc.Protected, "/admin/comments/{comment_id}/approve", commentAdminHandler.AdminApproveCommentHandler)
-	huma.Post(rc.Protected, "/admin/comments/{comment_id}/reject", commentAdminHandler.AdminRejectCommentHandler)
+	huma.Get(rc.Admin, "/admin/comments/pending", commentAdminHandler.AdminListPendingCommentsHandler)
+	huma.Post(rc.Admin, "/admin/comments/{comment_id}/hide", commentAdminHandler.AdminHideCommentHandler)
+	huma.Post(rc.Admin, "/admin/comments/{comment_id}/restore", commentAdminHandler.AdminRestoreCommentHandler)
+	huma.Post(rc.Admin, "/admin/comments/{comment_id}/approve", commentAdminHandler.AdminApproveCommentHandler)
+	huma.Post(rc.Admin, "/admin/comments/{comment_id}/reject", commentAdminHandler.AdminRejectCommentHandler)
 	// Admin: edit history viewer (PSY-297)
-	huma.Get(rc.Protected, "/admin/comments/{comment_id}/edits", commentAdminHandler.AdminGetCommentEditHistoryHandler)
+	huma.Get(rc.Admin, "/admin/comments/{comment_id}/edits", commentAdminHandler.AdminGetCommentEditHistoryHandler)
 }
 
 // setupCommentVoteRoutes configures comment voting endpoints.

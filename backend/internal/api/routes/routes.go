@@ -37,11 +37,21 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	// Enrich Sentry scope with authenticated user context (runs after JWT middleware)
 	protectedGroup.UseMiddleware(middleware.HumaSentryContextMiddleware)
 
+	// PSY-423: admin group. JWT first (populates user), then Admin middleware
+	// (requires IsAdmin=true). Endpoints registered on this group are gated at
+	// the route level — handlers do not need to call shared.RequireAdmin(ctx).
+	// Conditional-admin endpoints (owner-or-admin) stay on protectedGroup.
+	adminGroup := huma.NewGroup(api, "")
+	adminGroup.UseMiddleware(middleware.HumaJWTMiddleware(sc.JWT, cfg.Session))
+	adminGroup.UseMiddleware(middleware.HumaAdminMiddleware())
+	adminGroup.UseMiddleware(middleware.HumaSentryContextMiddleware)
+
 	// Build the shared RouteContext once, pass to all setup functions
 	rc := RouteContext{
 		Router:    router,
 		API:       api,
 		Protected: protectedGroup,
+		Admin:     adminGroup,
 		SC:        sc,
 		Cfg:       cfg,
 	}

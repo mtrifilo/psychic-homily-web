@@ -7,6 +7,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -44,14 +45,10 @@ type ExportShowsResponse struct {
 	Body contracts.ExportShowsResult `json:"body"`
 }
 
-// ExportShowsHandler handles GET /admin/export/shows
+// ExportShowsHandler handles GET /admin/export/shows.
+// PSY-423: admin gating handled by HumaAdminMiddleware on rc.Admin.
 func (h *AdminDataHandler) ExportShowsHandler(ctx context.Context, req *ExportShowsRequest) (*ExportShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
-
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	offset := req.Offset
 	if offset < 0 {
@@ -113,14 +110,10 @@ type ExportArtistsResponse struct {
 	Body contracts.ExportArtistsResult `json:"body"`
 }
 
-// ExportArtistsHandler handles GET /admin/export/artists
+// ExportArtistsHandler handles GET /admin/export/artists.
+// PSY-423: admin gating handled by HumaAdminMiddleware on rc.Admin.
 func (h *AdminDataHandler) ExportArtistsHandler(ctx context.Context, req *ExportArtistsRequest) (*ExportArtistsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
-
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	offset := req.Offset
 	if offset < 0 {
@@ -173,14 +166,10 @@ type ExportVenuesResponse struct {
 	Body contracts.ExportVenuesResult `json:"body"`
 }
 
-// ExportVenuesHandler handles GET /admin/export/venues
+// ExportVenuesHandler handles GET /admin/export/venues.
+// PSY-423: admin gating handled by HumaAdminMiddleware on rc.Admin.
 func (h *AdminDataHandler) ExportVenuesHandler(ctx context.Context, req *ExportVenuesRequest) (*ExportVenuesResponse, error) {
 	requestID := logger.GetRequestID(ctx)
-
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	offset := req.Offset
 	if offset < 0 {
@@ -239,14 +228,12 @@ type DataImportResponse struct {
 	Body contracts.DataImportResult `json:"body"`
 }
 
-// DataImportHandler handles POST /admin/data/import
+// DataImportHandler handles POST /admin/data/import.
+// PSY-423: admin gating handled by HumaAdminMiddleware on rc.Admin.
 func (h *AdminDataHandler) DataImportHandler(ctx context.Context, req *DataImportRequest) (*DataImportResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Validate limits
 	totalItems := len(req.Body.Shows) + len(req.Body.Artists) + len(req.Body.Venues)

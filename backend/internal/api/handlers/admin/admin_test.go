@@ -51,137 +51,23 @@ func adminCtx() context.Context {
 }
 
 // ============================================================================
-// Admin Guard: all handlers require admin access
-// Tests both nil-user and non-admin user scenarios for every admin handler.
+// Admin Guard moved to middleware (PSY-423)
+//
+// Previously: each admin handler called shared.RequireAdmin(ctx) and a sweep
+// test (TestAdminHandler_RequiresAdmin) here verified that nil-user / non-admin
+// callers got 403. The gate now lives in middleware.HumaAdminMiddleware on the
+// rc.Admin Huma group; handlers no longer enforce admin internally.
+//
+// The middleware-level gate is covered by:
+//   - middleware.TestHumaAdminMiddleware* (unit tests of the middleware)
+//   - routes.TestAdminGroup_NonAdmin_Returns403 (integration: a non-admin
+//     request to a route registered on rc.Admin returns 403 without entering
+//     the handler)
+//
+// Calling these handlers directly with nil/non-admin context is no longer a
+// supported usage — the tests above guarantee real callers cannot reach the
+// handler without the gate firing.
 // ============================================================================
-
-func TestAdminHandler_RequiresAdmin(t *testing.T) {
-	showH := testAdminShowHandler()
-	venueH := testAdminVenueHandler()
-	tokenH := testAdminTokenHandler()
-	dataH := testAdminDataHandler()
-	userH := testAdminUserHandler()
-	statsH := testAdminStatsHandler()
-	discoveryH := testAdminDiscoveryHandler()
-
-	tests := []struct {
-		name string
-		fn   func(ctx context.Context) error
-	}{
-		{"GetPendingShows", func(ctx context.Context) error {
-			_, err := showH.GetPendingShowsHandler(ctx, &GetPendingShowsRequest{})
-			return err
-		}},
-		{"GetRejectedShows", func(ctx context.Context) error {
-			_, err := showH.GetRejectedShowsHandler(ctx, &GetRejectedShowsRequest{})
-			return err
-		}},
-		{"ApproveShow", func(ctx context.Context) error {
-			_, err := showH.ApproveShowHandler(ctx, &ApproveShowRequest{})
-			return err
-		}},
-		{"RejectShow", func(ctx context.Context) error {
-			_, err := showH.RejectShowHandler(ctx, &RejectShowRequest{})
-			return err
-		}},
-		{"VerifyVenue", func(ctx context.Context) error {
-			_, err := venueH.VerifyVenueHandler(ctx, &VerifyVenueRequest{})
-			return err
-		}},
-		{"GetUnverifiedVenues", func(ctx context.Context) error {
-			_, err := venueH.GetUnverifiedVenuesHandler(ctx, &GetUnverifiedVenuesRequest{})
-			return err
-		}},
-		{"ImportShowPreview", func(ctx context.Context) error {
-			_, err := showH.ImportShowPreviewHandler(ctx, &ImportShowPreviewRequest{})
-			return err
-		}},
-		{"ImportShowConfirm", func(ctx context.Context) error {
-			_, err := showH.ImportShowConfirmHandler(ctx, &ImportShowConfirmRequest{})
-			return err
-		}},
-		{"GetAdminShows", func(ctx context.Context) error {
-			_, err := showH.GetAdminShowsHandler(ctx, &GetAdminShowsRequest{})
-			return err
-		}},
-		{"BulkExportShows", func(ctx context.Context) error {
-			_, err := showH.BulkExportShowsHandler(ctx, &BulkExportShowsRequest{})
-			return err
-		}},
-		{"BulkImportPreview", func(ctx context.Context) error {
-			_, err := showH.BulkImportPreviewHandler(ctx, &BulkImportPreviewRequest{})
-			return err
-		}},
-		{"BulkImportConfirm", func(ctx context.Context) error {
-			_, err := showH.BulkImportConfirmHandler(ctx, &BulkImportConfirmRequest{})
-			return err
-		}},
-		{"DiscoveryImport", func(ctx context.Context) error {
-			_, err := discoveryH.DiscoveryImportHandler(ctx, &pipeline.DiscoveryImportRequest{})
-			return err
-		}},
-		{"DiscoveryCheck", func(ctx context.Context) error {
-			_, err := discoveryH.DiscoveryCheckHandler(ctx, &pipeline.DiscoveryCheckRequest{})
-			return err
-		}},
-		{"CreateAPIToken", func(ctx context.Context) error {
-			_, err := tokenH.CreateAPITokenHandler(ctx, &CreateAPITokenRequest{})
-			return err
-		}},
-		{"ListAPITokens", func(ctx context.Context) error {
-			_, err := tokenH.ListAPITokensHandler(ctx, &ListAPITokensRequest{})
-			return err
-		}},
-		{"RevokeAPIToken", func(ctx context.Context) error {
-			_, err := tokenH.RevokeAPITokenHandler(ctx, &RevokeAPITokenRequest{})
-			return err
-		}},
-		{"ExportShows", func(ctx context.Context) error {
-			_, err := dataH.ExportShowsHandler(ctx, &ExportShowsRequest{})
-			return err
-		}},
-		{"ExportArtists", func(ctx context.Context) error {
-			_, err := dataH.ExportArtistsHandler(ctx, &ExportArtistsRequest{})
-			return err
-		}},
-		{"ExportVenues", func(ctx context.Context) error {
-			_, err := dataH.ExportVenuesHandler(ctx, &ExportVenuesRequest{})
-			return err
-		}},
-		{"DataImport", func(ctx context.Context) error {
-			_, err := dataH.DataImportHandler(ctx, &DataImportRequest{})
-			return err
-		}},
-		{"GetAdminUsers", func(ctx context.Context) error {
-			_, err := userH.GetAdminUsersHandler(ctx, &GetAdminUsersRequest{})
-			return err
-		}},
-		{"GetAdminStats", func(ctx context.Context) error {
-			_, err := statsH.GetAdminStatsHandler(ctx, &GetAdminStatsRequest{})
-			return err
-		}},
-		{"BatchApproveShows", func(ctx context.Context) error {
-			_, err := showH.BatchApproveShowsHandler(ctx, &BatchApproveShowsRequest{})
-			return err
-		}},
-		{"BatchRejectShows", func(ctx context.Context) error {
-			_, err := showH.BatchRejectShowsHandler(ctx, &BatchRejectShowsRequest{})
-			return err
-		}},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name+"_NoUser", func(t *testing.T) {
-			err := tc.fn(context.Background())
-			testhelpers.AssertHumaError(t, err, 403)
-		})
-		t.Run(tc.name+"_NonAdmin", func(t *testing.T) {
-			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-			err := tc.fn(ctx)
-			testhelpers.AssertHumaError(t, err, 403)
-		})
-	}
-}
 
 // ============================================================================
 // Specific validation tests (require admin context to pass the guard)
@@ -1248,21 +1134,6 @@ func TestBatchApproveShowsHandler_Success(t *testing.T) {
 	}
 }
 
-func TestBatchApproveShowsHandler_AdminRequired(t *testing.T) {
-	h := testAdminShowHandler()
-	req := &BatchApproveShowsRequest{}
-	req.Body.ShowIDs = []uint{1}
-
-	// No user context
-	_, err := h.BatchApproveShowsHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-
-	// Non-admin user
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	_, err = h.BatchApproveShowsHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
 func TestBatchRejectShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
 		ah.showAdminService = &testhelpers.MockShowAdminService{
@@ -1301,22 +1172,6 @@ func TestBatchRejectShowsHandler_Success(t *testing.T) {
 	if len(resp.Body.Errors) != 0 {
 		t.Errorf("expected 0 errors, got %d", len(resp.Body.Errors))
 	}
-}
-
-func TestBatchRejectShowsHandler_AdminRequired(t *testing.T) {
-	h := testAdminShowHandler()
-	req := &BatchRejectShowsRequest{}
-	req.Body.ShowIDs = []uint{1}
-	req.Body.Reason = "bad data"
-
-	// No user context
-	_, err := h.BatchRejectShowsHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-
-	// Non-admin user
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	_, err = h.BatchRejectShowsHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestBatchRejectShowsHandler_RequiresReason(t *testing.T) {

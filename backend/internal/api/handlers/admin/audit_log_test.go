@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -15,23 +14,6 @@ func testAuditLogHandler() *AuditLogHandler {
 }
 
 // --- GetAuditLogsHandler ---
-
-func TestGetAuditLogsHandler_NoAuth(t *testing.T) {
-	h := testAuditLogHandler()
-	req := &GetAuditLogsRequest{}
-
-	_, err := h.GetAuditLogsHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
-func TestGetAuditLogsHandler_NonAdmin(t *testing.T) {
-	h := testAuditLogHandler()
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	req := &GetAuditLogsRequest{}
-
-	_, err := h.GetAuditLogsHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
 
 func TestGetAuditLogsHandler_Success(t *testing.T) {
 	logs := []*contracts.AuditLogResponse{{ID: 1, Action: "approve_show"}}

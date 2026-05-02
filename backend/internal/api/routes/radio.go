@@ -30,27 +30,27 @@ func setupRadioRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/radio/new-releases", radioHandler.GetRadioNewReleaseRadarHandler)
 	huma.Get(rc.API, "/radio/stats", radioHandler.GetRadioStatsHandler)
 
-	// Admin radio station endpoints (admin-only checks inside handlers)
-	huma.Post(rc.Protected, "/admin/radio-stations", radioHandler.AdminCreateRadioStationHandler)
-	huma.Put(rc.Protected, "/admin/radio-stations/{id}", radioHandler.AdminUpdateRadioStationHandler)
-	huma.Delete(rc.Protected, "/admin/radio-stations/{id}", radioHandler.AdminDeleteRadioStationHandler)
-	huma.Post(rc.Protected, "/admin/radio-stations/{id}/shows", radioHandler.AdminCreateRadioShowHandler)
-	huma.Post(rc.Protected, "/admin/radio-stations/{id}/fetch", radioHandler.AdminTriggerFetchHandler)
-	huma.Post(rc.Protected, "/admin/radio-stations/{id}/discover", radioHandler.AdminDiscoverShowsHandler)
+	// Admin-only radio station endpoints (PSY-423: route-gated by HumaAdminMiddleware).
+	huma.Post(rc.Admin, "/admin/radio-stations", radioHandler.AdminCreateRadioStationHandler)
+	huma.Put(rc.Admin, "/admin/radio-stations/{id}", radioHandler.AdminUpdateRadioStationHandler)
+	huma.Delete(rc.Admin, "/admin/radio-stations/{id}", radioHandler.AdminDeleteRadioStationHandler)
+	huma.Post(rc.Admin, "/admin/radio-stations/{id}/shows", radioHandler.AdminCreateRadioShowHandler)
+	huma.Post(rc.Admin, "/admin/radio-stations/{id}/fetch", radioHandler.AdminTriggerFetchHandler)
+	huma.Post(rc.Admin, "/admin/radio-stations/{id}/discover", radioHandler.AdminDiscoverShowsHandler)
 
-	// Admin radio show endpoints (admin-only checks inside handlers)
-	huma.Put(rc.Protected, "/admin/radio-shows/{id}", radioHandler.AdminUpdateRadioShowHandler)
-	huma.Delete(rc.Protected, "/admin/radio-shows/{id}", radioHandler.AdminDeleteRadioShowHandler)
-	huma.Post(rc.Protected, "/admin/radio-shows/{id}/import", radioHandler.AdminImportShowEpisodesHandler)
+	// Admin-only radio show endpoints (PSY-423).
+	huma.Put(rc.Admin, "/admin/radio-shows/{id}", radioHandler.AdminUpdateRadioShowHandler)
+	huma.Delete(rc.Admin, "/admin/radio-shows/{id}", radioHandler.AdminDeleteRadioShowHandler)
+	huma.Post(rc.Admin, "/admin/radio-shows/{id}/import", radioHandler.AdminImportShowEpisodesHandler)
 
-	// Admin import job endpoints
-	huma.Post(rc.Protected, "/admin/radio-shows/{id}/import-job", radioHandler.AdminCreateImportJobHandler)
-	huma.Get(rc.Protected, "/admin/radio/import-jobs/{id}", radioHandler.AdminGetImportJobHandler)
-	huma.Post(rc.Protected, "/admin/radio/import-jobs/{id}/cancel", radioHandler.AdminCancelImportJobHandler)
-	huma.Get(rc.Protected, "/admin/radio-shows/{id}/import-jobs", radioHandler.AdminListImportJobsHandler)
+	// Admin-only import job endpoints (PSY-423).
+	huma.Post(rc.Admin, "/admin/radio-shows/{id}/import-job", radioHandler.AdminCreateImportJobHandler)
+	huma.Get(rc.Admin, "/admin/radio/import-jobs/{id}", radioHandler.AdminGetImportJobHandler)
+	huma.Post(rc.Admin, "/admin/radio/import-jobs/{id}/cancel", radioHandler.AdminCancelImportJobHandler)
+	huma.Get(rc.Admin, "/admin/radio-shows/{id}/import-jobs", radioHandler.AdminListImportJobsHandler)
 
-	// Admin unmatched play management endpoints
-	huma.Get(rc.Protected, "/admin/radio/unmatched", radioHandler.AdminGetUnmatchedPlaysHandler)
-	huma.Post(rc.Protected, "/admin/radio/plays/{id}/link", radioHandler.AdminLinkPlayHandler)
-	huma.Post(rc.Protected, "/admin/radio/plays/bulk-link", radioHandler.AdminBulkLinkPlaysHandler)
+	// Admin-only unmatched play management endpoints (PSY-423).
+	huma.Get(rc.Admin, "/admin/radio/unmatched", radioHandler.AdminGetUnmatchedPlaysHandler)
+	huma.Post(rc.Admin, "/admin/radio/plays/{id}/link", radioHandler.AdminLinkPlayHandler)
+	huma.Post(rc.Admin, "/admin/radio/plays/bulk-link", radioHandler.AdminBulkLinkPlaysHandler)
 }

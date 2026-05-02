@@ -19,11 +19,13 @@ func setupArtistRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/artists/{artist_id}/labels", artistHandler.GetArtistLabelsHandler)
 	huma.Get(rc.API, "/artists/{artist_id}/aliases", artistHandler.GetArtistAliasesHandler)
 
-	// Protected artist endpoints
+	// Protected artist endpoints (any authenticated user)
 	huma.Delete(rc.Protected, "/artists/{artist_id}", artistHandler.DeleteArtistHandler)
-	huma.Post(rc.Protected, "/admin/artists", artistHandler.AdminCreateArtistHandler)
-	huma.Patch(rc.Protected, "/admin/artists/{artist_id}", artistHandler.AdminUpdateArtistHandler)
-	huma.Post(rc.Protected, "/admin/artists/{artist_id}/aliases", artistHandler.AddArtistAliasHandler)
-	huma.Delete(rc.Protected, "/admin/artists/{artist_id}/aliases/{alias_id}", artistHandler.DeleteArtistAliasHandler)
-	huma.Post(rc.Protected, "/admin/artists/merge", artistHandler.MergeArtistsHandler)
+
+	// Admin-only artist endpoints (PSY-423: route-gated by HumaAdminMiddleware)
+	huma.Post(rc.Admin, "/admin/artists", artistHandler.AdminCreateArtistHandler)
+	huma.Patch(rc.Admin, "/admin/artists/{artist_id}", artistHandler.AdminUpdateArtistHandler)
+	huma.Post(rc.Admin, "/admin/artists/{artist_id}/aliases", artistHandler.AddArtistAliasHandler)
+	huma.Delete(rc.Admin, "/admin/artists/{artist_id}/aliases/{alias_id}", artistHandler.DeleteArtistAliasHandler)
+	huma.Post(rc.Admin, "/admin/artists/merge", artistHandler.MergeArtistsHandler)
 }

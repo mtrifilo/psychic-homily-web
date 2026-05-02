@@ -17,10 +17,12 @@ func setupLabelRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/labels/{label_id}/artists", labelHandler.GetLabelRosterHandler)
 	huma.Get(rc.API, "/labels/{label_id}/releases", labelHandler.GetLabelCatalogHandler)
 
-	// Protected label endpoints (admin-only checks inside handlers)
-	huma.Post(rc.Protected, "/labels", labelHandler.CreateLabelHandler)
-	huma.Put(rc.Protected, "/labels/{label_id}", labelHandler.UpdateLabelHandler)
-	huma.Delete(rc.Protected, "/labels/{label_id}", labelHandler.DeleteLabelHandler)
-	huma.Post(rc.Protected, "/admin/labels/{label_id}/artists", labelHandler.AddArtistToLabelHandler)
-	huma.Post(rc.Protected, "/admin/labels/{label_id}/releases", labelHandler.AddReleaseToLabelHandler)
+	// Admin-only label endpoints (PSY-423: route-gated by HumaAdminMiddleware).
+	// Non-admins must use the pending-edit flow (suggest-edit) which routes
+	// through community/pending_entity_edits.
+	huma.Post(rc.Admin, "/labels", labelHandler.CreateLabelHandler)
+	huma.Put(rc.Admin, "/labels/{label_id}", labelHandler.UpdateLabelHandler)
+	huma.Delete(rc.Admin, "/labels/{label_id}", labelHandler.DeleteLabelHandler)
+	huma.Post(rc.Admin, "/admin/labels/{label_id}/artists", labelHandler.AddArtistToLabelHandler)
+	huma.Post(rc.Admin, "/admin/labels/{label_id}/releases", labelHandler.AddReleaseToLabelHandler)
 }

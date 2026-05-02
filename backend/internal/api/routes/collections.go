@@ -78,11 +78,10 @@ func setupCollectionRoutes(rc RouteContext) {
 	huma.Post(rc.Protected, "/crates/{slug}/tags", collectionHandler.AddCollectionTagHandler)
 	huma.Delete(rc.Protected, "/crates/{slug}/tags/{tag_id}", collectionHandler.RemoveCollectionTagHandler)
 
-	// Admin: feature/unfeature collections — canonical /collections/ paths
-	huma.Put(rc.Protected, "/collections/{slug}/feature", collectionHandler.SetFeaturedHandler)
-
-	// Admin: feature/unfeature collections — legacy /crates/ paths (backward compat)
-	huma.Put(rc.Protected, "/crates/{slug}/feature", collectionHandler.SetFeaturedHandler)
+	// Admin-only: feature/unfeature collections (PSY-423: route-gated by HumaAdminMiddleware).
+	huma.Put(rc.Admin, "/collections/{slug}/feature", collectionHandler.SetFeaturedHandler)
+	// Legacy /crates/ path (backward compat).
+	huma.Put(rc.Admin, "/crates/{slug}/feature", collectionHandler.SetFeaturedHandler)
 
 	// Entity collections — public, find collections containing a given entity
 	huma.Get(optionalAuthGroup, "/collections/entity/{entity_type}/{entity_id}", collectionHandler.GetEntityCollectionsHandler)

@@ -23,9 +23,9 @@ func setupArtistRelationshipRoutes(rc RouteContext) {
 	huma.Post(rc.Protected, "/artists/relationships/{source_id}/{target_id}/vote", relHandler.VoteHandler)
 	huma.Delete(rc.Protected, "/artists/relationships/{source_id}/{target_id}/vote", relHandler.RemoveVoteHandler)
 
-	// Admin: delete relationships
-	huma.Delete(rc.Protected, "/artists/relationships/{source_id}/{target_id}", relHandler.DeleteRelationshipHandler)
+	// Admin: delete relationships (PSY-423: route-gated by HumaAdminMiddleware)
+	huma.Delete(rc.Admin, "/artists/relationships/{source_id}/{target_id}", relHandler.DeleteRelationshipHandler)
 
-	// Admin: trigger relationship derivation
-	huma.Post(rc.Protected, "/admin/artist-relationships/derive", relHandler.DeriveRelationshipsHandler)
+	// Admin: trigger relationship derivation (PSY-423: route-gated by HumaAdminMiddleware)
+	huma.Post(rc.Admin, "/admin/artist-relationships/derive", relHandler.DeriveRelationshipsHandler)
 }

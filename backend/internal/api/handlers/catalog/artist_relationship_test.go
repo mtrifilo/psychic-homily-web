@@ -227,23 +227,6 @@ func TestRemoveVote_MissingType(t *testing.T) {
 
 // --- DeleteRelationshipHandler ---
 
-func TestDeleteRelationship_NoAuth(t *testing.T) {
-	h := testArtistRelationshipHandler()
-	req := &DeleteRelationshipRequest{SourceID: "1", TargetID: "2", Type: "similar"}
-
-	_, err := h.DeleteRelationshipHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 401)
-}
-
-func TestDeleteRelationship_NonAdmin(t *testing.T) {
-	h := testArtistRelationshipHandler()
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	req := &DeleteRelationshipRequest{SourceID: "1", TargetID: "2", Type: "similar"}
-
-	_, err := h.DeleteRelationshipHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
 // --- splitAndTrim ---
 
 func TestSplitAndTrim(t *testing.T) {

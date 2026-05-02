@@ -14,6 +14,9 @@ import (
 // route is not registered at all — requests return 404, not 403.
 // cmd/server/main.go additionally refuses to boot if the flag is set in a
 // non-allowed ENVIRONMENT (adminh.ValidateTestFixturesEnvironment).
+//
+// PSY-423: registered on rc.Admin so the admin gate is enforced by
+// HumaAdminMiddleware at the route level.
 func setupTestFixtureRoutes(rc RouteContext) {
 	if !adminh.IsTestFixturesEnabled(os.Getenv) {
 		return
@@ -23,5 +26,5 @@ func setupTestFixtureRoutes(rc RouteContext) {
 		return
 	}
 	h := adminh.NewTestFixtureHandler(database)
-	huma.Post(rc.Protected, "/admin/test-fixtures/reset", h.Reset)
+	huma.Post(rc.Admin, "/admin/test-fixtures/reset", h.Reset)
 }

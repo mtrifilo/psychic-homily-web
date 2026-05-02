@@ -7,14 +7,14 @@ import (
 	"strconv"
 	"strings"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 
-	"github.com/danielgtaylor/huma/v2"
 	adminm "psychic-homily-backend/internal/models/admin"
+
+	"github.com/danielgtaylor/huma/v2"
 )
 
 type VenueHandler struct {
@@ -286,10 +286,7 @@ type AdminCreateVenueResponse struct {
 func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCreateVenueRequest) (*AdminCreateVenueResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Build service request
 	serviceReq := &contracts.CreateVenueRequest{
@@ -382,10 +379,7 @@ type UpdateVenueResponse struct {
 func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueRequest) (*UpdateVenueResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Parse venue ID
 	venueID, err := strconv.ParseUint(req.VenueID, 10, 32)

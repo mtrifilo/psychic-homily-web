@@ -157,23 +157,6 @@ func TestGetMyReportHandler_ServiceError(t *testing.T) {
 
 // --- GetPendingReportsHandler ---
 
-func TestGetPendingReportsHandler_NoAuth(t *testing.T) {
-	h := testShowReportHandler()
-	req := &GetPendingReportsRequest{}
-
-	_, err := h.GetPendingReportsHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
-func TestGetPendingReportsHandler_NonAdmin(t *testing.T) {
-	h := testShowReportHandler()
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	req := &GetPendingReportsRequest{}
-
-	_, err := h.GetPendingReportsHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
 func TestGetPendingReportsHandler_Success(t *testing.T) {
 	reports := []*contracts.ShowReportResponse{{ID: 1}, {ID: 2}}
 	mock := &testhelpers.MockShowReportService{
@@ -210,23 +193,6 @@ func TestGetPendingReportsHandler_ServiceError(t *testing.T) {
 }
 
 // --- DismissReportHandler ---
-
-func TestDismissReportHandler_NoAuth(t *testing.T) {
-	h := testShowReportHandler()
-	req := &DismissReportRequest{ReportID: "1"}
-
-	_, err := h.DismissReportHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
-func TestDismissReportHandler_NonAdmin(t *testing.T) {
-	h := testShowReportHandler()
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	req := &DismissReportRequest{ReportID: "1"}
-
-	_, err := h.DismissReportHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
 
 func TestDismissReportHandler_InvalidID(t *testing.T) {
 	h := testShowReportHandler()
@@ -288,23 +254,6 @@ func TestDismissReportHandler_ServiceError(t *testing.T) {
 }
 
 // --- ResolveReportHandler ---
-
-func TestResolveReportHandler_NoAuth(t *testing.T) {
-	h := testShowReportHandler()
-	req := &ResolveReportRequest{ReportID: "1"}
-
-	_, err := h.ResolveReportHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
-func TestResolveReportHandler_NonAdmin(t *testing.T) {
-	h := testShowReportHandler()
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	req := &ResolveReportRequest{ReportID: "1"}
-
-	_, err := h.ResolveReportHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
 
 func TestResolveReportHandler_InvalidID(t *testing.T) {
 	h := testShowReportHandler()

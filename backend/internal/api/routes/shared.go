@@ -16,10 +16,23 @@ import (
 
 // RouteContext holds the shared dependencies passed to every route setup function.
 // Each function uses only what it needs from the struct.
+//
+// Group hierarchy (PSY-423):
+//   - API:       no auth — public endpoints
+//   - Protected: API + JWT middleware — auth-required, any signed-in user
+//   - Admin:     API + JWT + Admin middleware — auth-required AND IsAdmin=true
+//
+// Register endpoints on the narrowest group that fits. Admin-only endpoints
+// belong on Admin so the admin gate is visible at registration time and
+// handlers don't carry a redundant shared.RequireAdmin(ctx) call. Endpoints
+// where the user can act on their own resource OR an admin can act on any
+// (e.g. "delete own show vs delete any show") stay on Protected with
+// handler-side conditional logic.
 type RouteContext struct {
 	Router    *chi.Mux                   // The chi mux (for Chi-level middleware groups and raw HTTP routes)
 	API       huma.API                   // The public Huma API wrapper
 	Protected *huma.Group                // Protected (auth-required) Huma API group
+	Admin     *huma.Group                // Admin-only Huma API group (JWT + IsAdmin enforced by middleware)
 	SC        *services.ServiceContainer // All instantiated services
 	Cfg       *config.Config             // Application configuration
 }
