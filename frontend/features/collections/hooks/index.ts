@@ -154,6 +154,12 @@ export function useUpdateCollection() {
       is_public?: boolean
       collaborative?: boolean
       display_mode?: CollectionDisplayMode
+      /**
+       * Cover image URL. PSY-371. Send `null` (or empty string) to clear an
+       * existing cover; send a URL string to set one. Backend already
+       * accepts the field on PUT; the UI was the only missing piece.
+       */
+      cover_image_url?: string | null
     }) =>
       apiRequest<CollectionDetail>(API_ENDPOINTS.COLLECTIONS.DETAIL(slug), {
         method: 'PUT',

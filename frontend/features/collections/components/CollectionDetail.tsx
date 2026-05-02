@@ -75,8 +75,10 @@ import {
   getEntityUrl,
   getEntityTypeLabel,
   MAX_COLLECTION_MARKDOWN_LENGTH,
+  MAX_COVER_IMAGE_URL_LENGTH,
   MIN_PUBLIC_COLLECTION_ITEMS,
   MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS,
+  validateCoverImageUrl,
 } from '../types'
 import type { CollectionDisplayMode, CollectionItem, CollectionDetail as CollectionDetailType } from '../types'
 import { MarkdownEditor, MarkdownContent } from './MarkdownEditor'
@@ -305,6 +307,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
             isPublic={collection.is_public}
             collaborative={collection.collaborative}
             displayMode={collection.display_mode}
+            coverImageUrl={collection.cover_image_url ?? ''}
             onDone={() => setIsEditing(false)}
           />
         ) : (
@@ -1275,6 +1278,7 @@ function InlineEditForm({
   isPublic: initialPublic,
   collaborative: initialCollaborative,
   displayMode: initialDisplayMode,
+  coverImageUrl: initialCoverImageUrl,
   onDone,
 }: {
   slug: string
@@ -1283,6 +1287,7 @@ function InlineEditForm({
   isPublic: boolean
   collaborative: boolean
   displayMode: CollectionDisplayMode
+  coverImageUrl: string
   onDone: () => void
 }) {
   const updateMutation = useUpdateCollection()
@@ -1292,8 +1297,24 @@ function InlineEditForm({
   const [collaborative, setCollaborative] = useState(initialCollaborative)
   const [displayMode, setDisplayMode] =
     useState<CollectionDisplayMode>(initialDisplayMode)
+  // PSY-371: cover image URL input. Empty string means "no cover" (also the
+  // affordance for clearing a previously-set one — the Save payload sends
+  // `null` so the backend nulls the column).
+  const [coverImageUrl, setCoverImageUrl] = useState(initialCoverImageUrl)
+  // Track whether the user has interacted with the field so we can defer
+  // the inline error until they've had a chance to finish typing.
+  const [coverImageUrlTouched, setCoverImageUrlTouched] = useState(false)
+
+  const trimmedCoverUrl = coverImageUrl.trim()
+  const coverImageUrlError = validateCoverImageUrl(coverImageUrl)
+  const showCoverImageUrlError =
+    coverImageUrlTouched && coverImageUrlError !== null
+  // Only render the preview for valid, non-empty URLs.
+  const showCoverImagePreview =
+    trimmedCoverUrl.length > 0 && coverImageUrlError === null
 
   const handleSave = () => {
+    if (coverImageUrlError) return
     updateMutation.mutate(
       {
         slug,
@@ -1302,6 +1323,9 @@ function InlineEditForm({
         is_public: isPublic,
         collaborative,
         display_mode: displayMode,
+        // Empty string clears the cover — send explicit null so the backend
+        // distinguishes "set to null" from "no change".
+        cover_image_url: trimmedCoverUrl.length === 0 ? null : trimmedCoverUrl,
       },
       { onSuccess: () => onDone() }
     )
@@ -1337,6 +1361,84 @@ function InlineEditForm({
           placeholder="Markdown supported: **bold**, *italic*, [link](url), > quote, - list"
           testId="collection-description-editor"
         />
+      </div>
+
+      {/* Cover image URL (PSY-371). Optional; clearing the field nulls the
+          cover via an explicit `null` payload at save time. */}
+      <div>
+        <label
+          htmlFor="edit-cover-image-url"
+          className="text-sm font-medium mb-1.5 block"
+        >
+          Cover image URL{' '}
+          <span className="text-xs font-normal text-muted-foreground">
+            (optional)
+          </span>
+        </label>
+        <div className="flex gap-2">
+          <Input
+            id="edit-cover-image-url"
+            type="url"
+            inputMode="url"
+            value={coverImageUrl}
+            onChange={e => {
+              setCoverImageUrl(e.target.value)
+              setCoverImageUrlTouched(true)
+            }}
+            onBlur={() => setCoverImageUrlTouched(true)}
+            placeholder="https://example.com/cover.jpg"
+            maxLength={MAX_COVER_IMAGE_URL_LENGTH}
+            aria-invalid={showCoverImageUrlError ? true : undefined}
+            aria-describedby={
+              showCoverImageUrlError
+                ? 'edit-cover-image-url-error'
+                : 'edit-cover-image-url-help'
+            }
+            data-testid="edit-cover-image-url-input"
+          />
+          {trimmedCoverUrl.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setCoverImageUrl('')
+                setCoverImageUrlTouched(true)
+              }}
+              data-testid="edit-cover-image-url-clear"
+            >
+              <X className="h-4 w-4 mr-1" />
+              Clear
+            </Button>
+          )}
+        </div>
+        {showCoverImageUrlError ? (
+          <p
+            id="edit-cover-image-url-error"
+            className="text-xs text-destructive mt-1.5"
+            role="alert"
+          >
+            {coverImageUrlError}
+          </p>
+        ) : (
+          <p
+            id="edit-cover-image-url-help"
+            className="text-xs text-muted-foreground mt-1.5"
+          >
+            Paste a direct image URL (e.g. Bandcamp art). Leave empty to
+            remove the current cover.
+          </p>
+        )}
+        {showCoverImagePreview && (
+          <div className="mt-2 h-24 w-24 rounded-lg overflow-hidden border border-border/50 bg-muted/50">
+            <img
+              src={trimmedCoverUrl}
+              alt="Cover image preview"
+              className="h-full w-full object-cover"
+              data-testid="edit-cover-image-url-preview"
+            />
+          </div>
+        )}
       </div>
 
       {/* Display mode — radio group so the choice and its consequence are
@@ -1432,7 +1534,11 @@ function InlineEditForm({
         <Button
           size="sm"
           onClick={handleSave}
-          disabled={!title.trim() || updateMutation.isPending}
+          disabled={
+            !title.trim() ||
+            coverImageUrlError !== null ||
+            updateMutation.isPending
+          }
         >
           <Check className="h-4 w-4 mr-1" />
           {updateMutation.isPending ? 'Saving...' : 'Save'}
