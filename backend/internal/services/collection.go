@@ -524,8 +524,46 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	if filters.Featured {
 		query = query.Where("is_featured = ?", true)
 	}
-	if filters.Search != "" {
-		query = query.Where("title ILIKE ?", "%"+filters.Search+"%")
+	// PSY-355: expand search beyond title-only. We OR across four tiers:
+	//   1. collections.title           (exact field on the row)
+	//   2. collections.description     (raw markdown source on the row)
+	//   3. any item's notes            (correlated EXISTS over collection_items)
+	//   4. any applied tag name/alias  (correlated EXISTS over entity_tags +
+	//                                  tags + tag_aliases for the polymorphic
+	//                                  collection entity)
+	// Whitespace-only queries are short-circuited at the handler boundary
+	// (mirrors PSY-520 SearchShows). Any ILIKE pattern that is "" → "%" — also
+	// handled at the handler. For safety this code still trims the value here
+	// and skips the predicate when the trimmed string is empty, so direct
+	// service callers (e.g. tests) don't accidentally widen the result set.
+	//
+	// No new indexes are added for the MVP — current corpus is small. If the
+	// description / notes / tag-name predicates become hot, consider GIN
+	// trigram indexes (`pg_trgm`) on `collections.description`,
+	// `collection_items.notes`, `tags.name`, and `tag_aliases.alias`.
+	searchTerm := strings.TrimSpace(filters.Search)
+	if searchTerm != "" {
+		pattern := "%" + searchTerm + "%"
+		query = query.Where(`
+			collections.title ILIKE ?
+			OR collections.description ILIKE ?
+			OR EXISTS (
+				SELECT 1 FROM collection_items ci
+				WHERE ci.collection_id = collections.id
+				  AND ci.notes ILIKE ?
+			)
+			OR EXISTS (
+				SELECT 1 FROM entity_tags et
+				JOIN tags t ON t.id = et.tag_id
+				LEFT JOIN tag_aliases ta ON ta.tag_id = t.id
+				WHERE et.entity_type = ?
+				  AND et.entity_id = collections.id
+				  AND (t.name ILIKE ? OR ta.alias ILIKE ?)
+			)
+		`,
+			pattern, pattern, pattern,
+			models.TagEntityCollection, pattern, pattern,
+		)
 	}
 	if filters.EntityType != "" {
 		query = query.Where("id IN (?)",
@@ -556,7 +594,19 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	if limit <= 0 {
 		limit = 20
 	}
-	query = applyCollectionSort(query, filters.Sort).Limit(limit).Offset(offset)
+	// PSY-355: when search is active AND the caller hasn't asked for an
+	// explicit sort (e.g. ?sort=popular), lead with a tier rank that prefers
+	// title matches, then description, then item notes, then tag matches.
+	// `applyCollectionSort` always appends `updated_at DESC` as a fallback
+	// tiebreaker. An explicit `sort=popular` wins over relevance — that's
+	// the user's deliberate choice and mirrors how most browse UIs treat
+	// "sort + filter" combinations.
+	if searchTerm != "" && filters.Sort == "" {
+		pattern := "%" + searchTerm + "%"
+		query = applySearchRelevanceOrder(query, pattern).Limit(limit).Offset(offset)
+	} else {
+		query = applyCollectionSort(query, filters.Sort).Limit(limit).Offset(offset)
+	}
 
 	var collections []models.Collection
 	if err := query.Find(&collections).Error; err != nil {
@@ -654,6 +704,10 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 // Unknown sort values fall back to the default — the handler validates
 // recognized values and rejects unknowns before reaching this point.
 // PSY-352.
+//
+// Note: when ?search is active and ?sort is unset, ListCollections calls
+// applySearchRelevanceOrder instead — relevance ranks title > description >
+// notes > tag matches. An explicit ?sort=popular still wins over relevance.
 func applyCollectionSort(query *gorm.DB, sort string) *gorm.DB {
 	if sort == contracts.CollectionSortPopular {
 		return query.Order(`(
@@ -664,6 +718,43 @@ func applyCollectionSort(query *gorm.DB, sort string) *gorm.DB {
 		) DESC`).Order("collections.updated_at DESC")
 	}
 	return query.Order("updated_at DESC")
+}
+
+// applySearchRelevanceOrder is the search-rank ORDER BY clause used when
+// `filters.Search` is set and no explicit sort was requested. Tiers:
+//
+//	1 — title matches the query
+//	2 — description matches
+//	3 — any item's notes match
+//	4 — any applied tag name (or alias) matches
+//
+// Tiebreaker is updated_at DESC so the most-recently-edited collection in
+// each tier surfaces first. The same `pattern` value (already wrapped with
+// %s by the caller) is reused across all four CASE branches so it lines up
+// with the WHERE clause in ListCollections — adjusting one without the
+// other would silently mis-rank rows. PSY-355.
+func applySearchRelevanceOrder(query *gorm.DB, pattern string) *gorm.DB {
+	return query.Order(gorm.Expr(`
+		CASE
+			WHEN collections.title ILIKE ? THEN 1
+			WHEN collections.description ILIKE ? THEN 2
+			WHEN EXISTS (
+				SELECT 1 FROM collection_items ci
+				WHERE ci.collection_id = collections.id
+				  AND ci.notes ILIKE ?
+			) THEN 3
+			WHEN EXISTS (
+				SELECT 1 FROM entity_tags et
+				JOIN tags t ON t.id = et.tag_id
+				LEFT JOIN tag_aliases ta ON ta.tag_id = t.id
+				WHERE et.entity_type = ?
+				  AND et.entity_id = collections.id
+				  AND (t.name ILIKE ? OR ta.alias ILIKE ?)
+			) THEN 4
+			ELSE 5
+		END ASC
+	`, pattern, pattern, pattern, models.TagEntityCollection, pattern, pattern)).
+		Order("collections.updated_at DESC")
 }
 
 // UpdateCollection updates an existing collection

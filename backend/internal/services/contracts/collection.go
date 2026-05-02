@@ -64,6 +64,11 @@ type CollectionFilters struct {
 	CreatorID  uint
 	EntityType string
 	Featured   bool
+	// Search is a case-insensitive ILIKE-substring query matched against
+	// the collection title, description, any item's notes, and any applied
+	// tag's name (or alias). Empty string disables search. When the default
+	// sort is in effect, results are tier-ranked title > description >
+	// notes > tag, then by updated_at DESC. PSY-355.
 	Search     string
 	PublicOnly bool
 	// Sort selects the ordering for list results. Recognized values:
