@@ -93,3 +93,22 @@ type LabelReleaseResponse struct {
 	CoverArtURL   *string `json:"cover_art_url"`
 	CatalogNumber *string `json:"catalog_number"`
 }
+
+// ──────────────────────────────────────────────
+// Label Service Interface
+// ──────────────────────────────────────────────
+
+// LabelServiceInterface defines the contract for label operations.
+type LabelServiceInterface interface {
+	CreateLabel(req *CreateLabelRequest) (*LabelDetailResponse, error)
+	GetLabel(labelID uint) (*LabelDetailResponse, error)
+	GetLabelBySlug(slug string) (*LabelDetailResponse, error)
+	ListLabels(filters map[string]interface{}) ([]*LabelListResponse, error)
+	SearchLabels(query string) ([]*LabelListResponse, error)
+	UpdateLabel(labelID uint, req *UpdateLabelRequest) (*LabelDetailResponse, error)
+	DeleteLabel(labelID uint) error
+	GetLabelRoster(labelID uint) ([]*LabelArtistResponse, error)
+	GetLabelCatalog(labelID uint) ([]*LabelReleaseResponse, error)
+	AddArtistToLabel(labelID, artistID uint) error
+	AddReleaseToLabel(labelID, releaseID uint, catalogNumber *string) error
+}

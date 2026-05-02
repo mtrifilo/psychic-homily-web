@@ -1,6 +1,11 @@
 package contracts
 
-import "time"
+import (
+	"time"
+
+	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
+)
 
 // ──────────────────────────────────────────────
 // Saved Show types
@@ -171,4 +176,90 @@ type FollowStatusResponse struct {
 	EntityID      uint   `json:"entity_id"`
 	FollowerCount int64  `json:"follower_count"`
 	IsFollowing   bool   `json:"is_following"`
+}
+
+// ──────────────────────────────────────────────
+// Saved Show Service Interface
+// ──────────────────────────────────────────────
+
+// SavedShowServiceInterface defines the contract for saved show operations.
+type SavedShowServiceInterface interface {
+	SaveShow(userID, showID uint) error
+	UnsaveShow(userID, showID uint) error
+	GetUserSavedShows(userID uint, limit, offset int) ([]*SavedShowResponse, int64, error)
+	IsShowSaved(userID, showID uint) (bool, error)
+	GetSavedShowIDs(userID uint, showIDs []uint) (map[uint]bool, error)
+}
+
+// ──────────────────────────────────────────────
+// Favorite Venue Service Interface
+// ──────────────────────────────────────────────
+
+// FavoriteVenueServiceInterface defines the contract for favorite venue operations.
+type FavoriteVenueServiceInterface interface {
+	FavoriteVenue(userID, venueID uint) error
+	UnfavoriteVenue(userID, venueID uint) error
+	GetUserFavoriteVenues(userID uint, limit, offset int) ([]*FavoriteVenueResponse, int64, error)
+	IsVenueFavorited(userID, venueID uint) (bool, error)
+	GetUpcomingShowsFromFavorites(userID uint, timezone string, limit, offset int) ([]*FavoriteVenueShowResponse, int64, error)
+	GetFavoriteVenueIDs(userID uint, venueIDs []uint) (map[uint]bool, error)
+}
+
+// ──────────────────────────────────────────────
+// Bookmark Service Interface
+// ──────────────────────────────────────────────
+
+// BookmarkServiceInterface defines the contract for generic bookmark operations.
+type BookmarkServiceInterface interface {
+	CreateBookmark(userID uint, entityType engagementm.BookmarkEntityType, entityID uint, action engagementm.BookmarkAction) error
+	DeleteBookmark(userID uint, entityType engagementm.BookmarkEntityType, entityID uint, action engagementm.BookmarkAction) error
+	IsBookmarked(userID uint, entityType engagementm.BookmarkEntityType, entityID uint, action engagementm.BookmarkAction) (bool, error)
+	GetBookmarkedEntityIDs(userID uint, entityType engagementm.BookmarkEntityType, action engagementm.BookmarkAction, entityIDs []uint) (map[uint]bool, error)
+	GetUserBookmarks(userID uint, entityType engagementm.BookmarkEntityType, action engagementm.BookmarkAction, limit, offset int) ([]engagementm.UserBookmark, int64, error)
+	GetUserBookmarksByEntityType(userID uint, entityType engagementm.BookmarkEntityType, action engagementm.BookmarkAction) ([]engagementm.UserBookmark, error)
+	CountUserBookmarks(userID uint, entityType engagementm.BookmarkEntityType, action engagementm.BookmarkAction) (int64, error)
+}
+
+// ──────────────────────────────────────────────
+// Attendance Service Interface
+// ──────────────────────────────────────────────
+
+// AttendanceServiceInterface defines the contract for show attendance (going/interested) operations.
+type AttendanceServiceInterface interface {
+	SetAttendance(userID, showID uint, status string) error
+	RemoveAttendance(userID, showID uint) error
+	GetUserAttendance(userID, showID uint) (string, error)
+	GetAttendanceCounts(showID uint) (*AttendanceCountsResponse, error)
+	GetBatchAttendanceCounts(showIDs []uint) (map[uint]*AttendanceCountsResponse, error)
+	GetBatchUserAttendance(userID uint, showIDs []uint) (map[uint]string, error)
+	GetUserAttendingShows(userID uint, status string, limit, offset int) ([]*AttendingShowResponse, int64, error)
+}
+
+// ──────────────────────────────────────────────
+// Follow Service Interface
+// ──────────────────────────────────────────────
+
+// FollowServiceInterface defines the contract for entity follow operations.
+type FollowServiceInterface interface {
+	Follow(userID uint, entityType string, entityID uint) error
+	Unfollow(userID uint, entityType string, entityID uint) error
+	IsFollowing(userID uint, entityType string, entityID uint) (bool, error)
+	GetFollowerCount(entityType string, entityID uint) (int64, error)
+	GetBatchFollowerCounts(entityType string, entityIDs []uint) (map[uint]int64, error)
+	GetBatchUserFollowing(userID uint, entityType string, entityIDs []uint) (map[uint]bool, error)
+	GetUserFollowing(userID uint, entityType string, limit, offset int) ([]*FollowingEntityResponse, int64, error)
+	GetFollowers(entityType string, entityID uint, limit, offset int) ([]*FollowerResponse, int64, error)
+}
+
+// ──────────────────────────────────────────────
+// Calendar Service Interface
+// ──────────────────────────────────────────────
+
+// CalendarServiceInterface defines the contract for calendar feed operations.
+type CalendarServiceInterface interface {
+	CreateToken(userID uint, apiBaseURL string) (*CalendarTokenCreateResponse, error)
+	GetTokenStatus(userID uint) (*CalendarTokenStatusResponse, error)
+	DeleteToken(userID uint) error
+	ValidateCalendarToken(plainToken string) (*authm.User, error)
+	GenerateICSFeed(userID uint, frontendURL string) ([]byte, error)
 }

@@ -19,8 +19,13 @@ func setupVenueRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/venues/{venue_id}/genres", venueHandler.GetVenueGenresHandler)
 	huma.Get(rc.API, "/venues/{venue_id}/bill-network", venueHandler.GetVenueBillNetworkHandler)
 
-	// Protected venue endpoints - require authentication
-	huma.Post(rc.Protected, "/admin/venues", venueHandler.AdminCreateVenueHandler)
-	huma.Put(rc.Protected, "/venues/{venue_id}", venueHandler.UpdateVenueHandler)
+	// Admin venue endpoints (PSY-423: rc.Admin enforces auth + IsAdmin)
+	huma.Post(rc.Admin, "/admin/venues", venueHandler.AdminCreateVenueHandler)
+	huma.Put(rc.Admin, "/venues/{venue_id}", venueHandler.UpdateVenueHandler)
+
+	// Protected venue endpoint: admin can delete any venue, non-admin can
+	// delete venues they submitted. Stays on rc.Protected with handler-side
+	// ownership check.
+	// conditional admin — see PSY-423 audit
 	huma.Delete(rc.Protected, "/venues/{venue_id}", venueHandler.DeleteVenueHandler)
 }

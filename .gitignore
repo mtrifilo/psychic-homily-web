@@ -29,10 +29,19 @@ xcshareddata/
 node_modules/
 
 # Backend specific
-backend/server
 backend/backups/
 backend/logs/
 backend/*.log
+
+# PSY-429: stray cmd/ binaries that get built in-place when devs run
+# `go build` from inside backend/. Explicit names only — globs like
+# `backend/*` would match too much.
+backend/backfill-slugs
+backend/discovery-import
+backend/link-release-labels
+backend/scrape-import
+backend/seed
+backend/server
 
 # Database files
 *.db

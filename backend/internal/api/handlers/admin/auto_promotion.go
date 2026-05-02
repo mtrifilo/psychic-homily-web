@@ -6,7 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -37,10 +37,7 @@ type EvaluateAllUsersResponse struct {
 func (h *AutoPromotionHandler) EvaluateAllUsersHandler(ctx context.Context, req *EvaluateAllUsersRequest) (*EvaluateAllUsersResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	logger.FromContext(ctx).Info("auto_promotion_evaluate_attempt",
 		"admin_id", user.ID,
@@ -82,10 +79,7 @@ type EvaluateUserResponse struct {
 func (h *AutoPromotionHandler) EvaluateUserHandler(ctx context.Context, req *EvaluateUserRequest) (*EvaluateUserResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	logger.FromContext(ctx).Info("auto_promotion_evaluate_user_attempt",
 		"admin_id", user.ID,

@@ -34,25 +34,6 @@ func TestDeleteArtist_InvalidID(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 400)
 }
 
-// --- AdminUpdateArtistHandler ---
-
-func TestAdminUpdateArtist_NoUser(t *testing.T) {
-	h := testArtistHandler()
-	req := &AdminUpdateArtistRequest{ArtistID: "1"}
-
-	_, err := h.AdminUpdateArtistHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
-func TestAdminUpdateArtist_NonAdmin(t *testing.T) {
-	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	req := &AdminUpdateArtistRequest{ArtistID: "1"}
-
-	_, err := h.AdminUpdateArtistHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
 func TestAdminUpdateArtist_InvalidID(t *testing.T) {
 	h := testArtistHandler()
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
@@ -862,29 +843,6 @@ func TestGetArtistAliases_NotFound(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 404)
 }
 
-// ============================================================================
-// Mock-based tests: AddArtistAliasHandler
-// ============================================================================
-
-func TestAddArtistAlias_NoUser(t *testing.T) {
-	h := testArtistHandler()
-	req := &AddArtistAliasRequest{ArtistID: "1"}
-	req.Body.Alias = "test"
-
-	_, err := h.AddArtistAliasHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
-func TestAddArtistAlias_NonAdmin(t *testing.T) {
-	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	req := &AddArtistAliasRequest{ArtistID: "1"}
-	req.Body.Alias = "test"
-
-	_, err := h.AddArtistAliasHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
 func TestAddArtistAlias_InvalidID(t *testing.T) {
 	h := testArtistHandler()
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
@@ -943,23 +901,6 @@ func TestAddArtistAlias_Conflict(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 409)
 }
 
-// ============================================================================
-// Mock-based tests: DeleteArtistAliasHandler
-// ============================================================================
-
-func TestDeleteArtistAlias_NoUser(t *testing.T) {
-	h := testArtistHandler()
-	_, err := h.DeleteArtistAliasHandler(context.Background(), &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "1"})
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
-func TestDeleteArtistAlias_NonAdmin(t *testing.T) {
-	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	_, err := h.DeleteArtistAliasHandler(ctx, &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "1"})
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
 func TestDeleteArtistAlias_InvalidAliasID(t *testing.T) {
 	h := testArtistHandler()
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
@@ -996,31 +937,6 @@ func TestDeleteArtistAlias_NotFound(t *testing.T) {
 
 	_, err := h.DeleteArtistAliasHandler(ctx, &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "99"})
 	testhelpers.AssertHumaError(t, err, 404)
-}
-
-// ============================================================================
-// Mock-based tests: MergeArtistsHandler
-// ============================================================================
-
-func TestMergeArtists_NoUser(t *testing.T) {
-	h := testArtistHandler()
-	req := &MergeArtistsRequest{}
-	req.Body.CanonicalArtistID = 1
-	req.Body.MergeFromArtistID = 2
-
-	_, err := h.MergeArtistsHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
-func TestMergeArtists_NonAdmin(t *testing.T) {
-	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	req := &MergeArtistsRequest{}
-	req.Body.CanonicalArtistID = 1
-	req.Body.MergeFromArtistID = 2
-
-	_, err := h.MergeArtistsHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestMergeArtists_MissingIDs(t *testing.T) {
@@ -1100,29 +1016,6 @@ func TestMergeArtists_NotFound(t *testing.T) {
 
 	_, err := h.MergeArtistsHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 404)
-}
-
-// ============================================================================
-// Mock-based tests: AdminCreateArtistHandler
-// ============================================================================
-
-func TestAdminCreateArtist_NoUser(t *testing.T) {
-	h := testArtistHandler()
-	req := &AdminCreateArtistRequest{}
-	req.Body.Name = "Test Artist"
-
-	_, err := h.AdminCreateArtistHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
-func TestAdminCreateArtist_NonAdmin(t *testing.T) {
-	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	req := &AdminCreateArtistRequest{}
-	req.Body.Name = "Test Artist"
-
-	_, err := h.AdminCreateArtistHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminCreateArtist_EmptyName(t *testing.T) {

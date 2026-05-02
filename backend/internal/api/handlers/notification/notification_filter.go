@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	notificationm "psychic-homily-backend/internal/models/notification"
@@ -185,15 +186,6 @@ func (h *NotificationFilterHandler) CreateFilterHandler(ctx context.Context, req
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	notifyEmail := true
-	if req.Body.NotifyEmail != nil {
-		notifyEmail = *req.Body.NotifyEmail
-	}
-	notifyInApp := true
-	if req.Body.NotifyInApp != nil {
-		notifyInApp = *req.Body.NotifyInApp
-	}
-
 	input := contracts.CreateFilterInput{
 		Name:          req.Body.Name,
 		ArtistIDs:     req.Body.ArtistIDs,
@@ -202,12 +194,9 @@ func (h *NotificationFilterHandler) CreateFilterHandler(ctx context.Context, req
 		TagIDs:        req.Body.TagIDs,
 		ExcludeTagIDs: req.Body.ExcludeTagIDs,
 		PriceMaxCents: req.Body.PriceMaxCents,
-		NotifyEmail:   notifyEmail,
-		NotifyInApp:   notifyInApp,
-	}
-
-	if req.Body.Cities != nil {
-		input.Cities = *req.Body.Cities
+		NotifyEmail:   shared.DerefOr(req.Body.NotifyEmail, true),
+		NotifyInApp:   shared.DerefOr(req.Body.NotifyInApp, true),
+		Cities:        shared.Deref(req.Body.Cities),
 	}
 
 	filter, err := h.filterService.CreateFilter(user.ID, input)

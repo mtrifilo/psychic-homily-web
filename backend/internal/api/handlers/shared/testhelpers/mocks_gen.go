@@ -709,6 +709,7 @@ type MockCollectionService struct {
 	SetFeaturedFn                        func(string, bool) error
 	AddTagToCollectionFn                 func(string, uint, *contracts.AddCollectionTagRequest) (*contracts.AddCollectionTagResponse, error)
 	RemoveTagFromCollectionFn            func(string, uint, uint) error
+	GetCollectionGraphFn                 func(string, uint, []string) (*contracts.CollectionGraphResponse, error)
 }
 
 func (m *MockCollectionService) CreateCollection(creatorID uint, req *contracts.CreateCollectionRequest) (*contracts.CollectionDetailResponse, error) {
@@ -848,6 +849,12 @@ func (m *MockCollectionService) RemoveTagFromCollection(slug string, tagID uint,
 		return m.RemoveTagFromCollectionFn(slug, tagID, userID)
 	}
 	return nil
+}
+func (m *MockCollectionService) GetCollectionGraph(slug string, viewerID uint, types []string) (*contracts.CollectionGraphResponse, error) {
+	if m.GetCollectionGraphFn != nil {
+		return m.GetCollectionGraphFn(slug, viewerID, types)
+	}
+	return nil, nil
 }
 
 // ============================================================================

@@ -151,25 +151,6 @@ func (s *ReleaseHandlerIntegrationSuite) TestCreateRelease_WithArtists() {
 	s.Equal("Test Artist", resp.Body.Artists[0].Name)
 }
 
-func (s *ReleaseHandlerIntegrationSuite) TestCreateRelease_NonAdminForbidden() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	ctx := testhelpers.CtxWithUser(user)
-
-	req := &CreateReleaseRequest{}
-	req.Body.Title = "Forbidden Album"
-
-	_, err := s.handler.CreateReleaseHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
-func (s *ReleaseHandlerIntegrationSuite) TestCreateRelease_NoAuth() {
-	req := &CreateReleaseRequest{}
-	req.Body.Title = "No Auth Album"
-
-	_, err := s.handler.CreateReleaseHandler(s.deps.Ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
 func (s *ReleaseHandlerIntegrationSuite) TestCreateRelease_EmptyTitle() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(admin)
@@ -224,19 +205,6 @@ func (s *ReleaseHandlerIntegrationSuite) TestUpdateRelease_NotFound() {
 	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
-func (s *ReleaseHandlerIntegrationSuite) TestUpdateRelease_NonAdminForbidden() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	release := s.createReleaseViaService("Forbidden Update")
-
-	ctx := testhelpers.CtxWithUser(user)
-	newTitle := "Hacked Title"
-	req := &UpdateReleaseRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
-	req.Body.Title = &newTitle
-
-	_, err := s.handler.UpdateReleaseHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
 // --- DeleteReleaseHandler ---
 
 func (s *ReleaseHandlerIntegrationSuite) TestDeleteRelease_Success() {
@@ -261,17 +229,6 @@ func (s *ReleaseHandlerIntegrationSuite) TestDeleteRelease_NotFound() {
 
 	_, err := s.handler.DeleteReleaseHandler(ctx, req)
 	testhelpers.AssertHumaError(s.T(), err, 404)
-}
-
-func (s *ReleaseHandlerIntegrationSuite) TestDeleteRelease_NonAdminForbidden() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	release := s.createReleaseViaService("Protected Album")
-
-	ctx := testhelpers.CtxWithUser(user)
-	req := &DeleteReleaseRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
-
-	_, err := s.handler.DeleteReleaseHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 // --- GetArtistReleasesHandler ---
@@ -363,19 +320,6 @@ func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_ReleaseNotFound() {
 	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
-func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_NonAdminForbidden() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	release := s.createReleaseViaService("Protected Link Album")
-
-	ctx := testhelpers.CtxWithUser(user)
-	req := &AddExternalLinkRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
-	req.Body.Platform = "bandcamp"
-	req.Body.URL = "https://test.bandcamp.com"
-
-	_, err := s.handler.AddExternalLinkHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
 // --- RemoveExternalLinkHandler ---
 
 func (s *ReleaseHandlerIntegrationSuite) TestRemoveExternalLink_Success() {
@@ -404,22 +348,3 @@ func (s *ReleaseHandlerIntegrationSuite) TestRemoveExternalLink_Success() {
 	s.Empty(refreshed.ExternalLinks)
 }
 
-func (s *ReleaseHandlerIntegrationSuite) TestRemoveExternalLink_NonAdminForbidden() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	release, err := s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{
-		Title: "Protected Remove Link",
-		ExternalLinks: []contracts.CreateReleaseLinkEntry{
-			{Platform: "spotify", URL: "https://open.spotify.com/album/abc"},
-		},
-	})
-	s.Require().NoError(err)
-
-	ctx := testhelpers.CtxWithUser(user)
-	req := &RemoveExternalLinkRequest{
-		ReleaseID: fmt.Sprintf("%d", release.ID),
-		LinkID:    fmt.Sprintf("%d", release.ExternalLinks[0].ID),
-	}
-
-	_, err = s.handler.RemoveExternalLinkHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}

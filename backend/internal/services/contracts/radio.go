@@ -414,3 +414,70 @@ type SyncAffinityResult struct {
 	Updated int `json:"updated"`
 	Deleted int `json:"deleted"`
 }
+
+// ──────────────────────────────────────────────
+// Radio Service Interface
+// ──────────────────────────────────────────────
+
+// RadioServiceInterface defines the contract for radio station, show, episode, and play operations.
+type RadioServiceInterface interface {
+	// Station CRUD
+	CreateStation(req *CreateRadioStationRequest) (*RadioStationDetailResponse, error)
+	GetStation(stationID uint) (*RadioStationDetailResponse, error)
+	GetStationBySlug(slug string) (*RadioStationDetailResponse, error)
+	ListStations(filters map[string]interface{}) ([]*RadioStationListResponse, error)
+	UpdateStation(stationID uint, req *UpdateRadioStationRequest) (*RadioStationDetailResponse, error)
+	DeleteStation(stationID uint) error
+
+	// Show CRUD
+	CreateShow(stationID uint, req *CreateRadioShowRequest) (*RadioShowDetailResponse, error)
+	GetShow(showID uint) (*RadioShowDetailResponse, error)
+	GetShowBySlug(slug string) (*RadioShowDetailResponse, error)
+	ListShows(stationID uint) ([]*RadioShowListResponse, error)
+	UpdateShow(showID uint, req *UpdateRadioShowRequest) (*RadioShowDetailResponse, error)
+	DeleteShow(showID uint) error
+
+	// Episodes
+	GetEpisodes(showID uint, limit, offset int) ([]*RadioEpisodeResponse, int64, error)
+	GetEpisodeByShowAndDate(showID uint, airDate string) (*RadioEpisodeDetailResponse, error)
+	GetEpisodeDetail(episodeID uint) (*RadioEpisodeDetailResponse, error)
+
+	// Aggregation queries
+	GetTopArtistsForShow(showID uint, periodDays, limit int) ([]*RadioTopArtistResponse, error)
+	GetTopLabelsForShow(showID uint, periodDays, limit int) ([]*RadioTopLabelResponse, error)
+	GetAsHeardOnForArtist(artistID uint) ([]*RadioAsHeardOnResponse, error)
+	GetAsHeardOnForRelease(releaseID uint) ([]*RadioAsHeardOnResponse, error)
+	GetNewReleaseRadar(stationID uint, limit int) ([]*RadioNewReleaseRadarEntry, error)
+
+	// Stats
+	GetRadioStats() (*RadioStatsResponse, error)
+
+	// Import pipeline
+	ImportStation(stationID uint, backfillDays int) (*RadioImportResult, error)
+	FetchNewEpisodes(stationID uint) (*RadioImportResult, error)
+	ImportEpisodePlaylist(showID uint, episodeExternalID string) (*EpisodeImportResult, error)
+	DiscoverStationShows(stationID uint) (*RadioDiscoverResult, error)
+	ImportShowEpisodes(showID uint, since string, until string) (*RadioImportResult, error)
+
+	// Matching
+	MatchPlays(episodeID uint) (*MatchResult, error)
+
+	// Unmatched play management
+	GetUnmatchedPlays(stationID uint, limit, offset int) ([]*UnmatchedPlayGroup, int64, error)
+	LinkPlay(playID uint, req *LinkPlayRequest) error
+	BulkLinkPlays(req *BulkLinkRequest) (*BulkLinkResult, error)
+
+	// Affinity
+	ComputeAffinity() error
+	SyncAffinityToRelationships() (*SyncAffinityResult, error)
+
+	// Re-matching
+	ReMatchUnmatched() (*MatchResult, error)
+
+	// Import jobs
+	CreateImportJob(showID uint, since, until string) (*RadioImportJobResponse, error)
+	StartImportJob(jobID uint) error
+	CancelImportJob(jobID uint) error
+	GetImportJob(jobID uint) (*RadioImportJobResponse, error)
+	ListImportJobs(showID uint) ([]*RadioImportJobResponse, error)
+}

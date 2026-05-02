@@ -82,7 +82,7 @@ export function BillComposition({ artistId }: BillCompositionProps) {
               onClick={() => setShowGraph(!showGraph)}
             >
               <Network className="h-4 w-4 mr-1.5" />
-              {showGraph ? 'Hide Map' : 'View Map'}
+              {showGraph ? 'Hide graph' : 'Explore graph'}
             </Button>
           )}
         </div>

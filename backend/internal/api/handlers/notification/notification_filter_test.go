@@ -11,9 +11,10 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/services/contracts"
 
-	"github.com/lib/pq"
 	authm "psychic-homily-backend/internal/models/auth"
 	notificationm "psychic-homily-backend/internal/models/notification"
+
+	"github.com/lib/pq"
 )
 
 func testNotificationFilterHandler() *NotificationFilterHandler {
