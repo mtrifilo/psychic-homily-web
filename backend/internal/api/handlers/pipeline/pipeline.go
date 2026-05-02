@@ -130,9 +130,7 @@ func (h *PipelineHandler) ListPipelineVenuesHandler(ctx context.Context, req *Li
 			AutoApprove:         cfg.AutoApprove,
 			ExtractionNotes:     cfg.ExtractionNotes,
 		}
-		if cfg.Venue.Slug != nil {
-			info.VenueSlug = *cfg.Venue.Slug
-		}
+		info.VenueSlug = shared.Deref(cfg.Venue.Slug)
 
 		// Get recent runs for count + most recent
 		runs, runErr := h.venueConfigService.GetRecentRuns(cfg.VenueID, 1)
@@ -301,9 +299,7 @@ func (h *PipelineHandler) UpdateVenueConfigHandler(ctx context.Context, req *Upd
 		AutoApprove:         updated.AutoApprove,
 		ExtractionNotes:     updated.ExtractionNotes,
 	}
-	if updated.Venue.Slug != nil {
-		info.VenueSlug = *updated.Venue.Slug
-	}
+	info.VenueSlug = shared.Deref(updated.Venue.Slug)
 
 	return &UpdateVenueConfigResponse{Body: info}, nil
 }

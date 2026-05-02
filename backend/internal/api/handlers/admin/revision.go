@@ -65,11 +65,10 @@ func mapRevisionToResponse(r adminm.Revision) RevisionResponseItem {
 		CreatedAt:  r.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 
-	if r.Summary != nil {
-		item.Summary = *r.Summary
-	}
+	item.Summary = shared.Deref(r.Summary)
 
-	// Populate user name from preloaded User relation
+	// Populate user name from preloaded User relation. Username wins;
+	// FirstName is the fallback when Username is unset.
 	if r.User.Username != nil {
 		item.UserName = *r.User.Username
 	} else if r.User.FirstName != nil {
