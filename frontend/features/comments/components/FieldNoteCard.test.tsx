@@ -264,4 +264,39 @@ describe('FieldNoteCard', () => {
 
     expect(screen.getByText('Edited')).toBeInTheDocument()
   })
+
+  // PSY-514: same zero-reply gating that applies to CommentCard.
+  describe('Show replies button gating (PSY-514)', () => {
+    it('does NOT render "Show replies" when reply_count is 0', () => {
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({ reply_count: 0 })}
+          showId={10}
+        />
+      )
+
+      expect(
+        screen.queryByTestId('show-replies-button')
+      ).not.toBeInTheDocument()
+    })
+
+    it('does NOT render "Show replies" when reply_count is missing', () => {
+      render(<FieldNoteCard comment={makeFieldNote()} showId={10} />)
+
+      expect(
+        screen.queryByTestId('show-replies-button')
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders "Show replies" when reply_count > 0', () => {
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({ reply_count: 2 })}
+          showId={10}
+        />
+      )
+
+      expect(screen.getByTestId('show-replies-button')).toBeInTheDocument()
+    })
+  })
 })

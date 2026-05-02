@@ -16,6 +16,8 @@ export const showEndpoints = {
   SUBMIT: `${API_BASE_URL}/shows`,
   UPCOMING: `${API_BASE_URL}/shows/upcoming`,
   CITIES: `${API_BASE_URL}/shows/cities`,
+  // PSY-372 / PSY-520: autocomplete endpoint, used by useEntitySearch.
+  SEARCH: `${API_BASE_URL}/shows/search`,
   GET: (showId: string | number) => `${API_BASE_URL}/shows/${showId}`,
   UPDATE: (showId: string | number) => `${API_BASE_URL}/shows/${showId}`,
   DELETE: (showId: string | number) => `${API_BASE_URL}/shows/${showId}`,
@@ -51,4 +53,5 @@ export const showQueryKeys = {
   cities: (timezone?: string) => ['shows', 'cities', timezone] as const,
   detail: (id: string) => ['shows', 'detail', id] as const,
   userShows: (userId: string) => ['shows', 'user', userId] as const,
+  search: (query: string) => ['shows', 'search', query.toLowerCase()] as const,
 } as const
