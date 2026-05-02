@@ -4,6 +4,9 @@ package contracts
 
 import (
 	"time"
+
+	"gorm.io/gorm"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 // ──────────────────────────────────────────────
@@ -730,4 +733,134 @@ type VenueBillNetworkLink struct {
 	Score          float64 `json:"score"`
 	Detail         any     `json:"detail,omitempty"`
 	IsCrossCluster bool    `json:"is_cross_cluster"`
+}
+
+// ──────────────────────────────────────────────
+// Show Service Interfaces
+// ──────────────────────────────────────────────
+
+// ShowServiceInterface defines the contract for core show CRUD and search operations.
+type ShowServiceInterface interface {
+	CreateShow(req *CreateShowRequest) (*ShowResponse, error)
+	GetShow(showID uint) (*ShowResponse, error)
+	GetShowBySlug(slug string) (*ShowResponse, error)
+	GetShows(filters map[string]interface{}) ([]*ShowResponse, error)
+	GetUserSubmissions(userID uint, limit, offset int) ([]ShowResponse, int, error)
+	UpdateShow(showID uint, updates map[string]interface{}) (*ShowResponse, error)
+	UpdateShowWithRelations(showID uint, updates map[string]interface{}, venues []CreateShowVenue, artists []CreateShowArtist, isAdmin bool) (*ShowResponse, []OrphanedArtist, error)
+	GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *UpcomingShowsFilter) ([]*ShowResponse, *string, error)
+	GetShowCities(timezone string) ([]ShowCityResponse, error)
+	DeleteShow(showID uint) error
+	// SearchShows returns up to 20 shows matching the query in show title or
+	// any bill artist name (case-insensitive), ordered by event_date DESC.
+	// Empty query returns an empty slice. PSY-520.
+	SearchShows(query string) ([]*ShowSearchResult, error)
+}
+
+// ShowAdminServiceInterface defines the contract for admin show management operations
+// including pending/rejected queries, approval flows, and batch operations.
+type ShowAdminServiceInterface interface {
+	GetPendingShows(limit, offset int, filters *PendingShowsFilter) ([]*ShowResponse, int64, error)
+	GetRejectedShows(limit, offset int, search string) ([]*ShowResponse, int64, error)
+	ApproveShow(showID uint, verifyVenues bool) (*ShowResponse, error)
+	RejectShow(showID uint, reason string) (*ShowResponse, error)
+	BatchApproveShows(showIDs []uint) (*BatchShowResult, error)
+	BatchRejectShows(showIDs []uint, reason string, category string) (*BatchShowResult, error)
+	GetAdminShows(limit, offset int, filters AdminShowFilters) ([]*ShowResponse, int64, error)
+}
+
+// ShowImportServiceInterface defines the contract for show import/export operations.
+type ShowImportServiceInterface interface {
+	ExportShowToMarkdown(showID uint) ([]byte, string, error)
+	ParseShowMarkdown(content []byte) (*ParsedShowImport, error)
+	PreviewShowImport(content []byte) (*ImportPreviewResponse, error)
+	ConfirmShowImport(content []byte, isAdmin bool) (*ShowResponse, error)
+}
+
+// ShowStateServiceInterface defines the contract for show state mutation operations
+// such as publishing, unpublishing, and setting sold-out/cancelled flags.
+type ShowStateServiceInterface interface {
+	UnpublishShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error)
+	MakePrivateShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error)
+	PublishShow(showID uint, userID uint, isAdmin bool) (*ShowResponse, error)
+	SetShowSoldOut(showID uint, isSoldOut bool) (*ShowResponse, error)
+	SetShowCancelled(showID uint, isCancelled bool) (*ShowResponse, error)
+}
+
+// ShowFullServiceInterface is the composite interface that embeds all show service
+// concerns. The concrete ShowService satisfies this. Useful for the service container
+// and backward compatibility where a single reference to all methods is needed.
+type ShowFullServiceInterface interface {
+	ShowServiceInterface
+	ShowAdminServiceInterface
+	ShowImportServiceInterface
+	ShowStateServiceInterface
+}
+
+// ──────────────────────────────────────────────
+// Venue Service Interface
+// ──────────────────────────────────────────────
+
+// VenueServiceInterface defines the contract for venue operations.
+type VenueServiceInterface interface {
+	CreateVenue(req *CreateVenueRequest, isAdmin bool) (*VenueDetailResponse, error)
+	GetVenue(venueID uint) (*VenueDetailResponse, error)
+	GetVenueBySlug(slug string) (*VenueDetailResponse, error)
+	GetVenues(filters map[string]interface{}) ([]*VenueDetailResponse, error)
+	UpdateVenue(venueID uint, updates map[string]interface{}) (*VenueDetailResponse, error)
+	DeleteVenue(venueID uint) error
+	SearchVenues(query string) ([]*VenueDetailResponse, error)
+	FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*catalogm.Venue, bool, error)
+	VerifyVenue(venueID uint) (*VenueDetailResponse, error)
+	GetVenuesWithShowCounts(filters VenueListFilters, limit, offset int) ([]*VenueWithShowCountResponse, int64, error)
+	GetUpcomingShowsForVenue(venueID uint, timezone string, limit int) ([]*VenueShowResponse, int64, error)
+	GetShowsForVenue(venueID uint, timezone string, limit int, timeFilter string) ([]*VenueShowResponse, int64, error)
+	GetVenueCities() ([]*VenueCityResponse, error)
+	GetVenueModel(venueID uint) (*catalogm.Venue, error)
+	GetUnverifiedVenues(limit, offset int) ([]*UnverifiedVenueResponse, int64, error)
+	GetVenueGenreProfile(venueID uint) ([]GenreCount, error)
+	// PSY-365: venue-rooted co-bill network. Edges are weighted by the
+	// number of shared shows AT THIS VENUE (not globally) within the
+	// requested time window. Window is one of "all", "12m", "year"; Year
+	// is required iff Window=="year". Empty Window defaults to "all".
+	GetVenueBillNetwork(venueID uint, window string, year *int) (*VenueBillNetworkResponse, error)
+}
+
+// ──────────────────────────────────────────────
+// Artist Service Interface
+// ──────────────────────────────────────────────
+
+// ArtistServiceInterface defines the contract for artist operations.
+type ArtistServiceInterface interface {
+	CreateArtist(req *CreateArtistRequest) (*ArtistDetailResponse, error)
+	GetArtist(artistID uint) (*ArtistDetailResponse, error)
+	GetArtistByName(name string) (*ArtistDetailResponse, error)
+	GetArtistBySlug(slug string) (*ArtistDetailResponse, error)
+	GetArtists(filters map[string]interface{}) ([]*ArtistDetailResponse, error)
+	GetArtistsWithShowCounts(filters map[string]interface{}) ([]*ArtistWithShowCountResponse, error)
+	UpdateArtist(artistID uint, updates map[string]interface{}) (*ArtistDetailResponse, error)
+	DeleteArtist(artistID uint) error
+	SearchArtists(query string) ([]*ArtistDetailResponse, error)
+	GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*ArtistShowResponse, int64, error)
+	GetArtistCities() ([]*ArtistCityResponse, error)
+	GetLabelsForArtist(artistID uint) ([]*ArtistLabelResponse, error)
+	AddArtistAlias(artistID uint, alias string) (*ArtistAliasResponse, error)
+	RemoveArtistAlias(aliasID uint) error
+	GetArtistAliases(artistID uint) ([]*ArtistAliasResponse, error)
+	MergeArtists(canonicalID, mergeFromID uint) (*MergeArtistResult, error)
+}
+
+// ──────────────────────────────────────────────
+// Scene Service Interface
+// ──────────────────────────────────────────────
+
+// SceneServiceInterface defines the contract for computed city scene aggregations.
+type SceneServiceInterface interface {
+	ListScenes() ([]*SceneListResponse, error)
+	GetSceneDetail(city, state string) (*SceneDetailResponse, error)
+	GetActiveArtists(city, state string, periodDays, limit, offset int) ([]*SceneArtistResponse, int64, error)
+	ParseSceneSlug(slug string) (string, string, error)
+	GetSceneGenreDistribution(city, state string) ([]GenreCount, error)
+	GetGenreDiversityIndex(city, state string) (float64, error)
+	GetSceneGraph(city, state string, types []string) (*SceneGraphResponse, error)
 }

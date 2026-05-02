@@ -124,3 +124,22 @@ type ArtistReleaseListResponse struct {
 	ReleaseListResponse
 	Role string `json:"role"`
 }
+
+// ──────────────────────────────────────────────
+// Release Service Interface
+// ──────────────────────────────────────────────
+
+// ReleaseServiceInterface defines the contract for release operations.
+type ReleaseServiceInterface interface {
+	CreateRelease(req *CreateReleaseRequest) (*ReleaseDetailResponse, error)
+	GetRelease(releaseID uint) (*ReleaseDetailResponse, error)
+	GetReleaseBySlug(slug string) (*ReleaseDetailResponse, error)
+	ListReleases(filters ReleaseListFilters) ([]*ReleaseListResponse, int64, error)
+	SearchReleases(query string) ([]*ReleaseListResponse, error)
+	UpdateRelease(releaseID uint, req *UpdateReleaseRequest) (*ReleaseDetailResponse, error)
+	DeleteRelease(releaseID uint) error
+	GetReleasesForArtist(artistID uint) ([]*ReleaseListResponse, error)
+	GetReleasesForArtistWithRoles(artistID uint) ([]*ArtistReleaseListResponse, error)
+	AddExternalLink(releaseID uint, platform, url string) (*ReleaseExternalLinkResponse, error)
+	RemoveExternalLink(linkID uint) error
+}
