@@ -304,18 +304,24 @@ export function FieldNoteCard({
         </div>
       )}
 
-      {/* Load replies button */}
-      {!hasInlineReplies && !loadedThread && comment.depth === 0 && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-1 text-xs text-muted-foreground mt-1"
-          onClick={() => setLoadedThread(true)}
-        >
-          <MessageSquare className="h-3.5 w-3.5 mr-1" />
-          Show replies
-        </Button>
-      )}
+      {/* Load replies button. PSY-514: same gating as CommentCard — suppress
+          when reply_count is 0 (or missing), otherwise the click reads as a
+          no-op since there are no replies to fetch. */}
+      {!hasInlineReplies &&
+        !loadedThread &&
+        comment.depth === 0 &&
+        (comment.reply_count ?? 0) > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-1 text-xs text-muted-foreground mt-1"
+            onClick={() => setLoadedThread(true)}
+            data-testid="show-replies-button"
+          >
+            <MessageSquare className="h-3.5 w-3.5 mr-1" />
+            Show replies
+          </Button>
+        )}
 
       {/* Report dialog */}
       {isAuthenticated && !isOwner && (
