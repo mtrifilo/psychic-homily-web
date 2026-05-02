@@ -18,7 +18,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/api/handlers"
+	adminh "psychic-homily-backend/internal/api/handlers/admin"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/api/routes"
 	"psychic-homily-backend/internal/auth"
@@ -50,7 +50,7 @@ func main() {
 	// non-allowed environment. This is the keystone defense for the admin-
 	// only reset endpoint; the route also only registers when the flag is
 	// set, but that only helps if we actually start up.
-	if err := handlers.ValidateTestFixturesEnvironment(os.Getenv); err != nil {
+	if err := adminh.ValidateTestFixturesEnvironment(os.Getenv); err != nil {
 		log.Fatalf("PSY-432 test-fixtures misconfiguration: %v", err)
 	}
 
