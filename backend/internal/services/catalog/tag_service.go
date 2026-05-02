@@ -329,6 +329,14 @@ func (s *TagService) DeleteTag(tagID uint) error {
 // AddTagToEntity applies a tag to an entity. Supports tag ID or name (with alias resolution).
 // If tagName is provided and no existing tag or alias matches, creates the tag inline
 // for contributor+ users. The category parameter is used when creating new tags (defaults to "other").
+//
+// PSY-354: collections enforce a per-entity cap (MaxCollectionTags = 10). The
+// cap is checked HERE (before tag resolution / inline creation) so the same
+// limit applies whether the request comes through the dedicated
+// /collections/{slug}/tags endpoint or the polymorphic
+// /entities/collection/{id}/tags endpoint. Other entity types are uncapped
+// today; the if-statement keeps the bounded knowledge to the one entity that
+// has a cap rather than threading a per-entity-type limit map through.
 func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType string, entityID uint, userID uint, category string) (*models.EntityTag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -336,6 +344,18 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 
 	if !models.IsValidTagEntityType(entityType) {
 		return nil, fmt.Errorf("invalid entity type: %s", entityType)
+	}
+
+	if entityType == models.TagEntityCollection {
+		var existingCount int64
+		if err := s.db.Model(&models.EntityTag{}).
+			Where("entity_type = ? AND entity_id = ?", entityType, entityID).
+			Count(&existingCount).Error; err != nil {
+			return nil, fmt.Errorf("failed to count collection tags: %w", err)
+		}
+		if int(existingCount) >= contracts.MaxCollectionTags {
+			return nil, apperrors.ErrCollectionTagLimitExceeded(int(existingCount), contracts.MaxCollectionTags)
+		}
 	}
 
 	// Resolve tag by ID or name

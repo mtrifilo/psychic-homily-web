@@ -288,6 +288,13 @@ func (h *TagHandler) AddTagToEntityHandler(ctx context.Context, req *AddTagToEnt
 
 	_, err = h.tagService.AddTagToEntity(req.Body.TagID, req.Body.TagName, req.EntityType, uint(entityID), user.ID, req.Body.Category)
 	if err != nil {
+		// PSY-354: AddTagToEntity returns a CollectionError when the
+		// per-collection cap is hit. Check the collection-domain mapping
+		// first so the 400 reaches the caller; otherwise fall through to
+		// the tag-domain mapping.
+		if mapped := mapCollectionError(err); mapped != nil {
+			return nil, mapped
+		}
 		mapped := mapTagError(err)
 		if mapped != nil {
 			return nil, mapped

@@ -2111,19 +2111,11 @@ func (s *CollectionService) AddTagToCollection(slug string, userID uint, req *co
 		return nil, apperrors.ErrCollectionForbidden(slug)
 	}
 
-	// Enforce the per-collection cap before delegating. We list first so the
-	// 400 response can quote the precise current count to the curator. There
-	// is a benign race here (two simultaneous adds at count==9 could both
-	// succeed), but ten vs eleven is not safety-critical and the alternative
-	// would be a counter column or a SERIALIZABLE transaction — overkill for
-	// a soft cap.
-	existing, err := s.tagService.ListEntityTags(models.TagEntityCollection, collection.ID, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list existing collection tags: %w", err)
-	}
-	if len(existing) >= contracts.MaxCollectionTags {
-		return nil, apperrors.ErrCollectionTagLimitExceeded(len(existing), contracts.MaxCollectionTags)
-	}
+	// PSY-354: the per-collection cap (MaxCollectionTags) is now enforced
+	// inside catalog.TagService.AddTagToEntity so the same limit applies
+	// regardless of which endpoint the caller used. This wrapper still
+	// validates auth + edit-access and returns the post-mutation tag list
+	// for the dedicated endpoint's response shape.
 
 	category := req.Category
 	if category == "" {
