@@ -38,14 +38,14 @@ func NewPendingEditHandler(
 var allowedEditFields = map[string]map[string]bool{
 	"artist": {
 		"name": true, "city": true, "state": true, "country": true,
-		"description": true, "bandcamp_embed_url": true,
+		"description": true, "bandcamp_embed_url": true, "image_url": true,
 		"instagram": true, "facebook": true, "twitter": true,
 		"youtube": true, "spotify": true, "soundcloud": true,
 		"bandcamp": true, "website": true,
 	},
 	"venue": {
 		"name": true, "address": true, "city": true, "state": true,
-		"country": true, "zipcode": true, "description": true,
+		"country": true, "zipcode": true, "description": true, "image_url": true,
 		"instagram": true, "facebook": true, "twitter": true,
 		"youtube": true, "spotify": true, "soundcloud": true,
 		"bandcamp": true, "website": true,
@@ -62,6 +62,7 @@ var allowedEditFields = map[string]map[string]bool{
 	"label": {
 		"name": true, "founded_year": true,
 		"city": true, "state": true, "country": true, "description": true,
+		"image_url": true,
 		"instagram": true, "facebook": true, "twitter": true,
 		"youtube": true, "spotify": true, "soundcloud": true,
 		"bandcamp": true, "website": true,

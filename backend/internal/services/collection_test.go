@@ -2640,10 +2640,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBy
 // =============================================================================
 
 // TestGetBySlug_ImageURL_PopulatedForReleaseAndFestival verifies that the
-// CollectionItemResponse.ImageURL field is wired up for the two entity types
-// that already store a canonical image (release.cover_art_url,
-// festival.flyer_url) and is nil for the four types that don't yet have an
-// image column (artist, venue, show, label).
+// CollectionItemResponse.ImageURL field is wired up for release/festival
+// (the original PSY-360 entity types) and that artist/venue/show/label
+// (which post-PSY-521 also have an image_url column) surface as nil when
+// the curator has not yet added a URL.
 //
 // This is the contract the frontend grid (PSY-360) depends on: image when
 // available, nil so the frontend renders a typed Lucide icon fallback.
@@ -2675,18 +2675,18 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ImageURL_Popul
 	}
 	suite.Require().NoError(suite.db.Create(festival).Error)
 
-	// Artist (no image column) → image_url should be nil.
+	// Artist (image_url column exists post-PSY-521 but unset here) → nil.
 	artist := suite.createTestArtist("Test Artist For Image")
-	// Venue (no image column) → image_url should be nil.
+	// Venue (image_url column exists post-PSY-521 but unset here) → nil.
 	venue := suite.createTestVenueForCollection("Test Venue For Image")
-	// Label (no image column) → image_url should be nil.
+	// Label (image_url column exists post-PSY-521 but unset here) → nil.
 	labelSlug := fmt.Sprintf("test-label-%d", time.Now().UnixNano())
 	label := &catalogm.Label{
 		Name: "Test Label For Image",
 		Slug: &labelSlug,
 	}
 	suite.Require().NoError(suite.db.Create(label).Error)
-	// Show (no image column) → image_url should be nil.
+	// Show (image_url column exists post-PSY-521 but unset here) → nil.
 	showSlug := fmt.Sprintf("test-show-%d", time.Now().UnixNano())
 	show := &catalogm.Show{
 		Title:     "Test Show For Image",
@@ -2735,15 +2735,95 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ImageURL_Popul
 		"festival with flyer_url should surface image_url")
 	suite.Equal(flyerURL, *byType[communitym.CollectionEntityFestival].ImageURL)
 
-	// Artist/venue/label/show: no image column → image_url is nil.
+	// Artist/venue/label/show: image_url column exists (PSY-521) but
+	// curator has not added a URL on these fixtures → image_url is nil.
 	suite.Nil(byType[communitym.CollectionEntityArtist].ImageURL,
-		"artist has no image column; image_url should be nil")
+		"artist with no image_url should surface nil")
 	suite.Nil(byType[communitym.CollectionEntityVenue].ImageURL,
-		"venue has no image column; image_url should be nil")
+		"venue with no image_url should surface nil")
 	suite.Nil(byType[communitym.CollectionEntityLabel].ImageURL,
-		"label has no image column; image_url should be nil")
+		"label with no image_url should surface nil")
 	suite.Nil(byType[communitym.CollectionEntityShow].ImageURL,
-		"show has no image column; image_url should be nil")
+		"show with no image_url should surface nil")
+}
+
+// TestGetBySlug_ImageURL_PopulatedForArtistVenueShowLabel verifies that the
+// PSY-521 image_url column on artist/venue/show/label is wired through the
+// batch resolver and surfaces on CollectionItemResponse.ImageURL exactly the
+// way release.cover_art_url and festival.flyer_url do.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ImageURL_PopulatedForArtistVenueShowLabel() {
+	user := suite.createTestUser("PSY521ImageOwner")
+	coll := suite.createBasicCollection(user, "PSY-521 Imagery Test")
+
+	artistImg := "https://example.com/artist-promo.jpg"
+	artist := suite.createTestArtist("PSY521 Artist")
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Artist{}).Where("id = ?", artist.ID).
+			Update("image_url", artistImg).Error,
+	)
+
+	venueImg := "https://example.com/venue-exterior.jpg"
+	venue := suite.createTestVenueForCollection("PSY521 Venue")
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Venue{}).Where("id = ?", venue.ID).
+			Update("image_url", venueImg).Error,
+	)
+
+	labelImg := "https://example.com/label-logo.png"
+	labelSlug := fmt.Sprintf("psy521-label-%d", time.Now().UnixNano())
+	label := &catalogm.Label{
+		Name:     "PSY521 Label",
+		Slug:     &labelSlug,
+		ImageURL: &labelImg,
+	}
+	suite.Require().NoError(suite.db.Create(label).Error)
+
+	showImg := "https://example.com/show-flyer.jpg"
+	showSlug := fmt.Sprintf("psy521-show-%d", time.Now().UnixNano())
+	show := &catalogm.Show{
+		Title:     "PSY521 Show",
+		Slug:      &showSlug,
+		EventDate: time.Now().Add(14 * 24 * time.Hour),
+		ImageURL:  &showImg,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+
+	for _, item := range []struct {
+		entityType string
+		entityID   uint
+	}{
+		{communitym.CollectionEntityArtist, artist.ID},
+		{communitym.CollectionEntityVenue, venue.ID},
+		{communitym.CollectionEntityLabel, label.ID},
+		{communitym.CollectionEntityShow, show.ID},
+	} {
+		_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+			EntityType: item.entityType,
+			EntityID:   item.entityID,
+		})
+		suite.Require().NoError(err)
+	}
+
+	detail, err := suite.collectionService.GetBySlug(coll.Slug, user.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Items, 4)
+
+	byType := make(map[string]contracts.CollectionItemResponse)
+	for _, it := range detail.Items {
+		byType[it.EntityType] = it
+	}
+
+	suite.Require().NotNil(byType[communitym.CollectionEntityArtist].ImageURL)
+	suite.Equal(artistImg, *byType[communitym.CollectionEntityArtist].ImageURL)
+
+	suite.Require().NotNil(byType[communitym.CollectionEntityVenue].ImageURL)
+	suite.Equal(venueImg, *byType[communitym.CollectionEntityVenue].ImageURL)
+
+	suite.Require().NotNil(byType[communitym.CollectionEntityLabel].ImageURL)
+	suite.Equal(labelImg, *byType[communitym.CollectionEntityLabel].ImageURL)
+
+	suite.Require().NotNil(byType[communitym.CollectionEntityShow].ImageURL)
+	suite.Equal(showImg, *byType[communitym.CollectionEntityShow].ImageURL)
 }
 
 // TestGetBySlug_ImageURL_NilWhenSourceColumnIsNull verifies that releases

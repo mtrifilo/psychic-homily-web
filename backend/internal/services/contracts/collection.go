@@ -206,15 +206,14 @@ type CollectionListResponse struct {
 // valid markdown, and the sanitizer guarantees safe output for any stored row.
 //
 // ImageURL is the entity's representative image (PSY-360, "visual grid"
-// rendering on the collection-detail page). Currently surfaced for the two
-// entity types that already store a canonical image:
-//   - release → cover_art_url
+// rendering on the collection-detail page). Surfaced for all six entity
+// types; column name varies by domain:
+//   - release  → cover_art_url
 //   - festival → flyer_url
+//   - artist / venue / show / label → image_url (PSY-521)
 //
-// Other entity types (artist, venue, show, label) have no image column yet,
-// so ImageURL is nil for those rows; the frontend renders a typed Lucide
-// icon as a fallback. When those columns land, this contract does not need
-// to change — only the batch resolver below.
+// Rows where the curator has not added a URL surface as nil and the frontend
+// renders a typed Lucide icon as a fallback.
 type CollectionItemResponse struct {
 	ID            uint      `json:"id"`
 	EntityType    string    `json:"entity_type"`

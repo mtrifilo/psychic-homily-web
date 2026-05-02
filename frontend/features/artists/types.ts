@@ -24,6 +24,8 @@ export interface Artist {
   city: string | null
   bandcamp_embed_url: string | null
   description?: string | null
+  /** Optional artist photo URL (PSY-521). */
+  image_url?: string | null
   social: ArtistSocial
   created_at: string
   updated_at: string

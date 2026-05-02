@@ -62,6 +62,7 @@ export interface ShowResponse {
   age_requirement?: string | null
   description?: string | null
   ticket_url?: string | null
+  image_url?: string | null
   status: ShowStatus
   submitted_by?: number
   rejection_reason?: string | null
