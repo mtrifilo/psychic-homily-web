@@ -2,7 +2,15 @@
 //
 // Usage:
 //
-//	cd backend && go run ./internal/api/handlers/gen/ > ./internal/api/handlers/handler_unit_mock_helpers_test.go
+//	cd backend && go run ./internal/api/handlers/gen/ > ./internal/api/handlers/shared/testhelpers/mocks_gen.go
+//	gofmt -w ./internal/api/handlers/shared/testhelpers/mocks_gen.go
+//
+// Output is a regular (non-`_test.go`) file in the `testhelpers` package, so
+// any test in any handler sub-package can import it. Mock types and fields
+// are exported (capitalized) so callers can construct them across packages.
+// The gofmt step normalizes column alignment in struct field declarations —
+// the generator emits tab-separated single spaces, which gofmt rewrites to
+// aligned tabs.
 package main
 
 import (
@@ -46,84 +54,84 @@ var ifaceConfigs = map[string]interfaceConfig{
 // Custom method defaults for methods that need non-zero-value defaults.
 // Key format: "MockStructName.MethodName"
 var customDefaults = map[string]methodDefault{
-	"mockShowAdminService.BatchApproveShows": {
+	"MockShowAdminService.BatchApproveShows": {
 		body: `	return &contracts.BatchShowResult{Succeeded: showIDs, Errors: []contracts.BatchShowError{}}, nil`,
 	},
-	"mockShowAdminService.BatchRejectShows": {
+	"MockShowAdminService.BatchRejectShows": {
 		body: `	return &contracts.BatchShowResult{Succeeded: showIDs, Errors: []contracts.BatchShowError{}}, nil`,
 	},
-	"mockAttendanceService.GetAttendanceCounts": {
+	"MockAttendanceService.GetAttendanceCounts": {
 		body: `	return &contracts.AttendanceCountsResponse{ShowID: showID}, nil`,
 	},
-	"mockAttendanceService.GetBatchAttendanceCounts": {
+	"MockAttendanceService.GetBatchAttendanceCounts": {
 		body: `	result := make(map[uint]*contracts.AttendanceCountsResponse)
 	for _, id := range showIDs {
 		result[id] = &contracts.AttendanceCountsResponse{ShowID: id}
 	}
 	return result, nil`,
 	},
-	"mockAttendanceService.GetBatchUserAttendance": {
+	"MockAttendanceService.GetBatchUserAttendance": {
 		body: `	return make(map[uint]string), nil`,
 	},
-	"mockFollowService.GetBatchFollowerCounts": {
+	"MockFollowService.GetBatchFollowerCounts": {
 		body: `	result := make(map[uint]int64)
 	for _, id := range entityIDs {
 		result[id] = 0
 	}
 	return result, nil`,
 	},
-	"mockFollowService.GetBatchUserFollowing": {
+	"MockFollowService.GetBatchUserFollowing": {
 		body: `	return make(map[uint]bool), nil`,
 	},
-	"mockExtractionService.ExtractCalendarPage": {
+	"MockExtractionService.ExtractCalendarPage": {
 		body: `	return &contracts.CalendarExtractionResponse{Success: true, Events: []contracts.CalendarEvent{}}, nil`,
 	},
-	"mockAdminStatsService.GetRecentActivity": {
+	"MockAdminStatsService.GetRecentActivity": {
 		body: `	return &contracts.ActivityFeedResponse{Events: []contracts.ActivityEvent{}}, nil`,
 	},
-	"mockUserService.GetFavoriteCities": {
+	"MockUserService.GetFavoriteCities": {
 		body: `	return []models.FavoriteCity{}, nil`,
 	},
-	"mockPasswordValidator.ValidatePassword": {
+	"MockPasswordValidator.ValidatePassword": {
 		body: `	return &contracts.PasswordValidationResult{Valid: true}, nil`,
 	},
-	"mockVenueService.GetVenueGenreProfile": {
+	"MockVenueService.GetVenueGenreProfile": {
 		body: `	return []contracts.GenreCount{}, nil`,
 	},
-	"mockWebAuthnService.StoreChallenge": {
+	"MockWebAuthnService.StoreChallenge": {
 		body: `	return "challenge-id", nil`,
 	},
-	"mockSceneService.ListScenes": {
+	"MockSceneService.ListScenes": {
 		body: `	return []*contracts.SceneListResponse{}, nil`,
 	},
-	"mockSceneService.GetActiveArtists": {
+	"MockSceneService.GetActiveArtists": {
 		body: `	return []*contracts.SceneArtistResponse{}, 0, nil`,
 	},
-	"mockSceneService.ParseSceneSlug": {
+	"MockSceneService.ParseSceneSlug": {
 		body: `	return "", "", fmt.Errorf("scene not found for slug: %s", slug)`,
 	},
-	"mockSceneService.GetSceneGenreDistribution": {
+	"MockSceneService.GetSceneGenreDistribution": {
 		body: `	return []contracts.GenreCount{}, nil`,
 	},
-	"mockSceneService.GetGenreDiversityIndex": {
+	"MockSceneService.GetGenreDiversityIndex": {
 		body: `	return -1, nil`,
 	},
-	"mockDataQualityService.GetSummary": {
+	"MockDataQualityService.GetSummary": {
 		body: `	return &contracts.DataQualitySummary{Categories: []contracts.DataQualityCategory{}}, nil`,
 	},
-	"mockChartsService.GetTrendingShows": {
+	"MockChartsService.GetTrendingShows": {
 		body: `	return []contracts.TrendingShow{}, nil`,
 	},
-	"mockChartsService.GetPopularArtists": {
+	"MockChartsService.GetPopularArtists": {
 		body: `	return []contracts.PopularArtist{}, nil`,
 	},
-	"mockChartsService.GetActiveVenues": {
+	"MockChartsService.GetActiveVenues": {
 		body: `	return []contracts.ActiveVenue{}, nil`,
 	},
-	"mockChartsService.GetHotReleases": {
+	"MockChartsService.GetHotReleases": {
 		body: `	return []contracts.HotRelease{}, nil`,
 	},
-	"mockChartsService.GetChartsOverview": {
+	"MockChartsService.GetChartsOverview": {
 		body: `	return &contracts.ChartsOverview{
 		TrendingShows:  []contracts.TrendingShow{},
 		PopularArtists: []contracts.PopularArtist{},
@@ -131,7 +139,7 @@ var customDefaults = map[string]methodDefault{
 		HotReleases:    []contracts.HotRelease{},
 	}, nil`,
 	},
-	"mockAnalyticsService.GetGrowthMetrics": {
+	"MockAnalyticsService.GetGrowthMetrics": {
 		body: `	return &contracts.GrowthMetricsResponse{
 		Shows:    []contracts.MonthlyCount{},
 		Artists:  []contracts.MonthlyCount{},
@@ -141,7 +149,7 @@ var customDefaults = map[string]methodDefault{
 		Users:    []contracts.MonthlyCount{},
 	}, nil`,
 	},
-	"mockAnalyticsService.GetEngagementMetrics": {
+	"MockAnalyticsService.GetEngagementMetrics": {
 		body: `	return &contracts.EngagementMetricsResponse{
 		Bookmarks:       []contracts.EngagementMetric{},
 		TagsAdded:       []contracts.EngagementMetric{},
@@ -154,19 +162,19 @@ var customDefaults = map[string]methodDefault{
 		Attendance:      []contracts.EngagementMetric{},
 	}, nil`,
 	},
-	"mockAnalyticsService.GetCommunityHealth": {
+	"MockAnalyticsService.GetCommunityHealth": {
 		body: `	return &contracts.CommunityHealthResponse{
 		ContributionsPerWeek: []contracts.WeeklyContributions{},
 		TopContributors:      []contracts.TopContributor{},
 	}, nil`,
 	},
-	"mockAnalyticsService.GetDataQualityTrends": {
+	"MockAnalyticsService.GetDataQualityTrends": {
 		body: `	return &contracts.DataQualityTrendsResponse{
 		ShowsApproved: []contracts.MonthlyCount{},
 		ShowsRejected: []contracts.MonthlyCount{},
 	}, nil`,
 	},
-	"mockPipelineService.ExtractVenue": {
+	"MockPipelineService.ExtractVenue": {
 		body: `	return &contracts.PipelineResult{
 		VenueID:         venueID,
 		VenueName:       "Test Venue",
@@ -177,19 +185,19 @@ var customDefaults = map[string]methodDefault{
 		DryRun:          dryRun,
 	}, nil`,
 	},
-	"mockVenueSourceConfigService.CreateOrUpdate": {
+	"MockVenueSourceConfigService.CreateOrUpdate": {
 		body: `	return config, nil`,
 	},
-	"mockVenueSourceConfigService.GetRejectionStats": {
+	"MockVenueSourceConfigService.GetRejectionStats": {
 		body: `	return &contracts.VenueRejectionStats{RejectionBreakdown: make(map[string]int64)}, nil`,
 	},
-	"mockEnrichmentService.EnrichShow": {
+	"MockEnrichmentService.EnrichShow": {
 		body: `	return &contracts.EnrichmentResult{ShowID: showID, CompletedSteps: []string{"artist_match", "musicbrainz", "api_crossref"}}, nil`,
 	},
-	"mockEnrichmentService.GetQueueStats": {
+	"MockEnrichmentService.GetQueueStats": {
 		body: `	return &contracts.EnrichmentQueueStats{}, nil`,
 	},
-	"mockRequestService.CreateRequest": {
+	"MockRequestService.CreateRequest": {
 		body: `	desc := description
 	return &models.Request{
 		ID:          1,
@@ -200,7 +208,7 @@ var customDefaults = map[string]methodDefault{
 		RequesterID: userID,
 	}, nil`,
 	},
-	"mockRequestService.GetRequest": {
+	"MockRequestService.GetRequest": {
 		body: `	return &models.Request{
 		ID:          requestID,
 		Title:       "Test Request",
@@ -209,12 +217,12 @@ var customDefaults = map[string]methodDefault{
 		RequesterID: 1,
 	}, nil`,
 	},
-	"mockRequestService.ListRequests": {
+	"MockRequestService.ListRequests": {
 		body: `	return []models.Request{
 		{ID: 1, Title: "Request 1", EntityType: "artist", Status: models.RequestStatusPending, RequesterID: 1},
 	}, 1, nil`,
 	},
-	"mockRequestService.UpdateRequest": {
+	"MockRequestService.UpdateRequest": {
 		body: `	t := "Updated"
 	return &models.Request{ID: requestID, Title: t, EntityType: "artist", Status: models.RequestStatusPending, RequesterID: userID}, nil`,
 	},
@@ -284,7 +292,7 @@ func main() {
 					continue
 				}
 
-				mockName := "mock" + strings.TrimSuffix(name, "Interface")
+				mockName := "Mock" + strings.TrimSuffix(name, "Interface")
 				if hasCfg && cfg.mockName != "" {
 					mockName = cfg.mockName
 				}
@@ -491,11 +499,11 @@ func inferParamName(typStr string, index int) string {
 func generateFile(ifaces []ifaceData) {
 	fmt.Println(`// Code generated by gen/gen_mocks.go; DO NOT EDIT.
 // To regenerate:
-//   cd backend && go run ./internal/api/handlers/gen/ > ./internal/api/handlers/handler_unit_mock_helpers_test.go
+//   cd backend && go run ./internal/api/handlers/gen/ > ./internal/api/handlers/shared/testhelpers/mocks_gen.go
 
-//go:generate go run ./gen/ > handler_unit_mock_helpers_test.go
+//go:generate go run ./gen/ > shared/testhelpers/mocks_gen.go
 
-package handlers
+package testhelpers
 
 import (
 	"context"
@@ -532,7 +540,7 @@ var (
 		// Struct definition with function fields
 		fmt.Printf("type %s struct {\n", iface.MockName)
 		for _, m := range iface.Methods {
-			fnFieldName := toLowerFirst(m.Name) + "Fn"
+			fnFieldName := m.Name + "Fn"
 			fnType := formatFuncType(m.Params, m.Results, m.IsVariadic)
 			fmt.Printf("\t%s %s\n", fnFieldName, fnType)
 		}
@@ -541,7 +549,7 @@ var (
 
 		// Method implementations
 		for _, m := range iface.Methods {
-			fnFieldName := toLowerFirst(m.Name) + "Fn"
+			fnFieldName := m.Name + "Fn"
 			paramList := formatParamList(m.Params)
 			paramNames := formatParamNames(m.Params, m.IsVariadic)
 
