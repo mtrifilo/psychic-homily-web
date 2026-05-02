@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -36,7 +37,11 @@ type ListCollectionsHandlerRequest struct {
 	Creator    string `query:"creator" required:"false" doc:"Filter by creator username"`
 	EntityType string `query:"entity_type" required:"false" doc:"Filter by entity type (artist, release, label, show, venue, festival)"`
 	Featured   int    `query:"featured" required:"false" doc:"Filter featured collections (1=featured only)" example:"0"`
-	Search     string `query:"search" required:"false" doc:"Search by title"`
+	// PSY-355: search now matches across title, description, item notes, and
+	// tag names/aliases (case-insensitive ILIKE substring). Empty / whitespace
+	// queries short-circuit before hitting the DB. Title-tier matches rank
+	// above body-tier matches when the default sort is in effect.
+	Search     string `query:"search" required:"false" doc:"Search across collection title, description, item notes, and tag names/aliases (case-insensitive substring)"`
 	// PSY-352: sort=popular orders by HN gravity (likes / age^1.8). Empty
 	// or omitted defaults to updated_at DESC.
 	Sort string `query:"sort" required:"false" doc:"Sort order: 'popular' for HN-gravity ranking. Defaults to recently-updated." enum:"popular"`
@@ -64,8 +69,14 @@ func (h *CollectionHandler) ListCollectionsHandler(ctx context.Context, req *Lis
 		return nil, huma.Error400BadRequest(fmt.Sprintf("Unsupported sort value: %q", req.Sort))
 	}
 
+	// PSY-355: empty / whitespace-only search short-circuits at the boundary
+	// so it never reaches the DB OR clause. Mirrors PSY-520's SearchShows
+	// pattern. The service layer trims defensively too in case it's called
+	// directly from tests or future internal callers.
+	search := strings.TrimSpace(req.Search)
+
 	filters := contracts.CollectionFilters{
-		Search:     req.Search,
+		Search:     search,
 		EntityType: req.EntityType,
 		PublicOnly: true, // Public endpoint always filters to public
 		Sort:       req.Sort,
