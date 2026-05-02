@@ -24,7 +24,7 @@ describe('useEntitySearch', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     // Default: all endpoints return empty
-    mockApiRequest.mockResolvedValue({ artists: [], venues: [], releases: [], labels: [], festivals: [], tags: [], count: 0 })
+    mockApiRequest.mockResolvedValue({ artists: [], venues: [], shows: [], releases: [], labels: [], festivals: [], tags: [], count: 0 })
   })
 
   it('should not fetch when query is less than 2 characters', () => {
@@ -56,7 +56,7 @@ describe('useEntitySearch', () => {
     expect(mockApiRequest).not.toHaveBeenCalled()
   })
 
-  it('should fetch all 6 entity types when query is 2+ characters', async () => {
+  it('should fetch all 7 entity types when query is 2+ characters', async () => {
     mockApiRequest.mockImplementation((url: string) => {
       if (url.includes('/artists/search')) {
         return Promise.resolve({
@@ -66,6 +66,9 @@ describe('useEntitySearch', () => {
       }
       if (url.includes('/venues/search')) {
         return Promise.resolve({ venues: [], count: 0 })
+      }
+      if (url.includes('/shows/search')) {
+        return Promise.resolve({ shows: [], count: 0 })
       }
       if (url.includes('/releases/search')) {
         return Promise.resolve({ releases: [], count: 0 })
@@ -91,10 +94,11 @@ describe('useEntitySearch', () => {
       expect(result.current.totalResults).toBe(1)
     })
 
-    // All 6 endpoints should be called
-    expect(mockApiRequest).toHaveBeenCalledTimes(6)
+    // All 7 endpoints should be called (PSY-372: shows added)
+    expect(mockApiRequest).toHaveBeenCalledTimes(7)
     expect(mockApiRequest).toHaveBeenCalledWith(expect.stringContaining('/artists/search?q=growlers'))
     expect(mockApiRequest).toHaveBeenCalledWith(expect.stringContaining('/venues/search?q=growlers'))
+    expect(mockApiRequest).toHaveBeenCalledWith(expect.stringContaining('/shows/search?q=growlers'))
     expect(mockApiRequest).toHaveBeenCalledWith(expect.stringContaining('/releases/search?q=growlers'))
     expect(mockApiRequest).toHaveBeenCalledWith(expect.stringContaining('/labels/search?q=growlers'))
     expect(mockApiRequest).toHaveBeenCalledWith(expect.stringContaining('/festivals/search?q=growlers'))
@@ -272,6 +276,94 @@ describe('useEntitySearch', () => {
       entityType: 'label',
       href: '/labels/sub-pop',
     })
+  })
+
+  // PSY-372: shows surface alongside the other entity types now that the
+  // /shows/search endpoint exists (PSY-520). Label format = "{Headliner} @
+  // {Venue} · {Date}" goes into `name`; subtitle is null.
+  it('should map show results correctly', async () => {
+    mockApiRequest.mockImplementation((url: string) => {
+      if (url.includes('/shows/search')) {
+        return Promise.resolve({
+          shows: [
+            {
+              id: 42,
+              slug: 'faetooth-valley-bar-2026-04-15',
+              title: 'Faetooth at Valley Bar',
+              headliner_name: 'Faetooth',
+              venue_name: 'Valley Bar',
+              event_date: '2026-04-15T03:00:00Z',
+            },
+          ],
+          count: 1,
+        })
+      }
+      return Promise.resolve({ artists: [], venues: [], releases: [], labels: [], festivals: [], tags: [], count: 0 })
+    })
+
+    const { result } = renderHook(
+      () => useEntitySearch({ query: 'faetooth' }),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => {
+      expect(result.current.data?.shows.length).toBe(1)
+    })
+
+    const show = result.current.data!.shows[0]
+    expect(show.id).toBe(42)
+    expect(show.slug).toBe('faetooth-valley-bar-2026-04-15')
+    expect(show.entityType).toBe('show')
+    expect(show.href).toBe('/shows/faetooth-valley-bar-2026-04-15')
+    expect(show.subtitle).toBeNull()
+    // Label format: "{Headliner} @ {Venue} · {Date}". The exact rendered
+    // date depends on the test environment's locale/TZ; assert structure
+    // (headliner, separator, venue, separator, year) instead of full equality
+    // so the test stays stable across CI timezones.
+    expect(show.name).toContain('Faetooth')
+    expect(show.name).toContain('@ Valley Bar')
+    expect(show.name).toContain('·')
+    expect(show.name).toContain('2026')
+  })
+
+  it('should fall back gracefully when show fields are sparse', async () => {
+    // Defensive: a row with no headliner / venue should still render
+    // something meaningful in the dropdown (the title or date) rather than
+    // an empty string or orphan separator.
+    mockApiRequest.mockImplementation((url: string) => {
+      if (url.includes('/shows/search')) {
+        return Promise.resolve({
+          shows: [
+            {
+              id: 7,
+              slug: 'fallback-show',
+              title: 'Fallback Title',
+              headliner_name: '',
+              venue_name: '',
+              event_date: '2026-04-15T03:00:00Z',
+            },
+          ],
+          count: 1,
+        })
+      }
+      return Promise.resolve({ artists: [], venues: [], releases: [], labels: [], festivals: [], tags: [], count: 0 })
+    })
+
+    const { result } = renderHook(
+      () => useEntitySearch({ query: 'fallback' }),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => {
+      expect(result.current.data?.shows.length).toBe(1)
+    })
+
+    const show = result.current.data!.shows[0]
+    // Without headliner+venue, label is just the date.
+    expect(show.name).toContain('2026')
+    // No orphan "@ " or trailing " · ".
+    expect(show.name).not.toMatch(/^@/)
+    expect(show.name).not.toMatch(/·\s*$/)
   })
 
   it('should map festival results correctly', async () => {

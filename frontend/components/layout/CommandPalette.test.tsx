@@ -41,6 +41,9 @@ vi.mock('@/lib/context/AuthContext', () => ({
 type MockedEntitySearchData = {
   artists: unknown[]
   venues: unknown[]
+  // PSY-372: shows are returned by useEntitySearch but the palette doesn't
+  // surface them; included here so the mock matches the real shape.
+  shows: unknown[]
   releases: unknown[]
   labels: unknown[]
   festivals: unknown[]
@@ -49,6 +52,7 @@ type MockedEntitySearchData = {
 const emptyEntityData: MockedEntitySearchData = {
   artists: [],
   venues: [],
+  shows: [],
   releases: [],
   labels: [],
   festivals: [],
@@ -268,6 +272,7 @@ describe('CommandPalette — tag row official indicator (PSY-453)', () => {
       data: {
         artists: [],
         venues: [],
+        shows: [],
         releases: [],
         labels: [],
         festivals: [],
