@@ -2348,3 +2348,200 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBy
 	suite.Equal(int64(0), total)
 	suite.Empty(resp)
 }
+
+// =============================================================================
+// PSY-360: ImageURL surfacing on collection items
+// =============================================================================
+
+// TestGetBySlug_ImageURL_PopulatedForReleaseAndFestival verifies that the
+// CollectionItemResponse.ImageURL field is wired up for the two entity types
+// that already store a canonical image (release.cover_art_url,
+// festival.flyer_url) and is nil for the four types that don't yet have an
+// image column (artist, venue, show, label).
+//
+// This is the contract the frontend grid (PSY-360) depends on: image when
+// available, nil so the frontend renders a typed Lucide icon fallback.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ImageURL_PopulatedForReleaseAndFestival() {
+	user := suite.createTestUser("ImageURLOwner")
+	coll := suite.createBasicCollection(user, "Visual Grid Test")
+
+	// Release with cover art → image_url should surface.
+	releaseSlug := fmt.Sprintf("test-release-%d", time.Now().UnixNano())
+	coverURL := "https://example.com/cover.jpg"
+	release := &models.Release{
+		Title:       "Test Release",
+		Slug:        &releaseSlug,
+		ReleaseType: models.ReleaseTypeLP,
+		CoverArtURL: &coverURL,
+	}
+	suite.Require().NoError(suite.db.Create(release).Error)
+
+	// Festival with flyer → image_url should surface.
+	flyerURL := "https://example.com/flyer.jpg"
+	festival := &models.Festival{
+		Name:        "Test Festival",
+		Slug:        fmt.Sprintf("test-festival-%d", time.Now().UnixNano()),
+		SeriesSlug:  "test-festival",
+		EditionYear: 2026,
+		StartDate:   "2026-06-01",
+		EndDate:     "2026-06-03",
+		FlyerURL:    &flyerURL,
+	}
+	suite.Require().NoError(suite.db.Create(festival).Error)
+
+	// Artist (no image column) → image_url should be nil.
+	artist := suite.createTestArtist("Test Artist For Image")
+	// Venue (no image column) → image_url should be nil.
+	venue := suite.createTestVenueForCollection("Test Venue For Image")
+	// Label (no image column) → image_url should be nil.
+	labelSlug := fmt.Sprintf("test-label-%d", time.Now().UnixNano())
+	label := &models.Label{
+		Name: "Test Label For Image",
+		Slug: &labelSlug,
+	}
+	suite.Require().NoError(suite.db.Create(label).Error)
+	// Show (no image column) → image_url should be nil.
+	showSlug := fmt.Sprintf("test-show-%d", time.Now().UnixNano())
+	show := &models.Show{
+		Title:     "Test Show For Image",
+		Slug:      &showSlug,
+		EventDate: time.Now().Add(7 * 24 * time.Hour),
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+
+	// Add all six entity types in a stable order so we can assert by index.
+	for _, item := range []struct {
+		entityType string
+		entityID   uint
+	}{
+		{models.CollectionEntityRelease, release.ID},
+		{models.CollectionEntityFestival, festival.ID},
+		{models.CollectionEntityArtist, artist.ID},
+		{models.CollectionEntityVenue, venue.ID},
+		{models.CollectionEntityLabel, label.ID},
+		{models.CollectionEntityShow, show.ID},
+	} {
+		_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+			EntityType: item.entityType,
+			EntityID:   item.entityID,
+		})
+		suite.Require().NoError(err)
+	}
+
+	detail, err := suite.collectionService.GetBySlug(coll.Slug, user.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Items, 6)
+
+	// Index by entity_type for clarity — order is by position but we want
+	// the assertions readable regardless.
+	byType := make(map[string]contracts.CollectionItemResponse)
+	for _, it := range detail.Items {
+		byType[it.EntityType] = it
+	}
+
+	// Release: image_url populated.
+	suite.Require().NotNil(byType[models.CollectionEntityRelease].ImageURL,
+		"release with cover_art_url should surface image_url")
+	suite.Equal(coverURL, *byType[models.CollectionEntityRelease].ImageURL)
+
+	// Festival: image_url populated.
+	suite.Require().NotNil(byType[models.CollectionEntityFestival].ImageURL,
+		"festival with flyer_url should surface image_url")
+	suite.Equal(flyerURL, *byType[models.CollectionEntityFestival].ImageURL)
+
+	// Artist/venue/label/show: no image column → image_url is nil.
+	suite.Nil(byType[models.CollectionEntityArtist].ImageURL,
+		"artist has no image column; image_url should be nil")
+	suite.Nil(byType[models.CollectionEntityVenue].ImageURL,
+		"venue has no image column; image_url should be nil")
+	suite.Nil(byType[models.CollectionEntityLabel].ImageURL,
+		"label has no image column; image_url should be nil")
+	suite.Nil(byType[models.CollectionEntityShow].ImageURL,
+		"show has no image column; image_url should be nil")
+}
+
+// TestGetBySlug_ImageURL_NilWhenSourceColumnIsNull verifies that releases
+// and festivals without an image column value yield image_url = nil (not
+// pointer-to-empty-string). Catches the foot-gun of accidentally surfacing
+// `""` to the frontend, which would render as `<img src="">` and trip a
+// broken-image icon.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ImageURL_NilWhenSourceColumnIsNull() {
+	user := suite.createTestUser("NullImageOwner")
+	coll := suite.createBasicCollection(user, "Null Image Test")
+
+	// Release without cover_art_url.
+	releaseSlug := fmt.Sprintf("nullimg-release-%d", time.Now().UnixNano())
+	release := &models.Release{
+		Title:       "No Cover",
+		Slug:        &releaseSlug,
+		ReleaseType: models.ReleaseTypeLP,
+		// CoverArtURL intentionally nil.
+	}
+	suite.Require().NoError(suite.db.Create(release).Error)
+
+	// Festival without flyer_url.
+	festival := &models.Festival{
+		Name:        "No Flyer",
+		Slug:        fmt.Sprintf("nullimg-festival-%d", time.Now().UnixNano()),
+		SeriesSlug:  "nullimg-festival",
+		EditionYear: 2026,
+		StartDate:   "2026-07-01",
+		EndDate:     "2026-07-03",
+		// FlyerURL intentionally nil.
+	}
+	suite.Require().NoError(suite.db.Create(festival).Error)
+
+	for _, it := range []struct {
+		entityType string
+		entityID   uint
+	}{
+		{models.CollectionEntityRelease, release.ID},
+		{models.CollectionEntityFestival, festival.ID},
+	} {
+		_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+			EntityType: it.entityType,
+			EntityID:   it.entityID,
+		})
+		suite.Require().NoError(err)
+	}
+
+	detail, err := suite.collectionService.GetBySlug(coll.Slug, user.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Items, 2)
+
+	for _, it := range detail.Items {
+		suite.Nil(it.ImageURL,
+			"image_url must be nil (not pointer-to-empty) when source column is null; entity_type=%s", it.EntityType)
+	}
+}
+
+// TestGetBySlug_ImageURL_NilWhenSourceColumnIsWhitespace verifies that a
+// release with a stored image URL of "   " (whitespace-only) surfaces nil,
+// not a useless string. Defense in depth against bad seed data.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ImageURL_NilWhenSourceColumnIsWhitespace() {
+	user := suite.createTestUser("WhitespaceImageOwner")
+	coll := suite.createBasicCollection(user, "Whitespace Image Test")
+
+	releaseSlug := fmt.Sprintf("ws-release-%d", time.Now().UnixNano())
+	whitespace := "   "
+	release := &models.Release{
+		Title:       "Whitespace Cover",
+		Slug:        &releaseSlug,
+		ReleaseType: models.ReleaseTypeLP,
+		CoverArtURL: &whitespace,
+	}
+	suite.Require().NoError(suite.db.Create(release).Error)
+
+	_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: models.CollectionEntityRelease,
+		EntityID:   release.ID,
+	})
+	suite.Require().NoError(err)
+
+	detail, err := suite.collectionService.GetBySlug(coll.Slug, user.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Items, 1)
+
+	suite.Nil(detail.Items[0].ImageURL,
+		"whitespace-only image URLs should normalize to nil so the frontend renders the typed-icon fallback")
+}

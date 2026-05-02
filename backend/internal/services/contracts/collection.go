@@ -200,12 +200,24 @@ type CollectionListResponse struct {
 // Notes is the raw markdown; NotesHTML is sanitized rendered HTML, computed on
 // read. Existing plain-text notes still render correctly because plain text is
 // valid markdown, and the sanitizer guarantees safe output for any stored row.
+//
+// ImageURL is the entity's representative image (PSY-360, "visual grid"
+// rendering on the collection-detail page). Currently surfaced for the two
+// entity types that already store a canonical image:
+//   - release → cover_art_url
+//   - festival → flyer_url
+//
+// Other entity types (artist, venue, show, label) have no image column yet,
+// so ImageURL is nil for those rows; the frontend renders a typed Lucide
+// icon as a fallback. When those columns land, this contract does not need
+// to change — only the batch resolver below.
 type CollectionItemResponse struct {
 	ID            uint      `json:"id"`
 	EntityType    string    `json:"entity_type"`
 	EntityID      uint      `json:"entity_id"`
 	EntityName    string    `json:"entity_name"`
 	EntitySlug    string    `json:"entity_slug"`
+	ImageURL      *string   `json:"image_url"`
 	Position      int       `json:"position"`
 	AddedByUserID uint      `json:"added_by_user_id"`
 	AddedByName   string    `json:"added_by_name"`
