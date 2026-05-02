@@ -649,3 +649,86 @@ type SceneGraphLink struct {
 	Detail         any     `json:"detail,omitempty"`
 	IsCrossCluster bool    `json:"is_cross_cluster"` // derived: source.cluster_id != target.cluster_id
 }
+
+// ──────────────────────────────────────────────
+// Venue bill network (PSY-365) — co-bill network of artists at a single venue
+// ──────────────────────────────────────────────
+//
+// The venue analog of the scene graph (PSY-367). Edges are weighted by the
+// number of shows the two artists shared *at this specific venue* (not
+// globally), which is the unfair-advantage signal called out in
+// docs/research/knowledge-graph-viz-prior-art.md §6.
+//
+// Mirrors SceneGraphResponse field-for-field (`scene` → `venue`, `clusters`,
+// `nodes`, `links`) so a shared frontend ForceGraphView can render either
+// payload. Cluster-aware layout machinery is preserved on the type even when
+// no clusters are returned (v1 ships without explicit clusters — see PSY-365
+// PR notes for the rationale).
+
+// VenueBillNetworkResponse is the payload for GET /venues/{id}/bill-network.
+type VenueBillNetworkResponse struct {
+	Venue    VenueBillNetworkInfo      `json:"venue"`
+	Clusters []VenueBillNetworkCluster `json:"clusters"`
+	Nodes    []VenueBillNetworkNode    `json:"nodes"`
+	Links    []VenueBillNetworkLink    `json:"links"`
+}
+
+// VenueBillNetworkInfo holds venue metadata and aggregate counts for the graph.
+// Fields mirror SceneGraphInfo (slug + counts) plus venue-specific identifiers.
+type VenueBillNetworkInfo struct {
+	ID          uint   `json:"id"`
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	City        string `json:"city,omitempty"`
+	State       string `json:"state,omitempty"`
+	ArtistCount int    `json:"artist_count"` // distinct artists matching the time-window filter
+	EdgeCount   int    `json:"edge_count"`   // co-bill pairs above the min-shared-shows threshold
+	ShowCount   int    `json:"show_count"`   // approved shows used to derive the network
+	// WindowLabel describes the active time window in the response so the
+	// frontend can label the graph without reverse-engineering the filter.
+	// One of: "all_time", "last_12m", "year".
+	Window string `json:"window"`
+	// Year is populated only when Window=="year"; carries the requested year.
+	Year *int `json:"year,omitempty"`
+}
+
+// VenueBillNetworkCluster matches the SceneGraphCluster shape so the same
+// ForceGraphView legend renders both. v1 ships without explicit clusters at
+// venue scope (every artist's primary venue is, by definition, this venue —
+// the scene graph's signal collapses), so the array is typically empty.
+type VenueBillNetworkCluster struct {
+	ID         string `json:"id"`
+	Label      string `json:"label"`
+	Size       int    `json:"size"`
+	ColorIndex int    `json:"color_index"`
+}
+
+// VenueBillNetworkNode mirrors SceneGraphNode. ClusterID defaults to "other"
+// when no clusters are computed (v1 default).
+type VenueBillNetworkNode struct {
+	ID                uint   `json:"id"`
+	Name              string `json:"name"`
+	Slug              string `json:"slug"`
+	City              string `json:"city,omitempty"`
+	State             string `json:"state,omitempty"`
+	UpcomingShowCount int    `json:"upcoming_show_count"`
+	ClusterID         string `json:"cluster_id"`
+	IsIsolate         bool   `json:"is_isolate"`
+	// AtVenueShowCount is the number of approved shows this artist has played
+	// at the venue, within the active time window. Surfaces the rank signal
+	// the user is intuiting from "who's a regular here".
+	AtVenueShowCount int `json:"at_venue_show_count"`
+}
+
+// VenueBillNetworkLink mirrors SceneGraphLink. The Detail field carries
+// `shared_count` (number of shared shows AT THIS VENUE in the active window)
+// and `last_shared` (most recent shared event date) so the frontend tooltip
+// stays edge-grammar-compatible with PSY-362.
+type VenueBillNetworkLink struct {
+	SourceID       uint    `json:"source_id"`
+	TargetID       uint    `json:"target_id"`
+	Type           string  `json:"type"`
+	Score          float64 `json:"score"`
+	Detail         any     `json:"detail,omitempty"`
+	IsCrossCluster bool    `json:"is_cross_cluster"`
+}

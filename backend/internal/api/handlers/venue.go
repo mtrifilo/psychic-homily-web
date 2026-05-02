@@ -650,6 +650,72 @@ func (h *VenueHandler) GetVenueGenresHandler(ctx context.Context, req *GetVenueG
 	}, nil
 }
 
+// ============================================================================
+// Get Venue Bill Network (PSY-365)
+// ============================================================================
+
+// GetVenueBillNetworkRequest is the request shape for the venue co-bill graph.
+//
+// `Window` accepts "all" (default), "12m" (rolling last 12 months), or "year"
+// (paired with `Year`). Unknown values are coerced to "all" by the service so
+// a client mistake degrades gracefully rather than 500ing.
+//
+// `Year` is required when Window=="year". Huma forbids pointer query params,
+// so we use an int with the zero-value sentinel; the handler validates
+// presence before passing to the service.
+type GetVenueBillNetworkRequest struct {
+	VenueID string `path:"venue_id" doc:"Venue ID or slug" example:"valley-bar-phoenix-az"`
+	Window  string `query:"window" doc:"Time window: 'all' (default), '12m' (rolling), or 'year' (with year=YYYY)" example:"all" enum:"all,12m,year"`
+	Year    int    `query:"year" doc:"Calendar year for window=year (required when window=year)" example:"2025" minimum:"2000" maximum:"2100"`
+}
+
+// GetVenueBillNetworkResponse wraps the contracts payload for huma.
+type GetVenueBillNetworkResponse struct {
+	Body *contracts.VenueBillNetworkResponse
+}
+
+// GetVenueBillNetworkHandler handles GET /venues/{venue_id}/bill-network.
+//
+// PSY-365 — venue-rooted co-bill graph. Mirrors GET /scenes/{slug}/graph in
+// shape and intent (same shared frontend component renders both), with the
+// scope narrowed to a single venue and edges weighted by AT-VENUE shared
+// shows rather than global ones.
+func (h *VenueHandler) GetVenueBillNetworkHandler(ctx context.Context, req *GetVenueBillNetworkRequest) (*GetVenueBillNetworkResponse, error) {
+	// Resolve venue by ID or slug — same pattern as /venues/{id}/genres.
+	var venueID uint
+	if id, err := strconv.ParseUint(req.VenueID, 10, 32); err == nil {
+		venueID = uint(id)
+	} else {
+		venue, err := h.venueService.GetVenueBySlug(req.VenueID)
+		if err != nil {
+			return nil, huma.Error404NotFound("Venue not found")
+		}
+		venueID = venue.ID
+	}
+
+	// Validate window=year requires year. Empty / "all" / "12m" pass through.
+	var yearPtr *int
+	window := strings.ToLower(strings.TrimSpace(req.Window))
+	if window == "year" {
+		if req.Year == 0 {
+			return nil, huma.Error400BadRequest("Year is required when window=year")
+		}
+		y := req.Year
+		yearPtr = &y
+	}
+
+	graph, err := h.venueService.GetVenueBillNetwork(venueID, window, yearPtr)
+	if err != nil {
+		var venueErr *apperrors.VenueError
+		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {
+			return nil, huma.Error404NotFound("Venue not found")
+		}
+		return nil, huma.Error500InternalServerError("Failed to get venue bill network", err)
+	}
+
+	return &GetVenueBillNetworkResponse{Body: graph}, nil
+}
+
 // computeVenueChanges compares old and new venue detail responses and returns field-level diffs.
 func computeVenueChanges(old, new *contracts.VenueDetailResponse) []models.FieldChange {
 	var changes []models.FieldChange

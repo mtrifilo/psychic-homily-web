@@ -452,6 +452,7 @@ func setupVenueRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/venues/{venue_id}", venueHandler.GetVenueHandler)
 	huma.Get(rc.API, "/venues/{venue_id}/shows", venueHandler.GetVenueShowsHandler)
 	huma.Get(rc.API, "/venues/{venue_id}/genres", venueHandler.GetVenueGenresHandler)
+	huma.Get(rc.API, "/venues/{venue_id}/bill-network", venueHandler.GetVenueBillNetworkHandler)
 
 	// Protected venue endpoints - require authentication
 	huma.Post(rc.Protected, "/admin/venues", venueHandler.AdminCreateVenueHandler)

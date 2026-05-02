@@ -2792,12 +2792,7 @@ func (m *mockSceneService) GetSceneGraph(city string, state string, types []stri
 	if m.getSceneGraphFn != nil {
 		return m.getSceneGraphFn(city, state, types)
 	}
-	return &contracts.SceneGraphResponse{
-		Scene:    contracts.SceneGraphInfo{City: city, State: state},
-		Clusters: []contracts.SceneGraphCluster{},
-		Nodes:    []contracts.SceneGraphNode{},
-		Links:    []contracts.SceneGraphLink{},
-	}, nil
+	return nil, nil
 }
 
 // ============================================================================
@@ -3605,6 +3600,7 @@ type mockVenueService struct {
 	getVenueModelFn func(uint) (*models.Venue, error)
 	getUnverifiedVenuesFn func(int, int) ([]*contracts.UnverifiedVenueResponse, int64, error)
 	getVenueGenreProfileFn func(uint) ([]contracts.GenreCount, error)
+	getVenueBillNetworkFn func(uint, string, *int) (*contracts.VenueBillNetworkResponse, error)
 }
 
 func (m *mockVenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bool) (*contracts.VenueDetailResponse, error) {
@@ -3702,6 +3698,12 @@ func (m *mockVenueService) GetVenueGenreProfile(venueID uint) ([]contracts.Genre
 		return m.getVenueGenreProfileFn(venueID)
 	}
 	return []contracts.GenreCount{}, nil
+}
+func (m *mockVenueService) GetVenueBillNetwork(venueID uint, window string, year *int) (*contracts.VenueBillNetworkResponse, error) {
+	if m.getVenueBillNetworkFn != nil {
+		return m.getVenueBillNetworkFn(venueID, window, year)
+	}
+	return nil, nil
 }
 
 // ============================================================================

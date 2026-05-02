@@ -248,3 +248,71 @@ export interface VenueGenreCount {
 export interface VenueGenreResponse {
   genres: VenueGenreCount[]
 }
+
+// ============================================================================
+// Venue Bill Network (PSY-365) — venue-rooted co-bill graph
+// ============================================================================
+//
+// Mirrors the backend `contracts.VenueBillNetworkResponse` 1:1. The shared
+// frontend `ForceGraphView` consumes the same node/cluster/link shape as the
+// scene graph, so the field names + types stay aligned with `SceneGraphNode`
+// etc. — the only addition is `at_venue_show_count` (per-node) and the
+// venue-window metadata (per-response).
+
+/**
+ * Time-window filter for the venue bill network. Mirrors the backend's
+ * normalized `Window` field on the response — the frontend reuses the same
+ * vocabulary on input (query param) and output (response label).
+ */
+export type VenueBillNetworkWindow = 'all' | '12m' | 'year'
+
+export interface VenueBillNetworkInfo {
+  id: number
+  slug: string
+  name: string
+  city?: string
+  state?: string
+  artist_count: number
+  edge_count: number
+  show_count: number
+  /** Backend-normalized label: "all_time", "last_12m", or "year". */
+  window: 'all_time' | 'last_12m' | 'year'
+  /** Populated only when window === "year". */
+  year?: number
+}
+
+export interface VenueBillNetworkCluster {
+  id: string
+  label: string
+  size: number
+  color_index: number
+}
+
+export interface VenueBillNetworkNode {
+  id: number
+  name: string
+  slug: string
+  city?: string
+  state?: string
+  upcoming_show_count: number
+  cluster_id: string
+  is_isolate: boolean
+  /** Number of approved shows this artist has played at the venue, in window. */
+  at_venue_show_count: number
+}
+
+export interface VenueBillNetworkLink {
+  source_id: number
+  target_id: number
+  type: string
+  score: number
+  detail?: Record<string, unknown>
+  is_cross_cluster: boolean
+}
+
+export interface VenueBillNetworkResponse {
+  venue: VenueBillNetworkInfo
+  clusters: VenueBillNetworkCluster[]
+  nodes: VenueBillNetworkNode[]
+  links: VenueBillNetworkLink[]
+}

@@ -89,6 +89,11 @@ type VenueServiceInterface interface {
 	GetVenueModel(venueID uint) (*models.Venue, error)
 	GetUnverifiedVenues(limit, offset int) ([]*UnverifiedVenueResponse, int64, error)
 	GetVenueGenreProfile(venueID uint) ([]GenreCount, error)
+	// PSY-365: venue-rooted co-bill network. Edges are weighted by the
+	// number of shared shows AT THIS VENUE (not globally) within the
+	// requested time window. Window is one of "all", "12m", "year"; Year
+	// is required iff Window=="year". Empty Window defaults to "all".
+	GetVenueBillNetwork(venueID uint, window string, year *int) (*VenueBillNetworkResponse, error)
 }
 
 // ArtistServiceInterface defines the contract for artist operations.
