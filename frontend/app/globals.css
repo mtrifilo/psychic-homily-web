@@ -5,6 +5,19 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* PSY-526: pointer-capability variants for hover-only vs touch-only UX
+ * branching (e.g. CollectionItemCard's hover-revealed Remove X on desktop
+ * vs. tap-to-reveal kebab on touch). Tailwind v4's default `hover:`
+ * variant is already gated by `@media (hover: hover)`, but it has no
+ * built-in inverse for "touch-only" — hence this custom variant.
+ *
+ * Pair `touch-only:` with default classes that target hover-capable
+ * devices. Example:
+ *   <button className="opacity-0 group-hover:opacity-100 touch-only:hidden" />
+ *   <button className="hidden touch-only:flex" />
+ */
+@custom-variant touch-only (@media (hover: none), (pointer: coarse));
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
