@@ -16,7 +16,7 @@
  *   <button className="opacity-0 group-hover:opacity-100 touch-only:hidden" />
  *   <button className="hidden touch-only:flex" />
  */
-@custom-variant touch-only (@media (hover: none), (pointer: coarse));
+@custom-variant touch-only (@media (hover: none) and (pointer: coarse));
 
 @theme inline {
   --color-background: var(--background);

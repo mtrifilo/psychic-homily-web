@@ -148,7 +148,7 @@ func (s *LabelHandlerIntegrationSuite) TestCreateLabel_EmptyName() {
 	req.Body.Name = ""
 
 	_, err := s.handler.CreateLabelHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 // --- UpdateLabelHandler ---
@@ -378,7 +378,7 @@ func (s *LabelHandlerIntegrationSuite) TestAddArtistToLabel_MissingArtistID() {
 	// Body.ArtistID is 0 (zero value)
 
 	_, err := s.handler.AddArtistToLabelHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 // --- AddReleaseToLabelHandler ---
@@ -476,5 +476,5 @@ func (s *LabelHandlerIntegrationSuite) TestAddReleaseToLabel_MissingReleaseID() 
 	// Body.ReleaseID is 0 (zero value)
 
 	_, err := s.handler.AddReleaseToLabelHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
