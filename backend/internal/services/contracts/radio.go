@@ -76,6 +76,8 @@ type RadioStationDetailResponse struct {
 	PlaylistConfig      *json.RawMessage `json:"playlist_config"`
 	LastPlaylistFetchAt *time.Time       `json:"last_playlist_fetch_at"`
 	IsActive            bool             `json:"is_active"`
+	NetworkID           *uint            `json:"network_id"`
+	NetworkSlug         *string          `json:"network_slug"`
 	ShowCount           int              `json:"show_count"`
 	CreatedAt           time.Time        `json:"created_at"`
 	UpdatedAt           time.Time        `json:"updated_at"`
@@ -93,6 +95,8 @@ type RadioStationListResponse struct {
 	FrequencyMHz  *float64 `json:"frequency_mhz"`
 	LogoURL       *string  `json:"logo_url"`
 	IsActive      bool     `json:"is_active"`
+	NetworkID     *uint    `json:"network_id"`
+	NetworkSlug   *string  `json:"network_slug"`
 	ShowCount     int      `json:"show_count"`
 }
 

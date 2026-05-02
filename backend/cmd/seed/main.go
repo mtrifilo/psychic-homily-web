@@ -784,10 +784,32 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 	return labelsCreated, releasesCreated
 }
 
-// seedRadioStationsAndShows creates radio stations and shows with archive URLs.
+// seedRadioStationsAndShows creates radio networks, stations, and shows.
 // The data source is backend/internal/seeddata/radio.go — the same package
 // that backs cmd/gen-e2e-seed, so prod/stage/dev/E2E cannot drift.
+//
+// Networks are seeded first so stations can resolve NetworkSlug to a
+// radio_networks.id before insert.
 func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
+	fmt.Println("Seeding radio networks...")
+
+	// networkIDsBySlug lets us assign network_id by slug without a
+	// per-station subquery — looked up once after networks are created.
+	networkIDsBySlug := make(map[string]uint, len(seeddata.RadioNetworks))
+	for _, n := range seeddata.RadioNetworks {
+		var existing models.RadioNetwork
+		if err := database.Where("slug = ?", n.Slug).First(&existing).Error; err == nil {
+			networkIDsBySlug[n.Slug] = existing.ID
+			continue
+		}
+		network := &models.RadioNetwork{Slug: n.Slug, Name: n.Name}
+		if err := database.Create(network).Error; err != nil {
+			log.Printf("Warning: Failed to create radio network %s: %v", n.Slug, err)
+			continue
+		}
+		networkIDsBySlug[n.Slug] = network.ID
+	}
+
 	fmt.Println("Seeding radio stations...")
 
 	var stationsCreated int
@@ -816,6 +838,13 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 		}
 		if s.FrequencyMHz > 0 {
 			station.FrequencyMHz = &s.FrequencyMHz
+		}
+		if s.NetworkSlug != "" {
+			if id, ok := networkIDsBySlug[s.NetworkSlug]; ok {
+				station.NetworkID = &id
+			} else {
+				log.Printf("Warning: Station %s references unknown network slug %q (skipping NetworkID)", s.Slug, s.NetworkSlug)
+			}
 		}
 
 		if err := database.Create(station).Error; err != nil {
