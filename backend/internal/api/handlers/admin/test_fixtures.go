@@ -22,9 +22,10 @@ import (
 // `ENABLE_TEST_FIXTURES=1` is only honored when ENVIRONMENT is one of the
 // allowed values. Unset and unknown values both refuse.
 const (
-	EnableTestFixturesEnvVar = "ENABLE_TEST_FIXTURES"
-	TestFixturesHeader       = "X-Test-Fixtures"
-	TestUserEmailSuffix      = "@test.local"
+	EnableTestFixturesEnvVar           = "ENABLE_TEST_FIXTURES"
+	TestFixturesHeader                 = "X-Test-Fixtures"
+	TestUserEmailSuffix                = "@test.local"
+	ReservedWorkerCollectionSlugPrefix = "e2e-worker-collection-"
 )
 
 // TestFixturesAllowedEnvironments is the whitelist of ENVIRONMENT values that
@@ -101,7 +102,10 @@ var testFixtureAllowlist = []testFixtureScope{
 	{
 		displayName: "collections",
 		delete: func(tx *gorm.DB, userID uint) (int64, error) {
-			res := tx.Where("creator_id = ?", userID).Delete(&communitym.Collection{})
+			res := tx.
+				Where("creator_id = ?", userID).
+				Where("slug NOT LIKE ?", ReservedWorkerCollectionSlugPrefix+"%").
+				Delete(&communitym.Collection{})
 			return res.RowsAffected, res.Error
 		},
 	},

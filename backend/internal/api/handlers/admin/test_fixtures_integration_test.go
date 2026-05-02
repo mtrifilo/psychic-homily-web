@@ -157,6 +157,33 @@ func (s *TestFixturesSuite) TestReset_HappyPath_DeletesAllowlistedScopes() {
 	// predicate + this row count going to zero without side effects.
 }
 
+func (s *TestFixturesSuite) TestReset_CollectionsScope_PreservesReservedWorkerCollection() {
+	admin := s.createTestLocalUser(true)
+	target := s.createTestLocalUser(false)
+	reserved := &communitym.Collection{
+		Title:     "E2E Worker Collection",
+		Slug:      fmt.Sprintf("%s%d", ReservedWorkerCollectionSlugPrefix, target.ID),
+		CreatorID: target.ID,
+	}
+	s.Require().NoError(s.deps.DB.Create(reserved).Error)
+	item := &communitym.CollectionItem{
+		CollectionID:  reserved.ID,
+		EntityType:    "show",
+		EntityID:      123,
+		AddedByUserID: target.ID,
+	}
+	s.Require().NoError(s.deps.DB.Create(item).Error)
+
+	_, err := s.call(admin, target.ID, []string{"collection_items", "collections"}, "1")
+	s.Require().NoError(err)
+
+	var collectionCount, itemCount int64
+	s.deps.DB.Model(&communitym.Collection{}).Where("id = ?", reserved.ID).Count(&collectionCount)
+	s.deps.DB.Model(&communitym.CollectionItem{}).Where("id = ?", item.ID).Count(&itemCount)
+	s.Equal(int64(1), collectionCount, "reserved worker collection must survive reset")
+	s.Zero(itemCount, "reserved worker collection items should still be reset")
+}
+
 func (s *TestFixturesSuite) TestReset_HeaderMissing_Returns422() {
 	admin := s.createTestLocalUser(true)
 	target := s.createTestLocalUser(false)

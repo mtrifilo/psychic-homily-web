@@ -200,7 +200,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateVisibility_Invalid
 	req.Body.Visibility = "invalid"
 
 	_, err := s.handler.UpdateProfileVisibilityHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateVisibility_Unauthenticated() {
@@ -254,7 +254,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_In
 	}
 
 	_, err := s.handler.UpdatePrivacySettingsHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_BinaryFieldCountOnly() {
@@ -273,7 +273,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_Bi
 	}
 
 	_, err := s.handler.UpdatePrivacySettingsHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_Unauthenticated() {
@@ -434,7 +434,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestCreateSection_EmptyTitle
 	req.Body.Position = 0
 
 	_, err := s.handler.CreateSectionHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestCreateSection_InvalidPosition() {
@@ -447,7 +447,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestCreateSection_InvalidPos
 	req.Body.Position = 5 // max is 2
 
 	_, err := s.handler.CreateSectionHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestCreateSection_MaxSectionsExceeded() {
@@ -471,7 +471,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestCreateSection_MaxSection
 	req.Body.Position = 0
 
 	_, err := s.handler.CreateSectionHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 // =============================================================================
@@ -584,7 +584,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateSection_NoFields()
 	// Send update with no fields
 	updateReq := &UpdateSectionRequest{SectionID: fmt.Sprintf("%d", createResp.Body.ID)}
 	_, err = s.handler.UpdateSectionHandler(ctx, updateReq)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateSection_Unauthenticated() {
