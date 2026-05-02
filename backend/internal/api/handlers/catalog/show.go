@@ -893,7 +893,7 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		updates["ticket_url"] = *req.Body.TicketURL
 	}
 	if req.Body.ImageURL != nil {
-		updates["image_url"] = *req.Body.ImageURL
+		updates["image_url"] = nilIfEmpty(*req.Body.ImageURL)
 	}
 
 	// Convert venues to service format (nil if not provided)
