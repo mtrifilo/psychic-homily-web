@@ -1,6 +1,12 @@
 package contracts
 
-import "time"
+import (
+	"time"
+
+	"github.com/markbates/goth"
+
+	authm "psychic-homily-backend/internal/models/auth"
+)
 
 // ──────────────────────────────────────────────
 // User types
@@ -275,4 +281,84 @@ type ContributionEntry struct {
 	Metadata   map[string]interface{} `json:"metadata,omitempty"`
 	CreatedAt  time.Time              `json:"created_at"`
 	Source     string                 `json:"source"`
+}
+
+// ──────────────────────────────────────────────
+// User Service Interface
+// ──────────────────────────────────────────────
+
+// UserServiceInterface defines the contract for user operations.
+type UserServiceInterface interface {
+	ListUsers(limit, offset int, filters AdminUserFilters) ([]*AdminUserResponse, int64, error)
+	FindOrCreateUser(gothUser goth.User, provider string) (*authm.User, error)
+	FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *OAuthSignupConsent) (*authm.User, error)
+	AuthenticateUserWithPassword(email, password string) (*authm.User, error)
+	CreateUserWithPassword(email, password, firstName, lastName string) (*authm.User, error)
+	CreateUserWithPasswordWithLegal(email, password, firstName, lastName string, acceptance LegalAcceptance) (*authm.User, error)
+	GetUserByID(userID uint) (*authm.User, error)
+	GetUserByEmail(email string) (*authm.User, error)
+	GetUserByUsername(username string) (*authm.User, error)
+	UpdateUser(userID uint, updates map[string]any) (*authm.User, error)
+	HashPassword(password string) (string, error)
+	VerifyPassword(hashedPassword, password string) error
+	IsAccountLocked(user *authm.User) bool
+	GetLockTimeRemaining(user *authm.User) time.Duration
+	IncrementFailedAttempts(userID uint) error
+	ResetFailedAttempts(userID uint) error
+	UpdatePassword(userID uint, currentPassword, newPassword string) error
+	SetEmailVerified(userID uint, verified bool) error
+	GetDeletionSummary(userID uint) (*DeletionSummary, error)
+	SoftDeleteAccount(userID uint, reason *string) error
+	CreateUserWithoutPassword(email string) (*authm.User, error)
+	ExportUserData(userID uint) (*UserDataExport, error)
+	ExportUserDataJSON(userID uint) ([]byte, error)
+	GetOAuthAccounts(userID uint) ([]authm.OAuthAccount, error)
+	GetUserByEmailIncludingDeleted(email string) (*authm.User, error)
+	IsAccountRecoverable(user *authm.User) bool
+	GetDaysUntilPermanentDeletion(user *authm.User) int
+	RestoreAccount(userID uint) error
+	GetExpiredDeletedAccounts() ([]authm.User, error)
+	PermanentlyDeleteUser(userID uint) error
+	CanUnlinkOAuthAccount(userID uint, provider string) (bool, string, error)
+	UnlinkOAuthAccount(userID uint, provider string) error
+	GetFavoriteCities(userID uint) ([]authm.FavoriteCity, error)
+	SetFavoriteCities(userID uint, cities []authm.FavoriteCity) error
+	SetShowReminders(userID uint, enabled bool) error
+	// PSY-296: default reply permission applied to new top-level comments.
+	SetDefaultReplyPermission(userID uint, permission string) error
+	// PSY-289: comment + mention notification preference toggles.
+	SetNotifyOnCommentSubscription(userID uint, enabled bool) error
+	SetNotifyOnMention(userID uint, enabled bool) error
+	// PSY-350: collection digest preference toggle (weekly cadence; opt-IN).
+	SetNotifyOnCollectionDigest(userID uint, enabled bool) error
+}
+
+// ──────────────────────────────────────────────
+// Contributor Profile Service Interface
+// ──────────────────────────────────────────────
+
+// ContributorProfileServiceInterface defines the contract for contributor profile operations.
+type ContributorProfileServiceInterface interface {
+	GetPublicProfile(username string, viewerID *uint) (*PublicProfileResponse, error)
+	GetOwnProfile(userID uint) (*PublicProfileResponse, error)
+	GetContributionStats(userID uint) (*ContributionStats, error)
+	GetContributionHistory(userID uint, limit, offset int, entityType string) ([]*ContributionEntry, int64, error)
+	UpdatePrivacySettings(userID uint, settings PrivacySettings) (*PrivacySettings, error)
+	GetUserSections(userID uint) ([]*ProfileSectionResponse, error)
+	GetOwnSections(userID uint) ([]*ProfileSectionResponse, error)
+	CreateSection(userID uint, title string, content string, position int) (*ProfileSectionResponse, error)
+	UpdateSection(userID uint, sectionID uint, updates map[string]interface{}) (*ProfileSectionResponse, error)
+	DeleteSection(userID uint, sectionID uint) error
+	GetActivityHeatmap(userID uint) (*ActivityHeatmapResponse, error)
+	GetPercentileRankings(userID uint) (*PercentileRankings, error)
+}
+
+// ──────────────────────────────────────────────
+// Leaderboard Service Interface
+// ──────────────────────────────────────────────
+
+// LeaderboardServiceInterface defines the contract for contributor leaderboard operations.
+type LeaderboardServiceInterface interface {
+	GetLeaderboard(dimension string, period string, limit int) ([]LeaderboardEntry, error)
+	GetUserRank(userID uint, dimension string, period string) (*int, error)
 }

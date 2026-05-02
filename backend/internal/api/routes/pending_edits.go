@@ -23,10 +23,10 @@ func setupPendingEditRoutes(rc RouteContext) {
 	huma.Get(rc.Protected, "/my/pending-edits", pendingEditHandler.GetMyPendingEditsHandler)
 	huma.Delete(rc.Protected, "/my/pending-edits/{edit_id}", pendingEditHandler.CancelMyPendingEditHandler)
 
-	// Admin: review queue
-	huma.Get(rc.Protected, "/admin/pending-edits", pendingEditHandler.AdminListPendingEditsHandler)
-	huma.Get(rc.Protected, "/admin/pending-edits/{edit_id}", pendingEditHandler.AdminGetPendingEditHandler)
-	huma.Post(rc.Protected, "/admin/pending-edits/{edit_id}/approve", pendingEditHandler.AdminApprovePendingEditHandler)
-	huma.Post(rc.Protected, "/admin/pending-edits/{edit_id}/reject", pendingEditHandler.AdminRejectPendingEditHandler)
-	huma.Get(rc.Protected, "/admin/pending-edits/entity/{entity_type}/{entity_id}", pendingEditHandler.AdminGetEntityPendingEditsHandler)
+	// Admin: review queue (PSY-423: rc.Admin enforces auth + IsAdmin)
+	huma.Get(rc.Admin, "/admin/pending-edits", pendingEditHandler.AdminListPendingEditsHandler)
+	huma.Get(rc.Admin, "/admin/pending-edits/{edit_id}", pendingEditHandler.AdminGetPendingEditHandler)
+	huma.Post(rc.Admin, "/admin/pending-edits/{edit_id}/approve", pendingEditHandler.AdminApprovePendingEditHandler)
+	huma.Post(rc.Admin, "/admin/pending-edits/{edit_id}/reject", pendingEditHandler.AdminRejectPendingEditHandler)
+	huma.Get(rc.Admin, "/admin/pending-edits/entity/{entity_type}/{entity_id}", pendingEditHandler.AdminGetEntityPendingEditsHandler)
 }

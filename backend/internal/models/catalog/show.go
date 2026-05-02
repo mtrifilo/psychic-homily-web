@@ -72,6 +72,10 @@ type Show struct {
 	// Ticket URL (optional)
 	TicketURL *string `json:"ticket_url,omitempty" gorm:"type:varchar(500)"`
 
+	// Image URL (optional) — show flyer when distinct from associated
+	// release/festival imagery. PSY-521.
+	ImageURL *string `json:"image_url,omitempty" gorm:"column:image_url"`
+
 	// Status flags (admin-controlled)
 	IsSoldOut   bool `gorm:"column:is_sold_out;not null;default:false"`
 	IsCancelled bool `gorm:"column:is_cancelled;not null;default:false"`

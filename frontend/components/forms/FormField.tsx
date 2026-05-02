@@ -8,7 +8,7 @@ import { getUniqueErrors } from '@/lib/utils/formErrors'
 interface FormFieldProps {
   field: AnyFieldApi
   label: string
-  type?: 'text' | 'date' | 'time' | 'textarea' | 'number'
+  type?: 'text' | 'date' | 'time' | 'textarea' | 'number' | 'url'
   placeholder?: string
   onEnterPress?: () => void
   onChange?: (value: string) => void

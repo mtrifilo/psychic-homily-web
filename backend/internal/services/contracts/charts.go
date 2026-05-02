@@ -61,3 +61,16 @@ type ChartsOverview struct {
 	ActiveVenues   []ActiveVenue   `json:"active_venues"`
 	HotReleases    []HotRelease    `json:"hot_releases"`
 }
+
+// ──────────────────────────────────────────────
+// Charts Service Interface
+// ──────────────────────────────────────────────
+
+// ChartsServiceInterface defines the contract for top charts / trending content.
+type ChartsServiceInterface interface {
+	GetTrendingShows(limit int) ([]TrendingShow, error)
+	GetPopularArtists(limit int) ([]PopularArtist, error)
+	GetActiveVenues(limit int) ([]ActiveVenue, error)
+	GetHotReleases(limit int) ([]HotRelease, error)
+	GetChartsOverview() (*ChartsOverview, error)
+}

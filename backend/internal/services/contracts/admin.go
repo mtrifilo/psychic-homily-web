@@ -1,6 +1,35 @@
 package contracts
 
-import "time"
+import (
+	"time"
+
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	communitym "psychic-homily-backend/internal/models/community"
+)
+
+// ──────────────────────────────────────────────
+// Audit Log types
+// ──────────────────────────────────────────────
+
+// AuditLogFilters represents optional filters for querying audit logs
+type AuditLogFilters struct {
+	EntityType string
+	Action     string
+	ActorID    *uint
+}
+
+// AuditLogResponse represents an audit log entry in API responses
+type AuditLogResponse struct {
+	ID         uint                   `json:"id"`
+	ActorID    *uint                  `json:"actor_id"`
+	ActorEmail string                 `json:"actor_email,omitempty"`
+	Action     string                 `json:"action"`
+	EntityType string                 `json:"entity_type"`
+	EntityID   uint                   `json:"entity_id"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt  time.Time              `json:"created_at"`
+}
 
 // ──────────────────────────────────────────────
 // Admin Stats types
@@ -319,4 +348,114 @@ type DataQualityTrendsResponse struct {
 	PendingReviewCount     int            `json:"pending_review_count"`
 	ArtistsWithoutReleases int            `json:"artists_without_releases"`
 	InactiveVenues90d      int            `json:"inactive_venues_90d"`
+}
+
+// ──────────────────────────────────────────────
+// Show Report Service Interface
+// ──────────────────────────────────────────────
+
+// ShowReportServiceInterface defines the contract for show report operations.
+type ShowReportServiceInterface interface {
+	CreateReport(userID, showID uint, reportType string, details *string) (*ShowReportResponse, error)
+	GetUserReportForShow(userID, showID uint) (*ShowReportResponse, error)
+	GetPendingReports(limit, offset int) ([]*ShowReportResponse, int64, error)
+	DismissReport(reportID, adminID uint, notes *string) (*ShowReportResponse, error)
+	ResolveReport(reportID, adminID uint, notes *string) (*ShowReportResponse, error)
+	ResolveReportWithFlag(reportID, adminID uint, notes *string, setShowFlag bool) (*ShowReportResponse, error)
+	GetReportByID(reportID uint) (*communitym.ShowReport, error)
+}
+
+// ──────────────────────────────────────────────
+// Artist Report Service Interface
+// ──────────────────────────────────────────────
+
+// ArtistReportServiceInterface defines the contract for artist report operations.
+type ArtistReportServiceInterface interface {
+	CreateReport(userID, artistID uint, reportType string, details *string) (*ArtistReportResponse, error)
+	GetUserReportForArtist(userID, artistID uint) (*ArtistReportResponse, error)
+	GetPendingReports(limit, offset int) ([]*ArtistReportResponse, int64, error)
+	DismissReport(reportID, adminID uint, notes *string) (*ArtistReportResponse, error)
+	ResolveReport(reportID, adminID uint, notes *string) (*ArtistReportResponse, error)
+	GetReportByID(reportID uint) (*communitym.ArtistReport, error)
+}
+
+// ──────────────────────────────────────────────
+// Audit Log Service Interface
+// ──────────────────────────────────────────────
+
+// AuditLogServiceInterface defines the contract for audit log operations.
+type AuditLogServiceInterface interface {
+	LogAction(actorID uint, action string, entityType string, entityID uint, metadata map[string]interface{})
+	GetAuditLogs(limit, offset int, filters AuditLogFilters) ([]*AuditLogResponse, int64, error)
+}
+
+// ──────────────────────────────────────────────
+// API Token Service Interface
+// ──────────────────────────────────────────────
+
+// APITokenServiceInterface defines the contract for API token operations.
+type APITokenServiceInterface interface {
+	CreateToken(userID uint, description *string, expirationDays int) (*APITokenCreateResponse, error)
+	ValidateToken(plainToken string) (*authm.User, *adminm.APIToken, error)
+	ListTokens(userID uint) ([]APITokenResponse, error)
+	RevokeToken(userID uint, tokenID uint) error
+	GetToken(userID uint, tokenID uint) (*APITokenResponse, error)
+	CleanupExpiredTokens() (int64, error)
+}
+
+// ──────────────────────────────────────────────
+// Data Sync Service Interface
+// ──────────────────────────────────────────────
+
+// DataSyncServiceInterface defines the contract for data export/import operations.
+type DataSyncServiceInterface interface {
+	ExportShows(params ExportShowsParams) (*ExportShowsResult, error)
+	ExportArtists(params ExportArtistsParams) (*ExportArtistsResult, error)
+	ExportVenues(params ExportVenuesParams) (*ExportVenuesResult, error)
+	ImportData(req DataImportRequest) (*DataImportResult, error)
+}
+
+// ──────────────────────────────────────────────
+// Admin Stats Service Interface
+// ──────────────────────────────────────────────
+
+// AdminStatsServiceInterface defines the contract for admin statistics operations.
+type AdminStatsServiceInterface interface {
+	GetDashboardStats() (*AdminDashboardStats, error)
+	GetRecentActivity() (*ActivityFeedResponse, error)
+}
+
+// ──────────────────────────────────────────────
+// Revision Service Interface
+// ──────────────────────────────────────────────
+
+// RevisionServiceInterface defines the contract for revision history operations.
+type RevisionServiceInterface interface {
+	RecordRevision(entityType string, entityID uint, userID uint, changes []adminm.FieldChange, summary string) error
+	GetEntityHistory(entityType string, entityID uint, limit, offset int) ([]adminm.Revision, int64, error)
+	GetRevision(revisionID uint) (*adminm.Revision, error)
+	GetUserRevisions(userID uint, limit, offset int) ([]adminm.Revision, int64, error)
+	Rollback(revisionID uint, adminUserID uint) error
+}
+
+// ──────────────────────────────────────────────
+// Data Quality Service Interface
+// ──────────────────────────────────────────────
+
+// DataQualityServiceInterface defines the contract for data quality dashboard operations.
+type DataQualityServiceInterface interface {
+	GetSummary() (*DataQualitySummary, error)
+	GetCategoryItems(category string, limit, offset int) ([]*DataQualityItem, int64, error)
+}
+
+// ──────────────────────────────────────────────
+// Analytics Service Interface
+// ──────────────────────────────────────────────
+
+// AnalyticsServiceInterface defines the contract for platform analytics dashboard operations.
+type AnalyticsServiceInterface interface {
+	GetGrowthMetrics(months int) (*GrowthMetricsResponse, error)
+	GetEngagementMetrics(months int) (*EngagementMetricsResponse, error)
+	GetCommunityHealth() (*CommunityHealthResponse, error)
+	GetDataQualityTrends(months int) (*DataQualityTrendsResponse, error)
 }

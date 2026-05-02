@@ -26,6 +26,7 @@ export interface FormValues {
   cost: string
   ages: string
   description: string
+  image_url: string
 }
 
 export const defaultFormValues: FormValues = {
@@ -37,6 +38,7 @@ export const defaultFormValues: FormValues = {
   cost: '',
   ages: '',
   description: '',
+  image_url: '',
 }
 
 /**
@@ -66,6 +68,7 @@ export function showToFormValues(show: ShowResponse): FormValues {
     cost: show.price != null ? `$${show.price}` : '',
     ages: show.age_requirement || '',
     description: show.description || '',
+    image_url: show.image_url || '',
   }
 }
 

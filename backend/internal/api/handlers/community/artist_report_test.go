@@ -155,25 +155,6 @@ func TestGetMyArtistReportHandler_ServiceError(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 500)
 }
 
-// --- GetPendingArtistReportsHandler ---
-
-func TestGetPendingArtistReportsHandler_NoAuth(t *testing.T) {
-	h := testArtistReportHandler()
-	req := &GetPendingArtistReportsRequest{}
-
-	_, err := h.GetPendingArtistReportsHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
-func TestGetPendingArtistReportsHandler_NonAdmin(t *testing.T) {
-	h := testArtistReportHandler()
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	req := &GetPendingArtistReportsRequest{}
-
-	_, err := h.GetPendingArtistReportsHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
 func TestGetPendingArtistReportsHandler_Success(t *testing.T) {
 	reports := []*contracts.ArtistReportResponse{{ID: 1}, {ID: 2}}
 	mock := &testhelpers.MockArtistReportService{
@@ -207,25 +188,6 @@ func TestGetPendingArtistReportsHandler_ServiceError(t *testing.T) {
 
 	_, err := h.GetPendingArtistReportsHandler(ctx, &GetPendingArtistReportsRequest{Limit: 10})
 	testhelpers.AssertHumaError(t, err, 500)
-}
-
-// --- DismissArtistReportHandler ---
-
-func TestDismissArtistReportHandler_NoAuth(t *testing.T) {
-	h := testArtistReportHandler()
-	req := &DismissArtistReportRequest{ReportID: "1"}
-
-	_, err := h.DismissArtistReportHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
-func TestDismissArtistReportHandler_NonAdmin(t *testing.T) {
-	h := testArtistReportHandler()
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	req := &DismissArtistReportRequest{ReportID: "1"}
-
-	_, err := h.DismissArtistReportHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestDismissArtistReportHandler_InvalidID(t *testing.T) {
@@ -285,25 +247,6 @@ func TestDismissArtistReportHandler_ServiceError(t *testing.T) {
 
 	_, err := h.DismissArtistReportHandler(ctx, &DismissArtistReportRequest{ReportID: "5"})
 	testhelpers.AssertHumaError(t, err, 422)
-}
-
-// --- ResolveArtistReportHandler ---
-
-func TestResolveArtistReportHandler_NoAuth(t *testing.T) {
-	h := testArtistReportHandler()
-	req := &ResolveArtistReportRequest{ReportID: "1"}
-
-	_, err := h.ResolveArtistReportHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
-func TestResolveArtistReportHandler_NonAdmin(t *testing.T) {
-	h := testArtistReportHandler()
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	req := &ResolveArtistReportRequest{ReportID: "1"}
-
-	_, err := h.ResolveArtistReportHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestResolveArtistReportHandler_InvalidID(t *testing.T) {

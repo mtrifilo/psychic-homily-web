@@ -316,12 +316,6 @@ type DeleteRelationshipRequest struct {
 
 func (h *ArtistRelationshipHandler) DeleteRelationshipHandler(ctx context.Context, req *DeleteRelationshipRequest) (*struct{}, error) {
 	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
 
 	sourceID, _ := strconv.ParseUint(req.SourceID, 10, 32)
 	targetID, _ := strconv.ParseUint(req.TargetID, 10, 32)
@@ -359,12 +353,6 @@ type DeriveRelationshipsResponse struct {
 
 func (h *ArtistRelationshipHandler) DeriveRelationshipsHandler(ctx context.Context, req *DeriveRelationshipsRequest) (*DeriveRelationshipsResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return nil, huma.Error401Unauthorized("Authentication required")
-	}
-	if !user.IsAdmin {
-		return nil, huma.Error403Forbidden("Admin access required")
-	}
 
 	billsCount, err := h.relService.DeriveSharedBills(2)
 	if err != nil {

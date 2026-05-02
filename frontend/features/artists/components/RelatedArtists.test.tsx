@@ -108,12 +108,12 @@ vi.mock('./ArtistGraph', () => ({
 
 import { RelatedArtists } from './RelatedArtists'
 
-// PSY-511: RelatedArtists now defers the View Map button + graph until
+// PSY-511: RelatedArtists now defers the Explore graph button + graph until
 // ResizeObserver reports a real container width (>= 640px). The shared
 // ResizeObserver mock in test/setup.ts never fires its callback, so we
 // override it locally with one that synchronously reports a configurable
 // width. Each test sets the width via setMockContainerWidth() before
-// rendering; the default (1024) is wide enough that the View Map button
+// rendering; the default (1024) is wide enough that the Explore graph button
 // renders, matching desktop behaviour.
 let mockContainerWidth = 1024
 
@@ -192,11 +192,43 @@ describe('RelatedArtists', () => {
     expect(screen.getByText('Shared Bills')).toBeInTheDocument()
   })
 
-  it('shows the View Map button when 3+ nodes exist', () => {
+  it('shows the Explore graph button when graph data is available', () => {
     renderWithProviders(
       <RelatedArtists artistId={1} artistSlug="gatecreeper" />
     )
-    expect(screen.getByText('View Map')).toBeInTheDocument()
+    expect(screen.getByText('Explore graph')).toBeInTheDocument()
+  })
+
+  // PSY-366: dropped the previous `nodes.length >= 3` gate. The button is the
+  // affordance — sparse graphs (1-2 related artists) still benefit from it
+  // per `docs/research/knowledge-graph-viz-prior-art.md` §5.4. The mobile
+  // gate stays.
+  it('shows the Explore graph button with only 1 related artist (PSY-366)', async () => {
+    const hooks = await import('../hooks/useArtistGraph')
+    vi.mocked(hooks.useArtistGraph).mockReturnValue({
+      data: {
+        center: { id: 1, name: 'Solo', slug: 'solo', upcoming_show_count: 0 },
+        nodes: [
+          { id: 2, name: 'OnlyConnection', slug: 'only-connection', upcoming_show_count: 0 },
+        ],
+        links: [
+          { source_id: 1, target_id: 2, type: 'similar', score: 0.5, votes_up: 0, votes_down: 0 },
+        ],
+      },
+      isLoading: false,
+      error: null,
+    } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    renderWithProviders(
+      <RelatedArtists artistId={1} artistSlug="solo" />
+    )
+    expect(screen.getByText('Explore graph')).toBeInTheDocument()
+
+    vi.mocked(hooks.useArtistGraph).mockReturnValue({
+      data: mockGraphData,
+      isLoading: false,
+      error: null,
+    } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
   })
 
   it('shows suggest similar artist button for authenticated users', () => {
@@ -272,25 +304,25 @@ describe('RelatedArtists', () => {
   })
 
   // PSY-511: below 640px (Tailwind `sm`) the graph is unusable on a
-  // phone. Hide the View Map button entirely — the list view is the
+  // phone. Hide the Explore graph button entirely — the list view is the
   // only surface, no "best viewed on desktop" nag.
-  it('hides the View Map button on narrow viewports (< 640px)', () => {
+  it('hides the Explore graph button on narrow viewports (< 640px)', () => {
     setMockContainerWidth(375)
     renderWithProviders(
       <RelatedArtists artistId={1} artistSlug="gatecreeper" />
     )
     // List view (artists by name) still renders.
     expect(screen.getByText('Frozen Soul')).toBeInTheDocument()
-    // View Map button is gated off.
-    expect(screen.queryByText('View Map')).not.toBeInTheDocument()
-    expect(screen.queryByText('Hide Map')).not.toBeInTheDocument()
+    // Explore graph button is gated off.
+    expect(screen.queryByText('Explore graph')).not.toBeInTheDocument()
+    expect(screen.queryByText('Hide graph')).not.toBeInTheDocument()
   })
 
-  it('shows the View Map button at exactly the 640px breakpoint', () => {
+  it('shows the Explore graph button at exactly the 640px breakpoint', () => {
     setMockContainerWidth(640)
     renderWithProviders(
       <RelatedArtists artistId={1} artistSlug="gatecreeper" />
     )
-    expect(screen.getByText('View Map')).toBeInTheDocument()
+    expect(screen.getByText('Explore graph')).toBeInTheDocument()
   })
 })

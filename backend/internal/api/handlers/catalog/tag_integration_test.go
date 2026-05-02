@@ -1,7 +1,6 @@
 package catalog
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -172,27 +171,6 @@ func (s *TagHandlerIntegrationSuite) TestCreateTag_MissingCategory() {
 
 	_, err := s.handler.CreateTagHandler(ctx, req)
 	testhelpers.AssertHumaError(s.T(), err, 400)
-}
-
-func (s *TagHandlerIntegrationSuite) TestCreateTag_NonAdmin() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	ctx := testhelpers.CtxWithUser(user)
-
-	req := &CreateTagRequest{}
-	req.Body.Name = "post-punk"
-	req.Body.Category = catalogm.TagCategoryGenre
-
-	_, err := s.handler.CreateTagHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
-func (s *TagHandlerIntegrationSuite) TestCreateTag_NoAuth() {
-	req := &CreateTagRequest{}
-	req.Body.Name = "post-punk"
-	req.Body.Category = catalogm.TagCategoryGenre
-
-	_, err := s.handler.CreateTagHandler(s.deps.Ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 // ============================================================================
@@ -706,32 +684,6 @@ func (s *TagHandlerIntegrationSuite) TestUpdateTag_ChangeCategory() {
 	s.Equal("locale", resp.Body.Category)
 }
 
-func (s *TagHandlerIntegrationSuite) TestUpdateTag_NonAdmin() {
-	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
-
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	ctx := testhelpers.CtxWithUser(user)
-	newName := "Updated"
-	req := &UpdateTagRequest{TagID: fmt.Sprintf("%d", created.Body.ID)}
-	req.Body.Name = &newName
-
-	_, err := s.handler.UpdateTagHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
-func (s *TagHandlerIntegrationSuite) TestUpdateTag_NoAuth() {
-	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
-
-	newName := "Updated"
-	req := &UpdateTagRequest{TagID: fmt.Sprintf("%d", created.Body.ID)}
-	req.Body.Name = &newName
-
-	_, err := s.handler.UpdateTagHandler(s.deps.Ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 401)
-}
-
 func (s *TagHandlerIntegrationSuite) TestUpdateTag_NotFound() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(admin)
@@ -760,27 +712,6 @@ func (s *TagHandlerIntegrationSuite) TestDeleteTag_Success() {
 	getReq := &GetTagRequest{TagID: fmt.Sprintf("%d", created.Body.ID)}
 	_, err = s.handler.GetTagHandler(s.deps.Ctx, getReq)
 	testhelpers.AssertHumaError(s.T(), err, 404)
-}
-
-func (s *TagHandlerIntegrationSuite) TestDeleteTag_NonAdmin() {
-	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "protected-tag", catalogm.TagCategoryGenre)
-
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	ctx := testhelpers.CtxWithUser(user)
-	req := &DeleteTagRequest{TagID: fmt.Sprintf("%d", created.Body.ID)}
-
-	_, err := s.handler.DeleteTagHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
-func (s *TagHandlerIntegrationSuite) TestDeleteTag_NoAuth() {
-	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "protected-tag", catalogm.TagCategoryGenre)
-
-	req := &DeleteTagRequest{TagID: fmt.Sprintf("%d", created.Body.ID)}
-	_, err := s.handler.DeleteTagHandler(s.deps.Ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 func (s *TagHandlerIntegrationSuite) TestDeleteTag_NotFound() {
@@ -1266,30 +1197,6 @@ func (s *TagHandlerIntegrationSuite) TestCreateAlias_Success() {
 	s.NotZero(resp.Body.ID)
 }
 
-func (s *TagHandlerIntegrationSuite) TestCreateAlias_NonAdmin() {
-	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
-
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	ctx := testhelpers.CtxWithUser(user)
-	req := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
-	req.Body.Alias = "post punk"
-
-	_, err := s.handler.CreateAliasHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
-func (s *TagHandlerIntegrationSuite) TestCreateAlias_NoAuth() {
-	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
-
-	req := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
-	req.Body.Alias = "post punk"
-
-	_, err := s.handler.CreateAliasHandler(s.deps.Ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 401)
-}
-
 func (s *TagHandlerIntegrationSuite) TestCreateAlias_EmptyAlias() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
@@ -1408,44 +1315,6 @@ func (s *TagHandlerIntegrationSuite) TestDeleteAlias_Success() {
 	s.Empty(listResp.Body.Aliases)
 }
 
-func (s *TagHandlerIntegrationSuite) TestDeleteAlias_NonAdmin() {
-	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
-
-	ctx := testhelpers.CtxWithUser(admin)
-	createReq := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
-	createReq.Body.Alias = "post punk"
-	aliasResp, err := s.handler.CreateAliasHandler(ctx, createReq)
-	s.Require().NoError(err)
-
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	userCtx := testhelpers.CtxWithUser(user)
-	delReq := &DeleteAliasRequest{
-		TagID:   fmt.Sprintf("%d", tag.Body.ID),
-		AliasID: fmt.Sprintf("%d", aliasResp.Body.ID),
-	}
-	_, err = s.handler.DeleteAliasHandler(userCtx, delReq)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
-func (s *TagHandlerIntegrationSuite) TestDeleteAlias_NoAuth() {
-	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
-
-	ctx := testhelpers.CtxWithUser(admin)
-	createReq := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
-	createReq.Body.Alias = "post punk"
-	aliasResp, err := s.handler.CreateAliasHandler(ctx, createReq)
-	s.Require().NoError(err)
-
-	delReq := &DeleteAliasRequest{
-		TagID:   fmt.Sprintf("%d", tag.Body.ID),
-		AliasID: fmt.Sprintf("%d", aliasResp.Body.ID),
-	}
-	_, err = s.handler.DeleteAliasHandler(s.deps.Ctx, delReq)
-	testhelpers.AssertHumaError(s.T(), err, 401)
-}
-
 // ============================================================================
 // AddTagToEntity with alias resolution
 // ============================================================================
@@ -1554,24 +1423,6 @@ func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_VenueType() {
 	s.Equal("intimate", listResp.Body.Tags[0].Name)
 }
 
-// ============================================================================
-// ListAllAliasesHandler + BulkImportAliasesHandler (PSY-307)
-// ============================================================================
-
-func (s *TagHandlerIntegrationSuite) TestListAllAliases_AdminOnly() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	ctx := testhelpers.CtxWithUser(user)
-
-	_, err := s.handler.ListAllAliasesHandler(ctx, &ListAllAliasesRequest{})
-	s.Error(err)
-	s.Contains(err.Error(), "Admin")
-}
-
-func (s *TagHandlerIntegrationSuite) TestListAllAliases_Unauthenticated() {
-	_, err := s.handler.ListAllAliasesHandler(s.deps.Ctx, &ListAllAliasesRequest{})
-	s.Error(err)
-}
-
 func (s *TagHandlerIntegrationSuite) TestListAllAliases_ReturnsAllWithCanonicalInfo() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(admin)
@@ -1612,17 +1463,6 @@ func (s *TagHandlerIntegrationSuite) TestListAllAliases_SearchFilter() {
 	s.Equal(int64(1), resp.Body.Total)
 	s.Require().Len(resp.Body.Aliases, 1)
 	s.Equal("hiphop", resp.Body.Aliases[0].Alias)
-}
-
-func (s *TagHandlerIntegrationSuite) TestBulkImportAliases_AdminOnly() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	ctx := testhelpers.CtxWithUser(user)
-
-	req := &BulkImportAliasesRequest{}
-	req.Body.Items = []contracts.BulkAliasImportItem{{Alias: "x", Canonical: "y"}}
-	_, err := s.handler.BulkImportAliasesHandler(ctx, req)
-	s.Error(err)
-	s.Contains(err.Error(), "Admin")
 }
 
 func (s *TagHandlerIntegrationSuite) TestBulkImportAliases_EmptyRejected() {
@@ -1690,27 +1530,6 @@ func (s *TagHandlerIntegrationSuite) TestMergeTags_Success() {
 	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
-func (s *TagHandlerIntegrationSuite) TestMergeTags_NonAdmin() {
-	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	source := s.createTagViaHandler(admin, "shoe-gaze", catalogm.TagCategoryGenre)
-	target := s.createTagViaHandler(admin, "shoegaze", catalogm.TagCategoryGenre)
-
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	ctx := testhelpers.CtxWithUser(user)
-	req := &MergeTagsRequest{SourceID: fmt.Sprintf("%d", source.Body.ID)}
-	req.Body.TargetID = target.Body.ID
-
-	_, err := s.handler.MergeTagsHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
-func (s *TagHandlerIntegrationSuite) TestMergeTags_NoAuth() {
-	req := &MergeTagsRequest{SourceID: "1"}
-	req.Body.TargetID = 2
-	_, err := s.handler.MergeTagsHandler(s.deps.Ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 401)
-}
-
 func (s *TagHandlerIntegrationSuite) TestMergeTags_MissingTarget() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	source := s.createTagViaHandler(admin, "shoe-gaze", catalogm.TagCategoryGenre)
@@ -1765,14 +1584,6 @@ func (s *TagHandlerIntegrationSuite) TestMergePreview_Success() {
 	s.Equal("shoegaze", resp.Body.TargetName)
 }
 
-func (s *TagHandlerIntegrationSuite) TestMergePreview_NonAdmin() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	ctx := testhelpers.CtxWithUser(user)
-	req := &MergeTagsPreviewRequest{SourceID: "1", TargetID: 2}
-	_, err := s.handler.MergeTagsPreviewHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
 // ============================================================================
 // Low-Quality Tag Queue (PSY-310)
 // ============================================================================
@@ -1794,18 +1605,6 @@ func (s *TagHandlerIntegrationSuite) TestListLowQualityTags_Admin() {
 	s.Require().Len(resp.Body.Tags, 1)
 	s.Assert().Equal(orphan.ID, resp.Body.Tags[0].ID)
 	s.Assert().Contains(resp.Body.Tags[0].Reasons, "orphaned")
-}
-
-func (s *TagHandlerIntegrationSuite) TestListLowQualityTags_NonAdmin() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	ctx := testhelpers.CtxWithUser(user)
-	_, err := s.handler.ListLowQualityTagsHandler(ctx, &ListLowQualityTagsRequest{})
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
-func (s *TagHandlerIntegrationSuite) TestListLowQualityTags_Unauthenticated() {
-	_, err := s.handler.ListLowQualityTagsHandler(context.Background(), &ListLowQualityTagsRequest{})
-	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 func (s *TagHandlerIntegrationSuite) TestSnoozeTag_Admin_WritesAuditLog() {
@@ -1845,13 +1644,6 @@ func (s *TagHandlerIntegrationSuite) TestSnoozeTag_NotFound() {
 	ctx := testhelpers.CtxWithUser(admin)
 	_, err := s.handler.SnoozeTagHandler(ctx, &SnoozeTagRequest{TagID: "99999"})
 	testhelpers.AssertHumaError(s.T(), err, 404)
-}
-
-func (s *TagHandlerIntegrationSuite) TestSnoozeTag_NonAdmin() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	ctx := testhelpers.CtxWithUser(user)
-	_, err := s.handler.SnoozeTagHandler(ctx, &SnoozeTagRequest{TagID: "1"})
-	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 func (s *TagHandlerIntegrationSuite) TestSnoozeTag_InvalidID() {
@@ -1960,26 +1752,6 @@ func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_UnknownAction() {
 	ctx := testhelpers.CtxWithUser(admin)
 	_, err := s.handler.BulkLowQualityTagsHandler(ctx, req)
 	testhelpers.AssertHumaError(s.T(), err, 400)
-}
-
-func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_NonAdmin() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	req := &BulkLowQualityTagsRequest{}
-	req.Body.Action = "snooze"
-	req.Body.TagIDs = []uint{1}
-
-	ctx := testhelpers.CtxWithUser(user)
-	_, err := s.handler.BulkLowQualityTagsHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
-func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_Unauthenticated() {
-	req := &BulkLowQualityTagsRequest{}
-	req.Body.Action = "snooze"
-	req.Body.TagIDs = []uint{1}
-
-	_, err := s.handler.BulkLowQualityTagsHandler(context.Background(), req)
-	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_NotFoundCounted() {
