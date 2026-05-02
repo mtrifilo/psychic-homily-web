@@ -20,6 +20,7 @@ type RouteContext struct {
 	Router    *chi.Mux                   // The chi mux (for Chi-level middleware groups and raw HTTP routes)
 	API       huma.API                   // The public Huma API wrapper
 	Protected *huma.Group                // Protected (auth-required) Huma API group
+	Admin     *huma.Group                // Admin-only Huma API group (auth + IsAdmin enforced upstream)
 	SC        *services.ServiceContainer // All instantiated services
 	Cfg       *config.Config             // Application configuration
 }

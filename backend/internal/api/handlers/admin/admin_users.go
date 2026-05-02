@@ -6,7 +6,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -43,11 +42,6 @@ type GetAdminUsersResponse struct {
 // GetAdminUsersHandler handles GET /admin/users
 func (h *AdminUserHandler) GetAdminUsersHandler(ctx context.Context, req *GetAdminUsersRequest) (*GetAdminUsersResponse, error) {
 	requestID := logger.GetRequestID(ctx)
-
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	// Validate limit
 	limit := req.Limit

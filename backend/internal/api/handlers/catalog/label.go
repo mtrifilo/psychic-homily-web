@@ -8,7 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
@@ -182,10 +182,7 @@ type CreateLabelResponse struct {
 func (h *LabelHandler) CreateLabelHandler(ctx context.Context, req *CreateLabelRequest) (*CreateLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.Name == "" {
 		return nil, huma.Error400BadRequest("Name is required")
@@ -259,6 +256,7 @@ type UpdateLabelRequest struct {
 		SoundCloud  *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`
 		Bandcamp    *string `json:"bandcamp,omitempty" required:"false" doc:"Bandcamp URL"`
 		Website     *string `json:"website,omitempty" required:"false" doc:"Website URL"`
+		ImageURL    *string `json:"image_url,omitempty" required:"false" doc:"Label logo URL (max 2048 chars)"`
 		Summary     *string `json:"summary,omitempty" required:"false" doc:"Revision summary describing the change"`
 	}
 }
@@ -272,10 +270,7 @@ type UpdateLabelResponse struct {
 func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelRequest) (*UpdateLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Resolve label ID
 	labelID, err := h.resolveLabelID(req.LabelID)
@@ -289,6 +284,10 @@ func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelR
 		oldLabel, _ = h.labelService.GetLabel(labelID)
 	}
 
+	if req.Body.ImageURL != nil && len(*req.Body.ImageURL) > 2048 {
+		return nil, huma.Error400BadRequest("Image URL must be 2048 characters or fewer")
+	}
+
 	serviceReq := &contracts.UpdateLabelRequest{
 		Name:        req.Body.Name,
 		City:        req.Body.City,
@@ -297,6 +296,7 @@ func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelR
 		FoundedYear: req.Body.FoundedYear,
 		Status:      req.Body.Status,
 		Description: req.Body.Description,
+		ImageURL:    req.Body.ImageURL,
 		Instagram:   req.Body.Instagram,
 		Facebook:    req.Body.Facebook,
 		Twitter:     req.Body.Twitter,
@@ -407,6 +407,9 @@ func computeLabelChanges(old, new *contracts.LabelDetailResponse) []adminm.Field
 	if ptrToStr(old.Social.Website) != ptrToStr(new.Social.Website) {
 		changes = append(changes, adminm.FieldChange{Field: "website", OldValue: ptrToStr(old.Social.Website), NewValue: ptrToStr(new.Social.Website)})
 	}
+	if ptrToStr(old.ImageURL) != ptrToStr(new.ImageURL) {
+		changes = append(changes, adminm.FieldChange{Field: "image_url", OldValue: ptrToStr(old.ImageURL), NewValue: ptrToStr(new.ImageURL)})
+	}
 
 	return changes
 }
@@ -424,10 +427,7 @@ type DeleteLabelRequest struct {
 func (h *LabelHandler) DeleteLabelHandler(ctx context.Context, req *DeleteLabelRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Resolve label ID
 	labelID, err := h.resolveLabelID(req.LabelID)
@@ -572,10 +572,7 @@ type AddArtistToLabelResponse struct {
 func (h *LabelHandler) AddArtistToLabelHandler(ctx context.Context, req *AddArtistToLabelRequest) (*AddArtistToLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Resolve label ID
 	labelID, err := h.resolveLabelID(req.LabelID)
@@ -647,10 +644,7 @@ type AddReleaseToLabelResponse struct {
 func (h *LabelHandler) AddReleaseToLabelHandler(ctx context.Context, req *AddReleaseToLabelRequest) (*AddReleaseToLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Resolve label ID
 	labelID, err := h.resolveLabelID(req.LabelID)

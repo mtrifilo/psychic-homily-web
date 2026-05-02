@@ -8,7 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
@@ -65,11 +65,10 @@ func mapRevisionToResponse(r adminm.Revision) RevisionResponseItem {
 		CreatedAt:  r.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 
-	if r.Summary != nil {
-		item.Summary = *r.Summary
-	}
+	item.Summary = shared.Deref(r.Summary)
 
-	// Populate user name from preloaded User relation
+	// Populate user name from preloaded User relation. Username wins;
+	// FirstName is the fallback when Username is unset.
 	if r.User.Username != nil {
 		item.UserName = *r.User.Username
 	} else if r.User.FirstName != nil {
@@ -246,10 +245,7 @@ type RollbackRevisionResponse struct {
 
 // RollbackRevisionHandler handles POST /admin/revisions/{revision_id}/rollback
 func (h *RevisionHandler) RollbackRevisionHandler(ctx context.Context, req *RollbackRevisionRequest) (*RollbackRevisionResponse, error) {
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	revisionID, err := strconv.ParseUint(req.RevisionID, 10, 64)
 	if err != nil {

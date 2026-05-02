@@ -35,10 +35,10 @@ func setupShowReportRoutes(rc RouteContext) {
 	// Protected report endpoints (no additional rate limiting)
 	huma.Get(rc.Protected, "/shows/{show_id}/my-report", showReportHandler.GetMyReportHandler)
 
-	// Admin endpoints for managing reports
-	huma.Get(rc.Protected, "/admin/reports", showReportHandler.GetPendingReportsHandler)
-	huma.Post(rc.Protected, "/admin/reports/{report_id}/dismiss", showReportHandler.DismissReportHandler)
-	huma.Post(rc.Protected, "/admin/reports/{report_id}/resolve", showReportHandler.ResolveReportHandler)
+	// Admin endpoints for managing reports (PSY-423: rc.Admin enforces auth + IsAdmin)
+	huma.Get(rc.Admin, "/admin/reports", showReportHandler.GetPendingReportsHandler)
+	huma.Post(rc.Admin, "/admin/reports/{report_id}/dismiss", showReportHandler.DismissReportHandler)
+	huma.Post(rc.Admin, "/admin/reports/{report_id}/resolve", showReportHandler.ResolveReportHandler)
 }
 
 // setupArtistReportRoutes configures artist report endpoints
@@ -62,10 +62,10 @@ func setupArtistReportRoutes(rc RouteContext) {
 	// Protected report endpoints (no additional rate limiting)
 	huma.Get(rc.Protected, "/artists/{artist_id}/my-report", artistReportHandler.GetMyArtistReportHandler)
 
-	// Admin endpoints for managing artist reports
-	huma.Get(rc.Protected, "/admin/artist-reports", artistReportHandler.GetPendingArtistReportsHandler)
-	huma.Post(rc.Protected, "/admin/artist-reports/{report_id}/dismiss", artistReportHandler.DismissArtistReportHandler)
-	huma.Post(rc.Protected, "/admin/artist-reports/{report_id}/resolve", artistReportHandler.ResolveArtistReportHandler)
+	// Admin endpoints for managing artist reports (PSY-423: rc.Admin enforces auth + IsAdmin)
+	huma.Get(rc.Admin, "/admin/artist-reports", artistReportHandler.GetPendingArtistReportsHandler)
+	huma.Post(rc.Admin, "/admin/artist-reports/{report_id}/dismiss", artistReportHandler.DismissArtistReportHandler)
+	huma.Post(rc.Admin, "/admin/artist-reports/{report_id}/resolve", artistReportHandler.ResolveArtistReportHandler)
 }
 
 // setupEntityReportRoutes configures entity report endpoints.
@@ -95,9 +95,9 @@ func setupEntityReportRoutes(rc RouteContext) {
 		huma.Post(reportAPI, "/comments/{entity_id}/report", entityReportHandler.ReportCommentHandler)
 	})
 
-	// Admin: entity report management
-	huma.Get(rc.Protected, "/admin/entity-reports", entityReportHandler.AdminListEntityReportsHandler)
-	huma.Get(rc.Protected, "/admin/entity-reports/{report_id}", entityReportHandler.AdminGetEntityReportHandler)
-	huma.Post(rc.Protected, "/admin/entity-reports/{report_id}/resolve", entityReportHandler.AdminResolveEntityReportHandler)
-	huma.Post(rc.Protected, "/admin/entity-reports/{report_id}/dismiss", entityReportHandler.AdminDismissEntityReportHandler)
+	// Admin: entity report management (PSY-423: rc.Admin enforces auth + IsAdmin)
+	huma.Get(rc.Admin, "/admin/entity-reports", entityReportHandler.AdminListEntityReportsHandler)
+	huma.Get(rc.Admin, "/admin/entity-reports/{report_id}", entityReportHandler.AdminGetEntityReportHandler)
+	huma.Post(rc.Admin, "/admin/entity-reports/{report_id}/resolve", entityReportHandler.AdminResolveEntityReportHandler)
+	huma.Post(rc.Admin, "/admin/entity-reports/{report_id}/dismiss", entityReportHandler.AdminDismissEntityReportHandler)
 }

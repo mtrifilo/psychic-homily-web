@@ -10,7 +10,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
@@ -350,10 +349,7 @@ type AdminCreateArtistResponse struct {
 func (h *ArtistHandler) AdminCreateArtistHandler(ctx context.Context, req *AdminCreateArtistRequest) (*AdminCreateArtistResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Validate name
 	name := strings.TrimSpace(req.Body.Name)
@@ -765,10 +761,7 @@ type AdminUpdateArtistResponse struct {
 func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *AdminUpdateArtistRequest) (*AdminUpdateArtistResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Parse artist ID
 	artistID, err := strconv.ParseUint(req.ArtistID, 10, 32)
@@ -1005,10 +998,7 @@ type AddArtistAliasResponse struct {
 func (h *ArtistHandler) AddArtistAliasHandler(ctx context.Context, req *AddArtistAliasRequest) (*AddArtistAliasResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	artistID, err := strconv.ParseUint(req.ArtistID, 10, 32)
 	if err != nil {
@@ -1058,10 +1048,7 @@ type DeleteArtistAliasRequest struct {
 func (h *ArtistHandler) DeleteArtistAliasHandler(ctx context.Context, req *DeleteArtistAliasRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	aliasID, err := strconv.ParseUint(req.AliasID, 10, 32)
 	if err != nil {
@@ -1115,10 +1102,7 @@ type MergeArtistsResponse struct {
 func (h *ArtistHandler) MergeArtistsHandler(ctx context.Context, req *MergeArtistsRequest) (*MergeArtistsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.CanonicalArtistID == 0 || req.Body.MergeFromArtistID == 0 {
 		return nil, huma.Error400BadRequest("Both canonical_artist_id and merge_from_artist_id are required")

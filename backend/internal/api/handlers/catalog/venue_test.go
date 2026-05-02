@@ -15,54 +15,6 @@ func testVenueHandler() *VenueHandler {
 	return NewVenueHandler(nil, nil, nil, nil)
 }
 
-// --- AdminCreateVenueHandler ---
-
-func TestAdminCreateVenueHandler_NoAuth(t *testing.T) {
-	h := testVenueHandler()
-	req := &AdminCreateVenueRequest{}
-	req.Body.Name = "Test Venue"
-	req.Body.City = "Phoenix"
-	req.Body.State = "AZ"
-
-	_, err := h.AdminCreateVenueHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
-func TestAdminCreateVenueHandler_NonAdmin(t *testing.T) {
-	h := testVenueHandler()
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	req := &AdminCreateVenueRequest{}
-	req.Body.Name = "Test Venue"
-	req.Body.City = "Phoenix"
-	req.Body.State = "AZ"
-
-	_, err := h.AdminCreateVenueHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
-// --- UpdateVenueHandler (admin-only post-PSY-503) ---
-
-func TestUpdateVenueHandler_NoAuth(t *testing.T) {
-	h := testVenueHandler()
-	req := &UpdateVenueRequest{VenueID: "1"}
-
-	// Admin-only handler: unauthenticated requests get 403 (requireAdmin
-	// collapses "no user" and "non-admin" into the same response).
-	_, err := h.UpdateVenueHandler(context.Background(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
-func TestUpdateVenueHandler_NonAdmin(t *testing.T) {
-	h := testVenueHandler()
-	// Even a venue submitter can't direct-update via this endpoint; they
-	// must use PUT /venues/{id}/suggest-edit through SuggestVenueEditHandler.
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
-	req := &UpdateVenueRequest{VenueID: "1"}
-
-	_, err := h.UpdateVenueHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
-
 func TestUpdateVenueHandler_InvalidID(t *testing.T) {
 	h := testVenueHandler()
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})

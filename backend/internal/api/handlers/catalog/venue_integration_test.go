@@ -173,28 +173,6 @@ func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_AdminDirectUpdate() {
 	s.Equal("Valley Bar Updated", resp.Body.Name)
 }
 
-func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_NonAdminForbidden() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	// Even the venue submitter gets 403 on direct PUT now; non-admins must use
-	// PUT /venues/{id}/suggest-edit (handled by PendingEditHandler).
-	venue := &catalogm.Venue{
-		Name:        "My Venue",
-		City:        "Phoenix",
-		State:       "AZ",
-		Verified:    true,
-		SubmittedBy: &user.ID,
-	}
-	s.deps.DB.Create(venue)
-
-	ctx := testhelpers.CtxWithUser(user)
-	newName := "Changed Name"
-	req := &UpdateVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
-	req.Body.Name = &newName
-
-	_, err := s.handler.UpdateVenueHandler(ctx, req)
-	s.Error(err)
-}
-
 func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_VenueNotFound() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(admin)

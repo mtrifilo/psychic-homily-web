@@ -22,6 +22,7 @@ type Label struct {
 	FoundedYear *int        `gorm:"column:founded_year"`
 	Status      LabelStatus `gorm:"column:status;not null;default:'active'"`
 	Description *string     `gorm:"column:description"`
+	ImageURL    *string     `json:"image_url,omitempty" gorm:"column:image_url"`
 	Social      Social      `gorm:"embedded"`
 
 	// Data provenance fields

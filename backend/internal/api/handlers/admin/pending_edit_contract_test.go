@@ -5,8 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	adminm "psychic-homily-backend/internal/models/admin"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestAllowedEditFieldsCoversAllTypes ensures every entity type in
