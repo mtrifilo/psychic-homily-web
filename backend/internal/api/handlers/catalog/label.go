@@ -162,9 +162,9 @@ type CreateLabelRequest struct {
 		FoundedYear *int    `json:"founded_year,omitempty" required:"false" doc:"Year founded" example:"1988"`
 		Status      string  `json:"status,omitempty" required:"false" doc:"Status (active, inactive, defunct)" example:"active"`
 		Description *string `json:"description,omitempty" required:"false" doc:"Description"`
-		Instagram   *string `json:"instagram,omitempty" required:"false" doc:"Instagram handle"`
+		Instagram   *string `json:"instagram,omitempty" required:"false" doc:"Instagram URL"`
 		Facebook    *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
-		Twitter     *string `json:"twitter,omitempty" required:"false" doc:"Twitter handle"`
+		Twitter     *string `json:"twitter,omitempty" required:"false" doc:"Twitter URL"`
 		YouTube     *string `json:"youtube,omitempty" required:"false" doc:"YouTube URL"`
 		Spotify     *string `json:"spotify,omitempty" required:"false" doc:"Spotify URL"`
 		SoundCloud  *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`
@@ -254,9 +254,9 @@ type UpdateLabelRequest struct {
 		FoundedYear *int    `json:"founded_year,omitempty" required:"false" doc:"Year founded"`
 		Status      *string `json:"status,omitempty" required:"false" doc:"Status (active, inactive, defunct)"`
 		Description *string `json:"description,omitempty" required:"false" doc:"Description"`
-		Instagram   *string `json:"instagram,omitempty" required:"false" doc:"Instagram handle"`
+		Instagram   *string `json:"instagram,omitempty" required:"false" doc:"Instagram URL"`
 		Facebook    *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
-		Twitter     *string `json:"twitter,omitempty" required:"false" doc:"Twitter handle"`
+		Twitter     *string `json:"twitter,omitempty" required:"false" doc:"Twitter URL"`
 		YouTube     *string `json:"youtube,omitempty" required:"false" doc:"YouTube URL"`
 		Spotify     *string `json:"spotify,omitempty" required:"false" doc:"Spotify URL"`
 		SoundCloud  *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`

@@ -328,9 +328,9 @@ type AdminCreateArtistRequest struct {
 		City        *string `json:"city" required:"false" doc:"Artist city" maxLength:"100"`
 		State       *string `json:"state" required:"false" doc:"Artist state" maxLength:"100"`
 		Country     *string `json:"country" required:"false" doc:"Artist country" maxLength:"100"`
-		Instagram   *string `json:"instagram" required:"false" doc:"Instagram handle" maxLength:"255"`
+		Instagram   *string `json:"instagram" required:"false" doc:"Instagram URL" maxLength:"255"`
 		Facebook    *string `json:"facebook" required:"false" doc:"Facebook URL" maxLength:"500"`
-		Twitter     *string `json:"twitter" required:"false" doc:"Twitter handle" maxLength:"255"`
+		Twitter     *string `json:"twitter" required:"false" doc:"Twitter URL" maxLength:"255"`
 		YouTube     *string `json:"youtube" required:"false" doc:"YouTube URL" maxLength:"500"`
 		Spotify     *string `json:"spotify" required:"false" doc:"Spotify URL" maxLength:"500"`
 		SoundCloud  *string `json:"soundcloud" required:"false" doc:"SoundCloud URL" maxLength:"500"`
