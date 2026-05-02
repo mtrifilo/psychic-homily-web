@@ -16,6 +16,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
 
 // ShowHandler handles show-related HTTP requests
@@ -857,7 +858,7 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		updates["ticket_url"] = *req.Body.TicketURL
 	}
 	if req.Body.ImageURL != nil {
-		updates["image_url"] = nilIfEmpty(*req.Body.ImageURL)
+		updates["image_url"] = utils.NilIfEmpty(*req.Body.ImageURL)
 	}
 
 	// Convert venues to service format (nil if not provided)

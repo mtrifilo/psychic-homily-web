@@ -11,6 +11,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 
 	adminm "psychic-homily-backend/internal/models/admin"
 
@@ -458,13 +459,13 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		updates["website"] = *req.Body.Website
 	}
 	if req.Body.Description != nil {
-		updates["description"] = nilIfEmpty(*req.Body.Description)
+		updates["description"] = utils.NilIfEmpty(*req.Body.Description)
 	}
 	if req.Body.ImageURL != nil {
 		if len(*req.Body.ImageURL) > 2048 {
 			return nil, huma.Error422UnprocessableEntity("Image URL must be 2048 characters or fewer")
 		}
-		updates["image_url"] = nilIfEmpty(*req.Body.ImageURL)
+		updates["image_url"] = utils.NilIfEmpty(*req.Body.ImageURL)
 	}
 
 	updatedVenue, err := h.venueService.UpdateVenue(uint(venueID), updates)

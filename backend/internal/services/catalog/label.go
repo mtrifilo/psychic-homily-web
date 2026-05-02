@@ -326,14 +326,19 @@ func (s *LabelService) UpdateLabel(labelID uint, req *contracts.UpdateLabelReque
 		})
 		updates["slug"] = slug
 	}
+	// Optional string columns are nullable in the schema, so an explicit
+	// empty string from a caller (e.g. "clear my image_url") must land as
+	// SQL NULL rather than the literal "". utils.NilIfEmpty performs that
+	// normalization at the boundary; non-nullable columns (Status) and
+	// non-string columns (FoundedYear) are written through as-is.
 	if req.City != nil {
-		updates["city"] = *req.City
+		updates["city"] = utils.NilIfEmpty(*req.City)
 	}
 	if req.State != nil {
-		updates["state"] = *req.State
+		updates["state"] = utils.NilIfEmpty(*req.State)
 	}
 	if req.Country != nil {
-		updates["country"] = *req.Country
+		updates["country"] = utils.NilIfEmpty(*req.Country)
 	}
 	if req.FoundedYear != nil {
 		updates["founded_year"] = *req.FoundedYear
@@ -342,34 +347,34 @@ func (s *LabelService) UpdateLabel(labelID uint, req *contracts.UpdateLabelReque
 		updates["status"] = *req.Status
 	}
 	if req.Description != nil {
-		updates["description"] = *req.Description
+		updates["description"] = utils.NilIfEmpty(*req.Description)
 	}
 	if req.ImageURL != nil {
-		updates["image_url"] = *req.ImageURL
+		updates["image_url"] = utils.NilIfEmpty(*req.ImageURL)
 	}
 	if req.Instagram != nil {
-		updates["instagram"] = *req.Instagram
+		updates["instagram"] = utils.NilIfEmpty(*req.Instagram)
 	}
 	if req.Facebook != nil {
-		updates["facebook"] = *req.Facebook
+		updates["facebook"] = utils.NilIfEmpty(*req.Facebook)
 	}
 	if req.Twitter != nil {
-		updates["twitter"] = *req.Twitter
+		updates["twitter"] = utils.NilIfEmpty(*req.Twitter)
 	}
 	if req.YouTube != nil {
-		updates["youtube"] = *req.YouTube
+		updates["youtube"] = utils.NilIfEmpty(*req.YouTube)
 	}
 	if req.Spotify != nil {
-		updates["spotify"] = *req.Spotify
+		updates["spotify"] = utils.NilIfEmpty(*req.Spotify)
 	}
 	if req.SoundCloud != nil {
-		updates["soundcloud"] = *req.SoundCloud
+		updates["soundcloud"] = utils.NilIfEmpty(*req.SoundCloud)
 	}
 	if req.Bandcamp != nil {
-		updates["bandcamp"] = *req.Bandcamp
+		updates["bandcamp"] = utils.NilIfEmpty(*req.Bandcamp)
 	}
 	if req.Website != nil {
-		updates["website"] = *req.Website
+		updates["website"] = utils.NilIfEmpty(*req.Website)
 	}
 
 	if len(updates) > 0 {
