@@ -138,22 +138,22 @@ describe('BillComposition', () => {
     expect(screen.getByText(/3 shows · last: 2025-08-04/)).toBeInTheDocument()
   })
 
-  it('shows the View Map button when graph has 3+ nodes at desktop width', () => {
+  it('shows the Explore graph button when graph has 3+ nodes at desktop width', () => {
     renderWithProviders(<BillComposition artistId={1} />)
-    expect(screen.getByText('View Map')).toBeInTheDocument()
+    expect(screen.getByText('Explore graph')).toBeInTheDocument()
   })
 
-  it('hides the View Map button below the 640px breakpoint', () => {
+  it('hides the Explore graph button below the 640px breakpoint', () => {
     setMockContainerWidth(500)
     renderWithProviders(<BillComposition artistId={1} />)
-    expect(screen.queryByText('View Map')).not.toBeInTheDocument()
+    expect(screen.queryByText('Explore graph')).not.toBeInTheDocument()
   })
 
-  it('reveals the bill graph after clicking View Map', async () => {
+  it('reveals the bill graph after clicking Explore graph', async () => {
     const user = userEvent.setup()
     renderWithProviders(<BillComposition artistId={1} />)
     expect(screen.queryByTestId('bill-graph')).not.toBeInTheDocument()
-    await user.click(screen.getByText('View Map'))
+    await user.click(screen.getByText('Explore graph'))
     expect(screen.getByTestId('bill-graph')).toBeInTheDocument()
   })
 

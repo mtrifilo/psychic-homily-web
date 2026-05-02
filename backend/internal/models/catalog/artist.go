@@ -11,6 +11,7 @@ type Artist struct {
 	Country          *string `gorm:"column:country;size:100"`
 	BandcampEmbedURL *string `gorm:"column:bandcamp_embed_url"`
 	Description      *string `json:"description,omitempty" gorm:"column:description;type:text"`
+	ImageURL         *string `json:"image_url,omitempty" gorm:"column:image_url"`
 	Social           Social  `gorm:"embedded"`
 
 	// Data provenance fields

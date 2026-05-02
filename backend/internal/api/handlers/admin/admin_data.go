@@ -7,6 +7,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -47,11 +48,6 @@ type ExportShowsResponse struct {
 // ExportShowsHandler handles GET /admin/export/shows
 func (h *AdminDataHandler) ExportShowsHandler(ctx context.Context, req *ExportShowsRequest) (*ExportShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
-
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	offset := req.Offset
 	if offset < 0 {
@@ -117,11 +113,6 @@ type ExportArtistsResponse struct {
 func (h *AdminDataHandler) ExportArtistsHandler(ctx context.Context, req *ExportArtistsRequest) (*ExportArtistsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	offset := req.Offset
 	if offset < 0 {
 		offset = 0
@@ -176,11 +167,6 @@ type ExportVenuesResponse struct {
 // ExportVenuesHandler handles GET /admin/export/venues
 func (h *AdminDataHandler) ExportVenuesHandler(ctx context.Context, req *ExportVenuesRequest) (*ExportVenuesResponse, error) {
 	requestID := logger.GetRequestID(ctx)
-
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	offset := req.Offset
 	if offset < 0 {
@@ -243,10 +229,7 @@ type DataImportResponse struct {
 func (h *AdminDataHandler) DataImportHandler(ctx context.Context, req *DataImportRequest) (*DataImportResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Validate limits
 	totalItems := len(req.Body.Shows) + len(req.Body.Artists) + len(req.Body.Venues)

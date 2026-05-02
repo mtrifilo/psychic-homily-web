@@ -435,6 +435,7 @@ func (s *VenueService) buildVenueResponse(venue *catalogm.Venue) *contracts.Venu
 		Country:     venue.Country,
 		Zipcode:     zipcode,
 		Description: venue.Description,
+		ImageURL:    venue.ImageURL,
 		Verified:    venue.Verified,
 		SubmittedBy: venue.SubmittedBy,
 		Social: contracts.SocialResponse{

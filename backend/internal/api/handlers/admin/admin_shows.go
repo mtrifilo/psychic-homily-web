@@ -9,6 +9,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
@@ -139,11 +140,6 @@ type BatchRejectShowsResponse struct {
 func (h *AdminShowHandler) GetPendingShowsHandler(ctx context.Context, req *GetPendingShowsRequest) (*GetPendingShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	// Validate limit
 	limit := req.Limit
 	if limit < 1 {
@@ -218,11 +214,6 @@ func (h *AdminShowHandler) GetPendingShowsHandler(ctx context.Context, req *GetP
 func (h *AdminShowHandler) GetRejectedShowsHandler(ctx context.Context, req *GetRejectedShowsRequest) (*GetRejectedShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	// Validate limit
 	limit := req.Limit
 	if limit < 1 {
@@ -275,10 +266,7 @@ func (h *AdminShowHandler) GetRejectedShowsHandler(ctx context.Context, req *Get
 func (h *AdminShowHandler) ApproveShowHandler(ctx context.Context, req *ApproveShowRequest) (*ApproveShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Parse show ID
 	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
@@ -346,10 +334,7 @@ func (h *AdminShowHandler) ApproveShowHandler(ctx context.Context, req *ApproveS
 func (h *AdminShowHandler) RejectShowHandler(ctx context.Context, req *RejectShowRequest) (*RejectShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Parse show ID
 	showID, err := strconv.ParseUint(req.ShowID, 10, 32)
@@ -399,10 +384,7 @@ func (h *AdminShowHandler) RejectShowHandler(ctx context.Context, req *RejectSho
 
 // BatchApproveShowsHandler handles POST /admin/shows/batch-approve
 func (h *AdminShowHandler) BatchApproveShowsHandler(ctx context.Context, req *BatchApproveShowsRequest) (*BatchApproveShowsResponse, error) {
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	result, err := h.showAdminService.BatchApproveShows(req.Body.ShowIDs)
 	if err != nil {
@@ -460,10 +442,7 @@ func (h *AdminShowHandler) BatchApproveShowsHandler(ctx context.Context, req *Ba
 
 // BatchRejectShowsHandler handles POST /admin/shows/batch-reject
 func (h *AdminShowHandler) BatchRejectShowsHandler(ctx context.Context, req *BatchRejectShowsRequest) (*BatchRejectShowsResponse, error) {
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Validate reason
 	if req.Body.Reason == "" {
@@ -522,10 +501,7 @@ type ImportShowPreviewResponse struct {
 func (h *AdminShowHandler) ImportShowPreviewHandler(ctx context.Context, req *ImportShowPreviewRequest) (*ImportShowPreviewResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Decode base64 content
 	content, err := base64.StdEncoding.DecodeString(req.Body.Content)
@@ -581,10 +557,7 @@ type ImportShowConfirmResponse struct {
 func (h *AdminShowHandler) ImportShowConfirmHandler(ctx context.Context, req *ImportShowConfirmRequest) (*ImportShowConfirmResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Decode base64 content
 	content, err := base64.StdEncoding.DecodeString(req.Body.Content)
@@ -659,11 +632,6 @@ type GetAdminShowsResponse struct {
 // Returns paginated show list with full details for admin export purposes
 func (h *AdminShowHandler) GetAdminShowsHandler(ctx context.Context, req *GetAdminShowsRequest) (*GetAdminShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
-
-	_, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	// Validate limit
 	limit := req.Limit
@@ -743,10 +711,7 @@ type BulkExportShowsResponse struct {
 func (h *AdminShowHandler) BulkExportShowsHandler(ctx context.Context, req *BulkExportShowsRequest) (*BulkExportShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	if len(req.Body.ShowIDs) == 0 {
 		return nil, huma.Error400BadRequest("At least one show ID is required")
@@ -824,10 +789,7 @@ type BulkImportPreviewResponse struct {
 func (h *AdminShowHandler) BulkImportPreviewHandler(ctx context.Context, req *BulkImportPreviewRequest) (*BulkImportPreviewResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	if len(req.Body.Shows) == 0 {
 		return nil, huma.Error400BadRequest("At least one show is required")
@@ -941,10 +903,7 @@ type BulkImportConfirmResponse struct {
 func (h *AdminShowHandler) BulkImportConfirmHandler(ctx context.Context, req *BulkImportConfirmRequest) (*BulkImportConfirmResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	if len(req.Body.Shows) == 0 {
 		return nil, huma.Error400BadRequest("At least one show is required")

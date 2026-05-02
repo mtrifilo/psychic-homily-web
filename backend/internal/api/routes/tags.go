@@ -66,24 +66,24 @@ func setupTagRoutes(rc RouteContext) {
 		huma.Delete(tagVoteAPI, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.RemoveTagVoteHandler)
 	})
 
-	// Admin: tag CRUD and alias management
-	huma.Post(rc.Protected, "/tags", tagHandler.CreateTagHandler)
-	huma.Put(rc.Protected, "/tags/{tag_id}", tagHandler.UpdateTagHandler)
-	huma.Delete(rc.Protected, "/tags/{tag_id}", tagHandler.DeleteTagHandler)
-	huma.Post(rc.Protected, "/tags/{tag_id}/aliases", tagHandler.CreateAliasHandler)
-	huma.Delete(rc.Protected, "/tags/{tag_id}/aliases/{alias_id}", tagHandler.DeleteAliasHandler)
+	// Admin: tag CRUD and alias management (PSY-423: rc.Admin enforces auth + IsAdmin)
+	huma.Post(rc.Admin, "/tags", tagHandler.CreateTagHandler)
+	huma.Put(rc.Admin, "/tags/{tag_id}", tagHandler.UpdateTagHandler)
+	huma.Delete(rc.Admin, "/tags/{tag_id}", tagHandler.DeleteTagHandler)
+	huma.Post(rc.Admin, "/tags/{tag_id}/aliases", tagHandler.CreateAliasHandler)
+	huma.Delete(rc.Admin, "/tags/{tag_id}/aliases/{alias_id}", tagHandler.DeleteAliasHandler)
 	// Admin: global alias listing + bulk CSV/JSON import (PSY-307).
-	huma.Get(rc.Protected, "/admin/tags/aliases", tagHandler.ListAllAliasesHandler)
-	huma.Post(rc.Protected, "/admin/tags/aliases/bulk", tagHandler.BulkImportAliasesHandler)
+	huma.Get(rc.Admin, "/admin/tags/aliases", tagHandler.ListAllAliasesHandler)
+	huma.Post(rc.Admin, "/admin/tags/aliases/bulk", tagHandler.BulkImportAliasesHandler)
 	// Admin: merge tags (PSY-306).
-	huma.Get(rc.Protected, "/admin/tags/{source_id}/merge-preview", tagHandler.MergeTagsPreviewHandler)
-	huma.Post(rc.Protected, "/admin/tags/{source_id}/merge", tagHandler.MergeTagsHandler)
+	huma.Get(rc.Admin, "/admin/tags/{source_id}/merge-preview", tagHandler.MergeTagsPreviewHandler)
+	huma.Post(rc.Admin, "/admin/tags/{source_id}/merge", tagHandler.MergeTagsHandler)
 	// Admin: low-quality tag review queue (PSY-310).
-	huma.Get(rc.Protected, "/admin/tags/low-quality", tagHandler.ListLowQualityTagsHandler)
-	huma.Post(rc.Protected, "/admin/tags/{tag_id}/snooze", tagHandler.SnoozeTagHandler)
+	huma.Get(rc.Admin, "/admin/tags/low-quality", tagHandler.ListLowQualityTagsHandler)
+	huma.Post(rc.Admin, "/admin/tags/{tag_id}/snooze", tagHandler.SnoozeTagHandler)
 	// Admin: bulk action on low-quality queue (PSY-487).
-	huma.Post(rc.Protected, "/admin/tags/low-quality/bulk-action", tagHandler.BulkLowQualityTagsHandler)
+	huma.Post(rc.Admin, "/admin/tags/low-quality/bulk-action", tagHandler.BulkLowQualityTagsHandler)
 	// Admin: genre-hierarchy editor (PSY-311).
-	huma.Get(rc.Protected, "/admin/tags/hierarchy", tagHandler.GetGenreHierarchyHandler)
-	huma.Patch(rc.Protected, "/admin/tags/{tag_id}/parent", tagHandler.SetTagParentHandler)
+	huma.Get(rc.Admin, "/admin/tags/hierarchy", tagHandler.GetGenreHierarchyHandler)
+	huma.Patch(rc.Admin, "/admin/tags/{tag_id}/parent", tagHandler.SetTagParentHandler)
 }

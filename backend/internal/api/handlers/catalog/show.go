@@ -11,6 +11,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
@@ -293,6 +294,7 @@ type UpdateShowRequest struct {
 		AgeRequirement *string    `json:"age_requirement,omitempty" doc:"Age requirement"`
 		Description    *string    `json:"description,omitempty" doc:"Show description" required:"false"`
 		TicketURL      *string    `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
+		ImageURL       *string    `json:"image_url,omitempty" doc:"Show flyer image URL" required:"false"`
 		Venues         []Venue    `json:"venues,omitempty" doc:"List of venues for the show"`
 		Artists        []Artist   `json:"artists,omitempty" doc:"List of artists for the show"`
 	}
@@ -361,68 +363,31 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	// Convert Venues to service format
 	serviceVenues := make([]contracts.CreateShowVenue, len(req.Body.Venues))
 	for i, venue := range req.Body.Venues {
-		var name, city, state, address string
-		if venue.Name != nil {
-			name = *venue.Name
-		}
-		if venue.City != nil {
-			city = *venue.City
-		}
-		if venue.State != nil {
-			state = *venue.State
-		}
-		if venue.Address != nil {
-			address = *venue.Address
-		}
 		serviceVenues[i] = contracts.CreateShowVenue{
 			ID:      venue.ID,
-			Name:    name,
-			City:    city,
-			State:   state,
-			Address: address,
+			Name:    shared.Deref(venue.Name),
+			City:    shared.Deref(venue.City),
+			State:   shared.Deref(venue.State),
+			Address: shared.Deref(venue.Address),
 		}
 	}
 
 	// Convert Artists to service format
 	serviceArtists := make([]contracts.CreateShowArtist, len(req.Body.Artists))
 	for i, artist := range req.Body.Artists {
-		var name string
-		if artist.Name != nil {
-			name = *artist.Name
-		}
 		serviceArtists[i] = contracts.CreateShowArtist{
 			ID:              artist.ID,
-			Name:            name,
+			Name:            shared.Deref(artist.Name),
 			IsHeadliner:     artist.IsHeadliner,
 			InstagramHandle: artist.InstagramHandle,
 		}
 	}
 
-	title := ""
-	if req.Body.Title != nil {
-		title = *req.Body.Title
-	}
-
-	description := ""
-	if req.Body.Description != nil {
-		description = *req.Body.Description
-	}
-
-	ageRequirement := ""
-	if req.Body.AgeRequirement != nil {
-		ageRequirement = *req.Body.AgeRequirement
-	}
-
-	ticketURL := ""
-	if req.Body.TicketURL != nil {
-		ticketURL = *req.Body.TicketURL
-	}
-
-	// Check if show should be private
-	isPrivate := false
-	if req.Body.IsPrivate != nil && *req.Body.IsPrivate {
-		isPrivate = true
-	}
+	title := shared.Deref(req.Body.Title)
+	description := shared.Deref(req.Body.Description)
+	ageRequirement := shared.Deref(req.Body.AgeRequirement)
+	ticketURL := shared.Deref(req.Body.TicketURL)
+	isPrivate := shared.Deref(req.Body.IsPrivate)
 
 	// Convert request to service request with user context
 	serviceReq := &contracts.CreateShowRequest{
@@ -471,14 +436,14 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 
 	// Trigger music discovery for any newly created artists
 	for _, artist := range show.Artists {
-		if artist.IsNewArtist != nil && *artist.IsNewArtist {
+		if shared.Deref(artist.IsNewArtist) {
 			h.musicDiscoveryService.DiscoverMusicForArtist(artist.ID, artist.Name)
 		}
 	}
 
 	// Notify about any newly created unverified venues
 	for _, venue := range show.Venues {
-		if venue.IsNewVenue != nil && *venue.IsNewVenue && !venue.Verified {
+		if shared.Deref(venue.IsNewVenue) && !venue.Verified {
 			h.discordService.NotifyNewVenue(venue.ID, venue.Name, venue.City, venue.State, venue.Address, submitterEmail)
 		}
 	}
@@ -861,6 +826,9 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	if req.Body.TicketURL != nil && len(*req.Body.TicketURL) > 500 {
 		return nil, huma.Error400BadRequest("Ticket URL must be 500 characters or fewer")
 	}
+	if req.Body.ImageURL != nil && len(*req.Body.ImageURL) > 2048 {
+		return nil, huma.Error400BadRequest("Image URL must be 2048 characters or fewer")
+	}
 
 	// Build updates map for basic show fields
 	updates := make(map[string]interface{})
@@ -888,31 +856,21 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	if req.Body.TicketURL != nil {
 		updates["ticket_url"] = *req.Body.TicketURL
 	}
+	if req.Body.ImageURL != nil {
+		updates["image_url"] = nilIfEmpty(*req.Body.ImageURL)
+	}
 
 	// Convert venues to service format (nil if not provided)
 	var serviceVenues []contracts.CreateShowVenue
 	if len(req.Body.Venues) > 0 {
 		serviceVenues = make([]contracts.CreateShowVenue, len(req.Body.Venues))
 		for i, venue := range req.Body.Venues {
-			var name, city, state, address string
-			if venue.Name != nil {
-				name = *venue.Name
-			}
-			if venue.City != nil {
-				city = *venue.City
-			}
-			if venue.State != nil {
-				state = *venue.State
-			}
-			if venue.Address != nil {
-				address = *venue.Address
-			}
 			serviceVenues[i] = contracts.CreateShowVenue{
 				ID:      venue.ID,
-				Name:    name,
-				City:    city,
-				State:   state,
-				Address: address,
+				Name:    shared.Deref(venue.Name),
+				City:    shared.Deref(venue.City),
+				State:   shared.Deref(venue.State),
+				Address: shared.Deref(venue.Address),
 			}
 		}
 	}
@@ -922,13 +880,9 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	if len(req.Body.Artists) > 0 {
 		serviceArtists = make([]contracts.CreateShowArtist, len(req.Body.Artists))
 		for i, artist := range req.Body.Artists {
-			var name string
-			if artist.Name != nil {
-				name = *artist.Name
-			}
 			serviceArtists[i] = contracts.CreateShowArtist{
 				ID:              artist.ID,
-				Name:            name,
+				Name:            shared.Deref(artist.Name),
 				IsHeadliner:     artist.IsHeadliner,
 				InstagramHandle: artist.InstagramHandle,
 			}
@@ -1134,10 +1088,7 @@ func (h *ShowHandler) UnpublishShowHandler(ctx context.Context, req *UnpublishSh
 	)
 
 	// Send Discord notification for status change
-	actorEmail := ""
-	if user.Email != nil {
-		actorEmail = *user.Email
-	}
+	actorEmail := shared.Deref(user.Email)
 	h.discordService.NotifyShowStatusChange(show.Title, show.ID, "approved", "pending", actorEmail)
 
 	return &UnpublishShowResponse{Body: *show}, nil
@@ -1219,10 +1170,7 @@ func (h *ShowHandler) MakePrivateShowHandler(ctx context.Context, req *MakePriva
 	)
 
 	// Send Discord notification for status change
-	actorEmail := ""
-	if user.Email != nil {
-		actorEmail = *user.Email
-	}
+	actorEmail := shared.Deref(user.Email)
 	h.discordService.NotifyShowStatusChange(show.Title, show.ID, "pending", "private", actorEmail)
 
 	return &MakePrivateShowResponse{Body: *show}, nil
@@ -1307,10 +1255,7 @@ func (h *ShowHandler) PublishShowHandler(ctx context.Context, req *PublishShowRe
 	)
 
 	// Send Discord notification for status change
-	actorEmail := ""
-	if user.Email != nil {
-		actorEmail = *user.Email
-	}
+	actorEmail := shared.Deref(user.Email)
 	h.discordService.NotifyShowStatusChange(show.Title, show.ID, "private", show.Status, actorEmail)
 
 	return &PublishShowResponse{Body: *show}, nil

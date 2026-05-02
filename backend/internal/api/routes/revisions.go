@@ -16,6 +16,6 @@ func setupRevisionRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/revisions/{revision_id}", revisionHandler.GetRevisionHandler)
 	huma.Get(rc.API, "/users/{user_id}/revisions", revisionHandler.GetUserRevisionsHandler)
 
-	// Admin rollback endpoint
-	huma.Post(rc.Protected, "/admin/revisions/{revision_id}/rollback", revisionHandler.RollbackRevisionHandler)
+	// Admin rollback endpoint (PSY-423: rc.Admin enforces auth + IsAdmin)
+	huma.Post(rc.Admin, "/admin/revisions/{revision_id}/rollback", revisionHandler.RollbackRevisionHandler)
 }

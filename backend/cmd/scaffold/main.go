@@ -1121,6 +1121,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -1260,10 +1261,8 @@ type Create{{.NameTitle}}Response struct {
 func (h *{{.NameTitle}}Handler) Create{{.NameTitle}}Handler(ctx context.Context, req *Create{{.NameTitle}}Request) (*Create{{.NameTitle}}Response, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	// PSY-423: register this route on rc.Admin so the middleware handles auth + IsAdmin.
+	user := middleware.GetUserFromContext(ctx)
 
 {{- if .NameField}}
 
@@ -1328,10 +1327,8 @@ type Update{{.NameTitle}}Response struct {
 func (h *{{.NameTitle}}Handler) Update{{.NameTitle}}Handler(ctx context.Context, req *Update{{.NameTitle}}Request) (*Update{{.NameTitle}}Response, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	// PSY-423: register this route on rc.Admin so the middleware handles auth + IsAdmin.
+	user := middleware.GetUserFromContext(ctx)
 
 	// Resolve ID
 	{{.NameCamel}}ID, err := h.resolve{{.NameTitle}}ID(req.{{.NameTitle}}ID)
@@ -1386,10 +1383,8 @@ type Delete{{.NameTitle}}Request struct {
 func (h *{{.NameTitle}}Handler) Delete{{.NameTitle}}Handler(ctx context.Context, req *Delete{{.NameTitle}}Request) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	// PSY-423: register this route on rc.Admin so the middleware handles auth + IsAdmin.
+	user := middleware.GetUserFromContext(ctx)
 
 	// Resolve ID
 	{{.NameCamel}}ID, err := h.resolve{{.NameTitle}}ID(req.{{.NameTitle}}ID)

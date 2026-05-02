@@ -8,7 +8,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
@@ -38,14 +37,14 @@ func NewPendingEditHandler(
 var allowedEditFields = map[string]map[string]bool{
 	"artist": {
 		"name": true, "city": true, "state": true, "country": true,
-		"description": true, "bandcamp_embed_url": true,
+		"description": true, "bandcamp_embed_url": true, "image_url": true,
 		"instagram": true, "facebook": true, "twitter": true,
 		"youtube": true, "spotify": true, "soundcloud": true,
 		"bandcamp": true, "website": true,
 	},
 	"venue": {
 		"name": true, "address": true, "city": true, "state": true,
-		"country": true, "zipcode": true, "description": true,
+		"country": true, "zipcode": true, "description": true, "image_url": true,
 		"instagram": true, "facebook": true, "twitter": true,
 		"youtube": true, "spotify": true, "soundcloud": true,
 		"bandcamp": true, "website": true,
@@ -62,6 +61,7 @@ var allowedEditFields = map[string]map[string]bool{
 	"label": {
 		"name": true, "founded_year": true,
 		"city": true, "state": true, "country": true, "description": true,
+		"image_url": true,
 		"instagram": true, "facebook": true, "twitter": true,
 		"youtube": true, "spotify": true, "soundcloud": true,
 		"bandcamp": true, "website": true,
@@ -328,10 +328,6 @@ type AdminListPendingEditsResponse struct {
 
 // AdminListPendingEditsHandler handles GET /admin/pending-edits
 func (h *PendingEditHandler) AdminListPendingEditsHandler(ctx context.Context, req *AdminListPendingEditsRequest) (*AdminListPendingEditsResponse, error) {
-	if _, err := shared.RequireAdmin(ctx); err != nil {
-		return nil, err
-	}
-
 	edits, total, err := h.pendingEditService.ListPendingEdits(&contracts.PendingEditFilters{
 		Status:     req.Status,
 		EntityType: req.EntityType,
@@ -363,10 +359,6 @@ type AdminGetPendingEditResponse struct {
 
 // AdminGetPendingEditHandler handles GET /admin/pending-edits/{edit_id}
 func (h *PendingEditHandler) AdminGetPendingEditHandler(ctx context.Context, req *AdminGetPendingEditRequest) (*AdminGetPendingEditResponse, error) {
-	if _, err := shared.RequireAdmin(ctx); err != nil {
-		return nil, err
-	}
-
 	editID, err := strconv.ParseUint(req.EditID, 10, 64)
 	if err != nil {
 		return nil, huma.Error400BadRequest("Invalid edit ID")
@@ -398,10 +390,7 @@ type AdminApprovePendingEditResponse struct {
 
 // AdminApprovePendingEditHandler handles POST /admin/pending-edits/{edit_id}/approve
 func (h *PendingEditHandler) AdminApprovePendingEditHandler(ctx context.Context, req *AdminApprovePendingEditRequest) (*AdminApprovePendingEditResponse, error) {
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	editID, err := strconv.ParseUint(req.EditID, 10, 64)
 	if err != nil {
@@ -462,10 +451,7 @@ type AdminRejectPendingEditResponse struct {
 
 // AdminRejectPendingEditHandler handles POST /admin/pending-edits/{edit_id}/reject
 func (h *PendingEditHandler) AdminRejectPendingEditHandler(ctx context.Context, req *AdminRejectPendingEditRequest) (*AdminRejectPendingEditResponse, error) {
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	editID, err := strconv.ParseUint(req.EditID, 10, 64)
 	if err != nil {
@@ -528,10 +514,6 @@ type AdminGetEntityPendingEditsResponse struct {
 
 // AdminGetEntityPendingEditsHandler handles GET /admin/pending-edits/entity/{entity_type}/{entity_id}
 func (h *PendingEditHandler) AdminGetEntityPendingEditsHandler(ctx context.Context, req *AdminGetEntityPendingEditsRequest) (*AdminGetEntityPendingEditsResponse, error) {
-	if _, err := shared.RequireAdmin(ctx); err != nil {
-		return nil, err
-	}
-
 	if !adminm.IsValidPendingEditEntityType(req.EntityType) {
 		return nil, huma.Error400BadRequest(fmt.Sprintf("Invalid entity type: %s", req.EntityType))
 	}
