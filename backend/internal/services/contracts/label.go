@@ -34,6 +34,7 @@ type UpdateLabelRequest struct {
 	FoundedYear *int    `json:"founded_year"`
 	Status      *string `json:"status"`
 	Description *string `json:"description"`
+	ImageURL    *string `json:"image_url"`
 	Instagram   *string `json:"instagram"`
 	Facebook    *string `json:"facebook"`
 	Twitter     *string `json:"twitter"`
@@ -55,6 +56,7 @@ type LabelDetailResponse struct {
 	FoundedYear  *int           `json:"founded_year"`
 	Status       string         `json:"status"`
 	Description  *string        `json:"description"`
+	ImageURL     *string        `json:"image_url"` // Optional label logo (PSY-521)
 	Social       SocialResponse `json:"social"`
 	ArtistCount  int            `json:"artist_count"`
 	ReleaseCount int            `json:"release_count"`

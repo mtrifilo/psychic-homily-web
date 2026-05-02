@@ -8,7 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
@@ -203,10 +203,7 @@ type CreateReleaseResponse struct {
 func (h *ReleaseHandler) CreateReleaseHandler(ctx context.Context, req *CreateReleaseRequest) (*CreateReleaseResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.Title == "" {
 		return nil, huma.Error400BadRequest("Title is required")
@@ -293,10 +290,7 @@ type UpdateReleaseResponse struct {
 func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateReleaseRequest) (*UpdateReleaseResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Resolve release ID
 	releaseID, err := h.resolveReleaseID(req.ReleaseID)
@@ -428,10 +422,7 @@ type DeleteReleaseRequest struct {
 func (h *ReleaseHandler) DeleteReleaseHandler(ctx context.Context, req *DeleteReleaseRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Resolve release ID
 	releaseID, err := h.resolveReleaseID(req.ReleaseID)
@@ -545,10 +536,7 @@ type AddExternalLinkResponse struct {
 func (h *ReleaseHandler) AddExternalLinkHandler(ctx context.Context, req *AddExternalLinkRequest) (*AddExternalLinkResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	releaseID, err := strconv.ParseUint(req.ReleaseID, 10, 32)
 	if err != nil {
@@ -595,10 +583,7 @@ type RemoveExternalLinkRequest struct {
 func (h *ReleaseHandler) RemoveExternalLinkHandler(ctx context.Context, req *RemoveExternalLinkRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	linkID, err := strconv.ParseUint(req.LinkID, 10, 32)
 	if err != nil {

@@ -293,6 +293,7 @@ type UpdateShowRequest struct {
 		AgeRequirement *string    `json:"age_requirement,omitempty" doc:"Age requirement"`
 		Description    *string    `json:"description,omitempty" doc:"Show description" required:"false"`
 		TicketURL      *string    `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
+		ImageURL       *string    `json:"image_url,omitempty" doc:"Show flyer image URL" required:"false"`
 		Venues         []Venue    `json:"venues,omitempty" doc:"List of venues for the show"`
 		Artists        []Artist   `json:"artists,omitempty" doc:"List of artists for the show"`
 	}
@@ -861,6 +862,9 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	if req.Body.TicketURL != nil && len(*req.Body.TicketURL) > 500 {
 		return nil, huma.Error400BadRequest("Ticket URL must be 500 characters or fewer")
 	}
+	if req.Body.ImageURL != nil && len(*req.Body.ImageURL) > 2048 {
+		return nil, huma.Error400BadRequest("Image URL must be 2048 characters or fewer")
+	}
 
 	// Build updates map for basic show fields
 	updates := make(map[string]interface{})
@@ -887,6 +891,9 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	}
 	if req.Body.TicketURL != nil {
 		updates["ticket_url"] = *req.Body.TicketURL
+	}
+	if req.Body.ImageURL != nil {
+		updates["image_url"] = nilIfEmpty(*req.Body.ImageURL)
 	}
 
 	// Convert venues to service format (nil if not provided)

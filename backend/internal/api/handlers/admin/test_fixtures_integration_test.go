@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -172,24 +171,6 @@ func (s *TestFixturesSuite) TestReset_HeaderWrongValue_Returns400() {
 	_, err := s.call(admin, target.ID, []string{"user_bookmarks"}, "yes")
 	s.Require().Error(err)
 	testhelpers.AssertHumaError(s.T(), err, 400)
-}
-
-func (s *TestFixturesSuite) TestReset_NonAdmin_Returns403() {
-	nonAdmin := s.createTestLocalUser(false)
-	target := s.createTestLocalUser(false)
-	_, err := s.call(nonAdmin, target.ID, []string{"user_bookmarks"}, "1")
-	s.Require().Error(err)
-	testhelpers.AssertHumaError(s.T(), err, 403)
-}
-
-func (s *TestFixturesSuite) TestReset_NoAuthContext_Returns403() {
-	h := NewTestFixtureHandler(s.deps.DB)
-	req := &ResetTestFixturesRequest{TestFixturesToken: "1"}
-	req.Body.UserID = 1
-	req.Body.Tables = []string{"user_bookmarks"}
-	_, err := h.Reset(context.Background(), req)
-	s.Require().Error(err)
-	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 func (s *TestFixturesSuite) TestReset_UnknownTable_Returns400() {

@@ -6,7 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
@@ -63,10 +63,7 @@ type DiscoveryImportResponse struct {
 func (h *AdminDiscoveryHandler) DiscoveryImportHandler(ctx context.Context, req *DiscoveryImportRequest) (*DiscoveryImportResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	if len(req.Body.Events) == 0 {
 		return nil, huma.Error400BadRequest("At least one event is required")
@@ -159,10 +156,7 @@ type DiscoveryCheckResponse struct {
 func (h *AdminDiscoveryHandler) DiscoveryCheckHandler(ctx context.Context, req *DiscoveryCheckRequest) (*DiscoveryCheckResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	if len(req.Body.Events) == 0 {
 		return nil, huma.Error400BadRequest("At least one event is required")

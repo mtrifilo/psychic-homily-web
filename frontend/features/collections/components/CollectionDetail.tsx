@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import {
   Loader2,
@@ -30,6 +30,7 @@ import {
   ListOrdered,
   LayoutGrid,
   List,
+  Network,
 } from 'lucide-react'
 import {
   DndContext,
@@ -84,6 +85,7 @@ import {
 } from '../types'
 import type { CollectionDisplayMode, CollectionItem, CollectionDetail as CollectionDetailType } from '../types'
 import { MarkdownEditor, MarkdownContent } from './MarkdownEditor'
+import { CollectionGraph } from './CollectionGraph'
 import { CollectionItemCard } from './CollectionItemCard'
 import { useDensity, type Density } from '@/lib/hooks/common/useDensity'
 import { DensityToggle } from '@/components/shared'
@@ -180,6 +182,9 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [showCopied, setShowCopied] = useState(false)
+  // PSY-366: collection graph toggle. Default-off; the items list is the
+  // primary surface, the graph is an alternative lens.
+  const [showGraph, setShowGraph] = useState(false)
 
   const handleShare = useCallback(() => {
     navigator.clipboard.writeText(window.location.href).then(() => {
@@ -294,6 +299,21 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   const isLikePending = likeMutation.isPending || unlikeMutation.isPending
 
   const items = collection.items ?? []
+  // PSY-366: only surface the graph toggle when the collection has at least
+  // one artist item — non-artist-only collections have nothing to graph.
+  const artistItemCount = items.filter(it => it.entity_type === 'artist').length
+
+  // PSY-366: when arriving via a `#graph` deep-link (e.g. from the Cmd+K
+  // palette), auto-open the graph so the anchor resolves. The graph wrapper
+  // only carries `id="graph"` while showGraph is true; without this, the
+  // hash points at a non-existent element and the user lands at the page
+  // top with nothing visible.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (window.location.hash === '#graph' && artistItemCount > 0) {
+      setShowGraph(true)
+    }
+  }, [artistItemCount])
 
   return (
     <div className="container max-w-6xl mx-auto px-4 py-6">
@@ -521,6 +541,22 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                   {showCopied ? 'Copied!' : 'Share'}
                 </Button>
 
+                {/* PSY-366: Explore graph toggle. Visible only when the
+                    collection has artist items — non-artist-only collections
+                    have nothing to graph. */}
+                {artistItemCount > 0 && (
+                  <Button
+                    variant={showGraph ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setShowGraph(!showGraph)}
+                    aria-pressed={showGraph}
+                    aria-label={showGraph ? 'Hide collection graph' : 'Explore collection graph'}
+                  >
+                    <Network className="h-4 w-4 mr-1.5" />
+                    {showGraph ? 'Hide graph' : 'Explore graph'}
+                  </Button>
+                )}
+
                 {canSubscribe && (
                   <Button
                     variant={collection.is_subscribed ? 'secondary' : 'default'}
@@ -611,6 +647,13 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 
       {/* PSY-356: publish-gate banner (creator-only) */}
       {isCreator && <PublishGateBanner collection={collection} />}
+
+      {/* PSY-366: collection graph (toggleable). Renders only when the
+          user clicks "Explore graph" in the actions row. The wrapper has
+          `id="graph"` so Cmd+K deep-links resolve. */}
+      {showGraph && artistItemCount > 0 && (
+        <CollectionGraph slug={slug} collectionTitle={collection.title} />
+      )}
 
       {/* Add Items (creator only) */}
       {isCreator && (

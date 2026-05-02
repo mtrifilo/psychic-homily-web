@@ -64,6 +64,7 @@ type ShowResponse struct {
 	AgeRequirement    *string          `json:"age_requirement"`
 	Description       *string          `json:"description"`
 	TicketURL         *string          `json:"ticket_url,omitempty"`
+	ImageURL          *string          `json:"image_url"` // Optional show flyer (PSY-521)
 	Status            string           `json:"status"`
 	SubmittedBy       *uint            `json:"submitted_by,omitempty"`
 	RejectionReason   *string          `json:"rejection_reason,omitempty"`
@@ -333,6 +334,7 @@ type VenueDetailResponse struct {
 	Country     *string        `json:"country,omitempty"`
 	Zipcode     *string        `json:"zipcode"`
 	Description *string        `json:"description,omitempty"`
+	ImageURL    *string        `json:"image_url"`    // Optional venue photo (PSY-521)
 	Verified    bool           `json:"verified"`     // Admin-verified as legitimate venue
 	SubmittedBy *uint          `json:"submitted_by"` // User ID who originally submitted this venue
 	Social      SocialResponse `json:"social"`
@@ -423,6 +425,7 @@ type ArtistDetailResponse struct {
 	City             *string        `json:"city"`
 	BandcampEmbedURL *string        `json:"bandcamp_embed_url"`
 	Description      *string        `json:"description,omitempty"`
+	ImageURL         *string        `json:"image_url"` // Optional artist photo (PSY-521)
 	Social           SocialResponse `json:"social"`
 	CreatedAt        time.Time      `json:"created_at"`
 	UpdatedAt        time.Time      `json:"updated_at"`

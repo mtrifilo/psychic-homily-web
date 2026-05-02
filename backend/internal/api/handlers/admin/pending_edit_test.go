@@ -431,19 +431,6 @@ func TestCancelMyPendingEdit_WrongUser(t *testing.T) {
 // Tests: Admin — List Pending Edits
 // ============================================================================
 
-func TestAdminListPendingEdits_RequiresAdmin(t *testing.T) {
-	h := testPendingEditHandler()
-
-	t.Run("NoUser", func(t *testing.T) {
-		_, err := h.AdminListPendingEditsHandler(context.Background(), &AdminListPendingEditsRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-	t.Run("NonAdmin", func(t *testing.T) {
-		_, err := h.AdminListPendingEditsHandler(pendingEditNewUserCtx(), &AdminListPendingEditsRequest{})
-		testhelpers.AssertHumaError(t, err, 403)
-	})
-}
-
 func TestAdminListPendingEdits_Success(t *testing.T) {
 	edits := []contracts.PendingEditResponse{*makePendingEditResponse(1)}
 	h := NewPendingEditHandler(
@@ -472,12 +459,6 @@ func TestAdminListPendingEdits_Success(t *testing.T) {
 // ============================================================================
 // Tests: Admin — Get Pending Edit
 // ============================================================================
-
-func TestAdminGetPendingEdit_RequiresAdmin(t *testing.T) {
-	h := testPendingEditHandler()
-	_, err := h.AdminGetPendingEditHandler(pendingEditNewUserCtx(), &AdminGetPendingEditRequest{EditID: "1"})
-	testhelpers.AssertHumaError(t, err, 403)
-}
 
 func TestAdminGetPendingEdit_NotFound(t *testing.T) {
 	h := NewPendingEditHandler(
@@ -519,12 +500,6 @@ func TestAdminGetPendingEdit_Success(t *testing.T) {
 // ============================================================================
 // Tests: Admin — Approve
 // ============================================================================
-
-func TestAdminApprove_RequiresAdmin(t *testing.T) {
-	h := testPendingEditHandler()
-	_, err := h.AdminApprovePendingEditHandler(pendingEditNewUserCtx(), &AdminApprovePendingEditRequest{EditID: "1"})
-	testhelpers.AssertHumaError(t, err, 403)
-}
 
 func TestAdminApprove_Success(t *testing.T) {
 	approved := makePendingEditResponse(1)
@@ -584,14 +559,6 @@ func TestAdminApprove_AlreadyReviewed(t *testing.T) {
 // ============================================================================
 // Tests: Admin — Reject
 // ============================================================================
-
-func TestAdminReject_RequiresAdmin(t *testing.T) {
-	h := testPendingEditHandler()
-	req := &AdminRejectPendingEditRequest{EditID: "1"}
-	req.Body.Reason = "bad"
-	_, err := h.AdminRejectPendingEditHandler(pendingEditNewUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 403)
-}
 
 func TestAdminReject_EmptyReason(t *testing.T) {
 	h := testPendingEditHandler()
@@ -653,14 +620,6 @@ func TestAdminReject_NotFound(t *testing.T) {
 // ============================================================================
 // Tests: Admin — Get Entity Pending Edits
 // ============================================================================
-
-func TestAdminGetEntityPendingEdits_RequiresAdmin(t *testing.T) {
-	h := testPendingEditHandler()
-	_, err := h.AdminGetEntityPendingEditsHandler(pendingEditNewUserCtx(), &AdminGetEntityPendingEditsRequest{
-		EntityType: "artist", EntityID: "1",
-	})
-	testhelpers.AssertHumaError(t, err, 403)
-}
 
 func TestAdminGetEntityPendingEdits_InvalidEntityType(t *testing.T) {
 	h := testPendingEditHandler()
@@ -726,8 +685,8 @@ func TestCanEditDirectly(t *testing.T) {
 // ============================================================================
 
 func TestAllowedEditFields(t *testing.T) {
-	// Artist allowed
-	for _, f := range []string{"name", "city", "state", "instagram", "bandcamp", "description"} {
+	// Artist allowed (image_url added in PSY-521)
+	for _, f := range []string{"name", "city", "state", "instagram", "bandcamp", "description", "image_url"} {
 		if !allowedEditFields["artist"][f] {
 			t.Errorf("expected %s to be allowed for artist", f)
 		}
@@ -739,8 +698,8 @@ func TestAllowedEditFields(t *testing.T) {
 		}
 	}
 
-	// Venue allowed
-	for _, f := range []string{"name", "address", "city", "zipcode", "website"} {
+	// Venue allowed (image_url added in PSY-521)
+	for _, f := range []string{"name", "address", "city", "zipcode", "website", "image_url"} {
 		if !allowedEditFields["venue"][f] {
 			t.Errorf("expected %s to be allowed for venue", f)
 		}
@@ -762,6 +721,13 @@ func TestAllowedEditFields(t *testing.T) {
 	for _, f := range []string{"status", "slug", "series_slug", "edition_year"} {
 		if allowedEditFields["festival"][f] {
 			t.Errorf("expected %s to be disallowed for festival", f)
+		}
+	}
+
+	// Label allowed (image_url added in PSY-521)
+	for _, f := range []string{"name", "city", "state", "founded_year", "description", "image_url"} {
+		if !allowedEditFields["label"][f] {
+			t.Errorf("expected %s to be allowed for label", f)
 		}
 	}
 }
