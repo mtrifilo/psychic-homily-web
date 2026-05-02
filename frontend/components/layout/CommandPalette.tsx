@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { Command as CommandPrimitive } from 'cmdk'
 import {
   CommandDialog,
@@ -16,7 +16,7 @@ import {
   Library, LayoutList, MessageSquarePlus, Settings, Search, Clock, X, Globe,
   TrendingUp, LayoutDashboard, Upload, BadgeCheck, Flag, ScrollText, Users, Workflow,
   ClipboardCheck, BarChart3, Music, Bell, HeartHandshake, ShieldCheck, Loader2, Trophy, Radio,
-  Hash,
+  Hash, Network,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -51,13 +51,13 @@ const routes: RouteItem[] = [
     label: 'Artists',
     href: '/artists',
     icon: Mic2,
-    keywords: ['artists', 'bands', 'musicians', 'performers'],
+    keywords: ['artists', 'bands', 'musicians', 'performers', 'graph', 'explore', 'network', 'visualize', 'related', 'similar'],
   },
   {
     label: 'Venues',
     href: '/venues',
     icon: MapPin,
-    keywords: ['venues', 'locations', 'places', 'bars', 'clubs'],
+    keywords: ['venues', 'locations', 'places', 'bars', 'clubs', 'graph', 'explore', 'network', 'visualize', 'co-bill'],
   },
   {
     label: 'Releases',
@@ -81,13 +81,22 @@ const routes: RouteItem[] = [
     label: 'Scenes',
     href: '/scenes',
     icon: Globe,
-    keywords: ['scenes', 'cities', 'city', 'local', 'geographic', 'phoenix', 'music scene'],
+    keywords: ['scenes', 'cities', 'city', 'local', 'geographic', 'phoenix', 'music scene', 'graph', 'explore', 'network', 'visualize'],
   },
   {
     label: 'Collections',
     href: '/collections',
     icon: LayoutList,
-    keywords: ['collections', 'curated', 'lists', 'playlists'],
+    keywords: ['collections', 'curated', 'lists', 'playlists', 'graph', 'explore', 'network', 'visualize'],
+  },
+  {
+    // PSY-366: Phoenix scene graph deep-link. Phoenix is the only scene with
+    // dense-enough data for the graph viz today (memory: ≤11 artists in every
+    // other scene). Re-evaluate when a second city hits scene-scale density.
+    label: 'Phoenix scene graph',
+    href: '/scenes/phoenix-az#graph',
+    icon: Network,
+    keywords: ['graph', 'explore', 'network', 'visualize', 'phoenix', 'scene', 'arizona', 'az'],
   },
   {
     label: 'Charts',
@@ -320,6 +329,7 @@ const entityTypeLabels: Record<EntitySearchResult['entityType'], string> = {
 
 export function CommandPalette() {
   const router = useRouter()
+  const pathname = usePathname()
   const { user, isAuthenticated } = useAuthContext()
   const {
     open,
@@ -355,6 +365,53 @@ export function CommandPalette() {
       return true
     })
   }, [isAuthenticated])
+
+  // PSY-366: context-aware "Explore graph" entries based on current page.
+  // When the palette opens on an entity page that has a graph view, surface
+  // a deep-link to that entity's graph at the top of the list. Uses #graph
+  // anchor so deep-links work without new routes — the destination page is
+  // expected to have an `id="graph"` wrapper.
+  const contextualRoutes = useMemo<RouteItem[]>(() => {
+    if (!pathname) return []
+    const items: RouteItem[] = []
+    const artistMatch = pathname.match(/^\/artists\/([^/]+)/)
+    if (artistMatch && artistMatch[1] !== '') {
+      items.push({
+        label: 'Explore graph for this artist',
+        href: `/artists/${artistMatch[1]}#graph`,
+        icon: Network,
+        keywords: ['graph', 'explore', 'network', 'visualize', 'related', 'similar'],
+      })
+    }
+    const collectionMatch = pathname.match(/^\/collections\/([^/]+)/)
+    if (collectionMatch && collectionMatch[1] !== '') {
+      items.push({
+        label: 'Explore graph for this collection',
+        href: `/collections/${collectionMatch[1]}#graph`,
+        icon: Network,
+        keywords: ['graph', 'explore', 'network', 'visualize'],
+      })
+    }
+    const sceneMatch = pathname.match(/^\/scenes\/([^/]+)/)
+    if (sceneMatch && sceneMatch[1] !== '') {
+      items.push({
+        label: 'Explore graph for this scene',
+        href: `/scenes/${sceneMatch[1]}#graph`,
+        icon: Network,
+        keywords: ['graph', 'explore', 'network', 'visualize'],
+      })
+    }
+    const venueMatch = pathname.match(/^\/venues\/([^/]+)/)
+    if (venueMatch && venueMatch[1] !== '') {
+      items.push({
+        label: 'Explore graph for this venue',
+        href: `/venues/${venueMatch[1]}#graph`,
+        icon: Network,
+        keywords: ['graph', 'explore', 'network', 'visualize', 'co-bill'],
+      })
+    }
+    return items
+  }, [pathname])
 
   const availableAdminRoutes = useMemo(() => {
     if (!user?.is_admin) return []
@@ -532,6 +589,34 @@ export function CommandPalette() {
 
         {showEntityResults && hasEntityResults && (
           <CommandSeparator className="mx-2 my-1" />
+        )}
+
+        {/* PSY-366: context-aware graph entry points. Only rendered when the
+            palette opens on an entity page that has a graph view. */}
+        {contextualRoutes.length > 0 && (
+          <>
+            <CommandGroup heading="Explore">
+              {contextualRoutes.map(route => {
+                const Icon = route.icon
+                return (
+                  <CommandItem
+                    key={route.href}
+                    value={route.label}
+                    onSelect={() => handleSelect(route.href, route.label)}
+                    keywords={route.keywords}
+                    className="cursor-pointer gap-3 rounded-lg px-2 py-2.5"
+                  >
+                    <Icon className="h-4 w-4 text-muted-foreground" />
+                    <span>{route.label}</span>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {route.href}
+                    </span>
+                  </CommandItem>
+                )
+              })}
+            </CommandGroup>
+            <CommandSeparator className="mx-2 my-1" />
+          </>
         )}
 
         <CommandGroup heading="Pages">

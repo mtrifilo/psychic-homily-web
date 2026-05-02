@@ -253,6 +253,8 @@ export const queryKeys = {
     list: (params?: Record<string, unknown>) => ['collections', 'list', params] as const,
     detail: (slug: string) => ['collections', 'detail', slug] as const,
     stats: (slug: string) => ['collections', 'stats', slug] as const,
+    // PSY-366: artist-relationship subgraph for the collection's artist items.
+    graph: (slug: string, types?: string[]) => ['collections', 'graph', slug, types ?? null] as const,
     my: ['collections', 'my'] as const,
     entity: (entityType: string, entityId: number) =>
       ['collections', 'entity', entityType, entityId] as const,

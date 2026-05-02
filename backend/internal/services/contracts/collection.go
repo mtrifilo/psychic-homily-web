@@ -222,6 +222,58 @@ type CollectionLikeResponse struct {
 	UserLikesThis bool `json:"user_likes_this"`
 }
 
+// ──────────────────────────────────────────────
+// Collection graph (PSY-366) — derived per-collection artist relationship graph
+// ──────────────────────────────────────────────
+//
+// The collection analog of the scene graph (PSY-367). Edges are stored
+// `artist_relationships` rows where both endpoints are in the collection's
+// artist items. Mirrors the {Info, Nodes, Links} shape so a shared frontend
+// ForceGraphView can render the payload — no clusters in v1 (collections
+// have no natural cluster signal). See docs/research/knowledge-graph-viz-prior-art.md
+// §5.4 for the entry-point-invisibility motivation.
+
+// CollectionGraphResponse is the payload for GET /collections/{slug}/graph.
+// Returned for any collection with at least one artist item; collections
+// containing only non-artist entity types return empty nodes/links (200, not 404).
+type CollectionGraphResponse struct {
+	Collection CollectionGraphInfo   `json:"collection"`
+	Nodes      []CollectionGraphNode `json:"nodes"`
+	Links      []CollectionGraphLink `json:"links"`
+}
+
+// CollectionGraphInfo holds collection metadata for the graph response.
+type CollectionGraphInfo struct {
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	ArtistCount int    `json:"artist_count"` // distinct artists in the collection (includes isolates)
+	EdgeCount   int    `json:"edge_count"`   // total edges in the response (post type-filter)
+}
+
+// CollectionGraphNode represents an artist item in the collection graph.
+// Mirrors SceneGraphNode minus ClusterID (no clustering in v1).
+type CollectionGraphNode struct {
+	ID                uint   `json:"id"`
+	Name              string `json:"name"`
+	Slug              string `json:"slug"`
+	City              string `json:"city,omitempty"`
+	State             string `json:"state,omitempty"`
+	UpcomingShowCount int    `json:"upcoming_show_count"`
+	IsIsolate         bool   `json:"is_isolate"` // true when artist has no in-set edges (post type-filter)
+}
+
+// CollectionGraphLink represents a stored relationship between two artist
+// items. Mirrors SceneGraphLink minus IsCrossCluster (no clustering in v1).
+// Voting and user-vote data are intentionally omitted — collection graph is
+// read-only, like scene graph.
+type CollectionGraphLink struct {
+	SourceID uint    `json:"source_id"`
+	TargetID uint    `json:"target_id"`
+	Type     string  `json:"type"`
+	Score    float64 `json:"score"`
+	Detail   any     `json:"detail,omitempty"`
+}
+
 // CollectionServiceInterface defines the contract for collection operations.
 type CollectionServiceInterface interface {
 	CreateCollection(creatorID uint, req *CreateCollectionRequest) (*CollectionDetailResponse, error)
@@ -249,4 +301,8 @@ type CollectionServiceInterface interface {
 	GetUserPublicCollections(userID uint, limit, offset int) ([]*CollectionListResponse, int64, error)
 	GetUserPublicCollectionsByUsername(username string, limit, offset int) ([]*CollectionListResponse, int64, error)
 	SetFeatured(slug string, featured bool) error
+	// GetCollectionGraph returns the artist-relationship subgraph for the
+	// collection's artist items. Visibility gate mirrors GetBySlug
+	// (private → ErrCollectionForbidden unless viewer is creator). PSY-366.
+	GetCollectionGraph(slug string, viewerID uint, types []string) (*CollectionGraphResponse, error)
 }

@@ -13,6 +13,7 @@ import type {
   Collection,
   CollectionDetail,
   CollectionDisplayMode,
+  CollectionGraphResponse,
   CollectionStats,
 } from '../types'
 
@@ -70,6 +71,36 @@ export function useCollection(slug: string, options?: { enabled?: boolean }) {
     queryFn: () =>
       apiRequest<CollectionDetail>(API_ENDPOINTS.COLLECTIONS.DETAIL(slug)),
     enabled: (options?.enabled ?? true) && slug.length > 0,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * Fetch the artist-relationship subgraph for a collection's artist items.
+ * PSY-366. Empty `types` (or omitted) returns all allowed edge types
+ * (shared_bills, shared_label, member_of, side_project, similar,
+ * radio_cooccurrence). Returns a 200 with empty nodes/links if the
+ * collection has no artist items.
+ */
+export function useCollectionGraph(options: {
+  slug: string
+  types?: string[]
+  enabled?: boolean
+}) {
+  const { slug, types, enabled = true } = options
+  const params = new URLSearchParams()
+  if (types && types.length > 0) {
+    params.set('types', types.join(','))
+  }
+  const qs = params.toString()
+  const endpoint = qs
+    ? `${API_ENDPOINTS.COLLECTIONS.GRAPH(slug)}?${qs}`
+    : API_ENDPOINTS.COLLECTIONS.GRAPH(slug)
+
+  return useQuery({
+    queryKey: queryKeys.collections.graph(slug, types),
+    queryFn: () => apiRequest<CollectionGraphResponse>(endpoint),
+    enabled: enabled && slug.length > 0,
     staleTime: 5 * 60 * 1000,
   })
 }

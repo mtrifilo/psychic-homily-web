@@ -696,6 +696,7 @@ type mockCollectionService struct {
 	getUserPublicCollectionsFn func(uint, int, int) ([]*contracts.CollectionListResponse, int64, error)
 	getUserPublicCollectionsByUsernameFn func(string, int, int) ([]*contracts.CollectionListResponse, int64, error)
 	setFeaturedFn func(string, bool) (error)
+	getCollectionGraphFn func(string, uint, []string) (*contracts.CollectionGraphResponse, error)
 }
 
 func (m *mockCollectionService) CreateCollection(creatorID uint, req *contracts.CreateCollectionRequest) (*contracts.CollectionDetailResponse, error) {
@@ -823,6 +824,13 @@ func (m *mockCollectionService) SetFeatured(slug string, featured bool) (error) 
 		return m.setFeaturedFn(slug, featured)
 	}
 	return nil
+}
+
+func (m *mockCollectionService) GetCollectionGraph(slug string, viewerID uint, types []string) (*contracts.CollectionGraphResponse, error) {
+	if m.getCollectionGraphFn != nil {
+		return m.getCollectionGraphFn(slug, viewerID, types)
+	}
+	return nil, nil
 }
 
 // ============================================================================

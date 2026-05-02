@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -1992,4 +1993,238 @@ func (s *CollectionService) batchCheckUserLikes(userID uint, collectionIDs []uin
 		result[r.CollectionID] = true
 	}
 	return result
+}
+
+// ──────────────────────────────────────────────
+// PSY-366: Collection graph
+// ──────────────────────────────────────────────
+
+// allowedCollectionEdgeTypes whitelists relationship types the collection
+// graph surfaces. Broader than scene graph's allowlist because collections
+// are explicitly user-curated — every relationship signal is informative in
+// the context of a deliberate set. Excludes festival_cobill (query-time-derived
+// only for per-artist graphs, not stored in artist_relationships).
+var allowedCollectionEdgeTypes = map[string]bool{
+	"shared_bills":       true,
+	"shared_label":       true,
+	"member_of":          true,
+	"side_project":       true,
+	"similar":            true,
+	"radio_cooccurrence": true,
+}
+
+// resolveCollectionEdgeTypes filters the caller's requested types against the
+// collection-graph allowlist and returns a deterministic slice. Empty input
+// means "all allowed types"; a non-empty input that resolves to nothing must
+// short-circuit to zero edges (never silently fall back to "all types").
+// Mirrors resolveSceneEdgeTypes in services/catalog/scene.go.
+func resolveCollectionEdgeTypes(requested []string) []string {
+	if len(requested) == 0 {
+		out := make([]string, 0, len(allowedCollectionEdgeTypes))
+		for t := range allowedCollectionEdgeTypes {
+			out = append(out, t)
+		}
+		sortCollectionStringsAsc(out)
+		return out
+	}
+	seen := make(map[string]bool, len(requested))
+	out := make([]string, 0, len(requested))
+	for _, t := range requested {
+		if !allowedCollectionEdgeTypes[t] || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	sortCollectionStringsAsc(out)
+	return out
+}
+
+// sortCollectionStringsAsc is a tiny insertion sort. Local to avoid pulling
+// `sort` for one call site (mirrors the same pattern in scene.go).
+func sortCollectionStringsAsc(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j] < s[j-1]; j-- {
+			s[j], s[j-1] = s[j-1], s[j]
+		}
+	}
+}
+
+// collectionRelationshipRow mirrors sceneRelationshipRow shape; kept private
+// so divergent service evolution doesn't pull on a shared type.
+type collectionRelationshipRow struct {
+	SourceArtistID   uint            `gorm:"column:source_artist_id"`
+	TargetArtistID   uint            `gorm:"column:target_artist_id"`
+	RelationshipType string          `gorm:"column:relationship_type"`
+	Score            float32         `gorm:"column:score"`
+	Detail           json.RawMessage `gorm:"column:detail"`
+}
+
+// queryCollectionRelationships fetches all stored relationships where BOTH
+// source and target artist IDs are in the collection's artist set, optionally
+// filtered to the resolved type list. Mirrors querySceneRelationships.
+func (s *CollectionService) queryCollectionRelationships(artistIDs []uint, types []string) ([]collectionRelationshipRow, error) {
+	if len(artistIDs) < 2 {
+		return nil, nil
+	}
+	var rows []collectionRelationshipRow
+	q := s.db.Table("artist_relationships").
+		Select("source_artist_id, target_artist_id, relationship_type, score, detail").
+		Where("source_artist_id IN ? AND target_artist_id IN ?", artistIDs, artistIDs)
+	if len(types) > 0 {
+		q = q.Where("relationship_type IN ?", types)
+	}
+	if err := q.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// batchUpcomingShowCountForArtists returns artist_id → count of upcoming
+// approved shows. Mirrors SceneService.batchUpcomingShowCount.
+func (s *CollectionService) batchUpcomingShowCountForArtists(artistIDs []uint) map[uint]int {
+	out := make(map[uint]int, len(artistIDs))
+	if len(artistIDs) == 0 {
+		return out
+	}
+	type row struct {
+		ArtistID  uint
+		ShowCount int64
+	}
+	var rows []row
+	s.db.Table("show_artists").
+		Select("show_artists.artist_id, COUNT(DISTINCT shows.id) AS show_count").
+		Joins("JOIN shows ON shows.id = show_artists.show_id").
+		Where("show_artists.artist_id IN ? AND shows.status = ? AND shows.event_date > NOW()",
+			artistIDs, models.ShowStatusApproved).
+		Group("show_artists.artist_id").
+		Scan(&rows)
+	for _, r := range rows {
+		out[r.ArtistID] = int(r.ShowCount)
+	}
+	return out
+}
+
+// GetCollectionGraph returns the artist-relationship subgraph for the
+// collection's artist items. PSY-366.
+//
+// Visibility gate mirrors GetBySlug: private collections return
+// ErrCollectionForbidden unless viewer is the creator. Collections that exist
+// but contain no artist items return a 200 response with empty nodes/links —
+// the collection is valid, just non-graph-able.
+func (s *CollectionService) GetCollectionGraph(slug string, viewerID uint, types []string) (*contracts.CollectionGraphResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var collection models.Collection
+	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.ErrCollectionNotFound(slug)
+		}
+		return nil, fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	if !collection.IsPublic && collection.CreatorID != viewerID {
+		return nil, apperrors.ErrCollectionForbidden(slug)
+	}
+
+	resolvedTypes := resolveCollectionEdgeTypes(types)
+	noEdgesByFilter := len(types) > 0 && len(resolvedTypes) == 0
+
+	resp := &contracts.CollectionGraphResponse{
+		Collection: contracts.CollectionGraphInfo{
+			Slug: collection.Slug,
+			Name: collection.Title,
+		},
+		Nodes: []contracts.CollectionGraphNode{},
+		Links: []contracts.CollectionGraphLink{},
+	}
+
+	var items []models.CollectionItem
+	if err := s.db.
+		Where("collection_id = ? AND entity_type = ?", collection.ID, models.CollectionEntityArtist).
+		Order("position ASC, created_at ASC").
+		Find(&items).Error; err != nil {
+		return nil, fmt.Errorf("failed to load artist items: %w", err)
+	}
+	if len(items) == 0 {
+		return resp, nil
+	}
+
+	artistIDs := make([]uint, 0, len(items))
+	for _, it := range items {
+		artistIDs = append(artistIDs, it.EntityID)
+	}
+
+	type artistRow struct {
+		ID    uint
+		Name  string
+		Slug  string
+		City  *string
+		State *string
+	}
+	var artistRows []artistRow
+	if err := s.db.Table("artists").
+		Select("id, name, slug, city, state").
+		Where("id IN ?", artistIDs).
+		Order("name ASC").
+		Scan(&artistRows).Error; err != nil {
+		return nil, fmt.Errorf("failed to load artist details: %w", err)
+	}
+	if len(artistRows) == 0 {
+		return resp, nil
+	}
+
+	upcomingByArtist := s.batchUpcomingShowCountForArtists(artistIDs)
+
+	var rels []collectionRelationshipRow
+	if !noEdgesByFilter {
+		fetched, err := s.queryCollectionRelationships(artistIDs, resolvedTypes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query collection relationships: %w", err)
+		}
+		rels = fetched
+	}
+
+	connected := make(map[uint]bool, len(artistRows))
+	for _, l := range rels {
+		var detail any
+		if len(l.Detail) > 0 {
+			_ = json.Unmarshal(l.Detail, &detail)
+		}
+		resp.Links = append(resp.Links, contracts.CollectionGraphLink{
+			SourceID: l.SourceArtistID,
+			TargetID: l.TargetArtistID,
+			Type:     l.RelationshipType,
+			Score:    float64(l.Score),
+			Detail:   detail,
+		})
+		connected[l.SourceArtistID] = true
+		connected[l.TargetArtistID] = true
+	}
+
+	for _, r := range artistRows {
+		city := ""
+		if r.City != nil {
+			city = *r.City
+		}
+		state := ""
+		if r.State != nil {
+			state = *r.State
+		}
+		resp.Nodes = append(resp.Nodes, contracts.CollectionGraphNode{
+			ID:                r.ID,
+			Name:              r.Name,
+			Slug:              r.Slug,
+			City:              city,
+			State:             state,
+			UpcomingShowCount: upcomingByArtist[r.ID],
+			IsIsolate:         !connected[r.ID],
+		})
+	}
+
+	resp.Collection.ArtistCount = len(resp.Nodes)
+	resp.Collection.EdgeCount = len(resp.Links)
+	return resp, nil
 }
