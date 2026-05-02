@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import {
   Loader2,
@@ -183,8 +183,11 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [showCopied, setShowCopied] = useState(false)
   // PSY-366: collection graph toggle. Default-off; the items list is the
-  // primary surface, the graph is an alternative lens.
-  const [showGraph, setShowGraph] = useState(false)
+  // primary surface, the graph is an alternative lens. A `#graph` URL opens
+  // it on first render; we don't subscribe to later hash-only changes.
+  const [showGraph, setShowGraph] = useState(
+    () => typeof window !== 'undefined' && window.location.hash === '#graph'
+  )
 
   const handleShare = useCallback(() => {
     navigator.clipboard.writeText(window.location.href).then(() => {
@@ -192,6 +195,11 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
       setTimeout(() => setShowCopied(false), 2000)
     })
   }, [])
+
+  const items = collection?.items ?? []
+  // PSY-366: only surface the graph toggle when the collection has at least
+  // one artist item — non-artist-only collections have nothing to graph.
+  const artistItemCount = items.filter(it => it.entity_type === 'artist').length
 
   if (isLoading) {
     return (
@@ -297,23 +305,6 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
     }
   }
   const isLikePending = likeMutation.isPending || unlikeMutation.isPending
-
-  const items = collection.items ?? []
-  // PSY-366: only surface the graph toggle when the collection has at least
-  // one artist item — non-artist-only collections have nothing to graph.
-  const artistItemCount = items.filter(it => it.entity_type === 'artist').length
-
-  // PSY-366: when arriving via a `#graph` deep-link (e.g. from the Cmd+K
-  // palette), auto-open the graph so the anchor resolves. The graph wrapper
-  // only carries `id="graph"` while showGraph is true; without this, the
-  // hash points at a non-existent element and the user lands at the page
-  // top with nothing visible.
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (window.location.hash === '#graph' && artistItemCount > 0) {
-      setShowGraph(true)
-    }
-  }, [artistItemCount])
 
   return (
     <div className="container max-w-6xl mx-auto px-4 py-6">
