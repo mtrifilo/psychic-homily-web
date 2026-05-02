@@ -358,6 +358,145 @@ func (suite *LabelServiceIntegrationTestSuite) TestUpdateLabel_SocialFields() {
 	suite.Equal("https://newsite.com", *resp.Social.Website)
 }
 
+// TestUpdateLabel_EmptyStringClearsToNull verifies that PSY-523's
+// utils.NilIfEmpty normalization is applied for every optional string
+// column on the label: an explicit empty string from the caller (e.g. a
+// curator clearing a stale Instagram handle) must land as SQL NULL, not
+// the literal "". The table covers a non-empty seed value, the
+// empty-string clear, and a whitespace-only value (preserved verbatim —
+// trimming policy is the caller's responsibility, not this helper's).
+func (suite *LabelServiceIntegrationTestSuite) TestUpdateLabel_EmptyStringClearsToNull() {
+	type fieldCase struct {
+		name      string
+		setReq    func(req *contracts.UpdateLabelRequest, value string)
+		readField func(resp *contracts.LabelDetailResponse) *string
+	}
+
+	cases := []fieldCase{
+		{
+			name: "city",
+			setReq: func(req *contracts.UpdateLabelRequest, v string) {
+				req.City = &v
+			},
+			readField: func(r *contracts.LabelDetailResponse) *string { return r.City },
+		},
+		{
+			name: "state",
+			setReq: func(req *contracts.UpdateLabelRequest, v string) {
+				req.State = &v
+			},
+			readField: func(r *contracts.LabelDetailResponse) *string { return r.State },
+		},
+		{
+			name: "country",
+			setReq: func(req *contracts.UpdateLabelRequest, v string) {
+				req.Country = &v
+			},
+			readField: func(r *contracts.LabelDetailResponse) *string { return r.Country },
+		},
+		{
+			name: "description",
+			setReq: func(req *contracts.UpdateLabelRequest, v string) {
+				req.Description = &v
+			},
+			readField: func(r *contracts.LabelDetailResponse) *string { return r.Description },
+		},
+		{
+			name: "image_url",
+			setReq: func(req *contracts.UpdateLabelRequest, v string) {
+				req.ImageURL = &v
+			},
+			readField: func(r *contracts.LabelDetailResponse) *string { return r.ImageURL },
+		},
+		{
+			name: "instagram",
+			setReq: func(req *contracts.UpdateLabelRequest, v string) {
+				req.Instagram = &v
+			},
+			readField: func(r *contracts.LabelDetailResponse) *string { return r.Social.Instagram },
+		},
+		{
+			name: "facebook",
+			setReq: func(req *contracts.UpdateLabelRequest, v string) {
+				req.Facebook = &v
+			},
+			readField: func(r *contracts.LabelDetailResponse) *string { return r.Social.Facebook },
+		},
+		{
+			name: "twitter",
+			setReq: func(req *contracts.UpdateLabelRequest, v string) {
+				req.Twitter = &v
+			},
+			readField: func(r *contracts.LabelDetailResponse) *string { return r.Social.Twitter },
+		},
+		{
+			name: "youtube",
+			setReq: func(req *contracts.UpdateLabelRequest, v string) {
+				req.YouTube = &v
+			},
+			readField: func(r *contracts.LabelDetailResponse) *string { return r.Social.YouTube },
+		},
+		{
+			name: "spotify",
+			setReq: func(req *contracts.UpdateLabelRequest, v string) {
+				req.Spotify = &v
+			},
+			readField: func(r *contracts.LabelDetailResponse) *string { return r.Social.Spotify },
+		},
+		{
+			name: "soundcloud",
+			setReq: func(req *contracts.UpdateLabelRequest, v string) {
+				req.SoundCloud = &v
+			},
+			readField: func(r *contracts.LabelDetailResponse) *string { return r.Social.SoundCloud },
+		},
+		{
+			name: "bandcamp",
+			setReq: func(req *contracts.UpdateLabelRequest, v string) {
+				req.Bandcamp = &v
+			},
+			readField: func(r *contracts.LabelDetailResponse) *string { return r.Social.Bandcamp },
+		},
+		{
+			name: "website",
+			setReq: func(req *contracts.UpdateLabelRequest, v string) {
+				req.Website = &v
+			},
+			readField: func(r *contracts.LabelDetailResponse) *string { return r.Social.Website },
+		},
+	}
+
+	for _, tc := range cases {
+		suite.Run(tc.name, func() {
+			label := suite.createTestLabel("Clear " + tc.name + " Label")
+
+			// 1. Seed a non-empty value and confirm it persists.
+			seedReq := &contracts.UpdateLabelRequest{}
+			tc.setReq(seedReq, "seeded-value")
+			seeded, err := suite.labelService.UpdateLabel(label.ID, seedReq)
+			suite.Require().NoError(err)
+			suite.Require().NotNil(tc.readField(seeded), "seed write should produce non-nil pointer")
+			suite.Equal("seeded-value", *tc.readField(seeded))
+
+			// 2. Submit an explicit empty string — column should become NULL.
+			clearReq := &contracts.UpdateLabelRequest{}
+			tc.setReq(clearReq, "")
+			cleared, err := suite.labelService.UpdateLabel(label.ID, clearReq)
+			suite.Require().NoError(err)
+			suite.Nil(tc.readField(cleared), "empty-string write should normalize to NULL (nil pointer)")
+
+			// 3. A whitespace-only value is preserved verbatim — caller
+			//    decides trimming policy, this helper does not.
+			wsReq := &contracts.UpdateLabelRequest{}
+			tc.setReq(wsReq, "  ")
+			ws, err := suite.labelService.UpdateLabel(label.ID, wsReq)
+			suite.Require().NoError(err)
+			suite.Require().NotNil(tc.readField(ws), "whitespace-only write should not normalize to NULL")
+			suite.Equal("  ", *tc.readField(ws))
+		})
+	}
+}
+
 // =============================================================================
 // Group 5: DeleteLabel
 // =============================================================================

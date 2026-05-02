@@ -16,6 +16,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
 
 // isInternalServiceRequest checks if the request has a valid internal service secret
@@ -799,40 +800,40 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 		updates["name"] = strings.TrimSpace(*req.Body.Name)
 	}
 	if req.Body.City != nil {
-		updates["city"] = nilIfEmpty(*req.Body.City)
+		updates["city"] = utils.NilIfEmpty(*req.Body.City)
 	}
 	if req.Body.State != nil {
-		updates["state"] = nilIfEmpty(*req.Body.State)
+		updates["state"] = utils.NilIfEmpty(*req.Body.State)
 	}
 	if req.Body.Country != nil {
-		updates["country"] = nilIfEmpty(*req.Body.Country)
+		updates["country"] = utils.NilIfEmpty(*req.Body.Country)
 	}
 	if req.Body.Instagram != nil {
-		updates["instagram"] = nilIfEmpty(*req.Body.Instagram)
+		updates["instagram"] = utils.NilIfEmpty(*req.Body.Instagram)
 	}
 	if req.Body.Facebook != nil {
-		updates["facebook"] = nilIfEmpty(*req.Body.Facebook)
+		updates["facebook"] = utils.NilIfEmpty(*req.Body.Facebook)
 	}
 	if req.Body.Twitter != nil {
-		updates["twitter"] = nilIfEmpty(*req.Body.Twitter)
+		updates["twitter"] = utils.NilIfEmpty(*req.Body.Twitter)
 	}
 	if req.Body.Youtube != nil {
-		updates["youtube"] = nilIfEmpty(*req.Body.Youtube)
+		updates["youtube"] = utils.NilIfEmpty(*req.Body.Youtube)
 	}
 	if req.Body.Spotify != nil {
-		updates["spotify"] = nilIfEmpty(*req.Body.Spotify)
+		updates["spotify"] = utils.NilIfEmpty(*req.Body.Spotify)
 	}
 	if req.Body.Soundcloud != nil {
-		updates["soundcloud"] = nilIfEmpty(*req.Body.Soundcloud)
+		updates["soundcloud"] = utils.NilIfEmpty(*req.Body.Soundcloud)
 	}
 	if req.Body.Bandcamp != nil {
-		updates["bandcamp"] = nilIfEmpty(*req.Body.Bandcamp)
+		updates["bandcamp"] = utils.NilIfEmpty(*req.Body.Bandcamp)
 	}
 	if req.Body.Website != nil {
-		updates["website"] = nilIfEmpty(*req.Body.Website)
+		updates["website"] = utils.NilIfEmpty(*req.Body.Website)
 	}
 	if req.Body.Description != nil {
-		updates["description"] = nilIfEmpty(*req.Body.Description)
+		updates["description"] = utils.NilIfEmpty(*req.Body.Description)
 	}
 
 	if len(updates) == 0 {
@@ -938,14 +939,6 @@ func ptrToStr(s *string) string {
 		return ""
 	}
 	return *s
-}
-
-// nilIfEmpty returns nil if the string is empty, otherwise returns a pointer to the string
-func nilIfEmpty(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }
 
 // ============================================================================

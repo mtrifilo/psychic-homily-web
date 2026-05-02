@@ -218,25 +218,6 @@ func TestIsValidSpotifyURL(t *testing.T) {
 	}
 }
 
-func TestNilIfEmpty(t *testing.T) {
-	t.Run("empty string returns nil", func(t *testing.T) {
-		result := nilIfEmpty("")
-		if result != nil {
-			t.Errorf("nilIfEmpty(\"\") = %v, want nil", result)
-		}
-	})
-
-	t.Run("non-empty string returns pointer", func(t *testing.T) {
-		result := nilIfEmpty("hello")
-		if result == nil {
-			t.Fatal("nilIfEmpty(\"hello\") = nil, want non-nil")
-		}
-		if *result != "hello" {
-			t.Errorf("nilIfEmpty(\"hello\") = %q, want \"hello\"", *result)
-		}
-	})
-}
-
 // ============================================================================
 // Mock-based tests: SearchArtistsHandler
 // ============================================================================
