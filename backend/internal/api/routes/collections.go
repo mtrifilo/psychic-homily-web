@@ -22,11 +22,14 @@ func setupCollectionRoutes(rc RouteContext) {
 	huma.Get(optionalAuthGroup, "/collections", collectionHandler.ListCollectionsHandler)
 	huma.Get(optionalAuthGroup, "/collections/{slug}", collectionHandler.GetCollectionHandler)
 	huma.Get(optionalAuthGroup, "/collections/{slug}/stats", collectionHandler.GetCollectionStatsHandler)
+	// PSY-366: artist-relationship subgraph for collection's artist items.
+	huma.Get(optionalAuthGroup, "/collections/{slug}/graph", collectionHandler.GetCollectionGraphHandler)
 
 	// Legacy /crates/ paths (backward compat)
 	huma.Get(optionalAuthGroup, "/crates", collectionHandler.ListCollectionsHandler)
 	huma.Get(optionalAuthGroup, "/crates/{slug}", collectionHandler.GetCollectionHandler)
 	huma.Get(optionalAuthGroup, "/crates/{slug}/stats", collectionHandler.GetCollectionStatsHandler)
+	huma.Get(optionalAuthGroup, "/crates/{slug}/graph", collectionHandler.GetCollectionGraphHandler)
 
 	// Protected collection endpoints — canonical /collections/ paths
 	huma.Post(rc.Protected, "/collections", collectionHandler.CreateCollectionHandler)

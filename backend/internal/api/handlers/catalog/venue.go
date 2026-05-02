@@ -364,6 +364,7 @@ type UpdateVenueRequest struct {
 		Bandcamp    *string `json:"bandcamp,omitempty" required:"false" doc:"Bandcamp URL"`
 		Website     *string `json:"website,omitempty" required:"false" doc:"Website URL"`
 		Description *string `json:"description,omitempty" required:"false" doc:"Markdown description (max 5000 chars)"`
+		ImageURL    *string `json:"image_url,omitempty" required:"false" doc:"Venue photo URL (max 2048 chars)"`
 		Summary     *string `json:"summary,omitempty" required:"false" doc:"Revision summary describing the change"`
 	}
 }
@@ -458,6 +459,12 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 	}
 	if req.Body.Description != nil {
 		updates["description"] = nilIfEmpty(*req.Body.Description)
+	}
+	if req.Body.ImageURL != nil {
+		if len(*req.Body.ImageURL) > 2048 {
+			return nil, huma.Error422UnprocessableEntity("Image URL must be 2048 characters or fewer")
+		}
+		updates["image_url"] = nilIfEmpty(*req.Body.ImageURL)
 	}
 
 	updatedVenue, err := h.venueService.UpdateVenue(uint(venueID), updates)
@@ -756,6 +763,9 @@ func computeVenueChanges(old, new *contracts.VenueDetailResponse) []adminm.Field
 	}
 	if ptrToStr(old.Description) != ptrToStr(new.Description) {
 		changes = append(changes, adminm.FieldChange{Field: "description", OldValue: ptrToStr(old.Description), NewValue: ptrToStr(new.Description)})
+	}
+	if ptrToStr(old.ImageURL) != ptrToStr(new.ImageURL) {
+		changes = append(changes, adminm.FieldChange{Field: "image_url", OldValue: ptrToStr(old.ImageURL), NewValue: ptrToStr(new.ImageURL)})
 	}
 
 	return changes

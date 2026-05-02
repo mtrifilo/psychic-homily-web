@@ -16,6 +16,8 @@ export interface Venue {
   state: string
   zipcode?: string | null
   description?: string | null
+  /** Optional venue photo URL (PSY-521). */
+  image_url?: string | null
   verified: boolean
   submitted_by?: number | null
   social?: {

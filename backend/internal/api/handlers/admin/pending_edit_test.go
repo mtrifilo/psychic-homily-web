@@ -685,8 +685,8 @@ func TestCanEditDirectly(t *testing.T) {
 // ============================================================================
 
 func TestAllowedEditFields(t *testing.T) {
-	// Artist allowed
-	for _, f := range []string{"name", "city", "state", "instagram", "bandcamp", "description"} {
+	// Artist allowed (image_url added in PSY-521)
+	for _, f := range []string{"name", "city", "state", "instagram", "bandcamp", "description", "image_url"} {
 		if !allowedEditFields["artist"][f] {
 			t.Errorf("expected %s to be allowed for artist", f)
 		}
@@ -698,8 +698,8 @@ func TestAllowedEditFields(t *testing.T) {
 		}
 	}
 
-	// Venue allowed
-	for _, f := range []string{"name", "address", "city", "zipcode", "website"} {
+	// Venue allowed (image_url added in PSY-521)
+	for _, f := range []string{"name", "address", "city", "zipcode", "website", "image_url"} {
 		if !allowedEditFields["venue"][f] {
 			t.Errorf("expected %s to be allowed for venue", f)
 		}
@@ -721,6 +721,13 @@ func TestAllowedEditFields(t *testing.T) {
 	for _, f := range []string{"status", "slug", "series_slug", "edition_year"} {
 		if allowedEditFields["festival"][f] {
 			t.Errorf("expected %s to be disallowed for festival", f)
+		}
+	}
+
+	// Label allowed (image_url added in PSY-521)
+	for _, f := range []string{"name", "city", "state", "founded_year", "description", "image_url"} {
+		if !allowedEditFields["label"][f] {
+			t.Errorf("expected %s to be allowed for label", f)
 		}
 	}
 }
